@@ -26,6 +26,42 @@ jobs:
     name: Post-Merge Verification
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
+    # PostgreSQL 16 service — the authoritative test database.
+    # Aligns Post-Merge Verification with ci.yml's required 'Maven Test Suite'
+    # job, which uses PostgreSQL Direct JDBC (jdbc:postgresql://127.0.0.1:5432/sanad).
+    # Without this service, the local profile falls back to H2 in-memory, and
+    # 41+ Flyway migrations in db/migration/ that use PostgreSQL-specific syntax
+    # (gen_random_uuid(), JSONB, ENABLE ROW LEVEL SECURITY, CREATE POLICY) fail
+    # with H2 SQL state 42001 — cascading 773 errors across every @SpringBootTest
+    # integration test because Spring context init fails before any test method
+    # runs.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+
     steps:
       - name: Record start metadata
         id: metadata
