@@ -1,2 +1,2 @@
 README.md:sidekiq-secret:50
-.github/workflows/post-merge-verification.yml:generic-api-key:175
+/repo/.github/workflows/post-merge-verification.yml:generic-api-key:175
