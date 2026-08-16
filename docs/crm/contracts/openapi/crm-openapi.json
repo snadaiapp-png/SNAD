@@ -6716,7 +6716,7 @@
         "tags": [
           "crm-contract-controller"
         ],
-        "operationId": "listPipelines_1",
+        "operationId": "listPipelines",
         "responses": {
           "200": {
             "description": "OK",
@@ -6724,6 +6724,49 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListResponsePipelineResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "crm-pipeline-mutation-controller"
+        ],
+        "operationId": "createPipeline",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePipelineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleResponsePipelineResponse"
                 }
               }
             }
@@ -11294,6 +11337,35 @@
           "name",
           "pipelineId",
           "stageId"
+        ]
+      },
+      "CreatePipelineRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 0
+          },
+          "currencyCode": {
+            "type": "string",
+            "pattern": "[A-Za-z]{3}"
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 160,
+              "minLength": 0
+            },
+            "maxItems": 20,
+            "minItems": 2
+          }
+        },
+        "required": [
+          "currencyCode",
+          "name",
+          "stages"
         ]
       },
       "CreateQueueRequest": {

@@ -1813,9 +1813,9 @@ export type paths = {
             readonly path?: never;
             readonly cookie?: never;
         };
-        readonly get: operations["listPipelines_1"];
+        readonly get: operations["listPipelines"];
         readonly put?: never;
-        readonly post?: never;
+        readonly post: operations["createPipeline"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -3133,6 +3133,11 @@ export type components = {
             readonly expectedCloseDate?: string;
             /** Format: uuid */
             readonly ownerUserId?: string;
+        };
+        readonly CreatePipelineRequest: {
+            readonly name: string;
+            readonly currencyCode: string;
+            readonly stages: readonly string[];
         };
         readonly CreateQueueRequest: {
             readonly code: string;
@@ -8286,7 +8291,7 @@ export interface operations {
             };
         };
     };
-    readonly listPipelines_1: {
+    readonly listPipelines: {
         readonly parameters: {
             readonly query?: never;
             readonly header?: never;
@@ -8302,6 +8307,32 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["ListResponsePipelineResponse"];
+                };
+            };
+        };
+    };
+    readonly createPipeline: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Key": string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreatePipelineRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SingleResponsePipelineResponse"];
                 };
             };
         };
