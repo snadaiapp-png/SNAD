@@ -95,14 +95,30 @@ jobs:
         run: |
           npm ci
           npm run crm:generate-api-types
-      - name: Commit generated artifacts only
+      - name: Commit generated artifacts if changed
         run: |
           set -euo pipefail
           git config user.name 'SNAD R12-D2 Bot'
           git config user.email 'actions@users.noreply.github.com'
           git add docs/crm/contracts/openapi/crm-openapi.json apps/web/lib/api/generated/crm-api-types.ts
-          git diff --cached --quiet && exit 0
-          git commit -m 'fix(crm-contract): sync restored pipeline create contract'
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(crm-contract): sync restored pipeline create contract'
+            git push origin HEAD:infra/backend-clean-room-v1
+          fi
+      - name: Finalize canonical 147/193 governance and remove one-shot writer
+        run: |
+          set -euo pipefail
+          sed -i 's/EXPECTED_OPERATIONS = 192/EXPECTED_OPERATIONS = 193/' \
+            apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java
+          sed -i "s/EXPECTED_CRM_OPERATIONS: '192'/EXPECTED_CRM_OPERATIONS: '193'/g" \
+            .github/workflows/crm-api-contract-validation.yml
+          rm .github/workflows/r12d2-contract-sync.yml
+          grep -q 'EXPECTED_OPERATIONS = 193' apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java
+          test "$(grep -c "EXPECTED_CRM_OPERATIONS: '193'" .github/workflows/crm-api-contract-validation.yml)" -ge 2
+          git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/contract/CrmOpenApiContractTest.java \
+            .github/workflows/crm-api-contract-validation.yml \
+            .github/workflows/r12d2-contract-sync.yml
+          git commit -m 'test(crm-contract): certify restored 147-path 193-operation surface'
           git push origin HEAD:infra/backend-clean-room-v1
       - name: Cleanup
         if: always()
