@@ -1,0 +1,244 @@
+name: Supabase Delete Stuck + Create Fresh + Deploy
+
+# The project urnoyiucumkjwhnxxtyc is stuck in INACTIVE state after pause/restore.
+# Need to delete it + create a fresh new project.
+
+on:
+  workflow_dispatch:
+    inputs:
+      stuck_project_ref:
+        description: "Stuck project to delete"
+        required: true
+        default: "urnoyiucumkjwhnxxtyc"
+      new_project_name:
+        description: "New project name"
+        required: true
+        default: "snad-prod-fresh"
+      db_password:
+        description: "DB password"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  delete-and-recreate:
+    name: Delete stuck + create fresh + deploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 40
+    steps:
+      - name: Delete stuck + create fresh + deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STUCK_REF: ${{ github.event.inputs.stuck_project_ref }}
+          PROJECT_NAME: ${{ github.event.inputs.new_project_name }}
+          DB_PASSWORD: ${{ github.event.inputs.db_password }}
+        run: |
+          set +e
+          SB_AUTH="Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}"
+          RENDER_AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          RENDER_BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          BACKEND_URL="https://sanad-backend-mcrj.onrender.com"
+          ORG_ID="asghwzikbbykbohgkdba"
+          REGION="eu-central-1"
+          POOLER_HOST="aws-0-${REGION}.pooler.supabase.com"
+
+          echo "========================================"
+          echo "DELETE STUCK + CREATE FRESH + DEPLOY"
+          echo "========================================"
+          echo "Stuck project: $STUCK_REF"
+          echo "New project name: $PROJECT_NAME"
+          echo ""
+
+          # ===== STEP 1: Delete stuck project =====
+          echo "=== STEP 1: Delete stuck project ($STUCK_REF) ==="
+          HTTP=$(curl -s -o /tmp/del.json -w "%{http_code}" --max-time 60 \
+            -X DELETE -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${STUCK_REF}")
+          echo "DELETE -> HTTP $HTTP"
+          cat /tmp/del.json | head -c 300
+          echo ""
+
+          # ===== STEP 2: Wait for deletion =====
+          echo "=== STEP 2: Wait for deletion (up to 5 min) ==="
+          for wait_i in $(seq 1 15); do
+            sleep 20
+            HTTP=$(curl -s -o /tmp/list.json -w "%{http_code}" --max-time 30 \
+              -H "$SB_AUTH" "https://api.supabase.com/v1/projects")
+            REMAINING=$(jq 'if type=="array" then length else 0 end' /tmp/list.json 2>/dev/null || echo "?")
+            echo "  [iter $wait_i ($((wait_i*20))s)] remaining: $REMAINING"
+            # Check if the stuck project is still in the list
+            STILL_THERE=$(jq -r --arg ref "$STUCK_REF" '[.[] | select(.id == $ref or .ref == $ref)] | length' /tmp/list.json 2>/dev/null || echo "0")
+            if [ "$STILL_THERE" = "0" ]; then
+              echo "  ✅ Stuck project deleted!"
+              break
+            fi
+          done
+          echo ""
+
+          # ===== STEP 3: Create fresh project =====
+          echo "=== STEP 3: Create fresh project ($PROJECT_NAME) ==="
+          CREATE_BODY=$(jq -n \
+            --arg org_id "$ORG_ID" \
+            --arg name "$PROJECT_NAME" \
+            --arg region "$REGION" \
+            --arg password "$DB_PASSWORD" \
+            '{organization_id: $org_id, name: $name, region: $region, db_pass: $password}')
+          
+          HTTP=$(curl -s -o /tmp/create.json -w "%{http_code}" --max-time 60 \
+            -X POST -H "$SB_AUTH" -H 'Content-Type: application/json' \
+            "https://api.supabase.com/v1/projects" \
+            --data "$CREATE_BODY")
+          echo "POST /v1/projects -> HTTP $HTTP"
+          
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            NEW_REF=$(jq -r '.id // .ref // empty' /tmp/create.json)
+            echo "✅ Project created! ref=$NEW_REF"
+          else
+            echo "❌ Failed to create project:"
+            cat /tmp/create.json | head -c 500
+            exit 1
+          fi
+          echo ""
+
+          # ===== STEP 4: Wait for ACTIVE_HEALTHY =====
+          echo "=== STEP 4: Wait for ACTIVE_HEALTHY (up to 15 min) ==="
+          STATUS=""
+          for wait_i in $(seq 1 45); do
+            sleep 20
+            HTTP=$(curl -s -o /tmp/ps.json -w "%{http_code}" --max-time 30 \
+              -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${NEW_REF}")
+            if [ "$HTTP" = "200" ]; then
+              STATUS=$(jq -r '.status // "unknown"' /tmp/ps.json)
+              echo "  [iter $wait_i ($((wait_i*20))s)] status=$STATUS"
+              if [ "$STATUS" = "ACTIVE_HEALTHY" ] || [ "$STATUS" = "ACTIVE" ]; then
+                echo "  ✅ Project is healthy!"
+                break
+              fi
+            else
+              echo "  [iter $wait_i] HTTP $HTTP (project not yet queryable)"
+            fi
+          done
+          echo ""
+
+          # ===== STEP 5: Update GitHub Secrets =====
+          echo "=== STEP 5: Update GitHub Secrets ==="
+          POOLER_URL="jdbc:postgresql://${POOLER_HOST}:5432/postgres?prepareThreshold=0&sslmode=require"
+          POOLER_USERNAME="postgres.${NEW_REF}"
+          
+          echo "$NEW_REF" | gh secret set SUPABASE_PROJECT_REF --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$NEW_REF" | gh secret set SUPABASE_PROJECT_REF --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_URL" | gh secret set PRODUCTION_DATABASE_URL --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_URL" | gh secret set PRODUCTION_DATABASE_JDBC_URL --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_USERNAME" | gh secret set PRODUCTION_DATABASE_USERNAME --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$DB_PASSWORD" | gh secret set PRODUCTION_DATABASE_PASSWORD --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "  ✅ Secrets updated"
+          echo ""
+
+          # ===== STEP 6: Update Render env vars =====
+          echo "=== STEP 6: Suspend + Update Render + Resume ==="
+          HTTP=$(curl -s -o /tmp/s.json -w "%{http_code}" --max-time 30 -X POST -H "$RENDER_AUTH" "$RENDER_BASE/suspend")
+          echo "POST /suspend -> HTTP $HTTP"
+          sleep 15
+          
+          curl -s --max-time 45 -X PUT -H "$RENDER_AUTH" -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_URL" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_URL" > /dev/null
+          echo "PUT DATABASE_URL done"
+          
+          curl -s --max-time 45 -X PUT -H "$RENDER_AUTH" -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_URL" '{value:$v}')" "$RENDER_BASE/env-vars/SPRING_FLYWAY_URL" > /dev/null
+          echo "PUT SPRING_FLYWAY_URL done"
+          
+          curl -s --max-time 45 -X PUT -H "$RENDER_AUTH" -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_USERNAME" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_USERNAME" > /dev/null
+          echo "PUT DATABASE_USERNAME done"
+          
+          curl -s --max-time 45 -X PUT -H "$RENDER_AUTH" -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$DB_PASSWORD" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_PASSWORD" > /dev/null
+          echo "PUT DATABASE_PASSWORD done"
+          
+          HTTP=$(curl -s -o /tmp/r.json -w "%{http_code}" --max-time 30 -X POST -H "$RENDER_AUTH" "$RENDER_BASE/resume")
+          echo "POST /resume -> HTTP $HTTP"
+          sleep 5
+          echo ""
+
+          # ===== STEP 7: Trigger deploy + capture logs =====
+          echo "=== STEP 7: Trigger deploy + capture logs ==="
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" --max-time 30 -X POST \
+            -H "$RENDER_AUTH" -H 'Content-Type: application/json' -H 'Accept: application/json' \
+            --data '{"clearCache":"do_not_clear"}' "$RENDER_BASE/deploys")
+          DEPLOY_ID=$(jq -r '.id // empty' /tmp/deploy.json)
+          echo "POST /deploys -> HTTP $HTTP, ID=$DEPLOY_ID"
+          echo ""
+
+          OWNER_ID=$(curl -s --max-time 30 -H "$RENDER_AUTH" "$RENDER_BASE" | jq -r '.ownerId // .owner // empty')
+          START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p /tmp/live-logs
+          > /tmp/live-logs/all.txt
+
+          DEPLOY_STATUS="update_in_progress"
+          ITERATION=0
+
+          while [ "$DEPLOY_STATUS" = "update_in_progress" ] && [ "$ITERATION" -lt 80 ]; do
+            ITERATION=$((ITERATION + 1))
+            sleep 10
+            DEPLOY_STATUS=$(curl -s --max-time 15 -H "$RENDER_AUTH" "$RENDER_BASE/deploys/$DEPLOY_ID" | jq -r '.deploy.status // .status // "unknown"')
+            echo "[iter $ITERATION] deploy: $DEPLOY_STATUS"
+            if [ -n "$OWNER_ID" ]; then
+              curl -s --max-time 15 -H "$RENDER_AUTH" "https://api.render.com/v1/logs?ownerId=${OWNER_ID}&resource=${RENDER_SERVICE_ID}&startTime=${START_TIME}&direction=forward&limit=200" > /tmp/live-logs/page.json
+              jq -r 'if type=="array" then .[] elif .logs then .logs[] elif .lines then .lines[] else empty end | (if type=="object" then (.text // .message // .msg // (. | tostring)) else (tostring) end)' /tmp/live-logs/page.json 2>/dev/null >> /tmp/live-logs/all.txt
+            fi
+            if [ "$DEPLOY_STATUS" = "live" ]; then echo "::notice::DEPLOY LIVE after $((ITERATION*10))s"; break; fi
+            if echo "$DEPLOY_STATUS" | grep -qiE 'failed|canceled|deactivated'; then echo "::error::Deploy terminal: $DEPLOY_STATUS"; break; fi
+          done
+          echo ""
+
+          echo "=== FINAL LOG DUMP (last 30) ==="
+          tail -30 /tmp/live-logs/all.txt
+          echo ""
+
+          echo "=== ERROR PATTERNS ==="
+          echo "ENOIDENTIFIER: $(grep -c 'ENOIDENTIFIER' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Started SanadPlatformApplication: $(grep -c 'Started SanadPlatformApplication' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Tomcat started: $(grep -c 'Tomcat started on port' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Flyway: $(grep -c 'Successfully applied\|Schema .* is up to date\|Migrating schema' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Application run failed: $(grep -c 'Application run failed' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo ""
+
+          echo "=== Health probe ==="
+          sleep 10
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BACKEND_URL/actuator/health" || echo "000")
+          HEALTH_STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+          echo "HEALTH_HTTP: $HTTP_CODE"
+          echo "HEALTH_STATUS: $HEALTH_STATUS"
+          echo ""
+
+          echo "========================================"
+          echo "DELETE + CREATE + DEPLOY COMPLETE"
+          echo "========================================"
+          echo "NEW_PROJECT_REF=$NEW_REF"
+          echo "PROJECT_STATUS=$STATUS"
+          echo "DEPLOY_ID=$DEPLOY_ID"
+          echo "DEPLOY_STATUS=$DEPLOY_STATUS"
+          echo "HEALTH_HTTP=$HTTP_CODE"
+          echo "HEALTH_STATUS=$HEALTH_STATUS"
+          if [ "$DEPLOY_STATUS" = "live" ] && [ "$HTTP_CODE" = "200" ] && [ "$HEALTH_STATUS" = "UP" ]; then
+            echo "FINAL_RESULT=SUCCESS ✅✅✅"
+          elif [ "$DEPLOY_STATUS" = "live" ]; then
+            echo "FINAL_RESULT=PARTIAL"
+          else
+            echo "FINAL_RESULT=FAILED"
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delete-recreate-logs
+          path: /tmp/live-logs/
+          if-no-files-found: warn
+          retention-days: 30
