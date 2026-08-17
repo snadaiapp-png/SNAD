@@ -44,6 +44,28 @@ jobs:
     name: CRM API Contract Validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad_contract
+          POSTGRES_PASSWORD: sanad_contract_pass
+          POSTGRES_DB: sanad_contract
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad_contract -d sanad_contract"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_contract
+      SPRING_DATASOURCE_USERNAME: sanad_contract
+      SPRING_DATASOURCE_PASSWORD: sanad_contract_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
+      FLYWAY_ENABLED: 'true'
+      JPA_DDL_AUTO: validate
     steps:
       - name: Checkout exact SHA
         uses: actions/checkout@v4
@@ -257,4 +279,4 @@ jobs:
         run: |
           echo '## CRM API Contract Validation' >> "$GITHUB_STEP_SUMMARY"
           echo "**SHA:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Run ID:** ${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run ID:** ${{ github.run_id }}\`" >> "$GITHUB_STEP_SUMMARY"
