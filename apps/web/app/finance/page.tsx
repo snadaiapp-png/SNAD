@@ -64,7 +64,7 @@ export default function FinancePage() {
           <h1 style={{ fontSize: "1.5rem", fontWeight: 600 }}>الإدارة المالية</h1>
           <p style={{ color: "var(--snad-danger)", marginTop: "1rem" }}>{error}</p>
           <button
-            onClick={() => loadData()}
+            onClick={() => window.location.reload()}
             style={{
               marginTop: "1rem", padding: "0.5rem 1.5rem", borderRadius: "0.375rem",
               border: "1px solid var(--snad-border)",
