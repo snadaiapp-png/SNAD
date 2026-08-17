@@ -28,6 +28,16 @@ paths = [
   '''^SNAD-https/''',
   '''^node_modules/''',
   '''^apps/web/node_modules/''',
+  # Test fixture files with synthetic keys — NOT real secrets
+  '^apps/sanad-platform/src/test/java/com/sanad/platform/config/ProductionSecurityGuardTest.java$',
+  '^apps/sanad-platform/src/test/java/com/sanad/platform/crm/legacy/infrastructure/CrmEncryptionKeyValidatorTest.java$',
+  # CI/CD workflow files with test-only encryption key fixtures
+  '^.github/workflows/business-process-e2e-validation.yml$',
+  '^.github/workflows/ci.yml$',
+  '^.github/workflows/crm-authenticated-acceptance.yml$',
+  '^.github/workflows/post-merge-verification.yml$',
+  # Generated performance artifact with test JWT
+  '^performance/results/crm-perf-summary.json$',
 ]
 
 # No global regex exclusions.
