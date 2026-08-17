@@ -5,7 +5,6 @@ import javax.net.ssl.SSLSocketFactory;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
-import java.util.Arrays;
 
 /**
  * Custom SSLSocketFactory that overrides the SNI (Server Name Indication)
