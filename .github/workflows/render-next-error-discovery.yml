@@ -1,0 +1,194 @@
+name: Render Next-Error Discovery (read-only)
+
+# Phase 11: ENOIDENTIFIER has been resolved (port 6543 → 5432). Now identify
+# the NEXT runtime error preventing Spring Boot from reaching health=UP.
+#
+# This workflow:
+#   1. Checks the service status (suspended/inactive/active/crashed)
+#   2. Lists recent deploys (live / failed / canceled)
+#   3. Fetches the last 1000 log lines from Render
+#   4. Searches for the NEXT error (any "ERROR", "Exception", "FATAL", "Caused by")
+#   5. Extracts 30 lines around the FIRST error after the suspend/resume cycle
+#   6. Identifies the calling component (Hikari / Flyway / Hibernate / Spring Security / etc.)
+#   7. Reports: NEXT_RUNTIME_ERROR= + ERROR_ORIGIN=
+#
+# Read-only. No mutations. No POST/PUT/PATCH/DELETE to Render.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: Discover next runtime error (read-only)
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 6
+    steps:
+      - name: Fetch service state + deploys + logs
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -uo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+
+          echo "========================================"
+          echo "PHASE 11 — NEXT-ERROR DISCOVERY (read-only)"
+          echo "========================================"
+          echo ""
+
+          # ----- 1. Service status -----
+          echo "=== 1. SERVICE STATUS ==="
+          curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE" > /tmp/svc.json
+          SVC_STATUS=$(jq -r '.status // "unknown"' /tmp/svc.json)
+          SVC_NAME=$(jq -r '.name // "unknown"' /tmp/svc.json)
+          SVC_ID=$(jq -r '.id // "unknown"' /tmp/svc.json)
+          SVC_URL=$(jq -r '.serviceDetails.url // .url // "unknown"' /tmp/svc.json)
+          ACTIVE_INST=$(jq -r '.serviceDetails.activeInstances // "unknown"' /tmp/svc.json)
+          echo "  id              = $SVC_ID"
+          echo "  name            = $SVC_NAME"
+          echo "  status          = $SVC_STATUS"
+          echo "  activeInstances = $ACTIVE_INST"
+          echo "  url             = $SVC_URL"
+          echo ""
+
+          # ----- 2. Latest deploys -----
+          echo "=== 2. LATEST DEPLOYS (limit=5) ==="
+          curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/deploys?limit=5" > /tmp/deploys.json
+          jq -r '.[]? | "  id=\(.id // "?") status=\(.status // "?") created=\(.createdAt // "?") finished=\(.finishedAt // "?")"' /tmp/deploys.json || echo "  (could not parse deploys)"
+          echo ""
+
+          # ----- 3. Try /actuator/health directly -----
+          echo "=== 3. HEALTH PROBE (direct HTTP) ==="
+          if [ "$SVC_URL" != "unknown" ] && [ -n "$SVC_URL" ]; then
+            HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 20 "$SVC_URL/actuator/health" 2>/dev/null || echo "000")
+            HEALTH_STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+            echo "  HTTP_CODE = $HTTP_CODE"
+            echo "  STATUS    = $HEALTH_STATUS"
+            if [ "$HTTP_CODE" = "200" ] && [ "$HEALTH_STATUS" = "UP" ]; then
+              echo "  RESULT    = HEALTHY — no further investigation needed"
+              echo ""
+              echo "========================================"
+              echo "SUCCESS — health=UP"
+              echo "========================================"
+              exit 0
+            fi
+          else
+            echo "  Service URL unknown — cannot probe health"
+            HTTP_CODE="000"
+            HEALTH_STATUS="unknown"
+          fi
+          echo ""
+
+          # ----- 4. Fetch last 1000 log lines -----
+          echo "=== 4. RENDER RUNTIME LOGS (last 1000 lines) ==="
+          LOGS=$(curl -s --max-time 30 -H "$AUTH" "$BASE/logs?limit=1000" || true)
+          if [ -z "$LOGS" ]; then
+            echo "  WARN: /logs endpoint returned empty."
+            LOGS=$(curl -s --max-time 30 -H "$AUTH" "$BASE/events?limit=100" || true)
+            if [ -n "$LOGS" ]; then
+              echo "  Fetched /events?limit=100 instead"
+            else
+              echo "  /events also empty — cannot extract errors"
+              echo ""
+              echo "========================================"
+              echo "NEXT_RUNTIME_ERROR=UNKNOWN (logs not accessible via API)"
+              echo "ERROR_ORIGIN=UNKNOWN"
+              echo "========================================"
+              exit 0
+            fi
+          fi
+          echo "  Logs fetched. Searching for the NEXT error..."
+          echo ""
+
+          # ----- 5. Verify ENOIDENTIFIER is still gone -----
+          echo "=== 5. ENOIDENTIFIER CHECK (sanity) ==="
+          ENOID_COUNT=$(echo "$LOGS" | grep -c "ENOIDENTIFIER" || true)
+          # grep -c returns 0 with exit 1 when 0 matches — fall through
+          if [ -z "$ENOID_COUNT" ]; then ENOID_COUNT=0; fi
+          echo "  ENOIDENTIFIER count: $ENOID_COUNT"
+          echo ""
+
+          # ----- 6. Search for NEXT error (any "ERROR", "Exception", "FATAL", "Caused by") -----
+          echo "=== 6. NEXT ERROR SEARCH ==="
+          # Save to file for line-number work
+          echo "$LOGS" > /tmp/logs.txt
+          # Search for first ERROR or Exception after the suspend/resume cycle
+          ERROR_LINE_NUM=$(grep -n -E "ERROR|Exception|FATAL|Caused by:|APPLICATION FAILED TO START|APPLICATION FAILED|BUILD FAILURE" /tmp/logs.txt | head -1 | cut -d: -f1 || true)
+
+          if [ -z "$ERROR_LINE_NUM" ]; then
+            echo "  No ERROR / Exception / FATAL / Caused by in fetched logs."
+            echo "  This may mean:"
+            echo "    - Service is still booting (no error yet, but not UP yet)"
+            echo "    - Or service crashed silently (no error message captured)"
+            echo ""
+            echo "  Last 30 lines of logs (for manual inspection):"
+            tail -30 /tmp/logs.txt
+            echo ""
+            echo "========================================"
+            echo "NEXT_RUNTIME_ERROR=NONE_FOUND"
+            echo "ERROR_ORIGIN=UNKNOWN"
+            echo "HEALTH=$HEALTH_STATUS (HTTP $HTTP_CODE)"
+            echo "DEPLOY_STATUS=$SVC_STATUS"
+            echo "========================================"
+            exit 0
+          fi
+
+          echo "  First error at log line: $ERROR_LINE_NUM"
+          echo ""
+
+          # ----- 7. Extract 30 lines around the error -----
+          echo "=== 7. STACK TRACE CONTEXT (30 lines around first error) ==="
+          START=$((ERROR_LINE_NUM > 15 ? ERROR_LINE_NUM - 15 : 1))
+          END=$((ERROR_LINE_NUM + 15))
+          sed -n "${START},${END}p" /tmp/logs.txt
+          echo ""
+
+          # ----- 8. Identify calling component -----
+          echo "=== 8. ERROR ORIGIN IDENTIFICATION ==="
+          ERROR_CONTEXT=$(sed -n "${START},${END}p" /tmp/logs.txt)
+          ORIGIN="UNKNOWN"
+          if echo "$ERROR_CONTEXT" | grep -q "FlywayMigrationInitializer\|org\.flywaydb\|Flyway\.\|Flyway ("; then
+            ORIGIN="FLYWAY"
+          elif echo "$ERROR_CONTEXT" | grep -q "HikariPool\|HikariDataSource\|com\.zaxxer\.hikari"; then
+            ORIGIN="HIKARI"
+          elif echo "$ERROR_CONTEXT" | grep -q "EntityManagerFactory\|hibernate\|org\.hibernate\|HQL"; then
+            ORIGIN="HIBERNATE"
+          elif echo "$ERROR_CONTEXT" | grep -q "SpringSecurity\|JwtDecoder\|JwtAuthenticationProvider\|AuthenticationEntryPoint"; then
+            ORIGIN="SPRING_SECURITY"
+          elif echo "$ERROR_CONTEXT" | grep -q "Tomcat\|Servlet\|DispatcherServlet"; then
+            ORIGIN="TOMCAT"
+          elif echo "$ERROR_CONTEXT" | grep -q "ProductionWorkflowStubGuard\|ProductionSecurityGuard\|SANAD_PRODUCTION_GUARD"; then
+            ORIGIN="PRODUCTION_GUARD"
+          elif echo "$ERROR_CONTEXT" | grep -q "OutOfMemoryError\|Metaspace\|GC overhead"; then
+            ORIGIN="JVM_OOM"
+          elif echo "$ERROR_CONTEXT" | grep -q "Port 8080\|Port .* already in use\|BindException"; then
+            ORIGIN="PORT_BIND"
+          elif echo "$ERROR_CONTEXT" | grep -q "BeanCreationException\|BeanDefinitionStoreException\|UnsatisfiedDependencyException"; then
+            ORIGIN="BEAN_CREATION"
+          fi
+          echo "  ERROR_ORIGIN = $ORIGIN"
+          echo ""
+
+          # ----- 9. Extract specific error message -----
+          echo "=== 9. ERROR MESSAGE EXTRACTION ==="
+          ERROR_MSG=$(echo "$ERROR_CONTEXT" | grep -E "ERROR|Exception|FATAL|Caused by:" | head -1 || echo "(could not extract)")
+          echo "  First error line:"
+          echo "    $ERROR_MSG"
+          echo ""
+
+          # ----- 10. Final output -----
+          echo "========================================"
+          echo "PHASE 11 SUMMARY"
+          echo "========================================"
+          echo "NEXT_RUNTIME_ERROR=$ERROR_MSG"
+          echo "ERROR_ORIGIN=$ORIGIN"
+          echo "HEALTH=$HEALTH_STATUS (HTTP $HTTP_CODE)"
+          echo "DEPLOY_STATUS=$SVC_STATUS"
+          echo "ENOIDENTIFIER_COUNT=$ENOID_COUNT"
+          echo "RECOMMENDATION=Investigate $ORIGIN error"
+          echo "========================================"
