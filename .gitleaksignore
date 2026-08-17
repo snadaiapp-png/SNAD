@@ -1,13 +1,9 @@
 README.md:sidekiq-secret:50
 # Test fixtures — synthetic keys for CI/CD and unit tests, NOT real secrets
-apps/sanad-platform/src/test/java/com/sanad/platform/config/ProductionSecurityGuardTest.java:generic-api-key:20
-apps/sanad-platform/src/test/java/com/sanad/platform/crm/legacy/infrastructure/CrmEncryptionKeyValidatorTest.java:generic-api-key:24
-# Generated performance artifact — test JWT token, NOT a real secret
-performance/results/crm-perf-summary.json:jwt:216
+/repo/apps/sanad-platform/src/test/java/com/sanad/platform/config/ProductionSecurityGuardTest.java:generic-api-key:20
+/repo/apps/sanad-platform/src/test/java/com/sanad/platform/crm/legacy/infrastructure/CrmEncryptionKeyValidatorTest.java:generic-api-key:24
 # CI/CD test fixture keys — valid base64 AES-256 keys for ProductionSecurityGuard in CI
-# These are NOT real secrets — they are test-only encryption keys required by the production
-# security guard during CI/CD. They decode to known test data, not real encryption keys.
-.github/workflows/business-process-e2e-validation.yml:generic-api-key:77
-.github/workflows/ci.yml:generic-api-key:80
-.github/workflows/crm-authenticated-acceptance.yml:generic-api-key:86
-.github/workflows/post-merge-verification.yml:generic-api-key:211
+/repo/.github/workflows/business-process-e2e-validation.yml:generic-api-key:77
+/repo/.github/workflows/ci.yml:generic-api-key:80
+/repo/.github/workflows/crm-authenticated-acceptance.yml:generic-api-key:86
+/repo/.github/workflows/post-merge-verification.yml:generic-api-key:211
