@@ -61,10 +61,8 @@ sanad:
     # Tests invoke the import worker explicitly to avoid scheduler races.
     import-worker-enabled: false
     custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:}
-
-# Row-Level Security is PostgreSQL-specific and not supported by H2's
-# PostgreSQL compatibility mode (same constraint as the local profile).
-snad:
+  # Row-Level Security is PostgreSQL-specific and not supported by H2's
+  # PostgreSQL compatibility mode (same constraint as the local profile).
   rls:
     enabled: false
 
