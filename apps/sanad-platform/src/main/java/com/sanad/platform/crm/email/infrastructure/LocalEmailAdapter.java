@@ -15,11 +15,11 @@ import java.util.UUID;
  * Local no-op adapter for CRM email delivery.
  * <p>
  * Silently discards all email send requests. Used in local development
- * and test profiles to avoid external API calls.
+ * and test/CI profiles to avoid external API calls.
  * Activated when {@code snad.crm.email.provider=local}.
  */
 @Component
-@Profile({"local", "test"})
+@Profile({"local", "test", "perf-test", "crm-acceptance"})
 @ConditionalOnProperty(prefix = "snad.crm.email", name = "provider", havingValue = "local", matchIfMissing = true)
 public class LocalEmailAdapter implements EmailPort {
 
