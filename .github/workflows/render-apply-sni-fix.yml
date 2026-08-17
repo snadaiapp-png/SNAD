@@ -53,6 +53,7 @@ jobs:
           BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
           BACKEND_URL="https://sanad-backend-mcrj.onrender.com"
           PROJECT_REF="hxhvfqxzigrqoxxnnzje"
+          SNI_HOSTNAME="db.${PROJECT_REF}.supabase.co"
           SNI_FACTORY="com.sanad.platform.config.SupabaseSniSslSocketFactory"
 
           echo "========================================"
@@ -87,9 +88,9 @@ jobs:
             url=$(echo "$url" | sed -E 's#[?&]$##')
             # Append SNI parameters
             if echo "$url" | grep -q '?'; then
-              url="${url}&sslfactory=${SNI_FACTORY}&sslfactoryarg=${PROJECT_REF}"
+              url="${url}&sslfactory=${SNI_FACTORY}&sslfactoryarg=${SNI_HOSTNAME}"
             else
-              url="${url}?sslfactory=${SNI_FACTORY}&sslfactoryarg=${PROJECT_REF}"
+              url="${url}?sslfactory=${SNI_FACTORY}&sslfactoryarg=${SNI_HOSTNAME}"
             fi
             echo "$url"
           }
