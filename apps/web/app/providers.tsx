@@ -16,10 +16,6 @@ function hasCrmRootEntryMarker(): boolean {
     .some((cookie) => cookie.trim() === `${CRM_ROOT_ENTRY_COOKIE}=1`);
 }
 
-function setCrmRootEntryMarker(): void {
-  document.cookie = `${CRM_ROOT_ENTRY_COOKIE}=1; Path=/; Max-Age=60; SameSite=Lax`;
-}
-
 function clearCrmRootEntryMarker(): void {
   document.cookie = `${CRM_ROOT_ENTRY_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
@@ -35,12 +31,9 @@ function AuthRouteRecovery({ children }: { children: ReactNode }) {
     );
     if (!protectedRoute) return;
 
-    // Set the CRM root entry marker when navigating to /crm/overview
-    // (replaces the cookie that was previously set by middleware.ts)
-    if (pathname === "/crm/overview" && !hasCrmRootEntryMarker()) {
-      setCrmRootEntryMarker();
-    }
-
+    // The CRM root-entry marker is owned exclusively by proxy.ts when /crm
+    // redirects to /crm/overview. Direct deep links such as /crm/overview
+    // must preserve their exact destination through authentication.
     const crmRootEntry = pathname === "/crm/overview" && hasCrmRootEntryMarker();
     const sessionGone = ["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state);
 
