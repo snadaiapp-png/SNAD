@@ -61,13 +61,13 @@ export default function FinancePage() {
       <ExecutiveShell>
         <div style={{ padding: "2rem", textAlign: "center" }}>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 600 }}>الإدارة المالية</h1>
-          <p style={{ color: "var(--snad-danger, #ef4444)", marginTop: "1rem" }}>{error}</p>
+          <p style={{ color: "var(--snad-danger)", marginTop: "1rem" }}>{error}</p>
           <button
             onClick={() => loadData()}
             style={{
               marginTop: "1rem", padding: "0.5rem 1.5rem", borderRadius: "0.375rem",
-              border: "1px solid var(--snad-border, #30363d)",
-              background: "var(--snad-surface, #161b22)", cursor: "pointer",
+              border: "1px solid var(--snad-border)",
+              background: "var(--snad-surface)", cursor: "pointer",
             }}
           >
             إعادة المحاولة
@@ -88,17 +88,17 @@ export default function FinancePage() {
           <h1 style={{ fontSize: "1.75rem", fontWeight: 700, margin: 0 }}>
             الإدارة المالية
           </h1>
-          <p style={{ color: "var(--snad-text-muted, #8b949e)", marginTop: "0.5rem" }}>
+          <p style={{ color: "var(--snad-text-muted)", marginTop: "0.5rem" }}>
             إدارة الحسابات والفواتير والمدفوعات والتقارير المالية
           </p>
         </header>
 
         {/* Stats Grid */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
-          <StatCard label="الحسابات النشطة" value={activeAccounts.length} color="var(--snad-success, #4ade80)" />
-          <StatCard label="الفواتير المعلقة" value={pendingInvoices.length} color="var(--snad-warning, #fbbf24)" />
-          <StatCard label="المدفوعات المكتملة" value={completedPayments.length} color="var(--snad-primary, #2dd4bf)" />
-          <StatCard label="نسبة التنفيذ" value={`${executionProgress}%`} color="var(--snad-accent, #c084fc)" />
+          <StatCard label="الحسابات النشطة" value={activeAccounts.length} color="var(--snad-success)" />
+          <StatCard label="الفواتير المعلقة" value={pendingInvoices.length} color="var(--snad-warning)" />
+          <StatCard label="المدفوعات المكتملة" value={completedPayments.length} color="var(--snad-primary)" />
+          <StatCard label="نسبة التنفيذ" value={`${executionProgress}%`} color="var(--snad-accent)" />
         </div>
 
         {/* Accounts Section */}
@@ -107,11 +107,11 @@ export default function FinancePage() {
             دليل الحسابات
           </h2>
           {accounts.length === 0 ? (
-            <p style={{ color: "var(--snad-text-muted, #8b949e)" }}>لا توجد حسابات بعد</p>
+            <p style={{ color: "var(--snad-text-muted)" }}>لا توجد حسابات بعد</p>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
               <thead>
-                <tr style={{ borderBottom: "2px solid var(--snad-border, #30363d)", textAlign: "right" }}>
+                <tr style={{ borderBottom: "2px solid var(--snad-border)", textAlign: "right" }}>
                   <th style={{ padding: "0.5rem 0.75rem" }}>الرمز</th>
                   <th style={{ padding: "0.5rem 0.75rem" }}>الاسم</th>
                   <th style={{ padding: "0.5rem 0.75rem" }}>النوع</th>
@@ -121,15 +121,15 @@ export default function FinancePage() {
               </thead>
               <tbody>
                 {accounts.slice(0, 10).map((a) => (
-                  <tr key={a.id} style={{ borderBottom: "1px solid var(--snad-border, #30363d)" }}>
+                  <tr key={a.id} style={{ borderBottom: "1px solid var(--snad-border)" }}>
                     <td style={{ padding: "0.5rem 0.75rem", fontFamily: "monospace" }}>{a.code}</td>
                     <td style={{ padding: "0.5rem 0.75rem" }}>{a.name}</td>
                     <td style={{ padding: "0.5rem 0.75rem" }}>{a.accountType}</td>
                     <td style={{ padding: "0.5rem 0.75rem" }}>
                       <span style={{
                         padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem",
-                        background: a.status === "ACTIVE" ? "rgba(74,222,128,0.1)" : "rgba(139,148,158,0.1)",
-                        color: a.status === "ACTIVE" ? "var(--snad-success, #4ade80)" : "var(--snad-text-muted, #8b949e)",
+                        background: a.status === "ACTIVE" ? "color-mix(in srgb, var(--snad-success) 10%, transparent)" : "color-mix(in srgb, var(--snad-text-muted) 10%, transparent)",
+                        color: a.status === "ACTIVE" ? "var(--snad-success)" : "var(--snad-text-muted)",
                       }}>{a.status}</span>
                     </td>
                     <td style={{ padding: "0.5rem 0.75rem" }}>{a.currency}</td>
@@ -146,11 +146,11 @@ export default function FinancePage() {
             الفواتير
           </h2>
           {invoices.length === 0 ? (
-            <p style={{ color: "var(--snad-text-muted, #8b949e)" }}>لا توجد فواتير بعد</p>
+            <p style={{ color: "var(--snad-text-muted)" }}>لا توجد فواتير بعد</p>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
               <thead>
-                <tr style={{ borderBottom: "2px solid var(--snad-border, #30363d)", textAlign: "right" }}>
+                <tr style={{ borderBottom: "2px solid var(--snad-border)", textAlign: "right" }}>
                   <th style={{ padding: "0.5rem 0.75rem" }}>رقم الفاتورة</th>
                   <th style={{ padding: "0.5rem 0.75rem" }}>العميل</th>
                   <th style={{ padding: "0.5rem 0.75rem" }}>الحالة</th>
@@ -160,7 +160,7 @@ export default function FinancePage() {
               </thead>
               <tbody>
                 {invoices.slice(0, 10).map((i) => (
-                  <tr key={i.id} style={{ borderBottom: "1px solid var(--snad-border, #30363d)" }}>
+                  <tr key={i.id} style={{ borderBottom: "1px solid var(--snad-border)" }}>
                     <td style={{ padding: "0.5rem 0.75rem", fontFamily: "monospace" }}>{i.invoiceNumber}</td>
                     <td style={{ padding: "0.5rem 0.75rem" }}>{i.customerName}</td>
                     <td style={{ padding: "0.5rem 0.75rem" }}>{i.status}</td>
@@ -179,11 +179,11 @@ export default function FinancePage() {
             المدفوعات
           </h2>
           {payments.length === 0 ? (
-            <p style={{ color: "var(--snad-text-muted, #8b949e)" }}>لا توجد مدفوعات بعد</p>
+            <p style={{ color: "var(--snad-text-muted)" }}>لا توجد مدفوعات بعد</p>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
               <thead>
-                <tr style={{ borderBottom: "2px solid var(--snad-border, #30363d)", textAlign: "right" }}>
+                <tr style={{ borderBottom: "2px solid var(--snad-border)", textAlign: "right" }}>
                   <th style={{ padding: "0.5rem 0.75rem" }}>رقم الدفع</th>
                   <th style={{ padding: "0.5rem 0.75rem" }}>طريقة الدفع</th>
                   <th style={{ padding: "0.5rem 0.75rem" }}>الحالة</th>
@@ -193,7 +193,7 @@ export default function FinancePage() {
               </thead>
               <tbody>
                 {payments.slice(0, 10).map((p) => (
-                  <tr key={p.id} style={{ borderBottom: "1px solid var(--snad-border, #30363d)" }}>
+                  <tr key={p.id} style={{ borderBottom: "1px solid var(--snad-border)" }}>
                     <td style={{ padding: "0.5rem 0.75rem", fontFamily: "monospace" }}>{p.paymentNumber}</td>
                     <td style={{ padding: "0.5rem 0.75rem" }}>{p.paymentMethod}</td>
                     <td style={{ padding: "0.5rem 0.75rem" }}>{p.status}</td>
@@ -215,11 +215,11 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
     <div style={{
       padding: "1rem 1.25rem",
       borderRadius: "0.5rem",
-      border: "1px solid var(--snad-border, #30363d)",
-      background: "var(--snad-surface, #161b22)",
+      border: "1px solid var(--snad-border)",
+      background: "var(--snad-surface)",
     }}>
       <div style={{ fontSize: "1.75rem", fontWeight: 700, color }}>{value}</div>
-      <div style={{ fontSize: "0.75rem", color: "var(--snad-text-muted, #8b949e)", marginTop: "0.25rem" }}>{label}</div>
+      <div style={{ fontSize: "0.75rem", color: "var(--snad-text-muted)", marginTop: "0.25rem" }}>{label}</div>
     </div>
   );
 }

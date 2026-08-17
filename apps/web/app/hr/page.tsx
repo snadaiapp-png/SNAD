@@ -66,14 +66,14 @@ export default function HrPage() {
           <h1 style={{ fontSize: "1.75rem", fontWeight: 700, margin: 0 }}>
             الموارد البشرية
           </h1>
-          <p style={{ color: "var(--snad-text-muted, #8b949e)", marginTop: "0.5rem" }}>
+          <p style={{ color: "var(--snad-text-muted)", marginTop: "0.5rem" }}>
             إدارة الموظفين والهيكل التنظيمي والحضور والإجازات والرواتب
           </p>
           <div style={{
             marginTop: "0.75rem", padding: "6px 12px", borderRadius: "4px",
             display: "inline-block", fontSize: "0.75rem",
-            background: "rgba(251,191,36,0.1)", color: "var(--snad-warning, #fbbf24)",
-            border: "1px solid rgba(251,191,36,0.2)",
+            background: "color-mix(in srgb, var(--snad-warning) 10%, transparent)", color: "var(--snad-warning)",
+            border: "1px solid color-mix(in srgb, var(--snad-warning) 20%, transparent)",
           }}>
             FOUNDATION_RECOVERED_READY_FOR_DEVELOPMENT
           </div>
@@ -83,28 +83,28 @@ export default function HrPage() {
         {progress && (
           <div style={{
             padding: "1rem 1.25rem", marginBottom: "2rem", borderRadius: "0.5rem",
-            border: "1px solid var(--snad-border, #30363d)",
-            background: "var(--snad-surface, #161b22)",
+            border: "1px solid var(--snad-border)",
+            background: "var(--snad-surface)",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: "0.875rem", color: "var(--snad-text-muted, #8b949e)" }}>
+              <span style={{ fontSize: "0.875rem", color: "var(--snad-text-muted)" }}>
                 نسبة التنفيذ الإجمالية
               </span>
-              <span style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--snad-warning, #fbbf24)" }}>
+              <span style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--snad-warning)" }}>
                 {progress.percentage}%
               </span>
             </div>
             <div style={{
               marginTop: "0.5rem", height: "8px", borderRadius: "4px",
-              background: "var(--snad-border, #30363d)", overflow: "hidden",
+              background: "var(--snad-border)", overflow: "hidden",
             }}>
               <div style={{
                 height: "100%", width: `${progress.percentage}%`,
-                background: "var(--snad-warning, #fbbf24)", borderRadius: "4px",
+                background: "var(--snad-warning)", borderRadius: "4px",
                 transition: "width 0.3s ease",
               }} />
             </div>
-            <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--snad-text-dim, #6e7681)" }}>
+            <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--snad-text-dim)" }}>
               المهام: {progress.total} | مكتمل: {progress.done} | قيد التنفيذ: {progress.inProgress} | لم يبدأ: {progress.notStarted}
             </div>
           </div>
@@ -120,13 +120,13 @@ export default function HrPage() {
               {program.groups.map((group) => (
                 <div key={group.code} style={{
                   padding: "1rem 1.25rem", borderRadius: "0.5rem",
-                  border: "1px solid var(--snad-border, #30363d)",
-                  background: "var(--snad-surface, #161b22)",
+                  border: "1px solid var(--snad-border)",
+                  background: "var(--snad-surface)",
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
                     <div>
                       <span style={{
-                        fontSize: "0.75rem", color: "var(--snad-text-dim, #6e7681)",
+                        fontSize: "0.75rem", color: "var(--snad-text-dim)",
                         fontFamily: "monospace",
                       }}>{group.code}</span>
                       <h3 style={{ fontSize: "1rem", fontWeight: 600, margin: "4px 0 0 0" }}>
@@ -135,23 +135,23 @@ export default function HrPage() {
                     </div>
                     <span style={{
                       padding: "2px 8px", borderRadius: "4px", fontSize: "0.6875rem",
-                      background: group.status === "DONE" ? "rgba(74,222,128,0.1)"
-                        : group.status === "IN_PROGRESS" ? "rgba(45,212,191,0.1)"
-                        : "rgba(139,148,158,0.1)",
-                      color: group.status === "DONE" ? "var(--snad-success, #4ade80)"
-                        : group.status === "IN_PROGRESS" ? "var(--snad-primary, #2dd4bf)"
-                        : "var(--snad-text-muted, #8b949e)",
+                      background: group.status === "DONE" ? "color-mix(in srgb, var(--snad-success) 10%, transparent)"
+                        : group.status === "IN_PROGRESS" ? "color-mix(in srgb, var(--snad-primary) 10%, transparent)"
+                        : "color-mix(in srgb, var(--snad-text-muted) 10%, transparent)",
+                      color: group.status === "DONE" ? "var(--snad-success)"
+                        : group.status === "IN_PROGRESS" ? "var(--snad-primary)"
+                        : "var(--snad-text-muted)",
                     }}>
                       {group.status.replace(/_/g, " ")}
                     </span>
                   </div>
                   <p style={{
-                    fontSize: "0.8125rem", color: "var(--snad-text-muted, #8b949e)",
+                    fontSize: "0.8125rem", color: "var(--snad-text-muted)",
                     marginTop: "0.5rem", lineHeight: 1.5,
                   }}>
                     {group.purposeAr}
                   </p>
-                  <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--snad-text-dim, #6e7681)" }}>
+                  <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--snad-text-dim)" }}>
                     المهام: {group.tasks.length}
                   </div>
                 </div>
