@@ -134,7 +134,8 @@ jobs:
       - name: Fetch runtime OpenAPI
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 120); do
+          sleep 15
+          for attempt in $(seq 1 180); do
             if ! kill -0 "$(cat /tmp/crm-openapi-backend.pid)" 2>/dev/null; then cat /tmp/crm-openapi-backend.log; exit 1; fi
             code="$(curl -sS -o /tmp/platform-openapi.json -w '%{http_code}' http://localhost:8081/v3/api-docs || true)"
             if [ "$code" = '200' ] && [ -s /tmp/platform-openapi.json ]; then exit 0; fi
