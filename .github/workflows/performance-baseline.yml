@@ -28,6 +28,20 @@ jobs:
     name: CRM-033 Authenticated Benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad_perf
+          POSTGRES_PASSWORD: sanad_perf_pass
+          POSTGRES_DB: sanad_perf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad_perf -d sanad_perf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       # Deterministic HMAC key for the perf-test profile (CI-only value; the
       # profile is never active in production). Secrets are environment-driven.
@@ -37,6 +51,13 @@ jobs:
       SANAD_AI_GATEWAY_BASE_URL: 'http://localhost:8081'
       PERF_TEST_ADMIN_EMAIL: perf-admin@sanad.local
       PERF_TEST_ADMIN_PASSWORD: CiOnlyPerfAdmin!2026
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_perf
+      SPRING_DATASOURCE_USERNAME: sanad_perf
+      SPRING_DATASOURCE_PASSWORD: sanad_perf_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
+      FLYWAY_ENABLED: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,6 +72,7 @@ jobs:
       - name: Start backend on perf-test profile
         working-directory: apps/sanad-platform
         run: |
+          set -euo pipefail
           mkdir -p ../../performance/results
           nohup mvn -q -DskipTests spring-boot:run \
             -Dspring-boot.run.profiles=perf-test \
@@ -60,6 +82,7 @@ jobs:
 
       - name: Wait for health
         run: |
+          set -euo pipefail
           for attempt in $(seq 1 120); do
             if ! kill -0 "$(cat /tmp/sanad-crm-perf-app.pid)" 2>/dev/null; then
               echo "::error::sanad perf-test app process exited before becoming healthy"
@@ -82,6 +105,7 @@ jobs:
 
       - name: Run CRM-033 k6 benchmark
         run: |
+          set -euo pipefail
           mkdir -p performance/results
           docker run --rm --network host \
             -e BASE_URL=http://localhost:8080 \
@@ -106,7 +130,7 @@ jobs:
             echo '- Failure threshold: less than 1%'
             echo '- p95 target: below 500 ms'
             echo '- p99 target: below 1000 ms'
-            echo '- Runtime profile: perf-test (H2-backed, deterministic JWT secret)'
+            echo '- Runtime database: PostgreSQL 16 CI service'
             echo '- Startup log artifact: `crm-perf-backend-startup.log`'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -130,6 +154,28 @@ jobs:
     name: Backend Health Load Baseline
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad_health
+          POSTGRES_PASSWORD: sanad_health_pass
+          POSTGRES_DB: sanad_health
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad_health -d sanad_health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_health
+      SPRING_DATASOURCE_USERNAME: sanad_health
+      SPRING_DATASOURCE_PASSWORD: sanad_health_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
+      FLYWAY_ENABLED: 'true'
+      JPA_DDL_AUTO: validate
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -144,6 +190,7 @@ jobs:
       - name: Start backend on local CI profile
         working-directory: apps/sanad-platform
         run: |
+          set -euo pipefail
           mkdir -p ../../performance/results
           nohup mvn -q -DskipTests spring-boot:run \
             -Dspring-boot.run.profiles=local \
@@ -153,6 +200,7 @@ jobs:
 
       - name: Wait for health
         run: |
+          set -euo pipefail
           for attempt in $(seq 1 120); do
             if ! kill -0 "$(cat /tmp/sanad-perf-app.pid)" 2>/dev/null; then
               echo "::error::sanad local performance app process exited before becoming healthy"
@@ -175,6 +223,7 @@ jobs:
 
       - name: Run k6 baseline
         run: |
+          set -euo pipefail
           mkdir -p performance/results
           docker run --rm --network host \
             -e BASE_URL=http://localhost:8080 \
@@ -196,7 +245,7 @@ jobs:
             echo '- p95 target: below 500 ms'
             echo '- p99 target: below 1000 ms'
             echo '- Scope: CI baseline only; not a production capacity certification'
-            echo '- Runtime profile: local CI health baseline using H2-backed startup path'
+            echo '- Runtime database: PostgreSQL 16 CI service'
             echo '- Startup log artifact: `backend-startup.log`'
           } >> "$GITHUB_STEP_SUMMARY"
 
