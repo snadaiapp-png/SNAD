@@ -1,0 +1,200 @@
+name: Render Revert to Pooler + SNI Factory (Post-PR880)
+
+# After PR #880 merged, the SupabaseSniSslSocketFactory now uses a permissive
+# TrustManager. We need to revert DATABASE_URL + SPRING_FLYWAY_URL back to
+# the pooler with SNI factory (the direct hostname we tried last doesn't resolve).
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'revert-to-pooler-sni' to confirm"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  revert-and-deploy:
+    name: Revert to pooler + SNI factory (with new image from PR #880)
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 25
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "revert-to-pooler-sni" ]; then
+            echo "::error::Confirmation input must be 'revert-to-pooler-sni'"
+            exit 1
+          fi
+
+      - name: Revert + deploy + capture
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -uo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          BACKEND_URL="https://sanad-backend-mcrj.onrender.com"
+          PROJECT_REF="hxhvfqxzigrqoxxnnzje"
+          POOLER_HOST="aws-0-eu-central-1.pooler.supabase.com"
+          SNI_FACTORY="com.sanad.platform.config.SupabaseSniSslSocketFactory"
+          NEW_URL="jdbc:postgresql://${POOLER_HOST}:5432/postgres?prepareThreshold=0&sslmode=require&sslfactory=${SNI_FACTORY}&sslfactoryarg=${PROJECT_REF}"
+          POOLER_USERNAME="postgres.${PROJECT_REF}"
+
+          echo "========================================"
+          echo "REVERT TO POOLER + SNI FACTORY (PR #880 image)"
+          echo "========================================"
+          echo "New URL: $NEW_URL"
+          echo "Username: $POOLER_USERNAME"
+          echo ""
+
+          # ----- STEP 1: Suspend service -----
+          echo "=== STEP 1: Suspend service ==="
+          HTTP=$(curl -s -o /tmp/suspend.json -w "%{http_code}" --max-time 30 -X POST -H "$AUTH" "$BASE/suspend")
+          echo "POST /suspend -> HTTP $HTTP"
+          sleep 15
+          echo ""
+
+          # ----- STEP 2: PUT DATABASE_URL (pooler + SNI) -----
+          echo "=== STEP 2: PUT DATABASE_URL (pooler + SNI) ==="
+          HTTP=$(curl -s -o /tmp/db-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$NEW_URL" '{value:$v}')" "$BASE/env-vars/DATABASE_URL")
+          echo "PUT DATABASE_URL -> HTTP $HTTP"
+          test "$HTTP" -ge 200 -a "$HTTP" -lt 300 || { echo "::error::PUT DATABASE_URL failed"; cat /tmp/db-resp.json; exit 1; }
+          echo ""
+
+          # ----- STEP 3: PUT SPRING_FLYWAY_URL (same) -----
+          echo "=== STEP 3: PUT SPRING_FLYWAY_URL (pooler + SNI) ==="
+          HTTP=$(curl -s -o /tmp/sf-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$NEW_URL" '{value:$v}')" "$BASE/env-vars/SPRING_FLYWAY_URL")
+          echo "PUT SPRING_FLYWAY_URL -> HTTP $HTTP"
+          test "$HTTP" -ge 200 -a "$HTTP" -lt 300 || { echo "::error::PUT SPRING_FLYWAY_URL failed"; cat /tmp/sf-resp.json; exit 1; }
+          echo ""
+
+          # ----- STEP 4: PUT DATABASE_USERNAME (back to pooler format) -----
+          echo "=== STEP 4: PUT DATABASE_USERNAME=postgres.<ref> ==="
+          HTTP=$(curl -s -o /tmp/user-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_USERNAME" '{value:$v}')" "$BASE/env-vars/DATABASE_USERNAME")
+          echo "PUT DATABASE_USERNAME -> HTTP $HTTP"
+          test "$HTTP" -ge 200 -a "$HTTP" -lt 300 || { echo "::error::PUT DATABASE_USERNAME failed"; cat /tmp/user-resp.json; exit 1; }
+          echo ""
+
+          # ----- STEP 5: Resume service -----
+          echo "=== STEP 5: Resume service ==="
+          HTTP=$(curl -s -o /tmp/resume.json -w "%{http_code}" --max-time 30 -X POST -H "$AUTH" "$BASE/resume")
+          echo "POST /resume -> HTTP $HTTP"
+          sleep 5
+          echo ""
+
+          # ----- STEP 6: Trigger deploy on SAME service -----
+          echo "=== STEP 6: Trigger deploy (POST /deploys, clearCache=do_not_clear) ==="
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" --max-time 30 -X POST \
+            -H "$AUTH" -H 'Content-Type: application/json' -H 'Accept: application/json' \
+            --data '{"clearCache":"do_not_clear"}' "$BASE/deploys")
+          echo "POST /deploys -> HTTP $HTTP"
+          DEPLOY_ID=$(jq -r '.id // empty' /tmp/deploy.json)
+          echo "Deploy ID: $DEPLOY_ID"
+          test -n "$DEPLOY_ID" || { echo "::error::no deploy id"; cat /tmp/deploy.json; exit 1; }
+          echo ""
+
+          # ----- STEP 7: Capture live logs -----
+          echo "=== STEP 7: Capture live logs (poll /v1/logs every 10s up to 18 min) ==="
+          OWNER_ID=$(curl -s --max-time 30 -H "$AUTH" "$BASE" | jq -r '.ownerId // .owner // empty')
+          START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "Log capture start: $START_TIME"
+          mkdir -p /tmp/live-logs
+          > /tmp/live-logs/all.txt
+
+          DEPLOY_STATUS="update_in_progress"
+          PREV_LOGS_COUNT=0
+          ITERATION=0
+          MAX_ITERATIONS=100
+
+          while [ "$DEPLOY_STATUS" = "update_in_progress" ] && [ "$ITERATION" -lt "$MAX_ITERATIONS" ]; do
+            ITERATION=$((ITERATION + 1))
+            sleep 10
+
+            DEPLOY_STATUS=$(curl -s --max-time 15 -H "$AUTH" "$BASE/deploys/$DEPLOY_ID" | jq -r '.deploy.status // .status // "unknown"')
+            echo "[iter $ITERATION] deploy status: $DEPLOY_STATUS"
+
+            if [ -n "$OWNER_ID" ]; then
+              URL="https://api.render.com/v1/logs?ownerId=${OWNER_ID}&resource=${RENDER_SERVICE_ID}&startTime=${START_TIME}&direction=forward&limit=200"
+              curl -s --max-time 15 -H "$AUTH" "$URL" > /tmp/live-logs/page.json
+              jq -r 'if type=="array" then .[] elif .logs then .logs[] elif .lines then .lines[] else empty end | (if type=="object" then (.text // .message // .msg // (. | tostring)) else (tostring) end)' /tmp/live-logs/page.json 2>/dev/null >> /tmp/live-logs/all.txt
+              CURR_COUNT=$(wc -l < /tmp/live-logs/all.txt)
+              NEW_LINES=$((CURR_COUNT - PREV_LOGS_COUNT))
+              if [ "$NEW_LINES" -gt 0 ]; then
+                echo "  +$NEW_LINES lines (total: $CURR_COUNT)"
+                tail -$NEW_LINES /tmp/live-logs/all.txt | head -3 | sed 's/^/    /'
+                PREV_LOGS_COUNT=$CURR_COUNT
+              fi
+            fi
+
+            if [ "$DEPLOY_STATUS" = "live" ]; then
+              echo "::notice::DEPLOY LIVE after $((ITERATION * 10))s"
+              break
+            fi
+            if echo "$DEPLOY_STATUS" | grep -qiE 'failed|canceled|deactivated'; then
+              echo "::error::Deploy terminal: $DEPLOY_STATUS"
+              break
+            fi
+          done
+          echo ""
+
+          # ----- STEP 8: Final logs dump -----
+          echo "=== STEP 8: FINAL LOG DUMP (last 50 lines) ==="
+          tail -50 /tmp/live-logs/all.txt
+          echo ""
+
+          # ----- STEP 9: Error pattern search -----
+          echo "=== STEP 9: ERROR PATTERN SEARCH ==="
+          echo "ENOIDENTIFIER count: $(grep -c 'ENOIDENTIFIER' /tmp/live-logs/all.txt || echo 0)"
+          echo "PKIX count: $(grep -c 'PKIX\|SunCertPathBuilderException' /tmp/live-logs/all.txt || echo 0)"
+          echo "UnknownHostException count: $(grep -c 'UnknownHostException' /tmp/live-logs/all.txt || echo 0)"
+          echo "BeanCreationException count: $(grep -c 'BeanCreationException' /tmp/live-logs/all.txt || echo 0)"
+          echo "ProductionGuard count: $(grep -c 'ProductionWorkflowStubGuard\|Production startup refused' /tmp/live-logs/all.txt || echo 0)"
+          echo "Application run failed count: $(grep -c 'Application run failed' /tmp/live-logs/all.txt || echo 0)"
+          echo "Started SanadPlatformApplication count: $(grep -c 'Started SanadPlatformApplication' /tmp/live-logs/all.txt || echo 0)"
+          echo "Tomcat started count: $(grep -c 'Tomcat started on port' /tmp/live-logs/all.txt || echo 0)"
+          echo ""
+
+          # ----- STEP 10: Health probe -----
+          echo "=== STEP 10: Health probe ==="
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BACKEND_URL/actuator/health")
+          HEALTH_STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+          echo "HTTP_CODE: $HTTP_CODE"
+          echo "STATUS: $HEALTH_STATUS"
+          echo ""
+
+          # ----- STEP 11: Summary -----
+          echo "========================================"
+          echo "REVERT + DEPLOY COMPLETE"
+          echo "========================================"
+          echo "DEPLOY_ID=$DEPLOY_ID"
+          echo "DEPLOY_STATUS=$DEPLOY_STATUS"
+          echo "HEALTH_HTTP=$HTTP_CODE"
+          echo "HEALTH_STATUS=$HEALTH_STATUS"
+          echo "TOTAL_LOG_LINES=$(wc -l < /tmp/live-logs/all.txt)"
+          if [ "$DEPLOY_STATUS" = "live" ] && [ "$HTTP_CODE" = "200" ] && [ "$HEALTH_STATUS" = "UP" ]; then
+            echo "FINAL_RESULT=SUCCESS ✅"
+          elif [ "$DEPLOY_STATUS" = "live" ]; then
+            echo "FINAL_RESULT=PARTIAL (live but health not UP)"
+          else
+            echo "FINAL_RESULT=FAILED — investigate next-error"
+          fi
+          echo "========================================"
+
+      - name: Upload live logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-revert-pooler-sni-logs
+          path: /tmp/live-logs/
+          if-no-files-found: warn
+          retention-days: 14
