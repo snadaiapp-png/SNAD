@@ -30,8 +30,8 @@ import {
 
 /** Minimal CSV content for a valid account import. */
 const ACCOUNT_CSV = `displayName,accountType,primaryCurrencyCode,source
-Import E2E Account 1,CUSTOMER,SAR,e2e-test
-Import E2E Account 2,VENDOR,USD,e2e-test`;
+Import E2E Account 1,BUSINESS,SAR,e2e-test
+Import E2E Account 2,PARTNER,USD,e2e-test`;
 
 /** Invalid CSV content to test error handling. */
 const INVALID_CSV = `displayName,accountType
