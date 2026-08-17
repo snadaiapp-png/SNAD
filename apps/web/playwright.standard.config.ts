@@ -25,6 +25,12 @@ export default defineConfig({
     // Requires authentication + CRM leads data to verify terminal status UX.
     // Runs in CRM acceptance workflow only.
     "**/crm-035-terminal-leads.spec.ts",
+    // Stateful authenticated CRM workflow suites run exactly once in the
+    // PostgreSQL + Spring Boot CRM acceptance workflow. Running them in this
+    // six-project visual matrix duplicates mutations without a backend fixture.
+    "**/crm-transfer-workflow.spec.ts",
+    "**/crm-import-workflow.spec.ts",
+    "**/crm-pipeline-export.spec.ts",
     // Requires CRM_TENANT_A_EMAIL/PASSWORD env vars (authenticated acceptance).
     // Runs in production closure workflows only.
     "**/crm-lifecycle.spec.ts",
