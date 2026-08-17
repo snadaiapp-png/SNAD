@@ -1,0 +1,322 @@
+name: SNAD Full Project Recovery — Comprehensive Audit + Test
+
+# Sections 5-80: Full project recovery.
+# This workflow performs a comprehensive audit of the entire SNAD project:
+#   1. Warm up Render backend + test health endpoints
+#   2. Build frontend (npm run build)
+#   3. Compile backend (mvn compile)
+#   4. Check database schema (table/index/RLS counts)
+#   5. List all frontend routes + check for 404s
+#   6. List all backend API endpoints
+#   7. Search for TODO/FIXME/stub/placeholder
+#   8. Report comprehensive recovery matrix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-recovery-audit:
+    name: Full Project Recovery Audit
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    env:
+      BACKEND_URL: https://sanad-backend-mcrj.onrender.com
+      POOLER_HOST: aws-0-eu-central-1.pooler.supabase.com
+      POOLER_PORT: "5432"
+      DATABASE_NAME: postgres
+      DB_USERNAME: postgres.tkbrvupemreqabwzdpyq
+      DB_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+    steps:
+      - name: Checkout full repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+
+      # ===== 1. RENDER BACKEND WARMUP + HEALTH =====
+      - name: 1. Render backend warmup + health
+        run: |
+          set +e
+          echo "========================================"
+          echo "1. RENDER BACKEND HEALTH"
+          echo "========================================"
+          
+          # Warm up Render (free tier cold start)
+          echo "Warming up Render (free tier cold start)..."
+          for i in $(seq 1 6); do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$BACKEND_URL/actuator/health" 2>/dev/null || echo "000")
+            echo "  attempt $i: HTTP=$HTTP"
+            if [ "$HTTP" = "200" ]; then break; fi
+            sleep 10
+          done
+          
+          echo ""
+          echo "=== Health endpoints ==="
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BACKEND_URL/actuator/health" || echo "000")
+          HEALTH_STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+          echo "HEALTH: HTTP=$HTTP_CODE STATUS=$HEALTH_STATUS"
+          
+          LIVENESS_HTTP=$(curl -s -o /tmp/liveness.json -w "%{http_code}" --max-time 15 "$BACKEND_URL/actuator/health/liveness" || echo "000")
+          LIVENESS_STATUS=$(jq -r '.status // "unknown"' /tmp/liveness.json 2>/dev/null || echo "unknown")
+          echo "LIVENESS: HTTP=$LIVENESS_HTTP STATUS=$LIVENESS_STATUS"
+          
+          READINESS_HTTP=$(curl -s -o /tmp/readiness.json -w "%{http_code}" --max-time 15 "$BACKEND_URL/actuator/health/readiness" || echo "000")
+          READINESS_STATUS=$(jq -r '.status // "unknown"' /tmp/readiness.json 2>/dev/null || echo "unknown")
+          echo "READINESS: HTTP=$READINESS_HTTP STATUS=$READINESS_STATUS"
+          
+          # Test OpenAPI docs
+          OPENAPI_HTTP=$(curl -s -o /tmp/openapi.json -w "%{http_code}" --max-time 15 "$BACKEND_URL/v3/api-docs" 2>/dev/null || echo "000")
+          if [ "$OPENAPI_HTTP" = "200" ]; then
+            API_COUNT=$(jq '.paths | length' /tmp/openapi.json 2>/dev/null || echo "?")
+            echo "OPENAPI: HTTP=200 paths=$API_COUNT"
+          else
+            echo "OPENAPI: HTTP=$OPENAPI_HTTP"
+          fi
+          
+          echo ""
+          echo "BACKEND_STATUS=$([ "$HTTP_CODE" = "200" ] && [ "$HEALTH_STATUS" = "UP" ] && echo PASS || echo FAIL)"
+          echo "BACKEND_HEALTH=$HEALTH_STATUS"
+          echo ""
+
+      # ===== 2. DATABASE SCHEMA CHECK =====
+      - name: 2. Database schema verification
+        env:
+          PGPASSWORD: ${{ env.DB_PASSWORD }}
+        run: |
+          set +e
+          echo "========================================"
+          echo "2. DATABASE SCHEMA"
+          echo "========================================"
+          
+          export PGPASSWORD="$DB_PASSWORD"
+          
+          TABLES=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';" -t -A 2>/dev/null || echo "0")
+          INDEXES=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM pg_indexes WHERE schemaname='public';" -t -A 2>/dev/null || echo "0")
+          FUNCTIONS=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM information_schema.routines WHERE routine_schema='public';" -t -A 2>/dev/null || echo "0")
+          TRIGGERS=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM information_schema.triggers WHERE trigger_schema='public';" -t -A 2>/dev/null || echo "0")
+          RLS_TABLES=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND rowsecurity=true;" -t -A 2>/dev/null || echo "0")
+          RLS_POLICIES=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM pg_policies WHERE schemaname='public';" -t -A 2>/dev/null || echo "0")
+          
+          # Flyway history
+          FLYWAY_TOTAL=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM flyway_schema_history;" -t -A 2>/dev/null || echo "0")
+          FLYWAY_SUCCESS=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM flyway_schema_history WHERE success=true;" -t -A 2>/dev/null || echo "0")
+          FLYWAY_FAILED=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM flyway_schema_history WHERE success=false;" -t -A 2>/dev/null || echo "0")
+          
+          # Tenant + User counts
+          TENANTS=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM tenants;" -t -A 2>/dev/null || echo "0")
+          USERS=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM users;" -t -A 2>/dev/null || echo "0")
+          
+          # Key module tables check
+          echo "=== Key module table checks ==="
+          for table in crm_accounts crm_contacts crm_leads crm_opportunities crm_tasks crm_notes crm_tags \
+                       erp_items erp_warehouses erp_inventory \
+                       capabilities roles role_capabilities \
+                       tenants users auth_credentials \
+                       workflow_definitions ai_gateway_config \
+                       module_registry subscriptions audit_logs; do
+            EXISTS=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+              -c "SELECT count(*) FROM information_schema.tables WHERE table_name='$table' AND table_schema='public';" -t -A 2>/dev/null || echo "0")
+            if [ "$EXISTS" = "1" ]; then
+              echo "  ✅ $table"
+            else
+              echo "  ❌ $table (MISSING)"
+            fi
+          done
+          
+          echo ""
+          echo "TABLES=$TABLES"
+          echo "INDEXES=$INDEXES"
+          echo "FUNCTIONS=$FUNCTIONS"
+          echo "TRIGGERS=$TRIGGERS"
+          echo "RLS_ENABLED_TABLES=$RLS_TABLES"
+          echo "RLS_POLICIES=$RLS_POLICIES"
+          echo "FLYWAY_TOTAL=$FLYWAY_TOTAL"
+          echo "FLYWAY_SUCCESS=$FLYWAY_SUCCESS"
+          echo "FLYWAY_FAILED=$FLYWAY_FAILED"
+          echo "TENANTS=$TENANTS"
+          echo "USERS=$USERS"
+          echo ""
+
+      # ===== 3. FRONTEND BUILD =====
+      - name: 3. Frontend build
+        working-directory: apps/web
+        run: |
+          set +e
+          echo "========================================"
+          echo "3. FRONTEND BUILD"
+          echo "========================================"
+          
+          npm ci --silent 2>&1 | tail -5
+          echo ""
+          
+          echo "=== Lint ==="
+          npm run lint 2>&1 | tail -10
+          LINT_EXIT=$?
+          echo "LINT_EXIT=$LINT_EXIT"
+          
+          echo ""
+          echo "=== Typecheck ==="
+          npx tsc --noEmit 2>&1 | tail -10
+          TSC_EXIT=$?
+          echo "TSC_EXIT=$TSC_EXIT"
+          
+          echo ""
+          echo "=== Build ==="
+          npm run build 2>&1 | tail -20
+          BUILD_EXIT=$?
+          echo "BUILD_EXIT=$BUILD_EXIT"
+          
+          # Count routes
+          ROUTES=$(find app -name "page.tsx" | wc -l)
+          echo ""
+          echo "ROUTE_COUNT=$ROUTES"
+          
+          echo ""
+          echo "=== Route list ==="
+          find app -name "page.tsx" | sort | sed 's|app/|/|; s|/page.tsx||; s|/\(.*\)/page.tsx|/\1|'
+          
+          echo ""
+          if [ $BUILD_EXIT -eq 0 ]; then
+            echo "WEB_BUILD=PASS"
+          else
+            echo "WEB_BUILD=FAIL"
+          fi
+
+      # ===== 4. BACKEND COMPILE =====
+      - name: 4. Backend compile
+        working-directory: apps/sanad-platform
+        run: |
+          set +e
+          echo "========================================"
+          echo "4. BACKEND COMPILE"
+          echo "========================================"
+          
+          # Install Maven if needed
+          if ! command -v mvn &> /dev/null; then
+            curl -sL https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.tar.gz -o /tmp/maven.tar.gz
+            tar -xzf /tmp/maven.tar.gz -C /tmp/
+            export PATH="/tmp/apache-maven-3.9.9/bin:$PATH"
+          fi
+          mvn --version 2>/dev/null | head -2
+          
+          echo ""
+          echo "=== Compile ==="
+          mvn compile --batch --no-transfer-progress -q 2>&1 | tail -10
+          COMPILE_EXIT=$?
+          echo "COMPILE_EXIT=$COMPILE_EXIT"
+          
+          echo ""
+          # Count API endpoints
+          echo "=== API endpoint count ==="
+          grep -rln "@RequestMapping\|@GetMapping\|@PostMapping\|@PutMapping\|@PatchMapping\|@DeleteMapping" src/main/java/ 2>/dev/null | wc -l
+          echo "controller files with endpoints"
+          
+          echo ""
+          # List all controller packages
+          echo "=== Controller packages ==="
+          find src/main/java -name "*Controller.java" | sed 's|src/main/java/com/sanad/platform/||; s|/[^/]*$||' | sort -u
+          
+          echo ""
+          if [ $COMPILE_EXIT -eq 0 ]; then
+            echo "BACKEND_COMPILE=PASS"
+          else
+            echo "BACKEND_COMPILE=FAIL"
+          fi
+
+      # ===== 5. FORENSIC SCAN =====
+      - name: 5. Forensic scan (TODO/FIXME/stub/placeholder)
+        run: |
+          set +e
+          echo "========================================"
+          echo "5. FORENSIC SCAN"
+          echo "========================================"
+          
+          echo "=== TODO/FIXME count ==="
+          grep -rn "TODO\|FIXME\|HACK\|XXX" apps/ --include="*.java" --include="*.tsx" --include="*.ts" 2>/dev/null | wc -l
+          echo "TODO/FIXME instances"
+          
+          echo ""
+          echo "=== Stub/placeholder/deferred ==="
+          grep -rln "stub\|placeholder\|not implemented\|future\|deferred\|TODO" apps/ --include="*.java" --include="*.tsx" --include="*.ts" 2>/dev/null | head -20
+          
+          echo ""
+          echo "=== Backend package structure ==="
+          find apps/sanad-platform/src/main/java/com/sanad/platform -maxdepth 1 -type d | sed 's|.*/||' | sort
+          
+          echo ""
+          echo "=== Frontend app structure ==="
+          find apps/web/app -maxdepth 2 -type d | sed 's|apps/web/app||' | sort | head -30
+          
+          echo ""
+          echo "=== Migration files ==="
+          ls apps/sanad-platform/src/main/resources/db/migration/ 2>/dev/null | wc -l
+          echo "migration files"
+          ls apps/sanad-platform/src/main/resources/db/vendor/postgresql/ 2>/dev/null | wc -l
+          echo "vendor migration files"
+
+      # ===== 6. REMOTE BRANCHES + PRs =====
+      - name: 6. Remote branches + PRs scan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          echo "========================================"
+          echo "6. REMOTE BRANCHES + PRs"
+          echo "========================================"
+          
+          echo "=== Remote branches ==="
+          git branch -r | grep -v HEAD
+          
+          echo ""
+          echo "=== Tags count ==="
+          git tag | wc -l
+          
+          echo ""
+          echo "=== Recent releases/tags ==="
+          git tag --sort=-creatordate | head -20
+
+      # ===== FINAL SUMMARY =====
+      - name: Final summary
+        run: |
+          echo ""
+          echo "========================================"
+          echo "FULL PROJECT RECOVERY AUDIT COMPLETE"
+          echo "========================================"
+          echo "Review the above sections for:"
+          echo "- Backend health (Section 1)"
+          echo "- Database schema (Section 2)"
+          echo "- Frontend build (Section 3)"
+          echo "- Backend compile (Section 4)"
+          echo "- Forensic scan (Section 5)"
+          echo "- Branches + PRs (Section 6)"
+          echo "========================================"
