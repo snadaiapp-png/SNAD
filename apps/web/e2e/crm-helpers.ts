@@ -86,7 +86,7 @@ export async function createTestAccount(
   const response = await page.request.post("/api/platform/api/v1/crm/accounts", {
     data: {
       displayName,
-      accountType: overrides.accountType ?? "CUSTOMER",
+      accountType: overrides.accountType ?? "BUSINESS",
       primaryCurrencyCode: overrides.primaryCurrencyCode ?? "SAR",
       preferredLocale: "en",
       timeZone: "Asia/Riyadh",
