@@ -82,8 +82,8 @@ jobs:
             --arg name "$PROJECT_NAME" \
             --arg region "$REGION" \
             --arg password "$DB_PASSWORD" \
-            --arg plan "free" \
-            '{organization_id: $org_id, name: $name, region: $region, db_password: $password, plan_id: $plan}')
+             \
+            '{organization_id: $org_id, name: $name, region: $region, db_pass: $password}')
 
           HTTP=$(curl -s -o /tmp/create.json -w "%{http_code}" --max-time 60 \
             -X POST -H "$SB_AUTH" -H 'Content-Type: application/json' \
