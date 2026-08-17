@@ -1,0 +1,126 @@
+name: Supabase Project Status Check
+
+# Read-only check of the Supabase project's current state.
+# If the project is paused/deactivated, that explains ENOIDENTIFIER.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check Supabase project state
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Query Supabase project status
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set +e
+          SB_AUTH="Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}"
+          
+          echo "========================================"
+          echo "SUPABASE PROJECT STATUS CHECK"
+          echo "========================================"
+          echo "Project ref: ${SUPABASE_PROJECT_REF}"
+          echo ""
+
+          # 1. Project info
+          echo "=== 1. GET /v1/projects/{ref} ==="
+          HTTP=$(curl -s -o /tmp/proj.json -w "%{http_code}" --max-time 30 \
+            -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}")
+          echo "HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            echo "Project fields:"
+            jq '{id, name, region, status, db_host, db_port, database_dialect, paused_at, suspended_at}' /tmp/proj.json
+          else
+            cat /tmp/proj.json
+          fi
+          echo ""
+
+          # 2. Project settings
+          echo "=== 2. GET /v1/projects/{ref}/settings ==="
+          HTTP=$(curl -s -o /tmp/settings.json -w "%{http_code}" --max-time 30 \
+            -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/settings")
+          echo "HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            echo "Settings keys:"
+            jq 'if type=="object" then keys else type end' /tmp/settings.json
+            echo ""
+            echo "DB-related fields:"
+            jq 'to_entries | map(select(.key | test("db|database|pooler|connection"; "i"))) | from_entries' /tmp/settings.json
+          else
+            echo "Response:"
+            cat /tmp/settings.json | head -c 500
+          fi
+          echo ""
+
+          # 3. Try /postgrest (might have connection info)
+          echo "=== 3. GET /v1/projects/{ref}/postgrest ==="
+          HTTP=$(curl -s -o /tmp/pg.json -w "%{http_code}" --max-time 30 \
+            -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/postgrest")
+          echo "HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            jq '.' /tmp/pg.json | head -50
+          fi
+          echo ""
+
+          # 4. Try /databases
+          echo "=== 4. GET /v1/projects/{ref}/databases ==="
+          HTTP=$(curl -s -o /tmp/dbs.json -w "%{http_code}" --max-time 30 \
+            -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/databases")
+          echo "HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            jq '.' /tmp/dbs.json | head -50
+          fi
+          echo ""
+
+          # 5. Try /database/connection-string (might exist)
+          echo "=== 5. GET /v1/projects/{ref}/database/connection-string ==="
+          HTTP=$(curl -s -o /tmp/cs.json -w "%{http_code}" --max-time 30 \
+            -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/connection-string")
+          echo "HTTP $HTTP"
+          cat /tmp/cs.json | head -c 500
+          echo ""
+
+          # 6. Try /database/settings
+          echo "=== 6. GET /v1/projects/{ref}/database/settings ==="
+          HTTP=$(curl -s -o /tmp/ds.json -w "%{http_code}" --max-time 30 \
+            -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/settings")
+          echo "HTTP $HTTP"
+          cat /tmp/ds.json | head -c 500
+          echo ""
+
+          # 7. Try API endpoints list
+          echo "=== 7. Try /v1/projects/{ref}/config ==="
+          HTTP=$(curl -s -o /tmp/cfg.json -w "%{http_code}" --max-time 30 \
+            -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/config")
+          echo "HTTP $HTTP"
+          cat /tmp/cfg.json | head -c 500
+          echo ""
+
+          # 8. DNS resolution check (which hostname actually resolves)
+          echo "=== 8. DNS resolution check ==="
+          for host in "db.${SUPABASE_PROJECT_REF}.supabase.co" \
+                      "aws-0-eu-central-1.pooler.supabase.com" \
+                      "aws-0-eu-west-1.pooler.supabase.com" \
+                      "aws-0-us-east-1.pooler.supabase.com" \
+                      "aws-0-ap-southeast-1.pooler.supabase.com" \
+                      "${SUPABASE_PROJECT_REF}.supabase.co"; do
+            RESOLVE=$(getent hosts "$host" 2>/dev/null | head -1 || echo "")
+            if [ -n "$RESOLVE" ]; then
+              echo "  ✅ $host → $RESOLVE"
+            else
+              echo "  ❌ $host → unresolvable"
+            fi
+          done
+
+          echo ""
+          echo "========================================"
+          echo "CHECK COMPLETE"
+          echo "========================================"
