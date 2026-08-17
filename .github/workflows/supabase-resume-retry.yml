@@ -1,0 +1,212 @@
+name: Supabase Resume + Retry Deploy
+
+# After pause/restore, project status = INACTIVE
+# Need to call /resume (not /restore) to activate the project
+# Then retry deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: "Supabase project ref"
+        required: true
+        default: "urnoyiucumkjwhnxxtyc"
+
+permissions:
+  contents: read
+
+jobs:
+  resume-and-retry:
+    name: Resume project + retry deploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    steps:
+      - name: Resume + retry
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          PROJECT_REF: ${{ github.event.inputs.project_ref }}
+        run: |
+          set +e
+          SB_AUTH="Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}"
+          RENDER_AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          RENDER_BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          BACKEND_URL="https://sanad-backend-mcrj.onrender.com"
+          SB_BASE="https://api.supabase.com/v1/projects/${PROJECT_REF}"
+          POOLER_HOST="aws-0-eu-central-1.pooler.supabase.com"
+          POOLER_URL="jdbc:postgresql://${POOLER_HOST}:5432/postgres?prepareThreshold=0&sslmode=require"
+          POOLER_USERNAME="postgres.${PROJECT_REF}"
+
+          echo "========================================"
+          echo "RESUME PROJECT + RETRY DEPLOY"
+          echo "========================================"
+          echo "Project: $PROJECT_REF"
+          echo ""
+
+          # ===== STEP 1: Check current status =====
+          echo "=== STEP 1: Check current project status ==="
+          HTTP=$(curl -s -o /tmp/proj.json -w "%{http_code}" --max-time 30 -H "$SB_AUTH" "$SB_BASE")
+          echo "GET /v1/projects/{ref} -> HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            STATUS=$(jq -r '.status // "?"' /tmp/proj.json)
+            echo "Current status: $STATUS"
+          else
+            echo "Response:"
+            cat /tmp/proj.json | head -c 500
+          fi
+          echo ""
+
+          # ===== STEP 2: Try /resume endpoint =====
+          echo "=== STEP 2: POST /resume ==="
+          HTTP=$(curl -s -o /tmp/resume.json -w "%{http_code}" --max-time 60 \
+            -X POST -H "$SB_AUTH" "${SB_BASE}/resume")
+          echo "POST /resume -> HTTP $HTTP"
+          cat /tmp/resume.json | head -c 500
+          echo ""
+
+          # ===== STEP 3: Wait for ACTIVE_HEALTHY =====
+          echo "=== STEP 3: Wait for ACTIVE_HEALTHY (up to 10 min) ==="
+          STATUS=""
+          for wait_i in $(seq 1 30); do
+            sleep 20
+            HTTP=$(curl -s -o /tmp/proj-status.json -w "%{http_code}" --max-time 30 -H "$SB_AUTH" "$SB_BASE")
+            if [ "$HTTP" = "200" ]; then
+              STATUS=$(jq -r '.status // "unknown"' /tmp/proj-status.json)
+              echo "  [iter $wait_i ($((wait_i * 20))s)] status=$STATUS"
+              if [ "$STATUS" = "ACTIVE_HEALTHY" ] || [ "$STATUS" = "ACTIVE" ]; then
+                echo "  ✅ Project is healthy!"
+                break
+              fi
+            else
+              echo "  [iter $wait_i] HTTP $HTTP"
+            fi
+          done
+          echo ""
+
+          # ===== STEP 4: DNS check =====
+          echo "=== STEP 4: DNS check ==="
+          DIRECT_HOST="db.${PROJECT_REF}.supabase.co"
+          DIRECT_RESOLVE=$(getent hosts "$DIRECT_HOST" 2>/dev/null | head -1 || echo "")
+          POOLER_RESOLVE=$(getent hosts "$POOLER_HOST" 2>/dev/null | head -1 || echo "")
+          echo "Direct: $DIRECT_HOST → ${DIRECT_RESOLVE:-<unresolvable>}"
+          echo "Pooler: $POOLER_HOST → ${POOLER_RESOLVE:-<unresolvable>}"
+          echo ""
+
+          # ===== STEP 5: Update Render env vars + deploy =====
+          echo "=== STEP 5: Suspend Render + update env + resume + deploy ==="
+          
+          HTTP=$(curl -s -o /tmp/suspend.json -w "%{http_code}" --max-time 30 -X POST -H "$RENDER_AUTH" "$RENDER_BASE/suspend")
+          echo "POST /suspend -> HTTP $HTTP"
+          sleep 15
+          
+          HTTP=$(curl -s -o /tmp/db-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_URL" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_URL")
+          echo "PUT DATABASE_URL -> HTTP $HTTP"
+          
+          HTTP=$(curl -s -o /tmp/sf-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_URL" '{value:$v}')" "$RENDER_BASE/env-vars/SPRING_FLYWAY_URL")
+          echo "PUT SPRING_FLYWAY_URL -> HTTP $HTTP"
+          
+          HTTP=$(curl -s -o /tmp/user-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_USERNAME" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_USERNAME")
+          echo "PUT DATABASE_USERNAME -> HTTP $HTTP"
+          
+          HTTP=$(curl -s -o /tmp/resume2.json -w "%{http_code}" --max-time 30 -X POST -H "$RENDER_AUTH" "$RENDER_BASE/resume")
+          echo "POST /resume (Render) -> HTTP $HTTP"
+          sleep 5
+          
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" --max-time 30 -X POST \
+            -H "$RENDER_AUTH" -H 'Content-Type: application/json' -H 'Accept: application/json' \
+            --data '{"clearCache":"do_not_clear"}' "$RENDER_BASE/deploys")
+          DEPLOY_ID=$(jq -r '.id // empty' /tmp/deploy.json)
+          echo "POST /deploys -> HTTP $HTTP, Deploy ID: $DEPLOY_ID"
+          echo ""
+
+          # ===== STEP 6: Capture live logs =====
+          echo "=== STEP 6: Capture live logs ==="
+          OWNER_ID=$(curl -s --max-time 30 -H "$RENDER_AUTH" "$RENDER_BASE" | jq -r '.ownerId // .owner // empty')
+          START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p /tmp/live-logs
+          > /tmp/live-logs/all.txt
+
+          DEPLOY_STATUS="update_in_progress"
+          ITERATION=0
+          MAX_ITERATIONS=80
+
+          while [ "$DEPLOY_STATUS" = "update_in_progress" ] && [ "$ITERATION" -lt "$MAX_ITERATIONS" ]; do
+            ITERATION=$((ITERATION + 1))
+            sleep 10
+
+            DEPLOY_STATUS=$(curl -s --max-time 15 -H "$RENDER_AUTH" "$RENDER_BASE/deploys/$DEPLOY_ID" | jq -r '.deploy.status // .status // "unknown"')
+            echo "[iter $ITERATION] deploy status: $DEPLOY_STATUS"
+
+            if [ -n "$OWNER_ID" ]; then
+              URL="https://api.render.com/v1/logs?ownerId=${OWNER_ID}&resource=${RENDER_SERVICE_ID}&startTime=${START_TIME}&direction=forward&limit=200"
+              curl -s --max-time 15 -H "$RENDER_AUTH" "$URL" > /tmp/live-logs/page.json
+              jq -r 'if type=="array" then .[] elif .logs then .logs[] elif .lines then .lines[] else empty end | (if type=="object" then (.text // .message // .msg // (. | tostring)) else (tostring) end)' /tmp/live-logs/page.json 2>/dev/null >> /tmp/live-logs/all.txt
+            fi
+
+            if [ "$DEPLOY_STATUS" = "live" ]; then
+              echo "::notice::DEPLOY LIVE after $((ITERATION * 10))s"
+              break
+            fi
+            if echo "$DEPLOY_STATUS" | grep -qiE 'failed|canceled|deactivated'; then
+              echo "::error::Deploy terminal: $DEPLOY_STATUS"
+              break
+            fi
+          done
+          echo ""
+
+          echo "=== FINAL LOG DUMP (last 30 lines) ==="
+          tail -30 /tmp/live-logs/all.txt
+          echo ""
+
+          echo "=== ERROR PATTERN SEARCH ==="
+          echo "ENOIDENTIFIER: $(grep -c 'ENOIDENTIFIER' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "PKIX: $(grep -c 'PKIX\|SunCertPathBuilderException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "UnknownHostException: $(grep -c 'UnknownHostException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "password auth failed: $(grep -ci 'password.*failed\|authentication failed' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "BeanCreationException: $(grep -c 'BeanCreationException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Application run failed: $(grep -c 'Application run failed' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Started SanadPlatformApplication: $(grep -c 'Started SanadPlatformApplication' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Tomcat started: $(grep -c 'Tomcat started on port' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Flyway: $(grep -c 'Successfully applied\|Schema .* is up to date\|Migrating schema' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo ""
+
+          echo "=== Health probe ==="
+          sleep 10
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BACKEND_URL/actuator/health" || echo "000")
+          HEALTH_STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+          echo "HEALTH_HTTP: $HTTP_CODE"
+          echo "HEALTH_STATUS: $HEALTH_STATUS"
+          echo ""
+
+          echo "========================================"
+          echo "RESUME + RETRY COMPLETE"
+          echo "========================================"
+          echo "PROJECT_STATUS=$STATUS"
+          echo "DEPLOY_ID=$DEPLOY_ID"
+          echo "DEPLOY_STATUS=$DEPLOY_STATUS"
+          echo "HEALTH_HTTP=$HTTP_CODE"
+          echo "HEALTH_STATUS=$HEALTH_STATUS"
+          if [ "$DEPLOY_STATUS" = "live" ] && [ "$HTTP_CODE" = "200" ] && [ "$HEALTH_STATUS" = "UP" ]; then
+            echo "FINAL_RESULT=SUCCESS ✅✅✅"
+          elif [ "$DEPLOY_STATUS" = "live" ]; then
+            echo "FINAL_RESULT=PARTIAL (live but health not UP)"
+          else
+            echo "FINAL_RESULT=FAILED — Supabase infrastructure may need more time"
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resume-retry-logs
+          path: /tmp/live-logs/
+          if-no-files-found: warn
+          retention-days: 30
