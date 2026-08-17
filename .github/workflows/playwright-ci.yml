@@ -3,10 +3,8 @@ name: Playwright E2E & Visual Regression
 # ============================================================
 # SNAD Platform — Playwright CI Hardening (Gate 8F Item 5)
 # ------------------------------------------------------------
-# Runs the full Playwright test suite in GitHub Actions using the
-# Google Chrome installation provided by the GitHub runner image.
-# CRM backend contract and governed evidence changes also trigger
-# this workflow so a final CRM gate cannot reuse an earlier UI SHA.
+# The visual matrix remains frontend-focused. Stateful authenticated CRM
+# workflows execute once in a dedicated PostgreSQL + Spring Boot job below.
 # ============================================================
 
 on:
@@ -17,6 +15,8 @@ on:
       - 'apps/web/**'
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/resources/**'
       - 'docs/crm/**'
       - '.github/workflows/playwright-ci.yml'
   pull_request:
@@ -24,6 +24,8 @@ on:
       - 'apps/web/**'
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/resources/**'
       - 'docs/crm/**'
       - '.github/workflows/playwright-ci.yml'
   workflow_dispatch:
@@ -147,3 +149,230 @@ jobs:
           path: ${{ runner.temp }}/frontend.log
           if-no-files-found: warn
           retention-days: 14
+
+  crm-authenticated:
+    name: CRM Authenticated E2E (PostgreSQL + Spring Boot + Next.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad_test
+          POSTGRES_PASSWORD: sanad_test_pass
+          POSTGRES_DB: sanad_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad_test -d sanad_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+      DATABASE_USERNAME: sanad_test
+      DATABASE_PASSWORD: sanad_test_pass
+      DATABASE_NAME: sanad_test
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
+      SPRING_DATASOURCE_USERNAME: sanad_test
+      SPRING_DATASOURCE_PASSWORD: sanad_test_pass
+      SPRING_PROFILES_ACTIVE: crm-acceptance
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'true'
+      JPA_DDL_AUTO: validate
+      SERVER_PORT: '8080'
+      JWT_ISSUER: sanad-platform-ci
+      JWT_ACCESS_TOKEN_TTL: 60m
+      REFRESH_TOKEN_TTL: 720h
+      COOKIE_SECURE: 'false'
+      COOKIE_SAME_SITE: lax
+      BOOTSTRAP_ENABLED: 'false'
+      SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+      SANAD_CRM_IMPORT_WORKER_ENABLED: 'true'
+      SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS: '2000'
+      SANAD_CRM_IMPORT_WORKER_DELAY_MS: '2000'
+      SECURITY_NOTIFICATION_PROVIDER: disabled
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+      SANAD_SERVICE_AUTH_JWT_SECRET: 'ci-only-non-production-jwt-secret-key-32-chars-min'
+      SANAD_WORKFLOW_ENGINE_BASE_URL: 'http://127.0.0.1:8080'
+      SANAD_AI_GATEWAY_BASE_URL: 'http://127.0.0.1:8080'
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove checked-out SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          echo "expected=$expected actual=$actual"
+          test "$actual" = "$expected"
+
+      - name: Generate isolated CI credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "SANAD_CONTROL_PLANE_TENANT_ID=$(uuidgen)" >> "$GITHUB_ENV"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo 'CRM_TENANT_A_EMAIL=tenant-a-admin@snad-crm-acceptance.example' >> "$GITHUB_ENV"
+          echo 'CRM_TENANT_A_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
+
+      - name: Validate acceptance seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/crm/validate_seed_uuids.py apps/sanad-platform/src/test/resources/sql/crm-acceptance-seed.sql
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Build Spring Boot backend
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true clean package
+
+      - name: Run Flyway migrations
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress flyway:migrate \
+            -Dflyway.url="$DATABASE_URL" \
+            -Dflyway.user="$DATABASE_USERNAME" \
+            -Dflyway.password="$DATABASE_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.baselineOnMigrate=true \
+            -Dflyway.validateOnMigrate=true \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.baselineVersion=0
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Seed CRM acceptance data
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -f src/test/resources/sql/crm-acceptance-seed.sql
+
+      - name: Verify seeded tenant A identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc "SELECT COUNT(*) FROM users WHERE email='tenant-a-admin@snad-crm-acceptance.example'")"
+          test "$count" = '1'
+
+      - name: Start Spring Boot backend
+        id: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/crm-acceptance"
+          BACKEND_LOG="$RUNNER_TEMP/crm-acceptance/backend.log"
+          JAR_PATH="$(find apps/sanad-platform/target -name 'sanad-platform-*.jar' ! -name '*-sources.jar' | head -n1)"
+          test -n "$JAR_PATH"
+          java -jar "$JAR_PATH" --spring.profiles.active=crm-acceptance --spring.flyway.out-of-order=true > "$BACKEND_LOG" 2>&1 &
+          BACKEND_PID=$!
+          echo "pid=$BACKEND_PID" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/actuator/health >/dev/null; then exit 0; fi
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+              tail -120 "$BACKEND_LOG" || true
+              exit 1
+            fi
+            sleep 3
+          done
+          tail -120 "$BACKEND_LOG" || true
+          exit 1
+
+      - name: Smoke-test tenant A login
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$CRM_TENANT_A_EMAIL\",\"password\":\"$CRM_TENANT_A_PASSWORD\"}" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin).get("accessToken")'
+
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Verify runner Chrome
+        working-directory: apps/web
+        run: google-chrome --version
+
+      - name: Build Next.js production bundle
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8080
+        run: npm run build
+
+      - name: Start Next.js frontend
+        id: frontend
+        working-directory: apps/web
+        env:
+          BACKEND_API_BASE_URL: http://127.0.0.1:8080
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRONTEND_LOG="$RUNNER_TEMP/crm-acceptance/frontend.log"
+          NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production \
+            ./node_modules/.bin/next start -H 127.0.0.1 -p 3001 > "$FRONTEND_LOG" 2>&1 &
+          FRONTEND_PID=$!
+          echo "pid=$FRONTEND_PID" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          tail -100 "$FRONTEND_LOG" || true
+          exit 1
+
+      - name: Run stateful authenticated CRM suites exactly once
+        working-directory: apps/web
+        env:
+          SANAD_BACKEND_BASE_URL: http://127.0.0.1:8080
+        run: |
+          set -euo pipefail
+          npx playwright test --config=playwright.crm-acceptance.config.ts --reporter=html,list
+
+      - name: Stop services
+        if: always()
+        shell: bash
+        run: |
+          kill ${{ steps.frontend.outputs.pid }} 2>/dev/null || true
+          kill ${{ steps.backend.outputs.pid }} 2>/dev/null || true
+
+      - name: Upload CRM acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-authenticated-e2e-${{ github.run_id }}
+          path: |
+            apps/web/crm-playwright-report/
+            apps/web/test-results/
+            ${{ runner.temp }}/crm-acceptance/*.log
+          if-no-files-found: warn
+          retention-days: 30
