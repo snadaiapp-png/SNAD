@@ -20,7 +20,6 @@
     <!-- ================================================================== -->
     <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <!-- Include standard fields -->
             <includeMdcKeyName>tenant_id</includeMdcKeyName>
             <includeMdcKeyName>user_id</includeMdcKeyName>
             <includeMdcKeyName>correlation_id</includeMdcKeyName>
@@ -28,8 +27,6 @@
             <includeMdcKeyName>trace_id</includeMdcKeyName>
             <includeMdcKeyName>workflow_id</includeMdcKeyName>
             <includeMdcKeyName>organization_id</includeMdcKeyName>
-
-            <!-- Custom field names -->
             <fieldNames>
                 <timestamp>timestamp</timestamp>
                 <version>version</version>
@@ -40,19 +37,11 @@
                 <message>message</message>
                 <stackTrace>stack_trace</stackTrace>
             </fieldNames>
-
-            <!-- Static fields -->
             <customFields>
                 {"service":"sanad-platform","module":"crm-008"}
             </customFields>
-
-            <!-- Include MDC fields as top-level JSON properties -->
             <includeMdc>true</includeMdc>
-
-            <!-- Timestamp format -->
             <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</timestampPattern>
-
-            <!-- Include exception info -->
             <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
                 <maxDepthPerThrowable>30</maxDepthPerThrowable>
                 <maxLength>2048</maxLength>
@@ -104,7 +93,7 @@
     </appender>
 
     <!-- ================================================================== -->
-    <!-- Audit Appender: Structured audit trail logs                        -->
+    <!-- Audit Appender: Structured audit trail logs                         -->
     <!-- ================================================================== -->
     <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/sanad-platform-audit.log</file>
@@ -134,7 +123,20 @@
     </springProfile>
 
     <!-- ================================================================== -->
-    <!-- Profile: staging — structured JSON to console                      -->
+    <!-- Profiles: CI acceptance / performance — console evidence only       -->
+    <!-- ================================================================== -->
+    <springProfile name="crm-acceptance,perf-test">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.sanad.platform" level="INFO"/>
+        <logger name="org.springframework.web" level="INFO"/>
+        <logger name="org.hibernate.SQL" level="WARN"/>
+        <logger name="org.flywaydb" level="INFO"/>
+    </springProfile>
+
+    <!-- ================================================================== -->
+    <!-- Profile: staging — structured JSON to console                       -->
     <!-- ================================================================== -->
     <springProfile name="staging">
         <root level="INFO">
@@ -146,14 +148,13 @@
         <logger name="org.springframework.web" level="INFO"/>
         <logger name="org.hibernate.SQL" level="WARN"/>
         <logger name="org.flywaydb" level="INFO"/>
-        <!-- Audit logging -->
         <logger name="com.sanad.platform.crm.audit" level="INFO" additivity="false">
             <appender-ref ref="AUDIT_FILE"/>
         </logger>
     </springProfile>
 
     <!-- ================================================================== -->
-    <!-- Profile: prod — structured JSON + file logging                     -->
+    <!-- Profile: prod — structured JSON + file logging                      -->
     <!-- ================================================================== -->
     <springProfile name="prod">
         <root level="INFO">
@@ -165,16 +166,14 @@
         <logger name="org.springframework.web" level="WARN"/>
         <logger name="org.hibernate.SQL" level="WARN"/>
         <logger name="org.flywaydb" level="INFO"/>
-        <!-- Audit logging -->
         <logger name="com.sanad.platform.crm.audit" level="INFO" additivity="false">
             <appender-ref ref="AUDIT_FILE"/>
         </logger>
-        <!-- Operational alerting logs -->
         <logger name="com.sanad.platform.ops.alert" level="INFO"/>
     </springProfile>
 
     <!-- ================================================================== -->
-    <!-- Default (no profile) — console logging                             -->
+    <!-- Default (no profile) — console logging                              -->
     <!-- ================================================================== -->
     <springProfile name="default">
         <root level="INFO">
