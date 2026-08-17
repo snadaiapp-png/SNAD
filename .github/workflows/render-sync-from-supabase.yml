@@ -1,0 +1,303 @@
+name: Render Sync DB Config from Supabase API + Deploy
+
+# Supavisor has been rejecting ALL connections with ENOIDENTIFIER since ~09:14.
+# 8 retry attempts all failed. The pooler URL might be stale (Supabase may have
+# rotated their pooler configuration).
+#
+# This workflow:
+#   1. Queries Supabase API (using SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF)
+#      to get the CURRENT database connection settings
+#   2. Updates Render env vars (DATABASE_URL, SPRING_FLYWAY_URL,
+#      DATABASE_USERNAME, DATABASE_PASSWORD) with the fresh values
+#   3. Triggers a Render deploy
+#   4. Captures live logs + verifies health
+#
+# No secrets are printed. Only structural info (host, port, length).
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'sync-from-supabase' to confirm"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  sync-and-deploy:
+    name: Sync DB config from Supabase + deploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 25
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "sync-from-supabase" ]; then
+            echo "::error::Confirmation input must be 'sync-from-supabase'"
+            exit 1
+          fi
+
+      - name: Query Supabase + sync to Render + deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set +e  # don't exit on errors
+          
+          RENDER_AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          RENDER_BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          BACKEND_URL="https://sanad-backend-mcrj.onrender.com"
+          
+          SB_AUTH="Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}"
+          SB_BASE="https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}"
+
+          echo "========================================"
+          echo "SYNC DB CONFIG FROM SUPABASE"
+          echo "========================================"
+          echo "Supabase project ref: ${SUPABASE_PROJECT_REF}"
+          echo ""
+
+          # ----- STEP 1: Query Supabase project info -----
+          echo "=== STEP 1: Query Supabase project info ==="
+          HTTP=$(curl -s -o /tmp/sb-project.json -w "%{http_code}" --max-time 30 \
+            -H "$SB_AUTH" "$SB_BASE")
+          echo "GET /v1/projects/{ref} -> HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            echo "Project name: $(jq -r '.name // "?"' /tmp/sb-project.json)"
+            echo "Project region: $(jq -r '.region // "?"' /tmp/sb-project.json)"
+            echo "Project status: $(jq -r '.status // "?"' /tmp/sb-project.json)"
+            echo "Project db_host (legacy): $(jq -r '.db_host // "?"' /tmp/sb-project.json)"
+            echo "Project db_port: $(jq -r '.db_port // "5432"' /tmp/sb-project.json)"
+            echo "Project database_dialect: $(jq -r '.database_dialect // "?"' /tmp/sb-project.json)"
+            DB_HOST_LEGACY=$(jq -r '.db_host // empty' /tmp/sb-project.json)
+          else
+            echo "::error::Failed to query Supabase project"
+            cat /tmp/sb-project.json
+          fi
+          echo ""
+
+          # ----- STEP 2: Query Supabase database settings -----
+          echo "=== STEP 2: Query Supabase database connection settings ==="
+          # Try multiple endpoints
+          for endpoint in "/databases" "/database" "/database/connection" "/database/settings" "/config"; do
+            HTTP=$(curl -s -o /tmp/sb-db.json -w "%{http_code}" --max-time 30 \
+              -H "$SB_AUTH" "${SB_BASE}${endpoint}")
+            echo "  GET ${endpoint} -> HTTP $HTTP"
+            if [ "$HTTP" = "200" ]; then
+              echo "  Response structure:"
+              jq 'if type=="object" then keys else type end' /tmp/sb-db.json
+              echo "  Sample content (first 200 chars):"
+              head -c 200 /tmp/sb-db.json
+              echo ""
+              break
+            fi
+          done
+          echo ""
+
+          # ----- STEP 3: Query Supabase project settings for DB URL -----
+          echo "=== STEP 3: Try to find pooler/direct connection info ==="
+          # Check /settings or /postgrest or similar
+          for endpoint in "/postgrest" "/postgrest/config" "/settings" "/database/connection-string"; do
+            HTTP=$(curl -s -o /tmp/sb-cfg.json -w "%{http_code}" --max-time 30 \
+              -H "$SB_AUTH" "${SB_BASE}${endpoint}")
+            echo "  GET ${endpoint} -> HTTP $HTTP"
+            if [ "$HTTP" = "200" ]; then
+              echo "  Response (first 300 chars):"
+              head -c 300 /tmp/sb-cfg.json
+              echo ""
+              # Look for any "pooler" or "connection" related fields
+              jq -r '.. | strings | select(test("supabase.co|pooler.supabase|aws-"))' /tmp/sb-cfg.json 2>/dev/null | head -5
+              break
+            fi
+          done
+          echo ""
+
+          # ----- STEP 4: Construct expected URLs based on Supabase docs -----
+          # Supabase standard formats:
+          # Direct: db.<project_ref>.supabase.co:5432
+          # Pooler (Session mode): aws-0-<region>.pooler.supabase.com:5432
+          # Pooler (Transaction mode): aws-0-<region>.pooler.supabase.com:6543
+          echo "=== STEP 4: Determine correct URL based on project info ==="
+          
+          PROJECT_REGION=$(jq -r '.region // "eu-central-1"' /tmp/sb-project.json)
+          # Region might be like "EU Central - Frankfurt (eu-central-1)" — extract the AWS region
+          AWS_REGION=$(echo "$PROJECT_REGION" | grep -oE 'aws-[a-z]+-[a-z]+-[0-9]+' || echo "eu-central-1")
+          # Try to construct the pooler hostname
+          POOLER_HOST="aws-0-${AWS_REGION}.pooler.supabase.com"
+          DIRECT_HOST="db.${SUPABASE_PROJECT_REF}.supabase.co"
+          
+          echo "Project region: $PROJECT_REGION"
+          echo "AWS region (extracted): $AWS_REGION"
+          echo "Pooler host (guessed): $POOLER_HOST"
+          echo "Direct host (guessed): $DIRECT_HOST"
+          
+          # Use the legacy db_host if present
+          if [ -n "$DB_HOST_LEGACY" ] && [ "$DB_HOST_LEGACY" != "null" ]; then
+            echo "Using db_host from Supabase: $DB_HOST_LEGACY"
+            FINAL_HOST="$DB_HOST_LEGACY"
+          else
+            # Try DNS resolution of direct host first
+            DIRECT_RESOLVE=$(getent hosts "$DIRECT_HOST" 2>/dev/null | head -1 || echo "")
+            POOLER_RESOLVE=$(getent hosts "$POOLER_HOST" 2>/dev/null | head -1 || echo "")
+            echo "Direct host DNS: ${DIRECT_RESOLVE:-<unresolvable>}"
+            echo "Pooler host DNS: ${POOLER_RESOLVE:-<unresolvable>}"
+            
+            if [ -n "$DIRECT_RESOLVE" ]; then
+              FINAL_HOST="$DIRECT_HOST"
+              FINAL_USERNAME="postgres"
+            elif [ -n "$POOLER_RESOLVE" ]; then
+              FINAL_HOST="$POOLER_HOST"
+              FINAL_USERNAME="postgres.${SUPABASE_PROJECT_REF}"
+            else
+              echo "::error::Neither direct nor pooler host resolves"
+              FINAL_HOST="$POOLER_HOST"  # fallback
+              FINAL_USERNAME="postgres.${SUPABASE_PROJECT_REF}"
+            fi
+          fi
+          
+          # Build the JDBC URL — standard pgJDBC, no SNI factory
+          FINAL_URL="jdbc:postgresql://${FINAL_HOST}:5432/postgres?prepareThreshold=0&sslmode=require"
+          echo ""
+          echo "Final JDBC URL: $FINAL_URL"
+          echo "Final username: $FINAL_USERNAME"
+          echo ""
+
+          # ----- STEP 5: Get current DATABASE_PASSWORD (need to keep it) -----
+          echo "=== STEP 5: Read current DATABASE_PASSWORD from Render (will reuse) ==="
+          CURRENT_PASS=$(curl -s --max-time 30 -H "$RENDER_AUTH" "$RENDER_BASE/env-vars/DATABASE_PASSWORD" | jq -r '(.envVar // .).value // empty')
+          if [ -n "$CURRENT_PASS" ]; then
+            echo "Current password: PRESENT (length=${#CURRENT_PASS} — REDACTED)"
+          else
+            echo "::error::DATABASE_PASSWORD is missing on Render"
+            exit 1
+          fi
+          echo ""
+
+          # ----- STEP 6: Suspend + PUT env vars + Resume -----
+          echo "=== STEP 6: Suspend service ==="
+          HTTP=$(curl -s -o /tmp/suspend.json -w "%{http_code}" --max-time 30 -X POST -H "$RENDER_AUTH" "$RENDER_BASE/suspend")
+          echo "POST /suspend -> HTTP $HTTP"
+          sleep 15
+          echo ""
+
+          echo "=== STEP 7: PUT DATABASE_URL (fresh from Supabase) ==="
+          HTTP=$(curl -s -o /tmp/db-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$FINAL_URL" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_URL")
+          echo "PUT DATABASE_URL -> HTTP $HTTP"
+          echo ""
+
+          echo "=== STEP 8: PUT SPRING_FLYWAY_URL (same) ==="
+          HTTP=$(curl -s -o /tmp/sf-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$FINAL_URL" '{value:$v}')" "$RENDER_BASE/env-vars/SPRING_FLYWAY_URL")
+          echo "PUT SPRING_FLYWAY_URL -> HTTP $HTTP"
+          echo ""
+
+          echo "=== STEP 9: PUT DATABASE_USERNAME (fresh) ==="
+          HTTP=$(curl -s -o /tmp/user-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$FINAL_USERNAME" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_USERNAME")
+          echo "PUT DATABASE_USERNAME -> HTTP $HTTP"
+          echo ""
+
+          echo "=== STEP 10: Resume service ==="
+          HTTP=$(curl -s -o /tmp/resume.json -w "%{http_code}" --max-time 30 -X POST -H "$RENDER_AUTH" "$RENDER_BASE/resume")
+          echo "POST /resume -> HTTP $HTTP"
+          sleep 5
+          echo ""
+
+          # ----- STEP 11: Trigger deploy + capture live logs -----
+          echo "=== STEP 11: Trigger deploy + capture live logs ==="
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" --max-time 30 -X POST \
+            -H "$RENDER_AUTH" -H 'Content-Type: application/json' -H 'Accept: application/json' \
+            --data '{"clearCache":"do_not_clear"}' "$RENDER_BASE/deploys")
+          DEPLOY_ID=$(jq -r '.id // empty' /tmp/deploy.json)
+          echo "POST /deploys -> HTTP $HTTP, Deploy ID: $DEPLOY_ID"
+          echo ""
+
+          # Capture live logs
+          OWNER_ID=$(curl -s --max-time 30 -H "$RENDER_AUTH" "$RENDER_BASE" | jq -r '.ownerId // .owner // empty')
+          START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p /tmp/live-logs
+          > /tmp/live-logs/all.txt
+
+          DEPLOY_STATUS="update_in_progress"
+          ITERATION=0
+          MAX_ITERATIONS=80
+
+          while [ "$DEPLOY_STATUS" = "update_in_progress" ] && [ "$ITERATION" -lt "$MAX_ITERATIONS" ]; do
+            ITERATION=$((ITERATION + 1))
+            sleep 10
+
+            DEPLOY_STATUS=$(curl -s --max-time 15 -H "$RENDER_AUTH" "$RENDER_BASE/deploys/$DEPLOY_ID" | jq -r '.deploy.status // .status // "unknown"')
+            echo "[iter $ITERATION] deploy status: $DEPLOY_STATUS"
+
+            if [ -n "$OWNER_ID" ]; then
+              URL="https://api.render.com/v1/logs?ownerId=${OWNER_ID}&resource=${RENDER_SERVICE_ID}&startTime=${START_TIME}&direction=forward&limit=200"
+              curl -s --max-time 15 -H "$RENDER_AUTH" "$URL" > /tmp/live-logs/page.json
+              jq -r 'if type=="array" then .[] elif .logs then .logs[] elif .lines then .lines[] else empty end | (if type=="object" then (.text // .message // .msg // (. | tostring)) else (tostring) end)' /tmp/live-logs/page.json 2>/dev/null >> /tmp/live-logs/all.txt
+            fi
+
+            if [ "$DEPLOY_STATUS" = "live" ]; then
+              echo "::notice::DEPLOY LIVE after $((ITERATION * 10))s"
+              break
+            fi
+            if echo "$DEPLOY_STATUS" | grep -qiE 'failed|canceled|deactivated'; then
+              echo "::error::Deploy terminal: $DEPLOY_STATUS"
+              break
+            fi
+          done
+          echo ""
+
+          # ----- STEP 12: Final logs dump -----
+          echo "=== STEP 12: FINAL LOG DUMP (last 30 lines) ==="
+          tail -30 /tmp/live-logs/all.txt
+          echo ""
+
+          # ----- STEP 13: Error pattern search -----
+          echo "=== STEP 13: ERROR PATTERN SEARCH ==="
+          echo "ENOIDENTIFIER: $(grep -c 'ENOIDENTIFIER' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "PKIX: $(grep -c 'PKIX\|SunCertPathBuilderException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "UnknownHostException: $(grep -c 'UnknownHostException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Application run failed: $(grep -c 'Application run failed' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Started SanadPlatformApplication: $(grep -c 'Started SanadPlatformApplication' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Tomcat started: $(grep -c 'Tomcat started on port' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo ""
+
+          # ----- STEP 14: Health probe -----
+          echo "=== STEP 14: Health probe ==="
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BACKEND_URL/actuator/health" || echo "000")
+          HEALTH_STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+          echo "HTTP_CODE: $HTTP_CODE"
+          echo "STATUS: $HEALTH_STATUS"
+          echo ""
+
+          # ----- FINAL SUMMARY -----
+          echo "========================================"
+          echo "SYNC + DEPLOY COMPLETE"
+          echo "========================================"
+          echo "DEPLOY_ID=$DEPLOY_ID"
+          echo "DEPLOY_STATUS=$DEPLOY_STATUS"
+          echo "HEALTH_HTTP=$HTTP_CODE"
+          echo "HEALTH_STATUS=$HEALTH_STATUS"
+          if [ "$DEPLOY_STATUS" = "live" ] && [ "$HTTP_CODE" = "200" ] && [ "$HEALTH_STATUS" = "UP" ]; then
+            echo "FINAL_RESULT=SUCCESS ✅"
+          elif [ "$DEPLOY_STATUS" = "live" ]; then
+            echo "FINAL_RESULT=PARTIAL (live but health not UP)"
+          else
+            echo "FINAL_RESULT=FAILED — investigate next-error"
+          fi
+
+      - name: Upload live logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-sync-supabase-logs
+          path: /tmp/live-logs/
+          if-no-files-found: warn
+          retention-days: 14
