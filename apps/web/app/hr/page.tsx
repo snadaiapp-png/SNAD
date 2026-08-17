@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
@@ -29,26 +29,27 @@ export default function HrPage() {
   const [program, setProgram] = useState<ExecutionProgram | null>(null);
   const [progress, setProgress] = useState<ExecutionProgress | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const provider = new HrExecutionProvider();
-      const programs = await provider.getPrograms();
-      if (programs.length > 0) {
-        setProgram(programs[0]);
-        const prog = await provider.getProgramProgress(programs[0].id);
-        setProgress(prog);
-      }
-    } catch (e) {
-      console.error("Failed to load HR execution data:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (state === "AUTHENTICATED") loadData();
-  }, [state, loadData]);
+    if (state !== "AUTHENTICATED") return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const provider = new HrExecutionProvider();
+        const programs = await provider.getPrograms();
+        if (programs.length > 0 && !cancelled) {
+          setProgram(programs[0]);
+          const prog = await provider.getProgramProgress(programs[0].id);
+          if (!cancelled) setProgress(prog);
+        }
+      } catch (e) {
+        console.error("Failed to load HR execution data:", e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [state]);
 
   if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state))
     return <AuthLoadingState phase="session" />;

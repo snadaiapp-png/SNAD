@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
@@ -18,36 +18,37 @@ export default function FinancePage() {
   const [payments, setPayments] = useState<FinancePaymentResponse[]>([]);
   const [executionProgress, setExecutionProgress] = useState<number>(0);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [accts, invs, pays] = await Promise.all([
-        financeApi.listAccounts(),
-        financeApi.listInvoices(),
-        financeApi.listPayments(),
-      ]);
-      setAccounts(accts || []);
-      setInvoices(invs || []);
-      setPayments(pays || []);
-
-      // Get execution progress from the FinanceExecutionProvider
-      const provider = new FinanceExecutionProvider();
-      const programs = await provider.getPrograms();
-      if (programs.length > 0) {
-        const progress = await provider.getProgramProgress(programs[0].id);
-        setExecutionProgress(progress.percentage);
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "فشل تحميل البيانات المالية");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (state === "AUTHENTICATED") loadData();
-  }, [state, loadData]);
+    if (state !== "AUTHENTICATED") return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [accts, invs, pays] = await Promise.all([
+          financeApi.listAccounts(),
+          financeApi.listInvoices(),
+          financeApi.listPayments(),
+        ]);
+        if (!cancelled) {
+          setAccounts(accts || []);
+          setInvoices(invs || []);
+          setPayments(pays || []);
+          const provider = new FinanceExecutionProvider();
+          const programs = await provider.getPrograms();
+          if (programs.length > 0 && !cancelled) {
+            const progress = await provider.getProgramProgress(programs[0].id);
+            if (!cancelled) setExecutionProgress(progress.percentage);
+          }
+        }
+      } catch (e: unknown) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "فشل تحميل البيانات المالية");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [state]);
 
   if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state))
     return <AuthLoadingState phase="session" />;
