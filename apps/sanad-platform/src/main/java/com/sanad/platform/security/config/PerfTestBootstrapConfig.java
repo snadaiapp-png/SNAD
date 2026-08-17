@@ -56,9 +56,6 @@ public class PerfTestBootstrapConfig {
 
     private static final Logger log = LoggerFactory.getLogger(PerfTestBootstrapConfig.class);
 
-    // ------------------------------------------------------------------
-    // Deterministic identifiers — mirrored by performance/k6/crm-performance-baseline.js
-    // ------------------------------------------------------------------
     static final UUID TENANT_ID = UUID.fromString("40000000-0000-4000-8000-000000000001");
     static final UUID ORG_ID = UUID.fromString("40000000-0000-4000-8000-000000000002");
     static final UUID ADMIN_USER_ID = UUID.fromString("40000000-0000-4000-8000-000000000003");
@@ -74,10 +71,6 @@ public class PerfTestBootstrapConfig {
     static final UUID OPPORTUNITY_ID = UUID.fromString("40000000-0000-4000-8000-000000000015");
     static final UUID LEAD_ID = UUID.fromString("40000000-0000-4000-8000-000000000020");
 
-    /**
-     * Acceptance-only wiring for the credential bootstrap dependency required by
-     * the internal bootstrap controller (mirrors CrmAcceptanceBootstrapConfig).
-     */
     @Bean
     CredentialBootstrapService perfTestCredentialBootstrapService(
             TenantRepository tenantRepository,
@@ -103,11 +96,6 @@ public class PerfTestBootstrapConfig {
         );
     }
 
-    /**
-     * Seeds the deterministic perf-test environment once the context is up.
-     * Fails fast when required environment secrets are missing so a benchmark
-     * run can never silently fall back to ephemeral keys or empty credentials.
-     */
     @Bean
     ApplicationRunner perfTestEnvironmentSeeder(
             JdbcTemplate jdbcTemplate,
@@ -137,10 +125,6 @@ public class PerfTestBootstrapConfig {
         };
     }
 
-    /**
-     * Idempotent whole-environment seed executed in a single transaction so a
-     * crash mid-way leaves the database untouched and the next boot re-seeds.
-     */
     private void seedEnvironment(JdbcTemplate jdbc, String passwordHash, String adminEmail) {
         Integer existing = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM tenants WHERE id = ?", Integer.class, TENANT_ID);
@@ -161,9 +145,6 @@ public class PerfTestBootstrapConfig {
                         'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, ORG_ID, TENANT_ID);
 
-        // must_change_password = FALSE is critical: the JWT filter forbids all
-        // /api/** calls (except auth/me, change-credential, logout) while rotation
-        // is pending. The perf-admin login must yield a fully usable token.
         jdbc.update("""
                 INSERT INTO users (id, tenant_id, email, display_name, status, password_hash,
                                    must_change_password, platform_admin, session_version,
@@ -178,8 +159,6 @@ public class PerfTestBootstrapConfig {
                 VALUES (?, ?, ?, ?, ?, 'Perf Test Admin', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, MEMBERSHIP_ID, TENANT_ID, ORG_ID, ADMIN_USER_ID, adminEmail);
 
-        // The perf tenant is created at runtime (after migrations), so neither
-        // V15 nor V20260702_2 has created its ADMIN role — create it here.
         jdbc.update("""
                 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
                 VALUES (?, ?, 'ADMIN', 'Administrator',
@@ -187,23 +166,27 @@ public class PerfTestBootstrapConfig {
                         'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, ADMIN_ROLE_ID, TENANT_ID);
 
-        // Grant every ACTIVE capability to the ADMIN role, mirroring
-        // CredentialBootstrapService.ensureAdminAllCapabilities.
-        jdbc.update("""
-                INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
-                SELECT RANDOM_UUID(), ?, ?, cap.id, CURRENT_TIMESTAMP
-                  FROM access_capabilities cap
-                 WHERE cap.status = 'ACTIVE'
-                   AND NOT EXISTS (
-                       SELECT 1 FROM role_capabilities existing
-                        WHERE existing.tenant_id = ?
-                          AND existing.role_id = ?
-                          AND existing.capability_id = cap.id
-                   )
-                """, TENANT_ID, ADMIN_ROLE_ID, TENANT_ID, ADMIN_ROLE_ID);
+        // Generate role-capability row IDs in Java instead of relying on the
+        // H2-specific RANDOM_UUID() SQL function. This keeps the perf seed
+        // portable across the governed PostgreSQL CI path and local H2 tests.
+        jdbc.queryForList(
+                        "SELECT id FROM access_capabilities WHERE status = 'ACTIVE'", UUID.class)
+                .forEach(capabilityId -> {
+                    Integer capabilityGrantExists = jdbc.queryForObject("""
+                            SELECT COUNT(*) FROM role_capabilities
+                             WHERE tenant_id = ?
+                               AND role_id = ?
+                               AND capability_id = ?
+                            """, Integer.class, TENANT_ID, ADMIN_ROLE_ID, capabilityId);
+                    if (capabilityGrantExists == null || capabilityGrantExists == 0) {
+                        jdbc.update("""
+                                INSERT INTO role_capabilities
+                                    (id, tenant_id, role_id, capability_id, created_at)
+                                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                """, UUID.randomUUID(), TENANT_ID, ADMIN_ROLE_ID, capabilityId);
+                    }
+                });
 
-        // Tenant-wide grant (organization_id NULL) so CRM endpoints without an
-        // organizationId query parameter are authorized against this role.
         jdbc.update("""
                 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id,
                         status, created_at, updated_at)
@@ -262,9 +245,6 @@ public class PerfTestBootstrapConfig {
                 """, OPPORTUNITY_ID, TENANT_ID, ACCOUNT_ID, CONTACT_ID, PIPELINE_ID, STAGE_1_ID,
                 ADMIN_USER_ID, ADMIN_USER_ID, ADMIN_USER_ID);
 
-        // Seeded as CONVERTED so the lead-conversion endpoint exercises its
-        // deterministic idempotent replay path for the whole benchmark run —
-        // no first-request write race, no version conflicts at 12.5 RPS.
         jdbc.update("""
                 INSERT INTO crm_leads (id, tenant_id, version, display_name, normalized_name,
                         company_name, email, normalized_email, phone, source, status,
