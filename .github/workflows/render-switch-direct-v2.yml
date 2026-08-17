@@ -1,0 +1,208 @@
+name: Render Switch to Direct Connection + Deploy
+
+# Supavisor pooler keeps rejecting with ENOIDENTIFIER (even for new project).
+# Try direct connection which bypasses Supavisor entirely.
+#
+# Direct connection format:
+#   HOST: db.<project_ref>.supabase.co
+#   PORT: 5432
+#   USERNAME: postgres (no project ref)
+#   PASSWORD: <DB_PASSWORD>
+#   DATABASE: postgres
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: "Supabase project ref"
+        required: true
+        default: "urnoyiucumkjwhnxxtyc"
+
+permissions:
+  contents: read
+
+jobs:
+  switch-direct:
+    name: Switch to Direct connection + deploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 25
+    steps:
+      - name: Switch to direct + deploy + capture
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          DB_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+          PROJECT_REF: ${{ github.event.inputs.project_ref }}
+        run: |
+          set +e
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          BACKEND_URL="https://sanad-backend-mcrj.onrender.com"
+          
+          DIRECT_HOST="db.${PROJECT_REF}.supabase.co"
+          DIRECT_URL="jdbc:postgresql://${DIRECT_HOST}:5432/postgres?sslmode=require&prepareThreshold=0"
+          DIRECT_USERNAME="postgres"
+
+          echo "========================================"
+          echo "SWITCH TO DIRECT CONNECTION"
+          echo "========================================"
+          echo "Direct host: $DIRECT_HOST"
+          echo "Direct URL: $DIRECT_URL"
+          echo "Username: $DIRECT_USERNAME"
+          echo ""
+
+          # DNS resolution check first
+          echo "=== DNS resolution check ==="
+          DIRECT_RESOLVE=$(getent hosts "$DIRECT_HOST" 2>/dev/null | head -1 || echo "")
+          if [ -n "$DIRECT_RESOLVE" ]; then
+            echo "✅ $DIRECT_HOST → $DIRECT_RESOLVE"
+          else
+            echo "❌ $DIRECT_HOST → unresolvable"
+            echo "Direct connection may not be available yet (new project may take time)"
+            echo "Proceeding anyway..."
+          fi
+          echo ""
+
+          # Suspend + PUT env vars + Resume + Deploy
+          echo "=== STEP 1: Suspend ==="
+          HTTP=$(curl -s -o /tmp/suspend.json -w "%{http_code}" --max-time 30 -X POST -H "$AUTH" "$BASE/suspend")
+          echo "POST /suspend -> HTTP $HTTP"
+          sleep 15
+          echo ""
+
+          echo "=== STEP 2: PUT DATABASE_URL (direct) ==="
+          HTTP=$(curl -s -o /tmp/db-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$DIRECT_URL" '{value:$v}')" "$BASE/env-vars/DATABASE_URL")
+          echo "PUT DATABASE_URL -> HTTP $HTTP"
+          echo ""
+
+          echo "=== STEP 3: PUT SPRING_FLYWAY_URL (direct) ==="
+          HTTP=$(curl -s -o /tmp/sf-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$DIRECT_URL" '{value:$v}')" "$BASE/env-vars/SPRING_FLYWAY_URL")
+          echo "PUT SPRING_FLYWAY_URL -> HTTP $HTTP"
+          echo ""
+
+          echo "=== STEP 4: PUT DATABASE_USERNAME=postgres ==="
+          HTTP=$(curl -s -o /tmp/user-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$DIRECT_USERNAME" '{value:$v}')" "$BASE/env-vars/DATABASE_USERNAME")
+          echo "PUT DATABASE_USERNAME -> HTTP $HTTP"
+          echo ""
+
+          # DATABASE_PASSWORD should already be set from previous workflow
+          # Verify it
+          echo "=== STEP 5: Verify DATABASE_PASSWORD ==="
+          PASS_CHECK=$(curl -s --max-time 30 -H "$AUTH" "$BASE/env-vars/DATABASE_PASSWORD" | jq -r '(.envVar // .).value // empty' | wc -c)
+          if [ "$PASS_CHECK" -gt 1 ]; then
+            echo "✅ DATABASE_PASSWORD present (length hidden)"
+          else
+            echo "⚠ DATABASE_PASSWORD missing — setting it now"
+            HTTP=$(curl -s -o /tmp/pass-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+              -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+              --data "$(jq -n --arg v "$DB_PASSWORD" '{value:$v}')" "$BASE/env-vars/DATABASE_PASSWORD")
+            echo "PUT DATABASE_PASSWORD -> HTTP $HTTP"
+          fi
+          echo ""
+
+          echo "=== STEP 6: Resume ==="
+          HTTP=$(curl -s -o /tmp/resume.json -w "%{http_code}" --max-time 30 -X POST -H "$AUTH" "$BASE/resume")
+          echo "POST /resume -> HTTP $HTTP"
+          sleep 5
+          echo ""
+
+          echo "=== STEP 7: Trigger deploy ==="
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" --max-time 30 -X POST \
+            -H "$AUTH" -H 'Content-Type: application/json' -H 'Accept: application/json' \
+            --data '{"clearCache":"do_not_clear"}' "$BASE/deploys")
+          DEPLOY_ID=$(jq -r '.id // empty' /tmp/deploy.json)
+          echo "POST /deploys -> HTTP $HTTP, Deploy ID: $DEPLOY_ID"
+          echo ""
+
+          # Capture live logs
+          echo "=== STEP 8: Capture live logs ==="
+          OWNER_ID=$(curl -s --max-time 30 -H "$AUTH" "$BASE" | jq -r '.ownerId // .owner // empty')
+          START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p /tmp/live-logs
+          > /tmp/live-logs/all.txt
+
+          DEPLOY_STATUS="update_in_progress"
+          ITERATION=0
+          MAX_ITERATIONS=80
+
+          while [ "$DEPLOY_STATUS" = "update_in_progress" ] && [ "$ITERATION" -lt "$MAX_ITERATIONS" ]; do
+            ITERATION=$((ITERATION + 1))
+            sleep 10
+
+            DEPLOY_STATUS=$(curl -s --max-time 15 -H "$AUTH" "$BASE/deploys/$DEPLOY_ID" | jq -r '.deploy.status // .status // "unknown"')
+            echo "[iter $ITERATION] deploy status: $DEPLOY_STATUS"
+
+            if [ -n "$OWNER_ID" ]; then
+              URL="https://api.render.com/v1/logs?ownerId=${OWNER_ID}&resource=${RENDER_SERVICE_ID}&startTime=${START_TIME}&direction=forward&limit=200"
+              curl -s --max-time 15 -H "$AUTH" "$URL" > /tmp/live-logs/page.json
+              jq -r 'if type=="array" then .[] elif .logs then .logs[] elif .lines then .lines[] else empty end | (if type=="object" then (.text // .message // .msg // (. | tostring)) else (tostring) end)' /tmp/live-logs/page.json 2>/dev/null >> /tmp/live-logs/all.txt
+            fi
+
+            if [ "$DEPLOY_STATUS" = "live" ]; then
+              echo "::notice::DEPLOY LIVE after $((ITERATION * 10))s"
+              break
+            fi
+            if echo "$DEPLOY_STATUS" | grep -qiE 'failed|canceled|deactivated'; then
+              echo "::error::Deploy terminal: $DEPLOY_STATUS"
+              break
+            fi
+          done
+          echo ""
+
+          # Final logs
+          echo "=== STEP 9: FINAL LOG DUMP (last 30 lines) ==="
+          tail -30 /tmp/live-logs/all.txt
+          echo ""
+
+          # Error patterns
+          echo "=== STEP 10: ERROR PATTERN SEARCH ==="
+          echo "ENOIDENTIFIER: $(grep -c 'ENOIDENTIFIER' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "PKIX: $(grep -c 'PKIX\|SunCertPathBuilderException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "UnknownHostException: $(grep -c 'UnknownHostException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "password auth failed: $(grep -ci 'password authentication failed\|password.*failed\|auth.*failed' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "BeanCreationException: $(grep -c 'BeanCreationException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Application run failed: $(grep -c 'Application run failed' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Started SanadPlatformApplication: $(grep -c 'Started SanadPlatformApplication' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Tomcat started: $(grep -c 'Tomcat started on port' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Flyway: $(grep -c 'Successfully applied\|Schema .* is up to date\|Migrating schema' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo ""
+
+          # Health probe
+          echo "=== STEP 11: Health probe ==="
+          sleep 10
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BACKEND_URL/actuator/health" || echo "000")
+          HEALTH_STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+          echo "HEALTH_HTTP: $HTTP_CODE"
+          echo "HEALTH_STATUS: $HEALTH_STATUS"
+          echo ""
+
+          echo "========================================"
+          echo "DIRECT CONNECTION DEPLOY COMPLETE"
+          echo "========================================"
+          echo "DEPLOY_ID=$DEPLOY_ID"
+          echo "DEPLOY_STATUS=$DEPLOY_STATUS"
+          echo "HEALTH_HTTP=$HTTP_CODE"
+          echo "HEALTH_STATUS=$HEALTH_STATUS"
+          if [ "$DEPLOY_STATUS" = "live" ] && [ "$HTTP_CODE" = "200" ] && [ "$HEALTH_STATUS" = "UP" ]; then
+            echo "FINAL_RESULT=SUCCESS ✅✅✅"
+          elif [ "$DEPLOY_STATUS" = "live" ]; then
+            echo "FINAL_RESULT=PARTIAL (live but health not UP)"
+          else
+            echo "FINAL_RESULT=FAILED — investigate next-error"
+          fi
+
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: direct-connection-logs
+          path: /tmp/live-logs/
+          if-no-files-found: warn
+          retention-days: 30
