@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,6 +33,7 @@ public class CrmOpenApiConfiguration {
 
     static final String CRM_PREFIX = "/api/v2/crm";
     static final String BEARER_AUTH = "BearerAuth";
+    private static final String IDEMPOTENCY_KEY = "Idempotency-Key";
     private static final Set<String> CREATED_COLLECTION_PATHS = Set.of(
             CRM_PREFIX + "/accounts",
             CRM_PREFIX + "/contacts",
@@ -44,6 +46,7 @@ public class CrmOpenApiConfiguration {
             CRM_PREFIX + "/contacts/{contactId}/communication-methods",
             CRM_PREFIX + "/addresses/import",
             CRM_PREFIX + "/communication-methods/import",
+            CRM_PREFIX + "/pipelines",
             CRM_PREFIX + "/teams",
             CRM_PREFIX + "/teams/{teamId}/memberships",
             CRM_PREFIX + "/queues",
@@ -76,7 +79,7 @@ public class CrmOpenApiConfiguration {
                 }
                 operations(pathItem).forEach((method, operation) -> {
                     requireBearerAuthentication(operation);
-                    normalizeContractParameters(operation);
+                    normalizeContractParameters(path, method, operation);
                     normalizeCreationResponse(path, method, operation);
                 });
             });
@@ -94,14 +97,31 @@ public class CrmOpenApiConfiguration {
         }
     }
 
-    private static void normalizeContractParameters(Operation operation) {
+    private static void normalizeContractParameters(
+            String path,
+            PathItem.HttpMethod method,
+            Operation operation) {
+        if (method == PathItem.HttpMethod.POST
+                && (CRM_PREFIX + "/pipelines").equals(path)
+                && !hasParameter(operation, IDEMPOTENCY_KEY, "header")) {
+            List<Parameter> parameters = operation.getParameters() == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(operation.getParameters());
+            parameters.add(new Parameter()
+                    .name(IDEMPOTENCY_KEY)
+                    .in("header")
+                    .required(true)
+                    .schema(new Schema<>().type("string")));
+            operation.setParameters(parameters);
+        }
+
         if (operation.getParameters() == null) {
             return;
         }
         for (Parameter parameter : operation.getParameters()) {
             String name = parameter.getName();
             if ("If-Match".equalsIgnoreCase(name)
-                    || "Idempotency-Key".equalsIgnoreCase(name)) {
+                    || IDEMPOTENCY_KEY.equalsIgnoreCase(name)) {
                 parameter.setRequired(true);
             }
             if ("limit".equals(name) && "query".equals(parameter.getIn())) {
@@ -116,6 +136,14 @@ public class CrmOpenApiConfiguration {
                 schema.setDefault(50);
             }
         }
+    }
+
+    private static boolean hasParameter(Operation operation, String name, String in) {
+        if (operation.getParameters() == null) {
+            return false;
+        }
+        return operation.getParameters().stream().anyMatch(parameter ->
+                name.equalsIgnoreCase(parameter.getName()) && in.equalsIgnoreCase(parameter.getIn()));
     }
 
     private static void normalizeCreationResponse(
