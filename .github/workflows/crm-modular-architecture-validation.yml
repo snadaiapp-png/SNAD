@@ -29,6 +29,26 @@ jobs:
     name: CRM Modular Architecture Validation
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sanad_arch
+          POSTGRES_PASSWORD: sanad_arch_pass
+          POSTGRES_DB: sanad_arch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sanad_arch -d sanad_arch"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_arch
+      SPRING_DATASOURCE_USERNAME: sanad_arch
+      SPRING_DATASOURCE_PASSWORD: sanad_arch_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
