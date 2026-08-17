@@ -223,6 +223,14 @@ jobs:
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
           echo 'CRM_TENANT_A_EMAIL=tenant-a-admin@snad-crm-acceptance.example' >> "$GITHUB_ENV"
           echo 'CRM_TENANT_A_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
+          echo 'CRM_TENANT_B_EMAIL=tenant-b-admin@snad-crm-acceptance.example' >> "$GITHUB_ENV"
+          echo 'CRM_TENANT_B_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
+          echo 'CRM_READONLY_EMAIL=tenant-a-readonly@snad-crm-acceptance.example' >> "$GITHUB_ENV"
+          echo 'CRM_READONLY_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
+          echo 'CRM_LEAD_WRITER_EMAIL=tenant-a-lead-writer@snad-crm-acceptance.example' >> "$GITHUB_ENV"
+          echo 'CRM_LEAD_WRITER_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
+          echo 'CRM_IMPORT_READER_EMAIL=tenant-a-import-reader@snad-crm-acceptance.example' >> "$GITHUB_ENV"
+          echo 'CRM_IMPORT_READER_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
 
       - name: Validate acceptance seed
         shell: bash
@@ -276,12 +284,14 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f src/test/resources/sql/crm-acceptance-seed.sql
 
-      - name: Verify seeded tenant A identity
+      - name: Verify seeded identities
         shell: bash
         run: |
           set -euo pipefail
-          count="$(PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc "SELECT COUNT(*) FROM users WHERE email='tenant-a-admin@snad-crm-acceptance.example'")"
-          test "$count" = '1'
+          count="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
+            "SELECT COUNT(*) FROM users WHERE email IN ('tenant-a-admin@snad-crm-acceptance.example','tenant-b-admin@snad-crm-acceptance.example','tenant-a-readonly@snad-crm-acceptance.example','tenant-a-lead-writer@snad-crm-acceptance.example','tenant-a-import-reader@snad-crm-acceptance.example')")"
+          test "$count" = '5'
 
       - name: Start Spring Boot backend
         id: backend
@@ -306,15 +316,24 @@ jobs:
           tail -120 "$BACKEND_LOG" || true
           exit 1
 
-      - name: Smoke-test tenant A login
+      - name: Smoke-test all seeded logins
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
-            -X POST http://127.0.0.1:8080/api/v1/auth/login \
-            -H 'Content-Type: application/json' \
-            -d "{\"email\":\"$CRM_TENANT_A_EMAIL\",\"password\":\"$CRM_TENANT_A_PASSWORD\"}" \
-            | python3 -c 'import json,sys; assert json.load(sys.stdin).get("accessToken")'
+          login_check() {
+            local email="$1"
+            local password="$2"
+            curl --fail --silent --show-error \
+              -X POST http://127.0.0.1:8080/api/v1/auth/login \
+              -H 'Content-Type: application/json' \
+              -d "{\"email\":\"${email}\",\"password\":\"${password}\"}" \
+              | python3 -c 'import json,sys; assert json.load(sys.stdin).get("accessToken")'
+          }
+          login_check "$CRM_TENANT_A_EMAIL" "$CRM_TENANT_A_PASSWORD"
+          login_check "$CRM_TENANT_B_EMAIL" "$CRM_TENANT_B_PASSWORD"
+          login_check "$CRM_READONLY_EMAIL" "$CRM_READONLY_PASSWORD"
+          login_check "$CRM_LEAD_WRITER_EMAIL" "$CRM_LEAD_WRITER_PASSWORD"
+          login_check "$CRM_IMPORT_READER_EMAIL" "$CRM_IMPORT_READER_PASSWORD"
 
       - name: Install frontend dependencies
         working-directory: apps/web
