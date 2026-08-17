@@ -22,7 +22,8 @@ import { test, expect, type Page } from "@playwright/test";
 const TERMINAL_STATUSES = ["CONVERTED", "ARCHIVED"];
 
 async function waitForLeadsPage(page: Page): Promise<void> {
-  await page.goto("/crm", { waitUntil: "domcontentloaded" });
+  // /crm redirects to /crm/overview; this spec must exercise the leads table.
+  await page.goto("/crm/leads", { waitUntil: "domcontentloaded" });
   await page.waitForSelector('table', { timeout: 15_000 });
 }
 
