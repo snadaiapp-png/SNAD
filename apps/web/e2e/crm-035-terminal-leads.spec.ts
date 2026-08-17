@@ -14,6 +14,8 @@
  * Required: Authentication with a CRM tenant that has terminal leads.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { loginThroughUi } from "./crm-auth-session";
+import { TENANT_A_EMAIL, TENANT_A_PASSWORD } from "./crm-helpers";
 
 /* ============================================================================
  *  Helpers
@@ -24,7 +26,7 @@ const TERMINAL_STATUSES = ["CONVERTED", "ARCHIVED"];
 async function waitForLeadsPage(page: Page): Promise<void> {
   // /crm redirects to /crm/overview; this spec must exercise the leads table.
   await page.goto("/crm/leads", { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('table', { timeout: 15_000 });
+  await page.waitForSelector("table", { timeout: 15_000 });
 }
 
 /* ============================================================================
@@ -33,6 +35,15 @@ async function waitForLeadsPage(page: Page): Promise<void> {
 
 test.describe("CRM-035: Terminal Lead Status Protection", () => {
   test.setTimeout(60_000);
+
+  test.beforeAll(async () => {
+    expect(TENANT_A_EMAIL, "CRM_TENANT_A_EMAIL env var must be set").toBeTruthy();
+    expect(TENANT_A_PASSWORD, "CRM_TENANT_A_PASSWORD env var must be set").toBeTruthy();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await loginThroughUi(page, TENANT_A_EMAIL, TENANT_A_PASSWORD);
+  });
 
   test("Terminal leads show read-only status badge, not editable selector", async ({ page }) => {
     /* Intercept PATCH requests to detect any status change attempts */
