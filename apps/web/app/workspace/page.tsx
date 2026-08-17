@@ -88,6 +88,62 @@ export default function WorkspacePage() {
                 <span className={styles.appAction}>{t("workspace.openSystemHealth")}</span>
               </Link>
             )}
+            <Link className={styles.appCard} href="/finance" prefetch>
+              <div>
+                <div className={styles.appName}>{t("workspace.openFinance")}</div>
+                <p className={styles.appDescription}>{t("workspace.financeDescription")}</p>
+              </div>
+              <span className={styles.appAction}>{t("workspace.openFinance")}</span>
+            </Link>
+            <Link className={styles.appCard} href="/erp" prefetch>
+              <div>
+                <div className={styles.appName}>{t("workspace.openErp")}</div>
+                <p className={styles.appDescription}>{t("workspace.erpDescription")}</p>
+              </div>
+              <span className={styles.appAction}>{t("workspace.openErp")}</span>
+            </Link>
+            <Link className={styles.appCard} href="/workflow" prefetch>
+              <div>
+                <div className={styles.appName}>{t("workspace.openWorkflow")}</div>
+                <p className={styles.appDescription}>{t("workspace.workflowDescription")}</p>
+              </div>
+              <span className={styles.appAction}>{t("workspace.openWorkflow")}</span>
+            </Link>
+            <Link className={styles.appCard} href="/analytics" prefetch>
+              <div>
+                <div className={styles.appName}>{t("workspace.openAnalytics")}</div>
+                <p className={styles.appDescription}>{t("workspace.analyticsDescription")}</p>
+              </div>
+              <span className={styles.appAction}>{t("workspace.openAnalytics")}</span>
+            </Link>
+            <Link className={styles.appCard} href="/ai-platform" prefetch>
+              <div>
+                <div className={styles.appName}>{t("workspace.openAiPlatform")}</div>
+                <p className={styles.appDescription}>{t("workspace.aiPlatformDescription")}</p>
+              </div>
+              <span className={styles.appAction}>{t("workspace.openAiPlatform")}</span>
+            </Link>
+            <Link className={styles.appCard} href="/stores" prefetch>
+              <div>
+                <div className={styles.appName}>{t("workspace.openStores")}</div>
+                <p className={styles.appDescription}>{t("workspace.storesDescription")}</p>
+              </div>
+              <span className={styles.appAction}>{t("workspace.openStores")}</span>
+            </Link>
+            <Link className={styles.appCard} href="/websites" prefetch>
+              <div>
+                <div className={styles.appName}>{t("workspace.openWebsites")}</div>
+                <p className={styles.appDescription}>{t("workspace.websitesDescription")}</p>
+              </div>
+              <span className={styles.appAction}>{t("workspace.openWebsites")}</span>
+            </Link>
+            <Link className={styles.appCard} href="/management" prefetch>
+              <div>
+                <div className={styles.appName}>{t("workspace.openManagement")}</div>
+                <p className={styles.appDescription}>{t("workspace.managementDescription")}</p>
+              </div>
+              <span className={styles.appAction}>{t("workspace.openManagement")}</span>
+            </Link>
           </div>
         </section>
 
