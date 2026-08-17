@@ -1,0 +1,372 @@
+name: Supabase Delete Old + Create New + Deploy
+
+# User has hit the 2-project limit on Supabase free tier. The user has
+# explicitly authorized deletion of old projects + creation of new one.
+#
+# Flow:
+#   1. Delete project 1 (hxhvfqxzigrqoxxnnzje - sanad-production-v2)
+#   2. Delete project 2 (qjwbnrfmxnwqubhksezy - sanad-staging-g7)
+#   3. Wait for deletions to complete (list shows 0 projects)
+#   4. Create new project (sanad-production, region eu-central-1)
+#   5. Wait for ACTIVE_HEALTHY (up to 15 min)
+#   6. Update GitHub Secrets + Render env vars
+#   7. Trigger deploy + capture live logs
+#   8. Verify health
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: "New project name (default: sanad-production)"
+        required: true
+        default: "sanad-production"
+      db_password:
+        description: "Database password (will be stored as secret)"
+        required: true
+        type: string
+      delete_old_projects:
+        description: "Type 'DELETE-OLD-PROJECTS' to confirm deletion"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  full-recovery:
+    name: Delete old + Create new + Configure + Deploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 45
+    steps:
+      - name: Confirm deletion authorization
+        run: |
+          if [ "${{ github.event.inputs.delete_old_projects }}" != "DELETE-OLD-PROJECTS" ]; then
+            echo "::error::Must type 'DELETE-OLD-PROJECTS' to authorize deletion"
+            exit 1
+          fi
+          echo "Deletion authorized"
+
+      - name: Delete + Create + Configure + Deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_NAME: ${{ github.event.inputs.project_name }}
+          DB_PASSWORD: ${{ github.event.inputs.db_password }}
+        run: |
+          set +e
+          SB_AUTH="Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}"
+          RENDER_AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          RENDER_BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          BACKEND_URL="https://sanad-backend-mcrj.onrender.com"
+          ORG_ID="asghwzikbbykbohgkdba"
+          REGION="eu-central-1"
+          POOLER_HOST="aws-0-${REGION}.pooler.supabase.com"
+          
+          # Known old projects to delete
+          OLD_PROJECT_1="hxhvfqxzigrqoxxnnzje"
+          OLD_PROJECT_2="qjwbnrfmxnwqubhksezy"
+
+          echo "========================================"
+          echo "FULL RECOVERY — DELETE OLD + CREATE NEW + DEPLOY"
+          echo "========================================"
+          echo "Old project 1 (to delete): $OLD_PROJECT_1 (sanad-production-v2)"
+          echo "Old project 2 (to delete): $OLD_PROJECT_2 (sanad-staging-g7)"
+          echo "New project name: $PROJECT_NAME"
+          echo "Region: $REGION"
+          echo ""
+
+          # ===== STEP 1: Delete old project 1 =====
+          echo "=== STEP 1: Delete old project 1 ($OLD_PROJECT_1) ==="
+          HTTP=$(curl -s -o /tmp/del1.json -w "%{http_code}" --max-time 60 \
+            -X DELETE -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${OLD_PROJECT_1}")
+          echo "DELETE /v1/projects/$OLD_PROJECT_1 -> HTTP $HTTP"
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "202" ] || [ "$HTTP" = "204" ]; then
+            echo "✅ Project 1 deletion initiated"
+          else
+            echo "⚠ Project 1 deletion returned $HTTP:"
+            cat /tmp/del1.json | head -c 300
+          fi
+          echo ""
+
+          # ===== STEP 2: Delete old project 2 =====
+          echo "=== STEP 2: Delete old project 2 ($OLD_PROJECT_2) ==="
+          HTTP=$(curl -s -o /tmp/del2.json -w "%{http_code}" --max-time 60 \
+            -X DELETE -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${OLD_PROJECT_2}")
+          echo "DELETE /v1/projects/$OLD_PROJECT_2 -> HTTP $HTTP"
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "202" ] || [ "$HTTP" = "204" ]; then
+            echo "✅ Project 2 deletion initiated"
+          else
+            echo "⚠ Project 2 deletion returned $HTTP:"
+            cat /tmp/del2.json | head -c 300
+          fi
+          echo ""
+
+          # ===== STEP 3: Wait for deletions to complete =====
+          echo "=== STEP 3: Wait for deletions to complete (up to 5 min) ==="
+          for wait_i in $(seq 1 15); do
+            sleep 20
+            HTTP=$(curl -s -o /tmp/remaining.json -w "%{http_code}" --max-time 30 \
+              -H "$SB_AUTH" "https://api.supabase.com/v1/projects")
+            REMAINING=$(jq 'if type=="array" then length else 0 end' /tmp/remaining.json 2>/dev/null || echo "?")
+            echo "  [iter $wait_i ($((wait_i * 20))s)] remaining projects: $REMAINING"
+            if [ "$REMAINING" = "0" ]; then
+              echo "  ✅ All old projects deleted!"
+              break
+            fi
+            # Show remaining projects
+            jq -r '.[]? | "    - \(.id // .ref // "?") (\(.name // "?"), \(.status // "?"))"' /tmp/remaining.json 2>/dev/null
+          done
+          
+          # If still projects, list them
+          if [ "$REMAINING" != "0" ]; then
+            echo "⚠ Deletion may still be in progress. Proceeding with new project creation anyway."
+            echo "Remaining projects (these may have status=REMOVED or similar):"
+            cat /tmp/remaining.json | jq '.'
+          fi
+          echo ""
+
+          # ===== STEP 4: Create new project =====
+          echo "=== STEP 4: Create new project ($PROJECT_NAME) ==="
+          CREATE_BODY=$(jq -n \
+            --arg org_id "$ORG_ID" \
+            --arg name "$PROJECT_NAME" \
+            --arg region "$REGION" \
+            --arg password "$DB_PASSWORD" \
+            '{organization_id: $org_id, name: $name, region: $region, db_pass: $password}')
+          
+          HTTP=$(curl -s -o /tmp/create.json -w "%{http_code}" --max-time 60 \
+            -X POST -H "$SB_AUTH" -H 'Content-Type: application/json' \
+            "https://api.supabase.com/v1/projects" \
+            --data "$CREATE_BODY")
+          echo "POST /v1/projects -> HTTP $HTTP"
+          
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            NEW_PROJECT_REF=$(jq -r '.id // .ref // empty' /tmp/create.json)
+            echo "✅ Project created! ref=$NEW_PROJECT_REF"
+            echo "  name: $(jq -r '.name // "?"' /tmp/create.json)"
+            echo "  region: $(jq -r '.region // "?"' /tmp/create.json)"
+            echo "  status: $(jq -r '.status // "?"' /tmp/create.json)"
+          else
+            echo "❌ Failed to create project"
+            cat /tmp/create.json
+            exit 1
+          fi
+          echo ""
+
+          # ===== STEP 5: Wait for ACTIVE_HEALTHY =====
+          echo "=== STEP 5: Wait for ACTIVE_HEALTHY (up to 15 min) ==="
+          STATUS=""
+          WAIT_ITERATION=0
+          MAX_WAIT=45
+          
+          while [ "$WAIT_ITERATION" -lt "$MAX_WAIT" ]; do
+            WAIT_ITERATION=$((WAIT_ITERATION + 1))
+            sleep 20
+            
+            HTTP=$(curl -s -o /tmp/proj-status.json -w "%{http_code}" --max-time 30 \
+              -H "$SB_AUTH" "https://api.supabase.com/v1/projects/${NEW_PROJECT_REF}")
+            
+            if [ "$HTTP" = "200" ]; then
+              STATUS=$(jq -r '.status // "unknown"' /tmp/proj-status.json)
+              echo "  [iter $WAIT_ITERATION ($((WAIT_ITERATION * 20))s)] status=$STATUS"
+              
+              if [ "$STATUS" = "ACTIVE_HEALTHY" ] || [ "$STATUS" = "ACTIVE" ]; then
+                echo "  ✅ Project is healthy!"
+                break
+              fi
+            else
+              echo "  [iter $WAIT_ITERATION] HTTP $HTTP (project not yet queryable)"
+            fi
+          done
+          
+          if [ "$STATUS" != "ACTIVE_HEALTHY" ] && [ "$STATUS" != "ACTIVE" ]; then
+            echo "⚠ Project not yet healthy after 15 min (status=$STATUS)"
+            echo "Continuing anyway — Supavisor may still accept connections"
+          fi
+          echo ""
+
+          # ===== STEP 6: Construct connection strings =====
+          echo "=== STEP 6: Connection info ==="
+          
+          POOLER_URL_SESSION="jdbc:postgresql://${POOLER_HOST}:5432/postgres?prepareThreshold=0&sslmode=require"
+          DIRECT_HOST="db.${NEW_PROJECT_REF}.supabase.co"
+          DIRECT_URL="jdbc:postgresql://${DIRECT_HOST}:5432/postgres?sslmode=require"
+          
+          POOLER_USERNAME="postgres.${NEW_PROJECT_REF}"
+          DIRECT_USERNAME="postgres"
+          
+          echo "Project ref: $NEW_PROJECT_REF"
+          echo "Pooler URL (session): $POOLER_URL_SESSION"
+          echo "Pooler username: $POOLER_USERNAME"
+          echo "Direct URL: $DIRECT_URL"
+          echo "Direct username: $DIRECT_USERNAME"
+          echo ""
+
+          # ===== STEP 7: Update GitHub Secrets =====
+          echo "=== STEP 7: Update GitHub Secrets ==="
+          
+          echo "$NEW_PROJECT_REF" | gh secret set SUPABASE_PROJECT_REF --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$NEW_PROJECT_REF" | gh secret set SUPABASE_PROJECT_REF --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_URL_SESSION" | gh secret set PRODUCTION_DATABASE_URL --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_URL_SESSION" | gh secret set PRODUCTION_DATABASE_URL --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_URL_SESSION" | gh secret set PRODUCTION_DATABASE_JDBC_URL --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_URL_SESSION" | gh secret set PRODUCTION_DATABASE_JDBC_URL --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_USERNAME" | gh secret set PRODUCTION_DATABASE_USERNAME --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_USERNAME" | gh secret set PRODUCTION_DATABASE_USERNAME --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$DB_PASSWORD" | gh secret set PRODUCTION_DATABASE_PASSWORD --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$DB_PASSWORD" | gh secret set PRODUCTION_DATABASE_PASSWORD --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_URL_SESSION" | gh secret set PROD_JDBC_URL --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$POOLER_USERNAME" | gh secret set PROD_DB_USER --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          echo "$DB_PASSWORD" | gh secret set PROD_DB_PASSWORD --env Production --repo snadaiapp-png/SNAD 2>&1 | head -1
+          
+          echo "  ✅ All GitHub Secrets updated"
+          echo ""
+
+          # ===== STEP 8: Update Render env vars =====
+          echo "=== STEP 8: Suspend + Update Render env vars + Resume ==="
+          
+          HTTP=$(curl -s -o /tmp/suspend.json -w "%{http_code}" --max-time 30 -X POST -H "$RENDER_AUTH" "$RENDER_BASE/suspend")
+          echo "POST /suspend -> HTTP $HTTP"
+          sleep 15
+          
+          HTTP=$(curl -s -o /tmp/db-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_URL_SESSION" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_URL")
+          echo "PUT DATABASE_URL -> HTTP $HTTP"
+          
+          HTTP=$(curl -s -o /tmp/sf-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_URL_SESSION" '{value:$v}')" "$RENDER_BASE/env-vars/SPRING_FLYWAY_URL")
+          echo "PUT SPRING_FLYWAY_URL -> HTTP $HTTP"
+          
+          HTTP=$(curl -s -o /tmp/user-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$POOLER_USERNAME" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_USERNAME")
+          echo "PUT DATABASE_USERNAME -> HTTP $HTTP"
+          
+          HTTP=$(curl -s -o /tmp/pass-resp.json -w "%{http_code}" --max-time 45 -X PUT \
+            -H "$RENDER_AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg v "$DB_PASSWORD" '{value:$v}')" "$RENDER_BASE/env-vars/DATABASE_PASSWORD")
+          echo "PUT DATABASE_PASSWORD -> HTTP $HTTP"
+          
+          HTTP=$(curl -s -o /tmp/resume.json -w "%{http_code}" --max-time 30 -X POST -H "$RENDER_AUTH" "$RENDER_BASE/resume")
+          echo "POST /resume -> HTTP $HTTP"
+          sleep 5
+          echo ""
+
+          # ===== STEP 9: Trigger deploy + capture live logs =====
+          echo "=== STEP 9: Trigger deploy + capture live logs ==="
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" --max-time 30 -X POST \
+            -H "$RENDER_AUTH" -H 'Content-Type: application/json' -H 'Accept: application/json' \
+            --data '{"clearCache":"do_not_clear"}' "$RENDER_BASE/deploys")
+          DEPLOY_ID=$(jq -r '.id // empty' /tmp/deploy.json)
+          echo "POST /deploys -> HTTP $HTTP, Deploy ID: $DEPLOY_ID"
+          echo ""
+
+          OWNER_ID=$(curl -s --max-time 30 -H "$RENDER_AUTH" "$RENDER_BASE" | jq -r '.ownerId // .owner // empty')
+          START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p /tmp/live-logs
+          > /tmp/live-logs/all.txt
+
+          DEPLOY_STATUS="update_in_progress"
+          ITERATION=0
+          MAX_ITERATIONS=80
+
+          while [ "$DEPLOY_STATUS" = "update_in_progress" ] && [ "$ITERATION" -lt "$MAX_ITERATIONS" ]; do
+            ITERATION=$((ITERATION + 1))
+            sleep 10
+
+            DEPLOY_STATUS=$(curl -s --max-time 15 -H "$RENDER_AUTH" "$RENDER_BASE/deploys/$DEPLOY_ID" | jq -r '.deploy.status // .status // "unknown"')
+            echo "[iter $ITERATION] deploy status: $DEPLOY_STATUS"
+
+            if [ -n "$OWNER_ID" ]; then
+              URL="https://api.render.com/v1/logs?ownerId=${OWNER_ID}&resource=${RENDER_SERVICE_ID}&startTime=${START_TIME}&direction=forward&limit=200"
+              curl -s --max-time 15 -H "$RENDER_AUTH" "$URL" > /tmp/live-logs/page.json
+              jq -r 'if type=="array" then .[] elif .logs then .logs[] elif .lines then .lines[] else empty end | (if type=="object" then (.text // .message // .msg // (. | tostring)) else (tostring) end)' /tmp/live-logs/page.json 2>/dev/null >> /tmp/live-logs/all.txt
+            fi
+
+            if [ "$DEPLOY_STATUS" = "live" ]; then
+              echo "::notice::DEPLOY LIVE after $((ITERATION * 10))s"
+              break
+            fi
+            if echo "$DEPLOY_STATUS" | grep -qiE 'failed|canceled|deactivated'; then
+              echo "::error::Deploy terminal: $DEPLOY_STATUS"
+              break
+            fi
+          done
+          echo ""
+
+          # ===== STEP 10: Final logs =====
+          echo "=== STEP 10: FINAL LOG DUMP (last 40 lines) ==="
+          tail -40 /tmp/live-logs/all.txt
+          echo ""
+
+          # ===== STEP 11: Error pattern search =====
+          echo "=== STEP 11: ERROR PATTERN SEARCH ==="
+          echo "ENOIDENTIFIER: $(grep -c 'ENOIDENTIFIER' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "PKIX: $(grep -c 'PKIX\|SunCertPathBuilderException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "UnknownHostException: $(grep -c 'UnknownHostException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "BeanCreationException: $(grep -c 'BeanCreationException' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "ProductionGuard: $(grep -c 'ProductionWorkflowStubGuard\|Production startup refused' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Application run failed: $(grep -c 'Application run failed' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Started SanadPlatformApplication: $(grep -c 'Started SanadPlatformApplication' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Tomcat started: $(grep -c 'Tomcat started on port' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo "Flyway success: $(grep -c 'Successfully applied\|Schema .* is up to date\|Migrating schema' /tmp/live-logs/all.txt 2>/dev/null || echo 0)"
+          echo ""
+
+          # ===== STEP 12: Health probe =====
+          echo "=== STEP 12: Health probe ==="
+          sleep 10
+          HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BACKEND_URL/actuator/health" || echo "000")
+          HEALTH_STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+          echo "HEALTH_HTTP: $HTTP_CODE"
+          echo "HEALTH_STATUS: $HEALTH_STATUS"
+          
+          LIVENESS_HTTP=$(curl -s -o /tmp/liveness.json -w "%{http_code}" --max-time 15 "$BACKEND_URL/actuator/health/liveness" || echo "000")
+          LIVENESS_STATUS=$(jq -r '.status // "unknown"' /tmp/liveness.json 2>/dev/null || echo "unknown")
+          echo "LIVENESS_HTTP: $LIVENESS_HTTP"
+          echo "LIVENESS_STATUS: $LIVENESS_STATUS"
+          
+          READINESS_HTTP=$(curl -s -o /tmp/readiness.json -w "%{http_code}" --max-time 15 "$BACKEND_URL/actuator/health/readiness" || echo "000")
+          READINESS_STATUS=$(jq -r '.status // "unknown"' /tmp/readiness.json 2>/dev/null || echo "unknown")
+          echo "READINESS_HTTP: $READINESS_HTTP"
+          echo "READINESS_STATUS: $READINESS_STATUS"
+          echo ""
+
+          # ===== FINAL SUMMARY =====
+          echo "========================================"
+          echo "FULL RECOVERY COMPLETE"
+          echo "========================================"
+          echo "OLD_PROJECT_1_DELETED=$OLD_PROJECT_1"
+          echo "OLD_PROJECT_2_DELETED=$OLD_PROJECT_2"
+          echo "NEW_PROJECT_REF=$NEW_PROJECT_REF"
+          echo "NEW_PROJECT_NAME=$PROJECT_NAME"
+          echo "DEPLOY_ID=$DEPLOY_ID"
+          echo "DEPLOY_STATUS=$DEPLOY_STATUS"
+          echo "HEALTH_HTTP=$HTTP_CODE"
+          echo "HEALTH_STATUS=$HEALTH_STATUS"
+          echo "LIVENESS_HTTP=$LIVENESS_HTTP"
+          echo "LIVENESS_STATUS=$LIVENESS_STATUS"
+          echo "READINESS_HTTP=$READINESS_HTTP"
+          echo "READINESS_STATUS=$READINESS_STATUS"
+          echo "TOTAL_LOG_LINES=$(wc -l < /tmp/live-logs/all.txt)"
+          if [ "$DEPLOY_STATUS" = "live" ] && [ "$HTTP_CODE" = "200" ] && [ "$HEALTH_STATUS" = "UP" ]; then
+            echo "FINAL_RESULT=SUCCESS ✅✅✅"
+          elif [ "$DEPLOY_STATUS" = "live" ]; then
+            echo "FINAL_RESULT=PARTIAL (live but health not UP)"
+          else
+            echo "FINAL_RESULT=FAILED — investigate next-error"
+          fi
+          echo "========================================"
+
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-recovery-logs
+          path: /tmp/live-logs/
+          if-no-files-found: warn
+          retention-days: 30
