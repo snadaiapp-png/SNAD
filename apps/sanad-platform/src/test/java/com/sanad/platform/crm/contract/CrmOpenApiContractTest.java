@@ -173,7 +173,7 @@ class CrmOpenApiContractTest {
                 "/accounts", "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
                 "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
                 "/addresses/import", "/communication-methods/import",
-                "/teams", "/queues", "/territories", "/assignment-rules", "/transfers"}) {
+                "/pipelines", "/teams", "/queues", "/territories", "/assignment-rules", "/transfers"}) {
             JsonNode responses = paths.path(path).path("post").path("responses");
             assertNotNull(responses.get("201"), "POST " + path + " must declare 201 Created");
             assertTrue(responses.get("200") == null,
@@ -229,7 +229,7 @@ class CrmOpenApiContractTest {
                 "/accounts/{accountId}/addresses", "/contacts/{contactId}/addresses",
                 "/accounts/{accountId}/communication-methods", "/contacts/{contactId}/communication-methods",
                 "/addresses/import", "/communication-methods/import",
-                "/teams", "/queues", "/territories", "/assignment-rules", "/transfers",
+                "/pipelines", "/teams", "/queues", "/territories", "/assignment-rules", "/transfers",
                 "/assignments/reassign", "/assignments/bulk-reassign",
                 "/integrations/ai", "/integrations/{requestId}/confirm",
                 "/integrations/{requestId}/reject", "/integrations/workflows",
