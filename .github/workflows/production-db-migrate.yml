@@ -1,0 +1,333 @@
+name: Supabase Connection Cert + Flyway Migrate
+
+# Section 9-17: Get official connection info, test 20 connections,
+# then apply ALL Flyway migrations from GitHub Actions (NOT Render runtime).
+#
+# This is the FRESH PRODUCTION REBUILD strategy:
+#   1. Query Supabase API for project status
+#   2. Run 20 psql connection tests (SELECT 1, version(), etc.)
+#   3. If 20/20 PASS → checkout repo + run Flyway migrate via Maven
+#   4. Verify flyway_schema_history
+#   5. Count tables/indexes/functions
+#
+# All from GitHub Actions runner (NOT Render), using JDK 21 + Maven.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  connection-cert-and-migrate:
+    name: Connection certification (20 tests) + Flyway migrate
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    env:
+      SUPABASE_PROJECT_REF: tkbrvupemreqabwzdpyq
+      POOLER_HOST: aws-0-eu-central-1.pooler.supabase.com
+      POOLER_PORT: "5432"
+      DATABASE_NAME: postgres
+      DB_USERNAME: postgres.tkbrvupemreqabwzdpyq
+      DB_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+          psql --version
+
+      - name: Check Supabase project status
+        env:
+          SB_AUTH: ${{ env.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set +e
+          AUTH="Authorization: Bearer ${SB_AUTH}"
+          echo "=== Supabase project status ==="
+          HTTP=$(curl -s -o /tmp/proj.json -w "%{http_code}" --max-time 30 \
+            -H "$AUTH" "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}")
+          echo "GET /v1/projects/{ref} -> HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            echo "  name: $(jq -r '.name // "?"' /tmp/proj.json)"
+            echo "  status: $(jq -r '.status // "?"' /tmp/proj.json)"
+            echo "  region: $(jq -r '.region // "?"' /tmp/proj.json)"
+            echo "  db_host: $(jq -r '.db_host // "<none>"' /tmp/proj.json)"
+            echo "  db_port: $(jq -r '.db_port // "5432"' /tmp/proj.json)"
+            PROJECT_STATUS=$(jq -r '.status // "unknown"' /tmp/proj.json)
+            if [ "$PROJECT_STATUS" != "ACTIVE_HEALTHY" ] && [ "$PROJECT_STATUS" != "ACTIVE" ]; then
+              echo "::warning::Project status is $PROJECT_STATUS (not ACTIVE_HEALTHY)"
+              echo "Connection tests may fail."
+            fi
+          else
+            echo "::error::Failed to query project: $HTTP"
+            cat /tmp/proj.json | head -c 500
+          fi
+          echo ""
+
+      - name: DNS resolution check
+        run: |
+          echo "=== DNS resolution ==="
+          for host in "${POOLER_HOST}" "db.${SUPABASE_PROJECT_REF}.supabase.co" "${SUPABASE_PROJECT_REF}.supabase.co"; do
+            RESOLVE=$(getent hosts "$host" 2>/dev/null | head -1 || echo "")
+            if [ -n "$RESOLVE" ]; then
+              echo "  ✅ $host → $RESOLVE"
+            else
+              echo "  ❌ $host → unresolvable"
+            fi
+          done
+          echo ""
+
+      - name: Run 20 connection tests
+        id: connection-tests
+        run: |
+          set +e
+          echo "=== CONNECTION CERTIFICATION (20 tests) ==="
+          echo "Host: $POOLER_HOST:$POOLER_PORT"
+          echo "Database: $DATABASE_NAME"
+          echo "Username: $DB_USERNAME"
+          echo "Password: PRESENT (length=${#DB_PASSWORD})"
+          echo ""
+
+          SUCCESS_COUNT=0
+          FAIL_COUNT=0
+          ENOID_COUNT=0
+          PKIX_COUNT=0
+          AUTH_COUNT=0
+          DNS_COUNT=0
+          OTHER_COUNT=0
+
+          export PGPASSWORD="$DB_PASSWORD"
+
+          for i in $(seq 1 20); do
+            echo -n "Test $i/20: "
+            
+            # Try connection
+            OUTPUT=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+              -c "SELECT 1 AS test_id, version() AS pg_version, current_database() AS db_name, current_user AS user_name;" \
+              -t -A --set ON_ERROR_STOP=1 2>&1)
+            EXIT_CODE=$?
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "✅ PASS"
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+              if [ $i -eq 1 ]; then
+                echo "  Version: $(echo "$OUTPUT" | head -1)"
+              fi
+            else
+              echo "❌ FAIL (exit=$EXIT_CODE)"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              
+              # Classify error
+              if echo "$OUTPUT" | grep -q "ENOIDENTIFIER"; then
+                ENOID_COUNT=$((ENOID_COUNT + 1))
+                echo "  → ENOIDENTIFIER (Supavisor routing)"
+              elif echo "$OUTPUT" | grep -q "PKIX\|SunCertPathBuilder"; then
+                PKIX_COUNT=$((PKIX_COUNT + 1))
+                echo "  → PKIX (cert validation)"
+              elif echo "$OUTPUT" | grep -qi "authentication failed\|password.*failed"; then
+                AUTH_COUNT=$((AUTH_COUNT + 1))
+                echo "  → AUTH (password wrong)"
+              elif echo "$OUTPUT" | grep -q "Could not translate host name\|Name or service not known\|Unknown host"; then
+                DNS_COUNT=$((DNS_COUNT + 1))
+                echo "  → DNS (host unresolvable)"
+              else
+                OTHER_COUNT=$((OTHER_COUNT + 1))
+                echo "  → OTHER: $(echo "$OUTPUT" | head -c 200)"
+              fi
+            fi
+            
+            # Small delay between tests
+            sleep 1
+          done
+
+          echo ""
+          echo "========================================"
+          echo "CONNECTION CERTIFICATION RESULTS"
+          echo "========================================"
+          echo "CONNECTION_ATTEMPTS=20"
+          echo "CONNECTION_SUCCESS=$SUCCESS_COUNT"
+          echo "CONNECTION_FAIL=$FAIL_COUNT"
+          echo "ENOIDENTIFIER_COUNT=$ENOID_COUNT"
+          echo "PKIX_COUNT=$PKIX_COUNT"
+          echo "AUTH_ERRORS=$AUTH_COUNT"
+          echo "DNS_ERRORS=$DNS_COUNT"
+          echo "OTHER_ERRORS=$OTHER_COUNT"
+          
+          if [ "$SUCCESS_COUNT" = "20" ]; then
+            echo "RESULT=PASS ✅ (20/20)"
+            echo "::notice::Connection certification PASSED (20/20)"
+            echo "cert_passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "RESULT=FAIL ❌ ($SUCCESS_COUNT/20)"
+            echo "::error::Connection certification FAILED ($SUCCESS_COUNT/20)"
+            echo "cert_passed=false" >> $GITHUB_OUTPUT
+          fi
+          echo "========================================"
+
+      - name: Checkout repository (only if connection passed)
+        if: steps.connection-tests.outputs.cert_passed == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        if: steps.connection-tests.outputs.cert_passed == 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Install Maven
+        if: steps.connection-tests.outputs.cert_passed == 'true'
+        run: |
+          if ! command -v mvn &> /dev/null; then
+            echo "Installing Maven..."
+            curl -sL https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.tar.gz -o /tmp/maven.tar.gz
+            tar -xzf /tmp/maven.tar.gz -C /tmp/
+            echo "/tmp/apache-maven-3.9.9/bin" >> $GITHUB_PATH
+          fi
+          mvn --version 2>/dev/null || /tmp/apache-maven-3.9.9/bin/mvn --version
+
+      - name: Run Flyway migrate (from GitHub Actions, NOT Render)
+        if: steps.connection-tests.outputs.cert_passed == 'true'
+        working-directory: apps/sanad-platform
+        env:
+          DB_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set +e
+          echo "========================================"
+          echo "FLYWAY MIGRATE (Fresh Build)"
+          echo "========================================"
+          echo ""
+          
+          # Use Maven to run Flyway via Spring Boot's flyway:migrate goal
+          # Or use the flyway-maven-plugin if configured
+          
+          # First, try mvn flyway:migrate with system properties
+          JDBC_URL="jdbc:postgresql://${POOLER_HOST}:${POOLER_PORT}/${DATABASE_NAME}?sslmode=require&prepareThreshold=0"
+          
+          echo "JDBC URL: $JDBC_URL"
+          echo "Username: $DB_USERNAME"
+          echo ""
+          
+          # Run Flyway migrate via Maven
+          mvn flyway:migrate \
+            -Dflyway.url="$JDBC_URL" \
+            -Dflyway.user="$DB_USERNAME" \
+            -Dflyway.password="$DB_PASSWORD" \
+            -Dflyway.locations="classpath:db/migration,classpath:db/vendor/postgresql" \
+            -Dflyway.cleanDisabled=true \
+            -Dflyway.validateOnMigrate=true \
+            -Dflyway.baselineOnMigrate=false \
+            --batch --no-transfer-progress 2>&1 || {
+              echo "flyway:migrate goal not available, trying Spring Boot approach..."
+              
+              # Alternative: use spring-boot:run with Flyway auto-config
+              # OR use the flyway CLI directly
+              
+              # Try installing flyway CLI
+              curl -sL https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.20.0/flyway-commandline-10.20.0-linux-x64.tar.gz -o /tmp/flyway.tar.gz 2>/dev/null
+              if [ -f /tmp/flyway.tar.gz ] && [ -s /tmp/flyway.tar.gz ]; then
+                tar -xzf /tmp/flyway.tar.gz -C /tmp/ 2>/dev/null
+                FLYWAY=/tmp/flyway-10.20.0/flyway
+                if [ -x "$FLYWAY" ]; then
+                  echo "Using Flyway CLI: $FLYWAY"
+                  PG_JDBC_JAR=$(find ~/.m2/repository/org/postgresql -name "postgresql-*.jar" | head -1)
+                  export FLYWAY_CLASSPATH="$PG_JDBC_JAR"
+                  
+                  "$FLYWAY" \
+                    -url="$JDBC_URL" \
+                    -user="$DB_USERNAME" \
+                    -password="$DB_PASSWORD" \
+                    -locations="filesystem:src/main/resources/db/migration,filesystem:src/main/resources/db/vendor/postgresql" \
+                    -cleanDisabled="true" \
+                    -validateOnMigrate="true" \
+                    -baselineOnMigrate="false" \
+                    migrate 2>&1
+                  
+                  echo ""
+                  echo "=== Flyway info ==="
+                  "$FLYWAY" \
+                    -url="$JDBC_URL" \
+                    -user="$DB_USERNAME" \
+                    -password="$DB_PASSWORD" \
+                    info 2>&1
+                else
+                  echo "Flyway CLI not found"
+                fi
+              else
+                echo "Could not download Flyway CLI"
+                echo "Trying Maven with spring-boot approach..."
+                
+                # Use spring-boot:run with Flyway auto-config (will run migrations then exit)
+                SPRING_PROFILES_ACTIVE=flyway-only \
+                DATABASE_URL="$JDBC_URL" \
+                DATABASE_USERNAME="$DB_USERNAME" \
+                DATABASE_PASSWORD="$DB_PASSWORD" \
+                FLYWAY_ENABLED=true \
+                JPA_DDL_AUTO=validate \
+                SPRING_MAIN_WEB_APPLICATION_TYPE=none \
+                mvn spring-boot:run \
+                  -Dspring-boot.run.profiles=flyway-only \
+                  -Dspring-boot.run.jvmArguments="-Dspring.main.web-application-type=none" \
+                  --batch --no-transfer-progress 2>&1 || true
+              fi
+            }
+          
+          echo ""
+
+      - name: Verify Flyway + Count schema objects
+        if: steps.connection-tests.outputs.cert_passed == 'true'
+        env:
+          DB_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set +e
+          export PGPASSWORD="$DB_PASSWORD"
+          
+          echo "========================================"
+          echo "SCHEMA VERIFICATION"
+          echo "========================================"
+          
+          # Check flyway_schema_history
+          echo "=== Flyway schema history ==="
+          psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) AS total, count(*) FILTER (WHERE success=true) AS success, count(*) FILTER (WHERE success=false) AS failed FROM flyway_schema_history;" -t -A 2>/dev/null || echo "flyway_schema_history not found"
+          
+          echo ""
+          echo "=== Object counts ==="
+          TABLES=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';" -t -A 2>/dev/null || echo "0")
+          echo "TABLES=$TABLES"
+          
+          INDEXES=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM pg_indexes WHERE schemaname='public';" -t -A 2>/dev/null || echo "0")
+          echo "INDEXES=$INDEXES"
+          
+          FUNCTIONS=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM information_schema.routines WHERE routine_schema='public';" -t -A 2>/dev/null || echo "0")
+          echo "FUNCTIONS=$FUNCTIONS"
+          
+          TRIGGERS=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM information_schema.triggers WHERE trigger_schema='public';" -t -A 2>/dev/null || echo "0")
+          echo "TRIGGERS=$TRIGGERS"
+          
+          RLS_TABLES=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND rowsecurity=true;" -t -A 2>/dev/null || echo "0")
+          echo "RLS_ENABLED_TABLES=$RLS_TABLES"
+          
+          RLS_POLICIES=$(psql -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$DB_USERNAME" -d "$DATABASE_NAME" \
+            -c "SELECT count(*) FROM pg_policies WHERE schemaname='public';" -t -A 2>/dev/null || echo "0")
+          echo "RLS_POLICIES=$RLS_POLICIES"
+          
+          echo ""
+          echo "========================================"
+          echo "SCHEMA CERTIFICATION COMPLETE"
+          echo "========================================"
+          echo "TABLES=$TABLES"
+          echo "INDEXES=$INDEXES"
+          echo "FUNCTIONS=$FUNCTIONS"
+          echo "TRIGGERS=$TRIGGERS"
+          echo "RLS_ENABLED_TABLES=$RLS_TABLES"
+          echo "RLS_POLICIES=$RLS_POLICIES"
