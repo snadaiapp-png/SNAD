@@ -47,7 +47,8 @@ jobs:
       - name: Pull image
         run: |
           docker pull ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-          docker images | grep sanad-backend
+          echo "=== Pulled images ==="
+          docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | head -10 || true
 
       - name: Run container with prod DB + capture logs
         env:
