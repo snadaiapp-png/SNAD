@@ -86,6 +86,12 @@ spring:
     # on a legacy database), and turn it off again afterwards.
     baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
     validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:true}
+    # Out-of-order defaults to FALSE in production. Enable temporarily
+    # (FLYWAY_OUT_OF_ORDER=true) when a migration that was skipped at the time
+    # of the latest baseline (e.g. V15 Java migration) needs to be applied
+    # retroactively. Validate-on-migrate would otherwise fail with
+    # "Detected resolved migration not applied to database: 15".
+    out-of-order: ${FLYWAY_OUT_OF_ORDER:false}
     validate-migration-naming: ${FLYWAY_VALIDATE_MIGRATION_NAMING:false}
     clean-disabled: true
 
