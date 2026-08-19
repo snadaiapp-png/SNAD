@@ -1,0 +1,193 @@
+name: Provision Auth Smoke Tenants
+
+# Idempotently provisions the AUTH_SMOKE_TENANT_A/B tenants + users
+# directly in the production database using the secret credentials.
+# Once provisioned, the auth-tenant-production-acceptance workflow
+# can login with the same credentials and exercise authenticated
+# session/tenant-isolation/refresh-replay flows.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    name: Provision Auth Smoke Tenants A+B in prod DB
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+
+    steps:
+      - name: Install Python deps
+        run: |
+          pip install --break-system-packages bcrypt psycopg2-binary >/dev/null 2>&1 || pip install bcrypt psycopg2-binary
+          python3 -c "import bcrypt, psycopg2; print('bcrypt', bcrypt.__version__, '/ psycopg2', psycopg2.__version__)"
+
+      - name: Provision tenants + users
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          DATABASE_USERNAME: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DATABASE_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+          TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+          TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+          TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+          TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+          TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import os, bcrypt, psycopg2, uuid, json
+          from psycopg2.extras import RealDictCursor
+
+          # Parse JDBC URL → psycopg2 DSN
+          jdbc = os.environ['DATABASE_URL']
+          # jdbc:postgresql://host:port/db?params
+          assert jdbc.startswith('jdbc:postgresql://'), f'Unexpected JDBC URL: {jdbc[:50]}'
+          dsn = jdbc.replace('jdbc:postgresql://', 'postgresql://', 1)
+          dsn = dsn.replace('${DATABASE_USERNAME}', os.environ['DATABASE_USERNAME'])
+          dsn = dsn.replace('${DATABASE_PASSWORD}', os.environ['DATABASE_PASSWORD'])
+          # If DSN doesn't include user/password, append
+          if 'user=' not in dsn:
+              dsn = dsn + f" user={os.environ['DATABASE_USERNAME']} password={os.environ['DATABASE_PASSWORD']}"
+
+          print(f'Connecting to: {dsn.split("@")[-1]}')
+          conn = psycopg2.connect(dsn, connect_timeout=20)
+          conn.autocommit = False
+          cur = conn.cursor(cursor_factory=RealDictCursor)
+
+          def bcrypt_hash(pw: str) -> str:
+              # Spring Security's BCryptPasswordEncoder uses $2a$ prefix
+              return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=10, prefix=b'2a')).decode()
+
+          def provision(tenant_id_str: str, email: str, password: str, label: str):
+              tid = uuid.UUID(tenant_id_str)
+              print(f'\n=== Provisioning {label} (tenant_id={tid}, email={email}) ===')
+
+              # 1. Upsert tenant (idempotent)
+              cur.execute("""
+                  INSERT INTO tenants (id, name, status, created_at, updated_at)
+                  VALUES (%s, %s, 'ACTIVE', NOW(), NOW())
+                  ON CONFLICT (id) DO UPDATE
+                  SET status = 'ACTIVE', updated_at = NOW()
+                  RETURNING id, name, status
+              """, (tid, f'Auth Smoke {label}'))
+              trow = cur.fetchone()
+              print(f'  tenant: {trow["id"]} name={trow["name"]} status={trow["status"]}')
+
+              # 2. Upsert organization
+              org_id = uuid.uuid4()
+              cur.execute("""
+                  INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at)
+                  SELECT %s, %s, %s, 'ACTIVE', NOW(), NOW()
+                  WHERE NOT EXISTS (
+                      SELECT 1 FROM organizations WHERE tenant_id = %s AND name = %s
+                  )
+                  RETURNING id
+              """, (org_id, tid, f'Auth Smoke Org {label}', tid, f'Auth Smoke Org {label}'))
+              orow = cur.fetchone()
+              if orow:
+                  actual_org_id = orow['id']
+                  print(f'  organization: created id={actual_org_id}')
+              else:
+                  cur.execute("SELECT id FROM organizations WHERE tenant_id = %s AND name = %s", (tid, f'Auth Smoke Org {label}'))
+                  actual_org_id = cur.fetchone()['id']
+                  print(f'  organization: existing id={actual_org_id}')
+
+              # 3. Upsert ADMIN role for this tenant
+              admin_role_id = uuid.uuid4()
+              cur.execute("""
+                  INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+                  VALUES (%s, %s, 'ADMIN', %s, 'Auth smoke admin', 'ACTIVE', NOW(), NOW())
+                  ON CONFLICT DO NOTHING
+                  RETURNING id
+              """, (admin_role_id, tid, f'Auth Smoke Admin {label}'))
+              rrow = cur.fetchone()
+              if rrow:
+                  admin_role_id = rrow['id']
+                  print(f'  role ADMIN: created id={admin_role_id}')
+                  # Grant all capabilities to ADMIN role (idempotent)
+                  cur.execute("""
+                      INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+                      SELECT gen_random_uuid(), %s, %s, ac.id, NOW()
+                      FROM access_capabilities ac
+                      WHERE ac.status = 'ACTIVE'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM role_capabilities rc
+                          WHERE rc.tenant_id = %s AND rc.role_id = %s AND rc.capability_id = ac.id
+                      )
+                  """, (tid, admin_role_id, tid, admin_role_id))
+                  print(f'  role_capabilities: granted all ACTIVE capabilities to ADMIN')
+              else:
+                  cur.execute("SELECT id FROM roles WHERE tenant_id = %s AND code = 'ADMIN'", (tid,))
+                  admin_role_id = cur.fetchone()['id']
+                  print(f'  role ADMIN: existing id={admin_role_id}')
+
+              # 4. Upsert user (with fresh bcrypt password hash from secret)
+              user_id = uuid.uuid4()
+              pw_hash = bcrypt_hash(password)
+              cur.execute("""
+                  INSERT INTO users (id, tenant_id, email, display_name, status, password_hash,
+                                     must_change_password, platform_admin, session_version,
+                                     created_at, updated_at)
+                  VALUES (%s, %s, %s, %s, 'ACTIVE', %s, FALSE, FALSE, 0, NOW(), NOW())
+                  ON CONFLICT (tenant_id, email) DO UPDATE
+                  SET password_hash = EXCLUDED.password_hash,
+                      status = 'ACTIVE',
+                      must_change_password = FALSE,
+                      updated_at = NOW()
+                  RETURNING id
+              """, (user_id, tid, email, f'Auth Smoke User {label}', pw_hash))
+              urow = cur.fetchone()
+              user_id = urow['id']
+              print(f'  user: id={user_id} email={email} (password hash refreshed)')
+
+              # 5. Upsert membership (user -> org)
+              cur.execute("""
+                  INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, status, created_at, updated_at)
+                  SELECT gen_random_uuid(), %s, %s, %s, 'ACTIVE', NOW(), NOW()
+                  WHERE NOT EXISTS (
+                      SELECT 1 FROM organization_memberships
+                      WHERE tenant_id = %s AND user_id = %s AND organization_id = %s
+                  )
+              """, (tid, actual_org_id, user_id, tid, user_id, actual_org_id))
+
+              # 6. Upsert user_role_assignments
+              cur.execute("""
+                  INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at)
+                  SELECT gen_random_uuid(), %s, %s, %s, 'ACTIVE', NOW(), NOW()
+                  WHERE NOT EXISTS (
+                      SELECT 1 FROM user_role_assignments
+                      WHERE tenant_id = %s AND user_id = %s AND role_id = %s
+                  )
+              """, (tid, user_id, admin_role_id, tid, user_id, admin_role_id))
+
+              # 7. Update auth_credentials table if it exists (for the user's password)
+              cur.execute("""
+                  SELECT to_regclass('public.auth_credentials') AS exists
+              """)
+              ac_exists = cur.fetchone()['exists']
+              if ac_exists:
+                  cur.execute("""
+                      INSERT INTO auth_credentials (user_id, tenant_id, password_hash, status, created_at, updated_at)
+                      VALUES (%s, %s, %s, 'ACTIVE', NOW(), NOW())
+                      ON CONFLICT (user_id, tenant_id) DO UPDATE
+                      SET password_hash = EXCLUDED.password_hash,
+                          status = 'ACTIVE',
+                          updated_at = NOW()
+                  """, (user_id, tid, pw_hash))
+                  print(f'  auth_credentials: synced')
+
+              conn.commit()
+              print(f'  {label} provisioned successfully')
+
+          # Provision A + B
+          provision(os.environ['TENANT_A_ID'], os.environ['TENANT_A_EMAIL'], os.environ['TENANT_A_PASSWORD'], 'Tenant A')
+          provision(os.environ['TENANT_B_ID'], os.environ['TENANT_B_EMAIL'], os.environ['TENANT_B_PASSWORD'], 'Tenant B')
+
+          cur.close()
+          conn.close()
+          print('\n=== ALL TENANTS PROVISIONED ===')
+          PY
