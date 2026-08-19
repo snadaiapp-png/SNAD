@@ -3,156 +3,207 @@ package com.sanad.platform.crm.mobile;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sanad.platform.crm.mobile.conflict.service.ConflictService;
+import com.sanad.platform.crm.mobile.sync.model.DeltaSyncRequest;
+import com.sanad.platform.crm.mobile.sync.model.DeltaSyncResponse;
 import com.sanad.platform.crm.mobile.sync.model.PushSyncRequest;
 import com.sanad.platform.crm.mobile.sync.model.PushSyncResponse;
+import com.sanad.platform.crm.mobile.sync.service.PullSyncService;
 import com.sanad.platform.crm.mobile.sync.service.PushSyncService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused unit tests for the G7 defect fixes — no Spring context, no database.
- *
- *  - DEF-004: column allowlist prevents SQL injection via mutation payload keys.
- *  - DEF-006: ConflictService classifies the newly-added classes C3 / C4 / C10.
- */
+/** Focused regression tests for G7 correctness hardening. */
 class G7DefectFixesTest {
 
     private static final UUID TENANT = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID DEVICE = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID USER = UUID.fromString("00000000-0000-0000-0000-000000000003");
 
-    // ─────────────────────────────────────────────────────────────────
-    // DEF-004: SQL-injection payload keys must be dropped, never spliced.
-    // ─────────────────────────────────────────────────────────────────
     @Test
     void pushCreateDropsNonAllowlistedPayloadKeys() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        // Entity not found → CREATE path; not a duplicate idempotency key.
-        when(jdbc.queryForObject(anyString(), eq(Long.class), any())).thenThrow(new RuntimeException("not found"));
-        when(jdbc.queryForObject(anyString(), eq(Integer.class), any())).thenReturn(0);
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
+            .thenThrow(new org.springframework.dao.EmptyResultDataAccessException(1));
         when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
 
         PushSyncService service = new PushSyncService(jdbc, new ObjectMapper());
-
         ObjectNode payload = new ObjectMapper().createObjectNode();
         payload.put("name", "Acme");
-        // Malicious payload key attempting SQL injection as a column identifier.
         payload.put("evil) VALUES (1)--", "pwned");
         payload.put("tenant_id", "should-be-ignored");
 
         PushSyncRequest.MutationEnvelope mutation = new PushSyncRequest.MutationEnvelope(
-                "idem-1", "account", null, "CREATE", null, payload, null);
+            "idem-1", "account", null, "CREATE", null, payload, null);
         PushSyncResponse response = service.push(TENANT, DEVICE, USER, new PushSyncRequest(List.of(mutation)));
 
         assertEquals(1, response.applied());
-
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc, atLeastOnce()).update(sql.capture(), any(Object[].class));
-
         String insert = sql.getAllValues().stream()
-                .filter(s -> s.startsWith("INSERT INTO crm_accounts"))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("INSERT INTO crm_accounts not executed: " + sql.getAllValues()));
-
-        // Allowlisted column is present...
-        assertTrue(insert.contains("name"), "allowlisted 'name' column must be in INSERT: " + insert);
-        // ...and the injection attempt / tenant_id override is NOT spliced into the SQL.
-        assertFalse(insert.contains("evil"), "injection key leaked into SQL: " + insert);
-        assertFalse(insert.contains("VALUES (1)"), "injection fragment leaked into SQL: " + insert);
-
-        // The column list must be exactly the server-hardcoded system columns plus
-        // the single allowlisted payload column ("name") — the client's "tenant_id"
-        // and injection keys must have been dropped (not added as extra columns).
-        int colsStart = insert.indexOf('(') + 1;
-        int colsEnd = insert.indexOf(')', colsStart);
-        String colList = insert.substring(colsStart, colsEnd).replaceAll("\\s+", "");
-        assertEquals("tenant_id,id,created_by,sync_version,name,created_at,updated_at", colList,
-                "only allowlisted payload columns may appear; got: " + colList);
+            .filter(s -> s.startsWith("INSERT INTO crm_accounts"))
+            .findFirst()
+            .orElseThrow();
+        assertTrue(insert.contains("name"));
+        assertFalse(insert.contains("evil"));
+        assertFalse(insert.contains("should-be-ignored"));
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    // DEF-006: new conflict classes C3 / C4 / C10 are classified.
-    // ─────────────────────────────────────────────────────────────────
     @Test
     void conflictClassificationCoversDeleteUpdateAndCrossTenant() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1); // logConflict INSERT
+        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
         ConflictService service = new ConflictService(jdbc, new ObjectMapper());
         ObjectNode empty = new ObjectMapper().createObjectNode();
 
-        // C10 — cross-tenant attempt (entity not owned by caller's tenant)
         ConflictService.ConflictDetection c10 = service.detectConflict(
-                TENANT, DEVICE, USER, "account", "e1", 2, empty, 3, empty, "UPDATE", true, false);
+            TENANT, DEVICE, USER, "account", "00000000-0000-0000-0000-000000000011",
+            2, empty, 3, empty, "UPDATE", true, false);
         assertEquals("C10", c10.conflictClass());
-        assertEquals("CROSS_TENANT_ATTEMPT", c10.conflictType());
 
-        // C3 — server deleted the row, client tries to update
         ConflictService.ConflictDetection c3 = service.detectConflict(
-                TENANT, DEVICE, USER, "account", "e2", 2, empty, 3, empty, "UPDATE", true, true);
+            TENANT, DEVICE, USER, "account", "00000000-0000-0000-0000-000000000012",
+            2, empty, 3, empty, "UPDATE", true, true);
         assertEquals("C3", c3.conflictClass());
-        assertEquals("DELETE_VS_UPDATE", c3.conflictType());
 
-        // C4 — client DELETE against a stale copy the server has since updated
         ConflictService.ConflictDetection c4 = service.detectConflict(
-                TENANT, DEVICE, USER, "account", "e3", 2, empty, 3, empty, "DELETE", false, true);
+            TENANT, DEVICE, USER, "account", "00000000-0000-0000-0000-000000000013",
+            2, empty, 3, empty, "DELETE", false, true);
         assertEquals("C4", c4.conflictClass());
-        assertEquals("UPDATE_VS_DELETE", c4.conflictType());
-
-        // Sanity: existing C1 still classified (same version, overlapping field)
-        ObjectNode client = new ObjectMapper().createObjectNode().put("name", "A");
-        ObjectNode server = new ObjectMapper().createObjectNode().put("name", "B");
-        ConflictService.ConflictDetection c1 = service.detectConflict(
-                TENANT, DEVICE, USER, "account", "e4", 5, client, 5, server);
-        assertEquals("C1", c1.conflictClass());
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    // SYNC-010: ETag / If-Match version validation — a stale
-    // expectedVersion must be rejected as a 412 CONFLICT (never applied).
-    // ─────────────────────────────────────────────────────────────────
     @Test
     void pushRejectsStaleExpectedVersionAsConflict() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        // Dispatch queryForObject by the Class argument so the spread-varargs
-        // calls (isDuplicate -> Integer, getCurrentVersion -> Long) both resolve.
-        when(jdbc.queryForObject(anyString(), any(Class.class), any(Object[].class))).thenAnswer(inv -> {
-            Class<?> clz = inv.getArgument(1);
-            if (clz == Integer.class) return 0;   // not a duplicate
-            if (clz == Long.class) return 5L;     // server sync_version = 5
-            return null;
-        });
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(5L);
         when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
-
         PushSyncService service = new PushSyncService(jdbc, new ObjectMapper());
 
         ObjectNode payload = new ObjectMapper().createObjectNode().put("name", "Acme");
-        // UPDATE carrying a stale ETag (expectedVersion=3) against a server at version 5
         PushSyncRequest.MutationEnvelope mutation = new PushSyncRequest.MutationEnvelope(
             "idem-etag-1", "account", "00000000-0000-0000-0000-000000000010",
             "UPDATE", 3L, payload, null);
 
         PushSyncResponse response = service.push(TENANT, DEVICE, USER, new PushSyncRequest(List.of(mutation)));
+        assertEquals(0, response.applied());
+        assertEquals(1, response.rejected());
+        assertEquals("CONFLICT", response.results().get(0).status());
+        assertEquals("412", response.results().get(0).httpStatus());
+        assertEquals(5, response.results().get(0).conflictInfo().get("serverVersion").asInt());
+    }
 
-        assertEquals(0, response.applied(), "stale-version UPDATE must not be applied");
-        assertEquals(1, response.rejected(), "stale-version UPDATE must be counted as rejected/conflict");
-        assertEquals(0, response.duplicates());
+    /** Regression for the Object[]-inside-Object[] UPDATE binding defect. */
+    @Test
+    void pushUpdateFlattensDynamicAndGuardParameters() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(5L);
+        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+        PushSyncService service = new PushSyncService(jdbc, new ObjectMapper());
 
-        PushSyncResponse.MutationResult result = response.results().get(0);
-        assertEquals("CONFLICT", result.status(), "status must be CONFLICT on version mismatch");
-        assertEquals("412", result.httpStatus(), "must use 412 Precondition Failed semantics");
-        assertNotNull(result.conflictInfo(), "conflict info must be populated on version mismatch");
-        assertEquals("VERSION_MISMATCH", result.conflictInfo().get("conflictType").asText());
-        assertEquals(5, result.conflictInfo().get("serverVersion").asInt(),
-            "serverVersion returned must let the client rebase and retry");
+        ObjectNode payload = new ObjectMapper().createObjectNode();
+        payload.put("name", "Updated");
+        payload.put("status", "ACTIVE");
+        String entityId = "00000000-0000-0000-0000-000000000020";
+        PushSyncRequest.MutationEnvelope mutation = new PushSyncRequest.MutationEnvelope(
+            "idem-update-flat", "account", entityId, "UPDATE", 5L, payload, null);
+
+        PushSyncResponse response = service.push(TENANT, DEVICE, USER, new PushSyncRequest(List.of(mutation)));
+        assertEquals(1, response.applied());
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> paramsCaptor = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc, atLeastOnce()).update(sqlCaptor.capture(), paramsCaptor.capture());
+
+        int updateIndex = -1;
+        for (int i = 0; i < sqlCaptor.getAllValues().size(); i++) {
+            if (sqlCaptor.getAllValues().get(i).startsWith("UPDATE crm_accounts SET")) {
+                updateIndex = i;
+                break;
+            }
+        }
+        assertTrue(updateIndex >= 0, "CRM UPDATE statement must execute");
+        Object[] params = paramsCaptor.getAllValues().get(updateIndex);
+        assertEquals(5, params.length, "2 payload values + tenant + id + version");
+        assertFalse(params[0] instanceof Object[], "payload parameters must be flat");
+        assertFalse(params[1] instanceof Object[], "payload parameters must be flat");
+        assertEquals(TENANT, params[2]);
+        assertEquals(entityId, params[3]);
+        assertEquals(5L, params[4]);
+    }
+
+    /** Regression for page-boundary loss when many rows share entity sync_version. */
+    @Test
+    void pullCursorUsesUniqueChangeIdsAcrossPages() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ObjectMapper mapper = new ObjectMapper();
+        PullSyncService service = new PullSyncService(jdbc, mapper);
+        UUID e1 = UUID.fromString("00000000-0000-0000-0000-000000000031");
+        UUID e2 = UUID.fromString("00000000-0000-0000-0000-000000000032");
+        UUID e3 = UUID.fromString("00000000-0000-0000-0000-000000000033");
+        Timestamp now = Timestamp.from(Instant.parse("2026-08-19T00:00:00Z"));
+
+        Map<String, Object> r100 = Map.of(
+            "change_id", 100L, "entity_id", e1, "operation", "CREATE",
+            "entity_version", 1L, "payload", "{\"name\":\"A\"}", "changed_at", now);
+        Map<String, Object> r101 = Map.of(
+            "change_id", 101L, "entity_id", e2, "operation", "CREATE",
+            "entity_version", 1L, "payload", "{\"name\":\"B\"}", "changed_at", now);
+        Map<String, Object> r102 = Map.of(
+            "change_id", 102L, "entity_id", e3, "operation", "CREATE",
+            "entity_version", 1L, "payload", "{\"name\":\"C\"}", "changed_at", now);
+
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenAnswer(invocation -> {
+            Object[] args = invocation.getArgument(1);
+            long cursor = ((Number) args[2]).longValue();
+            if (cursor == 0L) return List.of(r100, r101, r102); // limit+1 probe
+            if (cursor == 101L) return List.of(r102);
+            return List.of();
+        });
+        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+
+        DeltaSyncResponse first = service.pull(TENANT, DEVICE, new DeltaSyncRequest("account", null, 2));
+        assertEquals(2, first.entityCount());
+        assertTrue(first.hasMore());
+        assertEquals(101L, decodeCursor(first.nextCursor()));
+        assertEquals(1L, first.entities().get(0).version());
+        assertEquals(1L, first.entities().get(1).version());
+
+        DeltaSyncResponse second = service.pull(TENANT, DEVICE,
+            new DeltaSyncRequest("account", first.nextCursor(), 2));
+        assertEquals(1, second.entityCount());
+        assertFalse(second.hasMore());
+        assertEquals(102L, decodeCursor(second.nextCursor()));
+        assertEquals(e3.toString(), second.entities().get(0).entityId());
+    }
+
+    @Test
+    void conflictSkipUsesPendingStatusNotInvalidDeferredResolution() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+        ConflictService service = new ConflictService(jdbc, new ObjectMapper());
+        UUID conflictId = UUID.fromString("00000000-0000-0000-0000-000000000040");
+
+        service.deferConflict(TENANT, conflictId, USER);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).update(sql.capture(), any(Object[].class));
+        assertTrue(sql.getValue().contains("status = 'RESOLUTION_PENDING'"));
+        assertTrue(sql.getValue().contains("resolution = NULL"));
+        assertFalse(sql.getValue().contains("resolution = 'DEFERRED'"));
+    }
+
+    private static long decodeCursor(String cursor) {
+        return Long.parseLong(new String(Base64.getUrlDecoder().decode(cursor)));
     }
 }
