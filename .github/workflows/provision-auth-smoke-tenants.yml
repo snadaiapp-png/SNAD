@@ -42,31 +42,19 @@ jobs:
           import os, bcrypt, psycopg2, uuid, json
           from psycopg2.extras import RealDictCursor
 
-          # Parse JDBC URL → host/port/db/sslmode
-          jdbc = os.environ['DATABASE_URL']
-          assert jdbc.startswith('jdbc:postgresql://'), f'Unexpected JDBC URL: {jdbc[:50]}'
-          # Strip 'jdbc:postgresql://' prefix
-          rest = jdbc[len('jdbc:postgresql://'):]
-          # Split into 'host:port/db?params'
-          if '?' in rest:
-              host_port_db, params = rest.split('?', 1)
-          else:
-              host_port_db, params = rest, ''
-          # Parse host:port/db
-          if '/' in host_port_db:
-              host_port, db = host_port_db.split('/', 1)
-          else:
-              host_port, db = host_port_db, 'postgres'
-          if ':' in host_port:
-              host, port = host_port.split(':', 1)
-          else:
-              host, port = host_port, '5432'
+          # Connect via Supabase POOLER URL (works from GitHub Actions runners)
+          # The PRODUCTION_DATABASE_JDBC_URL secret points to the direct host
+          # (db.eyoupksefusnslvdnflt.supabase.co) which doesn't resolve from
+          # GHA runners — use the pooler instead.
+          POOLER_HOST = 'aws-0-eu-central-1.pooler.supabase.com'
+          POOLER_PORT = 5432
+          POOLER_DB = 'postgres'
 
-          print(f'Connecting to: {host}:{port}/{db} as {os.environ["DATABASE_USERNAME"]}')
+          print(f'Connecting to pooler: {POOLER_HOST}:{POOLER_PORT}/{POOLER_DB} as {os.environ["DATABASE_USERNAME"]}')
           conn = psycopg2.connect(
-              host=host,
-              port=int(port),
-              dbname=db,
+              host=POOLER_HOST,
+              port=POOLER_PORT,
+              dbname=POOLER_DB,
               user=os.environ['DATABASE_USERNAME'],
               password=os.environ['DATABASE_PASSWORD'],
               sslmode='require',
