@@ -75,21 +75,54 @@ CREATE INDEX IF NOT EXISTS idx_hr_employees_position ON hr_employees(position_id
 CREATE INDEX IF NOT EXISTS idx_hr_employees_status ON hr_employees(status);
 
 -- ============================================================
--- RLS Policies
+-- RLS Policies (idempotent: PostgreSQL does not support
+-- "CREATE POLICY IF NOT EXISTS", so each CREATE POLICY is
+-- wrapped in a DO block that catches duplicate_object and
+-- ignores the case where the policy was already applied
+-- manually outside Flyway — see HRM production-drift runbook.)
 -- ============================================================
-ALTER TABLE hr_departments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_positions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE hr_employees ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    ALTER TABLE hr_departments ENABLE ROW LEVEL SECURITY;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE hr_positions ENABLE ROW LEVEL SECURITY;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE hr_employees ENABLE ROW LEVEL SECURITY;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY tenant_isolation ON hr_departments FOR ALL USING (
-    (current_setting('app.tenant_id'::text, true) IS NULL) OR ((tenant_id)::text = current_setting('app.tenant_id'::text, true))
-);
-CREATE POLICY tenant_isolation ON hr_positions FOR ALL USING (
-    (current_setting('app.tenant_id'::text, true) IS NULL) OR ((tenant_id)::text = current_setting('app.tenant_id'::text, true))
-);
-CREATE POLICY tenant_isolation ON hr_employees FOR ALL USING (
-    (current_setting('app.tenant_id'::text, true) IS NULL) OR ((tenant_id)::text = current_setting('app.tenant_id'::text, true))
-);
+-- Helper: create the tenant_isolation policy on a table only if it
+-- does not already exist. Inline DO block per table so a duplicate
+-- on one table does not skip the others.
+DO $$ BEGIN
+    CREATE POLICY tenant_isolation ON hr_departments FOR ALL USING (
+        (current_setting('app.tenant_id'::text, true) IS NULL) OR ((tenant_id)::text = current_setting('app.tenant_id'::text, true))
+    );
+EXCEPTION
+    WHEN duplicate_object THEN
+        RAISE NOTICE 'Policy tenant_isolation already exists on hr_departments — skipped';
+END $$;
+
+DO $$ BEGIN
+    CREATE POLICY tenant_isolation ON hr_positions FOR ALL USING (
+        (current_setting('app.tenant_id'::text, true) IS NULL) OR ((tenant_id)::text = current_setting('app.tenant_id'::text, true))
+    );
+EXCEPTION
+    WHEN duplicate_object THEN
+        RAISE NOTICE 'Policy tenant_isolation already exists on hr_positions — skipped';
+END $$;
+
+DO $$ BEGIN
+    CREATE POLICY tenant_isolation ON hr_employees FOR ALL USING (
+        (current_setting('app.tenant_id'::text, true) IS NULL) OR ((tenant_id)::text = current_setting('app.tenant_id'::text, true))
+    );
+EXCEPTION
+    WHEN duplicate_object THEN
+        RAISE NOTICE 'Policy tenant_isolation already exists on hr_employees — skipped';
+END $$;
 
 -- ============================================================
 -- HR Capabilities
