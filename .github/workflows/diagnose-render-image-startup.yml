@@ -43,6 +43,10 @@ on:
         description: "SANAD_PRODUCTION_GUARD_ENABLED (true|false)"
         required: false
         default: "true"
+      jwt_secret:
+        description: "JWT_SECRET (>=32 bytes) — for JwtTokenProvider.validateSecret"
+        required: false
+        default: "c35ee4f36fcd6dc36156b07d2f28520dc01fb4eb5da539836e7cfe5891b33107"
       database_url:
         description: "DATABASE_URL (pooler URL works best from GitHub runners)"
         required: true
@@ -111,6 +115,7 @@ jobs:
           SANAD_WORKFLOW_ENGINE_BASE_URL: ${{ inputs.sanad_workflow_engine_base_url }}
           SANAD_AI_GATEWAY_BASE_URL: ${{ inputs.sanad_ai_gateway_base_url }}
           SANAD_PRODUCTION_GUARD_ENABLED: ${{ inputs.sanad_production_guard_enabled }}
+          JWT_SECRET: ${{ inputs.jwt_secret }}
         run: |
           set +e
           mkdir -p logs
@@ -134,6 +139,7 @@ jobs:
             -e SANAD_WORKFLOW_ENGINE_BASE_URL="$SANAD_WORKFLOW_ENGINE_BASE_URL" \
             -e SANAD_AI_GATEWAY_BASE_URL="$SANAD_AI_GATEWAY_BASE_URL" \
             -e SANAD_PRODUCTION_GUARD_ENABLED="$SANAD_PRODUCTION_GUARD_ENABLED" \
+            -e JWT_SECRET="$JWT_SECRET" \
             ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
             > logs/container.log 2>&1 &
           CONTAINER_PID=$!
