@@ -22,8 +22,8 @@ jobs:
     steps:
       - name: Install Python deps
         run: |
-          pip install --break-system-packages bcrypt psycopg2-binary >/dev/null 2>&1 || pip install bcrypt psycopg2-binary
-          python3 -c "import bcrypt, psycopg2; print('bcrypt', bcrypt.__version__, '/ psycopg2', psycopg2.__version__)"
+          pip install --break-system-packages bcrypt "psycopg[binary]" >/dev/null 2>&1 || pip install bcrypt "psycopg[binary]"
+          python3 -c "import bcrypt, psycopg; print('bcrypt', bcrypt.__version__, '/ psycopg', psycopg.__version__)"
 
       - name: Provision tenants + users
         env:
@@ -39,19 +39,20 @@ jobs:
         run: |
           set -euo pipefail
           python3 <<'PY'
-          import os, bcrypt, psycopg2, uuid, json
-          from psycopg2.extras import RealDictCursor
+          import os, bcrypt, psycopg, uuid, json
 
           # Connect via Supabase POOLER URL (works from GitHub Actions runners)
           # The PRODUCTION_DATABASE_JDBC_URL secret points to the direct host
           # (db.eyoupksefusnslvdnflt.supabase.co) which doesn't resolve from
           # GHA runners — use the pooler instead.
+          # psycopg (v3) sends SNI correctly during the SSL handshake, which
+          # is required by Supabase's PgBouncer to identify the project tenant.
           POOLER_HOST = 'aws-0-eu-central-1.pooler.supabase.com'
           POOLER_PORT = 5432
           POOLER_DB = 'postgres'
 
           print(f'Connecting to pooler: {POOLER_HOST}:{POOLER_PORT}/{POOLER_DB} as {os.environ["DATABASE_USERNAME"]}')
-          conn = psycopg2.connect(
+          conn = psycopg.connect(
               host=POOLER_HOST,
               port=POOLER_PORT,
               dbname=POOLER_DB,
@@ -59,9 +60,10 @@ jobs:
               password=os.environ['DATABASE_PASSWORD'],
               sslmode='require',
               connect_timeout=20,
+              autocommit=False,
+              row_factory=__import__('psycopg').rows.dict_row,
           )
-          conn.autocommit = False
-          cur = conn.cursor(cursor_factory=RealDictCursor)
+          cur = conn.cursor()
 
           def bcrypt_hash(pw: str) -> str:
               # Spring Security's BCryptPasswordEncoder uses $2a$ prefix
