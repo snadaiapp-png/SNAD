@@ -11,6 +11,10 @@ on:
         description: "FLYWAY_ENABLED (true|false)"
         required: false
         default: "true"
+      crm_encryption_key:
+        description: "CRM_CUSTOM_FIELD_ENCRYPTION_KEY (base64-encoded AES-256 key). Leave empty to skip."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -60,10 +64,11 @@ jobs:
           SPRING_PROFILES_ACTIVE: prod
           LAZY_INIT: true
           SERVER_PORT: 8080
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ inputs.crm_encryption_key }}
         run: |
           set +e
           mkdir -p logs
-          echo "=== Run container for 180s with 512MB memory limit (mimic Render free tier) ==="
+          echo "=== Run container for 240s with 512MB memory limit (mimic Render free tier) ==="
           docker run --rm \
             --name sanad-diag \
             --memory=512m --memory-swap=512m \
@@ -75,12 +80,13 @@ jobs:
             -e SPRING_PROFILES_ACTIVE="$SPRING_PROFILES_ACTIVE" \
             -e LAZY_INIT="$LAZY_INIT" \
             -e SERVER_PORT="$SERVER_PORT" \
+            -e CRM_CUSTOM_FIELD_ENCRYPTION_KEY="$CRM_CUSTOM_FIELD_ENCRYPTION_KEY" \
             ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
             > logs/container.log 2>&1 &
           CONTAINER_PID=$!
           echo "Container PID: $CONTAINER_PID"
-          # Wait up to 180s for container to either succeed (healthcheck up) or crash
-          for i in $(seq 1 36); do
+          # Wait up to 240s for container to either succeed (healthcheck up) or crash
+          for i in $(seq 1 48); do
             sleep 5
             if ! kill -0 $CONTAINER_PID 2>/dev/null; then
               echo "Container exited at attempt $i (~$((i*5))s)"
@@ -93,6 +99,9 @@ jobs:
               echo "  attempt $i (~$((i*5))s): container up, health=$HEALTH"
               if [ "$HEALTH" = "200" ]; then
                 echo "  ✅ Spring Boot started successfully!"
+                # Wait a bit more for all migrations to complete
+                sleep 10
+                docker kill sanad-diag 2>/dev/null || true
                 break
               fi
             fi
