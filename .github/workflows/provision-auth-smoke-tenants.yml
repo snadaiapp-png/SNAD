@@ -42,19 +42,36 @@ jobs:
           import os, bcrypt, psycopg2, uuid, json
           from psycopg2.extras import RealDictCursor
 
-          # Parse JDBC URL → psycopg2 DSN
+          # Parse JDBC URL → host/port/db/sslmode
           jdbc = os.environ['DATABASE_URL']
-          # jdbc:postgresql://host:port/db?params
           assert jdbc.startswith('jdbc:postgresql://'), f'Unexpected JDBC URL: {jdbc[:50]}'
-          dsn = jdbc.replace('jdbc:postgresql://', 'postgresql://', 1)
-          dsn = dsn.replace('${DATABASE_USERNAME}', os.environ['DATABASE_USERNAME'])
-          dsn = dsn.replace('${DATABASE_PASSWORD}', os.environ['DATABASE_PASSWORD'])
-          # If DSN doesn't include user/password, append
-          if 'user=' not in dsn:
-              dsn = dsn + f" user={os.environ['DATABASE_USERNAME']} password={os.environ['DATABASE_PASSWORD']}"
+          # Strip 'jdbc:postgresql://' prefix
+          rest = jdbc[len('jdbc:postgresql://'):]
+          # Split into 'host:port/db?params'
+          if '?' in rest:
+              host_port_db, params = rest.split('?', 1)
+          else:
+              host_port_db, params = rest, ''
+          # Parse host:port/db
+          if '/' in host_port_db:
+              host_port, db = host_port_db.split('/', 1)
+          else:
+              host_port, db = host_port_db, 'postgres'
+          if ':' in host_port:
+              host, port = host_port.split(':', 1)
+          else:
+              host, port = host_port, '5432'
 
-          print(f'Connecting to: {dsn.split("@")[-1]}')
-          conn = psycopg2.connect(dsn, connect_timeout=20)
+          print(f'Connecting to: {host}:{port}/{db} as {os.environ["DATABASE_USERNAME"]}')
+          conn = psycopg2.connect(
+              host=host,
+              port=int(port),
+              dbname=db,
+              user=os.environ['DATABASE_USERNAME'],
+              password=os.environ['DATABASE_PASSWORD'],
+              sslmode='require',
+              connect_timeout=20,
+          )
           conn.autocommit = False
           cur = conn.cursor(cursor_factory=RealDictCursor)
 
