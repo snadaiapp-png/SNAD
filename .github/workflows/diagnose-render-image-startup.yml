@@ -27,6 +27,22 @@ on:
         description: "CRM_CUSTOM_FIELD_ENCRYPTION_KEY (base64-encoded AES-256 key). Leave empty to skip."
         required: false
         default: ""
+      sanad_service_auth_jwt_secret:
+        description: "SANAD_SERVICE_AUTH_JWT_SECRET (>=32 chars)"
+        required: false
+        default: "test-jwt-secret-please-override-in-workflow-dispatch-32chars-min"
+      sanad_workflow_engine_base_url:
+        description: "SANAD_WORKFLOW_ENGINE_BASE_URL (must be HTTPS, not localhost)"
+        required: false
+        default: "https://sanad-backend-mcrj.onrender.com"
+      sanad_ai_gateway_base_url:
+        description: "SANAD_AI_GATEWAY_BASE_URL (must be HTTPS, not localhost)"
+        required: false
+        default: "https://sanad-backend-mcrj.onrender.com"
+      sanad_production_guard_enabled:
+        description: "SANAD_PRODUCTION_GUARD_ENABLED (true|false)"
+        required: false
+        default: "true"
       database_url:
         description: "DATABASE_URL (pooler URL works best from GitHub runners)"
         required: true
@@ -91,6 +107,10 @@ jobs:
           LAZY_INIT: ${{ inputs.lazy_init }}
           SERVER_PORT: 8080
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ inputs.crm_encryption_key }}
+          SANAD_SERVICE_AUTH_JWT_SECRET: ${{ inputs.sanad_service_auth_jwt_secret }}
+          SANAD_WORKFLOW_ENGINE_BASE_URL: ${{ inputs.sanad_workflow_engine_base_url }}
+          SANAD_AI_GATEWAY_BASE_URL: ${{ inputs.sanad_ai_gateway_base_url }}
+          SANAD_PRODUCTION_GUARD_ENABLED: ${{ inputs.sanad_production_guard_enabled }}
         run: |
           set +e
           mkdir -p logs
@@ -102,11 +122,18 @@ jobs:
             -e DATABASE_USERNAME="$DATABASE_USERNAME" \
             -e DATABASE_PASSWORD="$DATABASE_PASSWORD" \
             -e FLYWAY_ENABLED="$FLYWAY_ENABLED" \
+            -e FLYWAY_VALIDATE_ON_MIGRATE="$FLYWAY_VALIDATE_ON_MIGRATE" \
+            -e FLYWAY_OUT_OF_ORDER="$FLYWAY_OUT_OF_ORDER" \
+            -e SPRING_FLYWAY_OUT_OF_ORDER="$SPRING_FLYWAY_OUT_OF_ORDER" \
             -e JPA_DDL_AUTO="$JPA_DDL_AUTO" \
             -e SPRING_PROFILES_ACTIVE="$SPRING_PROFILES_ACTIVE" \
             -e LAZY_INIT="$LAZY_INIT" \
             -e SERVER_PORT="$SERVER_PORT" \
             -e CRM_CUSTOM_FIELD_ENCRYPTION_KEY="$CRM_CUSTOM_FIELD_ENCRYPTION_KEY" \
+            -e SANAD_SERVICE_AUTH_JWT_SECRET="$SANAD_SERVICE_AUTH_JWT_SECRET" \
+            -e SANAD_WORKFLOW_ENGINE_BASE_URL="$SANAD_WORKFLOW_ENGINE_BASE_URL" \
+            -e SANAD_AI_GATEWAY_BASE_URL="$SANAD_AI_GATEWAY_BASE_URL" \
+            -e SANAD_PRODUCTION_GUARD_ENABLED="$SANAD_PRODUCTION_GUARD_ENABLED" \
             ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
             > logs/container.log 2>&1 &
           CONTAINER_PID=$!
