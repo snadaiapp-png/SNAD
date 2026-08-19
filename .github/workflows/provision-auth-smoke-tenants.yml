@@ -20,20 +20,15 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Setup Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install Python deps
+      - name: Install psql + Python deps
         run: |
-          pip install bcrypt psycopg2-binary
-          python3 -c "import bcrypt, psycopg2; print('bcrypt', bcrypt.__version__, '/ psycopg2', psycopg2.__version__)"
-          python3 --version
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client python3-bcrypt
+          pip install --break-system-packages bcrypt
+          psql --version
+          python3 -c "import bcrypt; print('bcrypt', bcrypt.__version__)"
 
       - name: Provision tenants + users
         env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
           DATABASE_USERNAME: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
           DATABASE_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
           TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
@@ -42,165 +37,66 @@ jobs:
           TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
           TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
           TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+          PGPASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
         run: |
           set -euo pipefail
-          python3 <<'PY'
-          import os, bcrypt, psycopg2, uuid, json
-          from psycopg2.extras import RealDictCursor
 
-          # Connect via Supabase POOLER URL (works from GHA runners when using
-          # Python 3.13's libpq with proper SNI support).
-          POOLER_HOST = 'aws-0-eu-central-1.pooler.supabase.com'
-          POOLER_PORT = 5432
-          POOLER_DB = 'postgres'
+          # Supabase pooler connection (psql uses system libpq with proper SNI support)
+          export PGHOST='aws-0-eu-central-1.pooler.supabase.com'
+          export PGPORT='5432'
+          export PGDATABASE='postgres'
+          export PGUSER="$DATABASE_USERNAME"
+          # PGPASSWORD is set above
+          export PGSSLMODE='require'
 
-          print(f'Connecting to pooler: {POOLER_HOST}:{POOLER_PORT}/{POOLER_DB} as {os.environ["DATABASE_USERNAME"]}')
-          conn = psycopg2.connect(
-              host=POOLER_HOST,
-              port=POOLER_PORT,
-              dbname=POOLER_DB,
-              user=os.environ['DATABASE_USERNAME'],
-              password=os.environ['DATABASE_PASSWORD'],
-              sslmode='require',
-              connect_timeout=20,
-          )
-          conn.autocommit = False
-          cur = conn.cursor(cursor_factory=RealDictCursor)
+          echo "=== Verify connectivity ==="
+          psql -c "SELECT version();" 2>&1 | head -3
 
-          def bcrypt_hash(pw: str) -> str:
-              # Spring Security's BCryptPasswordEncoder uses $2a$ prefix
-              return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=10, prefix=b'2a')).decode()
+          echo ""
+          echo "=== Provision Tenant A + B (idempotent upserts) ==="
+          # Generate bcrypt hashes for A and B (using Spring's $2a$ prefix)
+          HASH_A=$(python3 -c "import bcrypt, os; print(bcrypt.hashpw(os.environ['TENANT_A_PASSWORD'].encode(), bcrypt.gensalt(rounds=10, prefix=b'2a')).decode())")
+          HASH_B=$(python3 -c "import bcrypt, os; print(bcrypt.hashpw(os.environ['TENANT_B_PASSWORD'].encode(), bcrypt.gensalt(rounds=10, prefix=b'2a')).decode())")
+          echo "Hash A length: ${#HASH_A}, Hash B length: ${#HASH_B}"
 
-          def fetchone_dict(cur):
-              """RealDictCursor returns dict — no conversion needed."""
-              return cur.fetchone()
+          for label in A B; do
+            case "$label" in
+              A) TID="$TENANT_A_ID"; EMAIL="$TENANT_A_EMAIL"; HASH="$HASH_A";;
+              B) TID="$TENANT_B_ID"; EMAIL="$TENANT_B_EMAIL"; HASH="$HASH_B";;
+            esac
+            echo ""
+            echo "=== Provisioning Tenant $label (tenant_id=$TID, email=$EMAIL) ==="
 
-          def provision(tenant_id_str: str, email: str, password: str, label: str):
-              tid = uuid.UUID(tenant_id_str)
-              print(f'\n=== Provisioning {label} (tenant_id={tid}, email={email}) ===')
+            # 1. Tenant upsert
+            psql -v ON_ERROR_STOP=1 -c "INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('$TID'::uuid, 'Auth Smoke $label', 'ACTIVE', NOW(), NOW()) ON CONFLICT (id) DO UPDATE SET status = 'ACTIVE', updated_at = NOW() RETURNING id, name, status;"
 
-              # 1. Upsert tenant (idempotent)
-              cur.execute("""
-                  INSERT INTO tenants (id, name, status, created_at, updated_at)
-                  VALUES (%s, %s, 'ACTIVE', NOW(), NOW())
-                  ON CONFLICT (id) DO UPDATE
-                  SET status = 'ACTIVE', updated_at = NOW()
-                  RETURNING id, name, status
-              """, (tid, f'Auth Smoke {label}'))
-              trow = fetchone_dict(cur)
-              print(f'  tenant: {trow["id"]} name={trow["name"]} status={trow["status"]}')
+            # 2. Organization upsert
+            psql -v ON_ERROR_STOP=1 -c "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) SELECT gen_random_uuid(), '$TID'::uuid, 'Auth Smoke Org $label', 'ACTIVE', NOW(), NOW() WHERE NOT EXISTS (SELECT 1 FROM organizations WHERE tenant_id = '$TID'::uuid AND name = 'Auth Smoke Org $label');"
 
-              # 2. Upsert organization
-              org_id = uuid.uuid4()
-              cur.execute("""
-                  INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at)
-                  SELECT %s, %s, %s, 'ACTIVE', NOW(), NOW()
-                  WHERE NOT EXISTS (
-                      SELECT 1 FROM organizations WHERE tenant_id = %s AND name = %s
-                  )
-                  RETURNING id
-              """, (org_id, tid, f'Auth Smoke Org {label}', tid, f'Auth Smoke Org {label}'))
-              orow = fetchone_dict(cur)
-              if orow:
-                  actual_org_id = orow['id']
-                  print(f'  organization: created id={actual_org_id}')
-              else:
-                  cur.execute("SELECT id FROM organizations WHERE tenant_id = %s AND name = %s", (tid, f'Auth Smoke Org {label}'))
-                  actual_org_id = fetchone_dict(cur)['id']
-                  print(f'  organization: existing id={actual_org_id}')
+            # 3. ADMIN role upsert + grant all capabilities
+            psql -v ON_ERROR_STOP=1 -c "INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) SELECT gen_random_uuid(), '$TID'::uuid, 'ADMIN', 'Auth Smoke Admin $label', 'Auth smoke admin', 'ACTIVE', NOW(), NOW() WHERE NOT EXISTS (SELECT 1 FROM roles WHERE tenant_id = '$TID'::uuid AND code = 'ADMIN');"
+            psql -v ON_ERROR_STOP=1 -c "INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) SELECT gen_random_uuid(), '$TID'::uuid, r.id, ac.id, NOW() FROM roles r, access_capabilities ac WHERE r.tenant_id = '$TID'::uuid AND r.code = 'ADMIN' AND ac.status = 'ACTIVE' AND NOT EXISTS (SELECT 1 FROM role_capabilities rc WHERE rc.tenant_id = '$TID'::uuid AND rc.role_id = r.id AND rc.capability_id = ac.id);"
 
-              # 3. Upsert ADMIN role for this tenant
-              admin_role_id = uuid.uuid4()
-              cur.execute("""
-                  INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
-                  VALUES (%s, %s, 'ADMIN', %s, 'Auth smoke admin', 'ACTIVE', NOW(), NOW())
-                  ON CONFLICT DO NOTHING
-                  RETURNING id
-              """, (admin_role_id, tid, f'Auth Smoke Admin {label}'))
-              rrow = fetchone_dict(cur)
-              if rrow:
-                  admin_role_id = rrow['id']
-                  print(f'  role ADMIN: created id={admin_role_id}')
-                  # Grant all capabilities to ADMIN role (idempotent)
-                  cur.execute("""
-                      INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
-                      SELECT gen_random_uuid(), %s, %s, ac.id, NOW()
-                      FROM access_capabilities ac
-                      WHERE ac.status = 'ACTIVE'
-                      AND NOT EXISTS (
-                          SELECT 1 FROM role_capabilities rc
-                          WHERE rc.tenant_id = %s AND rc.role_id = %s AND rc.capability_id = ac.id
-                      )
-                  """, (tid, admin_role_id, tid, admin_role_id))
-                  print(f'  role_capabilities: granted all ACTIVE capabilities to ADMIN')
-              else:
-                  cur.execute("SELECT id FROM roles WHERE tenant_id = %s AND code = 'ADMIN'", (tid,))
-                  admin_role_id = fetchone_dict(cur)['id']
-                  print(f'  role ADMIN: existing id={admin_role_id}')
+            # 4. User upsert (with bcrypt password hash)
+            psql -v ON_ERROR_STOP=1 -c "INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, must_change_password, platform_admin, session_version, created_at, updated_at) VALUES (gen_random_uuid(), '$TID'::uuid, '$EMAIL', 'Auth Smoke User $label', 'ACTIVE', '$HASH', FALSE, FALSE, 0, NOW(), NOW()) ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = EXCLUDED.password_hash, status = 'ACTIVE', must_change_password = FALSE, updated_at = NOW() RETURNING id, email;"
 
-              # 4. Upsert user (with fresh bcrypt password hash from secret)
-              user_id = uuid.uuid4()
-              pw_hash = bcrypt_hash(password)
-              cur.execute("""
-                  INSERT INTO users (id, tenant_id, email, display_name, status, password_hash,
-                                     must_change_password, platform_admin, session_version,
-                                     created_at, updated_at)
-                  VALUES (%s, %s, %s, %s, 'ACTIVE', %s, FALSE, FALSE, 0, NOW(), NOW())
-                  ON CONFLICT (tenant_id, email) DO UPDATE
-                  SET password_hash = EXCLUDED.password_hash,
-                      status = 'ACTIVE',
-                      must_change_password = FALSE,
-                      updated_at = NOW()
-                  RETURNING id
-              """, (user_id, tid, email, f'Auth Smoke User {label}', pw_hash))
-              urow = fetchone_dict(cur)
-              user_id = urow['id']
-              print(f'  user: id={user_id} email={email} (password hash refreshed)')
+            # 5. Membership upsert
+            psql -v ON_ERROR_STOP=1 -c "INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, status, created_at, updated_at) SELECT gen_random_uuid(), '$TID'::uuid, o.id, u.id, 'ACTIVE', NOW(), NOW() FROM organizations o, users u WHERE o.tenant_id = '$TID'::uuid AND o.name = 'Auth Smoke Org $label' AND u.tenant_id = '$TID'::uuid AND u.email = '$EMAIL' AND NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.tenant_id = '$TID'::uuid AND m.user_id = u.id AND m.organization_id = o.id);"
 
-              # 5. Upsert membership (user -> org)
-              cur.execute("""
-                  INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, status, created_at, updated_at)
-                  SELECT gen_random_uuid(), %s, %s, %s, 'ACTIVE', NOW(), NOW()
-                  WHERE NOT EXISTS (
-                      SELECT 1 FROM organization_memberships
-                      WHERE tenant_id = %s AND user_id = %s AND organization_id = %s
-                  )
-              """, (tid, actual_org_id, user_id, tid, user_id, actual_org_id))
+            # 6. user_role_assignments upsert
+            psql -v ON_ERROR_STOP=1 -c "INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at) SELECT gen_random_uuid(), '$TID'::uuid, u.id, r.id, 'ACTIVE', NOW(), NOW() FROM users u, roles r WHERE u.tenant_id = '$TID'::uuid AND u.email = '$EMAIL' AND r.tenant_id = '$TID'::uuid AND r.code = 'ADMIN' AND NOT EXISTS (SELECT 1 FROM user_role_assignments ura WHERE ura.tenant_id = '$TID'::uuid AND ura.user_id = u.id AND ura.role_id = r.id);"
 
-              # 6. Upsert user_role_assignments
-              cur.execute("""
-                  INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at)
-                  SELECT gen_random_uuid(), %s, %s, %s, 'ACTIVE', NOW(), NOW()
-                  WHERE NOT EXISTS (
-                      SELECT 1 FROM user_role_assignments
-                      WHERE tenant_id = %s AND user_id = %s AND role_id = %s
-                  )
-              """, (tid, user_id, admin_role_id, tid, user_id, admin_role_id))
+            # 7. auth_credentials upsert (if table exists)
+            psql -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF to_regclass('public.auth_credentials') IS NOT NULL THEN INSERT INTO auth_credentials (user_id, tenant_id, password_hash, status, created_at, updated_at) SELECT u.id, '$TID'::uuid, '$HASH', 'ACTIVE', NOW(), NOW() FROM users u WHERE u.tenant_id = '$TID'::uuid AND u.email = '$EMAIL' ON CONFLICT (user_id, tenant_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, status = 'ACTIVE', updated_at = NOW(); END IF; END \$\$;"
 
-              # 7. Update auth_credentials table if it exists (for the user's password)
-              cur.execute("""
-                  SELECT to_regclass('public.auth_credentials') AS exists
-              """)
-              ac_exists = fetchone_dict(cur)['exists']
-              if ac_exists:
-                  cur.execute("""
-                      INSERT INTO auth_credentials (user_id, tenant_id, password_hash, status, created_at, updated_at)
-                      VALUES (%s, %s, %s, 'ACTIVE', NOW(), NOW())
-                      ON CONFLICT (user_id, tenant_id) DO UPDATE
-                      SET password_hash = EXCLUDED.password_hash,
-                          status = 'ACTIVE',
-                          updated_at = NOW()
-                  """, (user_id, tid, pw_hash))
-                  print(f'  auth_credentials: synced')
+            echo "Tenant $label provisioned"
+          done
 
-              conn.commit()
-              print(f'  {label} provisioned successfully')
+          echo ""
+          echo "=== ALL TENANTS PROVISIONED ==="
 
-          # Provision A + B
-          provision(os.environ['TENANT_A_ID'], os.environ['TENANT_A_EMAIL'], os.environ['TENANT_A_PASSWORD'], 'Tenant A')
-          provision(os.environ['TENANT_B_ID'], os.environ['TENANT_B_EMAIL'], os.environ['TENANT_B_PASSWORD'], 'Tenant B')
-
-          cur.close()
-          conn.close()
-          print('\n=== ALL TENANTS PROVISIONED ===')
-          PY
+          # Verify by querying
+          echo ""
+          echo "=== Verify (final state) ==="
+          psql -c "SELECT t.id, t.name, t.status FROM tenants t WHERE t.id IN ('$TENANT_A_ID'::uuid, '$TENANT_B_ID'::uuid) ORDER BY t.name;"
+          psql -c "SELECT u.tenant_id, u.email, u.status FROM users u WHERE u.tenant_id IN ('$TENANT_A_ID'::uuid, '$TENANT_B_ID'::uuid) ORDER BY u.email;"
