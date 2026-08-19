@@ -85,16 +85,15 @@ spring:
     # only during a documented one-shot baseline operation (e.g. adopting Flyway
     # on a legacy database), and turn it off again afterwards.
     baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
-    # TEMPORARY ONE-SHOT RECOVERY: hardcoded false to skip the
-    # "Detected resolved migration not applied to database: 15" validation
-    # failure caused by V15 (Java migration) being absent from
-    # flyway_schema_history. Once V15 and V20260819_1 are applied, restore
-    # the env-var-bound form: ${FLYWAY_VALIDATE_ON_MIGRATE:true}
-    validate-on-migrate: false
-    # TEMPORARY ONE-SHOT RECOVERY: hardcoded true to allow V15 (which is
-    # older than the latest applied V20260816.8) to be applied retroactively.
-    # Restore to ${FLYWAY_OUT_OF_ORDER:false} after V15 is in history.
-    out-of-order: true
+    # Strict validation: catch checksum drift and "resolved but not applied"
+    # migrations before they hit production. Override only via env var
+    # FLYWAY_VALIDATE_ON_MIGRATE=false during a documented one-shot recovery.
+    validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:true}
+    # Out-of-order defaults to FALSE in production. Enable temporarily via
+    # FLYWAY_OUT_OF_ORDER=true only when a previously-skipped migration needs
+    # retroactive application (e.g. the V15 Java migration applied after
+    # V20260816.8 was already at the head of flyway_schema_history).
+    out-of-order: ${FLYWAY_OUT_OF_ORDER:false}
     validate-migration-naming: ${FLYWAY_VALIDATE_MIGRATION_NAMING:false}
     clean-disabled: true
 
