@@ -40,7 +40,6 @@ jobs:
           set -euo pipefail
           python3 <<'PY'
           import os, bcrypt, pg8000, uuid, json
-          from pg8000 import TLIST, ROWS
 
           # Connect via Supabase POOLER URL (works from GitHub Actions runners)
           # using pg8000 (pure Python — handles SNI correctly during SSL
