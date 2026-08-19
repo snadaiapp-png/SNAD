@@ -1,0 +1,49 @@
+name: Inspect Image Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag (commit sha) to inspect"
+        required: true
+        default: "8b3727f7d1001ec68e9137af75b888a4841bef2a"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  list-jar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/snad-backend
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull image
+        run: docker pull ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }}
+
+      - name: List ALL migration files in the JAR
+        run: |
+          echo "=== All V*.sql files in the JAR's classpath ==="
+          docker run --rm --entrypoint sh ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }} -c "jar tf /app/app.jar | grep -E 'db/migration/.*\\.sql\$|db/vendor/.*\\.sql\$' | sort"
+
+      - name: Show V20260819_1 content (proves idempotent fix is in image)
+        run: |
+          echo "=== Content of V20260819_1__create_hr_employees.sql inside the image JAR ==="
+          docker run --rm --entrypoint sh ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }} -c "unzip -p /app/app.jar BOOT-INF/classes/db/migration/V20260819_1__create_hr_employees.sql | sed -n '70,135p'"
+
+      - name: Check Flyway-related properties in JAR
+        run: |
+          echo "=== application.yml + application-prod.yml + application-local.yml (flyway sections) ==="
+          for f in application.yml application-prod.yml application-local.yml; do
+            echo "--- $f (flyway section) ---"
+            docker run --rm --entrypoint sh ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }} -c "unzip -p /app/app.jar BOOT-INF/classes/$f | grep -A 5 -B 1 'flyway'" 2>&1 || echo "(file not found)"
+          done
