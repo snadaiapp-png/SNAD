@@ -357,18 +357,18 @@ public class WorkflowController {
     }
 
     private Map<String, Object> toStepMap(WorkflowStep s) {
-        return Map.of(
-                "id", s.id(),
-                "workflowDefinitionId", s.workflowDefinitionId(),
-                "stepKey", s.stepKey(),
-                "name", s.name(),
-                "stepType", s.stepType().name(),
-                "sequenceOrder", s.sequenceOrder(),
-                "configuration", s.configuration() != null ? s.configuration() : "",
-                "slaHours", s.slaHours() != null ? s.slaHours() : 0,
-                "requiredCapability", s.requiredCapability() != null ? s.requiredCapability() : "",
-                "requiredRole", s.requiredRole() != null ? s.requiredRole() : "",
-                "version", s.version()
+        return Map.ofEntries(
+                Map.entry("id", s.id()),
+                Map.entry("workflowDefinitionId", s.workflowDefinitionId()),
+                Map.entry("stepKey", s.stepKey()),
+                Map.entry("name", s.name()),
+                Map.entry("stepType", s.stepType().name()),
+                Map.entry("sequenceOrder", s.sequenceOrder()),
+                Map.entry("configuration", s.configuration() != null ? s.configuration() : ""),
+                Map.entry("slaHours", s.slaHours() != null ? s.slaHours() : 0),
+                Map.entry("requiredCapability", s.requiredCapability() != null ? s.requiredCapability() : ""),
+                Map.entry("requiredRole", s.requiredRole() != null ? s.requiredRole() : ""),
+                Map.entry("version", s.version())
         );
     }
 }
