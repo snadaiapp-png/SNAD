@@ -22,8 +22,8 @@ jobs:
     steps:
       - name: Install Python deps
         run: |
-          pip install --break-system-packages bcrypt "psycopg[binary]" >/dev/null 2>&1 || pip install bcrypt "psycopg[binary]"
-          python3 -c "import bcrypt, psycopg; print('bcrypt', bcrypt.__version__, '/ psycopg', psycopg.__version__)"
+          pip install --break-system-packages bcrypt pg8000 >/dev/null 2>&1 || pip install bcrypt pg8000
+          python3 -c "import bcrypt, pg8000; print('bcrypt', bcrypt.__version__, '/ pg8000', pg8000.__version__)"
 
       - name: Provision tenants + users
         env:
@@ -39,35 +39,41 @@ jobs:
         run: |
           set -euo pipefail
           python3 <<'PY'
-          import os, bcrypt, psycopg, uuid, json
+          import os, bcrypt, pg8000, uuid, json
+          from pg8000 import TLIST, ROWS
 
           # Connect via Supabase POOLER URL (works from GitHub Actions runners)
-          # The PRODUCTION_DATABASE_JDBC_URL secret points to the direct host
-          # (db.eyoupksefusnslvdnflt.supabase.co) which doesn't resolve from
-          # GHA runners — use the pooler instead.
-          # psycopg (v3) sends SNI correctly during the SSL handshake, which
-          # is required by Supabase's PgBouncer to identify the project tenant.
+          # using pg8000 (pure Python — handles SNI correctly during SSL
+          # handshake, which Supabase's PgBouncer requires to identify the
+          # project tenant).
           POOLER_HOST = 'aws-0-eu-central-1.pooler.supabase.com'
           POOLER_PORT = 5432
           POOLER_DB = 'postgres'
 
           print(f'Connecting to pooler: {POOLER_HOST}:{POOLER_PORT}/{POOLER_DB} as {os.environ["DATABASE_USERNAME"]}')
-          conn = psycopg.connect(
+          conn = pg8000.connect(
               host=POOLER_HOST,
               port=POOLER_PORT,
-              dbname=POOLER_DB,
+              database=POOLER_DB,
               user=os.environ['DATABASE_USERNAME'],
               password=os.environ['DATABASE_PASSWORD'],
-              sslmode='require',
-              connect_timeout=20,
-              autocommit=False,
-              row_factory=__import__('psycopg').rows.dict_row,
+              ssl_context=True,  # Use SSL with default context (sends SNI)
+              timeout=20,
           )
+          conn.autocommit = False
           cur = conn.cursor()
 
           def bcrypt_hash(pw: str) -> str:
               # Spring Security's BCryptPasswordEncoder uses $2a$ prefix
               return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=10, prefix=b'2a')).decode()
+
+          def fetchone_dict(cur):
+              """pg8000 returns tuples by default; convert to dict using cur.description"""
+              row = cur.fetchone()
+              if row is None:
+                  return None
+              cols = [d[0] for d in cur.description]
+              return dict(zip(cols, row))
 
           def provision(tenant_id_str: str, email: str, password: str, label: str):
               tid = uuid.UUID(tenant_id_str)
@@ -81,7 +87,7 @@ jobs:
                   SET status = 'ACTIVE', updated_at = NOW()
                   RETURNING id, name, status
               """, (tid, f'Auth Smoke {label}'))
-              trow = cur.fetchone()
+              trow = fetchone_dict(cur)
               print(f'  tenant: {trow["id"]} name={trow["name"]} status={trow["status"]}')
 
               # 2. Upsert organization
@@ -94,13 +100,13 @@ jobs:
                   )
                   RETURNING id
               """, (org_id, tid, f'Auth Smoke Org {label}', tid, f'Auth Smoke Org {label}'))
-              orow = cur.fetchone()
+              orow = fetchone_dict(cur)
               if orow:
                   actual_org_id = orow['id']
                   print(f'  organization: created id={actual_org_id}')
               else:
                   cur.execute("SELECT id FROM organizations WHERE tenant_id = %s AND name = %s", (tid, f'Auth Smoke Org {label}'))
-                  actual_org_id = cur.fetchone()['id']
+                  actual_org_id = fetchone_dict(cur)['id']
                   print(f'  organization: existing id={actual_org_id}')
 
               # 3. Upsert ADMIN role for this tenant
@@ -111,7 +117,7 @@ jobs:
                   ON CONFLICT DO NOTHING
                   RETURNING id
               """, (admin_role_id, tid, f'Auth Smoke Admin {label}'))
-              rrow = cur.fetchone()
+              rrow = fetchone_dict(cur)
               if rrow:
                   admin_role_id = rrow['id']
                   print(f'  role ADMIN: created id={admin_role_id}')
@@ -129,7 +135,7 @@ jobs:
                   print(f'  role_capabilities: granted all ACTIVE capabilities to ADMIN')
               else:
                   cur.execute("SELECT id FROM roles WHERE tenant_id = %s AND code = 'ADMIN'", (tid,))
-                  admin_role_id = cur.fetchone()['id']
+                  admin_role_id = fetchone_dict(cur)['id']
                   print(f'  role ADMIN: existing id={admin_role_id}')
 
               # 4. Upsert user (with fresh bcrypt password hash from secret)
@@ -147,7 +153,7 @@ jobs:
                       updated_at = NOW()
                   RETURNING id
               """, (user_id, tid, email, f'Auth Smoke User {label}', pw_hash))
-              urow = cur.fetchone()
+              urow = fetchone_dict(cur)
               user_id = urow['id']
               print(f'  user: id={user_id} email={email} (password hash refreshed)')
 
@@ -175,7 +181,7 @@ jobs:
               cur.execute("""
                   SELECT to_regclass('public.auth_credentials') AS exists
               """)
-              ac_exists = cur.fetchone()['exists']
+              ac_exists = fetchone_dict(cur)['exists']
               if ac_exists:
                   cur.execute("""
                       INSERT INTO auth_credentials (user_id, tenant_id, password_hash, status, created_at, updated_at)
