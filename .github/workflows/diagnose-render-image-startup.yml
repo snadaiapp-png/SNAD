@@ -1,0 +1,125 @@
+name: Diagnose Render Image Startup
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag (commit sha) to diagnose. Leave empty for latest main HEAD."
+        required: false
+        default: ""
+      flyway_enabled:
+        description: "FLYWAY_ENABLED (true|false)"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  run-image:
+    name: Pull image, run locally, capture startup logs
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/snad-backend
+
+    steps:
+      - name: Resolve image tag
+        run: |
+          echo "Repo HEAD sha: ${{ github.sha }}"
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "IMAGE_TAG=${{ inputs.image_tag }}" >> $GITHUB_ENV
+          fi
+          echo "Will diagnose image: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull image
+        run: |
+          docker pull ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+          docker images | grep sanad-backend
+
+      - name: Run container with prod DB + capture logs
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          DATABASE_USERNAME: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DATABASE_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+          FLYWAY_ENABLED: ${{ inputs.flyway_enabled }}
+          JPA_DDL_AUTO: none
+          SPRING_PROFILES_ACTIVE: prod
+          LAZY_INIT: true
+          SERVER_PORT: 8080
+        run: |
+          set +e
+          mkdir -p logs
+          echo "=== Run container for 180s with 512MB memory limit (mimic Render free tier) ==="
+          docker run --rm \
+            --name sanad-diag \
+            --memory=512m --memory-swap=512m \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e DATABASE_USERNAME="$DATABASE_USERNAME" \
+            -e DATABASE_PASSWORD="$DATABASE_PASSWORD" \
+            -e FLYWAY_ENABLED="$FLYWAY_ENABLED" \
+            -e JPA_DDL_AUTO="$JPA_DDL_AUTO" \
+            -e SPRING_PROFILES_ACTIVE="$SPRING_PROFILES_ACTIVE" \
+            -e LAZY_INIT="$LAZY_INIT" \
+            -e SERVER_PORT="$SERVER_PORT" \
+            ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
+            > logs/container.log 2>&1 &
+          CONTAINER_PID=$!
+          echo "Container PID: $CONTAINER_PID"
+          # Wait up to 180s for container to either succeed (healthcheck up) or crash
+          for i in $(seq 1 36); do
+            sleep 5
+            if ! kill -0 $CONTAINER_PID 2>/dev/null; then
+              echo "Container exited at attempt $i (~$((i*5))s)"
+              break
+            fi
+            # Check if health endpoint is up
+            CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' sanad-diag 2>/dev/null || true)
+            if [ -n "$CONTAINER_IP" ]; then
+              HEALTH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://${CONTAINER_IP}:8080/actuator/health" 2>/dev/null || echo "000")
+              echo "  attempt $i (~$((i*5))s): container up, health=$HEALTH"
+              if [ "$HEALTH" = "200" ]; then
+                echo "  ✅ Spring Boot started successfully!"
+                break
+              fi
+            fi
+          done
+          # Kill container if still running
+          docker kill sanad-diag 2>/dev/null || true
+          wait $CONTAINER_PID 2>/dev/null || true
+          echo "=== Container log size: $(wc -c < logs/container.log) bytes, $(wc -l < logs/container.log) lines ==="
+
+      - name: Show last 200 lines of container log
+        run: |
+          echo "==================== LAST 200 LINES OF CONTAINER LOG ===================="
+          tail -200 logs/container.log || true
+          echo "==================== END LOG ===================="
+
+      - name: Search log for known error patterns
+        run: |
+          echo "==================== ERROR PATTERN SEARCH ===================="
+          for pattern in "Exception" "Caused by" "APPLICATION FAILED TO START" "OutOfMemoryError" "Metaspace" "BeanCreationException" "BeanInstantiationException" "FlywayException" "Migration of" "duplicate_object" "ERROR:" "FATAL"; do
+            echo ""
+            echo "--- Pattern: $pattern ---"
+            grep -n -E "$pattern" logs/container.log 2>/dev/null | head -10 || true
+          done
+
+      - name: Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-image-startup-logs-${{ env.IMAGE_TAG }}
+          path: logs/
+          retention-days: 14
