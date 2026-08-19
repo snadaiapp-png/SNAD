@@ -181,8 +181,18 @@ public class WorkflowExecutionService {
             return;
         }
         findCurrentStepInstance(instance.id(), instance.currentStepKey())
-                .filter(si -> si.status() == WorkflowStepInstance.Status.IN_PROGRESS)
-                .ifPresent(si -> stepInstanceRepo.save(si.complete(result)));
+                .filter(si -> si.status() == WorkflowStepInstance.Status.IN_PROGRESS
+                        || si.status() == WorkflowStepInstance.Status.PENDING)
+                .ifPresent(si -> {
+                    // PENDING step instances need to be started before they can be completed.
+                    // This supports the workflow lifecycle where advanceToNextStep or complete
+                    // is called on a step that was never explicitly started (OPTION B model:
+                    // PENDING → IN_PROGRESS → COMPLETED atomically on advance/complete).
+                    var started = si.status() == WorkflowStepInstance.Status.PENDING
+                            ? stepInstanceRepo.save(si.start())
+                            : si;
+                    stepInstanceRepo.save(started.complete(result));
+                });
     }
 
     private void failCurrentStepInstance(UUID tenantId, WorkflowInstance instance, String reason) {

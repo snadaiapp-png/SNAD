@@ -222,6 +222,34 @@ public class WorkflowController {
                 executionService.cancel(tenantId(auth), id, userId(auth), reason)));
     }
 
+    @PostMapping("/instances/{id}/advance")
+    @RequireCapability("WORKFLOW.WRITE")
+    public ResponseEntity<Map<String, Object>> advanceInstance(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody AdvanceInstanceRequest req) {
+        return ResponseEntity.ok(toInstanceMap(
+                executionService.advanceToNextStep(
+                        tenantId(auth), id, req.nextStepKey(), userId(auth))));
+    }
+
+    @PostMapping("/instances/{id}/complete")
+    @RequireCapability("WORKFLOW.WRITE")
+    public ResponseEntity<Map<String, Object>> completeInstance(
+            Authentication auth, @PathVariable UUID id) {
+        return ResponseEntity.ok(toInstanceMap(
+                executionService.complete(tenantId(auth), id, userId(auth))));
+    }
+
+    @PostMapping("/instances/{id}/fail")
+    @RequireCapability("WORKFLOW.ADMIN")
+    public ResponseEntity<Map<String, Object>> failInstance(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody Map<String, String> body) {
+        var reason = body.getOrDefault("reason", "Failed via REST API");
+        return ResponseEntity.ok(toInstanceMap(
+                executionService.fail(tenantId(auth), id, reason, userId(auth))));
+    }
+
     // ===== Approvals =====
 
     @GetMapping("/approvals")
@@ -238,6 +266,26 @@ public class WorkflowController {
             Authentication auth, @RequestParam(defaultValue = "50") int limit) {
         var approvals = approvalService.findPendingForUser(tenantId(auth), userId(auth), limit);
         return ResponseEntity.ok(approvals.stream().map(this::toApprovalMap).toList());
+    }
+
+    @PostMapping("/instances/{instanceId}/approvals")
+    @RequireCapability("WORKFLOW.WRITE")
+    public ResponseEntity<Map<String, Object>> createApproval(
+            Authentication auth, @PathVariable UUID instanceId,
+            @RequestBody CreateApprovalRequest req) {
+        var tenant = tenantId(auth);
+        var actor = userId(auth);
+        // Validate instance exists and belongs to tenant
+        executionService.findById(tenant, instanceId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "WorkflowInstance not found: " + instanceId));
+        var approval = WorkflowApprovalRequest.create(
+                tenant, instanceId, req.workflowStepInstanceId(),
+                req.requestedFromUserId(), req.requestedFromRole(),
+                req.dueAt(), actor
+        );
+        var saved = approvalService.createApproval(approval, actor);
+        return ResponseEntity.ok(toApprovalMap(saved));
     }
 
     @PostMapping("/approvals/{id}/approve")
@@ -311,6 +359,15 @@ public class WorkflowController {
             String stepKey, String name, String stepType,
             int sequenceOrder, String configuration,
             Integer slaHours, String requiredCapability, String requiredRole
+    ) {}
+
+    public record AdvanceInstanceRequest(String nextStepKey) {}
+
+    public record CreateApprovalRequest(
+            UUID workflowStepInstanceId,
+            UUID requestedFromUserId,
+            String requestedFromRole,
+            java.time.Instant dueAt
     ) {}
 
     // ===== Response helpers =====
