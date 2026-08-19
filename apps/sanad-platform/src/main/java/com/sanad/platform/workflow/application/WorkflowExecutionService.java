@@ -71,6 +71,15 @@ public class WorkflowExecutionService {
     }
 
     @Transactional(readOnly = true)
+    public List<WorkflowStepInstance> findStepInstances(UUID tenantId, UUID workflowInstanceId) {
+        // Tenant validation: instance must belong to tenant
+        instanceRepo.findById(tenantId, workflowInstanceId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "WorkflowInstance not found: " + workflowInstanceId));
+        return stepInstanceRepo.findByInstance(workflowInstanceId);
+    }
+
+    @Transactional(readOnly = true)
     public List<WorkflowInstance> findByTenant(UUID tenantId, int limit) {
         return instanceRepo.findByTenant(tenantId, limit);
     }

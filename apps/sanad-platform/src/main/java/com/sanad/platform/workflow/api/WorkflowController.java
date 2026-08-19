@@ -9,6 +9,8 @@ import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowInstance;
 import com.sanad.platform.workflow.domain.WorkflowStep;
+import com.sanad.platform.workflow.domain.WorkflowStepInstance;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -50,6 +52,22 @@ public class WorkflowController {
         this.executionService = executionService;
         this.approvalService = approvalService;
         this.monitoringService = monitoringService;
+    }
+
+    // ===== Exception Handling =====
+
+    /**
+     * Map IllegalStateException (SOD violations, state machine violations) to HTTP 409 CONFLICT
+     * instead of HTTP 500. This ensures business-rule rejections are not treated as
+     * internal server errors in production error sweeps.
+     */
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "status", 409,
+                "error", "Conflict",
+                "message", e.getMessage() != null ? e.getMessage() : "Workflow state conflict"
+        ));
     }
 
     // ===== Definitions =====
@@ -194,6 +212,19 @@ public class WorkflowController {
         return executionService.findById(tenantId(auth), id)
                 .map(i -> ResponseEntity.ok(toInstanceMap(i)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/instances/{id}/steps")
+    @RequireCapability("WORKFLOW.VIEW")
+    public ResponseEntity<List<Map<String, Object>>> listStepInstances(
+            Authentication auth, @PathVariable UUID id) {
+        var tenant = tenantId(auth);
+        // Validate instance belongs to tenant
+        executionService.findById(tenant, id)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "WorkflowInstance not found: " + id));
+        var stepInstances = executionService.findStepInstances(tenant, id);
+        return ResponseEntity.ok(stepInstances.stream().map(this::toStepInstanceMap).toList());
     }
 
     @PostMapping("/instances/{id}/pause")
@@ -426,6 +457,24 @@ public class WorkflowController {
                 Map.entry("requiredCapability", s.requiredCapability() != null ? s.requiredCapability() : ""),
                 Map.entry("requiredRole", s.requiredRole() != null ? s.requiredRole() : ""),
                 Map.entry("version", s.version())
+        );
+    }
+
+    private Map<String, Object> toStepInstanceMap(WorkflowStepInstance si) {
+        return Map.ofEntries(
+                Map.entry("id", si.id()),
+                Map.entry("workflowInstanceId", si.workflowInstanceId()),
+                Map.entry("workflowStepId", si.workflowStepId()),
+                Map.entry("stepKey", si.stepKey()),
+                Map.entry("status", si.status().name()),
+                Map.entry("assignedUserId", si.assignedUserId() != null ? si.assignedUserId() : ""),
+                Map.entry("assignedRole", si.assignedRole() != null ? si.assignedRole() : ""),
+                Map.entry("startedAt", si.startedAt() != null ? si.startedAt().toString() : ""),
+                Map.entry("completedAt", si.completedAt() != null ? si.completedAt().toString() : ""),
+                Map.entry("dueAt", si.dueAt() != null ? si.dueAt().toString() : ""),
+                Map.entry("attemptCount", si.attemptCount()),
+                Map.entry("result", si.result() != null ? si.result() : ""),
+                Map.entry("version", si.version())
         );
     }
 }
