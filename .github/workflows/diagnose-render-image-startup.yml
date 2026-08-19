@@ -11,6 +11,14 @@ on:
         description: "FLYWAY_ENABLED (true|false)"
         required: false
         default: "true"
+      flyway_validate_on_migrate:
+        description: "FLYWAY_VALIDATE_ON_MIGRATE (true|false)"
+        required: false
+        default: "true"
+      flyway_out_of_order:
+        description: "FLYWAY_OUT_OF_ORDER (true|false)"
+        required: false
+        default: "false"
       lazy_init:
         description: "LAZY_INIT (true|false) - set false to force eager Flyway init"
         required: false
@@ -75,6 +83,9 @@ jobs:
           DATABASE_USERNAME: ${{ inputs.database_username }}
           DATABASE_PASSWORD: ${{ inputs.database_password }}
           FLYWAY_ENABLED: ${{ inputs.flyway_enabled }}
+          FLYWAY_VALIDATE_ON_MIGRATE: ${{ inputs.flyway_validate_on_migrate }}
+          FLYWAY_OUT_OF_ORDER: ${{ inputs.flyway_out_of_order }}
+          SPRING_FLYWAY_OUT_OF_ORDER: ${{ inputs.flyway_out_of_order }}
           JPA_DDL_AUTO: none
           SPRING_PROFILES_ACTIVE: prod
           LAZY_INIT: ${{ inputs.lazy_init }}
