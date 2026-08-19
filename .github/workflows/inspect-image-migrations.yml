@@ -30,20 +30,30 @@ jobs:
       - name: Pull image
         run: docker pull ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }}
 
+      - name: Copy app.jar out of the image
+        run: |
+          # Create a temp container that just copies the JAR out
+          id=$(docker create ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }})
+          docker cp "$id:/app/app.jar" /tmp/app.jar
+          docker rm "$id"
+          ls -la /tmp/app.jar
+          # Show JAR size
+          echo "JAR size: $(stat -c%s /tmp/app.jar) bytes"
+
       - name: List ALL migration files in the JAR
         run: |
           echo "=== All V*.sql files in the JAR's classpath ==="
-          docker run --rm --entrypoint sh ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }} -c "jar tf /app/app.jar | grep -E 'db/migration/.*\\.sql\$|db/vendor/.*\\.sql\$' | sort"
+          unzip -l /tmp/app.jar | grep -E 'db/migration/.*\.sql$|db/vendor/.*\.sql$' | sort
 
       - name: Show V20260819_1 content (proves idempotent fix is in image)
         run: |
-          echo "=== Content of V20260819_1__create_hr_employees.sql inside the image JAR ==="
-          docker run --rm --entrypoint sh ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }} -c "unzip -p /app/app.jar BOOT-INF/classes/db/migration/V20260819_1__create_hr_employees.sql | sed -n '70,135p'"
+          echo "=== Content of V20260819_1__create_hr_employees.sql inside the image JAR (lines 70-140) ==="
+          unzip -p /tmp/app.jar 'BOOT-INF/classes/db/migration/V20260819_1__create_hr_employees.sql' | sed -n '70,140p'
 
       - name: Check Flyway-related properties in JAR
         run: |
           echo "=== application.yml + application-prod.yml + application-local.yml (flyway sections) ==="
           for f in application.yml application-prod.yml application-local.yml; do
             echo "--- $f (flyway section) ---"
-            docker run --rm --entrypoint sh ${REGISTRY}/${IMAGE_NAME}:${{ inputs.image_tag }} -c "unzip -p /app/app.jar BOOT-INF/classes/$f | grep -A 5 -B 1 'flyway'" 2>&1 || echo "(file not found)"
+            unzip -p /tmp/app.jar "BOOT-INF/classes/$f" | grep -A 6 -B 1 -i 'flyway' || echo "(file not found or no flyway section)"
           done
