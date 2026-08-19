@@ -13,14 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Controller for conflict management operations.
- *
- * Requirements: API-007 (Conflict List), API-008 (Conflict Resolve),
- *               API-009 (Conflict Skip), ARCH-002 (12 Conflict Classes)
- *
- * Tenant/user identity from authenticated JWT via {@link TenantContextPort} (DEF-005).
- */
+/** Controller for G7 mobile conflict management operations. */
 @RestController
 @RequestMapping("/api/v2/mobile/conflicts")
 public class ConflictController {
@@ -42,12 +35,9 @@ public class ConflictController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> listConflicts(
             @RequestHeader("X-Device-Id") String deviceId) {
-
         UUID tenantId = tenantContext.getTenantId();
         UUID deviceUuid = UUID.fromString(deviceId);
-
         List<Map<String, Object>> conflicts = conflictService.getOpenConflicts(tenantId, deviceUuid);
-
         return ResponseEntity.ok(Map.of(
             "totalConflicts", conflicts.size(),
             "conflicts", conflicts
@@ -59,17 +49,12 @@ public class ConflictController {
             @PathVariable UUID conflictId,
             @RequestBody Map<String, Object> body,
             @RequestHeader("X-Device-Id") String deviceId) {
-
         UUID tenantId = tenantContext.getTenantId();
         UUID userId = tenantContext.getPrincipalId();
-
         String resolution = (String) body.get("resolution");
         JsonNode resolutionData = objectMapper.valueToTree(body.get("resolutionData"));
-
         conflictService.resolveConflict(tenantId, conflictId, userId, resolution, resolutionData);
-
         log.info("Conflict resolved via API: id={}, resolution={}", conflictId, resolution);
-
         return ResponseEntity.ok(Map.of(
             "status", "RESOLVED",
             "conflictId", conflictId.toString(),
@@ -81,16 +66,15 @@ public class ConflictController {
     public ResponseEntity<Map<String, String>> skipConflict(
             @PathVariable UUID conflictId,
             @RequestHeader("X-Device-Id") String deviceId) {
-
         UUID tenantId = tenantContext.getTenantId();
         UUID userId = tenantContext.getPrincipalId();
-
-        conflictService.resolveConflict(tenantId, conflictId, userId, "DEFERRED", null);
-
-        log.info("Conflict skipped/deferred: id={}", conflictId);
-
+        boolean skipped = conflictService.skipConflict(tenantId, conflictId, userId);
+        if (!skipped) {
+            return ResponseEntity.notFound().build();
+        }
+        log.info("Conflict deferred: id={}", conflictId);
         return ResponseEntity.ok(Map.of(
-            "status", "DEFERRED",
+            "status", "RESOLUTION_PENDING",
             "conflictId", conflictId.toString()
         ));
     }

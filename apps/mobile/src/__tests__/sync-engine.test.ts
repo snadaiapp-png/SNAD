@@ -1,11 +1,8 @@
 /**
  * G7 Test Suite — Sync Engine & Offline
  * Tests: Offline read/write, queue persistence, delta pull, cursor continuation
- *
- * All tests use the actual async API signatures.
  */
 
-// Mock expo-sqlite before any imports
 jest.mock('expo-sqlite', () => ({
   openDatabaseAsync: jest.fn().mockResolvedValue({
     execAsync: jest.fn().mockResolvedValue(undefined),
@@ -23,12 +20,9 @@ jest.mock('expo-crypto', () => ({
 }));
 
 import { getDatabase, upsertEntity, getEntity, getAllEntities, softDeleteEntity } from '../storage/db';
-import { getRecentEvents, emitSyncEvent, clearEventBuffer, getEventSummary } from '../obs/metrics';
 import { MutationQueue } from '../sync/mutation-queue';
+import { SyncEngine } from '../sync/sync-engine';
 
-// ═══════════════════════════════════════════════════════════
-// TEST 1: Offline Read
-// ═══════════════════════════════════════════════════════════
 describe('TEST-01: Offline Read', () => {
   test('getDatabase returns a database instance', async () => {
     const db = await getDatabase();
@@ -44,14 +38,10 @@ describe('TEST-01: Offline Read', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════
-// TEST 2: Offline Mutation
-// ═══════════════════════════════════════════════════════════
 describe('TEST-02: Offline Mutation', () => {
   test('upsertEntity calls database runAsync', async () => {
     const db = await getDatabase();
     (db.runAsync as jest.Mock).mockClear();
-
     await upsertEntity('account', {
       id: 'acc-1',
       tenant_id: 't1',
@@ -59,14 +49,12 @@ describe('TEST-02: Offline Mutation', () => {
       created_at: '2026-01-01',
       updated_at: '2026-01-01',
     });
-
     expect(db.runAsync).toHaveBeenCalled();
   });
 
   test('getEntity calls database getFirstAsync', async () => {
     const db = await getDatabase();
     (db.getFirstAsync as jest.Mock).mockResolvedValue({ id: 'acc-1', name: 'Test' });
-
     const entity = await getEntity('account', 'acc-1');
     expect(entity).toBeDefined();
     expect(db.getFirstAsync).toHaveBeenCalled();
@@ -78,7 +66,6 @@ describe('TEST-02: Offline Mutation', () => {
       { id: 'acc-1', name: 'Account 1' },
       { id: 'acc-2', name: 'Account 2' },
     ]);
-
     const entities = await getAllEntities('account');
     expect(entities).toHaveLength(2);
   });
@@ -86,65 +73,85 @@ describe('TEST-02: Offline Mutation', () => {
   test('softDeleteEntity calls database runAsync', async () => {
     const db = await getDatabase();
     (db.runAsync as jest.Mock).mockClear();
-
     await softDeleteEntity('account', 'acc-1');
     expect(db.runAsync).toHaveBeenCalled();
   });
 });
 
-// ═══════════════════════════════════════════════════════════
-// TEST 3: Queue Persistence
-// ═══════════════════════════════════════════════════════════
 describe('TEST-03: Queue Persistence', () => {
   test('MutationQueue can be instantiated', () => {
-    const queue = new MutationQueue();
-    expect(queue).toBeDefined();
+    expect(new MutationQueue()).toBeDefined();
   });
 
   test('queue has enqueue method', () => {
-    const queue = new MutationQueue();
-    expect(typeof queue.enqueue).toBe('function');
+    expect(typeof new MutationQueue().enqueue).toBe('function');
   });
 
   test('queue has getQueuedMutations method', () => {
-    const queue = new MutationQueue();
-    expect(typeof queue.getQueuedMutations).toBe('function');
+    expect(typeof new MutationQueue().getQueuedMutations).toBe('function');
   });
 });
 
-// ═══════════════════════════════════════════════════════════
-// TEST 4: Delta Pull
-// ═══════════════════════════════════════════════════════════
 describe('TEST-04: Delta Pull', () => {
-  test('getEntitiesSince queries by sync_version', async () => {
+  test('getEntitiesSince queries by sync_version for local database inspection', async () => {
     const { getEntitiesSince } = require('../storage/db');
     const db = await getDatabase();
     (db.getAllAsync as jest.Mock).mockResolvedValue([]);
-
     const entities = await getEntitiesSince('account', 5);
     expect(Array.isArray(entities)).toBe(true);
   });
 });
 
-// ═══════════════════════════════════════════════════════════
-// TEST 5: Sync Metadata
-// ═══════════════════════════════════════════════════════════
 describe('TEST-05: Sync Metadata', () => {
   test('getSyncMetadata returns null for missing key', async () => {
     const { getSyncMetadata } = require('../storage/db');
     const db = await getDatabase();
     (db.getFirstAsync as jest.Mock).mockResolvedValue(null);
-
-    const value = await getSyncMetadata('last_cursor');
-    expect(value).toBeNull();
+    expect(await getSyncMetadata('last_cursor')).toBeNull();
   });
 
   test('setSyncMetadata calls database runAsync', async () => {
     const { setSyncMetadata } = require('../storage/db');
     const db = await getDatabase();
     (db.runAsync as jest.Mock).mockClear();
-
     await setSyncMetadata('last_cursor', 'abc123');
     expect(db.runAsync).toHaveBeenCalled();
+  });
+});
+
+describe('TEST-06: Multi-page cursor continuation', () => {
+  test('next page uses the cursor returned by the previous page', async () => {
+    const db = await getDatabase();
+    (db.getFirstAsync as jest.Mock).mockResolvedValue(null);
+    (db.runAsync as jest.Mock).mockResolvedValue(undefined);
+
+    const engine = new SyncEngine({
+      apiBaseUrl: 'https://example.invalid',
+      deviceId: 'device-1',
+      accessToken: 'token',
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      pullLimit: 2,
+      pushBatchSize: 10,
+      clientTimeoutMs: 1000,
+      retryDelayMs: 10,
+      maxRetries: 1,
+    });
+
+    const pullDelta = jest.fn()
+      .mockResolvedValueOnce({
+        entityType: 'account', nextCursor: 'cursor-page-1', entityCount: 0,
+        entities: [], serverTimestamp: new Date().toISOString(), hasMore: true,
+      })
+      .mockResolvedValueOnce({
+        entityType: 'account', nextCursor: 'cursor-page-2', entityCount: 0,
+        entities: [], serverTimestamp: new Date().toISOString(), hasMore: false,
+      });
+
+    (engine as any).apiClient = { pullDelta };
+    await (engine as any).pullEntity('account');
+
+    expect(pullDelta).toHaveBeenNthCalledWith(1, 'account', null, 2);
+    expect(pullDelta).toHaveBeenNthCalledWith(2, 'account', 'cursor-page-1', 2);
   });
 });
