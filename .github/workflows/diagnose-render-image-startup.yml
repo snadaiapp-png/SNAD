@@ -11,10 +11,25 @@ on:
         description: "FLYWAY_ENABLED (true|false)"
         required: false
         default: "true"
+      lazy_init:
+        description: "LAZY_INIT (true|false) - set false to force eager Flyway init"
+        required: false
+        default: "true"
       crm_encryption_key:
         description: "CRM_CUSTOM_FIELD_ENCRYPTION_KEY (base64-encoded AES-256 key). Leave empty to skip."
         required: false
         default: ""
+      database_url:
+        description: "DATABASE_URL (pooler URL works best from GitHub runners)"
+        required: true
+        default: "jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:5432/postgres?prepareThreshold=0&sslmode=require"
+      database_username:
+        description: "DATABASE_USERNAME"
+        required: true
+        default: "postgres.tkbrvupemreqabwzdpyq"
+      database_password:
+        description: "DATABASE_PASSWORD"
+        required: true
 
 permissions:
   contents: read
@@ -56,13 +71,13 @@ jobs:
 
       - name: Run container with prod DB + capture logs
         env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
-          DATABASE_USERNAME: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
-          DATABASE_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+          DATABASE_URL: ${{ inputs.database_url }}
+          DATABASE_USERNAME: ${{ inputs.database_username }}
+          DATABASE_PASSWORD: ${{ inputs.database_password }}
           FLYWAY_ENABLED: ${{ inputs.flyway_enabled }}
           JPA_DDL_AUTO: none
           SPRING_PROFILES_ACTIVE: prod
-          LAZY_INIT: true
+          LAZY_INIT: ${{ inputs.lazy_init }}
           SERVER_PORT: 8080
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ inputs.crm_encryption_key }}
         run: |
