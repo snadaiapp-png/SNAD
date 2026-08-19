@@ -20,10 +20,16 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
       - name: Install Python deps
         run: |
-          pip install --break-system-packages bcrypt pg8000 >/dev/null 2>&1 || pip install bcrypt pg8000
-          python3 -c "import bcrypt, pg8000; print('bcrypt', bcrypt.__version__, '/ pg8000', pg8000.__version__)"
+          pip install bcrypt psycopg2-binary
+          python3 -c "import bcrypt, psycopg2; print('bcrypt', bcrypt.__version__, '/ psycopg2', psycopg2.__version__)"
+          python3 --version
 
       - name: Provision tenants + users
         env:
@@ -39,40 +45,35 @@ jobs:
         run: |
           set -euo pipefail
           python3 <<'PY'
-          import os, bcrypt, pg8000, uuid, json
+          import os, bcrypt, psycopg2, uuid, json
+          from psycopg2.extras import RealDictCursor
 
-          # Connect via Supabase POOLER URL (works from GitHub Actions runners)
-          # using pg8000 (pure Python — handles SNI correctly during SSL
-          # handshake, which Supabase's PgBouncer requires to identify the
-          # project tenant).
+          # Connect via Supabase POOLER URL (works from GHA runners when using
+          # Python 3.13's libpq with proper SNI support).
           POOLER_HOST = 'aws-0-eu-central-1.pooler.supabase.com'
           POOLER_PORT = 5432
           POOLER_DB = 'postgres'
 
           print(f'Connecting to pooler: {POOLER_HOST}:{POOLER_PORT}/{POOLER_DB} as {os.environ["DATABASE_USERNAME"]}')
-          conn = pg8000.connect(
+          conn = psycopg2.connect(
               host=POOLER_HOST,
               port=POOLER_PORT,
-              database=POOLER_DB,
+              dbname=POOLER_DB,
               user=os.environ['DATABASE_USERNAME'],
               password=os.environ['DATABASE_PASSWORD'],
-              ssl_context=True,  # Use SSL with default context (sends SNI)
-              timeout=20,
+              sslmode='require',
+              connect_timeout=20,
           )
           conn.autocommit = False
-          cur = conn.cursor()
+          cur = conn.cursor(cursor_factory=RealDictCursor)
 
           def bcrypt_hash(pw: str) -> str:
               # Spring Security's BCryptPasswordEncoder uses $2a$ prefix
               return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=10, prefix=b'2a')).decode()
 
           def fetchone_dict(cur):
-              """pg8000 returns tuples by default; convert to dict using cur.description"""
-              row = cur.fetchone()
-              if row is None:
-                  return None
-              cols = [d[0] for d in cur.description]
-              return dict(zip(cols, row))
+              """RealDictCursor returns dict — no conversion needed."""
+              return cur.fetchone()
 
           def provision(tenant_id_str: str, email: str, password: str, label: str):
               tid = uuid.UUID(tenant_id_str)
