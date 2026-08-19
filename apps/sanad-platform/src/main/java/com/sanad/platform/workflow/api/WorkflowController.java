@@ -111,6 +111,41 @@ public class WorkflowController {
                 definitionService.archive(tenantId(auth), id, userId(auth))));
     }
 
+    // ===== Steps =====
+
+    @PostMapping("/definitions/{id}/steps")
+    @RequireCapability("WORKFLOW.WRITE")
+    public ResponseEntity<Map<String, Object>> addStep(
+            Authentication auth, @PathVariable UUID id, @RequestBody CreateStepRequest req) {
+        var tenant = tenantId(auth);
+        var actor = userId(auth);
+        // Validate definition exists and belongs to authenticated tenant
+        definitionService.findById(tenant, id)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "WorkflowDefinition not found: " + id));
+        var step = WorkflowStep.create(
+                tenant, id, req.stepKey(), req.name(),
+                WorkflowStep.StepType.valueOf(req.stepType()),
+                req.sequenceOrder(), req.configuration(),
+                req.slaHours(), req.requiredCapability(), req.requiredRole()
+        );
+        var saved = definitionService.addStep(step, actor);
+        return ResponseEntity.ok(toStepMap(saved));
+    }
+
+    @GetMapping("/definitions/{id}/steps")
+    @RequireCapability("WORKFLOW.VIEW")
+    public ResponseEntity<List<Map<String, Object>>> listSteps(
+            Authentication auth, @PathVariable UUID id) {
+        var tenant = tenantId(auth);
+        // Validate definition belongs to tenant
+        definitionService.findById(tenant, id)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "WorkflowDefinition not found: " + id));
+        var steps = definitionService.findSteps(id);
+        return ResponseEntity.ok(steps.stream().map(this::toStepMap).toList());
+    }
+
     // ===== Instances =====
 
     @PostMapping("/instances")
@@ -272,6 +307,12 @@ public class WorkflowController {
             UUID correlationId
     ) {}
 
+    public record CreateStepRequest(
+            String stepKey, String name, String stepType,
+            int sequenceOrder, String configuration,
+            Integer slaHours, String requiredCapability, String requiredRole
+    ) {}
+
     // ===== Response helpers =====
 
     private Map<String, Object> toDefinitionMap(WorkflowDefinition d) {
@@ -312,6 +353,22 @@ public class WorkflowController {
                 "decision", a.decision() != null ? a.decision() : "",
                 "comments", a.comments() != null ? a.comments() : "",
                 "version", a.version()
+        );
+    }
+
+    private Map<String, Object> toStepMap(WorkflowStep s) {
+        return Map.of(
+                "id", s.id(),
+                "workflowDefinitionId", s.workflowDefinitionId(),
+                "stepKey", s.stepKey(),
+                "name", s.name(),
+                "stepType", s.stepType().name(),
+                "sequenceOrder", s.sequenceOrder(),
+                "configuration", s.configuration() != null ? s.configuration() : "",
+                "slaHours", s.slaHours() != null ? s.slaHours() : 0,
+                "requiredCapability", s.requiredCapability() != null ? s.requiredCapability() : "",
+                "requiredRole", s.requiredRole() != null ? s.requiredRole() : "",
+                "version", s.version()
         );
     }
 }
