@@ -40,15 +40,19 @@ RUN mkdir -p /app/logs && chown -R sanad:sanad /app
 
 # Memory optimization for Render 512MB free tier
 # SerialGC: lowest memory overhead GC
-# 192MB heap + 160MB metaspace: startup crash-loop (nonZeroExit:1 during
-#   class-loading/Hibernate init) observed at 128m/128m after G7 added mobile
-#   sync entities. Steady-state usage stays well under these caps; only the
-#   startup peak touches higher. 192+160+32=384MB reserved, ~80MB native
-#   overhead => ~464MB, safely under the 512MB container limit.
+# 160MB heap + 256MB metaspace: bump metaspace from 160m to 256m after
+#   HR module + V15 Java migration + JwtTokenProvider + CRM email module
+#   pushed startup class-loading past 160m on Render's slow CPU (1m crash-loop
+#   with nonZeroExit:1, while same image runs fine on GHA's faster CPU).
+#   Steady-state usage stays well under these caps; only the startup peak
+#   touches higher. 160+256+32=448MB reserved, ~80MB native overhead =>
+#   ~528MB which is just over the 512MB limit — Render's free tier
+#   empirically allows this overshoot during startup. Revert to 192m/160m
+#   if Render starts OOM-killing at steady state.
 # 256k thread stack: half the default
 # TieredStopAtLevel=1: skip C2 for faster startup
 # -XX:+ExitOnOutOfMemoryError: crash immediately on OOM (clean exit code)
-ENV JAVA_OPTS="-Xmx192m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=160m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+ENV JAVA_OPTS="-Xmx160m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=256m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
 ENV SPRING_PROFILES_ACTIVE=prod
 
 USER sanad
