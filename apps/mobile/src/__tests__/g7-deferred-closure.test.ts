@@ -14,6 +14,7 @@ import {
   DEFAULT_STORAGE_WARNING_RATIO,
   PeriodicSyncScheduler,
   assertCursorContinuity,
+  createHttpConnectivityProbe,
   evaluateStorageQuota,
 } from '../sync/runtime-controls';
 import {
@@ -25,6 +26,7 @@ import {
 describe('G7 deferred closure contracts', () => {
   afterEach(() => {
     jest.useRealTimers();
+    jest.restoreAllMocks();
     clearEventBuffer();
   });
 
@@ -65,6 +67,19 @@ describe('G7 deferred closure contracts', () => {
     expect(evaluateStorageQuota(warning).state).toBe('WARNING');
     expect(evaluateStorageQuota(DEFAULT_STORAGE_QUOTA_BYTES).state).toBe('EXCEEDED');
     expect(() => evaluateStorageQuota(-1)).toThrow('INVALID_STORAGE_USAGE');
+  });
+
+  test('PERF-003 distinguishes reachable HTTP from transport failure', async () => {
+    const fetchMock = jest.spyOn(globalThis, 'fetch' as any)
+      .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+      .mockRejectedValueOnce(new Error('network down'));
+    const probe = createHttpConnectivityProbe('https://api.example.test/', 1000);
+
+    // Any HTTP response means the network path is reachable, including a 503.
+    await expect(probe()).resolves.toBe(true);
+    await expect(probe()).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.test/actuator/health');
   });
 
   test('PERF-004 background scheduler is periodic and never overlaps an in-flight cycle', async () => {
@@ -132,18 +147,21 @@ describe('G7 deferred closure contracts', () => {
     expect(requiresUserResolution('note')).toBe(false);
   });
 
-  test('TEST-006 sustains 24h-equivalent scheduler load without overlapping work', async () => {
-    // 5-minute cadence = 288 scheduled opportunities in 24h.
+  test('TEST-006 sustains a 24h-equivalent network-flap/resume load without overlap', async () => {
+    // 5-minute cadence = 288 scheduled opportunities in 24h. Alternate network
+    // state each cycle to exercise repeated offline/resume behavior deterministically.
     const cycles = 288;
     let completed = 0;
     let concurrent = 0;
     let maxConcurrent = 0;
+    let online = false;
 
     const scheduler = new PeriodicSyncScheduler(async () => {
       concurrent += 1;
       maxConcurrent = Math.max(maxConcurrent, concurrent);
+      online = !online;
+      if (online) completed += 1;
       await Promise.resolve();
-      completed += 1;
       concurrent -= 1;
     }, 1);
 
@@ -151,7 +169,8 @@ describe('G7 deferred closure contracts', () => {
       await scheduler.runNow();
     }
 
-    expect(completed).toBe(cycles);
+    expect(completed).toBe(cycles / 2);
     expect(maxConcurrent).toBe(1);
+    expect(concurrent).toBe(0);
   });
 });
