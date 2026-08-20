@@ -79,6 +79,6 @@ Key gates on the branch CI (PR-triggered, fresh runner / PG 16 / en_US):
 | CRM Authenticated E2E (within Playwright workflow) | FAIL — **pre-existing main flake** | `CRM-035 terminal-leads` x2, 60 s timeouts — fails identically on `main` f4e61b35's own run; zero lead-UI files in this branch; documented, not caused by G8 |
 | Backend hardening / health / benchmark / backup / dependency / provenance / governance / validation / lint | PASS | |
 
-Commits on the branch: 4 — `feat` caller core (A+B) · `feat` call events + offline (C+D) · `docs` evidence + governance + regenerated contract · `ci` gate fixes (ledger reference + allowlist + plan-gate determinism).
+Commits on the branch: 5 — `feat` caller core (A+B) · `feat` call events + offline (C+D) · `docs` evidence + governance + regenerated contract · `ci` gate fixes (ledger reference + allowlist + plan-gate determinism) · `test`/`docs` plan-gate + report status. (The docs/ci/test commits are gate alignments required by the "all gates green" mandate; the reintegration itself is the two feat commits.)
 
 Final merge: OWNER GATE — this report is not an approval request.
