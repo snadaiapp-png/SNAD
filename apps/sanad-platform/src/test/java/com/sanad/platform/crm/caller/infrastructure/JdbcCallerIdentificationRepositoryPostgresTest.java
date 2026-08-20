@@ -126,7 +126,6 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
     void archivedAndInactiveRowsAreIgnored() {
         UUID tenant = tenant("caller-st");
         UUID contactId = contact(tenant, "شخص معطل", UUID.randomUUID());
-        communicationMethod(tenant, contactId, PHONE, false, "UNVERIFIED", false, "INTERNAL");
         communicationMethodStatus(tenant, contactId, PHONE, "ARCHIVED");
         communicationMethodStatus(tenant, contactId, PHONE, "INACTIVE");
 
