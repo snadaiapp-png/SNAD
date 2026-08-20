@@ -83,6 +83,8 @@ This is enforced by `CrmExceptionHandler` and verified by
 | `CRM_IMPORT_MAPPING_INVALID` | The import mapping is invalid or incomplete. | No | POST `/imports/{id}/run` when required columns are unmapped. |
 | `CRM_CUSTOM_FIELD_VALIDATION_FAILED` | One or more custom field values failed validation. | No | PUT `/custom-fields/values/{entityType}/{entityId}` with a value that violates the field's data type. |
 | `CALLER_PHONE_INVALID` | The phone number cannot be normalized for caller identification. | No | POST `/caller-identification/lookup` with a phone that is not E.164 and cannot be normalized with `countryHint=SA` (G8 EXECUTION 02). |
+| `CALL_EVENT_NOT_FOUND` | The requested call event was not found. | No | GET `/calls/{callId}` or a status transition for an unknown provider call id (G8 EXECUTION 03). |
+| `CALL_EVENT_INVALID_TRANSITION` | The requested call status transition is not allowed. | No | POST `/calls/events` driving a call into an illegal state (e.g. COMPLETED → RINGING, RINGING → COMPLETED without ANSWERED) (G8 EXECUTION 03). |
 
 ## Concurrency (HTTP 412)
 
