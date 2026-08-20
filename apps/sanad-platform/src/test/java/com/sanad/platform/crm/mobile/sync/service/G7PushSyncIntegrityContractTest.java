@@ -33,9 +33,10 @@ class G7PushSyncIntegrityContractTest {
         changedPayload.put("primary_phone", "+966500000001");
         changedPayload.put("display_name", "Acme");
 
-        var a = mutation("idem-1", payloadA, 4L);
-        var equivalent = mutation("idem-1", payloadEquivalent, 4L);
-        var changed = mutation("idem-1", changedPayload, 4L);
+        String entityId = UUID.randomUUID().toString();
+        var a = mutation("idem-1", payloadA, 4L, entityId);
+        var equivalent = mutation("idem-1", payloadEquivalent, 4L, entityId);
+        var changed = mutation("idem-1", changedPayload, 4L, entityId);
 
         String fingerprintA = PushSyncService.computeMutationFingerprint(a);
         String fingerprintEquivalent = PushSyncService.computeMutationFingerprint(equivalent);
@@ -63,7 +64,6 @@ class G7PushSyncIntegrityContractTest {
                 "idem-stale", "account", entityId.toString(), "UPDATE", 4L,
                 clientPayload, "2026-08-20T15:00:00Z");
 
-        // Idempotency claim succeeds.
         when(jdbc.queryForObject(startsWith("INSERT INTO crm_idempotency_records"), eq(UUID.class), any(Object[].class)))
                 .thenReturn(UUID.randomUUID());
         when(jdbc.queryForObject(startsWith("SELECT sync_version"), eq(Long.class),
@@ -111,8 +111,12 @@ class G7PushSyncIntegrityContractTest {
     }
 
     private PushSyncRequest.MutationEnvelope mutation(String key, JsonNode payload, Long expectedVersion) {
+        return mutation(key, payload, expectedVersion, UUID.randomUUID().toString());
+    }
+
+    private PushSyncRequest.MutationEnvelope mutation(String key, JsonNode payload, Long expectedVersion, String entityId) {
         return new PushSyncRequest.MutationEnvelope(
-                key, "account", UUID.randomUUID().toString(), "UPDATE",
+                key, "account", entityId, "UPDATE",
                 expectedVersion, payload, "2026-08-20T15:00:00Z");
     }
 }
