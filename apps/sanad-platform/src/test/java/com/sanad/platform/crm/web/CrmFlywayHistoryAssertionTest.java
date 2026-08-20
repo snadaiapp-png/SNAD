@@ -172,6 +172,17 @@ class CrmFlywayHistoryAssertionTest {
             // v20260816.9 — ERP Core Platform
             , "20260816.7"    // create ERP tables + capabilities
             , "20260816.8"    // enable RLS on ERP tables (PG-only)
+            // v20260819 — HR Employees module
+            , "20260819.1"    // create hr employees tables + capabilities
+            // v20260820 — commerce sequences, RBAC templates/provenance, idempotency
+            , "20260820.1"    // create commerce order number sequences
+            , "20260820.2"    // seed RBAC role templates
+            , "20260820.3"    // correct RBAC role template capabilities
+            , "20260820.4"    // reconcile idempotency + cart single-checkout invariant
+            , "20260820.5"    // RBAC exact matrix + durable provenance
+            , "20260820.6"    // commerce/finance linkage + role template bindings
+            , "20260820.7"    // RBAC exact matrix validation 9/9
+            , "20260820.8"    // add SETTLEMENT_FAILED status
     );
 
 

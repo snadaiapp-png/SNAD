@@ -132,8 +132,21 @@ class CrmPostgresMigrationTest {
     // v20260816.9 — ERP Core Platform
     private static final String CREATE_ERP_TABLES_VERSION = "20260816.7";
     private static final String ENABLE_ERP_RLS_VERSION = "20260816.8";
-    // Latest migration after ERP Core Platform
-    private static final String LATEST_MIGRATION_VERSION = ENABLE_ERP_RLS_VERSION;
+    // V20260819_1 — HR Employees (module tables + capabilities)
+    private static final String HR_EMPLOYEES_VERSION = "20260819.1";
+    // V20260820 — commerce order sequences, RBAC templates, idempotency/cart
+    // invariant, RBAC exact matrix + provenance, commerce/finance linkage,
+    // exact matrix 9/9, settlement-failed status
+    private static final String COMMERCE_ORDER_SEQUENCES_VERSION = "20260820.1";
+    private static final String SEED_RBAC_ROLE_TEMPLATES_VERSION = "20260820.2";
+    private static final String CORRECT_RBAC_TEMPLATE_CAPS_VERSION = "20260820.3";
+    private static final String RECONCILE_IDEMPOTENCY_CART_INVARIANT_VERSION = "20260820.4";
+    private static final String RBAC_EXACT_MATRIX_PROVENANCE_VERSION = "20260820.5";
+    private static final String COMMERCE_FINANCE_LINKAGE_VERSION = "20260820.6";
+    private static final String RBAC_EXACT_MATRIX_9_OF_9_VERSION = "20260820.7";
+    private static final String SETTLEMENT_FAILED_STATUS_VERSION = "20260820.8";
+    // Latest migration — keep in sync with db/migration
+    private static final String LATEST_MIGRATION_VERSION = SETTLEMENT_FAILED_STATUS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -317,7 +330,16 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CREATE_COMMERCE_TABLES_VERSION),
                         MigrationVersion.fromVersion(ENABLE_COMMERCE_RLS_VERSION),
                         MigrationVersion.fromVersion(CREATE_ERP_TABLES_VERSION),
-                        MigrationVersion.fromVersion(ENABLE_ERP_RLS_VERSION));
+                        MigrationVersion.fromVersion(ENABLE_ERP_RLS_VERSION),
+                        MigrationVersion.fromVersion(HR_EMPLOYEES_VERSION),
+                        MigrationVersion.fromVersion(COMMERCE_ORDER_SEQUENCES_VERSION),
+                        MigrationVersion.fromVersion(SEED_RBAC_ROLE_TEMPLATES_VERSION),
+                        MigrationVersion.fromVersion(CORRECT_RBAC_TEMPLATE_CAPS_VERSION),
+                        MigrationVersion.fromVersion(RECONCILE_IDEMPOTENCY_CART_INVARIANT_VERSION),
+                        MigrationVersion.fromVersion(RBAC_EXACT_MATRIX_PROVENANCE_VERSION),
+                        MigrationVersion.fromVersion(COMMERCE_FINANCE_LINKAGE_VERSION),
+                        MigrationVersion.fromVersion(RBAC_EXACT_MATRIX_9_OF_9_VERSION),
+                        MigrationVersion.fromVersion(SETTLEMENT_FAILED_STATUS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -433,7 +455,16 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CREATE_COMMERCE_TABLES_VERSION),
                         MigrationVersion.fromVersion(ENABLE_COMMERCE_RLS_VERSION),
                         MigrationVersion.fromVersion(CREATE_ERP_TABLES_VERSION),
-                        MigrationVersion.fromVersion(ENABLE_ERP_RLS_VERSION));
+                        MigrationVersion.fromVersion(ENABLE_ERP_RLS_VERSION),
+                        MigrationVersion.fromVersion(HR_EMPLOYEES_VERSION),
+                        MigrationVersion.fromVersion(COMMERCE_ORDER_SEQUENCES_VERSION),
+                        MigrationVersion.fromVersion(SEED_RBAC_ROLE_TEMPLATES_VERSION),
+                        MigrationVersion.fromVersion(CORRECT_RBAC_TEMPLATE_CAPS_VERSION),
+                        MigrationVersion.fromVersion(RECONCILE_IDEMPOTENCY_CART_INVARIANT_VERSION),
+                        MigrationVersion.fromVersion(RBAC_EXACT_MATRIX_PROVENANCE_VERSION),
+                        MigrationVersion.fromVersion(COMMERCE_FINANCE_LINKAGE_VERSION),
+                        MigrationVersion.fromVersion(RBAC_EXACT_MATRIX_9_OF_9_VERSION),
+                        MigrationVersion.fromVersion(SETTLEMENT_FAILED_STATUS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -613,6 +644,15 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, ENABLE_COMMERCE_RLS_VERSION, "SQL", "enable commerce rls");
         assertMigration(jdbc, CREATE_ERP_TABLES_VERSION, "SQL", "create erp tables");
         assertMigration(jdbc, ENABLE_ERP_RLS_VERSION, "SQL", "enable erp rls");
+        assertMigration(jdbc, HR_EMPLOYEES_VERSION, "SQL", "create hr employees");
+        assertMigration(jdbc, COMMERCE_ORDER_SEQUENCES_VERSION, "SQL", "create commerce order number sequences");
+        assertMigration(jdbc, SEED_RBAC_ROLE_TEMPLATES_VERSION, "SQL", "seed rbac role templates");
+        assertMigration(jdbc, CORRECT_RBAC_TEMPLATE_CAPS_VERSION, "SQL", "correct rbac role template capabilities");
+        assertMigration(jdbc, RECONCILE_IDEMPOTENCY_CART_INVARIANT_VERSION, "SQL", "reconcile idempotency and add cart invariant");
+        assertMigration(jdbc, RBAC_EXACT_MATRIX_PROVENANCE_VERSION, "SQL", "rbac exact matrix and provenance");
+        assertMigration(jdbc, COMMERCE_FINANCE_LINKAGE_VERSION, "SQL", "commerce finance linkage and role bindings");
+        assertMigration(jdbc, RBAC_EXACT_MATRIX_9_OF_9_VERSION, "SQL", "rbac exact matrix 9 of 9");
+        assertMigration(jdbc, SETTLEMENT_FAILED_STATUS_VERSION, "SQL", "add settlement failed status");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());

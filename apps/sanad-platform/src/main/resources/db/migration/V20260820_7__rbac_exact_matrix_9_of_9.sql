@@ -33,8 +33,10 @@ DECLARE
     expected_count INTEGER;
     actual_count INTEGER;
 BEGIN
-    -- CRM_SALES expected: 17 capabilities
-    expected_count := 17;
+    -- CRM_SALES expected: 16 capabilities (the canonical V20260820_2/V20260820_3
+    -- grant list contains exactly 16 codes — was miscounted as 17, which made
+    -- this validation fail unconditionally on every fresh database)
+    expected_count := 16;
     -- Check (a): no extra caps
     SELECT COUNT(*) INTO bad_count
     FROM roles r
