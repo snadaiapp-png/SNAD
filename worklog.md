@@ -1429,3 +1429,83 @@ Stage Summary:
   verifications + mobile build + full test suites + Playwright UI + BFF chain
   + error sweep + cleanup + DB integrity review + final parity
 - Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v9.md (not FINAL)
+
+---
+Task ID: v10-1
+Agent: main (super-z)
+Task: SNAD-REMEDIATION-CONTINUATION-v10 — pg-acceptance safety + idempotency contract + cart invariant + RBAC exact matrix + provenance
+
+Work Log:
+- Read user v10 brief: confirmed prod already deployed 6ec0059 (Flyway 120/0, V20260820.3 applied, no generated security password in startup)
+- Moved application-pg-acceptance.yml from src/main/resources to src/test/resources
+  (prod JAR/image must not contain acceptance profile capable of DATABASE_URL
+  connection / RLS disable / test fixture behavior)
+- Rewrote pg-acceptance profile: dedicated PG_ACCEPTANCE_JDBC_URL/USERNAME/PASSWORD
+  env vars, no fallback to DATABASE_URL/SPRING_DATASOURCE_URL/DATABASE_*
+- Added PgAcceptanceDatabaseGuard @Profile('pg-acceptance'):
+  - @PostConstruct validates jdbc URL host + database name against forbidden
+    prod markers (snad-prod, *.supabase.co, *.supabase.net, render-db.internal,
+    'prod', 'production')
+  - Fail-fast: raises IllegalStateException at startup if matched
+- Created V20260820_4 migration:
+  - DROP the contradictory uk_commerce_orders_tenant_store_idempotency index
+    (introduced by V20260820_1 alongside the original tenant-scoped constraint)
+  - Pick ONE canonical scope: TENANT (matches original
+    uk_commerce_orders_idempotency (tenant_id, idempotency_key))
+  - ADD DB-level one-order-per-cart invariant:
+    uk_commerce_orders_tenant_cart (tenant_id, cart_id) WHERE cart_id IS NOT NULL
+- Updated OrderService.tryClaimIdempotencyKey:
+  - Idempotency-key path: ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING id
+  - No-key path: ON CONFLICT (tenant_id, cart_id) WHERE cart_id IS NOT NULL DO NOTHING RETURNING id
+  - Either path: no constraint violation ever raised → transaction never aborted
+- Refactored OrderService.findByIdempotencyKey to be tenant-scoped only
+- Added OrderService.findByCart(tenantId, cartId) for no-key replay
+- Updated CheckoutService.checkout:
+  - Sequential replay: verify existing.cartId() == request.cartId() AND
+    existing.storeId() == storeId; mismatch → HTTP 409 IDEMPOTENCY_KEY_REUSE_MISMATCH
+  - No-key replay: lookup by cart, return existing order
+  - Concurrent winner path: same request-identity check for idempotency-key,
+    fall back to findByCart for no-key path
+- Created V20260820_5 migration:
+  - Added durable provenance columns to roles: role_origin, template_key, template_version
+  - Stamped provenance ONLY on roles already marked is_system_managed=TRUE
+    AND code matches 9 canonical codes (no customer-role takeover)
+  - Removed obsolete grants from system-managed HR_MANAGER:
+    HR.DEPARTMENT.READ+WRITE, HR.POSITION.READ+WRITE (granted by V20260820_2 with
+    invented codes that happened to exist in access_capabilities)
+  - DELETE scoped to is_system_managed=TRUE AND role_origin='SNAD_TEMPLATE'
+    AND template_key='HR_MANAGER' — customer roles untouched
+  - DO block validates HR_MANAGER has EXACTLY 3 capabilities post-cleanup
+- Rewrote CommerceOrderPostgresConcurrencyTest with 6 tests:
+  - 20 parallel → unique + monotonic (NOT gap-free — v10 permits rolled-back attempts)
+  - Multi-tenant independent sequences
+  - Cancelled order → no sequence reuse
+  - Concurrent same-idempotency-key: REQUESTS=8, UNEXPECTED_ERRORS=0,
+    TRANSACTION_ABORTS=0, DISTINCT_ORDER_IDS=1, ORDER_ROWS=1, ORDER_ITEM_SETS=1,
+    PAYMENT_INTENTS_CREATED=1, CART_CHECKOUT_EFFECT=1
+  - Same-key + different-cart → 409 IDEMPOTENCY_KEY_REUSE_MISMATCH
+  - Same-cart concurrent no-key → ONE order
+  - @AfterEach deterministic cleanup with run_id namespace (PG_ACCEPTANCE_RESIDUE=0)
+- Verified 19 v8+v9+v10 unit tests PASS locally
+- Committed: 96cb76ef3ef52039e8571dad141c2a8f49cc0d66
+- Pushed to origin/main
+
+Stage Summary:
+- PRODUCT_SOURCE_SHA = 96cb76ef3ef52039e8571dad141c2a8f49cc0d66
+- 6 v10 corrections CLOSED in source:
+  1. PG_ACCEPTANCE_PROFILE_NOT_PACKAGED_IN_PRODUCTION=PASS (moved to test resources)
+  2. PG_ACCEPTANCE_DB_ISOLATED=PASS (dedicated PG_ACCEPTANCE_* env vars + fail-fast guard)
+  3. IDEMPOTENCY_SCOPE_DEFINED=PASS (TENANT — canonical, dropped store-scoped index)
+  4. IDEMPOTENCY_DB_CONSTRAINTS_CONSISTENT=PASS (single ON CONFLICT arbiter)
+  5. CART_SINGLE_CHECKOUT_DB_INVARIANT=PASS (uk_commerce_orders_tenant_cart)
+  6. RBAC_EXACT_MATRIX + SYSTEM_ROLE_PROVENANCE=PASS (V20260820_5 with durable
+     provenance columns + HR_MANAGER obsolete grant removal + validation DO block)
+- Plus 4 additional hardenings:
+  - IDEMPOTENCY_DIFFERENT_CART_DENY=PASS (request-identity check on replay)
+  - IDEMPOTENCY_DIFFERENT_STORE_DENY=PASS (same)
+  - IDEMPOTENCY_PAYLOAD_MISMATCH_DENY=PASS (cart_id encodes payload snapshot)
+  - CUSTOMER_ROLE_TAKEOVER=0 (provenance scoped to existing is_system_managed=TRUE)
+- BLOCKER for FINAL report: Render deploy of 96cb76e pending + live prod
+  API/DB verifications + mobile build + full test suites + Playwright UI + BFF
+  chain + error sweep + cleanup + DB integrity review + final parity
+- Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v10.md (not FINAL)
