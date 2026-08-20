@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 
 import java.util.List;
 import java.util.UUID;
@@ -19,12 +21,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused unit tests for the G7 defect fixes — no Spring context, no database.
- *
- *  - DEF-004: column allowlist prevents SQL injection via mutation payload keys.
- *  - DEF-006: ConflictService classifies the newly-added classes C3 / C4 / C10.
- */
 class G7DefectFixesTest {
 
     private static final UUID TENANT = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -37,13 +33,14 @@ class G7DefectFixesTest {
         ConflictService conflictService = mock(ConflictService.class);
         when(jdbc.queryForObject(anyString(), any(Class.class), any(Object[].class))).thenAnswer(inv -> {
             Class<?> clz = inv.getArgument(1);
-            if (clz == UUID.class) return UUID.randomUUID(); // atomic idempotency claim
-            if (clz == Long.class) throw new EmptyResultDataAccessException(1); // CREATE target absent
+            if (clz == UUID.class) return UUID.randomUUID();
+            if (clz == Long.class) throw new EmptyResultDataAccessException(1);
             return null;
         });
         when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
 
-        PushSyncService service = new PushSyncService(jdbc, new ObjectMapper(), conflictService);
+        PushSyncService service = new PushSyncService(
+                jdbc, new ObjectMapper(), conflictService, transactionManager());
 
         ObjectNode payload = new ObjectMapper().createObjectNode();
         payload.put("display_name", "Acme");
@@ -64,15 +61,14 @@ class G7DefectFixesTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("INSERT INTO crm_accounts not executed: " + sql.getAllValues()));
 
-        assertTrue(insert.contains("display_name"), "allowlisted 'display_name' column must be in INSERT: " + insert);
-        assertFalse(insert.contains("evil"), "injection key leaked into SQL: " + insert);
-        assertFalse(insert.contains("VALUES (1)"), "injection fragment leaked into SQL: " + insert);
+        assertTrue(insert.contains("display_name"));
+        assertFalse(insert.contains("evil"));
+        assertFalse(insert.contains("VALUES (1)"));
 
         int colsStart = insert.indexOf('(') + 1;
         int colsEnd = insert.indexOf(')', colsStart);
         String colList = insert.substring(colsStart, colsEnd).replaceAll("\\s+", "");
-        assertEquals("tenant_id,id,created_by,updated_by,sync_version,display_name,normalized_name,created_at,updated_at", colList,
-                "only allowlisted payload columns may appear; got: " + colList);
+        assertEquals("tenant_id,id,created_by,updated_by,sync_version,display_name,normalized_name,created_at,updated_at", colList);
     }
 
     @Test
@@ -110,7 +106,7 @@ class G7DefectFixesTest {
         ConflictService conflictService = mock(ConflictService.class);
         when(jdbc.queryForObject(anyString(), any(Class.class), any(Object[].class))).thenAnswer(inv -> {
             Class<?> clz = inv.getArgument(1);
-            if (clz == UUID.class) return UUID.randomUUID(); // atomic idempotency claim
+            if (clz == UUID.class) return UUID.randomUUID();
             if (clz == Long.class) return 5L;
             if (clz == String.class) return "{}";
             return null;
@@ -121,7 +117,8 @@ class G7DefectFixesTest {
                 .thenReturn(new ConflictService.ConflictDetection(
                         "conflict-1", "VERSION_MISMATCH", "C9", false, 5L, 3L));
 
-        PushSyncService service = new PushSyncService(jdbc, new ObjectMapper(), conflictService);
+        PushSyncService service = new PushSyncService(
+                jdbc, new ObjectMapper(), conflictService, transactionManager());
 
         ObjectNode payload = new ObjectMapper().createObjectNode().put("name", "Acme");
         PushSyncRequest.MutationEnvelope mutation = new PushSyncRequest.MutationEnvelope(
@@ -130,18 +127,24 @@ class G7DefectFixesTest {
 
         PushSyncResponse response = service.push(TENANT, DEVICE, USER, new PushSyncRequest(List.of(mutation)));
 
-        assertEquals(0, response.applied(), "stale-version UPDATE must not be applied");
-        assertEquals(1, response.rejected(), "stale-version UPDATE must be counted as rejected/conflict");
+        assertEquals(0, response.applied());
+        assertEquals(1, response.rejected());
         assertEquals(0, response.duplicates());
 
         PushSyncResponse.MutationResult result = response.results().get(0);
-        assertEquals("CONFLICT", result.status(), "status must be CONFLICT on version mismatch");
-        assertEquals("412", result.httpStatus(), "must use 412 Precondition Failed semantics");
-        assertNotNull(result.conflictInfo(), "conflict info must be populated on version mismatch");
+        assertEquals("CONFLICT", result.status());
+        assertEquals("412", result.httpStatus());
+        assertNotNull(result.conflictInfo());
         assertEquals("VERSION_MISMATCH", result.conflictInfo().get("conflictType").asText());
-        assertEquals(5, result.conflictInfo().get("serverVersion").asInt(),
-            "serverVersion returned must let the client rebase and retry");
+        assertEquals(5, result.conflictInfo().get("serverVersion").asInt());
         verify(conflictService).detectConflict(any(), any(), any(), anyString(), anyString(),
                 anyLong(), any(), anyLong(), any(), anyString(), anyBoolean(), anyBoolean());
+    }
+
+    private PlatformTransactionManager transactionManager() {
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        TransactionStatus status = mock(TransactionStatus.class);
+        when(transactionManager.getTransaction(any())).thenReturn(status);
+        return transactionManager;
     }
 }
