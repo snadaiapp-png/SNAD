@@ -142,10 +142,10 @@ export const CRM_GROUP_DATA = [
     titleEn: "Caller Identification",
     purposeAr: "تجهيز معرفة بيانات العميل عند الاتصال.",
     purposeEn: "Prepare caller identification.",
-    status: "NOT_STARTED" as GroupStatus,
+    status: "IN_PROGRESS" as GroupStatus,
     dependencies: ["G7"],
     canParallelizeWith: [],
-    stageReport: null,
+    stageReport: "G8-STAGE-REPORT-V1 (2026-08-20) — BASELINED / READY_FOR_IMPLEMENTATION: G8 EXECUTION COMMAND 01 اكتمل (المسح الجنائي، G8_CALLER_IDENTIFICATION_MASTER_BASELINE.md، 41 متطلب، ADR-001..008، بوابات AG-01..18، مسارات A–J). الحالة IN_PROGRESS هي الأقرب في GroupStatus (لا توجد حالة BASELINED) — G8 غير مكتملة وغير معتمدة، التنفيذ ينتظر G8 EXECUTION COMMAND 02.",
   },
   {
     code: "G9",
