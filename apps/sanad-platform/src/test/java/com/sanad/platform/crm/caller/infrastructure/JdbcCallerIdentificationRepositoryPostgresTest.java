@@ -260,7 +260,7 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
                         "verified,verification_status,privacy_classification,consent_state_reference,usage_purpose,status," +
                         "created_by,updated_by,created_at,updated_at) " +
                         "VALUES (?,?,0,'PERSON',?,NULL,?,?,?,?,?,'Mobile',?,?,?,?,?,?,?,?,?,?,?,?)",
-                id, tenantId, contactId, type, phone, phone, phone,
+                id, tenantId, contactId, contactId, type, phone, phone, phone,
                 preferred, preferred ? 1 : null, verified, verification, privacy, "C-REF-G8", "BUSINESS",
                 status, actor, updater, timestamp, timestamp);
         return id;
