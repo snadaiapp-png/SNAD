@@ -142,10 +142,10 @@ export const CRM_GROUP_DATA = [
     titleEn: "Caller Identification",
     purposeAr: "تجهيز معرفة بيانات العميل عند الاتصال.",
     purposeEn: "Prepare caller identification.",
-    status: "NOT_STARTED" as GroupStatus,
+    status: "IN_PROGRESS" as GroupStatus,
     dependencies: ["G7"],
     canParallelizeWith: [],
-    stageReport: null,
+    stageReport: "G8-STAGE-REPORT-V3 (2026-08-20) — CLEAN REINTEGRATION (G8 EXECUTION 04): Track A = COMPLETE, Track B = COMPLETE, Track C = COMPLETE pending final branch CI, Track D = COMPLETE pending final branch CI. حالة IN_PROGRESS باقية — ليست APPROVED/COMPLETED/CLOSED؛ الدمج النهائي بوابة مالك. الهجرات V20260820_10..13 موجودة على main بالبايت المطابق للإنتاج (بلا تغيير).",
   },
   {
     code: "G9",

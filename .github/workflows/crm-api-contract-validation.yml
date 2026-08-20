@@ -36,8 +36,8 @@ env:
   SANAD_SERVICE_AUTH_JWT_SECRET: 'ci-only-non-production-jwt-secret-key-32-chars-min'
   SANAD_WORKFLOW_ENGINE_BASE_URL: 'http://localhost:8081'
   SANAD_AI_GATEWAY_BASE_URL: 'http://localhost:8081'
-  EXPECTED_CRM_PATHS: '147'
-  EXPECTED_CRM_OPERATIONS: '193'
+  EXPECTED_CRM_PATHS: '152'
+  EXPECTED_CRM_OPERATIONS: '198'
 
 jobs:
   contract-validation:
