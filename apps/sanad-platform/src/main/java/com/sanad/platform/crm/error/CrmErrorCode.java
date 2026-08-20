@@ -45,6 +45,9 @@ public enum CrmErrorCode {
     CRM_IDEMPOTENCY_CONFLICT(409, "The Idempotency-Key was already used with a different request payload.", false),
     CONFLICT(409, "The request conflicts with the current state of the resource.", false),
 
+    // ── Caller identification codes (G8 EXECUTION 02) ────────────────────
+    CALLER_PHONE_INVALID(422, "The phone number cannot be normalized for caller identification.", false),
+
     // ── Invalid state-transition codes (HTTP 422) ────────────────────────
     CRM_INVALID_LEAD_TRANSITION(422, "The requested lead status transition is not allowed.", false),
     CRM_INVALID_OPPORTUNITY_STAGE(422, "The requested opportunity stage move is not allowed.", false),

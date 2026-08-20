@@ -82,6 +82,7 @@ This is enforced by `CrmExceptionHandler` and verified by
 | `CRM_INVALID_CASE_TRANSITION` | The requested case status transition is not allowed. | No | POST `/cases/{id}/start` / `/resolve` / `/close` / `/reopen` from an invalid state. |
 | `CRM_IMPORT_MAPPING_INVALID` | The import mapping is invalid or incomplete. | No | POST `/imports/{id}/run` when required columns are unmapped. |
 | `CRM_CUSTOM_FIELD_VALIDATION_FAILED` | One or more custom field values failed validation. | No | PUT `/custom-fields/values/{entityType}/{entityId}` with a value that violates the field's data type. |
+| `CALLER_PHONE_INVALID` | The phone number cannot be normalized for caller identification. | No | POST `/caller-identification/lookup` with a phone that is not E.164 and cannot be normalized with `countryHint=SA` (G8 EXECUTION 02). |
 
 ## Concurrency (HTTP 412)
 
