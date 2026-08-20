@@ -100,7 +100,9 @@ public class JdbcCallEventRepository implements CallEventRepository {
         jdbc.update("""
                 UPDATE crm_call_events
                 SET status = :status,
-                    answered_at = COALESCE(answered_at, CASE WHEN :status = 'ANSWERED' THEN :occurredAt END),
+                    answered_at = COALESCE(answered_at,
+                        CASE WHEN CAST(:status AS TEXT) = 'ANSWERED'
+                             THEN CAST(:occurredAt AS TIMESTAMP WITH TIME ZONE) END),
                     updated_by = :actorId, updated_at = :now, version = version + 1
                 WHERE tenant_id = :tenantId AND id = :id AND version = :expectedVersion
                 """, params().addValue("status", toStatus.name()).addValue("occurredAt", ts(occurredAt))

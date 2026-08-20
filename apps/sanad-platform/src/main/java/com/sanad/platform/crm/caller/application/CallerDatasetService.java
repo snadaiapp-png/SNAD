@@ -114,8 +114,9 @@ public class CallerDatasetService {
                                     AND a.lifecycle_status IN ('INACTIVE', 'ARCHIVED'))
                               )
                           AND (:cursorMs = 0
-                               OR (updated_ms > :cursorMs
-                                   OR (updated_ms = :cursorMs AND cm.id > :cursorId)))
+                               OR ((EXTRACT(EPOCH FROM cm.updated_at) * 1000) > :cursorMs
+                                   OR ((EXTRACT(EPOCH FROM cm.updated_at) * 1000) = :cursorMs
+                                       AND cm.id > :cursorId)))
                         ORDER BY updated_ms ASC, cm.id ASC
                         LIMIT :limit
                         """,

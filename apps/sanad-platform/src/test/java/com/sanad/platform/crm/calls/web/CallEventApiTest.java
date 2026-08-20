@@ -118,13 +118,14 @@ class CallEventApiTest {
         mockMvc.perform(post(EVENTS).with(authentication(auth(fixture)))
                         .contentType("application/json")
                         .content("{\"provider\":\"NATIVE\",\"providerCallId\":\"api-4\",\"direction\":\"INBOUND\"," +
-                                "\"source\":\"ANDROID_CALL\",\"phone\":\"0541234567\",\"status\":\"COMPLETED\"," +
+                                "\"source\":\"ANDROID_CALL\",\"phone\":\"0541234567\",\"status\":\"RINGING\"," +
                                 "\"occurredAt\":\"" + Instant.now() + "\"}"))
                 .andExpect(status().isCreated());
+        // RINGING -> COMPLETED skips ANSWERED: non-regression illegal transition.
         mockMvc.perform(post(EVENTS).with(authentication(auth(fixture)))
                         .contentType("application/json")
                         .content("{\"provider\":\"NATIVE\",\"providerCallId\":\"api-4\",\"direction\":\"INBOUND\"," +
-                                "\"source\":\"ANDROID_CALL\",\"phone\":\"0541234567\",\"status\":\"RINGING\"," +
+                                "\"source\":\"ANDROID_CALL\",\"phone\":\"0541234567\",\"status\":\"COMPLETED\"," +
                                 "\"occurredAt\":\"" + Instant.now() + "\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.code").value("CALL_EVENT_INVALID_TRANSITION"));

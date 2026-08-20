@@ -104,10 +104,17 @@ public class CallEventService {
                 .findByProviderCallId(tenantId, command.provider(), command.providerCallId())
                 .orElse(null);
         if (existing != null) {
-            meterRegistry.counter("call_event_duplicate_total", TAG_SOURCE, command.source().name()).increment();
-            log.debug("CALL_EVENT_DUPLICATE provider={} callId={} tenant={}",
-                    command.provider(), command.providerCallId(), tenantId);
-            return new IngestResult(existing, true); // retry/duplicate — no new aggregate, no new projections
+            if (existing.status() == command.status()) {
+                // Retry/duplicate of the SAME state — replay, no new projections.
+                meterRegistry.counter("call_event_duplicate_total", TAG_SOURCE, command.source().name()).increment();
+                log.debug("CALL_EVENT_DUPLICATE provider={} callId={} tenant={}",
+                        command.provider(), command.providerCallId(), tenantId);
+                return new IngestResult(existing, true);
+            }
+            // Lifecycle continuation: the same endpoint drives the state
+            // machine for an existing aggregate (G8-03 §27 contract).
+            return new IngestResult(transition(tenantId, actorId, command.provider(),
+                    command.providerCallId(), command.status(), command.occurredAt()), true);
         }
 
         // Normalize + bind the caller match (reuse Track A/B engine, inbound only).
