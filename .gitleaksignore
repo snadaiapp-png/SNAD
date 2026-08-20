@@ -7,3 +7,6 @@ README.md:sidekiq-secret:50
 /repo/.github/workflows/ci.yml:generic-api-key:80
 /repo/.github/workflows/crm-authenticated-acceptance.yml:generic-api-key:90
 /repo/.github/workflows/post-merge-verification.yml:generic-api-key:211
+# G7 documentation examples — synthetic opaque token / SecureStore alias, NOT secrets
+/repo/G7_DATA_MODEL_FINAL_BASELINE.md:generic-api-key:377
+/repo/G7_M13_SECURITY_RUNTIME_AUDIT.md:generic-api-key:68

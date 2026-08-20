@@ -65,8 +65,6 @@ public final class ModuleResetRegistry {
             "crm_party_addresses",
             "crm_tag_assignments",
             "crm_tags",
-            // G8 call events (FK -> contacts/accounts/users — children first)
-            "crm_call_events",
             // Leaf operational tables
             "crm_tasks",
             "crm_notes",

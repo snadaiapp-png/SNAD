@@ -12,10 +12,7 @@ import { EntityType } from '../types';
 import { ENTITY_CONFIGS } from '../config/entities';
 
 const DB_NAME = 'snad_g7_offline.db';
-const SCHEMA_VERSION = 2;
-
-/** Tombstone sentinel entity values (caller_lookup PK must stay NOT NULL). */
-export const CALLER_TOMBSTONE = '__TOMBSTONE__';
+const SCHEMA_VERSION = 1;
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -52,9 +49,6 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
     if (currentVersion < 1) {
       await migrateToV1(database);
     }
-    if (currentVersion < 2) {
-      await migrateToV2(database);
-    }
 
     // Update version
     await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -63,39 +57,6 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
     await database.execAsync('ROLLBACK');
     throw error;
   }
-}
-
-/**
- * Migration V2 (G8-03 §45–§47): offline caller dataset.
- * Purely additive — existing G7 tables are untouched (no wipe on upgrade).
- * PII columns (display_name, account_name) are encrypted at rest by the
- * caller before storage; only the HMAC token is indexed (§48, G8-ADR-004).
- */
-async function migrateToV2(database: SQLite.SQLiteDatabase): Promise<void> {
-  await database.execAsync(`
-    CREATE TABLE IF NOT EXISTS caller_lookup (
-      phone_lookup_token TEXT NOT NULL,
-      tenant_id TEXT NOT NULL,
-      entity_type TEXT NOT NULL,
-      entity_id TEXT NOT NULL,
-      display_name TEXT,
-      account_name TEXT,
-      phone_label TEXT,
-      verified INTEGER NOT NULL DEFAULT 0,
-      preferred INTEGER NOT NULL DEFAULT 0,
-      lifecycle_status TEXT NOT NULL,
-      privacy_level TEXT NOT NULL,
-      sync_version INTEGER NOT NULL,
-      updated_at TEXT NOT NULL,
-      deleted_at TEXT,
-      PRIMARY KEY (tenant_id, phone_lookup_token, entity_type, entity_id)
-    );
-  `);
-  // P0 index: O(log n)-style token lookup, never a scan/decrypt pass (§47).
-  await database.execAsync(`
-    CREATE INDEX IF NOT EXISTS idx_caller_lookup_token
-      ON caller_lookup(tenant_id, phone_lookup_token);
-  `);
 }
 
 /**
@@ -383,105 +344,4 @@ export async function setSyncMetadata(key: string, value: string): Promise<void>
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
     key, value
   );
-}
-
-// ═══════════════════════════════════════════════════════════
-// G8 Caller Dataset (schema v2)
-// ═══════════════════════════════════════════════════════════
-
-/**
- * Upsert caller dataset entries idempotently (G8-03 §60): re-applying the
- * same delta never duplicates rows. PII (display/account names) is passed
- * in ALREADY ENCRYPTED form by the sync client.
- */
-export async function upsertCallerRecords(
-  tenantId: string,
-  records: Array<{
-    lookupToken: string;
-    entityType: string | null;
-    entityId: string | null;
-    displayName: string | null;
-    accountId: string | null;
-    accountName: string | null;
-    phoneLabel: string | null;
-    verified: boolean | null;
-    preferred: boolean | null;
-    lifecycleStatus: string | null;
-    privacyLevel: string | null;
-    syncVersion: number;
-    updatedAt: string;
-    deleted: boolean;
-  }>
-): Promise<{ applied: number; tombstones: number }> {
-  const db = await getDatabase();
-  let applied = 0;
-  let tombstones = 0;
-  await db.withTransactionAsync(async () => {
-    for (const record of records) {
-      const entityType = record.deleted ? CALLER_TOMBSTONE : (record.entityType ?? CALLER_TOMBSTONE);
-      const entityId = record.deleted ? CALLER_TOMBSTONE : (record.entityId ?? record.lookupToken);
-      const deletedAt = record.deleted ? record.updatedAt : null;
-      await db.runAsync(
-        `INSERT INTO caller_lookup (phone_lookup_token, tenant_id, entity_type, entity_id,
-            display_name, account_name, phone_label, verified, preferred, lifecycle_status,
-            privacy_level, sync_version, updated_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(tenant_id, phone_lookup_token, entity_type, entity_id) DO UPDATE SET
-            display_name = excluded.display_name,
-            account_name = excluded.account_name,
-            phone_label = excluded.phone_label,
-            verified = excluded.verified,
-            preferred = excluded.preferred,
-            lifecycle_status = excluded.lifecycle_status,
-            privacy_level = excluded.privacy_level,
-            sync_version = excluded.sync_version,
-            updated_at = excluded.updated_at,
-            deleted_at = excluded.deleted_at`,
-        record.lookupToken, tenantId, entityType, entityId,
-        record.displayName, record.accountName, record.phoneLabel,
-        record.verified ? 1 : 0, record.preferred ? 1 : 0,
-        record.lifecycleStatus ?? 'ACTIVE', record.privacyLevel ?? 'INTERNAL',
-        record.syncVersion, record.updatedAt, deletedAt
-      );
-      if (record.deleted) tombstones++; else applied++;
-    }
-  });
-  return { applied, tombstones };
-}
-
-/** Indexed lookup by HMAC token — never a full scan (§47). */
-export async function findCallerRows(
-  tenantId: string,
-  lookupToken: string
-): Promise<Array<Record<string, any>>> {
-  const db = await getDatabase();
-  return await db.getAllAsync<Record<string, any>>(
-    `SELECT * FROM caller_lookup
-     WHERE tenant_id = ? AND phone_lookup_token = ? AND deleted_at IS NULL
-     ORDER BY verified DESC, preferred DESC, updated_at ASC`,
-    tenantId, lookupToken
-  );
-}
-
-/** Count live dataset entries (size visibility, G8-03 §59). */
-export async function countCallerEntries(tenantId: string): Promise<number> {
-  const db = await getDatabase();
-  const row = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM caller_lookup WHERE tenant_id = ? AND deleted_at IS NULL`,
-    tenantId
-  );
-  return row?.n ?? 0;
-}
-
-/**
- * Purge the caller dataset (G8-03 §55–§56 — logout / tenant switch / revoke).
- * Scope: caller_lookup rows only; G7 entity tables are untouched.
- */
-export async function purgeCallerDataset(tenantId?: string): Promise<void> {
-  const db = await getDatabase();
-  if (tenantId) {
-    await db.runAsync(`DELETE FROM caller_lookup WHERE tenant_id = ?`, tenantId);
-  } else {
-    await db.runAsync(`DELETE FROM caller_lookup`);
-  }
 }
