@@ -94,6 +94,11 @@ sanad:
     import-worker-initial-delay-ms: ${SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS:5000}
     import-worker-delay-ms: ${SANAD_CRM_IMPORT_WORKER_DELAY_MS:5000}
     custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:}
+  caller-dataset:
+    # HMAC master key for offline caller-dataset tokens (G8-ADR-004 / G8-03 §34).
+    # NO default on purpose: dataset sync fails closed until an operator
+    # configures CALLER_DATASET_MASTER_KEY in the target environment.
+    master-key: ${CALLER_DATASET_MASTER_KEY:}
   security:
     jwt:
       secret: ${JWT_SECRET:}
