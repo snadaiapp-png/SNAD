@@ -162,10 +162,14 @@ public class OrderService {
         Instant now = Instant.now();
         java.time.ZonedDateTime zdt = now.atZone(java.time.ZoneOffset.UTC);
         String prefix = String.format("ORD-%04d%02d-", zdt.getYear(), zdt.getMonthValue());
+        // Count by tenant_id ONLY (not store_id) because the unique constraint
+        // uk_commerce_orders_tenant_number is on (tenant_id, order_number) —
+        // if we count by store_id, multiple stores could generate the same
+        // order_number within the same tenant, causing a DuplicateKeyException.
         Integer maxSeq = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM commerce_orders WHERE tenant_id = ? AND store_id = ? "
+                "SELECT COUNT(*) FROM commerce_orders WHERE tenant_id = ? "
                         + "AND order_number LIKE ?",
-                Integer.class, tenantId, storeId, prefix + "%");
+                Integer.class, tenantId, prefix + "%");
         int next = (maxSeq == null ? 0 : maxSeq) + 1;
         return prefix + String.format("%05d", next);
     }
