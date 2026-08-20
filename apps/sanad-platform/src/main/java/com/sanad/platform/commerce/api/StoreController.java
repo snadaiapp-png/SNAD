@@ -4,6 +4,7 @@ import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.application.CartService;
 import com.sanad.platform.commerce.application.CheckoutService;
 import com.sanad.platform.commerce.application.OrderService;
+import com.sanad.platform.commerce.application.OrderSettlementService;
 import com.sanad.platform.commerce.application.ProductService;
 import com.sanad.platform.commerce.application.StoreDomainService;
 import com.sanad.platform.commerce.application.StoreService;
@@ -38,16 +39,19 @@ public class StoreController {
     private final CheckoutService checkoutService;
     private final OrderService orderService;
     private final StoreDomainService domainService;
+    private final OrderSettlementService settlementService;
 
     public StoreController(StoreService storeService, ProductService productService,
                            CartService cartService, CheckoutService checkoutService,
-                           OrderService orderService, StoreDomainService domainService) {
+                           OrderService orderService, StoreDomainService domainService,
+                           OrderSettlementService settlementService) {
         this.storeService = storeService;
         this.productService = productService;
         this.cartService = cartService;
         this.checkoutService = checkoutService;
         this.orderService = orderService;
         this.domainService = domainService;
+        this.settlementService = settlementService;
     }
 
     // ===== Stores =====
@@ -278,6 +282,28 @@ public class StoreController {
                                                        @PathVariable UUID orderId,
                                                        @RequestBody(required = false) Map<String, Object> body) {
         return ResponseEntity.ok(orderService.cancel(tenantId(auth), id, orderId, auth));
+    }
+
+    /**
+     * POST /api/v1/stores/{id}/orders/{orderId}/settle
+     *
+     * <p>Explicit manual settlement endpoint (v20260820.6 — v12 brief).
+     * Required when no real PSP is configured: the checkout produces a
+     * PENDING order, then a Finance-authorized actor settles it via this
+     * endpoint. Settlement is idempotent — concurrent settlers see the
+     * already-settled order returned without re-running side effects.
+     *
+     * <p>Segregation of duties: requires {@code FINANCE.APPROVE} capability.
+     * A normal {@code STORE_MANAGER} (with only {@code ECOMMERCE.WRITE/
+     * PUBLISH}) CANNOT settle — they must escalate to a Finance-authorized
+     * actor.
+     */
+    @PostMapping("/{id}/orders/{orderId}/settle")
+    @RequireCapability("FINANCE.APPROVE")
+    public ResponseEntity<OrderResponse> settleOrder(Authentication auth, @PathVariable UUID id,
+                                                       @PathVariable UUID orderId,
+                                                       @RequestBody OrderSettlementService.SettlementRequest request) {
+        return ResponseEntity.ok(settlementService.settle(tenantId(auth), id, orderId, request, auth));
     }
 
     // ===== Domains =====

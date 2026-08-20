@@ -41,7 +41,7 @@ public final class CommerceDomain {
     public enum CartStatus { ACTIVE, CHECKED_OUT, EXPIRED, ABANDONED }
 
     /** Lifecycle status of a {@code commerce_orders} row. */
-    public enum OrderStatus { PENDING, CONFIRMED, PAID, PROCESSING, COMPLETED, CANCELLED }
+    public enum OrderStatus { PENDING, CONFIRMED, PAID, PROCESSING, COMPLETED, CANCELLED, SETTLEMENT_FAILED }
 
     /** Payment status of a {@code commerce_orders} row. */
     public enum PaymentStatus { PENDING, AUTHORIZED, PAID, PARTIALLY_REFUNDED, REFUNDED, FAILED }

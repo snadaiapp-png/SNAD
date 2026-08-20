@@ -249,20 +249,52 @@ public class CheckoutService {
         // order_status=PENDING.
         updateOrderPostPayment(tenantId, orderId, paymentRef, verified);
 
+        // v20260820.6 (v12 brief): LOCK THE CART IMMEDIATELY after order creation.
+        // The cart invariant (uk_commerce_orders_tenant_cart) already guarantees
+        // one order per cart at the DB level, but the cart's status must reflect
+        // "converted to an order" — even if payment is still PENDING.
+        // Mark CHECKED_OUT immediately so subsequent cart operations reject.
+        // If payment later settles, the order transitions to PAID+CONFIRMED
+        // via OrderSettlementService — but the cart stays CHECKED_OUT regardless.
+        cartService.markCheckedOut(tenantId, request.cartId());
+
         if (verified) {
-            // Confirm inventory (commit the reservation)
+            // Confirm inventory (commit the reservation) — NOT silently swallowed.
+            // On failure, the order must enter SETTLEMENT_FAILED for retry.
+            // Note: for the no-PSP path, inventory confirmation happens at
+            // settlement time (OrderSettlementService), not at checkout.
             for (CartItemResponse item : cart.items()) {
                 try { inventory.confirm(tenantId, item.productId(), item.variantId(), item.quantity()); }
-                catch (Exception ignored) {}
+                catch (Exception e) {
+                    log.error("inventory confirm failed for order {}: {}", orderId, e.getMessage(), e);
+                    // Transition to SETTLEMENT_FAILED so the operator can retry
+                    try {
+                        jdbc.update("UPDATE commerce_orders SET status = 'SETTLEMENT_FAILED', "
+                                + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
+                                java.sql.Timestamp.from(java.time.Instant.now()), tenantId, orderId);
+                    } catch (Exception ex) { log.error("failed to mark SETTLEMENT_FAILED: {}", ex.getMessage()); }
+                    throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                            "inventory confirmation failed; order transitioned to SETTLEMENT_FAILED for retry");
+                }
             }
-            // Record in finance ledger
-            try { financePort.recordOrder(tenantId, orderId); } catch (Exception ignored) {}
-            // Mark cart checked-out
-            cartService.markCheckedOut(tenantId, request.cartId());
+            // Record in finance ledger — NOT silently swallowed.
+            try {
+                financePort.recordOrder(tenantId, orderId);
+            } catch (Exception e) {
+                log.error("finance recordOrder failed for order {}: {}", orderId, e.getMessage(), e);
+                try {
+                    jdbc.update("UPDATE commerce_orders SET status = 'SETTLEMENT_FAILED', "
+                            + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
+                            java.sql.Timestamp.from(java.time.Instant.now()), tenantId, orderId);
+                } catch (Exception ex) { log.error("failed to mark SETTLEMENT_FAILED: {}", ex.getMessage()); }
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                        "finance posting failed; order transitioned to SETTLEMENT_FAILED for retry");
+            }
         } else if (paymentRef == null) {
-            // No PSP — leave cart ACTIVE so the order can be settled later.
-            // The order is PENDING and will be promoted to PAID/CONFIRMED
-            // by an explicit settlement endpoint.
+            // No PSP configured — order is PENDING, cart is CHECKED_OUT (locked
+            // above). Manual settlement via POST /api/v1/stores/{storeId}/orders/{orderId}/settle
+            // will drive the order to PAID+CONFIRMED with inventory + finance
+            // side-effects persisted atomically.
             log.info("checkout: order {} created in PENDING state — no PSP configured; "
                     + "manual settlement required (tenant={})", orderId, tenantId);
         } else {
