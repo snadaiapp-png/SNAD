@@ -197,10 +197,14 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
 
     @Test
     void legacyPhoneFormsDerivationIsDeterministic() {
+        // Saudi numbers derive four exact legacy representations.
         assertThat(CallerIdentificationRepository.legacyLeadPhoneForms("+966541234567"))
                 .containsExactly("+966541234567", "966541234567", "541234567", "0541234567");
+        // Non-966 numbers have no known national/CC split: the deterministic set
+        // is {E.164, digits-with-CC, zero-prefixed digits} — exact equality only.
         assertThat(CallerIdentificationRepository.legacyLeadPhoneForms("+971501234567"))
-                .containsExactly("+971501234567", "971501234567", "501234567", "0501234567");
+                .containsExactly("+971501234567", "971501234567", "0971501234567");
+        assertThat(CallerIdentificationRepository.legacyLeadPhoneForms(null)).isEmpty();
     }
 
     // ===== fixtures =====
@@ -248,15 +252,17 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
                                      boolean verified, String verification, boolean preferred, String privacy) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
+        java.sql.Timestamp timestamp = java.sql.Timestamp.from(now);
+        UUID actor = UUID.randomUUID();
+        UUID updater = UUID.randomUUID();
         jdbc.update("INSERT INTO crm_communication_methods (id,tenant_id,version,owner_type,owner_id,account_id," +
                         "contact_id,method_type,raw_value,normalized_value,display_value,label,preferred,preferred_slot," +
                         "verified,verification_status,privacy_classification,consent_state_reference,usage_purpose,status," +
                         "created_by,updated_by,created_at,updated_at) " +
-                        "VALUES (?,?,0,'PERSON',?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                id, tenantId, contactId, type, phone, phone, phone, "Mobile",
+                        "VALUES (?,?,0,'PERSON',?,NULL,?,?,?,?,?,'Mobile',?,?,?,?,?,?,?,?,?,?,?,?)",
+                id, tenantId, contactId, type, phone, phone, phone,
                 preferred, preferred ? 1 : null, verified, verification, privacy, "C-REF-G8", "BUSINESS",
-                status, UUID.randomUUID(), UUID.randomUUID(),
-                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+                status, actor, updater, timestamp, timestamp);
         return id;
     }
 

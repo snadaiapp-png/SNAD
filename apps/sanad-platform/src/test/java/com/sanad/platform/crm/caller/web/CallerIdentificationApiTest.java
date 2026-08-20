@@ -325,14 +325,18 @@ class CallerIdentificationApiTest {
     void lookupMetricsAreRecorded() throws Exception {
         Fixture fixture = fixture("g8-metrics");
         contact(fixture, "قياس", "ق", "ي", SA_PHONE, "ACTIVE", "INTERNAL", true, "VERIFIED", false);
-        double before = meterRegistry.get("caller_lookup_total").counter().count();
+        // Tagged lookup keeps the assertion deterministic (result/source are the
+        // only metric labels — never phone/tenant/customer ids, G8-02 §32).
+        double before = meterRegistry.get("caller_lookup_total")
+                .tag("result", "EXACT").tag("source", "MANUAL").counter().count();
 
         mockMvc.perform(post(LOOKUP).with(authentication(auth(fixture)))
                         .contentType("application/json")
                         .content("{\"phone\":\"0541234567\",\"countryHint\":\"SA\",\"source\":\"MANUAL\"}"))
                 .andExpect(status().isOk());
 
-        assertThat(meterRegistry.get("caller_lookup_total").counter().count())
+        assertThat(meterRegistry.get("caller_lookup_total")
+                .tag("result", "EXACT").tag("source", "MANUAL").counter().count())
                 .isGreaterThan(before);
     }
 

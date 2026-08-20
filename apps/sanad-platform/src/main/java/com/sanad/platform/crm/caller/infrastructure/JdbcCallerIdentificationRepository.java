@@ -45,6 +45,7 @@ public class JdbcCallerIdentificationRepository implements CallerIdentificationR
                    a.id                        AS account_id,
                    a.display_name              AS account_name,
                    a.owner_user_id             AS account_owner,
+                   contact_account.id          AS contact_account_id,
                    contact_account.display_name AS contact_account_name
             FROM crm_communication_methods cm
             LEFT JOIN crm_contacts c      ON c.tenant_id = cm.tenant_id AND c.id = cm.contact_id
@@ -119,7 +120,7 @@ public class JdbcCallerIdentificationRepository implements CallerIdentificationR
                 : rs.getString("contact_name");
         UUID accountId = "ACCOUNT".equals(ownerType)
                 ? uuid(rs, "account_id")
-                : null;
+                : uuid(rs, "contact_account_id");
         UUID contactId = "PERSON".equals(ownerType)
                 ? uuid(rs, "contact_id")
                 : null;
