@@ -108,6 +108,8 @@ class CallerDatasetPostgresTest {
         CallerDatasetService.CallerDatasetDelta first = service.delta(tenant, 0, null, 500, false);
         assertThat(first.entries()).hasSize(1);
         assertThat(first.entries().get(0).deleted()).isFalse();
+        // A resume cursor is always provided while entries exist.
+        assertThat(first.nextCursor()).isNotNull();
 
         // Archive the method (updated_at moves forward).
         jdbc.update("UPDATE crm_communication_methods SET status='ARCHIVED', updated_at=? " +
@@ -129,7 +131,8 @@ class CallerDatasetPostgresTest {
         UUID tenant = tenant("ds-page");
         for (int i = 0; i < 7; i++) {
             UUID c = contact(tenant, "عميل " + i);
-            method(tenant, c, "+9665" + String.format("%08d", i + 1), "ACTIVE", "INTERNAL");
+            method(tenant, c, "+9665" + String.format("%08d", i + 1), "ACTIVE", "INTERNAL",
+                    Instant.parse("2026-08-20T10:00:0" + i + "Z"));
         }
         Set<String> tokens = new HashSet<>();
         long cursorMs = 0;
@@ -227,8 +230,13 @@ class CallerDatasetPostgresTest {
     }
 
     private UUID method(UUID tenantId, UUID contactId, String phone, String status, String privacy) {
+        return method(tenantId, contactId, phone, status, privacy, Instant.now());
+    }
+
+    private UUID method(UUID tenantId, UUID contactId, String phone, String status, String privacy,
+                        Instant at) {
         UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
+        Instant now = at;
         jdbc.update("INSERT INTO crm_communication_methods (id,tenant_id,version,owner_type,owner_id,account_id," +
                         "contact_id,method_type,raw_value,normalized_value,display_value,label,preferred,preferred_slot," +
                         "verified,verification_status,privacy_classification,consent_state_reference,usage_purpose,status," +

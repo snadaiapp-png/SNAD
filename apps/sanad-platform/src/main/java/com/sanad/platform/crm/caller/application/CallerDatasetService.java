@@ -117,7 +117,7 @@ public class CallerDatasetService {
                                OR ((EXTRACT(EPOCH FROM cm.updated_at) * 1000) > :cursorMs
                                    OR ((EXTRACT(EPOCH FROM cm.updated_at) * 1000) = :cursorMs
                                        AND cm.id > :cursorId)))
-                        ORDER BY updated_ms ASC, cm.id ASC
+                        ORDER BY EXTRACT(EPOCH FROM cm.updated_at) * 1000 ASC, cm.id ASC
                         LIMIT :limit
                         """,
                 new MapSqlParameterSource()
@@ -154,8 +154,8 @@ public class CallerDatasetService {
                             ? rs.getString("contact_account_name") : rs.getString("account_name"));
                     UUID accountId = restricted ? null : ("PERSON".equals(ownerType)
                             ? uuidOrNull(rs, "contact_account_id") : uuidOrNull(rs, "account_id"));
-                    UUID entityId = "PERSON".equals(ownerType)
-                            ? uuidOrNull(rs, "contact_id") : uuidOrNull(rs, "account_id");
+                    UUID entityId = restricted ? null : ("PERSON".equals(ownerType)
+                            ? uuidOrNull(rs, "contact_id") : uuidOrNull(rs, "account_id"));
                     rows.add(new Row(updatedMs, methodId, new CallerDatasetRecord(
                             token,
                             "PERSON".equals(ownerType) ? "CONTACT" : "ACCOUNT",
@@ -176,8 +176,10 @@ public class CallerDatasetService {
         boolean hasMore = rows.size() > bounded;
         List<Row> page = hasMore ? rows.subList(0, bounded) : rows;
         List<CallerDatasetRecord> records = page.stream().map(Row::record).toList();
+        // A cursor is ALWAYS returned when entries exist — the client needs it
+        // as the resume point for the NEXT sync (even on the final page).
         String nextCursor = null;
-        if (hasMore && !page.isEmpty()) {
+        if (!page.isEmpty()) {
             Row last = page.get(page.size() - 1);
             nextCursor = Base64.getUrlEncoder().encodeToString(
                     (last.updatedMs() + ":" + last.methodId()).getBytes());
