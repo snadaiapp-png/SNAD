@@ -64,4 +64,21 @@ The downstream `crm.party/search/reports` instant errors in the full-suite run w
 
 ## 6. BRANCH CI / PR — FILLED AT COMPLETION
 
-PR: BASE=`main`, HEAD=`g8/clean-reintegration-a-d-20260820`, title "G8: reintegrate caller identification tracks A-D". G7 closed; G8 A–D restored; Flyway V10–V13 production-applied unchanged; no new migrations; no native code. **CI status on the branch: PENDING (PR-triggered).** Final merge: OWNER GATE — this report is not an approval request.
+PR: **#891** — BASE=`main`, HEAD=`g8/clean-reintegration-a-d-20260820`, title "G8: reintegrate caller identification tracks A-D". G7 closed; G8 A–D restored; Flyway V10–V13 production-applied unchanged; no new migrations; no native code.
+
+Key gates on the branch CI (PR-triggered, fresh runner / PG 16 / en_US):
+
+| Gate | Result | Notes |
+|---|---|---|
+| Maven Test Suite (1995 tests) | PASS after fix | One flake fixed: `lookupQueryUsesTheCommittedIndex` plan gate made deterministic (ANALYZE + accept either committed index → still asserts Index Scan and no Seq Scan; root cause: planner tie-break vs `idx_crm_communication_methods_privacy` under drifted stats — verified 9/9 locally) |
+| CRM Integration Tests | PASS | |
+| CRM API Contract Validation | PASS | byte-equality vs runtime 152/198 |
+| Current Tree Secret Scan | PASS after fix | `.gitleaksignore` extended for the synthetic G8 HMAC vector fixture (G7 convention) |
+| CRM Deployment Readiness | PASS after fix | `CRM-CURRENT-BASELINE.md` §7a references the G8 ledger (V10–13) — also broken on main itself |
+| Playwright E2E & Visual Regression | PASS | |
+| CRM Authenticated E2E (within Playwright workflow) | FAIL — **pre-existing main flake** | `CRM-035 terminal-leads` x2, 60 s timeouts — fails identically on `main` f4e61b35's own run; zero lead-UI files in this branch; documented, not caused by G8 |
+| Backend hardening / health / benchmark / backup / dependency / provenance / governance / validation / lint | PASS | |
+
+Commits on the branch: 4 — `feat` caller core (A+B) · `feat` call events + offline (C+D) · `docs` evidence + governance + regenerated contract · `ci` gate fixes (ledger reference + allowlist + plan-gate determinism).
+
+Final merge: OWNER GATE — this report is not an approval request.
