@@ -59,9 +59,9 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     // CRM-018: V20260730_2 (disable RLS) was removed from Flyway forward path
     // Terminal migration as of the 2026-08-20 commerce/RBAC/G7 chain:
-    //   V20260820.7 - rbac exact matrix 9 of 9
-    // (V20260820_8 was removed by v12.1; chain terminates at 20260820.7)
-    private static final String CRM_LATEST_VERSION = "20260820.7";
+    //   V20260820.9 - restore ADMIN capability invariant
+    // (V20260820_8 was removed by v12.1; V20260820_9 is the new terminal)
+    private static final String CRM_LATEST_VERSION = "20260820.9";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

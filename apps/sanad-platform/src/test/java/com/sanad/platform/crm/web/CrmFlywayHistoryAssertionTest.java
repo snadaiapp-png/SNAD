@@ -182,7 +182,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260820.5"    // RBAC exact matrix + durable provenance
             , "20260820.6"    // commerce/finance linkage + role template bindings
             , "20260820.7"    // RBAC exact matrix validation 9/9
-            // V20260820_8 (SETTLEMENT_FAILED status) removed by v12.1 — chain ends at .7
+            // V20260820_8 (SETTLEMENT_FAILED status) removed by v12.1
+            , "20260820.9"    // restore ADMIN capability invariant (HR.* grants to all ADMINS)
     );
 
 
