@@ -1,15 +1,24 @@
 /**
  * CRM-035 — Terminal Lead Status E2E Test
  * ----------------------------------------------------------------------------
- * Verifies that terminal leads (CONVERTED, ARCHIVED) cannot have their
- * status modified via the UI. This prevents HTTP 409 conflicts caused
- * by the backend rejecting invalid state transitions.
+ * Verifies that terminal leads (CONVERTED, ARCHIVED, DISQUALIFIED) cannot
+ * have their status modified via the UI. This prevents HTTP 409 conflicts
+ * caused by the backend rejecting invalid state transitions.
  *
  * Acceptance Criteria:
  * - Terminal leads display a read-only status badge
- * - Status selector is not rendered for terminal leads
+ * - No action buttons (Qualify / Disqualify / Convert) are rendered for
+ *   terminal leads
  * - No PATCH request is sent for terminal leads
  * - No HTTP 409 appears in network responses
+ *
+ * Production reference: apps/web/app/crm/(operational)/leads/page.tsx
+ *   - Status badge: <span className={styles.badge}>{lead.status}</span>
+ *   - Action buttons (NOT a <select> dropdown):
+ *       lead.status === "NEW"             → Qualify button
+ *       !terminalStates.includes(status)  → Disqualify button
+ *       !terminalStates.includes(status)  → Convert button
+ *   - terminalStates = ["CONVERTED", "ARCHIVED", "DISQUALIFIED"]
  *
  * Required: Authentication with a CRM tenant that has terminal leads.
  */
@@ -21,16 +30,32 @@ import { TENANT_A_EMAIL, TENANT_A_PASSWORD } from "./crm-helpers";
  *  Helpers
  * ============================================================================ */
 
-// Production code (apps/web/app/crm/(operational)/leads/page.tsx) treats
-// CONVERTED, ARCHIVED, and DISQUALIFIED as terminal — none of these get an
-// editable <select>. The E2E test must mirror that exact set so the assertion
-// "terminal lead has no select dropdown" matches the page behavior.
+// Mirrors production terminalStates in apps/web/app/crm/(operational)/leads/page.tsx.
 const TERMINAL_STATUSES = ["CONVERTED", "ARCHIVED", "DISQUALIFIED"];
+
+// Action buttons rendered by the leads page for non-terminal leads.
+// Production uses buttons (Qualify / Disqualify / Convert), NOT a <select>.
+const ACTION_BUTTON_TEXTS = ["Qualify", "Disqualify", "Convert", "تأهيل", "استبعاد", "تحويل"];
 
 async function waitForLeadsPage(page: Page): Promise<void> {
   // /crm redirects to /crm/overview; this spec must exercise the leads table.
   await page.goto("/crm/leads", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("table", { timeout: 15_000 });
+}
+
+/**
+ * Read the status text from a row's badge. Returns null if the row has no
+ * badge element (e.g., a non-lead row that happens to match `table tbody tr`,
+ * such as a skeleton/pagination/empty-state row). The previous test version
+ * called `await statusBadge.textContent()` directly, which auto-waits for
+ * the element to appear — if the row had no badge, the call would wait the
+ * full 60s test timeout and mask the actual test logic.
+ */
+async function readStatusText(row: ReturnType<Page["locator"]>): Promise<string | null> {
+  const statusBadge = row.locator('[class*="badge"]');
+  const count = await statusBadge.count();
+  if (count === 0) return null;
+  return (await statusBadge.first().textContent()) ?? null;
 }
 
 /* ============================================================================
@@ -78,28 +103,28 @@ test.describe("CRM-035: Terminal Lead Status Protection", () => {
     }
 
     /* Check each row for terminal state behavior */
+    let foundTerminalLead = false;
     for (let i = 0; i < rowCount; i++) {
       const row = rows.nth(i);
 
-      /* Get the status badge text. Production code uses CSS module class
-         `badge` (apps/web/app/crm/(operational)/leads/page.tsx line ~163:
-         `<span className={styles.badge}>{lead.status}</span>`). The previous
-         selector `[class*="statusBadge"]` never matched because the class
-         name doesn't contain the substring 'statusBadge' — this caused
-         textContent() to auto-wait until the test's 60s timeout, masking
-         the actual test logic. Use `[class*="badge"]` which matches the
-         current production CSS module class. */
-      const statusBadge = row.locator('[class*="badge"]');
-      const statusText = await statusBadge.textContent();
+      /* Read the status text. Skip rows that don't have a status badge
+         (e.g., non-lead rows like loading skeletons or pagination rows). */
+      const statusText = await readStatusText(row);
+      if (statusText === null) continue;
 
-      if (TERMINAL_STATUSES.some((ts) => statusText?.includes(ts))) {
-        /* Terminal lead: should NOT have a status select dropdown */
-        const selectDropdown = row.locator("select");
-        await expect(selectDropdown).toHaveCount(0);
+      if (TERMINAL_STATUSES.some((ts) => statusText.includes(ts))) {
+        foundTerminalLead = true;
 
-        /* Terminal lead: should NOT have a convert button */
-        const convertButton = row.locator('button:has-text("Convert"), button:has-text("تحويل")');
-        await expect(convertButton).toHaveCount(0);
+        /* Terminal lead: should NOT have any action buttons (Qualify /
+           Disqualify / Convert). Production uses buttons for state
+           transitions, NOT a <select> dropdown. The previous test version
+           asserted `selectDropdown.toHaveCount(0)` — which trivially
+           passes because production never renders <select> at all. The
+           meaningful invariant is "no action buttons for terminal leads". */
+        for (const buttonText of ACTION_BUTTON_TEXTS) {
+          const button = row.locator(`button`, { hasText: buttonText });
+          await expect(button, `Terminal lead row ${i} should not have action button "${buttonText}"`).toHaveCount(0);
+        }
       }
     }
 
@@ -108,6 +133,13 @@ test.describe("CRM-035: Terminal Lead Status Protection", () => {
 
     /* Verify no 409 responses occurred */
     expect(conflictResponses).toHaveLength(0);
+
+    if (!foundTerminalLead) {
+      // Don't fail the test — the absence of terminal leads in the seed data
+      // is an environment concern, not a regression. The patch/409 invariants
+      // above remain authoritative.
+      test.skip(true, "No terminal leads found in the table — only verified no PATCH / no 409 invariants");
+    }
   });
 
   test("Non-terminal leads have editable status selector", async ({ page }) => {
@@ -127,18 +159,25 @@ test.describe("CRM-035: Terminal Lead Status Protection", () => {
     for (let i = 0; i < rowCount; i++) {
       const row = rows.nth(i);
 
-      /* Get the status badge text (see comment in the first test about the
-         CSS module class name — production uses `badge`, not `statusBadge`). */
-      const statusBadge = row.locator('[class*="badge"]');
-      const statusText = await statusBadge.textContent();
+      /* Read the status text. Skip rows that don't have a status badge. */
+      const statusText = await readStatusText(row);
+      if (statusText === null) continue;
 
-      if (!TERMINAL_STATUSES.some((ts) => statusText?.includes(ts))) {
-        /* Non-terminal lead: should have a status select dropdown */
-        const selectDropdown = row.locator("select");
-        await expect(selectDropdown).toHaveCount(1);
+      if (!TERMINAL_STATUSES.some((ts) => statusText.includes(ts))) {
+        /* Non-terminal lead: should have at least one action button
+           (Qualify, Disqualify, or Convert). Production uses buttons for
+           state transitions, NOT a <select> dropdown. */
+        let foundAnyActionButton = false;
+        for (const buttonText of ACTION_BUTTON_TEXTS) {
+          const button = row.locator(`button`, { hasText: buttonText });
+          const count = await button.count();
+          if (count > 0) {
+            foundAnyActionButton = true;
+            break;
+          }
+        }
 
-        /* Non-terminal lead: select should be enabled */
-        await expect(selectDropdown).toBeEnabled();
+        expect(foundAnyActionButton, `Non-terminal lead row ${i} (status="${statusText}") should have at least one action button`).toBe(true);
 
         foundNonTerminal = true;
         break;
@@ -146,7 +185,7 @@ test.describe("CRM-035: Terminal Lead Status Protection", () => {
     }
 
     if (!foundNonTerminal) {
-      test.skip(true, "No non-terminal leads found — cannot verify editable selector");
+      test.skip(true, "No non-terminal leads found — cannot verify editable action buttons");
     }
   });
 });
