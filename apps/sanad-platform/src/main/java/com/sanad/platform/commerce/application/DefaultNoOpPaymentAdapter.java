@@ -3,7 +3,6 @@ package com.sanad.platform.commerce.application;
 import com.sanad.platform.commerce.domain.PaymentGatewayPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -47,9 +46,17 @@ import java.util.UUID;
  * bean gated by the same property. Until that adapter is implemented,
  * production checkouts will produce {@code PENDING} orders awaiting manual
  * or scheduled settlement.
+ *
+ * <p>Wiring note (release fix 2026-08-20): this bean is registered
+ * unconditionally. A previous version annotated it with
+ * {@code @ConditionalOnMissingBean(PaymentGatewayPort.class)} directly on the
+ * {@code @Component} class — during component scanning the condition saw the
+ * bean's own definition and backed off, leaving {@code CheckoutService}
+ * without any {@code PaymentGatewayPort} bean and failing every Spring
+ * application context (tests AND production boot). The simulated adapter
+ * overrides this default via {@code @Primary} when explicitly enabled.
  */
 @Component
-@ConditionalOnMissingBean(PaymentGatewayPort.class)
 public class DefaultNoOpPaymentAdapter implements PaymentGatewayPort {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultNoOpPaymentAdapter.class);

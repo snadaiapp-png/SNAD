@@ -182,7 +182,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260820.5"    // RBAC exact matrix + durable provenance
             , "20260820.6"    // commerce/finance linkage + role template bindings
             , "20260820.7"    // RBAC exact matrix validation 9/9
-            , "20260820.8"    // add SETTLEMENT_FAILED status
+            // V20260820_8 (SETTLEMENT_FAILED status) removed by v12.1 — chain ends at .7
     );
 
 

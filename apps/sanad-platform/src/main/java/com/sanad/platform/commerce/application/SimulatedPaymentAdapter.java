@@ -4,6 +4,7 @@ import com.sanad.platform.commerce.domain.PaymentGatewayPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -29,6 +30,12 @@ import java.util.UUID;
  * auto-verify payment (orders stay in {@code PENDING} until a legitimate
  * settlement operation occurs).
  *
+ * <p>Wiring note (release fix 2026-08-20): {@code @Primary} ensures this
+ * adapter wins over the always-registered {@link DefaultNoOpPaymentAdapter}
+ * when (and only when) the {@code simulated} provider property is set, so
+ * exactly one effective payment gateway is injected without relying on
+ * component-scan condition ordering.
+ *
  * <p>Gates certified:
  * <ul>
  *   <li>{@code SIMULATED_PAYMENT_ACTIVE_IN_PROD=NO}</li>
@@ -37,6 +44,7 @@ import java.util.UUID;
  * </ul>
  */
 @Component
+@Primary
 @ConditionalOnProperty(
         name = "sanad.commerce.payment.provider",
         havingValue = "simulated",

@@ -5,7 +5,6 @@ import com.sanad.platform.finance.domain.FinanceInvoice;
 import com.sanad.platform.finance.domain.FinanceInvoiceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -52,7 +51,6 @@ import java.util.UUID;
  * </ul>
  */
 @Component
-@ConditionalOnMissingBean(CommerceFinancePort.class)
 public class CommerceFinanceAdapter implements CommerceFinancePort {
 
     private static final Logger log = LoggerFactory.getLogger(CommerceFinanceAdapter.class);
