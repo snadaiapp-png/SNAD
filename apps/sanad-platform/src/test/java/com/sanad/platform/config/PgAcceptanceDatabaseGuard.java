@@ -51,13 +51,34 @@ public class PgAcceptanceDatabaseGuard {
 
     private static final Logger log = LoggerFactory.getLogger(PgAcceptanceDatabaseGuard.class);
 
-    /** Forbidden host substrings — any match aborts startup. */
+    /**
+     * Forbidden host substrings — any match aborts startup.
+     *
+     * <p>v20260820.7: replaced the over-broad {@code *.supabase.co} /
+     * {@code *.supabase.net} bans (which forbid a perfectly valid isolated
+     * acceptance Supabase project/branch) with exact-match prod identity
+     * markers. A dedicated acceptance Supabase project IS a legitimate
+     * isolated acceptance DB.
+     *
+     * <p>The exact production identity is captured in
+     * {@link #PRODUCTION_DB_REFS} and {@link #FORBIDDEN_DB_NAME_SUBSTRINGS}.
+     */
     private static final Set<String> FORBIDDEN_HOST_SUBSTRINGS = Set.of(
             "snad-prod",          // prod Render/Supabase naming convention
-            ".supabase.co",       // Supabase shared hosting
-            ".supabase.net",      // Supabase shared hosting
-            ".supabase.in",       // Supabase shared hosting
             "render-db.internal"  // Render internal managed DB
+    );
+
+    /**
+     * Exact production database refs / project IDs that must NEVER be
+     * targeted by the acceptance test profile. These are specific
+     * Supabase project refs / database fingerprints of the actual
+     * production database.
+     *
+     * <p>Match against the JDBC URL substring. If the prod database
+     * host/path contains any of these tokens, startup aborts.
+     */
+    private static final Set<String> PRODUCTION_DB_REFS = Set.of(
+            "tkbrvupemreqabwzdpyq"   // exact prod Supabase project ref
     );
 
     /** Forbidden database-name substrings — any match aborts startup. */
@@ -114,6 +135,21 @@ public class PgAcceptanceDatabaseGuard {
                                 "use a dedicated isolated acceptance database — never the " +
                                 "production Supabase / Render managed database. " +
                                 "PRODUCTION_DB_TARGET_GUARD=FAIL — startup aborted.");
+            }
+        }
+
+        // Also check the full JDBC URL for exact prod refs (covers Supabase
+        // project refs embedded in the URL like
+        // jdbc:postgresql://db.tkbrvupemreqabwzdpyq.supabase.co:5432/postgres)
+        String urlLower = trimmed.toLowerCase();
+        for (String prodRef : PRODUCTION_DB_REFS) {
+            if (urlLower.contains(prodRef)) {
+                throw new IllegalStateException(
+                        "PG_ACCEPTANCE_JDBC_URL contains production ref '" + prodRef + "'. " +
+                                "This is the EXACT production database identity — the " +
+                                "pg-acceptance profile must use a dedicated isolated " +
+                                "acceptance database. PROD_DB_EXACT_MATCH_DENIED=FAIL — " +
+                                "startup aborted.");
             }
         }
 

@@ -11,6 +11,25 @@ sanad:
     tenant-id: ${SANAD_CONTROL_PLANE_TENANT_ID:}
   cors:
     allowed-origins: ${SANAD_CORS_ALLOWED_ORIGINS:}
+  # v20260820.6: Commerce → ERP inventory integration is REQUIRED in production.
+  # sanad.erp.inventory.adapter.enabled=true makes ErpInventoryAvailabilityAdapter
+  # the active InventoryAvailabilityPort bean. SimpleInventoryAdapter (which returns
+  # Integer.MAX_VALUE for every product) is gated behind havingValue=false /
+  # matchIfMissing=true so it only loads when explicitly disabled (dev/test).
+  # Setting this to true in prod ensures PHYSICAL_PRODUCT_UNLIMITED_STOCK=NO.
+  erp:
+    inventory:
+      adapter:
+        enabled: ${SANAD_ERP_INVENTORY_ADAPTER_ENABLED:true}
+  # v20260820.6: Commerce → Finance integration is REQUIRED in production.
+  # The default CommerceFinanceAdapter (no-op) is replaced by a real adapter
+  # that creates finance_invoices linked to commerce_orders via external_reference.
+  # The simulated adapter is gated behind havingValue=simulated / matchIfMissing=false.
+  commerce:
+    payment:
+      provider: ${SANAD_COMMERCE_PAYMENT_PROVIDER:}  # unset → DefaultNoOpPaymentAdapter (no auto-PAID)
+    finance:
+      adapter: ${SANAD_COMMERCE_FINANCE_ADAPTER:default}  # default → real CommerceFinanceAdapter
   security:
     jwt:
       secret: ${JWT_SECRET:}

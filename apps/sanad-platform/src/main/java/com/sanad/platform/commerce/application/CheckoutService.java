@@ -8,6 +8,8 @@ import com.sanad.platform.commerce.domain.InventoryAvailabilityPort;
 import com.sanad.platform.commerce.domain.PaymentGatewayPort;
 import com.sanad.platform.commerce.domain.ShippingQuotePort;
 import com.sanad.platform.commerce.domain.TaxCalculationPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -63,6 +65,8 @@ import java.util.UUID;
  */
 @Service
 public class CheckoutService {
+
+    private static final Logger log = LoggerFactory.getLogger(CheckoutService.class);
 
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
@@ -224,11 +228,25 @@ public class CheckoutService {
                 subtotal, discount, tax, shipping, grandTotal,
                 request.idempotencyKey(), auth);
 
-        // Create payment intent + verify (simulated adapter returns true immediately)
+        // Create payment intent + verify.
+        // v20260820.6: DefaultNoOpPaymentAdapter returns null/false when no real
+        // PSP is configured. The order is left in PENDING status awaiting
+        // explicit settlement. SimulatedPaymentAdapter (gated by property)
+        // returns sim_pi_* and verifies=true for dev/test.
         String paymentRef = paymentPort.createPaymentIntent(tenantId, orderId, grandTotal, cart.currency());
-        boolean verified = paymentPort.verifyPayment(tenantId, paymentRef);
+        boolean verified;
+        if (paymentRef == null) {
+            // No PSP configured — never auto-verify, never auto-PAID.
+            // Order stays PENDING; cart stays ACTIVE so a follow-up settlement
+            // can drive it to PAID via an explicit endpoint.
+            verified = false;
+        } else {
+            verified = paymentPort.verifyPayment(tenantId, paymentRef);
+        }
 
-        // Update order to PAID/CONFIRMED + record payment_ref via metadata in snapshot
+        // Update order payment + status. v20260820.6 introduces a third state
+        // for "no PSP / awaiting settlement" — payment_status=PENDING (not FAILED),
+        // order_status=PENDING.
         updateOrderPostPayment(tenantId, orderId, paymentRef, verified);
 
         if (verified) {
@@ -241,6 +259,15 @@ public class CheckoutService {
             try { financePort.recordOrder(tenantId, orderId); } catch (Exception ignored) {}
             // Mark cart checked-out
             cartService.markCheckedOut(tenantId, request.cartId());
+        } else if (paymentRef == null) {
+            // No PSP — leave cart ACTIVE so the order can be settled later.
+            // The order is PENDING and will be promoted to PAID/CONFIRMED
+            // by an explicit settlement endpoint.
+            log.info("checkout: order {} created in PENDING state — no PSP configured; "
+                    + "manual settlement required (tenant={})", orderId, tenantId);
+        } else {
+            // Real PSP declined (paymentRef set, verified=false) — order is FAILED.
+            log.warn("checkout: payment verification failed for order {} (tenant={})", orderId, tenantId);
         }
 
         OrderResponse finalOrder = orderService.get(tenantId, storeId, orderId);
@@ -248,8 +275,26 @@ public class CheckoutService {
     }
 
     private void updateOrderPostPayment(UUID tenantId, UUID orderId, String paymentRef, boolean verified) {
-        String newPaymentStatus = verified ? "PAID" : "FAILED";
-        String newOrderStatus = verified ? "CONFIRMED" : "PENDING";
+        // v20260820.6: Three payment states:
+        //   paymentRef=null + verified=false → PENDING (no PSP configured, awaiting settlement)
+        //   paymentRef!=null + verified=true → PAID + CONFIRMED
+        //   paymentRef!=null + verified=false → FAILED + PENDING
+        String newPaymentStatus;
+        String newOrderStatus;
+        String reason;
+        if (paymentRef == null) {
+            newPaymentStatus = "PENDING";
+            newOrderStatus = "PENDING";
+            reason = "no PSP configured; manual settlement required";
+        } else if (verified) {
+            newPaymentStatus = "PAID";
+            newOrderStatus = "CONFIRMED";
+            reason = "payment_ref=" + paymentRef + ",verified=true";
+        } else {
+            newPaymentStatus = "FAILED";
+            newOrderStatus = "PENDING";
+            reason = "payment_ref=" + paymentRef + ",verified=false";
+        }
         java.sql.Timestamp now = java.sql.Timestamp.from(java.time.Instant.now());
         jdbc.update("UPDATE commerce_orders SET payment_status = ?, status = ?, updated_at = ?, version = version + 1 "
                         + "WHERE tenant_id = ? AND id = ?",
@@ -259,7 +304,7 @@ public class CheckoutService {
                         + "from_payment, to_payment, reason, actor, created_at) "
                         + "VALUES (?, ?, ?, 'PENDING', ?, 'PENDING', ?, ?, ?, ?)",
                 UUID.randomUUID(), tenantId, orderId, newOrderStatus, newPaymentStatus,
-                "payment_ref=" + paymentRef + ",verified=" + verified, null, now);
+                reason, null, now);
     }
 
     private CheckoutResponse toCheckoutResponse(OrderResponse order, String paymentRef) {
