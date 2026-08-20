@@ -30,8 +30,13 @@ jobs:
           cache: npm
           cache-dependency-path: apps/mobile/package-lock.json
 
-      - name: Install locked dependencies
-        run: npm ci
+      # Temporary TDD bootstrap: the existing lockfile is stale and npm ci cannot
+      # reach Jest. Full closure restores deterministic npm ci after lock repair.
+      - name: Install dependencies for RED verification
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify pagination regression test (RED before production fix)
+        run: npm test -- --runInBand src/__tests__/sync-pagination.test.ts
 
       - name: Typecheck mobile client
         run: npm run typecheck
