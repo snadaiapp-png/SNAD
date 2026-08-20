@@ -67,6 +67,16 @@ class CrmCoreKeysetPaginationPostgresTest {
         // guarantees by only dropping this test's local table (which we recreate below
         // with a simple schema for keyset pagination testing).
         jdbc.getJdbcTemplate().execute("DROP TABLE IF EXISTS crm_accounts CASCADE");
+        // Recreate a simplified crm_accounts schema for keyset pagination testing.
+        // The simplified schema MUST include the columns that other tests in the
+        // shared CI PostgreSQL database rely on — specifically the G7 mobile sync
+        // columns added by V20260812_2 (sync_version, last_synced_at) and the
+        // audit columns (created_by, updated_by) used by PushSyncService INSERTs.
+        // Without these columns, the G7PushSyncFailureIsolationPostgresTest that
+        // runs later in the Maven PostgreSQL Direct suite fails with
+        // PSQLException 'column sync_version does not exist' because Flyway
+        // considers the schema 'up to date' (schema_history is unchanged) while
+        // the actual table is the simplified one recreated here.
         jdbc.getJdbcTemplate().execute("""
                 CREATE TABLE crm_accounts (
                     id UUID PRIMARY KEY,
@@ -82,6 +92,10 @@ class CrmCoreKeysetPaginationPostgresTest {
                     source VARCHAR(80),
                     parent_account_id UUID,
                     owner_user_id UUID,
+                    created_by UUID,
+                    updated_by UUID,
+                    last_synced_at TIMESTAMP WITH TIME ZONE,
+                    sync_version BIGINT NOT NULL DEFAULT 0,
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
                     updated_at TIMESTAMP WITH TIME ZONE NOT NULL
                 )
