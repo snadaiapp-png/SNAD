@@ -58,9 +58,10 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     // CRM-018: V20260730_2 (disable RLS) was removed from Flyway forward path
-    // Terminal CRM migration as of ERP Core Platform:
-    //   V20260816.8 - enable erp rls (v20260816.9)
-    private static final String CRM_LATEST_VERSION = "20260816.8";
+    // Terminal migration as of the 2026-08-20 commerce/RBAC/G7 chain:
+    //   V20260820.7 - rbac exact matrix 9 of 9
+    // (V20260820_8 was removed by v12.1; chain terminates at 20260820.7)
+    private static final String CRM_LATEST_VERSION = "20260820.7";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
@@ -507,9 +508,8 @@ class Crm008bFoundationAcceptanceTest {
 
         JdbcTemplate jdbc = jdbc();
 
-        // Latest version is 20260807.4 (activity result column).
-        // V20260730_2 (disable RLS) was removed from Flyway forward path under
-        // RECOVERY-CRM-022 R1, so terminal migration is V20260807_4 (activity result).
+        // Terminal migration tracks db/migration — currently V20260820_7
+        // (RBAC exact matrix 9/9). See CRM_LATEST_VERSION above.
         String latest = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
                 "ORDER BY installed_rank DESC LIMIT 1", String.class);

@@ -151,40 +151,42 @@ class WorkflowSecurityNegativeTest {
 
     @Test
     void unauthenticated_workflowRead_returnsError() {
-        // Without authentication, the controller's tenantId(auth) call throws NullPointerException
-        // because auth is null (or, in the case of anonymous auth, the controller still tries to
-        // access auth.getDetails() which returns null). Either way, the request fails.
-        assertThatThrownBy(() ->
-                mockMvc.perform(get("/api/v1/workflows/definitions").with(authentication(anonymous())))
-                        .andExpect(status().is4xxClientError()))
-                .satisfiesAnyOf(
-                        t -> assertThat(t.getMessage()).contains("Authentication required"),
-                        t -> assertThat(t.getMessage()).contains("auth"),
-                        t -> assertThat(t.getMessage()).contains("Request processing failed"),
-                        t -> assertThat(t.getMessage()).contains("tenant_id"),
-                        t -> assertThat(t).isNotNull()
-                );
+        // Anonymous auth: the test-only CapabilityAuthorizationBypass skips the RBAC
+        // aspect for anonymous requests, but the controller still denies —
+        // SecurityContextUtils.tenantId(auth) finds no tenant context in the
+        // anonymous token and GlobalDiagnosticExceptionHandler maps the resulting
+        // IllegalStateException to a structured 4xx (409). The contract under test
+        // is the OUTCOME (an unauthenticated request never succeeds with 2xx), so
+        // both a clean error response and a propagated servlet exception pass;
+        // a 2xx response fails.
+        try {
+            mockMvc.perform(get("/api/v1/workflows/definitions").with(authentication(anonymous())))
+                    .andExpect(status().is4xxClientError());
+        } catch (Exception propagated) {
+            assertThat(propagated.getMessage())
+                    .containsAnyOf("Authentication required", "auth", "Request processing failed",
+                            "tenant_id", "No tenant_id");
+        }
     }
 
     // ===== 2. UNAUTHENTICATED WRITE =====
 
     @Test
     void unauthenticated_workflowWrite_returnsError() {
-        assertThatThrownBy(() ->
-                mockMvc.perform(post("/api/v1/workflows/definitions")
-                                .with(authentication(anonymous()))
-                                .contentType("application/json")
-                                .content("""
-                                        {"code":"WF-1","name":"Test","triggerType":"MANUAL"}
-                                        """))
-                        .andExpect(status().is4xxClientError()))
-                .satisfiesAnyOf(
-                        t -> assertThat(t.getMessage()).contains("Authentication required"),
-                        t -> assertThat(t.getMessage()).contains("auth"),
-                        t -> assertThat(t.getMessage()).contains("Request processing failed"),
-                        t -> assertThat(t.getMessage()).contains("tenant_id"),
-                        t -> assertThat(t).isNotNull()
-                );
+        // Same denial contract as the read case: the write must not succeed.
+        try {
+            mockMvc.perform(post("/api/v1/workflows/definitions")
+                            .with(authentication(anonymous()))
+                            .contentType("application/json")
+                            .content("""
+                                    {"code":"WF-1","name":"Test","triggerType":"MANUAL"}
+                                    """))
+                    .andExpect(status().is4xxClientError());
+        } catch (Exception propagated) {
+            assertThat(propagated.getMessage())
+                    .containsAnyOf("Authentication required", "auth", "Request processing failed",
+                            "tenant_id", "No tenant_id");
+        }
     }
 
     // ===== 3. AUTHENTICATED USER WITHOUT WORKFLOW.VIEW =====
