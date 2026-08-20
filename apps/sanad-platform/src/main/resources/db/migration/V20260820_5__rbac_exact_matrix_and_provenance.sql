@@ -72,7 +72,7 @@ COMMENT ON COLUMN roles.template_version IS
 -- ============================================================
 UPDATE roles AS r
 SET role_origin = 'SNAD_TEMPLATE',
-    template_key = code,
+    template_key = r.code,
     template_version = 'V20260820_2',
     updated_at = CURRENT_TIMESTAMP
 WHERE r.is_system_managed = TRUE
