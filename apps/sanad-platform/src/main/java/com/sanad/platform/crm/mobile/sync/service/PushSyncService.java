@@ -245,9 +245,25 @@ public class PushSyncService {
 
     private MutationResult createEntity(UUID tenantId, UUID userId, String tableName, MutationEnvelope mutation) {
         String entityId = mutation.entityId() != null ? mutation.entityId() : UUID.randomUUID().toString();
+        // PostgreSQL strict typing: the `id` column on every syncable CRM table
+        // (crm_accounts, crm_contacts, crm_leads, crm_opportunities, crm_tasks,
+        // crm_notes, crm_activities) is `UUID NOT NULL`. Passing a String value
+        // for a UUID column triggers PSQLException
+        // 'column "id" is of type uuid but expression is of type character
+        // varying'. The SELECT/UPDATE/DELETE paths in this service already use
+        // `?::UUID` casts (see getCurrentVersion, updateEntity, deleteEntity);
+        // the INSERT path must be consistent — convert the entityId String to
+        // a UUID object so the JDBC driver binds it as a UUID.
+        UUID entityIdUuid;
+        try {
+            entityIdUuid = UUID.fromString(entityId);
+        } catch (IllegalArgumentException invalidUuid) {
+            return new MutationResult(mutation.idempotencyKey(), entityId, "REJECTED", "400",
+                0L, null, null, "Invalid UUID entityId: " + entityId);
+        }
         JsonNode payload = mutation.payload();
         List<String> columns = new ArrayList<>(List.of("tenant_id", "id", "created_by", "updated_by", "sync_version"));
-        List<Object> params = new ArrayList<>(List.of(tenantId, entityId, userId, userId, 1));
+        List<Object> params = new ArrayList<>(List.of(tenantId, entityIdUuid, userId, userId, 1));
         String displayName = null;
         if (payload != null && payload.isObject()) {
             Set<String> allowed = allowedColumnsFor(tableName);
