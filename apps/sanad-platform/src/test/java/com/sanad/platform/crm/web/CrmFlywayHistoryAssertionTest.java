@@ -185,9 +185,6 @@ class CrmFlywayHistoryAssertionTest {
             // V20260820_8 (SETTLEMENT_FAILED status) removed by v12.1
             , "20260820.9"    // restore ADMIN capability invariant (HR.* grants to all ADMINS)
             , "20260820.10"   // seed G8 caller-identification capabilities
-            , "20260820.11"   // create crm_call_events (RLS enabled)
-            , "20260820.12"   // force RLS on crm_call_events
-            , "20260820.13"   // seed G8 call event capabilities
     );
 
 

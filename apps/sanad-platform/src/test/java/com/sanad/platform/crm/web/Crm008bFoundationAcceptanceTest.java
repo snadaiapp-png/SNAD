@@ -61,11 +61,8 @@ class Crm008bFoundationAcceptanceTest {
     // Terminal migration as of the 2026-08-20 commerce/RBAC/G7/G8 chain:
     //   V20260820.9  - restore ADMIN capability invariant
     //   V20260820.10 - seed G8 caller-identification capabilities
-    //   V20260820.11 - create crm_call_events
-    //   V20260820.12 - force RLS on crm_call_events
-    //   V20260820.13 - seed G8 call event capabilities
-    // (V20260820_8 was removed by v12.1; V20260820_13 is the new terminal)
-    private static final String CRM_LATEST_VERSION = "20260820.13";
+    // (V20260820_8 was removed by v12.1; V20260820_10 is the new terminal)
+    private static final String CRM_LATEST_VERSION = "20260820.10";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
