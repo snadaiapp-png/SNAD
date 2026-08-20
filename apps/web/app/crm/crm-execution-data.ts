@@ -131,10 +131,10 @@ export const CRM_GROUP_DATA = [
     titleEn: "Mobile Offline Foundation",
     purposeAr: "تجهيز APIs والجداول الخاصة بتطبيق الجوال.",
     purposeEn: "Prepare mobile APIs and tables.",
-    status: "NOT_STARTED" as GroupStatus,
+    status: "APPROVED" as GroupStatus,
     dependencies: ["G1", "G3"],
     canParallelizeWith: [],
-    stageReport: null,
+    stageReport: "G7-STAGE-REPORT-V1 — معتمدة. أساس الجوال بدون اتصال: مزامنة دفع/سحب بأعمدة مُسموحة، تعارضات عبر ETag/If-Match (412)، قسائم/تفريغ، وعزل RLS لكل مستأجر. الإنتاج: G7-MOBILE-FOUNDATION-CERTIFIED.",
   },
   {
     code: "G8",

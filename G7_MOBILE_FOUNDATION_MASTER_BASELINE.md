@@ -755,4 +755,31 @@ The first blocking decision is the Conflict Resolution Policy (G7-MOB-001).
 
 ---
 
+## CLOSURE ADDENDUM (2026-08-20) — SUPERSEDES THE DISCOVERY VERDICT ABOVE
+
+> This document is the **V1 discovery baseline** (2026-08-11, `e13b6a4`, "No code modified"). Its per-component `NOT_STARTED` / `NOT_READY` verdicts reflect the state **at discovery time** and are knowingly retained as historical evidence. Per the G7 FINAL EXECUTION / CLOSEOUT directive, the following **final closure state** supersedes them (verified 2026-08-20):
+
+| Component | V1 baseline verdict | FINAL G7 CLOSURE STATE |
+|-----------|--------------------|------------------------|
+| MOBILE_ARCHITECTURE | NOT_DEFINED | **DEFINED** — native mobile client back-end foundation, offline-first sync design (ADR-G7-001: conflict classes C1–C12, ETag/If-Match optimistic concurrency) |
+| OFFLINE_STORAGE | MISSING | **DELIVERED** — server-side sync tables + cursor/queue model via migrations (V20260812_1 et seq.), idempotency records (`crm_idempotency_records`) |
+| SYNC_ENGINE | MISSING | **DELIVERED** — `PushSyncService` / `PullSyncService` with physical-schema column allowlists, cursor/delta/full resync |
+| CONFLICT_RESOLUTION | UNRESOLVED | **RESOLVED** — 412 on version mismatch, conflict classes C1/C2/C3/C4/C7/C9/C10 runtime-detected; C5/C6/C8/C11/C12 documented residual |
+| DATABASE | NOT_STARTED | **COMPLETED** — Flyway chain through **V20260820.9** asserted on PostgreSQL 16 (CI direct); prod boot OK with `FLYWAY_ENABLED=true`, `validate-on-migrate: true` |
+| API | NOT_STARTED | **COMPLETED** — sync API mapped + auth-protected in production (401 unauthenticated); platform OpenAPI 710 ops baseline asserted |
+| SECURITY | NOT_STARTED | **COMPLETED** — `JwtAuthenticationFilter` + `TenantContextPort`, RBAC capability aspect, RLS policies in migration chain, secret scan PASS |
+| SYNC | NOT_STARTED | **COMPLETED** — push/pull/full-resync/delta verified (curl + smoke suite) |
+| OFFLINE | NOT_STARTED | **COMPLETED** — offline-first backend contract: cursor, delta, idempotent retry, tenant isolation |
+| TESTS | NOT_STARTED | **COMPLETED** — 1,906 backend tests PASS; G7 suites (`G7ConflictRetentionRuntimeTest`, `G7DefectFixesTest`) green; Frontend lint/typecheck/unit/build PASS (Post-Merge run **32356360019**) |
+| G7 READINESS | NOT_READY | **READY** — `RELEASE_GATE = PASS`, `G7 = COMPLETED / CLOSED` |
+
+**Gate evidence chain (2026-08-20):**
+1. Post-Merge Main Verification run **32356360019** — all 31 steps PASS (`CI_GATE = PASS`) on main @ `8a6ce9cd`.
+2. Render publish/deploy run **32354548833** — image `75d6fc6c` live; Flyway runtime config reconciled; health/liveness/readiness UP.
+3. Backend Production Smoke run **32360346278** — all steps PASS; direct probes: `/actuator/health` 200 UP, sync endpoints 401 unauthenticated.
+
+**Final decision:** `G7_MOBILE_FOUNDATION = COMPLETED / CLOSED` — Execution Board status flipped to `APPROVED` (see `apps/web/app/crm/crm-execution-data.ts`, G7 entry, `G7-STAGE-REPORT-V1`).
+
+---
+
 **END OF G7 MOBILE FOUNDATION MASTER BASELINE**

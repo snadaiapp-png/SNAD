@@ -53,7 +53,7 @@ This matrix tracks the adoption status and compatibility of each SANAD module wi
 | G4 | Opportunities & Pipeline | NOT_STARTED | 0 |
 | G5 | Tasks, Transfers & Employees | NOT_STARTED | 0 |
 | G6 | Reports & Analytics | NOT_STARTED | 0 |
-| G7 | Mobile Offline Foundation | NOT_STARTED | 0 |
+| G7 | Mobile Offline Foundation | APPROVED | 0 |
 | G8 | Caller Identification | NOT_STARTED | 0 |
 | G9 | AI CRM Free & Paid Billing | NOT_STARTED | 0 |
 | G10 | QA, Security & Acceptance | NOT_STARTED | 0 |
