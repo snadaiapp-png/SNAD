@@ -1581,3 +1581,80 @@ Stage Summary:
   full test suites + Playwright UI + BFF chain + error sweep + cleanup +
   DB integrity review + final parity
 - Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v11.md (not FINAL)
+
+---
+Task ID: v12-1
+Agent: main (super-z)
+Task: SNAD-REMEDIATION-EMERGENCY-v12 — production compatibility + settlement lifecycle
+
+Work Log:
+- Read user v12 brief: PRODUCTION EMERGENCY
+  - V20260820.5 SQL alias bug FAILED (SQLSTATE 42P01 'missing FROM-clause entry for table r')
+  - Render deploys 96cb76e and 9094717 both update_failed
+  - Current LIVE: image 6ec0059, deploy dep-da35gejtqb8s73c600v0
+  - Flyway 121 records, V20260820.4 applied, V20260820.5 NOT applied
+  - PRODUCTION_COMMERCE_CODE_SCHEMA_COMPATIBILITY=FAIL — live code 6ec0059 uses
+    ON CONFLICT (tenant_id, store_id, idempotency_key) but V20260820.4 dropped
+    that index. ECOMMERCE_CHECKOUT_PRODUCTION=DEGRADED.
+- URGENT FIX V20260820.5 (commit f97ea24):
+  - UPDATE roles SET template_key = r.code ← r alias undeclared
+  - Fix: UPDATE roles AS r SET template_key = r.code WHERE r.is_system_managed = TRUE ...
+  - SQLSTATE 42P01 resolved
+- Pre-flight V20260820.7:
+  - count_role_caps RETURNS INTEGER but COUNT(*) returns BIGINT
+  - Added explicit ::INTEGER cast
+- Harden V20260820.6 before it applies (it has NOT applied yet):
+  - commerce_order_finance_links: added tenant-aware composite FKs to
+    commerce_orders(tenant_id, id) + finance_invoices(tenant_id, id)
+    with ON DELETE CASCADE
+    (COMMERCE_FINANCE_LINK_FK_INTEGRITY=PASS — no orphan rows)
+  - role_template_bindings: added tenant-aware FK to roles(tenant_id, id)
+    with ON DELETE CASCADE
+  - RLS governance for 4 new tenant tables (matches existing V20260816_6 +
+    V20260816_8 conventions using current_setting('app.tenant_id', true)::uuid):
+    - commerce_order_number_sequences: ENABLE + FORCE RLS + tenant_isolation policy
+    - commerce_order_finance_links: same
+    - finance_invoice_number_sequences: same
+    - role_template_bindings: same
+    (NEW_TABLE_RLS_GOVERNANCE=PASS)
+- Pushed f97ea24 to origin/main (urgent migration fix to unblock production)
+- v12 settlement lifecycle (commit 3d077ee):
+  - Created OrderSettlementService with POST /api/v1/stores/{storeId}/orders/{orderId}/settle
+  - SettlementRequest: paymentMethod, paymentReference, paidAmount, paidAt, metadata
+  - Atomic transition: UPDATE ... WHERE status='PENDING' (concurrent-safe idempotent replay)
+  - Inventory + Finance failures → SETTLEMENT_FAILED state (NOT silently swallowed)
+  - Status history + audit event recording
+  - @RequireCapability('FINANCE.APPROVE') — SOD: STORE_MANAGER cannot settle
+  - V20260820_8 migration: add SETTLEMENT_FAILED to ck_commerce_orders_status CHECK
+  - Updated CommerceDomain.OrderStatus Java enum to include SETTLEMENT_FAILED
+  - Updated CheckoutService:
+    * cartService.markCheckedOut now runs unconditionally after order creation
+      (PENDING_ORDER_CART_MUTATION_DENIED=PASS — cart locked even if payment PENDING)
+    * Removed 'try/catch (Exception ignored)' swallowing patterns:
+      - inventory.confirm failure → SETTLEMENT_FAILED + HTTP 500
+      - financePort.recordOrder failure → SETTLEMENT_FAILED + HTTP 500
+- Verified 19 v8-v11 unit tests PASS locally (no regression from v12 changes)
+- Committed 3d077eec0720b1812e24b4443e412d72ac3d6972
+- Pushed to origin/main
+
+Stage Summary:
+- URGENT FIX PRODUCT_SHA = f97ea242cfe895c4bd8fe419bbd9cc8b2058ed39 (migration fix only)
+- v12 PRODUCT_SHA = 3d077eec0720b1812e24b4443e412d72ac3d6972 (settlement + cart lock)
+- v12 corrections CLOSED in source:
+  1. V20260820.5 SQL alias bug FIXED (UPDATE roles AS r ...)
+  2. V20260820.7 BIGINT→INTEGER cast for count_role_caps
+  3. commerce_order_finance_links FK integrity to commerce_orders + finance_invoices
+  4. role_template_bindings FK to roles
+  5. RLS governance for 4 new tenant tables
+  6. Manual settlement endpoint (POST /api/v1/stores/{storeId}/orders/{orderId}/settle)
+  7. SETTLEMENT_FAILED state for failed side-effects (DB + Java enum)
+  8. Cart locked immediately on order creation (PENDING_ORDER_CART_MUTATION_DENIED=PASS)
+  9. Inventory/Finance failures NOT silently swallowed (SETTLEMENT_FAILED + 500)
+  10. SOD: settlement requires FINANCE.APPROVE (STORE_MANAGER cannot settle)
+- NO FALSE PASS RULE: SIMULATED_PAYMENT_ACTIVE_IN_PROD=OLD_CODE_LIVE until 3d077ee deploys
+- BLOCKER for FINAL report: Render deploy of 3d077ee pending (must wait for
+  existing deploys to settle), idempotency fingerprint computation logic,
+  same-cart/different-key race closure, new-tenant RBAC RoleTemplateProvisioner,
+  isolated PostgreSQL DB, live prod API/DB verifications, mobile build, full
+  test suites, Playwright UI, BFF, error sweep, cleanup, DB integrity, final parity
+- Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v12.md (not FINAL)
