@@ -60,15 +60,18 @@ class G7PushSyncFailureIsolationPostgresTest {
     @BeforeEach
     void migrateAndConfigureTenantContext() {
         rawDataSource = postgresDataSource();
+        // Do NOT call flyway.clean() — the Spring Boot managed Flyway has already
+        // applied all migrations during context startup. Calling flyway.clean()
+        // would DROP ALL TABLES in the shared CI PostgreSQL database, breaking
+        // every other @SpringBootTest that shares the same database.
+        // Instead, just validate that the schema is up to date.
         Flyway flyway = Flyway.configure()
                 .dataSource(rawDataSource)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(false)
+                .cleanDisabled(true)
                 .validateOnMigrate(true)
                 .load();
-        flyway.clean();
-        flyway.migrate();
         flyway.validate();
 
         rawJdbc = new JdbcTemplate(rawDataSource);
@@ -99,8 +102,18 @@ class G7PushSyncFailureIsolationPostgresTest {
     }
 
     @AfterEach
-    void clearSecurityContext() {
+    void clearSecurityContextAndTestData() {
         SecurityContextHolder.clearContext();
+        // Clean up test data to avoid polluting other tests
+        if (rawJdbc != null && tenantId != null) {
+            try {
+                rawJdbc.update("DELETE FROM crm_idempotency_records WHERE tenant_id = ?", tenantId);
+                rawJdbc.update("DELETE FROM crm_accounts WHERE tenant_id = ?", tenantId);
+                rawJdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
+            } catch (Exception ignored) {
+                // Best-effort cleanup
+            }
+        }
     }
 
     @Test
