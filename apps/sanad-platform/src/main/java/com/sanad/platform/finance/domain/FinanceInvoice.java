@@ -1,5 +1,6 @@
 package com.sanad.platform.finance.domain;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -21,10 +22,10 @@ public record FinanceInvoice(
         LocalDate issueDate,
         LocalDate dueDate,
         String currency,
-        java.math.BigDecimal subtotal,
-        java.math.BigDecimal taxAmount,
-        java.math.BigDecimal totalAmount,
-        java.math.BigDecimal paidAmount,
+        BigDecimal subtotal,
+        BigDecimal taxAmount,
+        BigDecimal totalAmount,
+        BigDecimal paidAmount,
         Status status,
         String notes,
         long version,
@@ -44,8 +45,8 @@ public record FinanceInvoice(
         return new FinanceInvoice(
                 UUID.randomUUID(), tenantId, invoiceNumber, customerType, customerId, customerName,
                 issueDate, dueDate, currency != null ? currency : "SAR",
-                java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO,
-                java.math.BigDecimal.ZERO, Status.DRAFT, notes,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, Status.DRAFT, notes,
                 0, now, now
         );
     }
@@ -60,9 +61,31 @@ public record FinanceInvoice(
         return withStatus(Status.CANCELLED);
     }
 
+    /**
+     * Legacy status-only transition. Prefer {@link #markPaidWithAmount(BigDecimal)}
+     * whenever an actual settlement amount is available.
+     */
     public FinanceInvoice markPaid() {
         requireStatus(Status.ISSUED, "markPaid");
         return withStatus(Status.PAID);
+    }
+
+    /**
+     * Apply a full settlement while preserving the financial amount invariant:
+     * PAID invoices must carry the actual amount that settled the invoice.
+     */
+    public FinanceInvoice markPaidWithAmount(BigDecimal amount) {
+        requireStatus(Status.ISSUED, "markPaidWithAmount");
+        if (amount == null || amount.signum() <= 0) {
+            throw new IllegalArgumentException("paid amount must be positive");
+        }
+        if (totalAmount == null || amount.compareTo(totalAmount) != 0) {
+            throw new IllegalArgumentException(
+                    "paid amount " + amount + " must equal invoice total " + totalAmount);
+        }
+        return new FinanceInvoice(id, tenantId, invoiceNumber, customerType, customerId, customerName,
+                issueDate, dueDate, currency, subtotal, taxAmount, totalAmount, amount,
+                Status.PAID, notes, version + 1, createdAt, Instant.now());
     }
 
     private FinanceInvoice withStatus(Status newStatus) {
