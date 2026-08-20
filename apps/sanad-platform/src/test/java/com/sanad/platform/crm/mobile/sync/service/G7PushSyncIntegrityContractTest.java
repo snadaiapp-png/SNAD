@@ -7,6 +7,8 @@ import com.sanad.platform.crm.mobile.conflict.service.ConflictService;
 import com.sanad.platform.crm.mobile.sync.model.PushSyncRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 
 import java.util.List;
 import java.util.UUID;
@@ -51,7 +53,8 @@ class G7PushSyncIntegrityContractTest {
     void staleUpdate_persistsConflictViaConflictService() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         ConflictService conflicts = mock(ConflictService.class);
-        PushSyncService service = new PushSyncService(jdbc, objectMapper, conflicts);
+        PushSyncService service = new PushSyncService(
+                jdbc, objectMapper, conflicts, transactionManager());
 
         UUID tenantId = UUID.randomUUID();
         UUID deviceId = UUID.randomUUID();
@@ -94,7 +97,8 @@ class G7PushSyncIntegrityContractTest {
     void updateWithoutExpectedVersion_isRejectedInsteadOfBlindWrite() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         ConflictService conflicts = mock(ConflictService.class);
-        PushSyncService service = new PushSyncService(jdbc, objectMapper, conflicts);
+        PushSyncService service = new PushSyncService(
+                jdbc, objectMapper, conflicts, transactionManager());
 
         var mutation = mutation("idem-no-version",
                 objectMapper.createObjectNode().put("display_name", "Changed"), null);
@@ -108,6 +112,13 @@ class G7PushSyncIntegrityContractTest {
         assertThat(response.rejected()).isEqualTo(1);
         assertThat(response.results().getFirst().httpStatus()).isEqualTo("428");
         verify(jdbc, never()).update(startsWith("UPDATE crm_accounts SET"), any(Object[].class));
+    }
+
+    private PlatformTransactionManager transactionManager() {
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        TransactionStatus status = mock(TransactionStatus.class);
+        when(transactionManager.getTransaction(any())).thenReturn(status);
+        return transactionManager;
     }
 
     private PushSyncRequest.MutationEnvelope mutation(String key, JsonNode payload, Long expectedVersion) {
