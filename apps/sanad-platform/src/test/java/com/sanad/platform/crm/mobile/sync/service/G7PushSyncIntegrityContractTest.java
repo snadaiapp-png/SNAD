@@ -86,8 +86,8 @@ class G7PushSyncIntegrityContractTest {
                 new PushSyncRequest(List.of(mutation)));
 
         assertThat(response.rejected()).isEqualTo(1);
-        assertThat(response.results().getFirst().status()).isEqualTo("CONFLICT");
-        assertThat(response.results().getFirst().httpStatus()).isEqualTo("412");
+        assertThat(response.results().get(0).status()).isEqualTo("CONFLICT");
+        assertThat(response.results().get(0).httpStatus()).isEqualTo("412");
         verify(conflicts).detectConflict(eq(tenantId), eq(deviceId), eq(userId),
                 eq("account"), eq(entityId.toString()), eq(4L), eq(clientPayload),
                 eq(5L), any(JsonNode.class), eq("UPDATE"), eq(false), eq(true));
@@ -110,7 +110,7 @@ class G7PushSyncIntegrityContractTest {
                 new PushSyncRequest(List.of(mutation)));
 
         assertThat(response.rejected()).isEqualTo(1);
-        assertThat(response.results().getFirst().httpStatus()).isEqualTo("428");
+        assertThat(response.results().get(0).httpStatus()).isEqualTo("428");
         verify(jdbc, never()).update(startsWith("UPDATE crm_accounts SET"), any(Object[].class));
     }
 
