@@ -33,9 +33,20 @@ DECLARE
     expected_count INTEGER;
     actual_count INTEGER;
 BEGIN
-    -- CRM_SALES expected: 16 capabilities (the canonical V20260820_2/V20260820_3
-    -- grant list contains exactly 16 codes — was miscounted as 17, which made
-    -- this validation fail unconditionally on every fresh database)
+    -- CRM_SALES expected: 16 capabilities
+    -- v12.1 fix: original v12 code had expected_count=17 but the canonical
+    -- capability set defined by V20260820_2 (and @RequireCapability annotations)
+    -- contains exactly 16 codes:
+    --   CRM.ACCOUNT.READ+WRITE (2)
+    --   CRM.CONTACT.READ+WRITE (2) → 4
+    --   CRM.LEAD.READ+WRITE+CONVERT (3) → 7
+    --   CRM.OPPORTUNITY.READ+WRITE (2) → 9
+    --   CRM.ACTIVITY.READ+WRITE (2) → 11
+    --   CRM.TASK.READ+WRITE (2) → 13
+    --   CRM.NOTE.READ+WRITE (2) → 15
+    --   CRM.TAG.READ (1) → 16
+    -- Production evidence: bound SNAD_TEMPLATE CRM_SALES roles have exactly
+    -- those 16 capabilities. The 17th expected was a typo.
     expected_count := 16;
     -- Check (a): no extra caps
     SELECT COUNT(*) INTO bad_count

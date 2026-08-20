@@ -260,36 +260,18 @@ public class CheckoutService {
 
         if (verified) {
             // Confirm inventory (commit the reservation) — NOT silently swallowed.
-            // On failure, the order must enter SETTLEMENT_FAILED for retry.
-            // Note: for the no-PSP path, inventory confirmation happens at
-            // settlement time (OrderSettlementService), not at checkout.
+            // v12.1: throw on failure → @Transactional rolls back the entire
+            // transaction (order INSERT, cart markCheckedOut, status history).
+            // The client sees a 500 and can retry. PENDING is the retryable state.
+            // (We don't need a SETTLEMENT_FAILED state because the rollback
+            // restores the order row to its pre-checkout state — there is no
+            // order row at all when the transaction rolls back.)
             for (CartItemResponse item : cart.items()) {
-                try { inventory.confirm(tenantId, item.productId(), item.variantId(), item.quantity()); }
-                catch (Exception e) {
-                    log.error("inventory confirm failed for order {}: {}", orderId, e.getMessage(), e);
-                    // Transition to SETTLEMENT_FAILED so the operator can retry
-                    try {
-                        jdbc.update("UPDATE commerce_orders SET status = 'SETTLEMENT_FAILED', "
-                                + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
-                                java.sql.Timestamp.from(java.time.Instant.now()), tenantId, orderId);
-                    } catch (Exception ex) { log.error("failed to mark SETTLEMENT_FAILED: {}", ex.getMessage()); }
-                    throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                            "inventory confirmation failed; order transitioned to SETTLEMENT_FAILED for retry");
-                }
+                inventory.confirm(tenantId, item.productId(), item.variantId(), item.quantity());
             }
             // Record in finance ledger — NOT silently swallowed.
-            try {
-                financePort.recordOrder(tenantId, orderId);
-            } catch (Exception e) {
-                log.error("finance recordOrder failed for order {}: {}", orderId, e.getMessage(), e);
-                try {
-                    jdbc.update("UPDATE commerce_orders SET status = 'SETTLEMENT_FAILED', "
-                            + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
-                            java.sql.Timestamp.from(java.time.Instant.now()), tenantId, orderId);
-                } catch (Exception ex) { log.error("failed to mark SETTLEMENT_FAILED: {}", ex.getMessage()); }
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                        "finance posting failed; order transitioned to SETTLEMENT_FAILED for retry");
-            }
+            // Same rollback semantics as inventory above.
+            financePort.recordOrder(tenantId, orderId);
         } else if (paymentRef == null) {
             // No PSP configured — order is PENDING, cart is CHECKED_OUT (locked
             // above). Manual settlement via POST /api/v1/stores/{storeId}/orders/{orderId}/settle
