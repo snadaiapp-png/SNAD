@@ -64,7 +64,14 @@ class G7PushSyncFailureIsolationPostgresTest {
         // applied all migrations during context startup. Calling flyway.clean()
         // would DROP ALL TABLES in the shared CI PostgreSQL database, breaking
         // every other @SpringBootTest that shares the same database.
-        // Instead, just validate that the schema is up to date.
+        //
+        // Other tests in this suite unfortunately still call flyway.clean(), which
+        // can leave the shared schema in an empty or partial state by the time
+        // this test runs. To be resilient to that without reintroducing
+        // destructive behavior, this test calls flyway.migrate() (NOT clean())
+        // with cleanDisabled(true) so any pending migrations are applied
+        // idempotently. Already-applied migrations are no-ops; missing ones are
+        // applied. Nothing is destroyed.
         Flyway flyway = Flyway.configure()
                 .dataSource(rawDataSource)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
@@ -72,7 +79,7 @@ class G7PushSyncFailureIsolationPostgresTest {
                 .cleanDisabled(true)
                 .validateOnMigrate(true)
                 .load();
-        flyway.validate();
+        flyway.migrate();
 
         rawJdbc = new JdbcTemplate(rawDataSource);
         tenantId = UUID.randomUUID();
