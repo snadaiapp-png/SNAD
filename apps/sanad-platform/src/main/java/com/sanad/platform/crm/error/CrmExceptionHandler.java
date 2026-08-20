@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +45,7 @@ import java.util.regex.Pattern;
  * <p>
  * Branch: crm/003-stable-api-contracts
  */
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(assignableTypes = {
         // ── Core CRM controllers ───────────────────────────────────────
         com.sanad.platform.crm.web.CrmController.class,

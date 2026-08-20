@@ -106,7 +106,7 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.VIEW")
     public ResponseEntity<List<Map<String, Object>>> listDefinitions(
             Authentication auth, @RequestParam(defaultValue = "50") int limit) {
-        var defs = definitionService.findByTenant(tenantId(auth), limit);
+        var defs = definitionService.findByTenant(tenantId(auth), safeLimit(limit));
         return ResponseEntity.ok(defs.stream().map(this::toDefinitionMap).toList());
     }
 
@@ -215,7 +215,7 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.VIEW")
     public ResponseEntity<List<Map<String, Object>>> listInstances(
             Authentication auth, @RequestParam(defaultValue = "50") int limit) {
-        var instances = executionService.findByTenant(tenantId(auth), limit);
+        var instances = executionService.findByTenant(tenantId(auth), safeLimit(limit));
         return ResponseEntity.ok(instances.stream().map(this::toInstanceMap).toList());
     }
 
@@ -301,7 +301,7 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.VIEW")
     public ResponseEntity<List<Map<String, Object>>> listPendingApprovals(
             Authentication auth, @RequestParam(defaultValue = "50") int limit) {
-        var approvals = approvalService.findPendingForTenant(tenantId(auth), limit);
+        var approvals = approvalService.findPendingForTenant(tenantId(auth), safeLimit(limit));
         return ResponseEntity.ok(approvals.stream().map(this::toApprovalMap).toList());
     }
 
@@ -309,7 +309,7 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.VIEW")
     public ResponseEntity<List<Map<String, Object>>> listPendingApprovalsForUser(
             Authentication auth, @RequestParam(defaultValue = "50") int limit) {
-        var approvals = approvalService.findPendingForUser(tenantId(auth), userId(auth), limit);
+        var approvals = approvalService.findPendingForUser(tenantId(auth), userId(auth), safeLimit(limit));
         return ResponseEntity.ok(approvals.stream().map(this::toApprovalMap).toList());
     }
 
@@ -490,5 +490,14 @@ public class WorkflowController {
                 Map.entry("result", si.result() != null ? si.result() : ""),
                 Map.entry("version", si.version())
         );
+    }
+    /**
+     * Clamp the client-supplied list limit. Negative values fall back to the
+     * default page size (PostgreSQL rejects a negative LIMIT with
+     * "LIMIT must not be negative"), and the upper bound caps unbounded scans.
+     */
+    static int safeLimit(int limit) {
+        if (limit < 0) return 50;
+        return Math.min(limit, 200);
     }
 }

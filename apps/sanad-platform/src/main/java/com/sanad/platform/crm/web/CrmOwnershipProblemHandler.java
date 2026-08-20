@@ -36,6 +36,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
 import java.net.URI;
 import java.time.Instant;
@@ -44,6 +46,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /** RFC 7807 handler dedicated to the CRM-008 governed ownership surface. */
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(assignableTypes = {
         CrmOwnershipResourceController.class,
         CrmOwnershipAssignmentController.class,

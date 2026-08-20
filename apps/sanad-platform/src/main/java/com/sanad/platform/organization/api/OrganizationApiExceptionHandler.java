@@ -13,6 +13,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
 import java.time.Instant;
 import java.util.stream.Collectors;
@@ -35,6 +37,7 @@ import java.util.stream.Collectors;
  *       (with a comma-separated list of field errors in the message)</li>
  * </ul>
  */
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice
 public class OrganizationApiExceptionHandler {
 

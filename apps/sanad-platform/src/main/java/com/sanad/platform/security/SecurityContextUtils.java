@@ -19,7 +19,7 @@ public final class SecurityContextUtils {
 
     /** Extract the tenant_id from the authentication's details. */
     public static UUID tenantId(Authentication auth) {
-        Object details = auth.getDetails();
+        Object details = auth != null ? auth.getDetails() : null;
         if (details instanceof Map<?, ?> map) {
             Object tid = map.get("tenant_id");
             if (tid instanceof String s) {
@@ -34,7 +34,7 @@ public final class SecurityContextUtils {
 
     /** Extract the user_id from the authentication's details. */
     public static UUID userId(Authentication auth) {
-        Object details = auth.getDetails();
+        Object details = auth != null ? auth.getDetails() : null;
         if (details instanceof Map<?, ?> map) {
             Object uid = map.get("user_id");
             if (uid instanceof String s) {

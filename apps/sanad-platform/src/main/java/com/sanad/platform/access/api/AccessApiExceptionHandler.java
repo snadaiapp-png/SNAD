@@ -11,9 +11,12 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
 import java.time.Instant;
 
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackages = "com.sanad.platform.access")
 public class AccessApiExceptionHandler {
 
