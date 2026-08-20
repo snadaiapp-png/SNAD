@@ -97,49 +97,39 @@ public class PushSyncService {
         this.conflictService = conflictService;
     }
 
-    /**
-     * Process batch push mutations.
-     */
+    /** Process batch push mutations. */
     @Transactional
     public PushSyncResponse push(UUID tenantId, UUID deviceId, UUID userId, PushSyncRequest request) {
         List<MutationResult> results = new ArrayList<>();
         int applied = 0, rejected = 0, duplicates = 0;
-
         for (MutationEnvelope mutation : request.mutations()) {
             MutationResult result = processMutation(tenantId, deviceId, userId, mutation);
             results.add(result);
-
             switch (result.status()) {
                 case "APPLIED" -> applied++;
                 case "REJECTED", "CONFLICT" -> rejected++;
                 case "DUPLICATE" -> duplicates++;
             }
         }
-
         log.info("Push sync: tenant={}, device={}, total={}, applied={}, rejected={}, duplicates={}",
             tenantId, deviceId, request.mutations().size(), applied, rejected, duplicates);
-
         return new PushSyncResponse(request.mutations().size(), applied, rejected, duplicates, results);
     }
 
-    /** Process a single mutation. */
     private MutationResult processMutation(UUID tenantId, UUID deviceId, UUID userId, MutationEnvelope mutation) {
         IdempotencyDecision idempotency = null;
         try {
             if (mutation.idempotencyKey() == null || mutation.idempotencyKey().isBlank()) {
                 return errorResult(mutation, "400", "idempotencyKey is required for sync mutations");
             }
-
             idempotency = claimIdempotency(tenantId, userId, mutation);
             if (idempotency.state() == IdempotencyState.DUPLICATE) {
-                log.debug("Duplicate mutation detected: key={}", mutation.idempotencyKey());
-                return new MutationResult(
-                    mutation.idempotencyKey(), mutation.entityId(), "DUPLICATE", "200",
+                return new MutationResult(mutation.idempotencyKey(), mutation.entityId(), "DUPLICATE", "200",
                     null, null, null, "Duplicate mutation — already processed");
             }
             if (idempotency.state() == IdempotencyState.MISMATCH) {
                 return errorResult(mutation, "409",
-                        "IDEMPOTENCY_KEY_REUSE_MISMATCH: key was reused with a different mutation payload");
+                    "IDEMPOTENCY_KEY_REUSE_MISMATCH: key was reused with a different mutation payload");
             }
             if (idempotency.state() == IdempotencyState.ERROR) {
                 return errorResult(mutation, "409", "Unable to establish idempotency ownership");
@@ -154,10 +144,8 @@ public class PushSyncService {
             }
 
             String operation = mutation.operation() == null ? "" : mutation.operation().toUpperCase();
-            if (("UPDATE".equals(operation) || "DELETE".equals(operation))
-                    && mutation.expectedVersion() == null) {
-                MutationResult result = errorResult(mutation, "428",
-                        "expectedVersion is required for " + operation + " mutations");
+            if (("UPDATE".equals(operation) || "DELETE".equals(operation)) && mutation.expectedVersion() == null) {
+                MutationResult result = errorResult(mutation, "428", "expectedVersion is required for " + operation + " mutations");
                 completeIdempotency(tenantId, userId, mutation, 428);
                 return result;
             }
@@ -175,25 +163,19 @@ public class PushSyncService {
             }
 
             if (!"CREATE".equals(operation) && currentVersion != mutation.expectedVersion()) {
-                log.warn("Version mismatch: entity={}, expected={}, actual={}",
-                    mutation.entityId(), mutation.expectedVersion(), currentVersion);
-                MutationResult result = persistConflict(
-                        tenantId, deviceId, userId, tableName, mutation, currentVersion, true);
+                MutationResult result = persistConflict(tenantId, deviceId, userId, tableName, mutation, currentVersion, true);
                 completeIdempotency(tenantId, userId, mutation, 412);
                 return result;
             }
 
             MutationResult result = switch (operation) {
                 case "CREATE" -> createEntity(tenantId, userId, tableName, mutation);
-                case "UPDATE" -> updateEntity(tenantId, userId, tableName, mutation, currentVersion,
-                        deviceId);
-                case "DELETE" -> deleteEntity(tenantId, userId, tableName, mutation, currentVersion,
-                        deviceId);
+                case "UPDATE" -> updateEntity(tenantId, userId, tableName, mutation, currentVersion, deviceId);
+                case "DELETE" -> deleteEntity(tenantId, userId, tableName, mutation, currentVersion, deviceId);
                 default -> errorResult(mutation, "400", "Unknown operation: " + mutation.operation());
             };
             completeIdempotency(tenantId, userId, mutation, parseStatus(result.httpStatus()));
             return result;
-
         } catch (Exception e) {
             log.error("Error processing mutation: key={}", mutation.idempotencyKey(), e);
             try {
@@ -201,92 +183,63 @@ public class PushSyncService {
                     completeIdempotency(tenantId, userId, mutation, 500);
                 }
             } catch (Exception completionError) {
-                log.warn("Failed to finalize idempotency record after mutation error: key={}",
-                        mutation.idempotencyKey(), completionError);
+                log.warn("Failed to finalize idempotency record after mutation error: key={}", mutation.idempotencyKey(), completionError);
             }
             return errorResult(mutation, "500", "Internal error: " + e.getMessage());
         }
     }
 
-    /**
-     * Atomically claim an idempotency key before applying its mutation. The
-     * unique constraint blocks a concurrent claimant until the winner commits;
-     * ON CONFLICT avoids a PostgreSQL transaction-aborting duplicate-key error.
-     */
     private IdempotencyDecision claimIdempotency(UUID tenantId, UUID userId, MutationEnvelope mutation) {
         String keyHash = computeSha256(mutation.idempotencyKey());
         String fingerprint = computeMutationFingerprint(mutation);
-
-        // Expired rows must be removed before reuse because the physical unique
-        // constraint does not include expires_at.
         jdbcTemplate.update(
-                "DELETE FROM crm_idempotency_records WHERE tenant_id=? AND principal_id=? "
-                        + "AND endpoint=? AND idempotency_key=? AND expires_at <= NOW()",
-                tenantId, userId, PUSH_ENDPOINT, keyHash);
-
+            "DELETE FROM crm_idempotency_records WHERE tenant_id=? AND principal_id=? AND endpoint=? AND idempotency_key=? AND expires_at <= NOW()",
+            tenantId, userId, PUSH_ENDPOINT, keyHash);
         try {
             UUID claimId = jdbcTemplate.queryForObject(
-                    "INSERT INTO crm_idempotency_records "
-                            + "(id, tenant_id, principal_id, endpoint, idempotency_key, request_fingerprint_sha256, "
-                            + "response_status, created_at, expires_at) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, 0, NOW(), NOW() + INTERVAL '24 hours') "
-                            + "ON CONFLICT (tenant_id, principal_id, endpoint, idempotency_key) DO NOTHING RETURNING id",
-                    UUID.class,
-                    UUID.randomUUID(), tenantId, userId, PUSH_ENDPOINT, keyHash, fingerprint);
-            if (claimId != null) {
-                return new IdempotencyDecision(IdempotencyState.CLAIMED, fingerprint);
-            }
+                "INSERT INTO crm_idempotency_records (id, tenant_id, principal_id, endpoint, idempotency_key, request_fingerprint_sha256, response_status, created_at, expires_at) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, 0, NOW(), NOW() + INTERVAL '24 hours') "
+                    + "ON CONFLICT (tenant_id, principal_id, endpoint, idempotency_key) DO NOTHING RETURNING id",
+                UUID.class, UUID.randomUUID(), tenantId, userId, PUSH_ENDPOINT, keyHash, fingerprint);
+            if (claimId != null) return new IdempotencyDecision(IdempotencyState.CLAIMED, fingerprint);
         } catch (EmptyResultDataAccessException ignored) {
-            // Existing winner: compare request identity below.
         }
-
         try {
             String stored = jdbcTemplate.queryForObject(
-                    "SELECT request_fingerprint_sha256 FROM crm_idempotency_records "
-                            + "WHERE tenant_id=? AND principal_id=? AND endpoint=? AND idempotency_key=? "
-                            + "AND expires_at > NOW()",
-                    String.class, tenantId, userId, PUSH_ENDPOINT, keyHash);
+                "SELECT request_fingerprint_sha256 FROM crm_idempotency_records WHERE tenant_id=? AND principal_id=? AND endpoint=? AND idempotency_key=? AND expires_at > NOW()",
+                String.class, tenantId, userId, PUSH_ENDPOINT, keyHash);
             if (stored == null) return new IdempotencyDecision(IdempotencyState.ERROR, fingerprint);
-            return new IdempotencyDecision(
-                    stored.equals(fingerprint) ? IdempotencyState.DUPLICATE : IdempotencyState.MISMATCH,
-                    fingerprint);
+            return new IdempotencyDecision(stored.equals(fingerprint) ? IdempotencyState.DUPLICATE : IdempotencyState.MISMATCH, fingerprint);
         } catch (EmptyResultDataAccessException missing) {
             return new IdempotencyDecision(IdempotencyState.ERROR, fingerprint);
         }
     }
 
-    private void completeIdempotency(UUID tenantId, UUID userId,
-                                     MutationEnvelope mutation, int responseStatus) {
+    private void completeIdempotency(UUID tenantId, UUID userId, MutationEnvelope mutation, int responseStatus) {
         String keyHash = computeSha256(mutation.idempotencyKey());
         jdbcTemplate.update(
-                "UPDATE crm_idempotency_records SET response_status=? "
-                        + "WHERE tenant_id=? AND principal_id=? AND endpoint=? AND idempotency_key=?",
-                responseStatus, tenantId, userId, PUSH_ENDPOINT, keyHash);
+            "UPDATE crm_idempotency_records SET response_status=? WHERE tenant_id=? AND principal_id=? AND endpoint=? AND idempotency_key=?",
+            responseStatus, tenantId, userId, PUSH_ENDPOINT, keyHash);
     }
 
-    /** Get current version of entity. Returns -1 if entity not found. */
     private long getCurrentVersion(String tableName, UUID tenantId, String entityId) {
         if (entityId == null || entityId.isBlank()) return -1;
         try {
             Long version = jdbcTemplate.queryForObject(
                 "SELECT sync_version FROM " + tableName + " WHERE tenant_id = ? AND id = ?::UUID",
-                Long.class, tenantId, entityId
-            );
+                Long.class, tenantId, entityId);
             return version != null ? version : -1;
         } catch (EmptyResultDataAccessException e) {
             return -1;
         }
     }
 
-    /** Create a new entity. */
     private MutationResult createEntity(UUID tenantId, UUID userId, String tableName, MutationEnvelope mutation) {
         String entityId = mutation.entityId() != null ? mutation.entityId() : UUID.randomUUID().toString();
-
         JsonNode payload = mutation.payload();
         List<String> columns = new ArrayList<>(List.of("tenant_id", "id", "created_by", "updated_by", "sync_version"));
         List<Object> params = new ArrayList<>(List.of(tenantId, entityId, userId, userId, 1));
         String displayName = null;
-
         if (payload != null && payload.isObject()) {
             Set<String> allowed = allowedColumnsFor(tableName);
             payload.fields().forEachRemaining(entry -> {
@@ -299,41 +252,26 @@ public class PushSyncService {
             JsonNode dn = payload.get("display_name");
             if (dn != null && !dn.isNull()) displayName = dn.asText();
         }
-
-        if (REQUIRES_NORMALIZED_NAME.contains(tableName)
-                && !columns.contains("normalized_name") && displayName != null) {
+        if (REQUIRES_NORMALIZED_NAME.contains(tableName) && !columns.contains("normalized_name") && displayName != null) {
             columns.add("normalized_name");
             params.add(displayName.toLowerCase());
         }
-
         columns.add("created_at");
         params.add(Timestamp.from(Instant.now()));
         columns.add("updated_at");
         params.add(Timestamp.from(Instant.now()));
-
         StringBuilder placeholders = new StringBuilder();
-        for (int i = 0; i < columns.size(); i++) {
-            placeholders.append(i == 0 ? "?" : ", ?");
-        }
-
-        String sql = String.format("INSERT INTO %s (%s) VALUES (%s)",
-            tableName, String.join(", ", columns), placeholders);
+        for (int i = 0; i < columns.size(); i++) placeholders.append(i == 0 ? "?" : ", ?");
+        String sql = String.format("INSERT INTO %s (%s) VALUES (%s)", tableName, String.join(", ", columns), placeholders);
         jdbcTemplate.update(sql, params.toArray());
-
-        return new MutationResult(
-            mutation.idempotencyKey(), entityId, "APPLIED", "201",
-            1L, "\"1\"", null, null
-        );
+        return new MutationResult(mutation.idempotencyKey(), entityId, "APPLIED", "201", 1L, "\"1\"", null, null);
     }
 
-    /** Update an existing entity with version check. */
     private MutationResult updateEntity(UUID tenantId, UUID userId, String tableName,
-                                         MutationEnvelope mutation, long currentVersion,
-                                         UUID deviceId) {
+                                         MutationEnvelope mutation, long currentVersion, UUID deviceId) {
         JsonNode payload = mutation.payload();
         StringBuilder setClauses = new StringBuilder();
         List<Object> params = new ArrayList<>();
-
         if (payload != null && payload.isObject()) {
             Set<String> allowed = allowedColumnsFor(tableName);
             payload.fields().forEachRemaining(entry -> {
@@ -345,59 +283,39 @@ public class PushSyncService {
                 }
             });
         }
-
         if (setClauses.isEmpty()) {
-            return new MutationResult(
-                mutation.idempotencyKey(), mutation.entityId(),
-                "APPLIED", "200", currentVersion, "\"" + currentVersion + "\"", null, null
-            );
+            return new MutationResult(mutation.idempotencyKey(), mutation.entityId(), "APPLIED", "200",
+                currentVersion, "\"" + currentVersion + "\"", null, null);
         }
-
-        String sql = String.format("UPDATE %s SET %s WHERE tenant_id = ? AND id = ?::UUID AND sync_version = ?",
-            tableName, setClauses);
-
+        String sql = String.format("UPDATE %s SET %s WHERE tenant_id = ? AND id = ?::UUID AND sync_version = ?", tableName, setClauses);
         List<Object> allParams = new ArrayList<>(params);
         allParams.add(tenantId);
         allParams.add(mutation.entityId());
         allParams.add(currentVersion);
         int updated = jdbcTemplate.update(sql, allParams.toArray());
-
         if (updated == 0) {
             long actualVersion = getCurrentVersion(tableName, tenantId, mutation.entityId());
             return persistConflict(tenantId, deviceId, userId, tableName, mutation,
-                    actualVersion >= 0 ? actualVersion : currentVersion, true);
+                actualVersion >= 0 ? actualVersion : currentVersion, true);
         }
-
         long newVersion = currentVersion + 1;
-        String etag = "\"" + newVersion + "\"";
-        return new MutationResult(
-            mutation.idempotencyKey(), mutation.entityId(), "APPLIED", "200",
-            newVersion, etag, null, null
-        );
+        return new MutationResult(mutation.idempotencyKey(), mutation.entityId(), "APPLIED", "200",
+            newVersion, "\"" + newVersion + "\"", null, null);
     }
 
-    /** Delete an entity using the expected/current version guard. */
     private MutationResult deleteEntity(UUID tenantId, UUID userId, String tableName,
-                                         MutationEnvelope mutation, long currentVersion,
-                                         UUID deviceId) {
-        String sql = String.format(
-            "DELETE FROM %s WHERE tenant_id = ? AND id = ?::UUID AND sync_version = ?",
-            tableName);
+                                         MutationEnvelope mutation, long currentVersion, UUID deviceId) {
+        String sql = String.format("DELETE FROM %s WHERE tenant_id = ? AND id = ?::UUID AND sync_version = ?", tableName);
         int deleted = jdbcTemplate.update(sql, tenantId, mutation.entityId(), currentVersion);
-
         if (deleted == 0) {
             long actualVersion = getCurrentVersion(tableName, tenantId, mutation.entityId());
             return persistConflict(tenantId, deviceId, userId, tableName, mutation,
-                    actualVersion >= 0 ? actualVersion : currentVersion, true);
+                actualVersion >= 0 ? actualVersion : currentVersion, true);
         }
-
-        return new MutationResult(
-            mutation.idempotencyKey(), mutation.entityId(), "APPLIED", "200",
-            currentVersion + 1, null, null, null
-        );
+        return new MutationResult(mutation.idempotencyKey(), mutation.entityId(), "APPLIED", "200",
+            currentVersion + 1, null, null, null);
     }
 
-    /** Persist and return a conflict result. */
     private MutationResult persistConflict(UUID tenantId, UUID deviceId, UUID userId,
                                             String tableName, MutationEnvelope mutation,
                                             long serverVersion, boolean clientModified) {
@@ -405,11 +323,8 @@ public class PushSyncService {
         long safeServerVersion = Math.max(serverVersion, 0L);
         long baseVersion = mutation.expectedVersion() != null ? mutation.expectedVersion() : 0L;
         ConflictService.ConflictDetection detection = conflictService.detectConflict(
-                tenantId, deviceId, userId,
-                mutation.entityType(), mutation.entityId(), baseVersion,
-                mutation.payload(), safeServerVersion, serverState,
-                mutation.operation(), false, clientModified);
-
+            tenantId, deviceId, userId, mutation.entityType(), mutation.entityId(), baseVersion,
+            mutation.payload(), safeServerVersion, serverState, mutation.operation(), false, clientModified);
         ObjectNode conflictInfo = objectMapper.createObjectNode();
         conflictInfo.put("serverVersion", safeServerVersion);
         conflictInfo.put("entityType", mutation.entityType());
@@ -417,38 +332,28 @@ public class PushSyncService {
         conflictInfo.put("conflictType", detection.conflictType());
         conflictInfo.put("conflictClass", detection.conflictClass());
         conflictInfo.put("conflictId", detection.conflictId());
-        conflictInfo.put("autoResolvable", detection.autoResolvable());
-
-        return new MutationResult(
-            mutation.idempotencyKey(), mutation.entityId(), "CONFLICT", "412",
-            safeServerVersion, null, conflictInfo, null
-        );
+        conflictInfo.put("autoResolvable", detection.canAutoMerge());
+        return new MutationResult(mutation.idempotencyKey(), mutation.entityId(), "CONFLICT", "412",
+            safeServerVersion, null, conflictInfo, null);
     }
 
     private JsonNode loadServerState(String tableName, UUID tenantId, String entityId) {
         try {
             String json = jdbcTemplate.queryForObject(
-                    "SELECT to_jsonb(t)::text FROM " + tableName + " t WHERE tenant_id = ? AND id = ?::UUID",
-                    String.class, tenantId, entityId);
+                "SELECT to_jsonb(t)::text FROM " + tableName + " t WHERE tenant_id = ? AND id = ?::UUID",
+                String.class, tenantId, entityId);
             return json == null ? objectMapper.createObjectNode() : objectMapper.readTree(json);
         } catch (Exception e) {
-            log.debug("Unable to load server state for conflict classification: table={} entity={}",
-                    tableName, entityId, e);
+            log.debug("Unable to load server state for conflict classification: table={} entity={}", tableName, entityId, e);
             return objectMapper.createObjectNode();
         }
     }
 
     private MutationResult errorResult(MutationEnvelope mutation, String httpStatus, String message) {
-        return new MutationResult(
-            mutation.idempotencyKey(), mutation.entityId(), "REJECTED", httpStatus,
-            null, null, null, message
-        );
+        return new MutationResult(mutation.idempotencyKey(), mutation.entityId(), "REJECTED", httpStatus,
+            null, null, null, message);
     }
 
-    /**
-     * Canonical SHA-256 fingerprint for a mutation business payload. The
-     * idempotency key and client timestamp are excluded from identity.
-     */
     static String computeMutationFingerprint(MutationEnvelope mutation) {
         StringBuilder canonical = new StringBuilder(512);
         appendCanonical(canonical, "entityType", normalize(mutation.entityType()));
@@ -469,16 +374,12 @@ public class PushSyncService {
                 fields.put(entry.getKey(), canonicalJson(entry.getValue()));
             }
             StringBuilder out = new StringBuilder("{");
-            for (Map.Entry<String, String> entry : fields.entrySet()) {
-                appendCanonical(out, entry.getKey(), entry.getValue());
-            }
+            for (Map.Entry<String, String> entry : fields.entrySet()) appendCanonical(out, entry.getKey(), entry.getValue());
             return out.append('}').toString();
         }
         if (node.isArray()) {
             StringBuilder out = new StringBuilder("[");
-            for (int i = 0; i < node.size(); i++) {
-                appendCanonical(out, Integer.toString(i), canonicalJson(node.get(i)));
-            }
+            for (int i = 0; i < node.size(); i++) appendCanonical(out, Integer.toString(i), canonicalJson(node.get(i)));
             return out.append(']').toString();
         }
         return node.toString();
@@ -486,8 +387,7 @@ public class PushSyncService {
 
     private static void appendCanonical(StringBuilder out, String key, Object value) {
         String text = value == null ? "<null>" : String.valueOf(value);
-        out.append(key.length()).append(':').append(key).append('=')
-                .append(text.length()).append(':').append(text).append(';');
+        out.append(key.length()).append(':').append(key).append('=').append(text.length()).append(':').append(text).append(';');
     }
 
     private static String normalize(String value) {
