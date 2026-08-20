@@ -13,7 +13,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -40,11 +42,14 @@ import java.util.UUID;
  *       from the key itself;</li>
  *   <li>UPDATE/DELETE require an expected version so blind offline writes are
  *       impossible;</li>
- *   <li>version conflicts are persisted through {@link ConflictService}.</li>
+ *   <li>version conflicts are persisted through {@link ConflictService};</li>
+ *   <li>each mutation owns an independent transaction, so a PostgreSQL error
+ *       cannot leave the remaining batch in an aborted transaction state.</li>
  * </ul>
  *
  * Requirements: API-004 (Batch Sync Push API), SYNC-017 (Per-Mutation ACK),
- *               SYNC-008 (Idempotency), SYNC-009 (Conflict Isolation)
+ *               SYNC-008 (Idempotency), SYNC-009 (Conflict Isolation),
+ *               ISO-004 (Failure Isolation)
  */
 @Service
 public class PushSyncService {
@@ -55,8 +60,8 @@ public class PushSyncService {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final ConflictService conflictService;
+    private final TransactionTemplate mutationTransaction;
 
-    // Entity type to table mapping
     private static final Map<String, String> ENTITY_TABLES = Map.of(
         "account", "crm_accounts",
         "contact", "crm_contacts",
@@ -67,12 +72,6 @@ public class PushSyncService {
         "activity", "crm_activities"
     );
 
-    /**
-     * Per-entity column allowlist — DEF-004 remediation.
-     * A mutation payload may ONLY write these columns; every other JSON key is
-     * silently ignored. Column identifiers are therefore NEVER spliced from
-     * untrusted input — only values are bound, and only for allowlisted columns.
-     */
     private static final Map<String, Set<String>> ALLOWED_COLUMNS = Map.of(
         "crm_accounts", Set.of("display_name", "normalized_name", "account_type", "industry_code", "website", "primary_phone", "primary_email"),
         "crm_contacts", Set.of("account_id", "given_name", "family_name", "display_name", "normalized_name", "primary_email", "primary_phone", "lifecycle_status"),
@@ -83,7 +82,6 @@ public class PushSyncService {
         "crm_activities", Set.of("activity_type", "subject", "body", "related_type", "related_id", "result", "status")
     );
 
-    /** Tables whose NOT NULL constraints require normalized_name on INSERT. */
     private static final Set<String> REQUIRES_NORMALIZED_NAME = Set.of("crm_accounts", "crm_contacts", "crm_leads");
 
     private Set<String> allowedColumnsFor(String tableName) {
@@ -91,19 +89,41 @@ public class PushSyncService {
     }
 
     public PushSyncService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper,
-                           ConflictService conflictService) {
+                           ConflictService conflictService,
+                           PlatformTransactionManager transactionManager) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.conflictService = conflictService;
+        this.mutationTransaction = new TransactionTemplate(transactionManager);
+        // Independent transactions are deliberate. A failed PostgreSQL statement
+        // aborts only this mutation transaction; the next mutation starts with a
+        // clean connection/transaction and TenantRlsConnectionHandler reapplies
+        // SET LOCAL app.tenant_id from the authenticated SecurityContext.
+        this.mutationTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
-    /** Process batch push mutations. */
-    @Transactional
+    /** Process a batch while committing/rolling back each mutation independently. */
     public PushSyncResponse push(UUID tenantId, UUID deviceId, UUID userId, PushSyncRequest request) {
         List<MutationResult> results = new ArrayList<>();
         int applied = 0, rejected = 0, duplicates = 0;
+
         for (MutationEnvelope mutation : request.mutations()) {
-            MutationResult result = processMutation(tenantId, deviceId, userId, mutation);
+            MutationResult result;
+            try {
+                result = mutationTransaction.execute(status ->
+                        processMutation(tenantId, deviceId, userId, mutation));
+                if (result == null) {
+                    result = errorResult(mutation, "500", "Mutation transaction returned no result");
+                }
+            } catch (Exception e) {
+                // The TransactionTemplate has already rolled back this mutation
+                // (including its idempotency claim). The next mutation receives a
+                // new transaction, so PostgreSQL's aborted-transaction state cannot
+                // poison the rest of the batch.
+                log.error("Mutation transaction rolled back: key={}", mutation.idempotencyKey(), e);
+                result = errorResult(mutation, "500", "Internal error: " + safeMessage(e));
+            }
+
             results.add(result);
             switch (result.status()) {
                 case "APPLIED" -> applied++;
@@ -111,82 +131,71 @@ public class PushSyncService {
                 case "DUPLICATE" -> duplicates++;
             }
         }
+
         log.info("Push sync: tenant={}, device={}, total={}, applied={}, rejected={}, duplicates={}",
             tenantId, deviceId, request.mutations().size(), applied, rejected, duplicates);
         return new PushSyncResponse(request.mutations().size(), applied, rejected, duplicates, results);
     }
 
     private MutationResult processMutation(UUID tenantId, UUID deviceId, UUID userId, MutationEnvelope mutation) {
-        IdempotencyDecision idempotency = null;
-        try {
-            if (mutation.idempotencyKey() == null || mutation.idempotencyKey().isBlank()) {
-                return errorResult(mutation, "400", "idempotencyKey is required for sync mutations");
-            }
-            idempotency = claimIdempotency(tenantId, userId, mutation);
-            if (idempotency.state() == IdempotencyState.DUPLICATE) {
-                return new MutationResult(mutation.idempotencyKey(), mutation.entityId(), "DUPLICATE", "200",
-                    null, null, null, "Duplicate mutation — already processed");
-            }
-            if (idempotency.state() == IdempotencyState.MISMATCH) {
-                return errorResult(mutation, "409",
-                    "IDEMPOTENCY_KEY_REUSE_MISMATCH: key was reused with a different mutation payload");
-            }
-            if (idempotency.state() == IdempotencyState.ERROR) {
-                return errorResult(mutation, "409", "Unable to establish idempotency ownership");
-            }
-
-            String entityType = mutation.entityType() == null ? "" : mutation.entityType().toLowerCase();
-            String tableName = ENTITY_TABLES.get(entityType);
-            if (tableName == null) {
-                MutationResult result = errorResult(mutation, "400", "Unknown entity type: " + mutation.entityType());
-                completeIdempotency(tenantId, userId, mutation, 400);
-                return result;
-            }
-
-            String operation = mutation.operation() == null ? "" : mutation.operation().toUpperCase();
-            if (("UPDATE".equals(operation) || "DELETE".equals(operation)) && mutation.expectedVersion() == null) {
-                MutationResult result = errorResult(mutation, "428", "expectedVersion is required for " + operation + " mutations");
-                completeIdempotency(tenantId, userId, mutation, 428);
-                return result;
-            }
-
-            long currentVersion = getCurrentVersion(tableName, tenantId, mutation.entityId());
-            if (currentVersion < 0) {
-                if ("CREATE".equals(operation)) {
-                    MutationResult result = createEntity(tenantId, userId, tableName, mutation);
-                    completeIdempotency(tenantId, userId, mutation, 201);
-                    return result;
-                }
-                MutationResult result = errorResult(mutation, "404", "Entity not found: " + mutation.entityId());
-                completeIdempotency(tenantId, userId, mutation, 404);
-                return result;
-            }
-
-            if (!"CREATE".equals(operation) && currentVersion != mutation.expectedVersion()) {
-                MutationResult result = persistConflict(tenantId, deviceId, userId, tableName, mutation, currentVersion, true);
-                completeIdempotency(tenantId, userId, mutation, 412);
-                return result;
-            }
-
-            MutationResult result = switch (operation) {
-                case "CREATE" -> createEntity(tenantId, userId, tableName, mutation);
-                case "UPDATE" -> updateEntity(tenantId, userId, tableName, mutation, currentVersion, deviceId);
-                case "DELETE" -> deleteEntity(tenantId, userId, tableName, mutation, currentVersion, deviceId);
-                default -> errorResult(mutation, "400", "Unknown operation: " + mutation.operation());
-            };
-            completeIdempotency(tenantId, userId, mutation, parseStatus(result.httpStatus()));
-            return result;
-        } catch (Exception e) {
-            log.error("Error processing mutation: key={}", mutation.idempotencyKey(), e);
-            try {
-                if (idempotency != null && idempotency.state() == IdempotencyState.CLAIMED) {
-                    completeIdempotency(tenantId, userId, mutation, 500);
-                }
-            } catch (Exception completionError) {
-                log.warn("Failed to finalize idempotency record after mutation error: key={}", mutation.idempotencyKey(), completionError);
-            }
-            return errorResult(mutation, "500", "Internal error: " + e.getMessage());
+        if (mutation.idempotencyKey() == null || mutation.idempotencyKey().isBlank()) {
+            return errorResult(mutation, "400", "idempotencyKey is required for sync mutations");
         }
+
+        IdempotencyDecision idempotency = claimIdempotency(tenantId, userId, mutation);
+        if (idempotency.state() == IdempotencyState.DUPLICATE) {
+            return new MutationResult(mutation.idempotencyKey(), mutation.entityId(), "DUPLICATE", "200",
+                null, null, null, "Duplicate mutation — already processed");
+        }
+        if (idempotency.state() == IdempotencyState.MISMATCH) {
+            return errorResult(mutation, "409",
+                "IDEMPOTENCY_KEY_REUSE_MISMATCH: key was reused with a different mutation payload");
+        }
+        if (idempotency.state() == IdempotencyState.ERROR) {
+            return errorResult(mutation, "409", "Unable to establish idempotency ownership");
+        }
+
+        String entityType = mutation.entityType() == null ? "" : mutation.entityType().toLowerCase();
+        String tableName = ENTITY_TABLES.get(entityType);
+        if (tableName == null) {
+            MutationResult result = errorResult(mutation, "400", "Unknown entity type: " + mutation.entityType());
+            completeIdempotency(tenantId, userId, mutation, 400);
+            return result;
+        }
+
+        String operation = mutation.operation() == null ? "" : mutation.operation().toUpperCase();
+        if (("UPDATE".equals(operation) || "DELETE".equals(operation)) && mutation.expectedVersion() == null) {
+            MutationResult result = errorResult(mutation, "428", "expectedVersion is required for " + operation + " mutations");
+            completeIdempotency(tenantId, userId, mutation, 428);
+            return result;
+        }
+
+        long currentVersion = getCurrentVersion(tableName, tenantId, mutation.entityId());
+        if (currentVersion < 0) {
+            if ("CREATE".equals(operation)) {
+                MutationResult result = createEntity(tenantId, userId, tableName, mutation);
+                completeIdempotency(tenantId, userId, mutation, 201);
+                return result;
+            }
+            MutationResult result = errorResult(mutation, "404", "Entity not found: " + mutation.entityId());
+            completeIdempotency(tenantId, userId, mutation, 404);
+            return result;
+        }
+
+        if (!"CREATE".equals(operation) && currentVersion != mutation.expectedVersion()) {
+            MutationResult result = persistConflict(tenantId, deviceId, userId, tableName, mutation, currentVersion, true);
+            completeIdempotency(tenantId, userId, mutation, 412);
+            return result;
+        }
+
+        MutationResult result = switch (operation) {
+            case "CREATE" -> createEntity(tenantId, userId, tableName, mutation);
+            case "UPDATE" -> updateEntity(tenantId, userId, tableName, mutation, currentVersion, deviceId);
+            case "DELETE" -> deleteEntity(tenantId, userId, tableName, mutation, currentVersion, deviceId);
+            default -> errorResult(mutation, "400", "Unknown operation: " + mutation.operation());
+        };
+        completeIdempotency(tenantId, userId, mutation, parseStatus(result.httpStatus()));
+        return result;
     }
 
     private IdempotencyDecision claimIdempotency(UUID tenantId, UUID userId, MutationEnvelope mutation) {
@@ -407,6 +416,11 @@ public class PushSyncService {
     private int parseStatus(String status) {
         try { return Integer.parseInt(status); }
         catch (Exception ignored) { return 500; }
+    }
+
+    private String safeMessage(Exception e) {
+        String message = e.getMessage();
+        return message == null || message.isBlank() ? e.getClass().getSimpleName() : message;
     }
 
     private enum IdempotencyState { CLAIMED, DUPLICATE, MISMATCH, ERROR }
