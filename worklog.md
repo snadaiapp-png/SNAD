@@ -1349,3 +1349,83 @@ Stage Summary:
 - BLOCKER for FINAL report: Render deploy pending + many remaining items
   need live prod API/DB access (out-of-scope for this session)
 - Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v8.md (not the FINAL report)
+
+---
+Task ID: v9-1
+Agent: main (super-z)
+Task: SNAD-REMEDIATION-CONTINUATION-v9 — error handler HTTP semantics + RBAC correction + PostgreSQL-safe idempotency
+
+Work Log:
+- Read user v9 brief: prod already deployed 75a0e44 (119 Flyway / 0 failed / V20260820.1+2 applied)
+- Reopened GlobalDiagnosticExceptionHandler for HTTP semantics fix
+- Refactored handler to dispatch by exception type:
+  - NoResourceFoundException → 404 (was 500 ERROR w/ stack trace — Render noise)
+  - NoHandlerFoundException → 404
+  - HttpMessageNotReadableException → 400 (malformed JSON)
+  - MethodArgumentNotValidException → 400 (validation)
+  - IllegalArgumentException → 400
+  - IllegalStateException → 409 (business conflict)
+  - ResponseStatusException → preserve declared status
+  - AuthenticationException/AccessDeniedException → let SecurityConfig handle (401/403)
+  - Exception (unexpected) → sanitized 500 + correlationId
+  - 4xx logged at DEBUG (no stack trace), 5xx at ERROR with correlationId
+- Expanded test to 11 tests (4 new HTTP semantics + 7 info disclosure) — ALL 11 PASS
+- Disabled UserDetailsServiceAutoConfiguration via @SpringBootApplication(exclude=...)
+  - Removes 'generated security password' + 'inMemoryUserDetailsManager' warnings from prod logs
+  - Guarantees no prod auth path falls back to generated default user
+  - SecurityConfig already disables httpBasic + formLogin (stateless JWT only)
+- Created V20260820_3__correct_rbac_role_template_capabilities.sql:
+  - Adds is_system_managed BOOLEAN column to roles (default false)
+  - Marks 9 canonical role templates as system-managed (UPDATE only on matching
+    codes; customer roles untouched → RBAC_RECONCILIATION_NON_DESTRUCTIVE)
+  - DO block validates EVERY mandatory capability code exists in access_capabilities;
+    raises EXCEPTION if missing (no silent skip → RBAC_TEMPLATE_CAPABILITY_CODES_VALID)
+  - Corrected matrix derived from @RequireCapability annotations:
+    * ERP_PURCHASER → ERP.VIEW, ERP.PROCUREMENT, ERP.WRITE (no APPROVE — SOD)
+    * ERP_APPROVER → ERP.VIEW, ERP.APPROVE (no WRITE — SOD)
+    * FINANCE_USER → FINANCE.VIEW, FINANCE.WRITE
+    * FINANCE_APPROVER → FINANCE.VIEW, FINANCE.APPROVE (no WRITE — SOD)
+    * WORKFLOW_APPROVER → WORKFLOW.VIEW, WORKFLOW.APPROVE (no WRITE)
+    * STORE_MANAGER → ECOMMERCE.VIEW, ECOMMERCE.WRITE, ECOMMERCE.PUBLISH
+    * EXECUTIVE_VIEWER → EXECUTIVE_VIEW, EXECUTIVE_COMMAND_CENTER.VIEW,
+                          EXECUTIVE_MANAGEMENT.VIEW, EXECUTIVE_REPORT.VIEW
+    * CRM_SALES → 17 CRM R+W capabilities
+    * HR_MANAGER → HR.EMPLOYEE.READ+WRITE+ARCHIVE
+- Fixed CheckoutService concurrent idempotency (PostgreSQL-safe):
+  - Old: try{createOrderAtomically} catch DuplicateKeyException → query winner
+    PROBLEM: PostgreSQL aborts the surrounding transaction on constraint
+    violation → subsequent SELECT in same tx fails with
+    'current transaction is aborted, commands ignored'
+  - New: tryClaimIdempotencyKey uses INSERT...ON CONFLICT DO NOTHING RETURNING
+    Returns Optional<UUID>: Optional.of(orderId)=winner, Optional.empty()=loser
+    No constraint violation is ever raised → transaction is never aborted
+    → findByIdempotencyKey in the same tx works correctly for the loser
+  - OrderService split: tryClaimIdempotencyKey (atomic insert) +
+    completeOrderItemsAndHistory (cart items + status history) +
+    deprecated createOrderAtomically (backward compat)
+- Created CommerceOrderPostgresConcurrencyTest (PostgreSQL Direct only):
+  - @EnabledIfEnvironmentVariable(SPRING_PROFILES_ACTIVE=pg-acceptance)
+  - 4 tests: 20-parallel, multi-tenant, no-reuse, concurrent-idempotency
+  - Asserts TransactionSystemException=0 (no PostgreSQL tx abort)
+- Created application-pg-acceptance.yml profile (real PostgreSQL, RLS off for
+  test fixtures, Flyway strict governance)
+- Verified 19 v8+v9 tests PASS locally (11 security + 8 ref integrity)
+- Committed: 866622051e017d1ca2faae0259d5024bc5b68766 (product source)
+- Committed: 6ec0059 (PostgreSQL test + profile)
+- Pushed both to origin/main
+
+Stage Summary:
+- PRODUCT_SOURCE_SHA = 866622051e017d1ca2faae0259d5024bc5b68766
+- LATEST_MAIN_SHA    = 6ec0059 (test-only delta on top of 8666220)
+- Three v9 corrections CLOSED in source:
+  1. GLOBAL_ERROR_HANDLER_HTTP_SEMANTICS=PASS (404/400/409 + ERROR noise controlled)
+  2. GENERATED_SECURITY_PASSWORD_DISABLED=PASS (UserDetailsServiceAutoConfiguration excluded)
+  3. RBAC_TEMPLATE_CAPABILITY_CODES_VALID=PASS (V20260820_3 with explicit validation)
+- PostgreSQL-safe idempotency claim: INSERT...ON CONFLICT DO NOTHING RETURNING
+- System-managed role marker: is_system_managed column for non-destructive reconciliation
+- PostgreSQL Direct test variant committed; runs only when
+  SPRING_PROFILES_ACTIVE=pg-acceptance (real PostgreSQL required)
+- BLOCKER for FINAL report: Render deploy of 8666220 pending + live prod API/DB
+  verifications + mobile build + full test suites + Playwright UI + BFF chain
+  + error sweep + cleanup + DB integrity review + final parity
+- Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v9.md (not FINAL)
