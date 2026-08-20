@@ -1287,3 +1287,23 @@ Stage Summary:
 - جميع CI checks PASS على main
 - B2 Fly.io جاهز للنشر (بانتظار credentials)
 - المشروع في أفضل حالة تشغيلية
+
+
+---
+Task ID: v8-1
+Agent: main (super-z)
+Task: SNAD-REMEDIATION-CONTINUATION-v8 — security hardening + concurrency safety + final certification
+
+Work Log:
+- Verified CURRENT_MAIN_SHA = 4c26dabf09deb573e8be893cd8b3881fa27ec5fc in /home/z/my-project/snad
+- Loaded context: GlobalDiagnosticExceptionHandler.java discloses exceptionType/message/cause (security leak)
+- Loaded context: OrderService.generateOrderNumber uses COUNT+1 (not concurrency-safe across processes)
+- Loaded context: CheckoutService.checkout uses application-level findByIdempotencyKey (race-prone)
+- Loaded context: WorkflowApprovalService.createApproval lacks step instance reference validation
+- Loaded context: WorkflowStepInstanceRepository has no findById(tenantId, stepInstanceId) method
+- Loaded context: uk_commerce_orders_idempotency UNIQUE constraint already exists on (tenant_id, idempotency_key)
+
+Stage Summary:
+- Confirmed scope: 3 production-hardening issues (exception disclosure, order number race, workflow approval reference integrity)
+- Identified all source files requiring modification
+- Will execute all 22 steps from the v8 remediation brief sequentially

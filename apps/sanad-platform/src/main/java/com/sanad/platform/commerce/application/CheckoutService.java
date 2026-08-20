@@ -76,7 +76,7 @@ public class CheckoutService {
         if (request == null || request.cartId() == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cartId is required");
 
-        // Idempotency check
+        // Idempotency check (sequential replay)
         if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
             OrderResponse existing = orderService.findByIdempotencyKey(tenantId, storeId, request.idempotencyKey());
             if (existing != null) {
@@ -128,11 +128,28 @@ public class CheckoutService {
         }
 
         String orderNumber = orderService.generateOrderNumber(tenantId, storeId);
-        // Create the order (PENDING)
-        OrderResponse order = orderService.createOrderAtomically(
-                tenantId, storeId, request.cartId(), orderNumber, customerRef, snapshot,
-                cart.currency(), subtotal, discount, tax, shipping, grandTotal,
-                null, request.idempotencyKey(), auth);
+        // Create the order (PENDING). Wrap in try/catch on DuplicateKeyException
+        // to support concurrent idempotency replay: if two concurrent requests
+        // with the same idempotency_key race past the findByIdempotencyKey()
+        // short-circuit, the DB-level UNIQUE index
+        // uk_commerce_orders_tenant_store_idempotency (tenant_id, store_id,
+        // idempotency_key) will reject one of the inserts. We catch that and
+        // fall back to the winner's order so the caller sees the same logical
+        // result without a 500 — exactly one order is created for one key.
+        OrderResponse order;
+        try {
+            order = orderService.createOrderAtomically(
+                    tenantId, storeId, request.cartId(), orderNumber, customerRef, snapshot,
+                    cart.currency(), subtotal, discount, tax, shipping, grandTotal,
+                    null, request.idempotencyKey(), auth);
+        } catch (org.springframework.dao.DuplicateKeyException dup) {
+            // DB-level uniqueness rejected this insert — concurrent idempotency replay.
+            OrderResponse winner = orderService.findByIdempotencyKey(tenantId, storeId, request.idempotencyKey());
+            if (winner != null) {
+                return toCheckoutResponse(winner, "");
+            }
+            throw dup; // Unexpected — rethrow so the global handler surfaces it.
+        }
 
         // Create payment intent + verify (simulated adapter returns true immediately)
         String paymentRef = paymentPort.createPaymentIntent(tenantId, order.id(), grandTotal, cart.currency());

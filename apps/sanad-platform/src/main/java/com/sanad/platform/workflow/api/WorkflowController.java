@@ -70,6 +70,20 @@ public class WorkflowController {
         ));
     }
 
+    /**
+     * Map IllegalArgumentException (reference integrity violations, missing
+     * entities) to HTTP 400 BAD_REQUEST so callers get a controlled 4xx
+     * instead of a 500 from the global handler.
+     */
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                "status", 400,
+                "error", "Bad Request",
+                "message", e.getMessage() != null ? e.getMessage() : "Invalid request"
+        ));
+    }
+
     // ===== Definitions =====
 
     @PostMapping("/definitions")

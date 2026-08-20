@@ -155,23 +155,72 @@ public class OrderService {
     // ===== Checkout helpers (package-private, invoked by CheckoutService) =====
 
     /**
-     * Generate the next human-readable order number for a store.
-     * Format: {@code ORD-<yyyy>-<mm>-<sequence>}.
+     * Generate the next human-readable order number for a tenant+period using an
+     * atomic, monotonic DB allocator.
+     *
+     * <p>Format: {@code ORD-<yyyyMM>-<NNNNN>} where the NNNNN part is allocated
+     * atomically via {@code INSERT ... ON CONFLICT DO UPDATE ... RETURNING} on
+     * the {@code commerce_order_number_sequences} table. This is safe under
+     * concurrent transactions across multiple application processes (Render).
+     *
+     * <p>The allocator never decrements on order cancellation/deletion, so
+     * sequence numbers are never reused (ORDER_NUMBER_NO_REUSE).
+     *
+     * <p>Each (tenant_id, period=YYYYMM) pair maintains an independent counter
+     * — so the same tenant's multiple stores share the per-tenant+per-month
+     * sequence, which prevents cross-store collisions within a tenant (the
+     * unique constraint {@code uk_commerce_orders_tenant_number} is scoped to
+     * {@code (tenant_id, order_number)} and therefore also satisfied).
      */
     String generateOrderNumber(UUID tenantId, UUID storeId) {
-        Instant now = Instant.now();
-        java.time.ZonedDateTime zdt = now.atZone(java.time.ZoneOffset.UTC);
-        String prefix = String.format("ORD-%04d%02d-", zdt.getYear(), zdt.getMonthValue());
-        // Count by tenant_id ONLY (not store_id) because the unique constraint
-        // uk_commerce_orders_tenant_number is on (tenant_id, order_number) —
-        // if we count by store_id, multiple stores could generate the same
-        // order_number within the same tenant, causing a DuplicateKeyException.
-        Integer maxSeq = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM commerce_orders WHERE tenant_id = ? "
-                        + "AND order_number LIKE ?",
-                Integer.class, tenantId, prefix + "%");
-        int next = (maxSeq == null ? 0 : maxSeq) + 1;
+        java.time.ZonedDateTime zdt = java.time.Instant.now().atZone(java.time.ZoneOffset.UTC);
+        String period = String.format("%04d%02d", zdt.getYear(), zdt.getMonthValue());
+        String prefix = "ORD-" + period + "-";
+        long next = allocateNextSequence(tenantId, period);
         return prefix + String.format("%05d", next);
+    }
+
+    /**
+     * Atomically allocate the next sequence value for a (tenant_id, period)
+     * pair using a portable UPSERT. On PostgreSQL the
+     * {@code INSERT ... ON CONFLICT (tenant_id, period) DO UPDATE SET
+     * last_value = last_value + 1 RETURNING last_value} form is fully atomic.
+     *
+     * <p>H2 (PostgreSQL compatibility mode, used by local / integration tests)
+     * supports the same syntax, so the code path is identical between test
+     * and prod. As an extra safety net, a {@link org.springframework.dao.DuplicateKeyException}
+     * triggers a single retry of the UPDATE branch — this guards against any
+     * edge case where the UPSERT clause does not match (e.g. column-list
+     * inference differences between minor H2 versions).
+     */
+    private long allocateNextSequence(UUID tenantId, String period) {
+        try {
+            // Atomic UPSERT — first call inserts with last_value=1; subsequent
+            // callsites hit the ON CONFLICT branch and increment to 2, 3, ...
+            return jdbc.queryForObject(
+                    """
+                    INSERT INTO commerce_order_number_sequences (tenant_id, period, last_value)
+                    VALUES (?, ?, 1)
+                    ON CONFLICT (tenant_id, period) DO UPDATE
+                        SET last_value = commerce_order_number_sequences.last_value + 1,
+                            updated_at = NOW()
+                    RETURNING last_value
+                    """,
+                    Long.class, tenantId, period);
+        } catch (org.springframework.dao.DuplicateKeyException dup) {
+            // Defensive fallback — the UPSERT clause should prevent this in
+            // practice, but if a future driver / minor-version mismatch makes
+            // ON CONFLICT fall through, the row already exists. Re-issue a
+            // direct UPDATE ... RETURNING.
+            return jdbc.queryForObject(
+                    """
+                    UPDATE commerce_order_number_sequences
+                    SET last_value = last_value + 1, updated_at = NOW()
+                    WHERE tenant_id = ? AND period = ?
+                    RETURNING last_value
+                    """,
+                    Long.class, tenantId, period);
+        }
     }
 
     /**

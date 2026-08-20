@@ -119,4 +119,16 @@ public class JdbcWorkflowStepInstanceRepository implements WorkflowStepInstanceR
                 ORDER BY updated_at DESC LIMIT ?
                 """, MAPPER, tenantId, status.name(), limit);
     }
+
+    @Override
+    public java.util.Optional<WorkflowStepInstance> findById(UUID tenantId, UUID stepInstanceId) {
+        try {
+            return java.util.Optional.ofNullable(jdbc.queryForObject("""
+                    SELECT * FROM workflow_step_instances
+                    WHERE tenant_id = ? AND id = ?
+                    """, MAPPER, tenantId, stepInstanceId));
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            return java.util.Optional.empty();
+        }
+    }
 }
