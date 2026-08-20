@@ -20,6 +20,9 @@ export default defineConfig({
     "**/crm-transfer-workflow.spec.ts",
     "**/crm-import-workflow.spec.ts",
     "**/crm-pipeline-export.spec.ts",
+    // CRM-EXEC acceptance: requires the same CRM_TENANT_A credentials as
+    // crm-authenticated-acceptance. Run here so it has the env vars.
+    "**/crm-execution-acceptance.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
