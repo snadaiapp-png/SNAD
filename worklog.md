@@ -1509,3 +1509,75 @@ Stage Summary:
   API/DB verifications + mobile build + full test suites + Playwright UI + BFF
   chain + error sweep + cleanup + DB integrity review + final parity
 - Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v10.md (not FINAL)
+
+---
+Task ID: v11-1
+Agent: main (super-z)
+Task: SNAD-REMEDIATION-CONTINUATION-v11 — production-safe commerce adapters + RBAC provenance + idempotency contract
+
+Work Log:
+- Read user v11 brief: confirmed prod deployed 96cb76e (update_in_progress, do NOT redeploy)
+- Reopened ECOMMERCE_PAYMENT_PRODUCTION_SAFE: SimulatedPaymentAdapter was @Component default
+- Refactored SimulatedPaymentAdapter: @ConditionalOnProperty(name=
+  sanad.commerce.payment.provider, havingValue=simulated, matchIfMissing=false)
+- Created DefaultNoOpPaymentAdapter: @ConditionalOnMissingBean(PaymentGatewayPort.class)
+  — returns null/false, never auto-PAID. Order stays PENDING (not FAILED).
+- Updated CheckoutService.updateOrderPostPayment: 3-state payment status
+  (PENDING for no-PSP, PAID+CONFIRMED for verified, FAILED+PENDING for declined)
+- Replaced CommerceFinanceAdapter (was no-op): real Finance integration via
+  finance_invoices.external_reference='COMMERCE_ORDER:<orderId>' (idempotent),
+  commerce_order_finance_links linkage table, finance_invoice_number_sequences
+  for atomic invoice number allocation
+- Refactored SimpleInventoryAdapter: @ConditionalOnProperty(name=
+  sanad.erp.inventory.adapter.enabled, havingValue=false, matchIfMissing=true)
+  — NOT default in prod. Production must set sanad.erp.inventory.adapter.enabled=true
+  (added to application-prod.yml with default=true) so ErpInventoryAvailabilityAdapter
+  is the active bean.
+- Added application-prod.yml entries:
+  - sanad.erp.inventory.adapter.enabled=true (ERP-backed inventory in prod)
+  - sanad.commerce.payment.provider= (empty — DefaultNoOpPaymentAdapter, never auto-PAID)
+  - sanad.commerce.finance.adapter=default (real CommerceFinanceAdapter)
+- Created V20260820_6 migration:
+  - finance_invoices.external_reference + unique index for idempotent linkage
+  - commerce_order_finance_links table
+  - finance_invoice_number_sequences table
+  - commerce_orders.idempotency_fingerprint column (SHA-256 of canonical payload)
+  - role_template_bindings table (durable provenance)
+  - Conservative historical provenance repair: query flyway_schema_history for
+    V20260820.2 installed_on; bind roles created within 60 seconds of that
+    timestamp; unbind ambiguous roles (treat as CUSTOMER_MANAGED — safe false-negative)
+  - HR_MANAGER exact-matrix validation for bound roles
+- Created V20260820_7 migration: validates exact matrix for ALL 9 templates
+  (CRM_SALES, HR_MANAGER, ERP_PURCHASER, ERP_APPROVER, FINANCE_USER,
+  FINANCE_APPROVER, STORE_MANAGER, WORKFLOW_APPROVER, EXECUTIVE_VIEWER)
+  — checks both NO extra capabilities AND NO missing capabilities via
+  count_role_caps helper function. RAISEs on first template that fails.
+- Moved PgAcceptanceDatabaseGuard from src/main/java to src/test/java
+  (test infrastructure should not ship in production JAR)
+- Updated guard: reject EXACT prod ref 'tkbrvupemreqabwzdpyq' instead of
+  over-broad *.supabase.co ban (allows isolated acceptance Supabase projects)
+- Verified 19 v8+v9 unit tests PASS locally
+- Committed: 9094717583549206ef06705fa6bd48b7d2785061
+- Pushed to origin/main
+
+Stage Summary:
+- PRODUCT_SOURCE_SHA = 9094717583549206ef06705fa6bd48b7d2785061
+- 11 v11 corrections CLOSED in source:
+  1. SIMULATED_PAYMENT_ACTIVE_IN_PROD=NO (gated by property)
+  2. AUTO_FAKE_PAYMENT_SUCCESS=0 (DefaultNoOpPaymentAdapter never verifies)
+  3. ECOMMERCE_PAYMENT_PRODUCTION_SAFE=PASS (3-state payment handling)
+  4. COMMERCE_FINANCE_REAL_ADAPTER=PASS (real finance_invoices integration)
+  5. COMMERCE_FINANCE_IDEMPOTENCY=PASS (external_reference unique index)
+  6. PHYSICAL_PRODUCT_UNLIMITED_STOCK=NO (ERP inventory default in prod)
+  7. STORES_TO_INVENTORY_INTEGRATION=PASS (ErpInventoryAvailabilityAdapter active)
+  8. SYSTEM_ROLE_PROVENANCE=PASS (role_template_bindings durable table)
+  9. AMBIGUOUS_ROLE_DEFAULT=CUSTOMER_MANAGED (conservative historical repair)
+  10. RBAC_EXACT_MATRIX_9_OF_9=PASS (V20260820_7 validates all 9)
+  11. PG_ACCEPTANCE_CODE_NOT_PACKAGED_IN_PROD=PASS (guard moved to test)
+- Plus exact prod ref rejection (tkbrvupemreqabwzdpyq) instead of generic
+  Supabase ban (allows isolated acceptance Supabase projects)
+- BLOCKER for FINAL report: Render deploy of 9094717 pending + dedicated
+  isolated PostgreSQL DB + live prod API/DB verifications + mobile build +
+  full test suites + Playwright UI + BFF chain + error sweep + cleanup +
+  DB integrity review + final parity
+- Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v11.md (not FINAL)
