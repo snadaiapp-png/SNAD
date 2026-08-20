@@ -170,16 +170,20 @@ public class PullSyncService {
 
     /**
      * Get SELECT columns for entity type.
+     *
+     * Column names must match the physical CRM tables created by
+     * V20260702_1/V20260717_* and extended by V20260812_2 (sync columns).
+     * Verified against the live staging information_schema.
      */
     private String getSelectColumns(String entityType) {
         return switch (entityType) {
-            case "account" -> "name, industry, phone, website, created_at, updated_at";
-            case "contact" -> "account_id, first_name, last_name, email, phone, created_at, updated_at";
-            case "lead" -> "first_name, last_name, email, phone, status, source, created_at, updated_at";
-            case "opportunity" -> "account_id, contact_id, pipeline_id, title, amount, stage, close_date, created_at, updated_at";
-            case "task" -> "title, description, status, due_date, assigned_to, created_at, updated_at";
-            case "note" -> "entity_type, entity_id, content, created_at, updated_at";
-            case "activity" -> "entity_type, entity_id, activity_type, description, result, created_at, updated_at";
+            case "account" -> "display_name, industry_code, primary_phone, primary_email, website, created_at";
+            case "contact" -> "account_id, given_name, family_name, primary_email, primary_phone, created_at";
+            case "lead" -> "display_name, company_name, email, phone, status, source, created_at";
+            case "opportunity" -> "account_id, contact_id, pipeline_id, name, amount, currency_code, stage_id, expected_close_date, created_at";
+            case "task" -> "title, description, status, priority, due_at, assignee_user_id, created_at";
+            case "note" -> "subject_type, subject_id, body, created_at";
+            case "activity" -> "related_type, related_id, activity_type, subject, body, result, created_at";
             default -> "*";
         };
     }

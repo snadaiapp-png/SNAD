@@ -54,16 +54,22 @@ public class PushSyncService {
      * A mutation payload may ONLY write these columns; every other JSON key is
      * silently ignored. Column identifiers are therefore NEVER spliced from
      * untrusted input — only values are bound, and only for allowlisted columns.
+     *
+     * Columns verified against the physical CRM tables (V20260702_1/V20260717_*
+     * + V20260812_2 sync columns) on the staging information_schema.
      */
     private static final Map<String, Set<String>> ALLOWED_COLUMNS = Map.of(
-        "crm_accounts", Set.of("name", "industry", "phone", "website", "owner_id", "status"),
-        "crm_contacts", Set.of("account_id", "first_name", "last_name", "email", "phone", "title", "status"),
-        "crm_leads", Set.of("first_name", "last_name", "email", "phone", "status", "source", "owner_id"),
-        "crm_opportunities", Set.of("account_id", "contact_id", "pipeline_id", "title", "amount", "stage", "close_date"),
-        "crm_tasks", Set.of("title", "description", "status", "due_date", "assigned_to", "priority"),
-        "crm_notes", Set.of("entity_type", "entity_id", "content"),
-        "crm_activities", Set.of("entity_type", "entity_id", "activity_type", "description", "result")
+        "crm_accounts", Set.of("display_name", "normalized_name", "account_type", "industry_code", "website", "primary_phone", "primary_email"),
+        "crm_contacts", Set.of("account_id", "given_name", "family_name", "display_name", "normalized_name", "primary_email", "primary_phone", "lifecycle_status"),
+        "crm_leads", Set.of("display_name", "normalized_name", "company_name", "email", "phone", "status", "source"),
+        "crm_opportunities", Set.of("account_id", "contact_id", "pipeline_id", "name", "amount", "currency_code", "stage_id", "expected_close_date", "status"),
+        "crm_tasks", Set.of("title", "description", "status", "priority", "due_at", "assignee_user_id", "related_type", "related_id"),
+        "crm_notes", Set.of("subject_type", "subject_id", "body"),
+        "crm_activities", Set.of("activity_type", "subject", "body", "related_type", "related_id", "result", "status")
     );
+
+    /** Tables whose NOT NULL constraints require normalized_name on INSERT. */
+    private static final Set<String> REQUIRES_NORMALIZED_NAME = Set.of("crm_accounts", "crm_contacts", "crm_leads");
 
     private Set<String> allowedColumnsFor(String tableName) {
         return ALLOWED_COLUMNS.getOrDefault(tableName, Set.of());
@@ -119,8 +125,8 @@ public class PushSyncService {
      */
     private MutationResult processMutation(UUID tenantId, UUID deviceId, UUID userId, MutationEnvelope mutation) {
         try {
-            // 1. Idempotency check
-            if (isDuplicate(mutation.idempotencyKey())) {
+            // 1. Idempotency check (crm_idempotency_records, 24h window)
+            if (isDuplicate(tenantId, mutation.idempotencyKey())) {
                 log.debug("Duplicate mutation detected: key={}", mutation.idempotencyKey());
                 return new MutationResult(
                     mutation.idempotencyKey(),
@@ -172,13 +178,15 @@ public class PushSyncService {
 
     /**
      * Check if idempotency key has already been processed.
+     * Uses crm_idempotency_records (V20260713_1); platform_audit_logs has no
+     * idempotency_key column.
      */
-    private boolean isDuplicate(String idempotencyKey) {
+    private boolean isDuplicate(UUID tenantId, String idempotencyKey) {
         if (idempotencyKey == null) return false;
         String sha256 = computeSha256(idempotencyKey);
         Integer count = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM platform_audit_logs WHERE idempotency_key = ? AND created_at > NOW() - INTERVAL '24 hours'",
-            Integer.class, sha256
+            "SELECT COUNT(*) FROM crm_idempotency_records WHERE tenant_id = ? AND idempotency_key = ? AND expires_at > NOW()",
+            Integer.class, tenantId, sha256
         );
         return count != null && count > 0;
     }
@@ -206,34 +214,53 @@ public class PushSyncService {
         // For CREATE, generate new ID if not provided
         String entityId = mutation.entityId() != null ? mutation.entityId() : UUID.randomUUID().toString();
 
-        // Build INSERT from payload
-        // This is simplified — production would use parameterized queries per entity type
+        // Build INSERT from the allowlisted payload columns. created_by/updated_by
+        // and sync_version are always bound; created_at/updated_at default to NOW().
         JsonNode payload = mutation.payload();
-        StringBuilder columns = new StringBuilder("tenant_id, id, created_by, sync_version");
-        StringBuilder placeholders = new StringBuilder("?, ?::UUID, ?, 1");
-        List<Object> params = new ArrayList<>();
-        params.add(tenantId);
-        params.add(entityId);
-        params.add(userId);
+        List<String> columns = new ArrayList<>(List.of("tenant_id", "id", "created_by", "updated_by", "sync_version"));
+        List<Object> params = new ArrayList<>(List.of(tenantId, entityId, userId, userId, 1));
+        String displayName = null;
 
         if (payload != null && payload.isObject()) {
             Set<String> allowed = allowedColumnsFor(tableName);
             payload.fields().forEachRemaining(entry -> {
                 String key = entry.getKey();
                 if (allowed.contains(key)) {            // DEF-004: identifier allowlist
-                    columns.append(", ").append(key);
-                    placeholders.append(", ?");
+                    columns.add(key);
                     params.add(entry.getValue().asText());
                 }
             });
+            JsonNode dn = payload.get("display_name");
+            if (dn != null && !dn.isNull()) displayName = dn.asText();
         }
 
-        String sql = String.format("INSERT INTO %s (%s, created_at, updated_at) VALUES (%s, NOW(), NOW())",
-            tableName, columns, placeholders);
+        // NOT NULL fallback: these tables require normalized_name alongside display_name.
+        if (REQUIRES_NORMALIZED_NAME.contains(tableName)
+                && !columns.contains("normalized_name") && displayName != null) {
+            columns.add("normalized_name");
+            params.add(displayName.toLowerCase());
+        }
+
+        // created_at/updated_at are NOT NULL WITHOUT DEFAULT on the CRM tables
+        // (V20260702_1) — they must be bound explicitly on INSERT.
+        columns.add("created_at");
+        params.add(Timestamp.from(Instant.now()));
+        columns.add("updated_at");
+        params.add(Timestamp.from(Instant.now()));
+
+        StringBuilder placeholders = new StringBuilder();
+        for (int i = 0; i < columns.size(); i++) {
+            placeholders.append(i == 0 ? "?" : ", ?");
+        }
+        // Text-bound values rely on stringtype=unspecified (JDBC URL) so
+        // PostgreSQL infers uuid/timestamp/numeric types per target column.
+
+        String sql = String.format("INSERT INTO %s (%s) VALUES (%s)",
+            tableName, String.join(", ", columns), placeholders);
 
         jdbcTemplate.update(sql, params.toArray());
 
-        recordIdempotency(tenantId, mutation.idempotencyKey(), mutation.operation(), entityId);
+        recordIdempotency(tenantId, userId, mutation.idempotencyKey(), mutation.operation(), entityId);
 
         return new MutationResult(
             mutation.idempotencyKey(),
@@ -276,9 +303,11 @@ public class PushSyncService {
         String sql = String.format("UPDATE %s SET %s WHERE tenant_id = ? AND id = ?::UUID AND sync_version = ?",
             tableName, setClauses);
 
-        int updated = jdbcTemplate.update(sql,
-            List.of(params.toArray(new Object[0]),
-                tenantId, mutation.entityId(), currentVersion).toArray());
+        List<Object> allParams = new ArrayList<>(params);
+        allParams.add(tenantId);
+        allParams.add(mutation.entityId());
+        allParams.add(currentVersion);
+        int updated = jdbcTemplate.update(sql, allParams.toArray());
 
         if (updated == 0) {
             return conflictResult(mutation, currentVersion);
@@ -287,7 +316,7 @@ public class PushSyncService {
         long newVersion = currentVersion + 1;
         String etag = "\"" + newVersion + "\"";
 
-        recordIdempotency(tenantId, mutation.idempotencyKey(), mutation.operation(), mutation.entityId());
+        recordIdempotency(tenantId, userId, mutation.idempotencyKey(), mutation.operation(), mutation.entityId());
 
         return new MutationResult(
             mutation.idempotencyKey(),
@@ -300,12 +329,14 @@ public class PushSyncService {
 
     /**
      * Delete an entity (soft delete or hard delete per entity policy).
+     * The CRM tables have no universal deleted_at column (only crm_accounts/
+     * crm_contacts have archived_at), so sync DELETE removes the row —
+     * tenant- and version-scoped, RLS-enforced.
      */
     private MutationResult deleteEntity(UUID tenantId, UUID userId, String tableName,
                                          MutationEnvelope mutation, long currentVersion) {
-        // Soft delete: set deleted_at timestamp
         String sql = String.format(
-            "UPDATE %s SET deleted_at = NOW(), updated_at = NOW() WHERE tenant_id = ? AND id = ?::UUID AND sync_version = ?",
+            "DELETE FROM %s WHERE tenant_id = ? AND id = ?::UUID AND sync_version = ?",
             tableName);
 
         int deleted = jdbcTemplate.update(sql, tenantId, mutation.entityId(), currentVersion);
@@ -314,7 +345,7 @@ public class PushSyncService {
             return conflictResult(mutation, currentVersion);
         }
 
-        recordIdempotency(tenantId, mutation.idempotencyKey(), mutation.operation(), mutation.entityId());
+        recordIdempotency(tenantId, userId, mutation.idempotencyKey(), mutation.operation(), mutation.entityId());
 
         return new MutationResult(
             mutation.idempotencyKey(),
@@ -358,15 +389,17 @@ public class PushSyncService {
     }
 
     /**
-     * Record idempotency key in audit log.
+     * Record idempotency key. Uses crm_idempotency_records (V20260713_1) —
+     * platform_audit_logs has neither idempotency_key nor entity columns.
      */
-    private void recordIdempotency(UUID tenantId, String idempotencyKey, String operation, String entityId) {
+    private void recordIdempotency(UUID tenantId, UUID userId, String idempotencyKey, String operation, String entityId) {
         if (idempotencyKey == null) return;
         String sha256 = computeSha256(idempotencyKey);
         jdbcTemplate.update(
-            "INSERT INTO platform_audit_logs (id, tenant_id, entity_type, entity_id, action, idempotency_key, created_at) "
-                + "VALUES (gen_random_uuid(), ?, 'SYNC_MUTATION', ?::UUID, ?, ?, NOW())",
-            tenantId, entityId, operation, sha256
+            "INSERT INTO crm_idempotency_records "
+                + "(id, tenant_id, principal_id, endpoint, idempotency_key, request_fingerprint_sha256, response_status, created_at, expires_at) "
+                + "VALUES (gen_random_uuid(), ?, ?, '/api/v2/mobile/sync/push', ?, ?, 200, NOW(), NOW() + INTERVAL '24 hours')",
+            tenantId, userId, sha256, sha256
         );
     }
 

@@ -45,7 +45,7 @@ class G7DefectFixesTest {
         PushSyncService service = new PushSyncService(jdbc, new ObjectMapper());
 
         ObjectNode payload = new ObjectMapper().createObjectNode();
-        payload.put("name", "Acme");
+        payload.put("display_name", "Acme");
         // Malicious payload key attempting SQL injection as a column identifier.
         payload.put("evil) VALUES (1)--", "pwned");
         payload.put("tenant_id", "should-be-ignored");
@@ -64,19 +64,20 @@ class G7DefectFixesTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("INSERT INTO crm_accounts not executed: " + sql.getAllValues()));
 
-        // Allowlisted column is present...
-        assertTrue(insert.contains("name"), "allowlisted 'name' column must be in INSERT: " + insert);
+        // Allowlisted column is present (physical column per V20260702_1/V20260716_4)...
+        assertTrue(insert.contains("display_name"), "allowlisted 'display_name' column must be in INSERT: " + insert);
         // ...and the injection attempt / tenant_id override is NOT spliced into the SQL.
         assertFalse(insert.contains("evil"), "injection key leaked into SQL: " + insert);
         assertFalse(insert.contains("VALUES (1)"), "injection fragment leaked into SQL: " + insert);
 
         // The column list must be exactly the server-hardcoded system columns plus
-        // the single allowlisted payload column ("name") — the client's "tenant_id"
-        // and injection keys must have been dropped (not added as extra columns).
+        // the single allowlisted payload column ("display_name") with its schema-required
+        // "normalized_name" NOT NULL fallback — the client's "tenant_id" and injection
+        // keys must have been dropped (not added as extra columns).
         int colsStart = insert.indexOf('(') + 1;
         int colsEnd = insert.indexOf(')', colsStart);
         String colList = insert.substring(colsStart, colsEnd).replaceAll("\\s+", "");
-        assertEquals("tenant_id,id,created_by,sync_version,name,created_at,updated_at", colList,
+        assertEquals("tenant_id,id,created_by,updated_by,sync_version,display_name,normalized_name,created_at,updated_at", colList,
                 "only allowlisted payload columns may appear; got: " + colList);
     }
 
