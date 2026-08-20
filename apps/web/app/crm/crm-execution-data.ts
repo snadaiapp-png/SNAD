@@ -145,7 +145,7 @@ export const CRM_GROUP_DATA = [
     status: "IN_PROGRESS" as GroupStatus,
     dependencies: ["G7"],
     canParallelizeWith: [],
-    stageReport: "G8-STAGE-REPORT-V1 (2026-08-20) — BASELINED / READY_FOR_IMPLEMENTATION: G8 EXECUTION COMMAND 01 اكتمل (المسح الجنائي، G8_CALLER_IDENTIFICATION_MASTER_BASELINE.md، 41 متطلب، ADR-001..008، بوابات AG-01..18، مسارات A–J). الحالة IN_PROGRESS هي الأقرب في GroupStatus (لا توجد حالة BASELINED) — G8 غير مكتملة وغير معتمدة، التنفيذ ينتظر G8 EXECUTION COMMAND 02.",
+    stageReport: "G8-STAGE-REPORT-V2 (2026-08-20) — TRACK A = COMPLETE، TRACK B = COMPLETE، CALLER CORE = IMPLEMENTED (G8 EXECUTION 02: POST /api/v2/crm/caller-identification/lookup، محرك مطابقة حتمي EXACT/AMBIGUOUS/UNKNOWN/PRIVATE_NUMBER/INVALID_NUMBER/RESTRICTED، RBAC CRM.CALLER_ID.READ(+_RESTRICTED)، عزل مستأجر، قناع خادمي للـ CONFIDENTIAL/RESTRICTED، منع تعداد 429، سجل بدون رقم كامل، OpenAPI 148/194، CI PASS). الحالة IN_PROGRESS باقية — G8 غير مكتملة وغير معتمدة؛ NEXT = TRACK C/D (أمر تنفيذ لاحق). الدليل: G8_EXECUTION_02_CALLER_CORE_REPORT.md.",
   },
   {
     code: "G9",
