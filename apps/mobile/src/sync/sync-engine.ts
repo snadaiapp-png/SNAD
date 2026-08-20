@@ -1,20 +1,26 @@
 /**
  * G7 Sync Engine
- *
- * Requirements: SYNC-001 (Sync Engine), SYNC-002 (Delta Pull), SYNC-014 (Client Timeout)
- *
- * Orchestrates pull and push synchronization.
- * Separate PULL from PUSH — a single conflict must NOT prevent unrelated entities from syncing.
+ * Requirements: SYNC-001/002/013/014, OFF-002, PERF-002/003/004.
  */
 
 import { SyncState, EntityType, DeltaSyncResponse, PushSyncResponse } from '../types';
-import { getSyncableEntityTypes, ENTITY_CONFIGS } from '../config/entities';
-import { getDatabase, getSyncMetadata, setSyncMetadata, upsertEntity } from '../storage/db';
+import { getPullEligibleEntityTypes, assertPushEligible } from '../config/entities';
+import { getSyncMetadata, setSyncMetadata, upsertEntity } from '../storage/db';
+import { getLocalDatabaseUsageBytes } from '../storage/quota';
 import { encryptEntity, decryptEntity } from '../storage/encryption';
 import { MutationQueue } from './mutation-queue';
 import { ConflictResolver } from '../conflict/resolver';
 import { getApiClient, ApiClient } from './api-client';
 import { emitSyncEvent } from '../obs/metrics';
+import {
+  assertCursorContinuity,
+  ConnectivityProbe,
+  createHttpConnectivityProbe,
+  DEFAULT_BACKGROUND_SYNC_INTERVAL_MS,
+  DEFAULT_STORAGE_QUOTA_BYTES,
+  evaluateStorageQuota,
+  PeriodicSyncScheduler,
+} from './runtime-controls';
 
 export interface SyncEngineConfig {
   apiBaseUrl: string;
@@ -22,249 +28,200 @@ export interface SyncEngineConfig {
   accessToken: string;
   tenantId: string;
   userId: string;
-  pullLimit: number;          // max entities per pull request (default 100)
-  pushBatchSize: number;      // max mutations per push request (default 50)
-  clientTimeoutMs: number;    // timeout for sync operations (default 30000)
-  retryDelayMs: number;       // initial retry delay (default 1000)
-  maxRetries: number;         // max retry attempts (default 5)
+  pullLimit: number;
+  pushBatchSize: number;
+  clientTimeoutMs: number;
+  retryDelayMs: number;
+  maxRetries: number;
+  storageQuotaBytes?: number;
+  backgroundSyncIntervalMs?: number;
+  connectivityProbe?: ConnectivityProbe;
 }
 
 export class SyncEngine {
   private state: SyncState = 'OFFLINE';
-  private config: SyncEngineConfig;
-  private apiClient: ApiClient;
-  private mutationQueue: MutationQueue;
-  private conflictResolver: ConflictResolver;
-  private syncInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly apiClient: ApiClient;
+  private readonly mutationQueue = new MutationQueue();
+  private readonly conflictResolver = new ConflictResolver();
+  private readonly connectivityProbe: ConnectivityProbe;
+  private readonly scheduler: PeriodicSyncScheduler;
 
-  constructor(config: SyncEngineConfig) {
-    this.config = config;
+  constructor(private readonly config: SyncEngineConfig) {
     this.apiClient = getApiClient(config);
-    this.mutationQueue = new MutationQueue();
-    this.conflictResolver = new ConflictResolver();
+    this.connectivityProbe = config.connectivityProbe
+      ?? createHttpConnectivityProbe(config.apiBaseUrl, Math.min(config.clientTimeoutMs, 5_000));
+    this.scheduler = new PeriodicSyncScheduler(
+      () => this.sync(),
+      config.backgroundSyncIntervalMs ?? DEFAULT_BACKGROUND_SYNC_INTERVAL_MS
+    );
   }
 
-  /**
-   * Start the sync engine.
-   */
   async start(): Promise<void> {
     this.updateState('ONLINE');
     await this.sync();
+    this.scheduler.start();
+    emitSyncEvent('background_sync_started', {
+      intervalMs: this.config.backgroundSyncIntervalMs ?? DEFAULT_BACKGROUND_SYNC_INTERVAL_MS,
+    });
   }
 
-  /**
-   * Stop the sync engine.
-   */
   stop(): void {
-    if (this.syncInterval) {
-      clearInterval(this.syncInterval);
-      this.syncInterval = null;
-    }
+    this.scheduler.stop();
+    emitSyncEvent('background_sync_stopped');
     this.updateState('OFFLINE');
   }
 
-  /**
-   * Perform a full sync cycle: pull then push.
-   */
   async sync(): Promise<void> {
-    if (this.state === 'REAUTH_REQUIRED' || this.state === 'SYNC_BLOCKED') {
-      return;
-    }
+    if (this.state === 'REAUTH_REQUIRED' || this.state === 'SYNC_BLOCKED' || this.state === 'FULL_RESYNC_REQUIRED') return;
 
+    emitSyncEvent('sync_started');
     try {
-      // 1. PULL: Get changes from server
-      await this.pullAll();
+      if (!(await this.connectivityProbe())) {
+        emitSyncEvent('network_offline');
+        this.updateState('OFFLINE');
+        return;
+      }
+      if (this.state === 'OFFLINE') this.updateState('ONLINE');
 
-      // 2. PUSH: Send local mutations to server
+      const storage = evaluateStorageQuota(
+        await getLocalDatabaseUsageBytes(),
+        this.config.storageQuotaBytes ?? DEFAULT_STORAGE_QUOTA_BYTES
+      );
+      if (storage.state === 'WARNING') {
+        emitSyncEvent('storage_warning', { usageRatio: storage.usageRatio, usageBytes: storage.usageBytes });
+      }
+
+      // Preserve outbound data even if local cache is full; only additional pulls are blocked.
+      if (storage.state === 'EXCEEDED') {
+        emitSyncEvent('storage_quota_exceeded', { usageRatio: storage.usageRatio, usageBytes: storage.usageBytes });
+      } else {
+        await this.pullAll();
+      }
+
       await this.pushAll();
-
-      emitSyncEvent('sync_completed', { duration: 0 });
+      emitSyncEvent('sync_completed');
     } catch (error) {
       emitSyncEvent('sync_failed', { error: String(error) });
-
-      if (this.isAuthError(error)) {
-        this.updateState('REAUTH_REQUIRED');
-      } else if (this.isNetworkError(error)) {
-        this.updateState('OFFLINE');
-      }
+      if (this.state === 'FULL_RESYNC_REQUIRED') return;
+      if (this.isAuthError(error)) this.updateState('REAUTH_REQUIRED');
+      else if (this.isNetworkError(error)) this.updateState('OFFLINE');
     }
   }
 
-  /**
-   * Pull changes for all entity types.
-   * Each entity type is pulled independently — a conflict on one doesn't block others.
-   */
   private async pullAll(): Promise<void> {
-    const entityTypes = getSyncableEntityTypes();
-
-    for (const entityType of entityTypes) {
-      const config = ENTITY_CONFIGS[entityType];
-      if (config.pushOnly) continue; // Skip push-only entities
-
+    for (const entityType of getPullEligibleEntityTypes()) {
       try {
         await this.pullEntity(entityType);
       } catch (error) {
         emitSyncEvent('pull_failed', { entityType, error: String(error) });
-        // Continue with next entity type — don't let one failure block all
+        if (this.state === 'FULL_RESYNC_REQUIRED') throw error;
       }
     }
   }
 
-  /**
-   * Pull changes for a single entity type using delta sync.
-   */
   private async pullEntity(entityType: EntityType): Promise<void> {
     let cursor = await getSyncMetadata(`cursor:${entityType}`);
     let hasMore = true;
-
+    let entityCount = 0;
     emitSyncEvent('pull_started', { entityType });
 
     while (hasMore) {
-      const response: DeltaSyncResponse = await this.apiClient.pullDelta(
-        entityType,
-        cursor,
-        this.config.pullLimit
-      );
-
-      // Process each entity in the delta
+      const response: DeltaSyncResponse = await this.apiClient.pullDelta(entityType, cursor, this.config.pullLimit);
       for (const delta of response.entities) {
         await this.processDelta(entityType, delta);
+        entityCount += 1;
       }
 
-      // Save cursor and advance it for the next page in this same pull cycle.
+      try {
+        assertCursorContinuity(cursor, response.nextCursor, response.hasMore);
+      } catch (error) {
+        emitSyncEvent('cursor_continuity_broken', { entityType });
+        this.updateState('FULL_RESYNC_REQUIRED');
+        throw error;
+      }
+
       if (response.nextCursor) {
         cursor = response.nextCursor;
         await setSyncMetadata(`cursor:${entityType}`, response.nextCursor);
       }
-
       hasMore = response.hasMore;
     }
 
-    emitSyncEvent('pull_completed', { entityType, entityCount: 0 });
+    emitSyncEvent('pull_completed', { entityType, entityCount });
   }
 
-  /**
-   * Process a single entity delta from the server.
-   */
   private async processDelta(entityType: EntityType, delta: any): Promise<void> {
     if (delta.operation === 'DELETE') {
-      // Server deleted this entity — mark as deleted locally
       const { softDeleteEntity } = await import('../storage/db');
       await softDeleteEntity(entityType, delta.entityId);
       return;
     }
 
-    // Check for local mutations on this entity
     const localMutations = await this.mutationQueue.getMutationsForEntity(entityType, delta.entityId);
-
     if (localMutations.length > 0) {
-      // Conflict: server has changes AND client has pending mutations
       const conflict = await this.conflictResolver.detectConflict(
-        entityType,
-        delta.entityId,
-        localMutations[0].expectedVersion ?? 0,
-        localMutations[0].payload,
-        delta.version,
-        delta.data
+        entityType, delta.entityId, localMutations[0].expectedVersion ?? 0,
+        localMutations[0].payload, delta.version, delta.data
       );
-
       if (conflict.canAutoMerge) {
-        // Auto-merge non-conflicting fields
         const merged = await this.conflictResolver.autoMerge(entityType, localMutations[0].payload, delta.data);
         await upsertEntity(entityType, { ...merged, id: delta.entityId, sync_version: delta.version });
-
-        // Mark local mutation as merged
         await this.mutationQueue.markApplied(localMutations[0].id);
       } else {
-        // User resolution required — queue conflict
         await this.conflictResolver.queueConflict(conflict);
-
-        // Save server state locally
         const decrypted = await decryptEntity(entityType, delta.data);
         await upsertEntity(entityType, { ...decrypted, id: delta.entityId, sync_version: delta.version });
       }
     } else {
-      // No local conflict — just apply server data
       const decrypted = await decryptEntity(entityType, delta.data);
       await upsertEntity(entityType, { ...decrypted, id: delta.entityId, sync_version: delta.version });
     }
   }
 
-  /**
-   * Push all queued mutations to the server.
-   */
   private async pushAll(): Promise<void> {
     const queuedMutations = await this.mutationQueue.getQueuedMutations(this.config.pushBatchSize);
-
     if (queuedMutations.length === 0) return;
-
     emitSyncEvent('push_started', { mutationCount: queuedMutations.length });
 
-    // Encrypt sensitive fields before sending
-    const encryptedMutations = await Promise.all(
-      queuedMutations.map(async (m) => ({
-        ...m,
-        payload: await encryptEntity(m.entityType as EntityType, m.payload),
-      }))
-    );
+    const encryptedMutations = await Promise.all(queuedMutations.map(async m => ({
+      ...m, payload: await encryptEntity(m.entityType as EntityType, m.payload),
+    })));
 
     try {
       const response: PushSyncResponse = await this.apiClient.pushBatch({
-        mutations: encryptedMutations.map((m) => ({
-          idempotencyKey: m.idempotencyKey,
-          entityType: m.entityType,
-          entityId: m.entityId,
-          operation: m.operation,
-          expectedVersion: m.expectedVersion,
-          payload: m.payload,
+        mutations: encryptedMutations.map(m => ({
+          idempotencyKey: m.idempotencyKey, entityType: m.entityType,
+          entityId: m.entityId, operation: m.operation,
+          expectedVersion: m.expectedVersion, payload: m.payload,
         })),
       });
 
-      // Process results
       for (const result of response.results) {
         const mutation = queuedMutations.find(m => m.idempotencyKey === result.idempotencyKey);
         if (!mutation) continue;
-
         switch (result.status) {
           case 'APPLIED':
+          case 'DUPLICATE':
             await this.mutationQueue.markApplied(mutation.id);
-            emitSyncEvent('mutation_applied', { entityType: mutation.entityType });
+            if (result.status === 'APPLIED') emitSyncEvent('mutation_applied', { entityType: mutation.entityType });
             break;
-
           case 'CONFLICT':
             await this.mutationQueue.markConflict(mutation.id, result.conflictInfo);
             emitSyncEvent('conflict_detected', { entityType: mutation.entityType });
             break;
-
           case 'REJECTED':
             await this.mutationQueue.markRejected(mutation.id, result.errorMessage ?? 'Rejected');
             emitSyncEvent('mutation_rejected', { entityType: mutation.entityType, error: result.errorMessage });
             break;
-
-          case 'DUPLICATE':
-            await this.mutationQueue.markApplied(mutation.id);
-            break;
         }
       }
-
-      emitSyncEvent('push_completed', {
-        applied: response.applied,
-        rejected: response.rejected,
-        duplicates: response.duplicates,
-      });
+      emitSyncEvent('push_completed', { applied: response.applied, rejected: response.rejected, duplicates: response.duplicates });
     } catch (error) {
       emitSyncEvent('push_failed', { error: String(error) });
-
-      // Mark mutations for retry
-      for (const mutation of queuedMutations) {
-        await this.mutationQueue.markForRetry(mutation.id, String(error));
-      }
+      for (const mutation of queuedMutations) await this.mutationQueue.markForRetry(mutation.id, String(error));
     }
   }
 
-  /**
-   * Queue a local mutation for later sync.
-   */
   async queueMutation(
     entityType: EntityType,
     entityId: string,
@@ -272,29 +229,14 @@ export class SyncEngine {
     payload: Record<string, any>,
     expectedVersion?: number
   ): Promise<string> {
-    const id = await this.mutationQueue.enqueue({
-      entityType,
-      entityId,
-      operation,
-      payload,
-      expectedVersion,
-    });
-
+    assertPushEligible(entityType);
+    const id = await this.mutationQueue.enqueue({ entityType, entityId, operation, payload, expectedVersion });
     emitSyncEvent('mutation_queued', { entityType, operation });
-
     return id;
   }
 
-  /**
-   * Get current sync state.
-   */
-  getState(): SyncState {
-    return this.state;
-  }
+  getState(): SyncState { return this.state; }
 
-  /**
-   * Update sync state and notify listeners.
-   */
   private updateState(newState: SyncState): void {
     const oldState = this.state;
     this.state = newState;
