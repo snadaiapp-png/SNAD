@@ -17,11 +17,15 @@ import java.util.UUID;
  *
  * Requirements: API-004 (Batch Sync Push API), SYNC-017 (Per-Mutation ACK)
  *
- * Endpoints:
- *   POST /api/v2/mobile/sync/push
+ * Endpoint: POST /api/v2/mobile/sync/push
+ *
+ * <p>Idempotency is intentionally defined per mutation through
+ * {@link PushSyncRequest.MutationEnvelope#idempotencyKey()}. The former
+ * optional request-level X-Idempotency-Key header was unused and is not part
+ * of the canonical sync contract.</p>
  *
  * Tenant/user identity is resolved from the authenticated JWT security context
- * via {@link TenantContextPort} (DEF-005). Never trusted from client input.
+ * via {@link TenantContextPort}. Never trusted from client input.
  */
 @RestController
 @RequestMapping("/api/v2/mobile/sync")
@@ -38,20 +42,16 @@ public class PushSyncController {
     }
 
     /**
-     * Batch sync push — accepts array of mutation envelopes, returns per-mutation results.
+     * Batch sync push — accepts mutation envelopes and returns per-mutation ACK.
      *
      * Headers:
      *   Authorization: Bearer {access_token}
      *   X-Device-Id: {device_uuid}
-     *   X-Idempotency-Key: {key} (optional, per-request idempotency)
-     *
-     * Response: Per-mutation ACK with APPLIED/REJECTED/CONFLICT/DUPLICATE status.
      */
     @PostMapping("/push")
     public ResponseEntity<PushSyncResponse> push(
             @Valid @RequestBody PushSyncRequest syncRequest,
-            @RequestHeader("X-Device-Id") String deviceId,
-            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader("X-Device-Id") String deviceId) {
 
         UUID tenantId = tenantContext.getTenantId();
         UUID userId = tenantContext.getPrincipalId();
@@ -62,12 +62,11 @@ public class PushSyncController {
 
         PushSyncResponse response = pushSyncService.push(tenantId, deviceUuid, userId, syncRequest);
 
-        // Overall HTTP status reflects per-mutation outcomes
         int statusCode = 200;
         if (response.rejected() > 0 && response.applied() == 0) {
-            statusCode = 412; // All rejected — Precondition Failed
+            statusCode = 412;
         } else if (response.rejected() > 0) {
-            statusCode = 207; // Multi-Status — some succeeded, some failed
+            statusCode = 207;
         }
 
         return ResponseEntity.status(statusCode)

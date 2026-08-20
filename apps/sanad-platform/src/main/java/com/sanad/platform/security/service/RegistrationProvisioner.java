@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
-/** Shared transactional tenant provisioning component. */
+/** Shared tenant/user provisioning component. */
 @Component
 public final class RegistrationProvisioner {
 
@@ -36,6 +36,7 @@ public final class RegistrationProvisioner {
     private final UserRoleGrantRepository grants;
     private final AccessCapabilityRepository capabilities;
     private final RoleCapabilityRepository roleCapabilities;
+    private final RoleTemplateProvisioner roleTemplateProvisioner;
 
     RegistrationProvisioner(
             TenantRepository tenants,
@@ -45,7 +46,8 @@ public final class RegistrationProvisioner {
             RoleRepository roles,
             UserRoleGrantRepository grants,
             AccessCapabilityRepository capabilities,
-            RoleCapabilityRepository roleCapabilities
+            RoleCapabilityRepository roleCapabilities,
+            RoleTemplateProvisioner roleTemplateProvisioner
     ) {
         this.tenants = tenants;
         this.organizations = organizations;
@@ -55,6 +57,7 @@ public final class RegistrationProvisioner {
         this.grants = grants;
         this.capabilities = capabilities;
         this.roleCapabilities = roleCapabilities;
+        this.roleTemplateProvisioner = roleTemplateProvisioner;
     }
 
     public ProvisionedRegistration provision(
@@ -88,9 +91,13 @@ public final class RegistrationProvisioner {
                 .forEach(capability -> roleCapabilities.save(new RoleCapability(
                         tenant.getId(), roleId, capability.getId())));
 
-        // Required before a caller performs direct JDBC metadata updates in the
-        // same transaction. JpaRepository.flush() flushes the shared persistence context.
+        // Flush JPA-created tenant/role state before the JdbcTemplate-based
+        // canonical template provisioner runs in the same transaction.
         tenants.flush();
+        roles.flush();
+        roleCapabilities.flush();
+
+        roleTemplateProvisioner.provision(tenant.getId());
 
         return new ProvisionedRegistration(tenant.getId(), administrator.getId(), subdomain);
     }

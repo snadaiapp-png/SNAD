@@ -474,3 +474,22 @@ FINAL_DECISION: ✅ CRM-033 COMPLETE (infrastructure deliverable)
   @ 2.2 GHz); the 4-vCPU CI gate is the authoritative threshold certification
   path. All metrics recorded verbatim from evidence; k6-native verdict `FAIL`
   is preserved in `evidence/crm-perf-baseline.json` (honesty requirement).
+
+## 15. 2026-08-20 current CRM migration-chain reconciliation
+
+The active migration chain advanced after the August 16 reconciliation. The
+entries below are documentation-only references to migration files already
+present in the repository. No migration bytes, Flyway history, checksum or
+production data are modified by this reconciliation.
+
+| Version | Exact file | Ownership | Status |
+|---|---|---|---|
+| `20260820.9` | `V20260820_9__restore_admin_capability_invariant.sql` | Platform RBAC / ADMIN invariant | CURRENT CHAIN |
+| `20260820.10` | `V20260820_10__seed_crm_caller_identification_capabilities.sql` | CRM caller identification RBAC | CURRENT CHAIN |
+| `20260820.11` | `V20260820_11__create_crm_call_events.sql` | CRM calls / G8 | CURRENT CHAIN |
+| `20260820.12` | `V20260820_12__force_rls_crm_call_events.sql` | CRM calls RLS / G8 | CURRENT CHAIN |
+| `20260820.13` | `V20260820_13__seed_crm_call_event_capabilities.sql` | CRM calls RBAC / G8 | CURRENT CHAIN |
+
+This section exists specifically so the governance drift gate can reconcile the
+current on-disk CRM migration inventory without weakening the gate or editing
+any applied migration.

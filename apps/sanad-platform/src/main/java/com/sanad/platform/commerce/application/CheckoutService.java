@@ -18,50 +18,28 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
- * Checkout application service (v20260820.3).
+ * Atomic Commerce checkout.
  *
- * <p>Converts a cart into an order atomically:
- * <ol>
- *   <li>Resolve (or create) the customer reference (guest email or CRM contact).</li>
- *   <li>Re-validate cart items + inventory.</li>
- *   <li>Calculate subtotal (already on cart), tax ({@link TaxCalculationPort}),
- *       shipping ({@link ShippingQuotePort}).</li>
- *   <li>Create a payment intent via {@link PaymentGatewayPort}.</li>
- *   <li>Verify the payment (the simulated adapter returns {@code true} immediately).</li>
- *   <li>Persist the order + order items (snapshot) via {@link OrderService}.</li>
- *   <li>Confirm inventory + record the order in Finance ({@link CommerceFinancePort}).</li>
- *   <li>Mark the cart {@code CHECKED_OUT}.</li>
- * </ol>
- *
- * <p><strong>Idempotency (v20260820.3 — PostgreSQL-safe)</strong>:
- * The previous implementation used a Java catch-and-query pattern:
- * <pre>{@code
- *   try { createOrderAtomically(...); }
- *   catch (DuplicateKeyException dup) { findByIdempotencyKey(...); }
- * }</pre>
- * This is unsafe on PostgreSQL because a unique-constraint violation ABORTS
- * the surrounding transaction, and the subsequent SELECT in the same
- * transaction fails with {@code current transaction is aborted, commands
- * ignored until end of transaction block}.
- *
- * <p>The new implementation uses PostgreSQL's native
- * {@code INSERT ... ON CONFLICT (tenant_id, store_id, idempotency_key)
- * DO NOTHING RETURNING id} (see {@link OrderService#tryClaimIdempotencyKey}).
- * This is a single atomic statement — no constraint violation is ever raised,
- * so the surrounding transaction stays alive. If the INSERT returns zero
- * rows (concurrent winner claimed the key first), the caller falls back to
- * {@link OrderService#findByIdempotencyKey} to read the winner's order. The
- * winner lookup runs in the same transaction, but since no constraint
- * violation occurred, the transaction is not aborted.
- *
- * <p>This is the canonical PostgreSQL pattern for atomic idempotency claim
- * without transaction abort.
+ * <p>The one-order-per-cart and tenant-scoped idempotency-key invariants are
+ * claimed through a single PostgreSQL INSERT with bare ON CONFLICT DO NOTHING.
+ * Every new order persists a SHA-256 fingerprint of the business request and
+ * cart snapshot in the column introduced by V20260820_6. A key replay with a
+ * different fingerprint is rejected with HTTP 409.
  */
 @Service
 public class CheckoutService {
@@ -80,10 +58,10 @@ public class CheckoutService {
     private final InventoryAvailabilityPort inventory;
 
     public CheckoutService(JdbcTemplate jdbc, PlatformAuditService auditService,
-                            CartService cartService, OrderService orderService,
-                            CommerceCustomerPort customerPort, TaxCalculationPort taxPort,
-                            ShippingQuotePort shippingPort, PaymentGatewayPort paymentPort,
-                            CommerceFinancePort financePort, InventoryAvailabilityPort inventory) {
+                           CartService cartService, OrderService orderService,
+                           CommerceCustomerPort customerPort, TaxCalculationPort taxPort,
+                           ShippingQuotePort shippingPort, PaymentGatewayPort paymentPort,
+                           CommerceFinancePort financePort, InventoryAvailabilityPort inventory) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.cartService = cartService;
@@ -98,41 +76,29 @@ public class CheckoutService {
 
     @Transactional
     public CheckoutResponse checkout(UUID tenantId, UUID storeId, CheckoutRequest request, Authentication auth) {
-        if (request == null || request.cartId() == null)
+        if (request == null || request.cartId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cartId is required");
-
-        // ===== Sequential idempotency replay (fast path) — with request-identity check =====
-        if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
-            OrderResponse existing = orderService.findByIdempotencyKey(tenantId, request.idempotencyKey());
-            if (existing != null) {
-                // Verify the existing order's request identity matches this request.
-                // An idempotency key identifies ONE logical request — if the caller
-                // reuses it with a different cart or store, that's a contract violation
-                // (IDEMPOTENCY_KEY_REUSE_MISMATCH) and MUST surface as HTTP 409 — NOT
-                // as a silent return-winner.
-                if (!java.util.Objects.equals(existing.cartId(), request.cartId())
-                        || !java.util.Objects.equals(existing.storeId(), storeId)) {
-                    throw new ResponseStatusException(HttpStatus.CONFLICT,
-                            "IDEMPOTENCY_KEY_REUSE_MISMATCH: key already bound to a different cart or store");
-                }
-                return toCheckoutResponse(existing, "");
-            }
         }
 
-        // ===== Sequential no-key replay (cart already checked out) =====
-        // When no idempotency key is supplied, the canonical cart invariant
-        // (uk_commerce_orders_tenant_cart) guarantees at most one order per
-        // (tenant_id, cart_id). If the cart already has an order, this is a
-        // sequential replay — return the existing order. (Concurrent no-key
-        // requests are handled atomically by tryClaimIdempotencyKey below.)
-        if (request.idempotencyKey() == null || request.idempotencyKey().isBlank()) {
+        // Totals can be read even for a CHECKED_OUT cart, which allows us to
+        // verify a sequential replay's full request fingerprint before returning.
+        CartResponse cart = cartService.calculateTotals(tenantId, storeId, request.cartId());
+        String fingerprint = computeIdempotencyFingerprint(tenantId, storeId, request, cart);
+        boolean keyed = request.idempotencyKey() != null && !request.idempotencyKey().isBlank();
+
+        if (keyed) {
+            OrderResponse existing = orderService.findByIdempotencyKey(tenantId, request.idempotencyKey());
+            if (existing != null) {
+                verifyReplayIdentity(tenantId, storeId, request, fingerprint, existing);
+                return toCheckoutResponse(existing, "");
+            }
+        } else {
             OrderResponse existingByCart = orderService.findByCart(tenantId, request.cartId());
             if (existingByCart != null) {
                 return toCheckoutResponse(existingByCart, "");
             }
         }
 
-        CartResponse cart = cartService.calculateTotals(tenantId, storeId, request.cartId());
         if (cart.status() != com.sanad.platform.commerce.domain.CommerceDomain.CartStatus.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "cart is not active: " + cart.status());
         }
@@ -140,12 +106,12 @@ public class CheckoutService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cart is empty");
         }
 
-        // Resolve customer
         String customerRef;
         if (request.customerContactId() != null) {
             customerRef = customerPort.resolveByContact(tenantId, request.customerContactId());
         } else if (request.customerEmail() != null && !request.customerEmail().isBlank()) {
-            customerRef = customerPort.resolveOrCreateGuest(tenantId, request.customerEmail(), request.customerName());
+            customerRef = customerPort.resolveOrCreateGuest(
+                    tenantId, request.customerEmail().trim(), request.customerName());
         } else if (cart.customerRef() != null && !cart.customerRef().isBlank()) {
             customerRef = cart.customerRef();
         } else {
@@ -153,11 +119,10 @@ public class CheckoutService {
                     "customerEmail or customerContactId is required for checkout");
         }
 
-        // Build customer snapshot for the order
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("customerRef", customerRef);
-        if (request.customerEmail() != null) snapshot.put("email", request.customerEmail());
-        if (request.customerName() != null) snapshot.put("name", request.customerName());
+        if (request.customerEmail() != null) snapshot.put("email", request.customerEmail().trim());
+        if (request.customerName() != null) snapshot.put("name", request.customerName().trim());
         if (request.metadata() != null) snapshot.putAll(request.metadata());
 
         BigDecimal subtotal = cart.subtotal() != null ? cart.subtotal() : BigDecimal.ZERO;
@@ -166,7 +131,6 @@ public class CheckoutService {
         BigDecimal shipping = shippingPort.getQuote(tenantId, storeId, subtotal, cart.currency());
         BigDecimal grandTotal = subtotal.add(tax).add(shipping).subtract(discount);
 
-        // Validate + reserve inventory (the cart already reserved when items were added — re-check is best-effort)
         for (CartItemResponse item : cart.items()) {
             int available = inventory.getAvailability(tenantId, item.productId(), item.variantId());
             if (available < item.quantity()) {
@@ -177,110 +141,67 @@ public class CheckoutService {
 
         String orderNumber = orderService.generateOrderNumber(tenantId, storeId);
         UUID orderId = UUID.randomUUID();
-
-        // ===== Atomic idempotency / cart claim (PostgreSQL-safe) =====
-        // tryClaimIdempotencyKey uses INSERT ... ON CONFLICT DO NOTHING RETURNING.
-        // For idempotency-key requests: ON CONFLICT (tenant_id, idempotency_key) DO NOTHING.
-        // For no-key requests: ON CONFLICT (tenant_id, cart_id) WHERE cart_id IS NOT NULL DO NOTHING.
-        // Either way, no constraint violation is ever raised, so the surrounding
-        // transaction is never aborted.
         Optional<UUID> claimed = orderService.tryClaimIdempotencyKey(
                 tenantId, storeId, orderId, orderNumber, request.cartId(),
                 customerRef, snapshot, cart.currency(), subtotal, discount,
                 tax, shipping, grandTotal, request.idempotencyKey(), auth);
 
         if (claimed.isEmpty()) {
-            // Concurrent winner claimed this idempotency key OR this cart.
-            // Transaction is still alive (no constraint violation). Fall back to
-            // reading the winner's order — and verify request identity.
-            OrderResponse winner;
-            if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
-                winner = orderService.findByIdempotencyKey(tenantId, request.idempotencyKey());
-                if (winner != null) {
-                    // Request-identity check — same as sequential path
-                    if (!java.util.Objects.equals(winner.cartId(), request.cartId())
-                            || !java.util.Objects.equals(winner.storeId(), storeId)) {
-                        throw new ResponseStatusException(HttpStatus.CONFLICT,
-                                "IDEMPOTENCY_KEY_REUSE_MISMATCH: key already bound to a different cart or store");
-                    }
-                    return toCheckoutResponse(winner, "");
-                }
-            } else {
-                // No-key concurrent path — winner is the order that claimed this cart
+            // The winner may have collided on EITHER unique invariant. For a
+            // keyed request, first look up by key; if absent, resolve the cart
+            // winner (same cart, different key) and compare its fingerprint.
+            OrderResponse winner = keyed
+                    ? orderService.findByIdempotencyKey(tenantId, request.idempotencyKey())
+                    : null;
+            if (winner == null) {
                 winner = orderService.findByCart(tenantId, request.cartId());
-                if (winner != null) {
-                    return toCheckoutResponse(winner, "");
-                }
             }
-            // Should not happen — if the INSERT-ON-CONFLICT returned no rows,
-            // there must be a winner. Surface as a controlled 409 to avoid
-            // an unexplained 500.
+            if (winner != null) {
+                if (keyed) {
+                    verifyReplayIdentity(tenantId, storeId, request, fingerprint, winner);
+                }
+                return toCheckoutResponse(winner, "");
+            }
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "idempotency key already claimed but winner could not be loaded");
+                    "checkout claim lost but winner could not be loaded");
         }
 
-        // ===== We are the winner — proceed with order items + status history =====
-        // The order row is already persisted (status=PENDING, payment_status=PENDING).
-        // Now copy cart items to order items, append initial status history,
-        // then run payment + inventory + finance + markCheckedOut.
+        // Persist the request identity in the same transaction as the claim.
+        // The column and index already exist from V20260820_6; no migration is
+        // required for this corrective closure.
+        int fingerprintRows = jdbc.update(
+                "UPDATE commerce_orders SET idempotency_fingerprint=? WHERE tenant_id=? AND id=?",
+                fingerprint, tenantId, orderId);
+        if (fingerprintRows != 1) {
+            throw new IllegalStateException("Failed to persist checkout idempotency fingerprint for " + orderId);
+        }
+
         orderService.completeOrderItemsAndHistory(tenantId, storeId, orderId, request.cartId(),
                 orderNumber, customerRef, snapshot, cart.currency(),
                 subtotal, discount, tax, shipping, grandTotal,
                 request.idempotencyKey(), auth);
 
-        // Create payment intent + verify.
-        // v20260820.6: DefaultNoOpPaymentAdapter returns null/false when no real
-        // PSP is configured. The order is left in PENDING status awaiting
-        // explicit settlement. SimulatedPaymentAdapter (gated by property)
-        // returns sim_pi_* and verifies=true for dev/test.
-        String paymentRef = paymentPort.createPaymentIntent(tenantId, orderId, grandTotal, cart.currency());
-        boolean verified;
-        if (paymentRef == null) {
-            // No PSP configured — never auto-verify, never auto-PAID.
-            // Order stays PENDING; cart stays ACTIVE so a follow-up settlement
-            // can drive it to PAID via an explicit endpoint.
-            verified = false;
-        } else {
-            verified = paymentPort.verifyPayment(tenantId, paymentRef);
-        }
+        String paymentRef = paymentPort.createPaymentIntent(
+                tenantId, orderId, grandTotal, cart.currency());
+        boolean verified = paymentRef != null && paymentPort.verifyPayment(tenantId, paymentRef);
 
-        // Update order payment + status. v20260820.6 introduces a third state
-        // for "no PSP / awaiting settlement" — payment_status=PENDING (not FAILED),
-        // order_status=PENDING.
-        updateOrderPostPayment(tenantId, orderId, paymentRef, verified);
-
-        // v20260820.6 (v12 brief): LOCK THE CART IMMEDIATELY after order creation.
-        // The cart invariant (uk_commerce_orders_tenant_cart) already guarantees
-        // one order per cart at the DB level, but the cart's status must reflect
-        // "converted to an order" — even if payment is still PENDING.
-        // Mark CHECKED_OUT immediately so subsequent cart operations reject.
-        // If payment later settles, the order transitions to PAID+CONFIRMED
-        // via OrderSettlementService — but the cart stays CHECKED_OUT regardless.
-        cartService.markCheckedOut(tenantId, request.cartId());
-
+        // A verified PSP payment must settle physical inventory and Finance
+        // BEFORE Commerce is marked PAID. All operations participate in the
+        // surrounding transaction, so any failure rolls the claim/order back.
         if (verified) {
-            // Confirm inventory (commit the reservation) — NOT silently swallowed.
-            // v12.1: throw on failure → @Transactional rolls back the entire
-            // transaction (order INSERT, cart markCheckedOut, status history).
-            // The client sees a 500 and can retry. PENDING is the retryable state.
-            // (We don't need a SETTLEMENT_FAILED state because the rollback
-            // restores the order row to its pre-checkout state — there is no
-            // order row at all when the transaction rolls back.)
             for (CartItemResponse item : cart.items()) {
                 inventory.confirm(tenantId, item.productId(), item.variantId(), item.quantity());
             }
-            // Record in finance ledger — NOT silently swallowed.
-            // Same rollback semantics as inventory above.
-            financePort.recordOrder(tenantId, orderId);
-        } else if (paymentRef == null) {
-            // No PSP configured — order is PENDING, cart is CHECKED_OUT (locked
-            // above). Manual settlement via POST /api/v1/stores/{storeId}/orders/{orderId}/settle
-            // will drive the order to PAID+CONFIRMED with inventory + finance
-            // side-effects persisted atomically.
-            log.info("checkout: order {} created in PENDING state — no PSP configured; "
-                    + "manual settlement required (tenant={})", orderId, tenantId);
-        } else {
-            // Real PSP declined (paymentRef set, verified=false) — order is FAILED.
+            financePort.markOrderSettled(tenantId, orderId, grandTotal);
+        }
+
+        updateOrderPostPayment(tenantId, orderId, paymentRef, verified);
+        cartService.markCheckedOut(tenantId, request.cartId());
+
+        if (!verified && paymentRef == null) {
+            log.info("checkout: order {} created PENDING — manual settlement required (tenant={})",
+                    orderId, tenantId);
+        } else if (!verified) {
             log.warn("checkout: payment verification failed for order {} (tenant={})", orderId, tenantId);
         }
 
@@ -288,11 +209,120 @@ public class CheckoutService {
         return toCheckoutResponse(finalOrder, paymentRef);
     }
 
+    private void verifyReplayIdentity(UUID tenantId, UUID storeId, CheckoutRequest request,
+                                      String fingerprint, OrderResponse existing) {
+        if (!java.util.Objects.equals(existing.cartId(), request.cartId())
+                || !java.util.Objects.equals(existing.storeId(), storeId)) {
+            throw idempotencyMismatch("key/cart/store identity differs from the existing order");
+        }
+        String persisted = orderService.findIdempotencyFingerprint(tenantId, existing.id());
+        if (persisted == null || persisted.isBlank()) {
+            // Backward-compatible handling for orders created before the
+            // fingerprint column began being populated. Their cart/store
+            // invariant remains enforced; all new orders are strict.
+            log.warn("Legacy idempotency replay without persisted fingerprint: tenant={} order={}",
+                    tenantId, existing.id());
+            return;
+        }
+        if (!persisted.equals(fingerprint)) {
+            throw idempotencyMismatch("key was reused with a different checkout payload");
+        }
+    }
+
+    private ResponseStatusException idempotencyMismatch(String detail) {
+        return new ResponseStatusException(HttpStatus.CONFLICT,
+                "IDEMPOTENCY_KEY_REUSE_MISMATCH: " + detail);
+    }
+
+    /**
+     * Deterministic SHA-256 identity for the business request. The idempotency
+     * key itself is deliberately excluded so same-cart/different-key concurrent
+     * requests can be compared as the same logical checkout.
+     */
+    static String computeIdempotencyFingerprint(UUID tenantId, UUID storeId,
+                                                CheckoutRequest request, CartResponse cart) {
+        StringBuilder canonical = new StringBuilder(1024);
+        append(canonical, "tenant", tenantId);
+        append(canonical, "store", storeId);
+        append(canonical, "cart", request.cartId());
+        append(canonical, "contact", request.customerContactId());
+        append(canonical, "email", normalizeEmail(request.customerEmail()));
+        append(canonical, "name", normalizeText(request.customerName()));
+        append(canonical, "cartCustomer", normalizeText(cart.customerRef()));
+        append(canonical, "currency", normalizeText(cart.currency()));
+        append(canonical, "subtotal", decimal(cart.subtotal()));
+        append(canonical, "metadata", canonicalValue(request.metadata()));
+
+        List<CartItemResponse> items = new ArrayList<>(
+                cart.items() == null ? List.of() : cart.items());
+        items.sort(Comparator
+                .comparing((CartItemResponse i) -> String.valueOf(i.productId()))
+                .thenComparing(i -> String.valueOf(i.variantId()))
+                .thenComparingInt(CartItemResponse::quantity)
+                .thenComparing(i -> decimal(i.unitPrice()))
+                .thenComparing(i -> normalizeText(i.currency())));
+        int index = 0;
+        for (CartItemResponse item : items) {
+            String prefix = "item[" + index++ + "].";
+            append(canonical, prefix + "product", item.productId());
+            append(canonical, prefix + "variant", item.variantId());
+            append(canonical, prefix + "qty", item.quantity());
+            append(canonical, prefix + "unitPrice", decimal(item.unitPrice()));
+            append(canonical, prefix + "currency", normalizeText(item.currency()));
+            append(canonical, prefix + "lineTotal", decimal(item.lineTotal()));
+        }
+
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is not available", impossible);
+        }
+    }
+
+    private static void append(StringBuilder out, String key, Object value) {
+        String text = value == null ? "<null>" : String.valueOf(value);
+        out.append(key.length()).append(':').append(key).append('=')
+                .append(text.length()).append(':').append(text).append(';');
+    }
+
+    private static String canonicalValue(Object value) {
+        if (value == null) return "<null>";
+        if (value instanceof Map<?, ?> map) {
+            TreeMap<String, Object> sorted = new TreeMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                sorted.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+            StringBuilder out = new StringBuilder("{");
+            for (Map.Entry<String, Object> entry : sorted.entrySet()) {
+                append(out, entry.getKey(), canonicalValue(entry.getValue()));
+            }
+            return out.append('}').toString();
+        }
+        if (value instanceof Collection<?> collection) {
+            StringBuilder out = new StringBuilder("[");
+            int i = 0;
+            for (Object item : collection) append(out, String.valueOf(i++), canonicalValue(item));
+            return out.append(']').toString();
+        }
+        if (value instanceof BigDecimal decimal) return decimal(decimal);
+        return String.valueOf(value);
+    }
+
+    private static String normalizeEmail(String value) {
+        return value == null ? null : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeText(String value) {
+        return value == null ? null : value.trim();
+    }
+
+    private static String decimal(BigDecimal value) {
+        return value == null ? null : value.stripTrailingZeros().toPlainString();
+    }
+
     private void updateOrderPostPayment(UUID tenantId, UUID orderId, String paymentRef, boolean verified) {
-        // v20260820.6: Three payment states:
-        //   paymentRef=null + verified=false → PENDING (no PSP configured, awaiting settlement)
-        //   paymentRef!=null + verified=true → PAID + CONFIRMED
-        //   paymentRef!=null + verified=false → FAILED + PENDING
         String newPaymentStatus;
         String newOrderStatus;
         String reason;
@@ -313,7 +343,6 @@ public class CheckoutService {
         jdbc.update("UPDATE commerce_orders SET payment_status = ?, status = ?, updated_at = ?, version = version + 1 "
                         + "WHERE tenant_id = ? AND id = ?",
                 newPaymentStatus, newOrderStatus, now, tenantId, orderId);
-        // Append status history
         jdbc.update("INSERT INTO commerce_order_status_history (id, tenant_id, order_id, from_status, to_status, "
                         + "from_payment, to_payment, reason, actor, created_at) "
                         + "VALUES (?, ?, ?, 'PENDING', ?, 'PENDING', ?, ?, ?, ?)",
