@@ -1,0 +1,69 @@
+# ============================================================
+# SANAD Platform — `pg-acceptance` TEST profile
+# ------------------------------------------------------------
+# THIS PROFILE LIVES IN src/test/resources AND IS NOT PACKAGED
+# INTO THE PRODUCTION JAR / DOCKER IMAGE.
+# (PG_ACCEPTANCE_PROFILE_NOT_PACKAGED_IN_PRODUCTION=PASS)
+#
+# Used exclusively by CommerceOrderPostgresConcurrencyTest to
+# run PostgreSQL-direct concurrency certification against a
+# dedicated ISOLATED acceptance database — NEVER against the
+# production Supabase / Render managed database.
+# (PG_ACCEPTANCE_DB_ISOLATED=PASS, PRODUCTION_DB_TARGET_GUARD=PASS)
+#
+# Dedicated credentials are required — the profile does NOT
+# fall back to DATABASE_URL / SPRING_DATASOURCE_URL /
+# DATABASE_USERNAME / DATABASE_PASSWORD. A fail-fast guard
+# (PgAcceptanceDatabaseGuard) aborts startup if the configured
+# JDBC URL matches the production database host / database
+# name.
+# ============================================================
+
+spring:
+  datasource:
+    # Dedicated acceptance credentials ONLY — no fallback to prod env vars.
+    url: ${PG_ACCEPTANCE_JDBC_URL:}
+    username: ${PG_ACCEPTANCE_USERNAME:}
+    password: ${PG_ACCEPTANCE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 5
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    enabled: true
+    locations: "classpath:db/migration,classpath:db/vendor/postgresql"
+    baseline-on-migrate: true
+    clean-disabled: true
+    validate-on-migrate: true
+    out-of-order: false
+
+  h2:
+    console:
+      enabled: false
+
+# RLS is disabled ONLY for this dedicated isolated acceptance DB
+# so test fixtures can seed cross-tenant data. The application
+# layer still enforces tenant isolation via SecurityContextUtils.
+# PRODUCTION_RLS_NEVER_DISABLED=PASS — the prod profile never
+# disables RLS; only this isolated test profile does.
+sanad:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:}
+  rls:
+    enabled: false
+
+logging:
+  level:
+    root: INFO
+    com.sanad.platform: INFO
+    org.hibernate.SQL: WARN
+    org.flywaydb: INFO

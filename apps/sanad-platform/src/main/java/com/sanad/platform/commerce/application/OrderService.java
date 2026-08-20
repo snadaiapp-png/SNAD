@@ -330,14 +330,36 @@ public class OrderService {
     }
 
     /**
-     * Resolve an existing order by its idempotency key (returns null if none).
+     * Resolve an existing order by its idempotency key (tenant-scoped canonical
+     * contract — v20260820.4). Returns null if no order has claimed this key
+     * in the tenant. The caller (CheckoutService) is responsible for verifying
+     * that the existing order's {@code store_id} and {@code cart_id} match the
+     * new request; if they differ, the caller MUST surface HTTP 409
+     * {@code IDEMPOTENCY_KEY_REUSE_MISMATCH}.
      */
-    OrderResponse findByIdempotencyKey(UUID tenantId, UUID storeId, String idempotencyKey) {
+    OrderResponse findByIdempotencyKey(UUID tenantId, String idempotencyKey) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) return null;
         try {
             return jdbc.queryForObject(
-                    "SELECT * FROM commerce_orders WHERE tenant_id = ? AND store_id = ? AND idempotency_key = ?",
-                    this::mapRow, tenantId, storeId, idempotencyKey);
+                    "SELECT * FROM commerce_orders WHERE tenant_id = ? AND idempotency_key = ?",
+                    this::mapRow, tenantId, idempotencyKey);
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Resolve an existing order by its cart (for the no-key concurrent path).
+     * The unique index {@code uk_commerce_orders_tenant_cart} guarantees at
+     * most one order per (tenant_id, cart_id) — this method returns that
+     * order if it exists, null otherwise.
+     */
+    OrderResponse findByCart(UUID tenantId, UUID cartId) {
+        if (cartId == null) return null;
+        try {
+            return jdbc.queryForObject(
+                    "SELECT * FROM commerce_orders WHERE tenant_id = ? AND cart_id = ?",
+                    this::mapRow, tenantId, cartId);
         } catch (EmptyResultDataAccessException e) {
             return null;
         }
@@ -350,21 +372,40 @@ public class OrderService {
      * never aborts the surrounding transaction (no DuplicateKeyException,
      * no transaction-abort-then-query race).
      *
+     * <p><b>Canonical idempotency scope (v20260820.4)</b>: the idempotency
+     * contract is TENANT-scoped — an idempotency_key identifies one logical
+     * order per tenant. The unique constraint
+     * {@code uk_commerce_orders_idempotency (tenant_id, idempotency_key)}
+     * is the canonical arbiter; the previously-introduced store-scoped
+     * index has been dropped (see V20260820_4).
+     *
+     * <p><b>One-order-per-cart invariant (v20260820.4)</b>: the unique
+     * index {@code uk_commerce_orders_tenant_cart (tenant_id, cart_id)
+     * WHERE cart_id IS NOT NULL} guarantees at most one order per cart
+     * per tenant at the DB level — even when no idempotency key is
+     * supplied and two concurrent requests both observe cart.status=ACTIVE.
+     * When a no-key insert collides on this constraint, the
+     * {@code ON CONFLICT DO NOTHING RETURNING} returns zero rows and the
+     * caller falls back to a lookup by (tenant_id, store_id, cart_id).
+     *
      * <p>Returns:
      * <ul>
      *   <li>{@link Optional#empty()} if the idempotency key was already
      *       claimed by a concurrent request — the caller MUST fall back to
      *       {@link #findByIdempotencyKey(UUID, UUID, String)} to read the
-     *       winner's order.</li>
+     *       winner's order and verify the request matches (same cart_id,
+     *       store_id, customer) — if the request differs, the caller MUST
+     *       surface HTTP 409 IDEMPOTENCY_KEY_REUSE_MISMATCH.</li>
      *   <li>{@link Optional#of(orderId)} if this caller successfully claimed
      *       the idempotency key and persisted the order row — the caller
      *       MUST proceed to copy cart items + status history + payment +
      *       inventory + finance + markCheckedOut.</li>
      * </ul>
      *
-     * <p>When {@code idempotencyKey} is null or blank, this method always
-     * inserts (no ON CONFLICT clause) — idempotency replay is the caller's
-     * responsibility in that case (sequential only).
+     * <p>When {@code idempotencyKey} is null or blank, this method still
+     * uses {@code ON CONFLICT DO NOTHING} against the cart-unique index
+     * so that concurrent no-key requests on the same cart produce at
+     * most one order.
      */
     java.util.Optional<UUID> tryClaimIdempotencyKey(UUID tenantId, UUID storeId, UUID orderId,
                                                      String orderNumber, UUID cartId,
@@ -375,27 +416,32 @@ public class OrderService {
         Instant now = Instant.now();
         String sql;
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
-            // Atomic claim-or-detect. ON CONFLICT (tenant_id, store_id, idempotency_key) DO NOTHING
-            // means a concurrent winner will leave our insert as a no-op, and RETURNING id will
-            // return zero rows — telling us to fall back to findByIdempotencyKey.
+            // Atomic claim-or-detect against the TENANT-scoped unique constraint
+            // uk_commerce_orders_idempotency (tenant_id, idempotency_key).
+            // If a concurrent winner already claimed this (tenant, key) pair,
+            // our insert is a no-op and RETURNING id yields zero rows.
+            // The cart invariant (uk_commerce_orders_tenant_cart) is also
+            // enforced: if the same cart already has an order, the insert
+            // is also a no-op (no constraint violation raised).
             sql = "INSERT INTO commerce_orders (id, tenant_id, store_id, order_number, cart_id, "
                     + "customer_reference, customer_snapshot, currency, subtotal, discount_total, tax_total, "
                     + "shipping_total, grand_total, payment_status, fulfillment_status, status, "
                     + "idempotency_key, version, created_at, updated_at) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, 'PENDING', 'UNFULFILLED', 'PENDING', ?, 0, ?, ?) "
-                    + "ON CONFLICT (tenant_id, store_id, idempotency_key) DO NOTHING "
+                    + "ON CONFLICT (tenant_id, idempotency_key) DO NOTHING "
                     + "RETURNING id";
         } else {
-            // No idempotency key supplied — plain insert (caller accepts potential
-            // DuplicateKeyException if two no-key requests race on the same order_number
-            // — but the order_number is allocated atomically via the sequence allocator,
-            // so this is only an issue if two requests without idempotency keys race
-            // on the same cart, which the cart.status guard catches).
+            // No idempotency key — still atomic via the cart invariant.
+            // The unique index uk_commerce_orders_tenant_cart (tenant_id, cart_id)
+            // guarantees at most one order per cart per tenant. ON CONFLICT
+            // DO NOTHING + RETURNING detects the existing order without raising
+            // a constraint violation.
             sql = "INSERT INTO commerce_orders (id, tenant_id, store_id, order_number, cart_id, "
                     + "customer_reference, customer_snapshot, currency, subtotal, discount_total, tax_total, "
                     + "shipping_total, grand_total, payment_status, fulfillment_status, status, "
                     + "idempotency_key, version, created_at, updated_at) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, 'PENDING', 'UNFULFILLED', 'PENDING', ?, 0, ?, ?) "
+                    + "ON CONFLICT (tenant_id, cart_id) WHERE cart_id IS NOT NULL DO NOTHING "
                     + "RETURNING id";
         }
         try {
@@ -408,9 +454,10 @@ public class OrderService {
             return java.util.Optional.of(insertedId);
         } catch (EmptyResultDataAccessException e) {
             // ON CONFLICT DO NOTHING returned no rows — a concurrent request
-            // claimed this idempotency key first. Tell the caller to fall back
-            // to findByIdempotencyKey. The surrounding transaction is NOT aborted
-            // because no constraint violation was raised.
+            // claimed this idempotency key (or this cart) first. Tell the
+            // caller to fall back to findByIdempotencyKey. The surrounding
+            // transaction is NOT aborted because no constraint violation was
+            // raised.
             return java.util.Optional.empty();
         }
     }

@@ -97,11 +97,34 @@ public class CheckoutService {
         if (request == null || request.cartId() == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cartId is required");
 
-        // ===== Sequential idempotency replay (fast path) =====
+        // ===== Sequential idempotency replay (fast path) — with request-identity check =====
         if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
-            OrderResponse existing = orderService.findByIdempotencyKey(tenantId, storeId, request.idempotencyKey());
+            OrderResponse existing = orderService.findByIdempotencyKey(tenantId, request.idempotencyKey());
             if (existing != null) {
+                // Verify the existing order's request identity matches this request.
+                // An idempotency key identifies ONE logical request — if the caller
+                // reuses it with a different cart or store, that's a contract violation
+                // (IDEMPOTENCY_KEY_REUSE_MISMATCH) and MUST surface as HTTP 409 — NOT
+                // as a silent return-winner.
+                if (!java.util.Objects.equals(existing.cartId(), request.cartId())
+                        || !java.util.Objects.equals(existing.storeId(), storeId)) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "IDEMPOTENCY_KEY_REUSE_MISMATCH: key already bound to a different cart or store");
+                }
                 return toCheckoutResponse(existing, "");
+            }
+        }
+
+        // ===== Sequential no-key replay (cart already checked out) =====
+        // When no idempotency key is supplied, the canonical cart invariant
+        // (uk_commerce_orders_tenant_cart) guarantees at most one order per
+        // (tenant_id, cart_id). If the cart already has an order, this is a
+        // sequential replay — return the existing order. (Concurrent no-key
+        // requests are handled atomically by tryClaimIdempotencyKey below.)
+        if (request.idempotencyKey() == null || request.idempotencyKey().isBlank()) {
+            OrderResponse existingByCart = orderService.findByCart(tenantId, request.cartId());
+            if (existingByCart != null) {
+                return toCheckoutResponse(existingByCart, "");
             }
         }
 
@@ -151,24 +174,39 @@ public class CheckoutService {
         String orderNumber = orderService.generateOrderNumber(tenantId, storeId);
         UUID orderId = UUID.randomUUID();
 
-        // ===== Atomic idempotency claim (PostgreSQL-safe) =====
+        // ===== Atomic idempotency / cart claim (PostgreSQL-safe) =====
         // tryClaimIdempotencyKey uses INSERT ... ON CONFLICT DO NOTHING RETURNING.
-        // Returns Optional.of(orderId) on success, Optional.empty() if a concurrent
-        // winner already claimed this (tenant_id, store_id, idempotency_key). The
-        // surrounding transaction is NEVER aborted because no constraint violation
-        // is raised.
+        // For idempotency-key requests: ON CONFLICT (tenant_id, idempotency_key) DO NOTHING.
+        // For no-key requests: ON CONFLICT (tenant_id, cart_id) WHERE cart_id IS NOT NULL DO NOTHING.
+        // Either way, no constraint violation is ever raised, so the surrounding
+        // transaction is never aborted.
         Optional<UUID> claimed = orderService.tryClaimIdempotencyKey(
                 tenantId, storeId, orderId, orderNumber, request.cartId(),
                 customerRef, snapshot, cart.currency(), subtotal, discount,
                 tax, shipping, grandTotal, request.idempotencyKey(), auth);
 
         if (claimed.isEmpty()) {
-            // Concurrent winner claimed this idempotency key. Transaction is
-            // still alive (no constraint violation). Fall back to reading the
-            // winner's order.
-            OrderResponse winner = orderService.findByIdempotencyKey(tenantId, storeId, request.idempotencyKey());
-            if (winner != null) {
-                return toCheckoutResponse(winner, "");
+            // Concurrent winner claimed this idempotency key OR this cart.
+            // Transaction is still alive (no constraint violation). Fall back to
+            // reading the winner's order — and verify request identity.
+            OrderResponse winner;
+            if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
+                winner = orderService.findByIdempotencyKey(tenantId, request.idempotencyKey());
+                if (winner != null) {
+                    // Request-identity check — same as sequential path
+                    if (!java.util.Objects.equals(winner.cartId(), request.cartId())
+                            || !java.util.Objects.equals(winner.storeId(), storeId)) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "IDEMPOTENCY_KEY_REUSE_MISMATCH: key already bound to a different cart or store");
+                    }
+                    return toCheckoutResponse(winner, "");
+                }
+            } else {
+                // No-key concurrent path — winner is the order that claimed this cart
+                winner = orderService.findByCart(tenantId, request.cartId());
+                if (winner != null) {
+                    return toCheckoutResponse(winner, "");
+                }
             }
             // Should not happen — if the INSERT-ON-CONFLICT returned no rows,
             // there must be a winner. Surface as a controlled 409 to avoid
