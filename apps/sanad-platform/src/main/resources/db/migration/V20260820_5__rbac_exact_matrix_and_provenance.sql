@@ -70,20 +70,20 @@ COMMENT ON COLUMN roles.template_version IS
 --    AND whose code matches one of the 9 canonical codes are stamped.
 --    This ensures customer roles are NOT silently taken over.
 -- ============================================================
-UPDATE roles
+UPDATE roles AS r
 SET role_origin = 'SNAD_TEMPLATE',
     template_key = r.code,
     template_version = 'V20260820_2',
     updated_at = CURRENT_TIMESTAMP
-WHERE is_system_managed = TRUE
-  AND code IN (
+WHERE r.is_system_managed = TRUE
+  AND r.code IN (
     'CRM_SALES', 'HR_MANAGER',
     'ERP_PURCHASER', 'ERP_APPROVER',
     'FINANCE_USER', 'FINANCE_APPROVER',
     'STORE_MANAGER', 'WORKFLOW_APPROVER',
     'EXECUTIVE_VIEWER'
   )
-  AND role_origin IS NULL;
+  AND r.role_origin IS NULL;
 
 -- ============================================================
 -- 3. Remove obsolete grants from system-managed SNAD_TEMPLATE roles.

@@ -29,15 +29,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_finance_invoices_tenant_external_ref
 
 -- ============================================================
 -- 2. commerce_order_finance_links
+--    v20260820.6 hardening (per v12 brief): real FK integrity to
+--    commerce_orders + finance_invoices via tenant-aware composite FKs.
+--    Existing unique keys on commerce_orders (tenant_id, id) and
+--    finance_invoices (tenant_id, id) are inherited from V20260816_5 +
+--    V20260815_16 — the FKs below reference those composite keys so
+--    PostgreSQL can enforce referential integrity cross-tenant.
+--    No orphan linkage rows are allowed.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS commerce_order_finance_links (
     id                  UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-    tenant_id           UUID        NOT NULL REFERENCES tenants(id),
+    tenant_id           UUID        NOT NULL,
     commerce_order_id   UUID        NOT NULL,
     finance_invoice_id  UUID        NOT NULL,
     linked_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uk_commerce_order_finance_link_order UNIQUE (tenant_id, commerce_order_id),
-    CONSTRAINT uk_commerce_order_finance_link_invoice UNIQUE (tenant_id, finance_invoice_id)
+    CONSTRAINT uk_commerce_order_finance_link_invoice UNIQUE (tenant_id, finance_invoice_id),
+    -- v20260820.6: tenant-aware FK to commerce_orders (tenant_id, id)
+    CONSTRAINT fk_commerce_order_finance_links_order
+        FOREIGN KEY (tenant_id, commerce_order_id)
+        REFERENCES commerce_orders(tenant_id, id)
+        ON DELETE CASCADE,
+    -- v20260820.6: tenant-aware FK to finance_invoices (tenant_id, id)
+    CONSTRAINT fk_commerce_order_finance_links_invoice
+        FOREIGN KEY (tenant_id, finance_invoice_id)
+        REFERENCES finance_invoices(tenant_id, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_commerce_order_finance_links_tenant
@@ -88,7 +105,15 @@ CREATE TABLE IF NOT EXISTS role_template_bindings (
     provisioned_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     provisioned_by    VARCHAR(100),
     CONSTRAINT uk_role_template_bindings_tenant_role UNIQUE (tenant_id, role_id),
-    CONSTRAINT uk_role_template_bindings_tenant_template UNIQUE (tenant_id, template_key)
+    CONSTRAINT uk_role_template_bindings_tenant_template UNIQUE (tenant_id, template_key),
+    -- v20260820.6: FK to roles (tenant_id, id) — ensures the role exists
+    -- before a binding can be recorded. ON DELETE CASCADE so a deleted
+    -- role also clears its binding (defensive — customer roles are normally
+    -- not hard-deleted, but if they are, the binding goes with them).
+    CONSTRAINT fk_role_template_bindings_role
+        FOREIGN KEY (tenant_id, role_id)
+        REFERENCES roles(tenant_id, id)
+        ON DELETE CASCADE
 );
 
 COMMENT ON TABLE role_template_bindings IS
@@ -217,5 +242,93 @@ BEGIN
         RAISE EXCEPTION
             'HR_MANAGER exact-matrix validation failed for bound SNAD_TEMPLATE roles: % roles have unexpected capabilities. RBAC_EXACT_MATRIX=FAIL.',
             bad_role_count;
+    END IF;
+END $$;
+
+-- ============================================================
+-- 8. RLS governance for new tenant-scoped tables (v20260820.6 — v12 brief)
+-- ============================================================
+-- All four new tables are tenant-scoped business records. They must be
+-- governed by Row-Level Security in production, mirroring the existing
+-- pattern used for commerce_orders, finance_invoices, etc.
+-- (V20260816_6 + V20260816_8 enable RLS on commerce + erp + finance tables).
+--
+-- Tables covered:
+--   commerce_order_number_sequences   (allocator, tenant-scoped)
+--   commerce_order_finance_links     (linkage, tenant-scoped)
+--   finance_invoice_number_sequences (allocator, tenant-scoped)
+--   role_template_bindings           (provenance, tenant-scoped)
+--
+-- Allocator tables (commerce_order_number_sequences,
+-- finance_invoice_number_sequences) are written by the application via
+-- atomic UPSERT. They are tenant-scoped — the (tenant_id, period) PK
+-- prevents cross-tenant sequence collision. RLS enforces that a query
+-- under a SET LOCAL role_var.tenant_id context can only see rows for
+-- the authenticated tenant.
+--
+-- In the local/H2 profile, RLS is disabled (sanad.rls.enabled=false)
+-- because SET LOCAL is PostgreSQL-specific. In production (PostgreSQL),
+-- RLS is enabled and enforced.
+-- ============================================================
+
+-- 8a. Enable RLS on commerce_order_number_sequences
+-- Pattern matches existing V20260816_6 + V20260816_8 conventions:
+-- current_setting('app.tenant_id', true)::uuid
+ALTER TABLE commerce_order_number_sequences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE commerce_order_number_sequences FORCE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'commerce_order_number_sequences'
+        AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation ON commerce_order_number_sequences
+            USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    END IF;
+END $$;
+
+-- 8b. Enable RLS on commerce_order_finance_links
+ALTER TABLE commerce_order_finance_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE commerce_order_finance_links FORCE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'commerce_order_finance_links'
+        AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation ON commerce_order_finance_links
+            USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    END IF;
+END $$;
+
+-- 8c. Enable RLS on finance_invoice_number_sequences
+ALTER TABLE finance_invoice_number_sequences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE finance_invoice_number_sequences FORCE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'finance_invoice_number_sequences'
+        AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation ON finance_invoice_number_sequences
+            USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    END IF;
+END $$;
+
+-- 8d. Enable RLS on role_template_bindings
+ALTER TABLE role_template_bindings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE role_template_bindings FORCE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'role_template_bindings'
+        AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation ON role_template_bindings
+            USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
     END IF;
 END $$;

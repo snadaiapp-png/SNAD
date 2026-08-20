@@ -16,10 +16,15 @@
 -- with a message that names the offending template and the mismatch.
 -- ============================================================
 
--- Helper: count capabilities on a system-managed role
+-- Helper: count capabilities on a system-managed role.
+-- NOTE: PostgreSQL COUNT(*) returns BIGINT — must cast to INTEGER to match
+-- the RETURNS declaration. Function parameters are named tenant_uuid /
+-- role_uuid and are referenced by name in the WHERE clause (PL/pgSQL
+-- function-argument naming convention).
 CREATE OR REPLACE FUNCTION count_role_caps(tenant_uuid UUID, role_uuid UUID)
 RETURNS INTEGER AS $$
-    SELECT COUNT(*) FROM role_capabilities rc WHERE rc.tenant_id = tenant_uuid AND rc.role_id = role_uuid;
+    SELECT COUNT(*)::INTEGER FROM role_capabilities rc
+    WHERE rc.tenant_id = tenant_uuid AND rc.role_id = role_uuid;
 $$ LANGUAGE SQL STABLE;
 
 DO $$
