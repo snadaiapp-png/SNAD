@@ -11,9 +11,10 @@
 --   * ENABLE ROW LEVEL SECURITY + tenant isolation policy here,
 --     FORCE ROW LEVEL SECURITY in V20260820_12
 
--- users lacks the (tenant_id, id) unique that composite FKs reference; adding
--- it additively enables the tenant-safe agent FK below.
-ALTER TABLE users ADD CONSTRAINT uk_users_tenant_id UNIQUE (tenant_id, id);
+-- The (tenant_id, id) unique on users already exists (V5, uk_users_tenant_id),
+-- so the composite tenant-safe agent FK below can reference it directly.
+-- (v13.0.1: the previous additive ALTER was redundant and failed with 42P07;
+-- this migration never applied anywhere, so it is corrected in place.)
 
 CREATE TABLE crm_call_events (
     id UUID NOT NULL,
