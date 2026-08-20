@@ -1,0 +1,163 @@
+name: Commerce Checkout Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: snadaiapp-png/snad-backend
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull image
+        run: docker pull ${REGISTRY}/${IMAGE_NAME}:42b8357c54b1d22a90d96afe15d74d290d5cb805
+
+      - name: Run container + checkout diagnostic
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          DATABASE_USERNAME: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DATABASE_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+          FLYWAY_ENABLED: false
+          JPA_DDL_AUTO: none
+          SPRING_PROFILES_ACTIVE: prod
+          LAZY_INIT: true
+          SERVER_PORT: 8080
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ secrets.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SANAD_SERVICE_AUTH_JWT_SECRET: ${{ secrets.SANAD_SERVICE_AUTH_JWT_SECRET }}
+          SANAD_CORS_ALLOWED_ORIGINS: https://snad-app.vercel.app
+          SANAD_WORKFLOW_ENGINE_BASE_URL: https://sanad-backend-mcrj.onrender.com
+          SANAD_AI_GATEWAY_BASE_URL: https://sanad-backend-mcrj.onrender.com
+          SANAD_PRODUCTION_GUARD_ENABLED: false
+        run: |
+          set +e
+          mkdir -p logs
+          docker run --rm \
+            --name commerce-diag \
+            --memory=512m --memory-swap=512m \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e DATABASE_USERNAME="$DATABASE_USERNAME" \
+            -e DATABASE_PASSWORD="$DATABASE_PASSWORD" \
+            -e FLYWAY_ENABLED="$FLYWAY_ENABLED" \
+            -e JPA_DDL_AUTO="$JPA_DDL_AUTO" \
+            -e SPRING_PROFILES_ACTIVE="$SPRING_PROFILES_ACTIVE" \
+            -e LAZY_INIT="$LAZY_INIT" \
+            -e SERVER_PORT="$SERVER_PORT" \
+            -e CRM_CUSTOM_FIELD_ENCRYPTION_KEY="$CRM_CUSTOM_FIELD_ENCRYPTION_KEY" \
+            -e JWT_SECRET="$JWT_SECRET" \
+            -e SANAD_SERVICE_AUTH_JWT_SECRET="$SANAD_SERVICE_AUTH_JWT_SECRET" \
+            -e SANAD_CORS_ALLOWED_ORIGINS="$SANAD_CORS_ALLOWED_ORIGINS" \
+            -e SANAD_WORKFLOW_ENGINE_BASE_URL="$SANAD_WORKFLOW_ENGINE_BASE_URL" \
+            -e SANAD_AI_GATEWAY_BASE_URL="$SANAD_AI_GATEWAY_BASE_URL" \
+            -e SANAD_PRODUCTION_GUARD_ENABLED="$SANAD_PRODUCTION_GUARD_ENABLED" \
+            ${REGISTRY}/${IMAGE_NAME}:42b8357c54b1d22a90d96afe15d74d290d5cb805 \
+            > logs/container.log 2>&1 &
+          CONTAINER_PID=$!
+          echo "Container PID: $CONTAINER_PID"
+
+          # Wait for health
+          for i in $(seq 1 48); do
+            sleep 5
+            if ! kill -0 $CONTAINER_PID 2>/dev/null; then
+              echo "Container exited at attempt $i"
+              break
+            fi
+            CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' commerce-diag 2>/dev/null || true)
+            if [ -n "$CONTAINER_IP" ]; then
+              HEALTH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://${CONTAINER_IP}:8080/actuator/health" 2>/dev/null || echo "000")
+              echo "  attempt $i (~$((i*5))s): health=$HEALTH"
+              if [ "$HEALTH" = "200" ]; then
+                echo "  ✅ Container healthy! Running checkout diagnostic..."
+
+                # Login as acceptance user
+                TOKEN=$(curl -s --max-time 10 -X POST "http://${CONTAINER_IP}:8080/api/v1/auth/login" \
+                  -H "Content-Type: application/json" \
+                  -d '{"email":"auth.smoke.tenant.a@snad-acceptance.test","password":"AuthSmokeA!2026"}' \
+                  | python3 -c "import sys, json; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null || echo "")
+                echo "  Token: ${TOKEN:0:20}..."
+
+                if [ -n "$TOKEN" ]; then
+                  TS=$(date +%s)
+
+                  # Create store
+                  STORE_ID=$(curl -s --max-time 10 -X POST "http://${CONTAINER_IP}:8080/api/v1/stores" \
+                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                    -d "{\"name\":\"Diag Store $TS\",\"slug\":\"diag-$TS\",\"currency\":\"SAR\"}" \
+                    | python3 -c "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+                  echo "  Store: $STORE_ID"
+
+                  # Create product
+                  PROD_ID=$(curl -s --max-time 10 -X POST "http://${CONTAINER_IP}:8080/api/v1/stores/$STORE_ID/products" \
+                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                    -d "{\"name\":\"Diag Product $TS\",\"sku\":\"DIAG-$TS\",\"productType\":\"PHYSICAL\"}" \
+                    | python3 -c "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+                  echo "  Product: $PROD_ID"
+
+                  # Publish
+                  curl -s --max-time 10 -X POST "http://${CONTAINER_IP}:8080/api/v1/stores/$STORE_ID/products/$PROD_ID/publish" \
+                    -H "Authorization: Bearer $TOKEN" > /dev/null
+
+                  # Create price
+                  curl -s --max-time 10 -X POST "http://${CONTAINER_IP}:8080/api/v1/stores/$STORE_ID/products/$PROD_ID/prices" \
+                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                    -d '{"currency":"SAR","amount":100.00,"validFrom":"2026-08-19T00:00:00Z","validTo":"2026-12-31T23:59:59Z"}' > /dev/null
+
+                  # Create cart
+                  CART_ID=$(curl -s --max-time 10 -X POST "http://${CONTAINER_IP}:8080/api/v1/stores/$STORE_ID/carts" \
+                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                    -d "{\"customerRef\":\"diag-$TS\",\"currency\":\"SAR\"}" \
+                    | python3 -c "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+                  echo "  Cart: $CART_ID"
+
+                  # Add item
+                  curl -s --max-time 10 -X POST "http://${CONTAINER_IP}:8080/api/v1/stores/$STORE_ID/carts/$CART_ID/items" \
+                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                    -d "{\"productId\":\"$PROD_ID\",\"quantity\":1}" > /dev/null
+
+                  # CHECKOUT — this should produce the 500 + stack trace in the container log
+                  echo "  === CHECKOUT REQUEST ==="
+                  CHECKOUT_RESP=$(curl -s --max-time 15 -X POST "http://${CONTAINER_IP}:8080/api/v1/stores/$STORE_ID/checkout" \
+                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                    -d "{\"cartId\":\"$CART_ID\",\"customerEmail\":\"diag-$TS@test.test\",\"customerName\":\"Diag Customer\"}")
+                  echo "  Checkout response: $CHECKOUT_RESP"
+                fi
+
+                # Wait a moment for logs to flush
+                sleep 2
+                docker kill commerce-diag 2>/dev/null || true
+                break
+              fi
+            fi
+          done
+
+          # Capture full container log (includes the 500 exception stack trace)
+          echo "=== Container log size: $(wc -c < logs/container.log) bytes ==="
+
+      - name: Search log for exceptions
+        run: |
+          echo "=== EXCEPTION SEARCH ==="
+          grep -n -i -E "Exception|ERROR|500|checkout|commerce_order|INSERT|RLS|tenant_id|SET LOCAL|BadSqlGrammar|DataIntegrity|ConstraintViolation" logs/container.log 2>/dev/null | head -50
+
+      - name: Show last 50 lines of container log
+        run: tail -50 logs/container.log
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: commerce-checkout-diagnostic-log
+          path: logs/
+          retention-days: 14
