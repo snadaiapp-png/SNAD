@@ -10,3 +10,7 @@ README.md:sidekiq-secret:50
 # G7 documentation examples — synthetic opaque token / SecureStore alias, NOT secrets
 /repo/G7_DATA_MODEL_FINAL_BASELINE.md:generic-api-key:377
 /repo/G7_M13_SECURITY_RUNTIME_AUDIT.md:generic-api-key:68
+
+# G8 documentation HMAC parity vectors — synthetic test fixture (G8-03 §51), NOT secrets
+/repo/docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:28
+/repo/docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:29

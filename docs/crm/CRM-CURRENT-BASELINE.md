@@ -241,6 +241,27 @@ section. The `Status: MERGED` column simply records that the migration
 file is part of the deployed `db/migration/` set and must be honoured
 by the drift check.
 
+## 7a. G8 caller-identification ledger recovery (2026-08-20, P0)
+
+`main` commit `f4e61b35` restored the four Flyway migrations that the
+production database applied during the G8 autodeploy window; they were
+separated out of main with the unfinished G8 code and are now restored
+byte-for-byte (Flyway checksums match production history: V10=-1956108023,
+V11=194560588, V12=1662082071, V13=-278071409). The G8 runtime, mobile,
+OpenAPI and execution-board state are NOT part of this ledger entry; the
+drift check must recognise these files as authoritative on the corrected
+ledger (`LATEST = 20260820.13`).
+
+Documentation-only reconciliation, same rules as §7: no history rewrite,
+no production SQL, no checksum change.
+
+| Version | Exact file | Ownership | Status |
+|---|---|---|---|
+| `20260820.10` | `V20260820_10__seed_crm_caller_identification_capabilities.sql` | G8 (ADR-004) / RBAC | MERGED |
+| `20260820.11` | `V20260820_11__create_crm_call_events.sql` | G8 (ADR-003) / call events | MERGED |
+| `20260820.12` | `V20260820_12__force_rls_crm_call_events.sql` | G8 (ADR-003) / RLS | MERGED |
+| `20260820.13` | `V20260820_13__seed_crm_call_event_capabilities.sql` | G8 (ADR-003) / RBAC | MERGED |
+
 ## 8. CRM-009 implementation baseline
 
 CRM-009 implements Workflow Engine & AI Gateway Integration through PR #704:
