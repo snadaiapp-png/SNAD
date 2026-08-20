@@ -35,11 +35,27 @@ jobs:
       - name: Install dependencies for RED verification
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
-      - name: Verify pagination regression test (RED before production fix)
+      - name: Verify pagination regression test
         run: npm test -- --runInBand src/__tests__/sync-pagination.test.ts
 
       - name: Typecheck mobile client
-        run: npm run typecheck
+        id: typecheck
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee ../../g7-typecheck.log
+
+      - name: Upload typecheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g7-typecheck
+          path: g7-typecheck.log
+          if-no-files-found: error
+
+      - name: Fail on typecheck errors
+        if: steps.typecheck.outcome == 'failure'
+        run: exit 1
 
       - name: Run mobile test suite
         run: npm test -- --runInBand
