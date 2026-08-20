@@ -1,6 +1,5 @@
 package com.sanad.platform.executive.service;
 
-import com.sanad.platform.admin.api.AdminDtos;
 import com.sanad.platform.admin.api.AdminDtos.DashboardResponse;
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.api.AdminDtos.CreateTenantRequest;
@@ -22,8 +21,7 @@ import java.util.*;
 
 /**
  * Executive Management application service.
- * Owns: tenant management, dashboard metrics, organization directory.
- * Does NOT own: system services, health monitoring, audit (cross-cutting infra).
+ * Owns tenant management, dashboard metrics, and organization directory.
  */
 @Service
 public class ExecutivePlatformService {
@@ -100,22 +98,32 @@ public class ExecutivePlatformService {
 
     @Transactional
     public TenantResponse createTenant(CreateTenantRequest request, Authentication authentication) {
-        UUID tenantId = UUID.randomUUID();
+        // RegistrationProvisioner is the single tenant-creation authority. The
+        // previous implementation inserted one tenant here and then called the
+        // provisioner, which created a second tenant containing the administrator
+        // and roles. Use the provisioner's tenant id and update that same row.
+        RegistrationProvisioner.ProvisionedRegistration provisioned = registrationProvisioner.provision(
+                request.adminEmail(), request.adminDisplayName(), request.name(), request.subdomain(),
+                null, request.countryCode());
+        UUID tenantId = provisioned.tenantId();
+
+        Timestamp trialEndsAt = request.trialDays() != null && request.trialDays() > 0
+                ? Timestamp.from(Instant.now().plusSeconds(request.trialDays() * 86400L))
+                : null;
         jdbcTemplate.update(
-                "INSERT INTO tenants (id, name, legal_name, subdomain, status, billing_email, country_code, locale, timezone, currency_code, trial_ends_at, created_at, updated_at) " +
-                        "VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, NOW(), NOW())",
-                tenantId, request.name(), request.legalName(), request.subdomain(),
-                request.billingEmail(), request.countryCode(),
+                "UPDATE tenants SET name=?, legal_name=?, subdomain=?, status='PENDING', billing_email=?, "
+                        + "country_code=?, locale=?, timezone=?, currency_code=?, trial_ends_at=?, updated_at=NOW() "
+                        + "WHERE id=?",
+                request.name(), request.legalName(), request.subdomain(), request.billingEmail(), request.countryCode(),
                 request.locale() != null ? request.locale() : "en",
                 request.timezone() != null ? request.timezone() : "UTC",
                 request.currencyCode() != null ? request.currencyCode() : "SAR",
-                request.trialDays() != null && request.trialDays() > 0
-                        ? Timestamp.from(Instant.now().plusSeconds(request.trialDays() * 86400L))
-                        : null
-        );
-        registrationProvisioner.provision(request.adminEmail(), request.adminDisplayName(), request.name(), request.subdomain(), null, request.countryCode());
-        auditService.success(authentication, tenantId, "CREATE_TENANT", "TENANT", tenantId.toString(), request.name(), null, getTenant(tenantId));
-        return getTenant(tenantId);
+                trialEndsAt, tenantId);
+
+        TenantResponse created = getTenant(tenantId);
+        auditService.success(authentication, tenantId, "CREATE_TENANT", "TENANT", tenantId.toString(),
+                request.name(), null, created);
+        return created;
     }
 
     @Transactional
@@ -131,7 +139,8 @@ public class ExecutivePlatformService {
                 request.status(),
                 "SUSPENDED".equals(request.status()) || "CANCELLED".equals(request.status()) ? request.reason() : null,
                 tenantId);
-        auditService.success(authentication, tenantId, "CHANGE_TENANT_STATUS", "TENANT", tenantId.toString(), before.status() + " -> " + request.status(), before, getTenant(tenantId));
+        auditService.success(authentication, tenantId, "CHANGE_TENANT_STATUS", "TENANT", tenantId.toString(),
+                before.status() + " -> " + request.status(), before, getTenant(tenantId));
         return getTenant(tenantId);
     }
 

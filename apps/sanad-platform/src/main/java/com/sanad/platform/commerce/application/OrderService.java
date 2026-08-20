@@ -3,13 +3,7 @@ package com.sanad.platform.commerce.application;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
-import com.sanad.platform.commerce.domain.CommerceCustomerPort;
 import com.sanad.platform.commerce.domain.CommerceDomain;
-import com.sanad.platform.commerce.domain.CommerceFinancePort;
-import com.sanad.platform.commerce.domain.PaymentGatewayPort;
-import com.sanad.platform.commerce.domain.ShippingQuotePort;
-import com.sanad.platform.commerce.domain.TaxCalculationPort;
-import com.sanad.platform.commerce.domain.InventoryAvailabilityPort;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,21 +18,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Order application service (v20260816.5).
- *
- * <p>Tenant + store-scoped order read / list / cancel / getItems.
- * Order creation itself lives in {@link CheckoutService} (it must
- * atomically convert a cart into an order, calculate tax + shipping,
- * reserve / confirm inventory, create a payment intent, etc.).
- *
- * <p>Order status history is appended on every status transition (cancel).
- */
+/** Order application service. */
 @Service
 public class OrderService {
 
@@ -77,7 +61,6 @@ public class OrderService {
         jdbc.update("UPDATE commerce_orders SET status = 'CANCELLED', fulfillment_status = 'CANCELLED', "
                         + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
                 Timestamp.from(now), tenantId, orderId);
-        // Append history
         jdbc.update("INSERT INTO commerce_order_status_history (id, tenant_id, order_id, from_status, to_status, "
                         + "from_payment, to_payment, reason, actor, created_at) "
                         + "VALUES (?, ?, ?, ?, 'CANCELLED', ?, 'FAILED', 'cancelled by user', ?, ?)",
@@ -88,12 +71,11 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderItemResponse> getItems(UUID tenantId, UUID storeId, UUID orderId) {
-        getOrThrow(tenantId, storeId, orderId); // ensure order exists in tenant+store scope
+        getOrThrow(tenantId, storeId, orderId);
         return jdbc.query("SELECT * FROM commerce_order_items WHERE tenant_id = ? AND order_id = ? ORDER BY created_at",
                 this::mapItemRow, tenantId, orderId);
     }
 
-    // ===== Helpers =====
     private OrderResponse getOrThrow(UUID tenantId, UUID storeId, UUID orderId) {
         try {
             return jdbc.queryForObject(
@@ -152,26 +134,8 @@ public class OrderService {
                 rs.getObject("created_at", Timestamp.class).toInstant());
     }
 
-    // ===== Checkout helpers (package-private, invoked by CheckoutService) =====
+    // ===== Checkout helpers =====
 
-    /**
-     * Generate the next human-readable order number for a tenant+period using an
-     * atomic, monotonic DB allocator.
-     *
-     * <p>Format: {@code ORD-<yyyyMM>-<NNNNN>} where the NNNNN part is allocated
-     * atomically via {@code INSERT ... ON CONFLICT DO UPDATE ... RETURNING} on
-     * the {@code commerce_order_number_sequences} table. This is safe under
-     * concurrent transactions across multiple application processes (Render).
-     *
-     * <p>The allocator never decrements on order cancellation/deletion, so
-     * sequence numbers are never reused (ORDER_NUMBER_NO_REUSE).
-     *
-     * <p>Each (tenant_id, period=YYYYMM) pair maintains an independent counter
-     * — so the same tenant's multiple stores share the per-tenant+per-month
-     * sequence, which prevents cross-store collisions within a tenant (the
-     * unique constraint {@code uk_commerce_orders_tenant_number} is scoped to
-     * {@code (tenant_id, order_number)} and therefore also satisfied).
-     */
     String generateOrderNumber(UUID tenantId, UUID storeId) {
         java.time.ZonedDateTime zdt = java.time.Instant.now().atZone(java.time.ZoneOffset.UTC);
         String period = String.format("%04d%02d", zdt.getYear(), zdt.getMonthValue());
@@ -180,23 +144,8 @@ public class OrderService {
         return prefix + String.format("%05d", next);
     }
 
-    /**
-     * Atomically allocate the next sequence value for a (tenant_id, period)
-     * pair using a portable UPSERT. On PostgreSQL the
-     * {@code INSERT ... ON CONFLICT (tenant_id, period) DO UPDATE SET
-     * last_value = last_value + 1 RETURNING last_value} form is fully atomic.
-     *
-     * <p>H2 (PostgreSQL compatibility mode, used by local / integration tests)
-     * supports the same syntax, so the code path is identical between test
-     * and prod. As an extra safety net, a {@link org.springframework.dao.DuplicateKeyException}
-     * triggers a single retry of the UPDATE branch — this guards against any
-     * edge case where the UPSERT clause does not match (e.g. column-list
-     * inference differences between minor H2 versions).
-     */
     private long allocateNextSequence(UUID tenantId, String period) {
         try {
-            // Atomic UPSERT — first call inserts with last_value=1; subsequent
-            // callsites hit the ON CONFLICT branch and increment to 2, 3, ...
             return jdbc.queryForObject(
                     """
                     INSERT INTO commerce_order_number_sequences (tenant_id, period, last_value)
@@ -208,10 +157,6 @@ public class OrderService {
                     """,
                     Long.class, tenantId, period);
         } catch (org.springframework.dao.DuplicateKeyException dup) {
-            // Defensive fallback — the UPSERT clause should prevent this in
-            // practice, but if a future driver / minor-version mismatch makes
-            // ON CONFLICT fall through, the row already exists. Re-issue a
-            // direct UPDATE ... RETURNING.
             return jdbc.queryForObject(
                     """
                     UPDATE commerce_order_number_sequences
@@ -223,20 +168,11 @@ public class OrderService {
         }
     }
 
-    /**
-     * Persist a new order (called by CheckoutService inside an atomic transaction).
-     *
-     * <p><strong>Deprecated v20260820.3</strong>: CheckoutService now uses the
-     * atomic {@link #tryClaimIdempotencyKey} + {@link #completeOrderItemsAndHistory}
-     * pair to avoid the PostgreSQL transaction-abort race. This method is
-     * retained for backward compatibility with any direct callers and tests
-     * that exercise the monolithic create path.
-     */
     OrderResponse createOrderAtomically(UUID tenantId, UUID storeId, UUID cartId, String orderNumber,
-                                          String customerReference, Map<String, Object> customerSnapshot,
-                                          String currency, BigDecimal subtotal, BigDecimal discountTotal,
-                                          BigDecimal taxTotal, BigDecimal shippingTotal, BigDecimal grandTotal,
-                                          String paymentRef, String idempotencyKey, Authentication auth) {
+                                         String customerReference, Map<String, Object> customerSnapshot,
+                                         String currency, BigDecimal subtotal, BigDecimal discountTotal,
+                                         BigDecimal taxTotal, BigDecimal shippingTotal, BigDecimal grandTotal,
+                                         String paymentRef, String idempotencyKey, Authentication auth) {
         UUID orderId = UUID.randomUUID();
         Instant now = Instant.now();
         jdbc.update("INSERT INTO commerce_orders (id, tenant_id, store_id, order_number, cart_id, "
@@ -255,24 +191,13 @@ public class OrderService {
         return getOrThrow(tenantId, storeId, orderId);
     }
 
-    /**
-     * Copy cart items to order items (snapshot product name + sku) and append
-     * the initial PENDING status history row. Called by CheckoutService
-     * AFTER the order row has been atomically claimed via
-     * {@link #tryClaimIdempotencyKey}.
-     *
-     * <p>This separation lets the CheckoutService atomically claim the
-     * idempotency key (or detect a concurrent winner) BEFORE paying the
-     * cost of copying cart items. The cost is paid only by the winner.
-     */
     void completeOrderItemsAndHistory(UUID tenantId, UUID storeId, UUID orderId, UUID cartId,
-                                       String orderNumber,
-                                       String customerReference, Map<String, Object> customerSnapshot,
-                                       String currency, BigDecimal subtotal, BigDecimal discountTotal,
-                                       BigDecimal taxTotal, BigDecimal shippingTotal, BigDecimal grandTotal,
-                                       String idempotencyKey, Authentication auth) {
+                                      String orderNumber,
+                                      String customerReference, Map<String, Object> customerSnapshot,
+                                      String currency, BigDecimal subtotal, BigDecimal discountTotal,
+                                      BigDecimal taxTotal, BigDecimal shippingTotal, BigDecimal grandTotal,
+                                      String idempotencyKey, Authentication auth) {
         Instant now = Instant.now();
-        // Copy cart items to order items (snapshot product name + sku)
         List<CartItemResponse> cartItems = jdbc.query(
                 "SELECT ci.id, ci.tenant_id, ci.cart_id, ci.product_id, ci.variant_id, ci.quantity, "
                         + "ci.unit_price, ci.currency, ci.line_total, ci.created_at, ci.updated_at "
@@ -289,9 +214,7 @@ public class OrderService {
         BigDecimal taxAccum = BigDecimal.ZERO;
         for (int i = 0; i < cartItems.size(); i++) {
             CartItemResponse ci = cartItems.get(i);
-            BigDecimal itemTax = (i == cartItems.size() - 1)
-                    ? taxTotal.subtract(taxAccum) // last item: ensure total reconciles
-                    : perItemTax;
+            BigDecimal itemTax = (i == cartItems.size() - 1) ? taxTotal.subtract(taxAccum) : perItemTax;
             taxAccum = taxAccum.add(itemTax);
             String productName;
             String productSku;
@@ -321,7 +244,6 @@ public class OrderService {
                     productName, productSku, toJson(variantOptions),
                     ci.quantity(), ci.unitPrice(), itemTax, ci.lineTotal(), Timestamp.from(now));
         }
-        // Initial status history
         jdbc.update("INSERT INTO commerce_order_status_history (id, tenant_id, order_id, from_status, to_status, "
                         + "from_payment, to_payment, reason, actor, created_at) "
                         + "VALUES (?, ?, ?, NULL, 'PENDING', NULL, 'PENDING', ?, ?, ?)",
@@ -329,14 +251,6 @@ public class OrderService {
         audit(tenantId, auth, "ORDER.CREATED", orderId, "order=" + orderNumber);
     }
 
-    /**
-     * Resolve an existing order by its idempotency key (tenant-scoped canonical
-     * contract — v20260820.4). Returns null if no order has claimed this key
-     * in the tenant. The caller (CheckoutService) is responsible for verifying
-     * that the existing order's {@code store_id} and {@code cart_id} match the
-     * new request; if they differ, the caller MUST surface HTTP 409
-     * {@code IDEMPOTENCY_KEY_REUSE_MISMATCH}.
-     */
     OrderResponse findByIdempotencyKey(UUID tenantId, String idempotencyKey) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) return null;
         try {
@@ -348,12 +262,6 @@ public class OrderService {
         }
     }
 
-    /**
-     * Resolve an existing order by its cart (for the no-key concurrent path).
-     * The unique index {@code uk_commerce_orders_tenant_cart} guarantees at
-     * most one order per (tenant_id, cart_id) — this method returns that
-     * order if it exists, null otherwise.
-     */
     OrderResponse findByCart(UUID tenantId, UUID cartId) {
         if (cartId == null) return null;
         try {
@@ -365,47 +273,22 @@ public class OrderService {
         }
     }
 
+    String findIdempotencyFingerprint(UUID tenantId, UUID orderId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT idempotency_fingerprint FROM commerce_orders WHERE tenant_id=? AND id=?",
+                    String.class, tenantId, orderId);
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
     /**
-     * Attempt to claim an idempotency key atomically. Uses PostgreSQL's
-     * {@code INSERT ... ON CONFLICT DO NOTHING RETURNING} to make the
-     * claim-or-detect-existing operation a single atomic statement that
-     * never aborts the surrounding transaction (no DuplicateKeyException,
-     * no transaction-abort-then-query race).
-     *
-     * <p><b>Canonical idempotency scope (v20260820.4)</b>: the idempotency
-     * contract is TENANT-scoped — an idempotency_key identifies one logical
-     * order per tenant. The unique constraint
-     * {@code uk_commerce_orders_idempotency (tenant_id, idempotency_key)}
-     * is the canonical arbiter; the previously-introduced store-scoped
-     * index has been dropped (see V20260820_4).
-     *
-     * <p><b>One-order-per-cart invariant (v20260820.4)</b>: the unique
-     * index {@code uk_commerce_orders_tenant_cart (tenant_id, cart_id)
-     * WHERE cart_id IS NOT NULL} guarantees at most one order per cart
-     * per tenant at the DB level — even when no idempotency key is
-     * supplied and two concurrent requests both observe cart.status=ACTIVE.
-     * When a no-key insert collides on this constraint, the
-     * {@code ON CONFLICT DO NOTHING RETURNING} returns zero rows and the
-     * caller falls back to a lookup by (tenant_id, store_id, cart_id).
-     *
-     * <p>Returns:
-     * <ul>
-     *   <li>{@link Optional#empty()} if the idempotency key was already
-     *       claimed by a concurrent request — the caller MUST fall back to
-     *       {@link #findByIdempotencyKey(UUID, UUID, String)} to read the
-     *       winner's order and verify the request matches (same cart_id,
-     *       store_id, customer) — if the request differs, the caller MUST
-     *       surface HTTP 409 IDEMPOTENCY_KEY_REUSE_MISMATCH.</li>
-     *   <li>{@link Optional#of(orderId)} if this caller successfully claimed
-     *       the idempotency key and persisted the order row — the caller
-     *       MUST proceed to copy cart items + status history + payment +
-     *       inventory + finance + markCheckedOut.</li>
-     * </ul>
-     *
-     * <p>When {@code idempotencyKey} is null or blank, this method still
-     * uses {@code ON CONFLICT DO NOTHING} against the cart-unique index
-     * so that concurrent no-key requests on the same cart produce at
-     * most one order.
+     * Atomically attempts to create the order row. Bare PostgreSQL
+     * {@code ON CONFLICT DO NOTHING} is deliberate: the INSERT can collide on
+     * either the tenant-scoped idempotency-key constraint or the independent
+     * one-order-per-cart partial unique index. Naming one arbiter would allow
+     * the other constraint to abort the transaction.
      */
     java.util.Optional<UUID> tryClaimIdempotencyKey(UUID tenantId, UUID storeId, UUID orderId,
                                                      String orderNumber, UUID cartId,
@@ -414,36 +297,12 @@ public class OrderService {
                                                      BigDecimal taxTotal, BigDecimal shippingTotal, BigDecimal grandTotal,
                                                      String idempotencyKey, Authentication auth) {
         Instant now = Instant.now();
-        String sql;
-        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
-            // Atomic claim-or-detect against the TENANT-scoped unique constraint
-            // uk_commerce_orders_idempotency (tenant_id, idempotency_key).
-            // If a concurrent winner already claimed this (tenant, key) pair,
-            // our insert is a no-op and RETURNING id yields zero rows.
-            // The cart invariant (uk_commerce_orders_tenant_cart) is also
-            // enforced: if the same cart already has an order, the insert
-            // is also a no-op (no constraint violation raised).
-            sql = "INSERT INTO commerce_orders (id, tenant_id, store_id, order_number, cart_id, "
-                    + "customer_reference, customer_snapshot, currency, subtotal, discount_total, tax_total, "
-                    + "shipping_total, grand_total, payment_status, fulfillment_status, status, "
-                    + "idempotency_key, version, created_at, updated_at) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, 'PENDING', 'UNFULFILLED', 'PENDING', ?, 0, ?, ?) "
-                    + "ON CONFLICT (tenant_id, idempotency_key) DO NOTHING "
-                    + "RETURNING id";
-        } else {
-            // No idempotency key — still atomic via the cart invariant.
-            // The unique index uk_commerce_orders_tenant_cart (tenant_id, cart_id)
-            // guarantees at most one order per cart per tenant. ON CONFLICT
-            // DO NOTHING + RETURNING detects the existing order without raising
-            // a constraint violation.
-            sql = "INSERT INTO commerce_orders (id, tenant_id, store_id, order_number, cart_id, "
-                    + "customer_reference, customer_snapshot, currency, subtotal, discount_total, tax_total, "
-                    + "shipping_total, grand_total, payment_status, fulfillment_status, status, "
-                    + "idempotency_key, version, created_at, updated_at) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, 'PENDING', 'UNFULFILLED', 'PENDING', ?, 0, ?, ?) "
-                    + "ON CONFLICT (tenant_id, cart_id) WHERE cart_id IS NOT NULL DO NOTHING "
-                    + "RETURNING id";
-        }
+        String sql = "INSERT INTO commerce_orders (id, tenant_id, store_id, order_number, cart_id, "
+                + "customer_reference, customer_snapshot, currency, subtotal, discount_total, tax_total, "
+                + "shipping_total, grand_total, payment_status, fulfillment_status, status, "
+                + "idempotency_key, version, created_at, updated_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, 'PENDING', 'UNFULFILLED', 'PENDING', ?, 0, ?, ?) "
+                + "ON CONFLICT DO NOTHING RETURNING id";
         try {
             UUID insertedId = jdbc.queryForObject(sql,
                     (rs, rowNum) -> rs.getObject("id", UUID.class),
@@ -453,11 +312,6 @@ public class OrderService {
                     Timestamp.from(now), Timestamp.from(now));
             return java.util.Optional.of(insertedId);
         } catch (EmptyResultDataAccessException e) {
-            // ON CONFLICT DO NOTHING returned no rows — a concurrent request
-            // claimed this idempotency key (or this cart) first. Tell the
-            // caller to fall back to findByIdempotencyKey. The surrounding
-            // transaction is NOT aborted because no constraint violation was
-            // raised.
             return java.util.Optional.empty();
         }
     }

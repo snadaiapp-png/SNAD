@@ -17,38 +17,12 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * Default {@link CommerceFinancePort} (v20260820.6).
+ * Production Commerce ↔ Finance adapter.
  *
- * <p><strong>Production-safe real Finance integration.</strong> Replaces the
- * v20260816.5 no-op adapter with a real adapter that:
- * <ol>
- *   <li>{@link #recordOrder(UUID, UUID)}: idempotently creates a Finance
- *       invoice (DRAFT → ISSUED) for the commerce order, linked via
- *       {@code finance_invoices.external_reference = 'COMMERCE_ORDER:<orderId>'}.</li>
- *   <li>{@link #createInvoiceReference(UUID, UUID)}: returns the linked
- *       finance invoice's invoice_number (no synthetic ref).</li>
- * </ol>
- *
- * <p><strong>Idempotency</strong>: the
- * {@code uk_finance_invoices_tenant_external_ref (tenant_id, external_reference)
- * WHERE external_reference IS NOT NULL} unique index (added in V20260820_6)
- * guarantees at most one finance invoice per commerce order. Repeated calls
- * to {@code recordOrder(tenantId, orderId)} for the same order return the
- * existing invoice without creating duplicates.
- *
- * <p><strong>Linkage persistence</strong>: the
- * {@code commerce_order_finance_links} table (added in V20260820_6) records
- * the (tenant_id, commerce_order_id, finance_invoice_id) tuple so the
- * commerce side can resolve the linked finance invoice without joining
- * across modules.
- *
- * <p>Gates certified:
- * <ul>
- *   <li>{@code COMMERCE_FINANCE_REAL_ADAPTER=PASS}</li>
- *   <li>{@code COMMERCE_FINANCE_IDEMPOTENCY=PASS}</li>
- *   <li>{@code STORES_TO_FINANCE_INTEGRATION=PASS}</li>
- *   <li>{@code ECOMMERCE_FINANCE_EFFECT=PASS}</li>
- * </ul>
+ * <p>{@link #recordOrder(UUID, UUID)} idempotently creates and links an
+ * ISSUED Finance invoice. {@link #markOrderSettled(UUID, UUID, BigDecimal)}
+ * is the stronger paid-order invariant: it ensures the invoice exists, then
+ * persists the actual paid amount and transitions the linked invoice to PAID.
  */
 @Component
 public class CommerceFinanceAdapter implements CommerceFinancePort {
@@ -66,7 +40,6 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
     @Override
     public void recordOrder(UUID tenantId, UUID orderId) {
         String externalRef = externalReference(orderId);
-        // Idempotency check: has a finance invoice already been linked to this order?
         UUID existingInvoiceId = findLinkedInvoiceId(tenantId, orderId);
         if (existingInvoiceId != null) {
             log.info("recordOrder idempotent replay: tenant={} orderId={} already linked to invoiceId={}",
@@ -74,7 +47,6 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
             return;
         }
 
-        // Look up the commerce order to copy totals + customer into the invoice.
         OrderTotals order;
         try {
             order = jdbc.queryForObject(
@@ -97,17 +69,12 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
         }
         if (order == null) return;
 
-        // Generate the next finance invoice number (atomic via the
-        // finance_invoice_number_sequences table added in V20260820_6).
         String invoiceNumber = generateInvoiceNumber(tenantId);
-
-        // Create the finance invoice (DRAFT initially; we'll transition to ISSUED)
         UUID invoiceId = UUID.randomUUID();
         Instant now = Instant.now();
         Date issueDate = Date.valueOf(LocalDate.now(java.time.ZoneOffset.UTC));
         String customerName = extractCustomerName(order.customerSnapshot());
 
-        // Insert finance_invoices row. external_reference column is added in V20260820_6.
         jdbc.update("INSERT INTO finance_invoices (id, tenant_id, invoice_number, customer_type, "
                         + "customer_id, customer_name, issue_date, currency, subtotal, tax_amount, total_amount, "
                         + "paid_amount, status, notes, version, external_reference, created_at, updated_at) "
@@ -123,7 +90,6 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
                 externalRef,
                 Timestamp.from(now), Timestamp.from(now));
 
-        // Persist the linkage
         jdbc.update("INSERT INTO commerce_order_finance_links (id, tenant_id, commerce_order_id, finance_invoice_id, "
                         + "linked_at) VALUES (?, ?, ?, ?, ?)",
                 UUID.randomUUID(), tenantId, orderId, invoiceId, Timestamp.from(now));
@@ -133,13 +99,46 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
     }
 
     @Override
-    public String createInvoiceReference(UUID tenantId, UUID orderId) {
+    public void markOrderSettled(UUID tenantId, UUID orderId, BigDecimal paidAmount) {
+        if (paidAmount == null || paidAmount.signum() <= 0) {
+            throw new IllegalArgumentException("paidAmount must be positive");
+        }
+
         UUID invoiceId = findLinkedInvoiceId(tenantId, orderId);
         if (invoiceId == null) {
-            // No linked invoice — return null (not a synthetic ref).
-            // The caller (OrderService) handles null gracefully.
-            return null;
+            recordOrder(tenantId, orderId);
+            invoiceId = findLinkedInvoiceId(tenantId, orderId);
         }
+        if (invoiceId == null) {
+            throw new IllegalStateException(
+                    "Finance invoice could not be created/linked for commerce order " + orderId);
+        }
+
+        UUID resolvedInvoiceId = invoiceId;
+        FinanceInvoice invoice = invoiceRepo.findById(tenantId, resolvedInvoiceId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Linked Finance invoice not found: " + resolvedInvoiceId));
+
+        if (invoice.status() == FinanceInvoice.Status.PAID) {
+            if (invoice.paidAmount() != null && invoice.paidAmount().compareTo(paidAmount) == 0) {
+                log.info("markOrderSettled idempotent replay: tenant={} orderId={} invoiceId={} amount={}",
+                        tenantId, orderId, resolvedInvoiceId, paidAmount);
+                return;
+            }
+            throw new IllegalStateException(
+                    "Linked Finance invoice already PAID with a different amount for order " + orderId);
+        }
+
+        FinanceInvoice settled = invoice.markPaidWithAmount(paidAmount);
+        invoiceRepo.save(settled);
+        log.info("markOrderSettled: tenant={} orderId={} invoiceId={} paidAmount={}",
+                tenantId, orderId, resolvedInvoiceId, settled.paidAmount());
+    }
+
+    @Override
+    public String createInvoiceReference(UUID tenantId, UUID orderId) {
+        UUID invoiceId = findLinkedInvoiceId(tenantId, orderId);
+        if (invoiceId == null) return null;
         try {
             return jdbc.queryForObject(
                     "SELECT invoice_number FROM finance_invoices WHERE tenant_id = ? AND id = ?",
@@ -149,7 +148,6 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
         }
     }
 
-    // ===== Helpers =====
     private UUID findLinkedInvoiceId(UUID tenantId, UUID orderId) {
         try {
             return jdbc.queryForObject(
@@ -168,7 +166,6 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
     private String generateInvoiceNumber(UUID tenantId) {
         String period = java.time.LocalDate.now(java.time.ZoneOffset.UTC)
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMM"));
-        // Atomic UPSERT on (tenant_id, period) — same pattern as commerce_order_number_sequences
         Long next = jdbc.queryForObject(
                 """
                 INSERT INTO finance_invoice_number_sequences (tenant_id, period, last_value)
@@ -185,8 +182,6 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
 
     private String extractCustomerName(String customerSnapshotJson) {
         if (customerSnapshotJson == null || customerSnapshotJson.isBlank()) return null;
-        // Best-effort: parse JSON and extract 'name' field. Use Jackson ObjectMapper via the
-        // CommerceDtos pattern — for simplicity here we just do a regex search.
         int idx = customerSnapshotJson.indexOf("\"name\"");
         if (idx < 0) return null;
         int colon = customerSnapshotJson.indexOf(':', idx);
@@ -199,8 +194,7 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
     }
 
     private record OrderTotals(UUID id, UUID storeId, String customerReference,
-                                String customerSnapshot, String currency,
-                                java.math.BigDecimal subtotal,
-                                java.math.BigDecimal taxTotal,
-                                java.math.BigDecimal grandTotal) {}
+                               String customerSnapshot, String currency,
+                               BigDecimal subtotal, BigDecimal taxTotal,
+                               BigDecimal grandTotal) {}
 }
