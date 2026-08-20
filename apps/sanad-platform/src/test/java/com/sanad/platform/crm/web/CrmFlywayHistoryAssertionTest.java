@@ -184,7 +184,6 @@ class CrmFlywayHistoryAssertionTest {
             , "20260820.7"    // RBAC exact matrix validation 9/9
             // V20260820_8 (SETTLEMENT_FAILED status) removed by v12.1
             , "20260820.9"    // restore ADMIN capability invariant (HR.* grants to all ADMINS)
-            , "20260820.10"   // seed G8 caller-identification capabilities
     );
 
 

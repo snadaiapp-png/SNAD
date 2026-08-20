@@ -11,7 +11,6 @@ import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository;
 import com.sanad.platform.crm.party.domain.AddressCommunicationRepository.*;
 import com.sanad.platform.crm.party.domain.LegacyAddressProjectionPort;
-import com.sanad.platform.crm.party.domain.PhoneNumberNormalizer;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -29,6 +28,7 @@ public class AddressCommunicationUseCases {
     private static final Set<String> OWNER_TYPES = Set.of("ACCOUNT", "PERSON");
     private static final Set<String> ADDRESS_TYPES = Set.of("REGISTERED", "BILLING", "SHIPPING", "OFFICE", "HOME", "OTHER");
     private static final Set<String> METHOD_TYPES = Set.of("EMAIL", "PHONE", "MOBILE", "FAX", "WHATSAPP", "SMS", "MESSAGING_HANDLE", "WEBSITE", "OTHER");
+    private static final Set<String> PHONE_TYPES = Set.of("PHONE", "MOBILE", "FAX", "WHATSAPP", "SMS");
     private static final Set<String> PRIVACY = Set.of("PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED");
     private static final Set<String> VERIFICATION = Set.of("UNVERIFIED", "PENDING", "VERIFIED", "FAILED", "REVOKED");
     private static final Set<String> STATUS = Set.of("ACTIVE", "INACTIVE", "ARCHIVED");
@@ -36,6 +36,7 @@ public class AddressCommunicationUseCases {
             "buildingNumber", "additionalNumber", "unitNumber", "shortAddress", "poBox",
             "county", "province", "suburb", "landmark");
     private static final Pattern EMAIL = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final Pattern E164 = Pattern.compile("^\\+[1-9][0-9]{7,14}$");
 
     private final AddressCommunicationRepository repository;
     private final LegacyAddressProjectionPort legacyAddresses;
@@ -344,13 +345,7 @@ public class AddressCommunicationUseCases {
             if (!EMAIL.matcher(value).matches()) throw validation("Email format is invalid.");
             return value.toLowerCase(Locale.ROOT);
         }
-        if (PhoneNumberNormalizer.PHONE_TYPES.contains(type)) {
-            String normalized = PhoneNumberNormalizer.normalizePhone(value, countryHint);
-            if (normalized == null) {
-                throw validation("Phone number must be E.164 or include an explicit supported country hint.");
-            }
-            return normalized;
-        }
+        if (PHONE_TYPES.contains(type)) return normalizePhone(value, countryHint);
         if ("WEBSITE".equals(type)) {
             try {
                 URI uri = URI.create(value);
@@ -364,6 +359,20 @@ public class AddressCommunicationUseCases {
             }
         }
         return value.toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizePhone(String raw, String countryHint) {
+        String compact = raw.replaceAll("[\\s().-]", "");
+        if (compact.startsWith("00")) compact = "+" + compact.substring(2);
+        if (E164.matcher(compact).matches()) return compact;
+        String hint = countryHint == null ? null : countryHint.trim().toUpperCase(Locale.ROOT);
+        if ("SA".equals(hint)) {
+            if (compact.matches("05[0-9]{8}")) compact = "+966" + compact.substring(1);
+            else if (compact.matches("5[0-9]{8}")) compact = "+966" + compact;
+            else if (compact.matches("966[0-9]{9}")) compact = "+" + compact;
+            if (E164.matcher(compact).matches()) return compact;
+        }
+        throw validation("Phone number must be E.164 or include an explicit supported country hint.");
     }
 
     private String extension(String value, String countryCode) {
@@ -453,7 +462,7 @@ public class AddressCommunicationUseCases {
     }
     private static String display(String type, String raw, String normalized, String proposed) {
         if (proposed != null && !proposed.isBlank()) return clean(proposed, 1000);
-        return PhoneNumberNormalizer.PHONE_TYPES.contains(type) ? normalized : raw.trim();
+        return PHONE_TYPES.contains(type) ? normalized : raw.trim();
     }
     private static String mask(String type, String value) {
         if (value == null || value.isBlank()) return "••••";
@@ -461,7 +470,7 @@ public class AddressCommunicationUseCases {
             int at = value.indexOf('@');
             if (at > 0) return value.substring(0, 1) + "***" + value.substring(at);
         }
-        if (PhoneNumberNormalizer.PHONE_TYPES.contains(type)) {
+        if (PHONE_TYPES.contains(type)) {
             String digits = value.replaceAll("\\D", "");
             return digits.length() <= 4 ? "••••" : "••••" + digits.substring(digits.length() - 4);
         }

@@ -446,22 +446,6 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
-    readonly "/caller-identification/lookup": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly get?: never;
-        readonly put?: never;
-        readonly post: operations["lookup"];
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
     readonly "/cases": {
         readonly parameters: {
             readonly query?: never;
@@ -2729,24 +2713,6 @@ export type components = {
             /** Format: uuid */
             readonly ownerId: string;
             readonly reason: string;
-        };
-        readonly CallerLookupResponse: {
-            readonly matchStatus?: string;
-            readonly entityType?: string;
-            /** Format: uuid */
-            readonly entityId?: string;
-            readonly displayName?: string;
-            /** Format: uuid */
-            readonly accountId?: string;
-            readonly accountName?: string;
-            readonly phoneLabel?: string;
-            readonly verified?: boolean;
-            readonly preferred?: boolean;
-            readonly lifecycleStatus?: string;
-            readonly privacyLevel?: string;
-            readonly matchSource?: string;
-            /** Format: int32 */
-            readonly candidateCount?: number;
         };
         readonly CancelTransferRequest: {
             readonly reason: string;
@@ -5753,30 +5719,6 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["OwnershipResponseAssignment"];
-                };
-            };
-        };
-    };
-    readonly lookup: {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly requestBody?: {
-            readonly content: {
-                readonly "application/json": components["schemas"]["JsonNode"];
-            };
-        };
-        readonly responses: {
-            /** @description OK */
-            readonly 200: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": components["schemas"]["CallerLookupResponse"];
                 };
             };
         };

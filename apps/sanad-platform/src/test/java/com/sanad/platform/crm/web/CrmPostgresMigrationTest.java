@@ -145,9 +145,8 @@ class CrmPostgresMigrationTest {
     private static final String COMMERCE_FINANCE_LINKAGE_VERSION = "20260820.6";
     private static final String RBAC_EXACT_MATRIX_9_OF_9_VERSION = "20260820.7";
     private static final String ADMIN_CAPABILITY_INVARIANT_VERSION = "20260820.9";
-    private static final String CALLER_IDENTIFICATION_CAPABILITIES_VERSION = "20260820.10";
     // Latest migration — keep in sync with db/migration
-    private static final String LATEST_MIGRATION_VERSION = CALLER_IDENTIFICATION_CAPABILITIES_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = ADMIN_CAPABILITY_INVARIANT_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -340,8 +339,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(RBAC_EXACT_MATRIX_PROVENANCE_VERSION),
                         MigrationVersion.fromVersion(COMMERCE_FINANCE_LINKAGE_VERSION),
                         MigrationVersion.fromVersion(RBAC_EXACT_MATRIX_9_OF_9_VERSION),
-                        MigrationVersion.fromVersion(ADMIN_CAPABILITY_INVARIANT_VERSION),
-                        MigrationVersion.fromVersion(CALLER_IDENTIFICATION_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(ADMIN_CAPABILITY_INVARIANT_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -466,8 +464,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(RBAC_EXACT_MATRIX_PROVENANCE_VERSION),
                         MigrationVersion.fromVersion(COMMERCE_FINANCE_LINKAGE_VERSION),
                         MigrationVersion.fromVersion(RBAC_EXACT_MATRIX_9_OF_9_VERSION),
-                        MigrationVersion.fromVersion(ADMIN_CAPABILITY_INVARIANT_VERSION),
-                        MigrationVersion.fromVersion(CALLER_IDENTIFICATION_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(ADMIN_CAPABILITY_INVARIANT_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -656,7 +653,6 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, COMMERCE_FINANCE_LINKAGE_VERSION, "SQL", "commerce finance linkage and role bindings");
         assertMigration(jdbc, RBAC_EXACT_MATRIX_9_OF_9_VERSION, "SQL", "rbac exact matrix 9 of 9");
         assertMigration(jdbc, ADMIN_CAPABILITY_INVARIANT_VERSION, "SQL", "restore admin capability invariant");
-        assertMigration(jdbc, CALLER_IDENTIFICATION_CAPABILITIES_VERSION, "SQL", "seed crm caller identification capabilities");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
@@ -795,7 +791,7 @@ class CrmPostgresMigrationTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(85L); // 79 previous + 1 reporting + 2 portal + 2 executive health - 1 dedup + 2 G8 caller ID
+                Long.class)).isEqualTo(83L); // 79 previous + 1 reporting + 2 portal + 2 executive health - 1 dedup
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(2L);
