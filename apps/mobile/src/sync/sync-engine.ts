@@ -114,7 +114,7 @@ export class SyncEngine {
    * Pull changes for a single entity type using delta sync.
    */
   private async pullEntity(entityType: EntityType): Promise<void> {
-    const cursor = await getSyncMetadata(`cursor:${entityType}`);
+    let cursor = await getSyncMetadata(`cursor:${entityType}`);
     let hasMore = true;
 
     emitSyncEvent('pull_started', { entityType });
@@ -131,8 +131,9 @@ export class SyncEngine {
         await this.processDelta(entityType, delta);
       }
 
-      // Save cursor for next pull
+      // Save cursor and advance it for the next page in this same pull cycle.
       if (response.nextCursor) {
+        cursor = response.nextCursor;
         await setSyncMetadata(`cursor:${entityType}`, response.nextCursor);
       }
 
