@@ -18,10 +18,11 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Checkout application service (v20260816.5).
+ * Checkout application service (v20260820.3).
  *
  * <p>Converts a cart into an order atomically:
  * <ol>
@@ -36,9 +37,29 @@ import java.util.UUID;
  *   <li>Mark the cart {@code CHECKED_OUT}.</li>
  * </ol>
  *
- * <p>Supports idempotency: if a request with the same {@code idempotencyKey}
- * is replayed, the existing order is returned without re-charging the
- * customer.
+ * <p><strong>Idempotency (v20260820.3 — PostgreSQL-safe)</strong>:
+ * The previous implementation used a Java catch-and-query pattern:
+ * <pre>{@code
+ *   try { createOrderAtomically(...); }
+ *   catch (DuplicateKeyException dup) { findByIdempotencyKey(...); }
+ * }</pre>
+ * This is unsafe on PostgreSQL because a unique-constraint violation ABORTS
+ * the surrounding transaction, and the subsequent SELECT in the same
+ * transaction fails with {@code current transaction is aborted, commands
+ * ignored until end of transaction block}.
+ *
+ * <p>The new implementation uses PostgreSQL's native
+ * {@code INSERT ... ON CONFLICT (tenant_id, store_id, idempotency_key)
+ * DO NOTHING RETURNING id} (see {@link OrderService#tryClaimIdempotencyKey}).
+ * This is a single atomic statement — no constraint violation is ever raised,
+ * so the surrounding transaction stays alive. If the INSERT returns zero
+ * rows (concurrent winner claimed the key first), the caller falls back to
+ * {@link OrderService#findByIdempotencyKey} to read the winner's order. The
+ * winner lookup runs in the same transaction, but since no constraint
+ * violation occurred, the transaction is not aborted.
+ *
+ * <p>This is the canonical PostgreSQL pattern for atomic idempotency claim
+ * without transaction abort.
  */
 @Service
 public class CheckoutService {
@@ -76,7 +97,7 @@ public class CheckoutService {
         if (request == null || request.cartId() == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cartId is required");
 
-        // Idempotency check (sequential replay)
+        // ===== Sequential idempotency replay (fast path) =====
         if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
             OrderResponse existing = orderService.findByIdempotencyKey(tenantId, storeId, request.idempotencyKey());
             if (existing != null) {
@@ -128,35 +149,49 @@ public class CheckoutService {
         }
 
         String orderNumber = orderService.generateOrderNumber(tenantId, storeId);
-        // Create the order (PENDING). Wrap in try/catch on DuplicateKeyException
-        // to support concurrent idempotency replay: if two concurrent requests
-        // with the same idempotency_key race past the findByIdempotencyKey()
-        // short-circuit, the DB-level UNIQUE index
-        // uk_commerce_orders_tenant_store_idempotency (tenant_id, store_id,
-        // idempotency_key) will reject one of the inserts. We catch that and
-        // fall back to the winner's order so the caller sees the same logical
-        // result without a 500 — exactly one order is created for one key.
-        OrderResponse order;
-        try {
-            order = orderService.createOrderAtomically(
-                    tenantId, storeId, request.cartId(), orderNumber, customerRef, snapshot,
-                    cart.currency(), subtotal, discount, tax, shipping, grandTotal,
-                    null, request.idempotencyKey(), auth);
-        } catch (org.springframework.dao.DuplicateKeyException dup) {
-            // DB-level uniqueness rejected this insert — concurrent idempotency replay.
+        UUID orderId = UUID.randomUUID();
+
+        // ===== Atomic idempotency claim (PostgreSQL-safe) =====
+        // tryClaimIdempotencyKey uses INSERT ... ON CONFLICT DO NOTHING RETURNING.
+        // Returns Optional.of(orderId) on success, Optional.empty() if a concurrent
+        // winner already claimed this (tenant_id, store_id, idempotency_key). The
+        // surrounding transaction is NEVER aborted because no constraint violation
+        // is raised.
+        Optional<UUID> claimed = orderService.tryClaimIdempotencyKey(
+                tenantId, storeId, orderId, orderNumber, request.cartId(),
+                customerRef, snapshot, cart.currency(), subtotal, discount,
+                tax, shipping, grandTotal, request.idempotencyKey(), auth);
+
+        if (claimed.isEmpty()) {
+            // Concurrent winner claimed this idempotency key. Transaction is
+            // still alive (no constraint violation). Fall back to reading the
+            // winner's order.
             OrderResponse winner = orderService.findByIdempotencyKey(tenantId, storeId, request.idempotencyKey());
             if (winner != null) {
                 return toCheckoutResponse(winner, "");
             }
-            throw dup; // Unexpected — rethrow so the global handler surfaces it.
+            // Should not happen — if the INSERT-ON-CONFLICT returned no rows,
+            // there must be a winner. Surface as a controlled 409 to avoid
+            // an unexplained 500.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "idempotency key already claimed but winner could not be loaded");
         }
 
+        // ===== We are the winner — proceed with order items + status history =====
+        // The order row is already persisted (status=PENDING, payment_status=PENDING).
+        // Now copy cart items to order items, append initial status history,
+        // then run payment + inventory + finance + markCheckedOut.
+        orderService.completeOrderItemsAndHistory(tenantId, storeId, orderId, request.cartId(),
+                orderNumber, customerRef, snapshot, cart.currency(),
+                subtotal, discount, tax, shipping, grandTotal,
+                request.idempotencyKey(), auth);
+
         // Create payment intent + verify (simulated adapter returns true immediately)
-        String paymentRef = paymentPort.createPaymentIntent(tenantId, order.id(), grandTotal, cart.currency());
+        String paymentRef = paymentPort.createPaymentIntent(tenantId, orderId, grandTotal, cart.currency());
         boolean verified = paymentPort.verifyPayment(tenantId, paymentRef);
 
         // Update order to PAID/CONFIRMED + record payment_ref via metadata in snapshot
-        updateOrderPostPayment(tenantId, order.id(), paymentRef, verified);
+        updateOrderPostPayment(tenantId, orderId, paymentRef, verified);
 
         if (verified) {
             // Confirm inventory (commit the reservation)
@@ -165,12 +200,12 @@ public class CheckoutService {
                 catch (Exception ignored) {}
             }
             // Record in finance ledger
-            try { financePort.recordOrder(tenantId, order.id()); } catch (Exception ignored) {}
+            try { financePort.recordOrder(tenantId, orderId); } catch (Exception ignored) {}
             // Mark cart checked-out
             cartService.markCheckedOut(tenantId, request.cartId());
         }
 
-        OrderResponse finalOrder = orderService.get(tenantId, storeId, order.id());
+        OrderResponse finalOrder = orderService.get(tenantId, storeId, orderId);
         return toCheckoutResponse(finalOrder, paymentRef);
     }
 

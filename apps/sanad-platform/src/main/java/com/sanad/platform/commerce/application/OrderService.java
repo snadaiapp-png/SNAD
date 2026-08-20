@@ -225,6 +225,12 @@ public class OrderService {
 
     /**
      * Persist a new order (called by CheckoutService inside an atomic transaction).
+     *
+     * <p><strong>Deprecated v20260820.3</strong>: CheckoutService now uses the
+     * atomic {@link #tryClaimIdempotencyKey} + {@link #completeOrderItemsAndHistory}
+     * pair to avoid the PostgreSQL transaction-abort race. This method is
+     * retained for backward compatibility with any direct callers and tests
+     * that exercise the monolithic create path.
      */
     OrderResponse createOrderAtomically(UUID tenantId, UUID storeId, UUID cartId, String orderNumber,
                                           String customerReference, Map<String, Object> customerSnapshot,
@@ -242,6 +248,30 @@ public class OrderService {
                 toJson(customerSnapshot), currency, subtotal, discountTotal, taxTotal,
                 shippingTotal, grandTotal, idempotencyKey,
                 Timestamp.from(now), Timestamp.from(now));
+        completeOrderItemsAndHistory(tenantId, storeId, orderId, cartId, orderNumber,
+                customerReference, customerSnapshot, currency,
+                subtotal, discountTotal, taxTotal, shippingTotal, grandTotal,
+                idempotencyKey, auth);
+        return getOrThrow(tenantId, storeId, orderId);
+    }
+
+    /**
+     * Copy cart items to order items (snapshot product name + sku) and append
+     * the initial PENDING status history row. Called by CheckoutService
+     * AFTER the order row has been atomically claimed via
+     * {@link #tryClaimIdempotencyKey}.
+     *
+     * <p>This separation lets the CheckoutService atomically claim the
+     * idempotency key (or detect a concurrent winner) BEFORE paying the
+     * cost of copying cart items. The cost is paid only by the winner.
+     */
+    void completeOrderItemsAndHistory(UUID tenantId, UUID storeId, UUID orderId, UUID cartId,
+                                       String orderNumber,
+                                       String customerReference, Map<String, Object> customerSnapshot,
+                                       String currency, BigDecimal subtotal, BigDecimal discountTotal,
+                                       BigDecimal taxTotal, BigDecimal shippingTotal, BigDecimal grandTotal,
+                                       String idempotencyKey, Authentication auth) {
+        Instant now = Instant.now();
         // Copy cart items to order items (snapshot product name + sku)
         List<CartItemResponse> cartItems = jdbc.query(
                 "SELECT ci.id, ci.tenant_id, ci.cart_id, ci.product_id, ci.variant_id, ci.quantity, "
@@ -297,7 +327,6 @@ public class OrderService {
                         + "VALUES (?, ?, ?, NULL, 'PENDING', NULL, 'PENDING', ?, ?, ?)",
                 UUID.randomUUID(), tenantId, orderId, "checkout", actorUserId(auth), Timestamp.from(now));
         audit(tenantId, auth, "ORDER.CREATED", orderId, "order=" + orderNumber);
-        return getOrThrow(tenantId, storeId, orderId);
     }
 
     /**
@@ -311,6 +340,78 @@ public class OrderService {
                     this::mapRow, tenantId, storeId, idempotencyKey);
         } catch (EmptyResultDataAccessException e) {
             return null;
+        }
+    }
+
+    /**
+     * Attempt to claim an idempotency key atomically. Uses PostgreSQL's
+     * {@code INSERT ... ON CONFLICT DO NOTHING RETURNING} to make the
+     * claim-or-detect-existing operation a single atomic statement that
+     * never aborts the surrounding transaction (no DuplicateKeyException,
+     * no transaction-abort-then-query race).
+     *
+     * <p>Returns:
+     * <ul>
+     *   <li>{@link Optional#empty()} if the idempotency key was already
+     *       claimed by a concurrent request — the caller MUST fall back to
+     *       {@link #findByIdempotencyKey(UUID, UUID, String)} to read the
+     *       winner's order.</li>
+     *   <li>{@link Optional#of(orderId)} if this caller successfully claimed
+     *       the idempotency key and persisted the order row — the caller
+     *       MUST proceed to copy cart items + status history + payment +
+     *       inventory + finance + markCheckedOut.</li>
+     * </ul>
+     *
+     * <p>When {@code idempotencyKey} is null or blank, this method always
+     * inserts (no ON CONFLICT clause) — idempotency replay is the caller's
+     * responsibility in that case (sequential only).
+     */
+    java.util.Optional<UUID> tryClaimIdempotencyKey(UUID tenantId, UUID storeId, UUID orderId,
+                                                     String orderNumber, UUID cartId,
+                                                     String customerReference, Map<String, Object> customerSnapshot,
+                                                     String currency, BigDecimal subtotal, BigDecimal discountTotal,
+                                                     BigDecimal taxTotal, BigDecimal shippingTotal, BigDecimal grandTotal,
+                                                     String idempotencyKey, Authentication auth) {
+        Instant now = Instant.now();
+        String sql;
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            // Atomic claim-or-detect. ON CONFLICT (tenant_id, store_id, idempotency_key) DO NOTHING
+            // means a concurrent winner will leave our insert as a no-op, and RETURNING id will
+            // return zero rows — telling us to fall back to findByIdempotencyKey.
+            sql = "INSERT INTO commerce_orders (id, tenant_id, store_id, order_number, cart_id, "
+                    + "customer_reference, customer_snapshot, currency, subtotal, discount_total, tax_total, "
+                    + "shipping_total, grand_total, payment_status, fulfillment_status, status, "
+                    + "idempotency_key, version, created_at, updated_at) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, 'PENDING', 'UNFULFILLED', 'PENDING', ?, 0, ?, ?) "
+                    + "ON CONFLICT (tenant_id, store_id, idempotency_key) DO NOTHING "
+                    + "RETURNING id";
+        } else {
+            // No idempotency key supplied — plain insert (caller accepts potential
+            // DuplicateKeyException if two no-key requests race on the same order_number
+            // — but the order_number is allocated atomically via the sequence allocator,
+            // so this is only an issue if two requests without idempotency keys race
+            // on the same cart, which the cart.status guard catches).
+            sql = "INSERT INTO commerce_orders (id, tenant_id, store_id, order_number, cart_id, "
+                    + "customer_reference, customer_snapshot, currency, subtotal, discount_total, tax_total, "
+                    + "shipping_total, grand_total, payment_status, fulfillment_status, status, "
+                    + "idempotency_key, version, created_at, updated_at) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, 'PENDING', 'UNFULFILLED', 'PENDING', ?, 0, ?, ?) "
+                    + "RETURNING id";
+        }
+        try {
+            UUID insertedId = jdbc.queryForObject(sql,
+                    (rs, rowNum) -> rs.getObject("id", UUID.class),
+                    orderId, tenantId, storeId, orderNumber, cartId, customerReference,
+                    toJson(customerSnapshot), currency, subtotal, discountTotal, taxTotal,
+                    shippingTotal, grandTotal, idempotencyKey,
+                    Timestamp.from(now), Timestamp.from(now));
+            return java.util.Optional.of(insertedId);
+        } catch (EmptyResultDataAccessException e) {
+            // ON CONFLICT DO NOTHING returned no rows — a concurrent request
+            // claimed this idempotency key first. Tell the caller to fall back
+            // to findByIdempotencyKey. The surrounding transaction is NOT aborted
+            // because no constraint violation was raised.
+            return java.util.Optional.empty();
         }
     }
 
