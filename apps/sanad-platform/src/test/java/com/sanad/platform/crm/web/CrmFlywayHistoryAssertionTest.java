@@ -184,6 +184,12 @@ class CrmFlywayHistoryAssertionTest {
             , "20260820.7"    // RBAC exact matrix validation 9/9
             // V20260820_8 (SETTLEMENT_FAILED status) removed by v12.1
             , "20260820.9"    // restore ADMIN capability invariant (HR.* grants to all ADMINS)
+            // P0 ledger recovery: applied-in-production versions restored to
+            // repository history (byte-for-byte, checksum-verified); no G8 runtime.
+            , "20260820.10"   // seed G8 caller-identification capabilities
+            , "20260820.11"   // create crm_call_events (RLS enabled)
+            , "20260820.12"   // force RLS on crm_call_events
+            , "20260820.13"   // seed G8 call event capabilities
     );
 
 

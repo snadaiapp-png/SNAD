@@ -61,7 +61,9 @@ class Crm008bFoundationAcceptanceTest {
     // Terminal migration as of the 2026-08-20 commerce/RBAC/G7 chain:
     //   V20260820.9 - restore ADMIN capability invariant
     // (V20260820_8 was removed by v12.1; V20260820_9 is the new terminal)
-    private static final String CRM_LATEST_VERSION = "20260820.9";
+    // P0 ledger recovery: applied-in-production migrations restored to the
+    // repository; governance reflects the restored history (no G8 runtime).
+    private static final String CRM_LATEST_VERSION = "20260820.13";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
