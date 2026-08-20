@@ -102,7 +102,9 @@ export class SyncEngine {
       emitSyncEvent('sync_completed');
     } catch (error) {
       emitSyncEvent('sync_failed', { error: String(error) });
-      if (this.state === 'FULL_RESYNC_REQUIRED') return;
+      // pullEntity marks this state before throwing. Check the invariant error itself
+      // rather than re-reading this.state, which TypeScript narrows at method entry.
+      if (error instanceof Error && error.message === 'SYNC_CURSOR_CONTINUITY_BROKEN') return;
       if (this.isAuthError(error)) this.updateState('REAUTH_REQUIRED');
       else if (this.isNetworkError(error)) this.updateState('OFFLINE');
     }
