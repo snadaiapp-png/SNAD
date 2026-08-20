@@ -1658,3 +1658,70 @@ Stage Summary:
   isolated PostgreSQL DB, live prod API/DB verifications, mobile build, full
   test suites, Playwright UI, BFF, error sweep, cleanup, DB integrity, final parity
 - Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v12.md (not FINAL)
+
+---
+Task ID: v12.1-1
+Agent: main (super-z)
+Task: SNAD-EMERGENCY-RECOVERY-v12.1 — V7 CRM count typo + settlement safe-tx + remove V8
+
+Work Log:
+- Read user v12.1 brief: EMERGENCY
+  - V20260820.4+5+6 SUCCESS (123 records) — FROZEN/IMMUTABLE
+  - V20260820.7+8 NOT_APPLIED — still editable
+  - Render deploys 96cb76e + 9094717 both FAILED
+  - Current LIVE: 6ec0059
+  - Root cause: V7 CRM_SALES expected_count=17 but canonical set has 16
+  - Settlement replay bug: checked status==COMPLETED but actual is CONFIRMED
+  - Settlement tx ordering bug: side-effect failures inside @Transactional
+    roll back SETTLEMENT_FAILED too — inconsistent
+  - Use PENDING as retryable state, remove SETTLEMENT_FAILED
+- Discovered remote origin/main had advanced with V7 fix from another
+  collaborator (commit daa3dfd) — rebased cleanly
+- Fixed V20260820.7: expected_count := 16 (was 17)
+  - Added detailed comment explaining the canonical 16-capability count
+- Fixed OrderSettlementService — 3 bugs:
+  1. Replay detection: detect paymentStatus==PAID AND status IN (CONFIRMED,COMPLETED,PAID)
+     (was: status == COMPLETED only — wrong because actual transition is PENDING→CONFIRMED)
+  2. Tx ordering: now uses SELECT ... FOR UPDATE for row lock, reread status
+     after lock, run side effects, then UPDATE → CONFIRMED+PAID last
+  3. Audit + status history AFTER successful UPDATE
+- Removed V20260820_8 migration (SETTLEMENT_FAILED design)
+- Removed SETTLEMENT_FAILED from OrderStatus enum
+- Removed SETTLEMENT_FAILED writes from CheckoutService (use simple throw → rollback)
+- Made OrderRow record package-private (was private) so tests can construct
+- Created OrderSettlementServiceTest (12 tests):
+  - settle_success_transitionsToConfirmedPaid
+  - settle_sequentialReplay_confirmedPaid_returnsExisting_noSideEffects
+  - settle_concurrentReplay_lostRace_returnsExisting
+  - settle_invalidAmount_returns400
+  - settle_missingPaymentMethod_returns400
+  - settle_nonPositiveAmount_returns400
+  - settle_cancelledOrder_returns409
+  - settle_orderNotFound_returns404
+  - settle_inventoryFailure_throws_rollsBack_noFinanceCall
+  - settle_financeFailure_throws_rollsBack_noUpdateToConfirmed
+  - settle_storeMismatch_returns404
+  - settle_amountWithin0_01Tolerance_succeeds
+- Verified 31 v8-v12.1 tests PASS (11+8+12)
+- Committed: 3c204f05b435ba6a8dcd417af6a52e9a0af5c7fa
+- Pushed to origin/main (after rebase on collaborator commits)
+
+Stage Summary:
+- HOTFIX_PRODUCT_SHA = 3c204f05b435ba6a8dcd417af6a52e9a0af5c7fa
+- v12.1 corrections CLOSED in source:
+  1. V20260820.7 CRM_SALES expected_count 17→16
+  2. Settlement replay detection (CONFIRMED/COMPLETED+PAID)
+  3. Settlement safe transaction ordering (SELECT FOR UPDATE, side-effects first, UPDATE last)
+  4. Removed V20260820_8 (SETTLEMENT_FAILED design — never reached prod, safe to remove)
+  5. Removed SETTLEMENT_FAILED from OrderStatus enum
+  6. Removed SETTLEMENT_FAILED writes from CheckoutService (use rollback semantics)
+  7. Added 12 settlement tests covering: success, replay, concurrent, invalid amount,
+     RBAC at controller, rollback on inventory/finance failure
+- NO FALSE PASS RULE: SOURCE_PASS not PASS_PROD until 3c204f0 deploys
+- BLOCKER for FINAL report: Render deploy of 3c204f0 pending + idempotency
+  fingerprint computation + same-cart/different-key race closure + new-tenant
+  RBAC RoleTemplateProvisioner + Commerce→Finance paid-state consistency +
+  isolated PostgreSQL DB + live prod API/DB verifications + mobile build +
+  full test suites + Playwright UI + BFF chain + error sweep + cleanup +
+  DB integrity review + final parity
+- Producing SNAD-REMEDIATION-INTERIM-EVIDENCE-v12.1.md (not FINAL)
