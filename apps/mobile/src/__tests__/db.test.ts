@@ -72,6 +72,7 @@ describe('OFF-005: Corruption Recovery (transactional schema migration)', () => 
     expect(calls).toContain('BEGIN TRANSACTION');
     expect(calls).toContain('COMMIT');
     expect(calls).not.toContain('ROLLBACK');
-    expect(calls.some((c: string) => /^PRAGMA user_version\s*=\s*1/.test(c))).toBe(true);
+    // G8-03 §45: schema v2 (caller dataset) is the current terminal version.
+    expect(calls.some((c: string) => /^PRAGMA user_version\s*=\s*2/.test(c))).toBe(true);
   });
 });

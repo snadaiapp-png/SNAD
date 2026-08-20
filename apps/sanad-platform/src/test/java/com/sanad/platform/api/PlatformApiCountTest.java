@@ -29,18 +29,20 @@ class PlatformApiCountTest {
     private static final Set<String> METHODS = Set.of("get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Set<String> OWNERSHIP_PREFIXES = Set.of("/teams", "/queues", "/territories", "/assignment-rules", "/assignments", "/ownership-history", "/transfers", "/my-work");
     private static final long EXPECTED_CRM_V1_OPS = 125;
-    /** 193 prior CRM v2 ops + 1 G8 caller-identification lookup (V20260820_10 chain) = 194. */
-    private static final long EXPECTED_CRM_V2_OPS = 194;
-    /** 696 baseline (ERP v20260816.9, commit dc8a4caf) + 15 new endpoints:
+    /** 194 prior CRM v2 ops + 4 G8 Track C/D ops (POST /calls/events, GET /calls,
+     *  GET /calls/{callId}, GET /caller-identification/delta) = 198. */
+    private static final long EXPECTED_CRM_V2_OPS = 198;
+    /** 696 baseline (ERP v20260816.9, commit dc8a4caf) + 19 new endpoints:
      *  HR controller (/api/v1/hr, 5), Workflow additions (7),
      *  /api/v2/crm/pipelines (1), store order settle (1),
-     *  POST /api/v2/crm/caller-identification/lookup (1) = 711. */
-    private static final long EXPECTED_TOTAL_OPS = 711;
+     *  POST /api/v2/crm/caller-identification/lookup (1),
+     *  G8 Track C/D (4: calls events/get/list + caller-identification/delta) = 715. */
+    private static final long EXPECTED_TOTAL_OPS = 715;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
-    /** 147 committed CRM paths/193 ops + caller-identification lookup (1/1) = 148/194. */
-    private static final long EXPECTED_COMMITTED_CRM_PATHS = 148;
-    private static final long EXPECTED_COMMITTED_CRM_OPS = 194;
+    /** 148 committed CRM paths/194 ops + G8 Track C/D (4/4) = 152/198. */
+    private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;
+    private static final long EXPECTED_COMMITTED_CRM_OPS = 198;
     private static final Path COMMITTED_OPENAPI = Path.of(System.getProperty("user.dir")).getParent().getParent().resolve("docs/crm/contracts/openapi/crm-openapi.json");
 
     @Autowired private MockMvc mockMvc;

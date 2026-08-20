@@ -446,6 +446,22 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/caller-identification/delta": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["delta"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/caller-identification/lookup": {
         readonly parameters: {
             readonly query?: never;
@@ -456,6 +472,54 @@ export type paths = {
         readonly get?: never;
         readonly put?: never;
         readonly post: operations["lookup"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/calls": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["list_2"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/calls/events": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["ingest"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/calls/{callId}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["get_2"];
+        readonly put?: never;
+        readonly post?: never;
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -2730,6 +2794,73 @@ export type components = {
             readonly ownerId: string;
             readonly reason: string;
         };
+        readonly CallEventListResponse: {
+            readonly items?: readonly components["schemas"]["CallEventView"][];
+            readonly nextCursor?: string;
+            readonly hasMore?: boolean;
+        };
+        readonly CallEventView: {
+            /** Format: uuid */
+            readonly id?: string;
+            readonly provider?: string;
+            readonly providerCallId?: string;
+            readonly direction?: string;
+            readonly source?: string;
+            readonly fromNumberMasked?: string;
+            readonly toNumberMasked?: string;
+            readonly matchStatus?: string;
+            readonly matchedEntityType?: string;
+            /** Format: uuid */
+            readonly matchedEntityId?: string;
+            readonly matchSource?: string;
+            /** Format: uuid */
+            readonly agentUserId?: string;
+            readonly status?: string;
+            /** Format: date-time */
+            readonly ringingAt?: string;
+            /** Format: date-time */
+            readonly answeredAt?: string;
+            /** Format: date-time */
+            readonly endedAt?: string;
+            /** Format: int32 */
+            readonly durationSeconds?: number;
+            readonly disposition?: string;
+            /** Format: int64 */
+            readonly version?: number;
+            /** Format: int64 */
+            readonly createdAtMs?: number;
+        };
+        readonly CallerDatasetDelta: {
+            /** Format: int32 */
+            readonly datasetVersion?: number;
+            readonly fullResyncRequired?: boolean;
+            readonly nextCursor?: string;
+            readonly hasMore?: boolean;
+            /** Format: date-time */
+            readonly serverTimestamp?: string;
+            readonly datasetKey?: string;
+            readonly entries?: readonly components["schemas"]["CallerDatasetRecord"][];
+        };
+        readonly CallerDatasetRecord: {
+            readonly lookupToken?: string;
+            readonly entityType?: string;
+            /** Format: uuid */
+            readonly entityId?: string;
+            readonly displayName?: string;
+            /** Format: uuid */
+            readonly accountId?: string;
+            readonly accountName?: string;
+            readonly phoneLabel?: string;
+            readonly verified?: boolean;
+            readonly preferred?: boolean;
+            readonly lifecycleStatus?: string;
+            readonly privacyLevel?: string;
+            /** Format: int64 */
+            readonly syncVersion?: number;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+            readonly deleted?: boolean;
+        };
         readonly CallerLookupResponse: {
             readonly matchStatus?: string;
             readonly entityType?: string;
@@ -3404,6 +3535,23 @@ export type components = {
             readonly failedRows?: number;
             /** Format: date-time */
             readonly updatedAt?: string;
+        };
+        readonly IngestCallEventRequest: {
+            readonly provider?: string;
+            readonly providerCallId?: string;
+            /** @enum {string} */
+            readonly direction?: "INBOUND" | "OUTBOUND";
+            /** @enum {string} */
+            readonly source?: "MANUAL" | "ANDROID_CALL" | "IOS_CALLER_EXTENSION" | "PBX" | "VOIP";
+            readonly phone?: string;
+            readonly toNumber?: string;
+            /** @enum {string} */
+            readonly status?: "RINGING" | "ANSWERED" | "COMPLETED" | "MISSED" | "REJECTED" | "BUSY" | "FAILED";
+            /** Format: date-time */
+            readonly occurredAt?: string;
+            readonly deviceId?: string;
+            /** Format: uuid */
+            readonly agentUserId?: string;
         };
         readonly InsightResponse: {
             /** Format: uuid */
@@ -5757,6 +5905,32 @@ export interface operations {
             };
         };
     };
+    readonly delta: {
+        readonly parameters: {
+            readonly query?: {
+                readonly cursor?: string;
+                readonly limit?: number;
+                readonly keyMissing?: boolean;
+            };
+            readonly header?: {
+                readonly "X-Device-Id"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["CallerDatasetDelta"];
+                };
+            };
+        };
+    };
     readonly lookup: {
         readonly parameters: {
             readonly query?: never;
@@ -5777,6 +5951,76 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["CallerLookupResponse"];
+                };
+            };
+        };
+    };
+    readonly list_2: {
+        readonly parameters: {
+            readonly query?: {
+                readonly status?: string;
+                readonly cursor?: string;
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["CallEventListResponse"];
+                };
+            };
+        };
+    };
+    readonly ingest: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["IngestCallEventRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["CallEventView"];
+                };
+            };
+        };
+    };
+    readonly get_2: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly callId: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["CallEventView"];
                 };
             };
         };
