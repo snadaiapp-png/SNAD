@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -69,6 +70,28 @@ public class FinanceInvoiceService {
         var invoice = load(tenantId, id);
         var updated = invoiceRepo.save(invoice.markPaid());
         log.info("FinanceInvoice marked PAID: tenant={} number={}", tenantId, updated.invoiceNumber());
+        return updated;
+    }
+
+    /**
+     * Full-settlement operation used by Commerce and other amount-aware callers.
+     * An identical PAID replay is idempotent; a replay with a different amount
+     * is rejected so the financial system of record cannot drift silently.
+     */
+    @Transactional
+    public FinanceInvoice markPaidWithAmount(UUID tenantId, UUID id, BigDecimal paidAmount) {
+        var invoice = load(tenantId, id);
+        if (invoice.status() == FinanceInvoice.Status.PAID) {
+            if (invoice.paidAmount() != null && paidAmount != null
+                    && invoice.paidAmount().compareTo(paidAmount) == 0) {
+                return invoice;
+            }
+            throw new IllegalStateException(
+                    "FinanceInvoice already PAID with a different amount: " + id);
+        }
+        var updated = invoiceRepo.save(invoice.markPaidWithAmount(paidAmount));
+        log.info("FinanceInvoice marked PAID with amount: tenant={} number={} amount={}",
+                tenantId, updated.invoiceNumber(), updated.paidAmount());
         return updated;
     }
 
