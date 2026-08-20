@@ -114,14 +114,15 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
                     "Finance invoice could not be created/linked for commerce order " + orderId);
         }
 
-        FinanceInvoice invoice = invoiceRepo.findById(tenantId, invoiceId)
+        UUID resolvedInvoiceId = invoiceId;
+        FinanceInvoice invoice = invoiceRepo.findById(tenantId, resolvedInvoiceId)
                 .orElseThrow(() -> new IllegalStateException(
-                        "Linked Finance invoice not found: " + invoiceId));
+                        "Linked Finance invoice not found: " + resolvedInvoiceId));
 
         if (invoice.status() == FinanceInvoice.Status.PAID) {
             if (invoice.paidAmount() != null && invoice.paidAmount().compareTo(paidAmount) == 0) {
                 log.info("markOrderSettled idempotent replay: tenant={} orderId={} invoiceId={} amount={}",
-                        tenantId, orderId, invoiceId, paidAmount);
+                        tenantId, orderId, resolvedInvoiceId, paidAmount);
                 return;
             }
             throw new IllegalStateException(
@@ -131,7 +132,7 @@ public class CommerceFinanceAdapter implements CommerceFinancePort {
         FinanceInvoice settled = invoice.markPaidWithAmount(paidAmount);
         invoiceRepo.save(settled);
         log.info("markOrderSettled: tenant={} orderId={} invoiceId={} paidAmount={}",
-                tenantId, orderId, invoiceId, settled.paidAmount());
+                tenantId, orderId, resolvedInvoiceId, settled.paidAmount());
     }
 
     @Override
