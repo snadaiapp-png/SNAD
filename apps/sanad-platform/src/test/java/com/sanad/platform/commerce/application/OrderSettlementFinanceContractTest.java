@@ -13,6 +13,7 @@ import org.springframework.security.core.Authentication;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
@@ -33,9 +34,11 @@ class OrderSettlementFinanceContractTest {
         UUID storeId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         UUID productId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
         BigDecimal paidAmount = new BigDecimal("250.00");
 
-        when(auth.getName()).thenReturn(UUID.randomUUID().toString());
+        when(auth.getName()).thenReturn(userId.toString());
+        when(auth.getDetails()).thenReturn(Map.of("user_id", userId.toString()));
         when(jdbc.queryForObject(anyString(), any(RowMapper.class), eq(tenantId), eq(orderId)))
                 .thenReturn(new OrderSettlementService.OrderRow(
                         orderId, storeId, "PENDING", "PENDING", paidAmount, "SAR"));
