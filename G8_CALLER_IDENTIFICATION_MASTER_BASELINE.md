@@ -842,3 +842,27 @@ G8_READY_FOR_IMPLEMENTATION  = YES (awaiting G8 EXECUTION COMMAND 02)
 ```
 
 **Stop-point:** per command §59, execution STOPS here. No Track A, no API, no migration, no Android/iOS code, no production deployment, no G9 work.
+
+---
+
+## 45. TRACK E — ANDROID NATIVE EXECUTION 05 (factual decisions, 2026-08-21)
+
+Decisions newly LOCKED by G8 EXECUTION COMMAND 05 (Track E; base `main` 25d332fd; branch `g8/android-native-caller-identification`):
+
+| # | Decision | Evidence |
+|---|----------|----------|
+| E-1 | ANDROID_RING_PATH = NATIVE ONLY: `SanadCallScreeningService` (CallScreeningService) — no RN bridge, no JS, no network, no backend API on the ring path (§3, §16) | `SanadCallScreeningService.kt` (overBudget→allow fallback, single respondToCall) |
+| E-2 | ROLE_CALL_SCREENING via RoleManager; states UNSUPPORTED / AVAILABLE_NOT_GRANTED / GRANTED / REVOKED; caller ID only active when `isRoleHeld == true` (§9, §45) | `SanadCallScreeningModule.kt` + facade `roleState()` |
+| E-3 | CARRIER_MIN_API = 29 (Android 10+); older installs: APP MAY INSTALL, CALLER_ID UNSUPPORTED — no undocumented API 24–28 fallback (§8) | `CallerIdConstants.NATIVE_MIN_API` = Q |
+| E-4 | EXPO CNG: local native module `apps/mobile/modules/sanad-call-screening` + config plugin `app.plugin.js` OWNS manifest config (service/activity/READ_CONTACTS); idempotent prebuild (§5, §52) | plugin + `validate-call-screening-plugin.js` PASS |
+| E-5 | Native ring-time projection = DERIVED CACHE of Track D dataset; NO independent native server sync; generation-atomic commit (partial dataset never active); indexed (tenant_id, phone_lookup_token) (§17–§21, §24–§26) | `AndroidNativeCallerProjection.kt` + `ProjectionEngine` |
+| E-6 | Dataset HMAC key wrapped by Android Keystore AES-GCM; display/account names AES-GCM at rest; no plain SharedPreferences/SQLite/BuildConfig/logs (§22–§23, §50) | `NativeCrypto.kt` |
+| E-7 | Matching parity: tiered policy (§9) — verified CONTACT > preferred > CONTACT > ACCOUNT > LEAD; EXACT/AMBIGUOUS/UNKNOWN/RESTRICTED/INVALID_NUMBER; RESTRICTED carries no identity (§34, §41) | `NativeCallerResolver` + tests 8/8 |
+| E-8 | Normalization + HMAC parity consumed from the SAME shared vectors file (byte-identical copy under test resources) (§31–§33) | `NormalizationParityTest` 18 vectors + `HmacParityTest` |
+| E-9 | CALL_BLOCKING OUT OF SCOPE: every eligible incoming call receives ALLOW; budgets 300/750/5000 ms with hard fallback respond (§12–§13) | `RingBudgetPolicy` + service |
+| E-10 | Permission policy: READ_PHONE_STATE / READ_CALL_LOG / CALL_PHONE / SYSTEM_ALERT_WINDOW NOT requested; READ_CONTACTS = OPTIONAL coverage permission only, never auto-requested (§10–§11, §46, §58) | plugin forbidden-permission assertions |
+| E-11 | Minimal caller-ID card (not Track I): identity fields only; lock-screen minimum disclosure (CONFIDENTIAL masked, RESTRICTED marker-only); Arabic RTL / English LTR via resources (§36–§39) | `SanadCallerIdActivity` + values/values-ar |
+| E-12 | Track C boundary: RINGING observation queued natively, flushed by JS later to POST /calls/events — never network-posted inside onScreenCall (§42) | `native_call_observations` + `takePendingCallObservations()` |
+| E-13 | PHYSICAL DEVICE evidence (AG gate §57/§73): NOT EXECUTED in this environment (no Android device attached) — Track E code+CI gates PASS; physical-device acceptance remains OPEN | G8_EXECUTION_05 report §57 |
+
+No new Flyway migrations (§64) — NEW FLYWAY = 0. No backend change, no OpenAPI change (§65–§66). Track E does NOT start F (iOS), G (PBX/VoIP), I (Caller UI).
