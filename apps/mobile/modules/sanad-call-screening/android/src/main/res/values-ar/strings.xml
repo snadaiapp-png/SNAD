@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sanad_cid_unknown_caller">متصل غير معروف</string>
+    <string name="sanad_cid_ambiguous">نتائج متعددة — لا يُفصح عنها</string>
+    <string name="sanad_cid_restricted_marker">عميل محمي</string>
+    <string name="sanad_cid_verified">موثَّق</string>
+    <string name="sanad_cid_stale">بيانات المتصل غير محدثة (offline)</string>
+    <string name="sanad_cid_state_exact">معرّف المتصل — سناد</string>
+    <string name="sanad_cid_state_ambiguous">معرّف المتصل — سناد (متعدد)</string>
+    <string name="sanad_cid_state_restricted">معرّف المتصل — سناد (محمي)</string>
+    <string name="sanad_cid_state_unknown">معرّف المتصل — سناد (لا تطابق)</string>
+    <string name="sanad_cid_mask_suffix">…</string>
+</resources>

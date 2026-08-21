@@ -1,0 +1,5 @@
+# G8 Track E module — generated artifacts (CNG: prebuild owns android/).
+android/build/
+android/.gradle/
+android/local.properties
+*.iml

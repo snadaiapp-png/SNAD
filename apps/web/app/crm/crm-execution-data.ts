@@ -145,7 +145,7 @@ export const CRM_GROUP_DATA = [
     status: "IN_PROGRESS" as GroupStatus,
     dependencies: ["G7"],
     canParallelizeWith: [],
-    stageReport: "G8-STAGE-REPORT-V3 (2026-08-20) — CLEAN REINTEGRATION (G8 EXECUTION 04): Track A = COMPLETE, Track B = COMPLETE, Track C = COMPLETE pending final branch CI, Track D = COMPLETE pending final branch CI. حالة IN_PROGRESS باقية — ليست APPROVED/COMPLETED/CLOSED؛ الدمج النهائي بوابة مالك. الهجرات V20260820_10..13 موجودة على main بالبايت المطابق للإنتاج (بلا تغيير).",
+    stageReport: "G8-STAGE-REPORT-V4 (2026-08-21) — G8 EXECUTION 05 (TRACK E ANDROID NATIVE): Track A = COMPLETE, Track B = COMPLETE, Track C = COMPLETE, Track D = COMPLETE, Track E Android = IN_PROGRESS (code + Kotlin JVM tests 21/21 + AAR build + Config Plugin validation PASS; PHYSICAL_DEVICE gate OPEN — لا جهاز Android في البيئة، الدليل الفعلي إلزامي قبل اعتبار Track E COMPLETE)، Track F iOS = NOT_STARTED, Track G PBX/VoIP = NOT_STARTED, Track I Caller UI = NOT_STARTED. حالة IN_PROGRESS باقية — ليست APPROVED/COMPLETED/CLOSED؛ بوابة الدمج بيد المالك. لا هجرات Flyway جديدة، لا تغيير Backend/OpenAPI.",
   },
   {
     code: "G9",

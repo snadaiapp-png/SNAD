@@ -1,0 +1,31 @@
+{
+  "_comment": "G8-03 §51 — shared normalization + HMAC parity vectors. Consumed by the backend parity test (com.sanad.platform.crm.caller.*) AND the mobile parity tests (apps/mobile/src/__tests__/caller-*). Any change to normalization rules MUST update this file and both consumers (NORMALIZATION_PARITY gate).",
+  "normalization": [
+    { "input": "0541234567", "countryHint": "SA", "expected": "+966541234567" },
+    { "input": "541234567", "countryHint": "SA", "expected": "+966541234567" },
+    { "input": "966541234567", "countryHint": "SA", "expected": "+966541234567" },
+    { "input": "+966541234567", "countryHint": "SA", "expected": "+966541234567" },
+    { "input": "00966541234567", "countryHint": "SA", "expected": "+966541234567" },
+    { "input": " 054 123 4567 ", "countryHint": "SA", "expected": "+966541234567" },
+    { "input": "05-4123-4567", "countryHint": "SA", "expected": "+966541234567" },
+    { "input": "(054) 123-4567", "countryHint": "SA", "expected": "+966541234567" },
+    { "input": "0541234567", "countryHint": "sa", "expected": "+966541234567" },
+    { "input": "+971501234567", "countryHint": null, "expected": "+971501234567" },
+    { "input": "+442071234567", "countryHint": "GB", "expected": "+442071234567" },
+    { "input": "0541234567", "countryHint": null, "expected": null },
+    { "input": "0541234567", "countryHint": "GB", "expected": null },
+    { "input": "not-a-number", "countryHint": "SA", "expected": null },
+    { "input": "12345", "countryHint": "SA", "expected": null },
+    { "input": "+966541234567891011", "countryHint": "SA", "expected": null },
+    { "input": "", "countryHint": "SA", "expected": null },
+    { "input": "     ", "countryHint": null, "expected": null }
+  ],
+  "tokenVector": {
+    "description": "HMAC-SHA256 derivation parity (backend javax.crypto.HmacSHA256 == mobile hmacSha256Hex). tenantDatasetKey = HMAC(masterKey, tenantId); lookupToken = HMAC(tenantDatasetKey, normalizedE164).",
+    "masterKey": "g8-test-master-key",
+    "tenantId": "11111111-2222-3333-4444-555555555555",
+    "message": "+966541234567",
+    "tenantDatasetKey": "b84db436b474829bc8eea528f5938a522969ee85fea4858141390be76f514b3b",
+    "lookupToken": "939e9069d4b3fc201a2746551de30f2e4dfd68616c6c2535913d42aa285aecf8"
+  }
+}

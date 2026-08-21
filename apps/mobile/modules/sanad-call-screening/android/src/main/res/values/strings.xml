@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sanad_cid_unknown_caller">Unknown caller</string>
+    <string name="sanad_cid_ambiguous">Multiple matches — not disclosed</string>
+    <string name="sanad_cid_restricted_marker">Protected customer</string>
+    <string name="sanad_cid_verified">Verified</string>
+    <string name="sanad_cid_stale">Offline dataset stale</string>
+    <string name="sanad_cid_state_exact">Sanad Caller ID</string>
+    <string name="sanad_cid_state_ambiguous">Sanad Caller ID — ambiguous</string>
+    <string name="sanad_cid_state_restricted">Sanad Caller ID — protected</string>
+    <string name="sanad_cid_state_unknown">Sanad Caller ID — no match</string>
+    <string name="sanad_cid_mask_suffix">…</string>
+</resources>

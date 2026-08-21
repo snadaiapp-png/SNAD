@@ -11,7 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.sanad.crm"
@@ -26,7 +28,8 @@
     "plugins": [
       "expo-secure-store",
       "expo-crypto",
-      "expo-sqlite"
+      "expo-sqlite",
+      "./modules/sanad-call-screening/app.plugin.js"
     ]
   }
 }

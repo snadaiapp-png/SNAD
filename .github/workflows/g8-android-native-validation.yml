@@ -1,0 +1,116 @@
+# ============================================================
+# G8 Track E — Android Native Caller Identification validation
+# ------------------------------------------------------------
+# Runs on every push/PR that touches the native caller module,
+# app config or the shared caller code. The physical-device
+# evidence gate remains a separate owner-level requirement
+# (G8 EXECUTION 05 §57, §73).
+#
+# NOTE: the canonical `expo prebuild` chain (and thus the full
+# :app APK) is blocked in this dependency set by an SDK-52
+# packaging quirk (modules ship Metro-style TS/extensionless
+# entries that modern Node cannot require — reproduces with an
+# empty plugin list). The module is therefore compiled through
+# the SAME android sources via a module harness
+# (scripts/crm/g8/run-native-harness.sh) which mirrors the full
+# app build for the module; the plugin manifest contract is
+# validated through expo's own AndroidConfig.Manifest pipeline.
+# ============================================================
+name: G8 Android Native Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/mobile/modules/**'
+      - 'apps/mobile/app.json'
+      - 'apps/mobile/package.json'
+      - 'apps/mobile/package-lock.json'
+      - 'apps/mobile/src/caller/**'
+      - 'apps/mobile/src/storage/**'
+      - 'scripts/crm/g8/**'
+      - '.github/workflows/g8-android-native-validation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/modules/**'
+      - 'apps/mobile/app.json'
+      - '.github/workflows/g8-android-native-validation.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: g8-android-valid-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mobile-regression:
+    name: Mobile tests + typecheck (Track D/G7 regression)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Mobile unit tests (incl. Track D + G7 + module tests)
+        run: npm test -- --silent
+
+  android-native:
+    name: Android native module build + JVM tests + config plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Ensure Android SDK platforms
+        run: |
+          for p in "platforms;android-35" "build-tools;35.0.0"; do
+            yes | sdkmanager --licenses >/dev/null 2>&1 || true
+            sdkmanager "$p" >/dev/null 2>&1 || true
+          done
+          echo "SDK platforms: $(ls "$ANDROID_HOME/platforms" | tr '\n' ' ')"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Config plugin validation (manifest + idempotency + forbidden perms)
+        run: node ../../scripts/crm/g8/validate-call-screening-plugin.js
+
+      - name: Native module compile + JVM unit tests + AAR (harness)
+        working-directory: apps/mobile
+        run: bash ../../scripts/crm/g8/run-native-harness.sh
+
+      - name: Record native test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g8-android-test-reports
+          path: apps/mobile/modules/sanad-call-screening/android/build/reports/
+          if-no-files-found: warn
+          retention-days: 14

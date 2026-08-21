@@ -14,3 +14,7 @@ README.md:sidekiq-secret:50
 # G8 documentation HMAC parity vectors — synthetic test fixture (G8-03 §51), NOT secrets
 /repo/docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:28
 /repo/docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:29
+
+# G8 Track E — synthetic HMAC parity vector fixture copy (byte-identical to the canonical doc, G8-05 §31–§33)
+/repo/apps/mobile/modules/sanad-call-screening/android/src/test/resources/caller-phone-normalization-vectors.json:generic-api-key:28
+/repo/apps/mobile/modules/sanad-call-screening/android/src/test/resources/caller-phone-normalization-vectors.json:generic-api-key:29
