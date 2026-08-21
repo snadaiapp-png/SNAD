@@ -1,6 +1,7 @@
 package com.sanad.platform.security.rls;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -54,6 +55,13 @@ class CrmRlsTenantIsolationPostgresTest {
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmRlsTenantIsolationPostgresTest. "
                         + "Run with PostgreSQL Direct to exercise PostgreSQL RLS.");
+        // Ensure the disposable test_migration database exists so that flyway.clean()
+        // below only affects this isolated database (not the shared sanad database
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureDatabase(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
     private static final String RLS_USER = "crm_rls_test_user";
@@ -63,7 +71,7 @@ class CrmRlsTenantIsolationPostgresTest {
     void migrateAndSeed() {
         // Run all migrations including V20260730_1 (RLS enable).
         Flyway flyway = Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -87,12 +95,15 @@ class CrmRlsTenantIsolationPostgresTest {
             // Role may not exist
         }
         jdbc.execute("CREATE ROLE " + RLS_USER + " WITH LOGIN PASSWORD '" + RLS_PASSWORD + "'");
-        // Resolve the current database name from the JDBC URL (CI uses 'sanad', local dev may use 'test').
-        // GRANT CONNECT requires a literal database name in PostgreSQL, so we extract it from the URL.
-        String jdbcUrl = System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
+        // Resolve the current database name from the isolated JDBC URL — the
+        // test_migration database is the one we just ensured exists and where
+        // the crm_rls_test_user will connect via rawConnection().
+        // GRANT CONNECT requires a literal database name in PostgreSQL.
+        String jdbcUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"));
         String currentDb = jdbcUrl.replaceAll("^.*\\/[\\/]?[^\\/]*\\/", "").replaceAll("[;?].*$", "");
         if (currentDb.isBlank()) {
-            currentDb = "sanad";  // safe default matching the CI service container
+            currentDb = MigrationTestSchemaSupport.ISOLATED_DB_NAME;
         }
         jdbc.execute("GRANT CONNECT ON DATABASE \"" + currentDb + "\" TO " + RLS_USER);
         jdbc.execute("GRANT USAGE ON SCHEMA public TO " + RLS_USER);
@@ -304,15 +315,18 @@ class CrmRlsTenantIsolationPostgresTest {
 
     private JdbcTemplate jdbc() {
         DriverManagerDataSource ds = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         ds.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(ds);
     }
 
     private Connection rawConnection() throws SQLException {
         // Use non-superuser to verify RLS — superusers bypass RLS by default.
+        // Connect to the isolated test_migration database (same as the Flyway
+        // instance and JdbcTemplate above) so the RLS policies apply to the
+        // same tables crm_rls_test_user was granted privileges on.
         return java.sql.DriverManager.getConnection(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), RLS_USER, RLS_PASSWORD);
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), RLS_USER, RLS_PASSWORD);
     }
 
     private void insertTenant(UUID id, String name, String subdomain) {

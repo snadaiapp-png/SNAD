@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.web;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Assumptions;
@@ -48,6 +49,13 @@ class CrmContactBaselineGapReconciliationPostgresTest {
         }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is required to verify the PostgreSQL Contact schema reconciliation.");
+        // Ensure the disposable test_migration database exists so that flyway.clean()
+        // below only affects this isolated database (not the shared sanad database
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureDatabase(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
     @Test
@@ -116,7 +124,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
 
     private Flyway mainMigrations(MigrationVersion target) {
         return Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .target(target)
@@ -127,7 +135,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
 
     private Flyway allProductionMigrations() {
         return Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .outOfOrder(true)
@@ -138,7 +146,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
 
     private DriverManagerDataSource dataSource() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         dataSource.setDriverClassName("org.postgresql.Driver");
         return dataSource;
     }

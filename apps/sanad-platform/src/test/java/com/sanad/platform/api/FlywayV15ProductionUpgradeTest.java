@@ -1,6 +1,7 @@
 package com.sanad.platform.api;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Assumptions;
@@ -34,6 +35,13 @@ class FlywayV15ProductionUpgradeTest {
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping FlywayV15ProductionUpgradeTest. " +
                 "Run with PostgreSQL Direct to exercise the production upgrade path.");
+        // Ensure the disposable test_migration database exists so that flyway.clean()
+        // below only affects this isolated database (not the shared sanad database
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureDatabase(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
     @Test
@@ -126,7 +134,7 @@ class FlywayV15ProductionUpgradeTest {
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -139,7 +147,7 @@ class FlywayV15ProductionUpgradeTest {
 
     private JdbcTemplate jdbc() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         dataSource.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(dataSource);
     }

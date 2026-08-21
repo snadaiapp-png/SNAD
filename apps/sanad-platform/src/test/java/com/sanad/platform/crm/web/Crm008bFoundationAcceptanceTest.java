@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 
 import java.util.List;
 import java.util.Map;
@@ -87,6 +88,13 @@ class Crm008bFoundationAcceptanceTest {
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping Crm008bFoundationAcceptanceTest. " +
                         "Run with PostgreSQL Direct to exercise PostgreSQL fail-closed invariants.");
+        // Ensure the disposable test_migration database exists so that flyway.clean()
+        // below only affects this isolated database (not the shared sanad database
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureDatabase(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
     // ============================================================
@@ -622,7 +630,7 @@ class Crm008bFoundationAcceptanceTest {
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false)
                 .validateOnMigrate(false);
@@ -632,7 +640,7 @@ class Crm008bFoundationAcceptanceTest {
 
     private JdbcTemplate jdbc() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         dataSource.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(dataSource);
     }

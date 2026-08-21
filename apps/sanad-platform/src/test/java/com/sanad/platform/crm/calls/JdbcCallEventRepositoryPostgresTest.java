@@ -8,6 +8,7 @@ import com.sanad.platform.crm.calls.domain.CallEventRepository;
 import com.sanad.platform.crm.calls.domain.CallStatus;
 import com.sanad.platform.crm.calls.infrastructure.JdbcCallEventRepository;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -45,12 +46,19 @@ class JdbcCallEventRepositoryPostgresTest {
         }
         Assumptions.assumeTrue(available,
                 "PostgreSQL Direct is not available — skipping JdbcCallEventRepositoryPostgresTest.");
+        // Ensure the disposable test_migration database exists so that flyway.clean()
+        // below only affects this isolated database (not the shared sanad database
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureDatabase(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
     @BeforeEach
     void migrateAndSeed() {
         Flyway flyway = Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
                         System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                         System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
@@ -63,7 +71,7 @@ class JdbcCallEventRepositoryPostgresTest {
         flyway.validate();
 
         DriverManagerDataSource ds = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         ds.setDriverClassName("org.postgresql.Driver");
