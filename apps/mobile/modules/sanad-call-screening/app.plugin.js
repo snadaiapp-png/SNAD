@@ -9,7 +9,12 @@
  *
  * Permission policy (§10–§11):
  *   - READ_PHONE_STATE / READ_CALL_LOG / CALL_PHONE / SYSTEM_ALERT_WINDOW
- *     are NEVER declared by this plugin.
+ *     are NEVER declared by this plugin and are ACTIVELY REMOVED: the Expo
+ *     bare-minimum manifest template (getAndroidManifestTemplate in
+ *     @expo/config-plugins) ships SYSTEM_ALERT_WINDOW as an "optional
+ *     permission" default, so absence can only be guaranteed by stripping it
+ *     on every prebuild (G8-05-R §13: forbidden = absent in generated
+ *     AndroidManifest.xml).
  *   - READ_CONTACTS is declared but not auto-requested; the app requests it
  *     only as an OPTIONAL coverage permission (callers present in device
  *     contacts are only delivered to a CallScreeningService when the app can
@@ -22,6 +27,15 @@ const { withAndroidManifest } = require('@expo/config-plugins');
 /** Service + activity names must match the Kotlin sources. */
 const CALL_SCREENING_SERVICE = 'com.sanad.crm.callerid.SanadCallScreeningService';
 const CALLER_ID_ACTIVITY = 'com.sanad.crm.callerid.SanadCallerIdActivity';
+
+/** Never allowed in the final manifest — removed even if the Expo template
+ *  or a third-party plugin declares them (G8-05 §10, G8-05-R §13). */
+const FORBIDDEN_PERMISSIONS = [
+  'android.permission.READ_PHONE_STATE',
+  'android.permission.READ_CALL_LOG',
+  'android.permission.CALL_PHONE',
+  'android.permission.SYSTEM_ALERT_WINDOW',
+];
 
 /**
  * Pure manifest mutation — exported for deterministic validation
@@ -77,15 +91,21 @@ function mutateAndroidManifest(manifest) {
 
   // Optional coverage permission (declared only — never auto-requested).
   const permissions = manifest.manifest['uses-permission'] ?? [];
-  const contactsDeclared = permissions.some(
+
+  // Strip forbidden permissions (Expo template ships SYSTEM_ALERT_WINDOW).
+  const stripped = permissions.filter(
+    (p) => !FORBIDDEN_PERMISSIONS.includes(p.$['android:name'])
+  );
+
+  const contactsDeclared = stripped.some(
     (p) => p.$['android:name'] === 'android.permission.READ_CONTACTS'
   );
   if (!contactsDeclared) {
-    permissions.push({
+    stripped.push({
       $: { 'android:name': 'android.permission.READ_CONTACTS' },
     });
   }
-  manifest.manifest['uses-permission'] = permissions;
+  manifest.manifest['uses-permission'] = stripped;
 
   return manifest;
 }
@@ -102,3 +122,4 @@ module.exports.withSanadCallScreening = withSanadCallScreening;
 module.exports.mutateAndroidManifest = mutateAndroidManifest;
 module.exports.CALL_SCREENING_SERVICE = CALL_SCREENING_SERVICE;
 module.exports.CALLER_ID_ACTIVITY = CALLER_ID_ACTIVITY;
+module.exports.FORBIDDEN_PERMISSIONS = FORBIDDEN_PERMISSIONS;

@@ -10,7 +10,9 @@
  *   3. READ_CONTACTS declared exactly once
  *   4. NO duplicate entries after the second mutation (repeatable generation)
  *   5. Forbidden permissions (READ_PHONE_STATE / READ_CALL_LOG / CALL_PHONE /
- *      SYSTEM_ALERT_WINDOW) are never declared
+ *      SYSTEM_ALERT_WINDOW) are never declared AND are actively stripped when
+ *      present in the input (the Expo bare-minimum template ships
+ *      SYSTEM_ALERT_WINDOW by default — G8-05-R §13)
  *
  * Usage (from repo root, node 18+):
  *   node scripts/crm/g8/validate-call-screening-plugin.js
@@ -52,6 +54,21 @@ const FORBIDDEN_PERMISSIONS = [
 const FIXTURE_MANIFEST = `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.sanad.crm">
   <uses-permission android:name="android.permission.INTERNET" />
+  <application android:label="Sanad CRM">
+  </application>
+</manifest>
+`;
+
+/** Mirrors the Expo bare-minimum template baseline (getAndroidManifestTemplate
+ *  in @expo/config-plugins) which ships SYSTEM_ALERT_WINDOW + friends as
+ *  "optional permissions" — the plugin must strip all forbidden ones. */
+const TEMPLATE_LIKE_MANIFEST = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.sanad.crm">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+  <uses-permission android:name="android.permission.VIBRATE" />
+  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
   <application android:label="Sanad CRM">
   </application>
 </manifest>
@@ -103,6 +120,26 @@ async function main() {
       problems.push('READ_CONTACTS duplicated after second mutation (not idempotent)');
     }
 
+    // third mutation — Expo-template-like input: forbidden permissions that
+    // ARE present in the input must be stripped (G8-05-R §13)
+    const templatePath = path.join(dir, 'TemplateManifest.xml');
+    fs.writeFileSync(templatePath, TEMPLATE_LIKE_MANIFEST, 'utf8');
+    let manifest3 = await AndroidConfig.Manifest.readAndroidManifestAsync(templatePath);
+    manifest3 = mutateAndroidManifest(manifest3);
+    await AndroidConfig.Manifest.writeAndroidManifestAsync(templatePath, manifest3);
+    const xml3 = fs.readFileSync(templatePath, 'utf8');
+    for (const forbidden of FORBIDDEN_PERMISSIONS) {
+      if (xml3.includes(forbidden)) {
+        problems.push(`FORBIDDEN permission NOT stripped from template-like input: ${forbidden}`);
+      }
+    }
+    if (!xml3.includes('android.permission.VIBRATE')) {
+      problems.push('VIBRATE unexpectedly removed (only FORBIDDEN list may be stripped)');
+    }
+    if (!xml3.includes('android.permission.READ_EXTERNAL_STORAGE')) {
+      problems.push('READ_EXTERNAL_STORAGE unexpectedly removed (only FORBIDDEN list may be stripped)');
+    }
+
     if (problems.length > 0) {
       console.error('CONFIG_PLUGIN_VALIDATION: FAIL');
       for (const p of problems) console.error('  - ' + p);
@@ -111,7 +148,7 @@ async function main() {
     console.log(
       `CONFIG_PLUGIN_VALIDATION: PASS (service=${serviceCount}, activity=${activityCount}, ` +
         `READ_CONTACTS=${contactsCount}, BIND_SCREENING=${bindCount}, intent-filter=${intentCount}, ` +
-        `idempotent=yes, forbidden-permissions=0)`
+        `idempotent=yes, forbidden-permissions=0, template-strip=yes)`
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
