@@ -85,14 +85,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+      - uses: gradle/actions/setup-gradle@v4 # wrapper caching only; project uses its own wrapper
 
-      - name: Ensure Android SDK platforms
+      - name: Ensure Android SDK pieces (compileSdk 36 line)
         run: |
-          for p in "platforms;android-35" "build-tools;35.0.0"; do
-            yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          for p in "platforms;android-36" "build-tools;36.0.0" "platforms;android-35"; do
             sdkmanager "$p" >/dev/null 2>&1 || true
           done
           echo "SDK platforms: $(ls "$ANDROID_HOME/platforms" | tr '\n' ' ')"
@@ -104,7 +102,6 @@ jobs:
         run: node ../../scripts/crm/g8/validate-call-screening-plugin.js
 
       - name: Native module compile + JVM unit tests + AAR (harness — lower layer only)
-        working-directory: apps/mobile
         run: bash ../../scripts/crm/g8/run-native-harness.sh
 
       - name: Record native test reports
