@@ -59,4 +59,30 @@ describe("CRM execution data integrity", () => {
 
     expect(failures.some((result) => result.message.includes("0%"))).toBe(true);
   });
+
+  it("G8 reports evidence-backed track progress instead of 0/0 while unresolved gates remain open", () => {
+    const g8 = executionGroup("G8");
+    const progress = calculateGroupProgress(g8);
+
+    expect(g8.status).toBe("IN_PROGRESS");
+    expect(g8.tasks.map((task) => task.id)).toEqual([
+      "G8-T01",
+      "G8-T02",
+      "G8-T03",
+      "G8-T04",
+      "G8-T05",
+      "G8-T06",
+      "G8-T07",
+      "G8-T08",
+      "G8-T09",
+      "G8-T10",
+    ]);
+    expect(g8.tasks.slice(0, 4).every((task) => task.status === "DONE")).toBe(true);
+    expect(g8.tasks[4]?.status).toBe("BLOCKED");
+    expect(g8.tasks.slice(5).every((task) => task.status === "NOT_STARTED")).toBe(true);
+    expect(progress.total).toBe(10);
+    expect(progress.done + progress.approved).toBe(4);
+    expect(progress.blocked).toBe(1);
+    expect(progress.percentage).toBe(40);
+  });
 });
