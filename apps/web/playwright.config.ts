@@ -15,9 +15,17 @@ const storageState = (locale: "ar" | "en", theme: "light" | "dark" | "system") =
 
 export default defineConfig({
   testDir: "./e2e",
-  // This test mutates the real Production environment and requires protected
-  // credentials. It is executed only by playwright.crm007-production.config.ts.
-  testIgnore: ["**/crm-007-production-closure.spec.ts"],
+  // These tests mutate the real Production environment and require protected
+  // credentials. They are executed only by playwright.crm007-production.config.ts.
+  testIgnore: [
+    "**/crm-007-production-closure.spec.ts",
+    // CRM-EXEC acceptance requires CRM_TENANT_A_EMAIL/PASSWORD credentials
+    // which are only available in the CRM Authenticated E2E workflow
+    // (playwright.crm-acceptance.config.ts). Running it in the default
+    // Playwright E2E & Visual Regression workflow would fail the
+    // beforeAll env-var guard.
+    "**/crm-execution-acceptance.spec.ts",
+  ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

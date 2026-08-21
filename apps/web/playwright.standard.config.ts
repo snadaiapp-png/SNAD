@@ -34,6 +34,10 @@ export default defineConfig({
     // Requires CRM_TENANT_A_EMAIL/PASSWORD env vars (authenticated acceptance).
     // Runs in production closure workflows only.
     "**/crm-lifecycle.spec.ts",
+    // CRM-EXEC acceptance: requires the same CRM_TENANT_A credentials as
+    // crm-authenticated-acceptance. Runs in CRM Authenticated E2E workflow
+    // (playwright.crm-acceptance.config.ts) only.
+    "**/crm-execution-acceptance.spec.ts",
     // Mutates the real Production environment and requires protected secrets.
     // It is mandatory in playwright.crm007-production.config.ts only.
     "**/crm-007-production-closure.spec.ts",

@@ -15,34 +15,12 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * ERP-backed inventory provider (v20260816.7).
+ * ERP-backed Commerce inventory provider.
  *
- * <p><b>ERP-backed inventory provider — replaces {@link SimpleInventoryAdapter}
- * when ERP is active.</b>
- *
- * <p>Implements the existing {@link InventoryAvailabilityPort} contract used by
- * the Commerce platform's cart / checkout flow. Activated only when
- * {@code sanad.erp.inventory.adapter.enabled=true} (default {@code false});
- * when active, it is marked {@link Primary @Primary} so it takes precedence
- * over the simulated {@code SimpleInventoryAdapter}.
- *
- * <p>Maps commerce product/variant to ERP item by SKU:
- * <ol>
- *   <li>If a {@code variantId} is supplied, look up
- *       {@code commerce_product_variants.sku}.</li>
- *   <li>Otherwise fall back to {@code commerce_products.sku}.</li>
- *   <li>Look up {@code erp_items.sku = resolved_sku}.</li>
- * </ol>
- *
- * <p>Warehouse selection: prefers the tenant's primary warehouse
- * ({@code erp_warehouses.is_primary = TRUE}); falls back to the first ACTIVE
- * warehouse. If no warehouse is configured, returns 0 availability.
- *
- * <p>All reservations created by this adapter are tagged with
- * {@code source = "COMMERCE"} and an external reference derived from the
- * commerce product/variant IDs, so they can be cross-referenced from the
- * commerce side. The adapter uses {@code @Lazy} on ERP service dependencies
- * to avoid circular dependency instantiation order issues.
+ * <p>PHYSICAL and BUNDLE products are stock-controlled and therefore fail
+ * closed when the ERP item mapping, active warehouse, reservation, or stock
+ * mutation cannot be completed. DIGITAL and SERVICE products explicitly
+ * bypass stock operations.
  */
 @Component
 @Primary
@@ -56,8 +34,8 @@ public class ErpInventoryAvailabilityAdapter implements InventoryAvailabilityPor
     private final ErpInventoryReservationService reservationService;
 
     public ErpInventoryAvailabilityAdapter(JdbcTemplate jdbc,
-                                              @Lazy ErpInventoryService inventoryService,
-                                              @Lazy ErpInventoryReservationService reservationService) {
+                                            @Lazy ErpInventoryService inventoryService,
+                                            @Lazy ErpInventoryReservationService reservationService) {
         this.jdbc = jdbc;
         this.inventoryService = inventoryService;
         this.reservationService = reservationService;
@@ -65,21 +43,18 @@ public class ErpInventoryAvailabilityAdapter implements InventoryAvailabilityPor
 
     @Override
     public int getAvailability(UUID tenantId, UUID productId, UUID variantId) {
-        UUID itemId = resolveItemId(tenantId, productId, variantId);
-        if (itemId == null) {
-            log.debug("getAvailability: no ERP item mapping for product={} variant={}", productId, variantId);
-            return 0;
+        if (!isStockControlled(tenantId, productId)) {
+            return Integer.MAX_VALUE;
         }
-        UUID warehouseId = resolveDefaultWarehouse(tenantId);
-        if (warehouseId == null) return 0;
+        UUID itemId = requireItemId(tenantId, productId, variantId);
+        UUID warehouseId = requireDefaultWarehouse(tenantId);
         try {
             BigDecimal available = jdbc.queryForObject(
                     "SELECT on_hand - reserved FROM erp_inventory_balances "
                             + "WHERE tenant_id = ? AND warehouse_id = ? AND item_id = ?",
                     BigDecimal.class, tenantId, warehouseId, itemId);
             if (available == null) return 0;
-            int v = available.intValue();
-            return Math.max(v, 0);
+            return Math.max(available.intValue(), 0);
         } catch (EmptyResultDataAccessException e) {
             return 0;
         }
@@ -87,107 +62,133 @@ public class ErpInventoryAvailabilityAdapter implements InventoryAvailabilityPor
 
     @Override
     public boolean reserve(UUID tenantId, UUID productId, UUID variantId, int quantity) {
-        UUID itemId = resolveItemId(tenantId, productId, variantId);
-        if (itemId == null) {
-            log.warn("reserve: no ERP item mapping — falling back to no-op (product={} variant={})", productId, variantId);
-            return true; // behave like SimpleInventoryAdapter when no mapping
-        }
-        UUID warehouseId = resolveDefaultWarehouse(tenantId);
-        if (warehouseId == null) {
-            log.warn("reserve: no default warehouse for tenant — falling back to no-op");
+        if (!isStockControlled(tenantId, productId)) {
             return true;
         }
+        UUID itemId = requireItemId(tenantId, productId, variantId);
+        UUID warehouseId = requireDefaultWarehouse(tenantId);
         String externalRef = externalReference(productId, variantId);
-        try {
-            ReservationResponse r = reservationService.reserve(tenantId, warehouseId, itemId,
-                    BigDecimal.valueOf(quantity), "COMMERCE", externalRef, null);
-            return r != null;
-        } catch (Exception e) {
-            log.warn("reserve failed: {}", e.getMessage());
-            return false;
+        ReservationResponse reservation = reservationService.reserve(
+                tenantId, warehouseId, itemId, BigDecimal.valueOf(quantity),
+                "COMMERCE", externalRef, null);
+        if (reservation == null) {
+            throw new IllegalStateException(
+                    "ERP reservation failed for product " + productId + " in tenant " + tenantId);
         }
+        return true;
     }
 
     @Override
     public void release(UUID tenantId, UUID productId, UUID variantId, int quantity) {
-        UUID itemId = resolveItemId(tenantId, productId, variantId);
-        if (itemId == null) return;
-        UUID warehouseId = resolveDefaultWarehouse(tenantId);
-        if (warehouseId == null) return;
+        if (!isStockControlled(tenantId, productId)) {
+            return;
+        }
+        requireItemId(tenantId, productId, variantId);
+        requireDefaultWarehouse(tenantId);
         String externalRef = externalReference(productId, variantId);
         try {
-            ReservationResponse existing = jdbc.queryForObject(
-                    "SELECT * FROM erp_inventory_reservations WHERE tenant_id = ? AND external_reference = ? "
-                            + "AND status IN ('PENDING','RESERVED') ORDER BY created_at DESC LIMIT 1",
-                    (rs, rowNum) -> new ReservationResponse(
-                            rs.getObject("id", UUID.class),
-                            rs.getObject("tenant_id", UUID.class),
-                            rs.getObject("warehouse_id", UUID.class),
-                            rs.getObject("item_id", UUID.class),
-                            rs.getBigDecimal("quantity"),
-                            rs.getString("source"),
-                            rs.getString("external_reference"),
-                            com.sanad.platform.erp.domain.ErpDomain.ReservationStatus
-                                    .valueOf(rs.getString("status")),
-                            null, rs.getLong("version"),
-                            rs.getObject("created_at", java.sql.Timestamp.class).toInstant(),
-                            rs.getObject("updated_at", java.sql.Timestamp.class).toInstant()),
-                    tenantId, externalRef);
+            ReservationResponse existing = findReservation(tenantId, externalRef,
+                    "status IN ('PENDING','RESERVED')");
             if (existing != null) {
                 reservationService.release(tenantId, existing.id(), null);
             }
         } catch (EmptyResultDataAccessException e) {
+            // Idempotent release: there is no active reservation left to release.
             log.debug("release: no reservation found for externalRef={}", externalRef);
-        } catch (Exception e) {
-            log.warn("release failed: {}", e.getMessage());
         }
     }
 
     @Override
     public void confirm(UUID tenantId, UUID productId, UUID variantId, int quantity) {
-        UUID itemId = resolveItemId(tenantId, productId, variantId);
-        if (itemId == null) return;
-        UUID warehouseId = resolveDefaultWarehouse(tenantId);
-        if (warehouseId == null) return;
+        if (!isStockControlled(tenantId, productId)) {
+            return;
+        }
+        UUID itemId = requireItemId(tenantId, productId, variantId);
+        UUID warehouseId = requireDefaultWarehouse(tenantId);
         String externalRef = externalReference(productId, variantId);
         try {
-            ReservationResponse existing = jdbc.queryForObject(
-                    "SELECT * FROM erp_inventory_reservations WHERE tenant_id = ? AND external_reference = ? "
-                            + "AND status = 'RESERVED' ORDER BY created_at DESC LIMIT 1",
-                    (rs, rowNum) -> new ReservationResponse(
-                            rs.getObject("id", UUID.class),
-                            rs.getObject("tenant_id", UUID.class),
-                            rs.getObject("warehouse_id", UUID.class),
-                            rs.getObject("item_id", UUID.class),
-                            rs.getBigDecimal("quantity"),
-                            rs.getString("source"),
-                            rs.getString("external_reference"),
-                            com.sanad.platform.erp.domain.ErpDomain.ReservationStatus
-                                    .valueOf(rs.getString("status")),
-                            null, rs.getLong("version"),
-                            rs.getObject("created_at", java.sql.Timestamp.class).toInstant(),
-                            rs.getObject("updated_at", java.sql.Timestamp.class).toInstant()),
-                    tenantId, externalRef);
+            ReservationResponse existing = findReservation(tenantId, externalRef,
+                    "status = 'RESERVED'");
             if (existing != null) {
                 reservationService.confirm(tenantId, existing.id(), null);
+                return;
             }
         } catch (EmptyResultDataAccessException e) {
             log.debug("confirm: no reservation found for externalRef={} — applying direct fulfillment", externalRef);
-            // No prior reservation — apply direct fulfillment (issue movement)
-            try {
-                inventoryService.adjustStock(tenantId, warehouseId, itemId,
-                        BigDecimal.valueOf(quantity),
-                        com.sanad.platform.erp.domain.ErpDomain.MovementType.FULFILLMENT,
-                        "COMMERCE_CONFIRM:" + externalRef, null, null);
-            } catch (Exception ex) {
-                log.warn("confirm direct fulfillment failed: {}", ex.getMessage());
-            }
-        } catch (Exception e) {
-            log.warn("confirm failed: {}", e.getMessage());
         }
+
+        // A direct fulfillment is allowed when there was no prior reservation,
+        // but failure must propagate so the surrounding Commerce transaction
+        // rolls back instead of marking a physical order paid without stock.
+        inventoryService.adjustStock(tenantId, warehouseId, itemId,
+                BigDecimal.valueOf(quantity),
+                com.sanad.platform.erp.domain.ErpDomain.MovementType.FULFILLMENT,
+                "COMMERCE_CONFIRM:" + externalRef, null, null);
     }
 
-    // ===== Helpers =====
+    boolean isStockControlled(UUID tenantId, UUID productId) {
+        if (productId == null) {
+            throw new IllegalStateException("productId is required for ERP inventory");
+        }
+        final String productType;
+        try {
+            productType = jdbc.queryForObject(
+                    "SELECT product_type FROM commerce_products WHERE tenant_id = ? AND id = ?",
+                    String.class, tenantId, productId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalStateException(
+                    "Commerce product not found for ERP inventory: " + productId, e);
+        }
+        if (productType == null) {
+            throw new IllegalStateException("Commerce product_type is missing for product " + productId);
+        }
+        return switch (productType.toUpperCase(java.util.Locale.ROOT)) {
+            case "DIGITAL", "SERVICE" -> false;
+            case "PHYSICAL", "BUNDLE" -> true;
+            default -> throw new IllegalStateException(
+                    "Unsupported commerce product_type for ERP inventory: " + productType);
+        };
+    }
+
+    private UUID requireItemId(UUID tenantId, UUID productId, UUID variantId) {
+        UUID itemId = resolveItemId(tenantId, productId, variantId);
+        if (itemId == null) {
+            throw new IllegalStateException(
+                    "ERP item mapping is required for stock-controlled product " + productId
+                            + (variantId != null ? " variant " + variantId : ""));
+        }
+        return itemId;
+    }
+
+    private UUID requireDefaultWarehouse(UUID tenantId) {
+        UUID warehouseId = resolveDefaultWarehouse(tenantId);
+        if (warehouseId == null) {
+            throw new IllegalStateException(
+                    "An ACTIVE ERP warehouse is required for tenant " + tenantId);
+        }
+        return warehouseId;
+    }
+
+    private ReservationResponse findReservation(UUID tenantId, String externalRef, String statusPredicate) {
+        return jdbc.queryForObject(
+                "SELECT * FROM erp_inventory_reservations WHERE tenant_id = ? AND external_reference = ? "
+                        + "AND " + statusPredicate + " ORDER BY created_at DESC LIMIT 1",
+                (rs, rowNum) -> new ReservationResponse(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getObject("warehouse_id", UUID.class),
+                        rs.getObject("item_id", UUID.class),
+                        rs.getBigDecimal("quantity"),
+                        rs.getString("source"),
+                        rs.getString("external_reference"),
+                        com.sanad.platform.erp.domain.ErpDomain.ReservationStatus
+                                .valueOf(rs.getString("status")),
+                        null, rs.getLong("version"),
+                        rs.getObject("created_at", java.sql.Timestamp.class).toInstant(),
+                        rs.getObject("updated_at", java.sql.Timestamp.class).toInstant()),
+                tenantId, externalRef);
+    }
+
     private UUID resolveItemId(UUID tenantId, UUID productId, UUID variantId) {
         if (productId == null) return null;
         String sku = null;

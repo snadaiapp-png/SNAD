@@ -67,6 +67,18 @@ class CrmCoreKeysetPaginationPostgresTest {
         // guarantees by only dropping this test's local table (which we recreate below
         // with a simple schema for keyset pagination testing).
         jdbc.getJdbcTemplate().execute("DROP TABLE IF EXISTS crm_accounts CASCADE");
+        // Recreate a simplified crm_accounts schema for keyset pagination testing.
+        // The simplified schema MUST include the columns + constraints that other
+        // tests in the shared CI PostgreSQL database rely on:
+        //   - V20260812_2 sync columns (sync_version, last_synced_at)
+        //   - audit columns (created_by, updated_by) used by PushSyncService INSERTs
+        //   - DEFAULT 'ACTIVE' on lifecycle_status (production schema has it; without
+        //     the default, INSERTs that omit lifecycle_status fail with NOT NULL
+        //     violation — G7PushSyncFailureIsolationPostgresTest relies on this)
+        //   - CHECK constraint on account_type (the G7 test's middle mutation
+        //     intentionally uses an invalid account_type to verify failure
+        //     isolation; without the CHECK, all 3 mutations would succeed and
+        //     the test's `applied=2, rejected=1` assertion would fail)
         jdbc.getJdbcTemplate().execute("""
                 CREATE TABLE crm_accounts (
                     id UUID PRIMARY KEY,
@@ -75,15 +87,21 @@ class CrmCoreKeysetPaginationPostgresTest {
                     display_name VARCHAR(240) NOT NULL,
                     normalized_name VARCHAR(240) NOT NULL,
                     account_type VARCHAR(40) NOT NULL,
-                    lifecycle_status VARCHAR(32) NOT NULL,
+                    lifecycle_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
                     primary_currency_code VARCHAR(3),
                     preferred_locale VARCHAR(35),
                     time_zone VARCHAR(64),
                     source VARCHAR(80),
                     parent_account_id UUID,
                     owner_user_id UUID,
+                    created_by UUID,
+                    updated_by UUID,
+                    last_synced_at TIMESTAMP WITH TIME ZONE,
+                    sync_version BIGINT NOT NULL DEFAULT 0,
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    CONSTRAINT ck_crm_accounts_type_pagination_test
+                        CHECK (account_type IN ('BUSINESS','PERSON','PARTNER','PROSPECT','OTHER'))
                 )
                 """);
         jdbc.getJdbcTemplate().execute(

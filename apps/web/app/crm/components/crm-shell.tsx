@@ -5,7 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { hasCapability } from "@/lib/auth/capabilities";
+import { hasAnyCapability, hasCapability } from "@/lib/auth/capabilities";
+import type { MeResponse } from "@/lib/api/auth";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import styles from "../crm-shared-styles.module.css";
 
@@ -13,8 +14,15 @@ interface NavItem {
   href: string;
   labelKey: string;
   Icon: ComponentType;
-  /** Optional capability required to show this nav item. Backend is always authoritative. */
+  /** Optional single capability required to show this nav item. Backend is always authoritative. */
   capability?: string;
+  /**
+   * Optional ANY-OF capability list. When present, the nav item is shown if the
+   * user has AT LEAST ONE of the listed capabilities. Takes precedence over
+   * `capability` (single). Used for surfaces that should be discoverable to any
+   * legitimate CRM operational reader (e.g. Execution Board).
+   */
+  capabilities?: string[];
 }
 
 /* ============================================================================
@@ -228,7 +236,29 @@ const ADMIN_NAV: NavItem[] = [
 ];
 
 const EXECUTION_NAV: NavItem[] = [
-  { href: "/crm/execution", labelKey: "crm.nav.execution", Icon: ExecutionIcon, capability: "CRM.ADMIN" },
+  // Execution Board displays the G0-G10 strategic execution plan. It is an
+  // operational CRM surface: any authenticated user holding at least one
+  // legitimate CRM operational READ capability can discover and open it.
+  // CRM.ADMIN is retained in the ANY-OF list so existing tenant CRM
+  // administrators continue to see the nav. The route-level guard
+  // (apps/web/app/crm/(operational)/execution/page.tsx) enforces the same
+  // ANY-OF policy on direct URL access.
+  {
+    href: "/crm/execution",
+    labelKey: "crm.nav.execution",
+    Icon: ExecutionIcon,
+    capabilities: [
+      "CRM.ACCOUNT.READ",
+      "CRM.CONTACT.READ",
+      "CRM.LEAD.READ",
+      "CRM.OPPORTUNITY.READ",
+      "CRM.ACTIVITY.READ",
+      "CRM.TASK.READ",
+      "CRM.NOTE.READ",
+      "CRM.TAG.READ",
+      "CRM.ADMIN",
+    ],
+  },
 ];
 
 interface CrmShellProps {
@@ -261,15 +291,15 @@ export function CrmShell({ children }: CrmShellProps) {
   // IMPORTANT: These hooks MUST be called before any conditional early returns
   // to satisfy React's Rules of Hooks (hooks must not be called conditionally).
   const filteredMainNav = useMemo(
-    () => MAIN_NAV.filter((item) => !item.capability || hasCapability(me, item.capability)),
+    () => MAIN_NAV.filter((item) => navItemVisible(me, item)),
     [me],
   );
   const filteredAdminNav = useMemo(
-    () => ADMIN_NAV.filter((item) => !item.capability || hasCapability(me, item.capability)),
+    () => ADMIN_NAV.filter((item) => navItemVisible(me, item)),
     [me],
   );
   const filteredExecutionNav = useMemo(
-    () => EXECUTION_NAV.filter((item) => !item.capability || hasCapability(me, item.capability)),
+    () => EXECUTION_NAV.filter((item) => navItemVisible(me, item)),
     [me],
   );
 
@@ -400,6 +430,28 @@ interface SidebarLinkProps {
   item: NavItem;
   active: boolean;
   label: string;
+}
+
+/**
+ * Predicate that resolves a nav item's visibility for the current session.
+ *
+ * - If `item.capabilities` (ANY-OF) is present: the item is shown when the
+ *   user holds AT LEAST ONE of the listed capabilities.
+ * - Otherwise, if `item.capability` (single) is present: the item is shown
+ *   when the user holds that capability.
+ * - Otherwise (no capability requirement): the item is always shown.
+ *
+ * The backend remains the authoritative RBAC enforcement; this is a UX
+ * guard that hides links the user cannot use to reduce 403s.
+ */
+function navItemVisible(me: MeResponse | null, item: NavItem): boolean {
+  if (Array.isArray(item.capabilities) && item.capabilities.length > 0) {
+    return hasAnyCapability(me, item.capabilities);
+  }
+  if (item.capability) {
+    return hasCapability(me, item.capability);
+  }
+  return true;
 }
 
 function SidebarLink({ item, active, label }: SidebarLinkProps) {
