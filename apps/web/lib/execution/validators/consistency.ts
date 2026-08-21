@@ -14,6 +14,7 @@ import { calculateGroupProgress, calculateProgramProgress } from "../calculators
  * Rules:
  * - Group status must be consistent with task statuses
  * - If all tasks are DONE, group status should be DONE or APPROVED
+ * - DONE/APPROVED groups must have 100% task-derived progress
  * - If any task is BLOCKED, group status should be BLOCKED or reflect it
  *
  * @param group - The execution group
@@ -22,6 +23,7 @@ import { calculateGroupProgress, calculateProgramProgress } from "../calculators
 export function validateCrossLayerConsistency(group: ExecutionGroup): ValidationResult[] {
   const results: ValidationResult[] = [];
   const progress = calculateGroupProgress(group);
+  const isCompletedGroup = group.status === "DONE" || group.status === "APPROVED";
 
   // Rule: Group status consistency with task completion
   if (progress.percentage === 100 && group.status === "NOT_STARTED") {
@@ -30,11 +32,11 @@ export function validateCrossLayerConsistency(group: ExecutionGroup): Validation
       passed: false,
       message: `${group.code} has 100% progress but status is NOT_STARTED`,
     });
-  } else if (progress.percentage === 0 && group.status === "DONE") {
+  } else if (isCompletedGroup && progress.percentage !== 100) {
     results.push({
       rule: `Status consistency for ${group.code}`,
       passed: false,
-      message: `${group.code} has 0% progress but status is DONE`,
+      message: `${group.code} is ${group.status} but progress is ${progress.percentage}%`,
     });
   } else {
     results.push({
@@ -45,11 +47,11 @@ export function validateCrossLayerConsistency(group: ExecutionGroup): Validation
   }
 
   // Rule: Blocked tasks should be reflected in group status
-  if (progress.blocked > 0 && group.status === "DONE") {
+  if (progress.blocked > 0 && isCompletedGroup) {
     results.push({
       rule: `Blocked task reflection for ${group.code}`,
       passed: false,
-      message: `${group.code} has ${progress.blocked} blocked tasks but status is DONE`,
+      message: `${group.code} has ${progress.blocked} blocked tasks but status is ${group.status}`,
     });
   } else {
     results.push({
