@@ -164,7 +164,7 @@ jobs:
           # in the Gradle manifest merger for debug builds.
           # This step removes the active declaration from the debug manifest
           # so the tools:node="remove" in the main manifest takes effect.
-          DEBUG_MANIFEST="apps/mobile/android/app/src/debug/AndroidManifest.xml"
+          DEBUG_MANIFEST="android/app/src/debug/AndroidManifest.xml"
           if [ -f "$DEBUG_MANIFEST" ]; then
             sed -i '/<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/d' "$DEBUG_MANIFEST"
             echo "Stripped SYSTEM_ALERT_WINDOW from debug manifest"
