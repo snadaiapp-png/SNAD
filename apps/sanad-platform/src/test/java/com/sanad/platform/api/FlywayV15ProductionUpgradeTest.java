@@ -1,6 +1,7 @@
 package com.sanad.platform.api;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Assumptions;
@@ -38,6 +39,10 @@ class FlywayV15ProductionUpgradeTest {
 
     @Test
     void preservesProductionDataAndCompletesAdminGrants() {
+        // Ensure the disposable test_migration schema exists so that flyway.clean()
+        // below only affects this isolated schema (not the shared public schema
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureSchema(jdbc());
         Flyway throughV14 = flyway(MigrationVersion.fromVersion("14"));
         throughV14.clean();
         throughV14.migrate();
@@ -128,6 +133,8 @@ class FlywayV15ProductionUpgradeTest {
         var configuration = Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true);
@@ -138,9 +145,9 @@ class FlywayV15ProductionUpgradeTest {
     }
 
     private JdbcTemplate jdbc() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        return new JdbcTemplate(dataSource);
+        return new JdbcTemplate(MigrationTestSchemaSupport.isolatedDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
     }
 }

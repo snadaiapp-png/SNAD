@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.web;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -31,6 +32,15 @@ class CrmG1TenantIsolationPostgresTest {
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmG1TenantIsolationPostgresTest. " +
                         "Run with PostgreSQL Direct to exercise PostgreSQL tenant isolation.");
+        // Ensure the disposable test_migration schema exists so that flyway.clean()
+        // below only affects this isolated schema (not the shared public schema
+        // that other @SpringBootTest contexts depend on).
+        DriverManagerDataSource bootstrapDs = new DriverManagerDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        bootstrapDs.setDriverClassName("org.postgresql.Driver");
+        MigrationTestSchemaSupport.ensureSchema(new JdbcTemplate(bootstrapDs));
     }
 
     @Test
@@ -38,6 +48,8 @@ class CrmG1TenantIsolationPostgresTest {
         Flyway flyway = Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
@@ -103,10 +115,8 @@ class CrmG1TenantIsolationPostgresTest {
     }
 
     private JdbcTemplate jdbc() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        return new JdbcTemplate(dataSource);
+        return new JdbcTemplate(MigrationTestSchemaSupport.isolatedDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
     }
 
     private void insertTenant(JdbcTemplate jdbc, UUID id, String name, String subdomain) {

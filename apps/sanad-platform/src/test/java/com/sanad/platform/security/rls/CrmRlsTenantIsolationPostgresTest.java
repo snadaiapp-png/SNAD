@@ -1,6 +1,7 @@
 package com.sanad.platform.security.rls;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -61,10 +62,16 @@ class CrmRlsTenantIsolationPostgresTest {
 
     @BeforeEach
     void migrateAndSeed() {
+        // Ensure the disposable test_migration schema exists so that flyway.clean()
+        // below only affects this isolated schema (not the shared public schema
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureSchema(jdbc());
         // Run all migrations including V20260730_1 (RLS enable).
         Flyway flyway = Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
@@ -95,12 +102,14 @@ class CrmRlsTenantIsolationPostgresTest {
             currentDb = "sanad";  // safe default matching the CI service container
         }
         jdbc.execute("GRANT CONNECT ON DATABASE \"" + currentDb + "\" TO " + RLS_USER);
-        jdbc.execute("GRANT USAGE ON SCHEMA public TO " + RLS_USER);
-        jdbc.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO " + RLS_USER);
-        jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO " + RLS_USER);
+        // Grant privileges on the disposable test_migration schema (where Flyway created
+        // the CRM tables) — NOT on the shared public schema.
+        jdbc.execute("GRANT USAGE ON SCHEMA " + MigrationTestSchemaSupport.TEST_SCHEMA + " TO " + RLS_USER);
+        jdbc.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA " + MigrationTestSchemaSupport.TEST_SCHEMA + " TO " + RLS_USER);
+        jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA " + MigrationTestSchemaSupport.TEST_SCHEMA + " GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO " + RLS_USER);
         // Grant usage on sequences needed for INSERT
-        jdbc.execute("GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO " + RLS_USER);
-        jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO " + RLS_USER);
+        jdbc.execute("GRANT USAGE ON ALL SEQUENCES IN SCHEMA " + MigrationTestSchemaSupport.TEST_SCHEMA + " TO " + RLS_USER);
+        jdbc.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA " + MigrationTestSchemaSupport.TEST_SCHEMA + " GRANT USAGE ON SEQUENCES TO " + RLS_USER);
 
         // Seed two tenants.
         insertTenant(UUID.randomUUID(), "Tenant A", "rls-a");
@@ -278,7 +287,7 @@ class CrmRlsTenantIsolationPostgresTest {
                     FOR tbl IN
                         SELECT c.table_name FROM information_schema.columns c
                         JOIN information_schema.tables t ON t.table_name = c.table_name AND t.table_schema = c.table_schema
-                        WHERE c.table_schema = 'public' AND c.column_name = 'tenant_id'
+                        WHERE c.table_schema = 'test_migration' AND c.column_name = 'tenant_id'
                           AND c.table_name LIKE 'crm\\_%' AND t.table_type = 'BASE TABLE'
                     LOOP
                         EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', tbl.table_name);
@@ -303,16 +312,20 @@ class CrmRlsTenantIsolationPostgresTest {
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private JdbcTemplate jdbc() {
-        DriverManagerDataSource ds = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        ds.setDriverClassName("org.postgresql.Driver");
-        return new JdbcTemplate(ds);
+        return new JdbcTemplate(MigrationTestSchemaSupport.isolatedDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
     }
 
     private Connection rawConnection() throws SQLException {
         // Use non-superuser to verify RLS — superusers bypass RLS by default.
-        return java.sql.DriverManager.getConnection(
+        // Set search_path to the disposable test_migration schema so unqualified
+        // table references resolve to the schema where Flyway created the CRM tables.
+        Connection conn = java.sql.DriverManager.getConnection(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), RLS_USER, RLS_PASSWORD);
+        try (var stmt = conn.createStatement()) {
+            stmt.execute("SET search_path TO " + MigrationTestSchemaSupport.TEST_SCHEMA);
+        }
+        return conn;
     }
 
     private void insertTenant(UUID id, String name, String subdomain) {

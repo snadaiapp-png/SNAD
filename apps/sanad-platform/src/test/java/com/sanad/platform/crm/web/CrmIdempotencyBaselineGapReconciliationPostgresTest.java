@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.web;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Assumptions;
@@ -35,6 +36,15 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
         }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is required to verify the CRM idempotency baseline reconciliation.");
+        // Ensure the disposable test_migration schema exists so that flyway.clean()
+        // below only affects this isolated schema (not the shared public schema
+        // that other @SpringBootTest contexts depend on).
+        DriverManagerDataSource bootstrapDs = new DriverManagerDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        bootstrapDs.setDriverClassName("org.postgresql.Driver");
+        MigrationTestSchemaSupport.ensureSchema(new JdbcTemplate(bootstrapDs));
     }
 
     @Test
@@ -92,6 +102,8 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
         return Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .target(target)
                 .cleanDisabled(false)
@@ -103,6 +115,8 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
         return Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
@@ -110,10 +124,8 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
     }
 
     private DriverManagerDataSource dataSource() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        return MigrationTestSchemaSupport.isolatedDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        return dataSource;
     }
 
     private JdbcTemplate jdbc() {
@@ -130,7 +142,7 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
     private boolean tableExists(JdbcTemplate jdbc, String table) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables " +
-                        "WHERE table_schema='public' AND table_name=?",
+                        "WHERE table_schema='test_migration' AND table_name=?",
                 Long.class, table);
         return count != null && count == 1L;
     }
@@ -144,7 +156,7 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
 
     private boolean indexExists(JdbcTemplate jdbc, String index) {
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND indexname=?",
+                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='test_migration' AND indexname=?",
                 Long.class, index);
         return count != null && count == 1L;
     }

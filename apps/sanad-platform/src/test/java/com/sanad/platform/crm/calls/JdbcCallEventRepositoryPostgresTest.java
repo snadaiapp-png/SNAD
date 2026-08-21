@@ -8,6 +8,7 @@ import com.sanad.platform.crm.calls.domain.CallEventRepository;
 import com.sanad.platform.crm.calls.domain.CallStatus;
 import com.sanad.platform.crm.calls.infrastructure.JdbcCallEventRepository;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -49,11 +50,17 @@ class JdbcCallEventRepositoryPostgresTest {
 
     @BeforeEach
     void migrateAndSeed() {
+        // Ensure the disposable test_migration schema exists so that flyway.clean()
+        // below only affects this isolated schema (not the shared public schema
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureSchema(new JdbcTemplate(ds()));
         Flyway flyway = Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
                         System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                         System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
@@ -62,13 +69,16 @@ class JdbcCallEventRepositoryPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(
+        DriverManagerDataSource ds = ds();
+        jdbc = new JdbcTemplate(ds);
+        repository = new JdbcCallEventRepository(new NamedParameterJdbcTemplate(ds));
+    }
+
+    private DriverManagerDataSource ds() {
+        return MigrationTestSchemaSupport.isolatedDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        ds.setDriverClassName("org.postgresql.Driver");
-        jdbc = new JdbcTemplate(ds);
-        repository = new JdbcCallEventRepository(new NamedParameterJdbcTemplate(ds));
     }
 
     private CallEvent event(UUID tenant, String callId, CallStatus status) {

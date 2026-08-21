@@ -1,5 +1,6 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Assumptions;
@@ -87,6 +88,15 @@ class Crm008bFoundationAcceptanceTest {
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping Crm008bFoundationAcceptanceTest. " +
                         "Run with PostgreSQL Direct to exercise PostgreSQL fail-closed invariants.");
+        // Ensure the disposable test_migration schema exists so that flyway.clean()
+        // calls below only affect this isolated schema (not the shared public schema
+        // that other @SpringBootTest contexts depend on).
+        DriverManagerDataSource bootstrapDs = new DriverManagerDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        bootstrapDs.setDriverClassName("org.postgresql.Driver");
+        MigrationTestSchemaSupport.ensureSchema(new JdbcTemplate(bootstrapDs));
     }
 
     // ============================================================
@@ -209,7 +219,7 @@ class Crm008bFoundationAcceptanceTest {
         // crm_ownership_history MUST NOT exist (transaction rollback)
         Long historyTableExists = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables " +
-                "WHERE table_schema='public' AND table_name='crm_ownership_history'", Long.class);
+                "WHERE table_schema='test_migration' AND table_name='crm_ownership_history'", Long.class);
         assertThat(historyTableExists).as("crm_ownership_history must not exist after failed migration").isZero();
 
         // None of the new columns on crm_assignments should exist (transaction rollback)
@@ -253,7 +263,7 @@ class Crm008bFoundationAcceptanceTest {
         // Verify the partial columns are still there (just the basic 3 we created)
         Long columnCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns " +
-                "WHERE table_schema='public' AND table_name='crm_sales_teams'", Long.class);
+                "WHERE table_schema='test_migration' AND table_name='crm_sales_teams'", Long.class);
         assertThat(columnCount).as("partial crm_sales_teams must not be modified by failed migration").isEqualTo(3L);
     }
 
@@ -287,7 +297,7 @@ class Crm008bFoundationAcceptanceTest {
         // crm_ownership_history MUST NOT exist
         Long historyTableExists = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables " +
-                "WHERE table_schema='public' AND table_name='crm_ownership_history'", Long.class);
+                "WHERE table_schema='test_migration' AND table_name='crm_ownership_history'", Long.class);
         assertThat(historyTableExists).as("crm_ownership_history must not exist after failed migration").isZero();
     }
 
@@ -416,7 +426,7 @@ class Crm008bFoundationAcceptanceTest {
         // V20260722.5 indexes on crm_assignments (idx_owr_assignments_owner_*) are
         // expected to remain — they were created by the successful V20260722.5 migration.
         Long indexCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
+                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='test_migration' " +
                         "AND tablename IN ('crm_accounts','crm_contacts','crm_leads'," +
                         "'crm_opportunities','crm_activities','crm_tasks') " +
                         "AND indexname LIKE 'idx_owr_%_owner_%'", Long.class);
@@ -459,7 +469,7 @@ class Crm008bFoundationAcceptanceTest {
             String table = entry[0];
             String column = entry[1];
             Long dataTypeJsonbCount = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='test_migration' " +
                             "AND table_name=? AND column_name=? AND data_type='jsonb'",
                     Long.class, table, column);
             assertThat(dataTypeJsonbCount)
@@ -565,7 +575,7 @@ class Crm008bFoundationAcceptanceTest {
         // Snapshot baseline: count of crm_assignments columns BEFORE
         long columnsBefore = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns " +
-                "WHERE table_schema='public' AND table_name='crm_assignments'", Long.class);
+                "WHERE table_schema='test_migration' AND table_name='crm_assignments'", Long.class);
 
         // Inject an unmappable row (NULL subject_id by temporarily dropping NOT NULL)
         jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id DROP NOT NULL");
@@ -590,13 +600,13 @@ class Crm008bFoundationAcceptanceTest {
         // After failure: column count must equal baseline (no new columns added)
         long columnsAfter = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns " +
-                "WHERE table_schema='public' AND table_name='crm_assignments'", Long.class);
+                "WHERE table_schema='test_migration' AND table_name='crm_assignments'", Long.class);
         assertThat(columnsAfter).as("crm_assignments column count must be unchanged after rollback")
                 .isEqualTo(columnsBefore);
 
         // No new V20260722.5 indexes
         Long indexCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
+                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='test_migration' " +
                 "AND tablename='crm_assignments' " +
                 "AND indexname IN ('idx_owr_assignments_record','idx_owr_assignments_owner_user'," +
                 "'idx_owr_assignments_owner_team','idx_owr_assignments_owner_queue'," +
@@ -624,6 +634,8 @@ class Crm008bFoundationAcceptanceTest {
         var configuration = Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .cleanDisabled(false)
                 .validateOnMigrate(false);
         if (target != null) configuration.target(target);
@@ -631,10 +643,8 @@ class Crm008bFoundationAcceptanceTest {
     }
 
     private JdbcTemplate jdbc() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        return new JdbcTemplate(dataSource);
+        return new JdbcTemplate(MigrationTestSchemaSupport.isolatedDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
     }
 
     private void seedTenant(JdbcTemplate jdbc) {
@@ -680,13 +690,13 @@ class Crm008bFoundationAcceptanceTest {
     private boolean tableExists(JdbcTemplate jdbc, String table) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables " +
-                "WHERE table_schema='public' AND table_name=?", Long.class, table);
+                "WHERE table_schema='test_migration' AND table_name=?", Long.class, table);
         return count != null && count == 1L;
     }
 
     private boolean columnExists(JdbcTemplate jdbc, String table, String column) {
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='test_migration' " +
                         "AND table_name=? AND column_name=?",
                 Long.class, table, column);
         return count != null && count == 1L;
@@ -699,7 +709,7 @@ class Crm008bFoundationAcceptanceTest {
         // (NOT 'USER-DEFINED' — that is the old value for some other types).
         // Assert BOTH fields to prevent regression of the catalog-reading bug.
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='test_migration' " +
                         "AND table_name=? AND column_name=? " +
                         "AND data_type='jsonb' AND udt_name='jsonb'",
                 Long.class, table, column);
@@ -716,7 +726,7 @@ class Crm008bFoundationAcceptanceTest {
                             "JOIN pg_class c ON c.oid = i.indrelid " +
                             "JOIN pg_class ci ON ci.oid = i.indexrelid " +
                             "JOIN pg_namespace n ON n.oid = c.relnamespace " +
-                            "WHERE n.nspname='public' AND c.relname=? AND ci.relname=?",
+                            "WHERE n.nspname='test_migration' AND c.relname=? AND ci.relname=?",
                     String.class, table, indexName);
             if (predicate == null) return false;
             // Token-based check: extract identifiers/values from fragment and

@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.web;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Assumptions;
@@ -48,6 +49,15 @@ class CrmContactBaselineGapReconciliationPostgresTest {
         }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is required to verify the PostgreSQL Contact schema reconciliation.");
+        // Ensure the disposable test_migration schema exists so that flyway.clean()
+        // below only affects this isolated schema (not the shared public schema
+        // that other @SpringBootTest contexts depend on).
+        DriverManagerDataSource bootstrapDs = new DriverManagerDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        bootstrapDs.setDriverClassName("org.postgresql.Driver");
+        MigrationTestSchemaSupport.ensureSchema(new JdbcTemplate(bootstrapDs));
     }
 
     @Test
@@ -118,6 +128,8 @@ class CrmContactBaselineGapReconciliationPostgresTest {
         return Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .target(target)
                 .cleanDisabled(false)
@@ -129,6 +141,8 @@ class CrmContactBaselineGapReconciliationPostgresTest {
         return Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
+                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .outOfOrder(true)
                 .cleanDisabled(false)
@@ -137,10 +151,8 @@ class CrmContactBaselineGapReconciliationPostgresTest {
     }
 
     private DriverManagerDataSource dataSource() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        return MigrationTestSchemaSupport.isolatedDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        return dataSource;
     }
 
     private JdbcTemplate jdbc() {
@@ -150,7 +162,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
     private boolean columnExists(JdbcTemplate jdbc, String table, String column) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns " +
-                        "WHERE table_schema='public' AND table_name=? AND column_name=?",
+                        "WHERE table_schema='test_migration' AND table_name=? AND column_name=?",
                 Long.class, table, column);
         return count != null && count == 1L;
     }
@@ -158,7 +170,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
     private boolean tableExists(JdbcTemplate jdbc, String table) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables " +
-                        "WHERE table_schema='public' AND table_name=?",
+                        "WHERE table_schema='test_migration' AND table_name=?",
                 Long.class, table);
         return count != null && count == 1L;
     }
