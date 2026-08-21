@@ -4,17 +4,16 @@
 # Runs on every push/PR that touches the native caller module,
 # app config or the shared caller code. The physical-device
 # evidence gate remains a separate owner-level requirement
-# (G8 EXECUTION 05 §57, §73).
+# (G8 EXECUTION 05 §57, §73; G8 EXECUTION 05-R §29–§36).
 #
-# NOTE: the canonical `expo prebuild` chain (and thus the full
-# :app APK) is blocked in this dependency set by an SDK-52
-# packaging quirk (modules ship Metro-style TS/extensionless
-# entries that modern Node cannot require — reproduces with an
-# empty plugin list). The module is therefore compiled through
-# the SAME android sources via a module harness
-# (scripts/crm/g8/run-native-harness.sh) which mirrors the full
-# app build for the module; the plugin manifest contract is
-# validated through expo's own AndroidConfig.Manifest pipeline.
+# Evidence layers (G8 EXECUTION 05-R §22–§23):
+#   1. mobile-regression — typecheck + jest (Track D + G7 + module)
+#   2. android-native     — module harness: JVM tests + AAR +
+#                           config-plugin mutation (fast lower layer)
+#   3. android-full-apk   — REAL `expo prebuild` + full `gradlew
+#                           assembleDebug` + in-APK manifest proof
+#                           (acceptance requirement; the harness is
+#                           NOT a substitute — §16)
 # ============================================================
 name: G8 Android Native Validation
 
@@ -26,6 +25,7 @@ on:
       - 'apps/mobile/app.json'
       - 'apps/mobile/package.json'
       - 'apps/mobile/package-lock.json'
+      - 'apps/mobile/assets/**'
       - 'apps/mobile/src/caller/**'
       - 'apps/mobile/src/storage/**'
       - 'scripts/crm/g8/**'
@@ -35,6 +35,7 @@ on:
     paths:
       - 'apps/mobile/modules/**'
       - 'apps/mobile/app.json'
+      - 'apps/mobile/package-lock.json'
       - '.github/workflows/g8-android-native-validation.yml'
   workflow_dispatch:
 
@@ -65,7 +66,7 @@ jobs:
         run: npm test -- --silent
 
   android-native:
-    name: Android native module build + JVM tests + config plugin
+    name: Android native module harness (JVM tests + AAR + plugin)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -99,10 +100,10 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Config plugin validation (manifest + idempotency + forbidden perms)
+      - name: Config plugin validation (manifest + idempotency + forbidden perms + template strip)
         run: node ../../scripts/crm/g8/validate-call-screening-plugin.js
 
-      - name: Native module compile + JVM unit tests + AAR (harness)
+      - name: Native module compile + JVM unit tests + AAR (harness — lower layer only)
         working-directory: apps/mobile
         run: bash ../../scripts/crm/g8/run-native-harness.sh
 
@@ -114,3 +115,89 @@ jobs:
           path: apps/mobile/modules/sanad-call-screening/android/build/reports/
           if-no-files-found: warn
           retention-days: 14
+
+  android-full-apk:
+    name: Full app APK (real prebuild + gradle assembleDebug)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Expo SDK 53 supported Node; never 22.18+/24 (node_modules TS stripping)
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4 # wrapper caching only; project uses its own wrapper
+
+      - name: Ensure Android SDK pieces (compileSdk 36 line)
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          for p in "platforms;android-36" "build-tools;36.0.0" "platforms;android-35"; do
+            sdkmanager "$p" >/dev/null 2>&1 || true
+          done
+          echo "SDK platforms: $(ls "$ANDROID_HOME/platforms" | tr '\n' ' ')"
+
+      - name: Install dependencies (clean)
+        run: npm ci --no-audit --no-fund
+
+      - name: Expo doctor gate
+        run: npx expo-doctor
+
+      - name: Real expo prebuild (clean)
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Assert generated AndroidManifest (entries x1, forbidden absent)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          for pat in "com.sanad.crm.callerid.SanadCallScreeningService" \
+                     "android.permission.BIND_SCREENING_SERVICE" \
+                     "android.telecom.CallScreeningService" \
+                     "com.sanad.crm.callerid.SanadCallerIdActivity" \
+                     "android.permission.READ_CONTACTS"; do
+            n=$(grep -c "$pat" "$M")
+            [ "$n" -eq 1 ] || { echo "FAIL: $pat count=$n (expected 1)"; exit 1; }
+          done
+          for pat in "READ_PHONE_STATE" "READ_CALL_LOG" "CALL_PHONE" "SYSTEM_ALERT_WINDOW"; do
+            if grep -q "$pat" "$M"; then echo "FAIL: forbidden $pat present"; exit 1; fi
+          done
+          echo "GENERATED_MANIFEST: PASS"
+
+      - name: Full Gradle app build (assembleDebug)
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Assert native integration INSIDE the built APK (§17)
+        run: |
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          XML=$("$AAPT" dump xmltree --file AndroidManifest.xml "$APK")
+          for pat in "com.sanad.crm.callerid.SanadCallScreeningService" \
+                     "android.permission.BIND_SCREENING_SERVICE" \
+                     "android.telecom.CallScreeningService" \
+                     "com.sanad.crm.callerid.SanadCallerIdActivity" \
+                     "android.permission.READ_CONTACTS"; do
+            echo "$XML" | grep -q "$pat" || { echo "FAIL: $pat missing from APK manifest"; exit 1; }
+          done
+          for pat in "READ_PHONE_STATE" "READ_CALL_LOG" "CALL_PHONE" "SYSTEM_ALERT_WINDOW"; do
+            if echo "$XML" | grep -q "$pat"; then echo "FAIL: forbidden $pat inside APK"; exit 1; fi
+          done
+          echo "APK_NATIVE_MANIFEST: PASS"
+          sha256sum "$APK"
+
+      - name: Upload APK (evidence artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanad-crm-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
