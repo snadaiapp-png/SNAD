@@ -29,15 +29,16 @@ class PlatformApiCountTest {
     private static final Set<String> METHODS = Set.of("get", "post", "put", "patch", "delete", "head", "options", "trace");
     private static final Set<String> OWNERSHIP_PREFIXES = Set.of("/teams", "/queues", "/territories", "/assignment-rules", "/assignments", "/ownership-history", "/transfers", "/my-work");
     private static final long EXPECTED_CRM_V1_OPS = 125;
-    private static final long EXPECTED_CRM_V2_OPS = 193;
-    /** 696 baseline (ERP v20260816.9, commit dc8a4caf) + 14 new endpoints:
-     *  HR controller (/api/v1/hr, 5), Workflow additions (7),
-     *  /api/v2/crm/pipelines (1), store order settle (1) = 710. */
-    private static final long EXPECTED_TOTAL_OPS = 710;
+    private static final long EXPECTED_CRM_V2_OPS = 198;
+    /** 710 baseline (ERP v20260816.9, commit dc8a4caf, +14 endpoints) + 5 G8 caller
+     *  identification / call-event endpoints (G8 EXECUTION 04 clean reintegration):
+     *  /api/v2/crm/caller-identification/lookup (1), /caller-identification/delta (1),
+     *  /api/v2/crm/calls (1), /calls/events (1), /calls/{callId} (1) = 715. */
+    private static final long EXPECTED_TOTAL_OPS = 715;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
-    private static final long EXPECTED_COMMITTED_CRM_PATHS = 147;
-    private static final long EXPECTED_COMMITTED_CRM_OPS = 193;
+    private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;
+    private static final long EXPECTED_COMMITTED_CRM_OPS = 198;
     private static final Path COMMITTED_OPENAPI = Path.of(System.getProperty("user.dir")).getParent().getParent().resolve("docs/crm/contracts/openapi/crm-openapi.json");
 
     @Autowired private MockMvc mockMvc;

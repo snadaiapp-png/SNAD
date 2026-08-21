@@ -74,6 +74,20 @@ export class ApiClient {
   }
 
   /**
+   * Offline caller dataset delta — GET /api/v2/crm/caller-identification/delta
+   * (G8-03 §37). Tenant comes from the authenticated context only.
+   */
+  async pullCallerDatasetDelta(
+    cursor: string | null,
+    limit: number,
+    keyMissing: boolean
+  ): Promise<import('../caller/types').CallerDatasetDeltaResponse> {
+    const params = new URLSearchParams({ limit: String(limit), keyMissing: String(keyMissing) });
+    if (cursor) params.set('cursor', cursor);
+    return this.request('GET', `/api/v2/crm/caller-identification/delta?${params}`);
+  }
+
+  /**
    * List conflicts — GET /api/v2/mobile/conflicts
    */
   async listConflicts(): Promise<any> {
