@@ -1,0 +1,129 @@
+# ============================================================
+# G8 Track E — Android Native Caller Identification validation
+# ------------------------------------------------------------
+# Runs on every push/PR that touches the native caller module,
+# app config or the shared caller code. The PREBUILD + Gradle
+# build + config-plugin checks happen here (fresh runner); the
+# physical-device evidence gate remains a separate owner-level
+# evidence requirement (G8 EXECUTION 05 §57, §73).
+# ============================================================
+name: G8 Android Native Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/mobile/modules/**'
+      - 'apps/mobile/app.json'
+      - 'apps/mobile/package.json'
+      - 'apps/mobile/package-lock.json'
+      - 'apps/mobile/src/caller/**'
+      - 'apps/mobile/src/storage/**'
+      - 'scripts/crm/g8/**'
+      - '.github/workflows/g8-android-native-validation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/modules/**'
+      - 'apps/mobile/app.json'
+      - '.github/workflows/g8-android-native-validation.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: g8-android-valid-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mobile-regression:
+    name: Mobile tests + typecheck (Track D/G7 regression)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Mobile unit tests (incl. Track D + G7 + module tests)
+        run: npm test -- --silent
+
+  android-native:
+    name: Android native module build + JVM tests + prebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Ensure Android SDK platforms (prebuild may need 36)
+        run: |
+          for p in "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0"; do
+            yes | sdkmanager --licenses >/dev/null 2>&1 || true
+            sdkmanager "$p" >/dev/null 2>&1 || true
+          done
+          echo "SDK platforms: $(ls "$ANDROID_HOME/platforms" | tr '\n' ' ')"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Config plugin validation (manifest + idempotency)
+        run: node ../../scripts/crm/g8/validate-call-screening-plugin.js
+
+      - name: Prebuild (CNG → android)
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Prebuild twice — no duplicate manifest entries (§52)
+        run: |
+          npx expo prebuild --platform android --no-install
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          test "$(grep -c 'com.sanad.crm.callerid.SanadCallScreeningService' "$MANIFEST")" = 1
+          test "$(grep -c 'com.sanad.crm.callerid.SanadCallerIdActivity' "$MANIFEST")" = 1
+          test "$(grep -c 'android.permission.READ_CONTACTS' "$MANIFEST")" = 1
+          test "$(grep -c 'android.telecom.CallScreeningService' "$MANIFEST")" = 1
+          ! grep -q 'android.permission.READ_PHONE_STATE' "$MANIFEST"
+          ! grep -q 'android.permission.READ_CALL_LOG' "$MANIFEST"
+          ! grep -q 'android.permission.CALL_PHONE' "$MANIFEST"
+          ! grep -q 'android.permission.SYSTEM_ALERT_WINDOW' "$MANIFEST"
+          echo "MANIFEST_VALIDATION: PASS"
+
+      - name: Native JVM unit tests
+        working-directory: apps/mobile/android
+        run: ./gradlew :sanad-call-screening:testDebugUnitTest --console=plain
+
+      - name: Native module assemble (AAR)
+        working-directory: apps/mobile/android
+        run: ./gradlew :sanad-call-screening:assembleDebug --console=plain
+
+      - name: Full app debug APK
+        working-directory: apps/mobile/android
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      - name: Upload native test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g8-android-test-reports
+          path: apps/mobile/android/modules/sanad-call-screening/build/reports/
+          if-no-files-found: warn
+          retention-days: 14
