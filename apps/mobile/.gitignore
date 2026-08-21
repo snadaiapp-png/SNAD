@@ -1,0 +1,5 @@
+# Expo CNG: native projects are generated (expo prebuild), never committed
+/android/
+/ios/
+.expo/
+.tmp-g8r/

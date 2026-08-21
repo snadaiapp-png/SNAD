@@ -27,7 +27,6 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-crypto",
       "expo-sqlite",
       "./modules/sanad-call-screening/app.plugin.js"
     ]
