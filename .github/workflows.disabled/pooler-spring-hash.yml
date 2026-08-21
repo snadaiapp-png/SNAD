@@ -72,7 +72,7 @@ jobs:
           port = "5432"
           database_name = "postgres"
           user = "postgres.hxhvfqxzigrqoxxnnzje"
-          password = "Senen@001985"
+          password = "<REDACTED>"
           admin_email = "admin@snad.ai"
           tenant_id = "958bbb1c-eece-4839-bca8-a5bfa14e6ac1"
           hash_val = os.environ['HASH']

@@ -41,16 +41,47 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Supabase pooler connection (psql uses system libpq with proper SNI support)
-          export PGHOST='aws-0-eu-central-1.pooler.supabase.com'
-          export PGPORT='5432'
-          export PGDATABASE='postgres'
-          export PGUSER="$DATABASE_USERNAME"
-          # PGPASSWORD is set above
-          export PGSSLMODE='require'
+          # Parse PRODUCTION_DATABASE_URL (JDBC format) to extract connection
+          # parameters. This is the authoritative secret — no hardcoded pooler
+          # host, no guessed project_ref. Same pattern as backup-verify.yml.
+          JDBC_URL="${{ secrets.PRODUCTION_DATABASE_URL }}"
+          if [ -z "$JDBC_URL" ]; then
+            echo "::error::PRODUCTION_DATABASE_URL secret is not set"
+            exit 1
+          fi
+
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          export PGHOST="${HOST_PORT%%:*}"
+          export PGPORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          export PGDATABASE="${DB_PART%%\?*}"
+
+          DB_USER=$(echo "$JDBC_URL" | grep -oP 'user=\K[^&]+' || echo "")
+          if [ -n "$DB_USER" ]; then
+            export PGUSER="$DB_USER"
+          else
+            export PGUSER="$DATABASE_USERNAME"
+          fi
+
+          DB_PASS=$(echo "$JDBC_URL" | grep -oP 'password=\K[^&]+' || echo "")
+          if [ -n "$DB_PASS" ]; then
+            export PGPASSWORD="$DB_PASS"
+          fi
+
+          DB_SSL=$(echo "$JDBC_URL" | grep -oP 'sslmode=\K[^&]+' || echo "")
+          if [ -n "$DB_SSL" ]; then
+            export PGSSLMODE="$DB_SSL"
+          else
+            export PGSSLMODE='require'
+          fi
+
+          for value in "$PGHOST" "$PGPORT" "$PGDATABASE" "$PGUSER" "$PGPASSWORD"; do
+            [ -n "$value" ] && echo "::add-mask::$value"
+          done
 
           echo "=== Verify connectivity ==="
-          psql -c "SELECT version();" 2>&1 | head -3
+          psql -c "SELECT 1 as test;" 2>&1 | head -3
 
           echo ""
           echo "=== Provision Tenant A + B (idempotent upserts) ==="
