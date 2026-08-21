@@ -228,15 +228,13 @@ class CrmPostgresMigrationTest {
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmPostgresMigrationTest. " +
                         "Run with PostgreSQL Direct to exercise PostgreSQL migrations.");
-        // Ensure the disposable test_migration schema exists so that flyway.clean()
-        // below only affects this isolated schema (not the shared public schema
+        // Ensure the disposable test_migration database exists so that flyway.clean()
+        // below only affects this isolated database (not the shared sanad database
         // that other @SpringBootTest contexts depend on).
-        DriverManagerDataSource bootstrapDs = new DriverManagerDataSource(
+        MigrationTestSchemaSupport.ensureDatabase(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        bootstrapDs.setDriverClassName("org.postgresql.Driver");
-        MigrationTestSchemaSupport.ensureSchema(new JdbcTemplate(bootstrapDs));
     }
 
     @Test
@@ -541,7 +539,7 @@ class CrmPostgresMigrationTest {
 
             // Verify data_type = 'jsonb' (the field that was previously mis-asserted as 'USER-DEFINED')
             Long dataTypeCount = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='test_migration' " +
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                             "AND table_name=? AND column_name=? AND data_type='jsonb'",
                     Long.class, table, column);
             assertThat(dataTypeCount)
@@ -551,7 +549,7 @@ class CrmPostgresMigrationTest {
 
             // Verify udt_name = 'jsonb'
             Long udtNameCount = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='test_migration' " +
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                             "AND table_name=? AND column_name=? AND udt_name='jsonb'",
                     Long.class, table, column);
             assertThat(udtNameCount)
@@ -560,7 +558,7 @@ class CrmPostgresMigrationTest {
 
             // Verify is_nullable matches expected
             Long nullableCount = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='test_migration' " +
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                             "AND table_name=? AND column_name=? AND is_nullable=?",
                     Long.class, table, column, expectedNullable);
             assertThat(nullableCount)
@@ -854,10 +852,8 @@ class CrmPostgresMigrationTest {
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
-                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true);
@@ -866,8 +862,10 @@ class CrmPostgresMigrationTest {
     }
 
     private JdbcTemplate jdbc() {
-        return new JdbcTemplate(MigrationTestSchemaSupport.isolatedDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        dataSource.setDriverClassName("org.postgresql.Driver");
+        return new JdbcTemplate(dataSource);
     }
 
     private void assertMigration(JdbcTemplate jdbc, String version, String type, String description) {
@@ -891,7 +889,7 @@ class CrmPostgresMigrationTest {
 
     private List<String> existingTables(JdbcTemplate jdbc) {
         return jdbc.queryForList(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema='test_migration' " +
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='public' " +
                         "AND table_name LIKE 'crm_%' ORDER BY table_name",
                 String.class);
     }
@@ -909,7 +907,7 @@ class CrmPostgresMigrationTest {
 
     private long g1ExplicitIndexCount(JdbcTemplate jdbc) {
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='test_migration' " +
+                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
                         "AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes'," +
                         "'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') " +
                         "AND indexname LIKE 'idx_crm_%'",
@@ -919,7 +917,7 @@ class CrmPostgresMigrationTest {
 
     private long g1IndexesWithoutTenantPrefix(JdbcTemplate jdbc) {
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='test_migration' " +
+                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
                         "AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes'," +
                         "'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') " +
                         "AND indexname LIKE 'idx_crm_%' AND indexdef NOT LIKE '%(tenant_id,%'",
@@ -930,14 +928,14 @@ class CrmPostgresMigrationTest {
     private boolean constraintExists(JdbcTemplate jdbc, String constraint) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.table_constraints " +
-                        "WHERE constraint_schema='test_migration' AND constraint_name=?",
+                        "WHERE constraint_schema='public' AND constraint_name=?",
                 Long.class, constraint);
         return count != null && count == 1L;
     }
 
     private boolean columnExists(JdbcTemplate jdbc, String table, String column) {
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='test_migration' " +
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                         "AND table_name=? AND column_name=?",
                 Long.class, table, column);
         return count != null && count == 1L;
@@ -950,7 +948,7 @@ class CrmPostgresMigrationTest {
         // (NOT 'USER-DEFINED' — that is the old value for some other types).
         // Assert BOTH fields to prevent regression of the catalog-reading bug.
         Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='test_migration' " +
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                         "AND table_name=? AND column_name=? " +
                         "AND data_type='jsonb' AND udt_name='jsonb'",
                 Long.class, table, column);
@@ -969,7 +967,7 @@ class CrmPostgresMigrationTest {
                             "JOIN pg_class c ON c.oid = i.indrelid " +
                             "JOIN pg_class ci ON ci.oid = i.indexrelid " +
                             "JOIN pg_namespace n ON n.oid = c.relnamespace " +
-                            "WHERE n.nspname='test_migration' AND c.relname=? AND ci.relname=?",
+                            "WHERE n.nspname='public' AND c.relname=? AND ci.relname=?",
                     String.class, table, indexName);
             if (predicate == null) return false;
             // Semantic token-based check: extract identifiers and values from the

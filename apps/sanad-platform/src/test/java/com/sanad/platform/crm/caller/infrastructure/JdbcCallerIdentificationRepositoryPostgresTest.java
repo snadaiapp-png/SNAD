@@ -45,21 +45,22 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping JdbcCallerIdentificationRepositoryPostgresTest.");
+        // Ensure the disposable test_migration database exists so that flyway.clean()
+        // below only affects this isolated database (not the shared sanad database
+        // that other @SpringBootTest contexts depend on).
+        MigrationTestSchemaSupport.ensureDatabase(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
     @BeforeEach
     void migrateAndSeed() {
-        // Ensure the disposable test_migration schema exists so that flyway.clean()
-        // below only affects this isolated schema (not the shared public schema
-        // that other @SpringBootTest contexts depend on).
-        MigrationTestSchemaSupport.ensureSchema(new JdbcTemplate(ds()));
         Flyway flyway = Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
                         System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                         System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .schemas(MigrationTestSchemaSupport.TEST_SCHEMA)
-                .defaultSchema(MigrationTestSchemaSupport.TEST_SCHEMA)
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
@@ -68,7 +69,11 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = ds();
+        DriverManagerDataSource ds = new DriverManagerDataSource(
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
         repository = new JdbcCallerIdentificationRepository(new NamedParameterJdbcTemplate(ds));
     }
@@ -213,13 +218,6 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         assertThat(CallerIdentificationRepository.legacyLeadPhoneForms("+971501234567"))
                 .containsExactly("+971501234567", "971501234567", "0971501234567");
         assertThat(CallerIdentificationRepository.legacyLeadPhoneForms(null)).isEmpty();
-    }
-
-    private DriverManagerDataSource ds() {
-        return MigrationTestSchemaSupport.isolatedDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
-                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
-                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
     // ===== fixtures =====
