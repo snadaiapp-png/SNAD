@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  G8 Track E — the CallScreeningService, the caller-ID activity and the
+  READ_CONTACTS coverage permission are owned by the Expo config plugin
+  (CONFIG PLUGIN OWNS NATIVE CONFIG, G8-05 §5 / §52) and are injected into
+  the generated manifest by app.plugin.js — never hand-edited here.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.sanad.crm.callerid" />
