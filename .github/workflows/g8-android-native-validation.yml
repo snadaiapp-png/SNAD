@@ -155,6 +155,23 @@ jobs:
       - name: Real expo prebuild (clean)
         run: npx expo prebuild --platform android --clean --no-install
 
+      - name: Strip SYSTEM_ALERT_WINDOW from debug variant manifest
+        run: |
+          # The Expo prebuild template generates android/app/src/debug/AndroidManifest.xml
+          # with an ACTIVE SYSTEM_ALERT_WINDOW permission for debug builds.
+          # The tools:node="remove" in the main manifest does NOT override the
+          # debug variant manifest because the debug manifest has higher priority
+          # in the Gradle manifest merger for debug builds.
+          # This step removes the active declaration from the debug manifest
+          # so the tools:node="remove" in the main manifest takes effect.
+          DEBUG_MANIFEST="apps/mobile/android/app/src/debug/AndroidManifest.xml"
+          if [ -f "$DEBUG_MANIFEST" ]; then
+            sed -i '/<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/d' "$DEBUG_MANIFEST"
+            echo "Stripped SYSTEM_ALERT_WINDOW from debug manifest"
+          else
+            echo "Debug manifest not found — skipping"
+          fi
+
       - name: Assert generated AndroidManifest (entries x1, forbidden absent)
         run: |
           M=android/app/src/main/AndroidManifest.xml

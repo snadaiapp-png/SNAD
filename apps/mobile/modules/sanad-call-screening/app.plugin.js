@@ -93,7 +93,6 @@ function mutateAndroidManifest(manifest) {
   const permissions = manifest.manifest['uses-permission'] ?? [];
 
   // Strip forbidden permissions (Expo template ships SYSTEM_ALERT_WINDOW).
-  // Strip forbidden permissions (Expo template ships SYSTEM_ALERT_WINDOW).
   const stripped = permissions.filter(
     (p) => !FORBIDDEN_PERMISSIONS.includes(p.$['android:name'])
   );

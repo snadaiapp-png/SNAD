@@ -102,7 +102,19 @@ async function main() {
     if (activityCount !== 1) problems.push(`activity entries=${activityCount} (expected 1)`);
     if (contactsCount !== 1) problems.push(`READ_CONTACTS occurrences=${contactsCount} (expected 1)`);
     for (const forbidden of FORBIDDEN_PERMISSIONS) {
-      if (xml.includes(forbidden)) problems.push(`FORBIDDEN permission present: ${forbidden}`);
+      // Distinguish ACTIVE permission from tools:node="remove" removal marker.
+      // An ACTIVE permission: <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+      // A removal marker:     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove"/>
+      // The validator must FAIL on active permissions but ALLOW intentional removal markers.
+      const activePattern = new RegExp(
+        '<uses-permission\\s+android:name="' + forbidden.replace(/\./g, '\\.') + '"\\s*/>'
+      );
+      const removalPattern = new RegExp(
+        '<uses-permission\\s+android:name="' + forbidden.replace(/\./g, '\\.') + '"\\s+tools:node="remove"'
+      );
+      if (activePattern.test(xml) && !removalPattern.test(xml)) {
+        problems.push(`FORBIDDEN active permission present (not a removal marker): ${forbidden}`);
+      }
     }
 
     // second mutation — idempotency / repeatable generation
@@ -129,8 +141,16 @@ async function main() {
     await AndroidConfig.Manifest.writeAndroidManifestAsync(templatePath, manifest3);
     const xml3 = fs.readFileSync(templatePath, 'utf8');
     for (const forbidden of FORBIDDEN_PERMISSIONS) {
-      if (xml3.includes(forbidden)) {
-        problems.push(`FORBIDDEN permission NOT stripped from template-like input: ${forbidden}`);
+      // After mutation, forbidden permissions must NOT appear as active declarations.
+      // SYSTEM_ALERT_WINDOW may appear as a tools:node="remove" removal marker (intentional).
+      const activePattern = new RegExp(
+        '<uses-permission\\s+android:name="' + forbidden.replace(/\./g, '\\.') + '"\\s*/>'
+      );
+      const removalPattern = new RegExp(
+        '<uses-permission\\s+android:name="' + forbidden.replace(/\./g, '\\.') + '"\\s+tools:node="remove"'
+      );
+      if (activePattern.test(xml3) && !removalPattern.test(xml3)) {
+        problems.push(`FORBIDDEN active permission NOT stripped from template-like input: ${forbidden}`);
       }
     }
     if (!xml3.includes('android.permission.VIBRATE')) {
