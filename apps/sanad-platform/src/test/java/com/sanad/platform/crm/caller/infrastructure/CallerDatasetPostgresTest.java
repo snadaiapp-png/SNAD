@@ -54,10 +54,10 @@ class CallerDatasetPostgresTest {
                         System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(true)
+                .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();
-        // flyway.clean() removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        flyway.clean();
         flyway.migrate();
         flyway.validate();
 

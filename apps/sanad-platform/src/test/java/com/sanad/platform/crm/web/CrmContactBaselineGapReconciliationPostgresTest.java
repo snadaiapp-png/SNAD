@@ -53,7 +53,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
     @Test
     void repairsSkippedContactSchemaIdempotentlyAndAllowsCurrentInsertContract() {
         Flyway preGap = mainMigrations(MigrationVersion.fromVersion(PRE_CONTACT_RELATIONSHIP_VERSION));
-        preGap.migrate();
+        preGap.clean();
         preGap.migrate();
 
         JdbcTemplate jdbc = jdbc();
@@ -101,7 +101,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
                 String.class, tenantId, contactId)).isEqualTo("Diagnostic Contact");
 
         Flyway complete = allProductionMigrations();
-        complete.migrate();
+        complete.clean();
         complete.migrate();
         complete.validate();
 
@@ -120,7 +120,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
                 .locations("classpath:db/migration")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .target(target)
-                .cleanDisabled(true)
+                .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();
     }
@@ -131,7 +131,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .outOfOrder(true)
-                .cleanDisabled(true)
+                .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();
     }

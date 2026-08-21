@@ -40,7 +40,7 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
     @Test
     void recreatesMissingIdempotencyTableWithoutEditingHistoricalFlywayState() {
         Flyway historical = mainMigrations(MigrationVersion.fromVersion(PRE_RECONCILIATION_VERSION));
-        historical.migrate();
+        historical.clean();
         historical.migrate();
 
         JdbcTemplate jdbc = jdbc();
@@ -94,7 +94,7 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
                 .locations("classpath:db/migration")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .target(target)
-                .cleanDisabled(true)
+                .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();
     }
@@ -104,7 +104,7 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(true)
+                .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();
     }
