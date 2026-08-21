@@ -7,7 +7,7 @@ name: ROOT FIX v3 — Use Render DB Credentials
 # Render env vars show:
 #   DATABASE_URL = jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require
 #   DATABASE_USERNAME = postgres.hxhvfqxzigrqoxxnnzje
-#   DATABASE_PASSWORD = Senen@001985
+#   DATABASE_PASSWORD = <REDACTED>
 #
 # But GitHub secrets might point to a different project ref.
 # This is why all my previous inserts didn't persist — I was
@@ -50,7 +50,7 @@ jobs:
           DB_PORT: "5432"
           DB_NAME: postgres
           DB_USER: postgres.hxhvfqxzigrqoxxnnzje
-          DB_PASS: Senen@001985
+          DB_PASS: <REDACTED>
           TENANT_ID: 958bbb1c-eece-4839-bca8-a5bfa14e6ac1
           ADMIN_EMAIL: admin@snad.ai
           ADMIN_PASSWORD: SNad@2026

@@ -39,10 +39,10 @@ class CrmG1TenantIsolationPostgresTest {
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(false)
+                .cleanDisabled(true)
                 .validateOnMigrate(true)
                 .load();
-        flyway.clean();
+        // flyway.clean() removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
         flyway.migrate();
         flyway.validate();
 

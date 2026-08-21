@@ -45,7 +45,7 @@ jobs:
           echo "=== Restoring ORIGINAL Render DB credentials ==="
           set_var "DATABASE_URL" "jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require" "secret"
           set_var "DATABASE_USERNAME" "postgres.hxhvfqxzigrqoxxnnzje" "secret"
-          set_var "DATABASE_PASSWORD" "Senen@001985" "secret"
+          set_var "DATABASE_PASSWORD" <REDACTED_ROTATED_EXTERNALLY> "secret"
           set_var "BOOTSTRAP_ENABLED" "false"
           set_var "FLYWAY_ENABLED" "false"
           set_var "JPA_DDL_AUTO" "none"

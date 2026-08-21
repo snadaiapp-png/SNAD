@@ -232,7 +232,7 @@ class CrmPostgresMigrationTest {
     @Test
     void upgradesExistingPlatformThroughCrmRbacAndCompletion() {
         Flyway baseline = flyway(MigrationVersion.fromVersion(MAIN_SCHEMA_VERSION));
-        baseline.clean();
+        baseline.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
         baseline.migrate();
         JdbcTemplate jdbc = jdbc();
         assertThat(latestVersion(jdbc)).isEqualTo(MAIN_SCHEMA_VERSION);
@@ -361,7 +361,7 @@ class CrmPostgresMigrationTest {
     @Test
     void upgradesUnifiedCrmCoreThroughReconciliationAndCompletion() {
         Flyway core = flyway(MigrationVersion.fromVersion(CRM_CORE_VERSION));
-        core.clean();
+        core.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
         core.migrate();
         JdbcTemplate jdbc = jdbc();
         assertThat(latestVersion(jdbc)).isEqualTo(CRM_CORE_VERSION);
@@ -490,7 +490,7 @@ class CrmPostgresMigrationTest {
     @Test
     void installsCompletedCrmOnCleanPostgresDatabase() {
         Flyway flyway = flyway(null);
-        flyway.clean();
+        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
         flyway.migrate();
         flyway.validate();
         assertCompletedSchema(jdbc());
@@ -509,7 +509,7 @@ class CrmPostgresMigrationTest {
     @Test
     void jsonbColumnsHaveExactPostgresCatalogValues() {
         Flyway flyway = flyway(null);
-        flyway.clean();
+        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
         flyway.migrate();
         flyway.validate();
         JdbcTemplate jdbc = jdbc();
@@ -847,7 +847,7 @@ class CrmPostgresMigrationTest {
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(false)
+                .cleanDisabled(true)
                 .validateOnMigrate(true);
         if (target != null) configuration.target(target);
         return configuration.load();

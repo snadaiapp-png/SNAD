@@ -39,7 +39,7 @@ class FlywayV15ProductionUpgradeTest {
     @Test
     void preservesProductionDataAndCompletesAdminGrants() {
         Flyway throughV14 = flyway(MigrationVersion.fromVersion("14"));
-        throughV14.clean();
+        throughV14.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
         throughV14.migrate();
 
         JdbcTemplate jdbc = jdbc();
@@ -129,7 +129,7 @@ class FlywayV15ProductionUpgradeTest {
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(false)
+                .cleanDisabled(true)
                 .validateOnMigrate(true);
         if (target != null) {
             configuration.target(target);

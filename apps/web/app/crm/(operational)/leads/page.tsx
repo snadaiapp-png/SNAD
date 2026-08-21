@@ -160,7 +160,7 @@ export default function CrmLeadsPage() {
                       <td>{lead.display_name}</td>
                       <td>{lead.company_name ?? "—"}</td>
                       <td>
-                        <span className={styles.badge}>{lead.status}</span>
+                        <span className={styles.badge} aria-label={terminalStates.includes(lead.status) ? `Terminal status: ${lead.status}` : `Status: ${lead.status}`}>{lead.status}</span>
                       </td>
                       <td>{lead.score ?? "—"}</td>
                       <td className={styles.rowActions}>
