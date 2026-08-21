@@ -39,7 +39,7 @@ class FlywayV15ProductionUpgradeTest {
     @Test
     void preservesProductionDataAndCompletesAdminGrants() {
         Flyway throughV14 = flyway(MigrationVersion.fromVersion("14"));
-        throughV14.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
+        throughV14.migrate();
         throughV14.migrate();
 
         JdbcTemplate jdbc = jdbc();

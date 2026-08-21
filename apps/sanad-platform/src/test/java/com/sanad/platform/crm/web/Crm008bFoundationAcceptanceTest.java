@@ -103,7 +103,7 @@ class Crm008bFoundationAcceptanceTest {
         // 1. Migrate to V20260722.4 (one BEFORE V20260722.5) so we can seed
         //    G1 rows BEFORE the backfill migration runs.
         Flyway upTo4 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENT_RULES_VERSION));
-        upTo4.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
+        upTo4.migrate();
         upTo4.migrate();
 
         JdbcTemplate jdbc = jdbc();
@@ -166,7 +166,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void g1BackfillFailsClosedOnUnmappableRow() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         // Apply up to V20260722.4 (one before V20260722.5)
         Flyway upTo4 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENT_RULES_VERSION));
         upTo4.migrate();
@@ -229,7 +229,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void v20260722_1_FailsClosedWhenTargetTableExists() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         // Bring schema up to the point just before V20260722.1
         Flyway upToVendorReconcile = flyway(MigrationVersion.fromVersion(VENDOR_RECONCILE_IDEMPOTENCY_VERSION));
         upToVendorReconcile.migrate();
@@ -264,7 +264,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void v20260722_5_FailsClosedWhenTargetColumnsExist() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         // Apply up to V20260722.4 (need crm_assignment_rules for FK)
         Flyway upTo4 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENT_RULES_VERSION));
         upTo4.migrate();
@@ -298,7 +298,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void v20260722_8_FailsClosedOnConflictingCapability() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         // Apply up to V20260722.7 (one before V20260722.8)
         Flyway upTo7 = flyway(MigrationVersion.fromVersion(CRM_008B_OWNER_COLUMNS_VERSION));
         upTo7.migrate();
@@ -343,7 +343,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void v20260722_8_IdempotentWhenSalesManagerRoleAlreadyExists() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         Flyway upTo7 = flyway(MigrationVersion.fromVersion(CRM_008B_OWNER_COLUMNS_VERSION));
         upTo7.migrate();
 
@@ -393,7 +393,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void v20260722_7_FailsClosedWhenOwnerColumnsExist() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         Flyway upTo6 = flyway(MigrationVersion.fromVersion(CRM_008B_TRANSFER_REQUESTS_VERSION));
         upTo6.migrate();
 
@@ -435,7 +435,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void jsonbColumnsArePostgresNativeJsonb() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         flyway.migrate();
 
         JdbcTemplate jdbc = jdbc();
@@ -475,7 +475,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void partialUniqueIndexesHaveCorrectPredicates() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         flyway.migrate();
 
         JdbcTemplate jdbc = jdbc();
@@ -504,7 +504,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void cleanInstallProducesExpectedSchema() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         flyway.migrate();
         flyway.validate();
 
@@ -554,7 +554,7 @@ class Crm008bFoundationAcceptanceTest {
     @Test
     void v20260722_5_RollsBackTransactionOnFailure() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         Flyway upTo4 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENT_RULES_VERSION));
         upTo4.migrate();
 

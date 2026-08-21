@@ -40,7 +40,7 @@ class CrmIdempotencyBaselineGapReconciliationPostgresTest {
     @Test
     void recreatesMissingIdempotencyTableWithoutEditingHistoricalFlywayState() {
         Flyway historical = mainMigrations(MigrationVersion.fromVersion(PRE_RECONCILIATION_VERSION));
-        historical.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
+        historical.migrate();
         historical.migrate();
 
         JdbcTemplate jdbc = jdbc();

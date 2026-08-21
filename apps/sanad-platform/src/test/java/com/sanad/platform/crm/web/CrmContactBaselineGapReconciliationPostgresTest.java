@@ -53,7 +53,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
     @Test
     void repairsSkippedContactSchemaIdempotentlyAndAllowsCurrentInsertContract() {
         Flyway preGap = mainMigrations(MigrationVersion.fromVersion(PRE_CONTACT_RELATIONSHIP_VERSION));
-        preGap.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
+        preGap.migrate();
         preGap.migrate();
 
         JdbcTemplate jdbc = jdbc();
@@ -101,7 +101,7 @@ class CrmContactBaselineGapReconciliationPostgresTest {
                 String.class, tenantId, contactId)).isEqualTo("Diagnostic Contact");
 
         Flyway complete = allProductionMigrations();
-        complete.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
+        complete.migrate();
         complete.migrate();
         complete.validate();
 

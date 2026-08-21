@@ -37,7 +37,7 @@ class CrmAddressCommunicationMigrationUpgradeTest {
     @Test
     void upgradesLegacyAddressesAndPrimaryCommunicationWithoutLoss() {
         Flyway previous = flyway(MigrationVersion.fromVersion(PREVIOUS_VERSION));
-        previous.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent;
+        previous.migrate();
         previous.migrate();
         JdbcTemplate jdbc = jdbc();
 
@@ -116,7 +116,7 @@ class CrmAddressCommunicationMigrationUpgradeTest {
     @Test
     void databaseRejectsCrossTenantOwnerLinking() {
         Flyway flyway = flyway(null);
-        // flyway.migrate() // clean() removed — was destroying shared CI schema; migrate() is idempotent removed — was destroying shared CI schema; replaced with flyway.migrate() (idempotent, non-destructive)
+        // flyway.migrate();
         flyway.migrate();
         JdbcTemplate jdbc = jdbc();
 
