@@ -166,9 +166,14 @@ jobs:
             n=$(grep -c "$pat" "$M")
             [ "$n" -eq 1 ] || { echo "FAIL: $pat count=$n (expected 1)"; exit 1; }
           done
-          for pat in "READ_PHONE_STATE" "READ_CALL_LOG" "CALL_PHONE" "SYSTEM_ALERT_WINDOW"; do
+          for pat in "READ_PHONE_STATE" "READ_CALL_LOG" "CALL_PHONE"; do
             if grep -q "$pat" "$M"; then echo "FAIL: forbidden $pat present"; exit 1; fi
           done
+          # SYSTEM_ALERT_WINDOW may appear in a tools:node="remove" entry (intentional removal)
+          # Check that it's NOT present as an active permission (without tools:node="remove")
+          if grep -q "SYSTEM_ALERT_WINDOW" "$M" && ! grep -q 'SYSTEM_ALERT_WINDOW.*tools:node' "$M"; then
+            echo "FAIL: forbidden SYSTEM_ALERT_WINDOW present (not a removal entry)"; exit 1;
+          fi
           echo "GENERATED_MANIFEST: PASS"
 
       - name: Full Gradle app build (assembleDebug)

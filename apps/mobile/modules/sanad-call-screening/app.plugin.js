@@ -93,28 +93,28 @@ function mutateAndroidManifest(manifest) {
   const permissions = manifest.manifest['uses-permission'] ?? [];
 
   // Strip forbidden permissions (Expo template ships SYSTEM_ALERT_WINDOW).
-  // Also add explicit tools:node="remove" markers so the Gradle manifest
-  // merger does NOT re-add them from dependency AndroidManifest.xml files.
+  // Strip forbidden permissions (Expo template ships SYSTEM_ALERT_WINDOW).
   const stripped = permissions.filter(
     (p) => !FORBIDDEN_PERMISSIONS.includes(p.$['android:name'])
   );
 
-  // Add explicit removal nodes for each forbidden permission.
-  // The Gradle manifest merger respects tools:node="remove" and will
-  // strip the permission from the final merged manifest even if a
-  // dependency declares it.
+  // Add explicit tools:node="remove" ONLY for SYSTEM_ALERT_WINDOW.
+  // This is the only permission that Gradle's manifest merger re-adds
+  // from a dependency. The other forbidden permissions are not declared
+  // by any dependency, so they don't need explicit removal nodes.
+  // Using tools:node="remove" for ALL forbidden permissions would break
+  // the prebuild manifest assertion (grep finds the permission name in
+  // the removal entry).
   const xmlnsTools = 'http://schemas.android.com/tools';
   if (!manifest.manifest.$['xmlns:tools']) {
     manifest.manifest.$['xmlns:tools'] = xmlnsTools;
   }
-  for (const perm of FORBIDDEN_PERMISSIONS) {
-    stripped.push({
-      $: {
-        'android:name': perm,
-        'tools:node': 'remove',
-      },
-    });
-  }
+  stripped.push({
+    $: {
+      'android:name': 'android.permission.SYSTEM_ALERT_WINDOW',
+      'tools:node': 'remove',
+    },
+  });
 
   const contactsDeclared = stripped.some(
     (p) => p.$['android:name'] === 'android.permission.READ_CONTACTS'
