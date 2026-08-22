@@ -115,6 +115,8 @@ class CrmCollaborationSchemaPostgresTest {
         java.util.UUID tenant = insertTenant();
         java.util.UUID entity = java.util.UUID.randomUUID();
         java.util.UUID user = java.util.UUID.randomUUID();
+        // Seed a real contact for the V3 integrity trigger (FOR KEY SHARE validation)
+        seedContactForParticipantTest(tenant, entity, user);
         insertActiveParticipant(tenant, entity, "CONTACT", user, "COLLABORATOR");
         insertActiveParticipant(tenant, entity, "CONTACT", user, "WATCHER");
         assertThatThrownBy(() -> insertActiveParticipant(tenant, entity, "CONTACT", user, "OWNER"))
@@ -251,6 +253,20 @@ class CrmCollaborationSchemaPostgresTest {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', :tenantId, false)",
                 new MapSqlParameterSource("tenantId", tenantId.toString()), String.class);
         return tenantId;
+    }
+
+    private void seedContactForParticipantTest(java.util.UUID tenantId, java.util.UUID contactId, java.util.UUID userId) {
+        // Insert a real crm_contacts row so the V3 integrity trigger (PERFORM ... FOR KEY SHARE)
+        // finds the authoritative entity during participant INSERT validation.
+        jdbc.update("""
+                INSERT INTO crm_contacts (id, tenant_id, version, given_name, display_name,
+                    normalized_name, lifecycle_status, created_by, updated_by, created_at, updated_at)
+                VALUES (:id, :tenantId, 0, 'Test', 'Test Contact', 'test-contact',
+                    'ACTIVE', :userId, :userId, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, new MapSqlParameterSource()
+                .addValue("id", contactId)
+                .addValue("tenantId", tenantId)
+                .addValue("userId", userId));
     }
 
     private void insertActiveParticipant(java.util.UUID tenantId, java.util.UUID entityId,

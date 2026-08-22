@@ -2,10 +2,14 @@ package com.sanad.platform.module.lifecycle;
 
 import com.sanad.platform.admin.service.PlatformAuditWriter;
 import com.sanad.platform.module.entitlement.EntitlementResolver;
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,15 +43,41 @@ public class ModuleResetService {
     private final EntitlementResolver entitlementResolver;
     private final PlatformAuditWriter auditWriter;
     private final TenantRlsTransactionContext tenantRlsContext;
+    private final ControlPlaneAccessGuard controlPlaneAccessGuard;
 
     public ModuleResetService(JdbcTemplate jdbc,
                               EntitlementResolver entitlementResolver,
                               PlatformAuditWriter auditWriter,
-                              TenantRlsTransactionContext tenantRlsContext) {
+                              TenantRlsTransactionContext tenantRlsContext,
+                              ControlPlaneAccessGuard controlPlaneAccessGuard) {
         this.jdbc = jdbc;
         this.entitlementResolver = entitlementResolver;
         this.auditWriter = auditWriter;
         this.tenantRlsContext = tenantRlsContext;
+        this.controlPlaneAccessGuard = controlPlaneAccessGuard;
+    }
+
+    private void requireControlPlaneAccess() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        controlPlaneAccessGuard.require(auth);
+    }
+
+    private void requireControlPlaneAccess(UUID actorTenantId, UUID actorUserId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        controlPlaneAccessGuard.require(auth);
+        if (auth.getDetails() instanceof Map<?, ?> details) {
+            UUID authTenant = extractUuid(details.get("tenant_id"));
+            UUID authUser = extractUuid(details.get("user_id"));
+            if (actorTenantId != null && !actorTenantId.equals(authTenant))
+                throw new AccessDeniedException("Caller-supplied actor identity does not match authenticated identity: actorTenantId mismatch");
+            if (actorUserId != null && !actorUserId.equals(authUser))
+                throw new AccessDeniedException("Caller-supplied actor identity does not match authenticated identity: actorUserId mismatch");
+        }
+    }
+
+    private static UUID extractUuid(Object raw) {
+        if (raw == null) return null;
+        try { return UUID.fromString(raw.toString()); } catch (IllegalArgumentException e) { return null; }
     }
 
     /**
@@ -63,6 +93,8 @@ public class ModuleResetService {
     public ModuleResetPreview previewReset(UUID tenantId, String moduleCode) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
         Objects.requireNonNull(moduleCode, "moduleCode must not be null");
+
+        requireControlPlaneAccess();
 
         // Apply the trusted tenant scope so FORCE-RLS tables (crm_timeline_events,
         // crm_call_events, etc.) are counted instead of silently filtered out.
@@ -113,6 +145,8 @@ public class ModuleResetService {
                                             UUID actorTenantId, UUID actorUserId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
         Objects.requireNonNull(moduleCode, "moduleCode must not be null");
+
+        requireControlPlaneAccess(actorTenantId, actorUserId);
 
         Instant startedAt = Instant.now();
         String correlationId = UUID.randomUUID().toString();
