@@ -2,7 +2,10 @@ package com.sanad.platform.crm.party;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.crm.test.RlsTestSupport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,7 +39,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
 class AddressCommunicationHttpIntegrationTest {
     private static final List<String> CAPABILITIES = List.of(
             "CRM.ADDRESS.READ", "CRM.ADDRESS.WRITE", "CRM.ADDRESS.ADMIN",
@@ -46,6 +48,28 @@ class AddressCommunicationHttpIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
+
+    @AfterEach
+    void clearContext() {
+        RlsTestSupport.clearSecurityContext();
+    }
+
+    /**
+     * Run a verification query under a tenant-scoped transaction so that
+     * FORCE-RLS tables (crm_timeline_events, crm_party_addresses, etc.)
+     * accept the SELECT. Uses a fresh TransactionTemplate per query so
+     * the tenant GUC is set correctly for the tenant being verified.
+     */
+    private <T> T tenantQuery(Fixture fixture, java.util.function.Supplier<T> query) {
+        org.springframework.transaction.support.TransactionTemplate tx =
+                new org.springframework.transaction.support.TransactionTemplate(txManager);
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource("t", fixture.tenantId().toString()), String.class);
+            return query.get();
+        });
+    }
 
     @Test
     void preservesArabicAddressAndMaintainsLegacyProjectionAuditTimelineAndHistory() throws Exception {
@@ -73,28 +97,28 @@ class AddressCommunicationHttpIntegrationTest {
         JsonNode body = mapper.readTree(result.getResponse().getContentAsString());
         UUID addressId = UUID.fromString(body.path("data").path("id").asText());
 
-        Map<String, Object> canonical = jdbc.queryForMap(
+        Map<String, Object> canonical = tenantQuery(fixture, () -> jdbc.queryForMap(
                 "SELECT line1,city,country_extension_json FROM crm_party_addresses WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", fixture.tenantId()).addValue("id", addressId));
-        Map<String, Object> legacy = jdbc.queryForMap(
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", addressId)));
+        Map<String, Object> legacy = tenantQuery(fixture, () -> jdbc.queryForMap(
                 "SELECT line1,city,primary_address FROM crm_account_addresses WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", fixture.tenantId()).addValue("id", addressId));
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", addressId)));
         assertThat(canonical.get("line1")).isEqualTo("٢٥ طريق الملك فهد");
         assertThat(canonical.get("city")).isEqualTo("الرياض");
         assertThat(canonical.get("country_extension_json").toString()).contains("shortAddress");
         assertThat(legacy.get("line1")).isEqualTo("٢٥ طريق الملك فهد");
         assertThat(legacy.get("primary_address")).isEqualTo(true);
 
-        Integer history = jdbc.queryForObject(
+        Integer history = tenantQuery(fixture, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_party_address_history WHERE tenant_id=:tenantId AND address_id=:id",
-                p().addValue("tenantId", fixture.tenantId()).addValue("id", addressId), Integer.class);
-        Integer audit = jdbc.queryForObject(
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", addressId), Integer.class));
+        Integer audit = tenantQuery(fixture, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id=:tenantId AND resource_id=:id AND action='CREATE_ADDRESS'",
-                p().addValue("tenantId", fixture.tenantId()).addValue("id", addressId.toString()), Integer.class);
-        Integer timeline = jdbc.queryForObject(
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", addressId.toString()), Integer.class));
+        Integer timeline = tenantQuery(fixture, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_id=:ownerId " +
                         "AND event_type='crm.address.created'",
-                p().addValue("tenantId", fixture.tenantId()).addValue("ownerId", accountId), Integer.class);
+                p().addValue("tenantId", fixture.tenantId()).addValue("ownerId", accountId), Integer.class));
         assertThat(history).isEqualTo(1);
         assertThat(audit).isEqualTo(1);
         assertThat(timeline).isEqualTo(1);
@@ -133,9 +157,9 @@ class AddressCommunicationHttpIntegrationTest {
                 .andExpect(jsonPath("$.data.rawValue").value("055 123 4567"))
                 .andExpect(jsonPath("$.data.normalizedValue").value("+966551234567"));
 
-        String projected = jdbc.queryForObject(
+        String projected = tenantQuery(fixture, () -> jdbc.queryForObject(
                 "SELECT primary_phone FROM crm_contacts WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class);
+                p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class));
         assertThat(projected).isEqualTo("+966551234567");
     }
 
@@ -160,9 +184,9 @@ class AddressCommunicationHttpIntegrationTest {
 
         String firstId = mapper.readTree(first.getResponse().getContentAsString()).path("data").path("id").asText();
         String replayId = mapper.readTree(replay.getResponse().getContentAsString()).path("data").path("id").asText();
-        Long count = jdbc.queryForObject(
+        Long count = tenantQuery(fixture, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_party_addresses WHERE tenant_id=:tenantId AND account_id=:accountId",
-                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Long.class);
+                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Long.class));
         assertThat(replayId).isEqualTo(firstId);
         assertThat(count).isOne();
     }

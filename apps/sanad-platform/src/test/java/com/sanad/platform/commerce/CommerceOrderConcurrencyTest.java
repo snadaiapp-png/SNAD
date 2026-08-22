@@ -113,6 +113,10 @@ class CommerceOrderConcurrencyTest {
         for (int i = 0; i < parallelism; i++) {
             final int idx = i;
             pool.submit(() -> {
+                // SecurityContextHolder is thread-local; set it inside each
+                // worker thread so TenantRlsConnectionHandler applies
+                // SET LOCAL app.tenant_id inside @Transactional checkout boundaries.
+                RlsTestSupport.setSecurityContext(tenantId, userId);
                 try {
                     UUID cartId = cartService.create(tenantId, storeId,
                             new CreateCartRequest(null, "SAR"), null).id();
@@ -127,6 +131,8 @@ class CommerceOrderConcurrencyTest {
                 } catch (Exception e) {
                     errors.incrementAndGet();
                     throw new RuntimeException(e);
+                } finally {
+                    RlsTestSupport.clearSecurityContext();
                 }
                 return null;
             });
@@ -255,6 +261,10 @@ class CommerceOrderConcurrencyTest {
         for (int i = 0; i < parallelism; i++) {
             final UUID cartId = cartIds.get(i);
             pool.submit(() -> {
+                // SecurityContextHolder is thread-local; set it inside each
+                // worker thread so TenantRlsConnectionHandler applies
+                // SET LOCAL app.tenant_id inside @Transactional checkout boundaries.
+                RlsTestSupport.setSecurityContext(tenantId, userId);
                 ready.countDown();
                 try {
                     start.await();
@@ -265,6 +275,8 @@ class CommerceOrderConcurrencyTest {
                     // Cart-already-checked-out (409) or DuplicateKeyException
                     // caught-and-returned-winner are both expected for losers.
                     errors.incrementAndGet();
+                } finally {
+                    RlsTestSupport.clearSecurityContext();
                 }
                 return null;
             });
@@ -322,13 +334,22 @@ class CommerceOrderConcurrencyTest {
 
     private com.sanad.platform.commerce.api.CommerceDtos.CheckoutResponse checkout(
             UUID tid, UUID storeId, UUID productId) {
-        UUID cartId = cartService.create(tid, storeId,
-                new CreateCartRequest(null, "SAR"), null).id();
-        cartService.addItem(tid, storeId, cartId,
-                new AddCartItemRequest(productId, null, 1), null);
-        return checkoutService.checkout(tid, storeId,
-                new CheckoutRequest(cartId, "idem-" + UUID.randomUUID() + "-" + System.nanoTime(),
-                        "test@example.com", "Test", null, null), null);
+        // Set SecurityContextHolder to the tenant being tested so that
+        // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id inside
+        // the @Transactional checkout boundary for FORCE-RLS table
+        // commerce_order_number_sequences.
+        RlsTestSupport.setSecurityContext(tid, userId);
+        try {
+            UUID cartId = cartService.create(tid, storeId,
+                    new CreateCartRequest(null, "SAR"), null).id();
+            cartService.addItem(tid, storeId, cartId,
+                    new AddCartItemRequest(productId, null, 1), null);
+            return checkoutService.checkout(tid, storeId,
+                    new CheckoutRequest(cartId, "idem-" + UUID.randomUUID() + "-" + System.nanoTime(),
+                            "test@example.com", "Test", null, null), null);
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
     }
 
     private void seedTenant(UUID id, String suffix) {

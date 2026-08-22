@@ -16,13 +16,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,6 +37,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class JdbcCallEventRepositoryPostgresTest {
 
     private JdbcTemplate jdbc;
+    private NamedParameterJdbcTemplate namedJdbc;
+    private TransactionTemplate transactions;
     private CallEventRepository repository;
 
     @BeforeAll
@@ -76,7 +81,36 @@ class JdbcCallEventRepositoryPostgresTest {
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
-        repository = new JdbcCallEventRepository(new NamedParameterJdbcTemplate(ds));
+        namedJdbc = new NamedParameterJdbcTemplate(ds);
+        transactions = new TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
+        repository = new JdbcCallEventRepository(namedJdbc);
+    }
+
+    /**
+     * Execute work inside a Spring transaction with the transaction-local
+     * app.tenant_id GUC set so that FORCE-RLS table crm_call_events accepts
+     * INSERT/UPDATE/SELECT operations. The GUC is scoped to the transaction
+     * and automatically reset on commit/rollback.
+     */
+    private <T> T inTenant(UUID tenantId, Supplier<T> work) {
+        return transactions.execute(status -> {
+            namedJdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource("t", tenantId.toString()),
+                    String.class);
+            return work.get();
+        });
+    }
+
+    private void inTenantVoid(UUID tenantId, Runnable work) {
+        transactions.executeWithoutResult(status -> {
+            namedJdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource("t", tenantId.toString()),
+                    String.class);
+            work.run();
+        });
     }
 
     private CallEvent event(UUID tenant, String callId, CallStatus status) {
@@ -115,41 +149,47 @@ class JdbcCallEventRepositoryPostgresTest {
     @Test
     void createGetAndFindByProviderCallId() {
         UUID tenant = tenant("ce-1");
-        CallEvent created = repository.create(tenant, UUID.randomUUID(), event(tenant, "call-1", CallStatus.RINGING),
-                Instant.parse("2026-08-20T10:00:00Z"));
+        CallEvent created = inTenant(tenant, () -> repository.create(tenant, UUID.randomUUID(),
+                event(tenant, "call-1", CallStatus.RINGING), Instant.parse("2026-08-20T10:00:00Z")));
 
-        assertThat(repository.get(tenant, created.id())).isPresent();
-        assertThat(repository.findByProviderCallId(tenant, "NATIVE", "call-1")).isPresent();
+        inTenantVoid(tenant, () -> {
+            assertThat(repository.get(tenant, created.id())).isPresent();
+            assertThat(repository.findByProviderCallId(tenant, "NATIVE", "call-1")).isPresent();
+        });
         // Same provider call id in ANOTHER tenant is a DIFFERENT aggregate.
         UUID otherTenant = tenant("ce-other");
-        assertThat(repository.findByProviderCallId(otherTenant, "NATIVE", "call-1")).isEmpty();
+        inTenantVoid(otherTenant, () -> {
+            assertThat(repository.findByProviderCallId(otherTenant, "NATIVE", "call-1")).isEmpty();
+        });
     }
 
     @Test
     void duplicateProviderCallIdIsRejectedByUniqueConstraint() {
         UUID tenant = tenant("ce-2");
-        repository.create(tenant, UUID.randomUUID(), event(tenant, "dup-1", CallStatus.RINGING),
-                Instant.parse("2026-08-20T10:00:00Z"));
+        inTenantVoid(tenant, () -> repository.create(tenant, UUID.randomUUID(),
+                event(tenant, "dup-1", CallStatus.RINGING), Instant.parse("2026-08-20T10:00:00Z")));
 
-        assertThatThrownBy(() -> repository.create(tenant, UUID.randomUUID(),
-                event(tenant, "dup-1", CallStatus.RINGING), Instant.parse("2026-08-20T10:00:01Z")))
+        assertThatThrownBy(() -> inTenant(tenant, () -> repository.create(tenant, UUID.randomUUID(),
+                event(tenant, "dup-1", CallStatus.RINGING), Instant.parse("2026-08-20T10:00:01Z"))))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
     void transitionBumpsVersionAndCompleteSetsDuration() {
         UUID tenant = tenant("ce-3");
-        CallEvent created = repository.create(tenant, UUID.randomUUID(), event(tenant, "t-1", CallStatus.RINGING),
-                Instant.parse("2026-08-20T10:00:00Z"));
+        CallEvent created = inTenant(tenant, () -> repository.create(tenant, UUID.randomUUID(),
+                event(tenant, "t-1", CallStatus.RINGING), Instant.parse("2026-08-20T10:00:00Z")));
 
-        CallEvent answered = repository.transition(tenant, created.id(), created.version(), UUID.randomUUID(),
-                CallStatus.ANSWERED, Instant.parse("2026-08-20T10:00:05Z"), Instant.parse("2026-08-20T10:00:05Z"));
+        CallEvent answered = inTenant(tenant, () -> repository.transition(tenant, created.id(),
+                created.version(), UUID.randomUUID(), CallStatus.ANSWERED,
+                Instant.parse("2026-08-20T10:00:05Z"), Instant.parse("2026-08-20T10:00:05Z")));
         assertThat(answered.version()).isEqualTo(1);
         assertThat(answered.answeredAt()).isEqualTo(Instant.parse("2026-08-20T10:00:05Z"));
 
-        CallEvent completed = repository.complete(tenant, created.id(), answered.version(), UUID.randomUUID(),
-                CallStatus.COMPLETED, Instant.parse("2026-08-20T10:00:30Z"), 25,
-                CallDisposition.CONNECTED, Instant.parse("2026-08-20T10:00:30Z"));
+        CallEvent completed = inTenant(tenant, () -> repository.complete(tenant, created.id(),
+                answered.version(), UUID.randomUUID(), CallStatus.COMPLETED,
+                Instant.parse("2026-08-20T10:00:30Z"), 25,
+                CallDisposition.CONNECTED, Instant.parse("2026-08-20T10:00:30Z")));
         assertThat(completed.status()).isEqualTo(CallStatus.COMPLETED);
         assertThat(completed.durationSeconds()).isEqualTo(25);
         assertThat(completed.disposition()).isEqualTo(CallDisposition.CONNECTED);
@@ -160,15 +200,18 @@ class JdbcCallEventRepositoryPostgresTest {
         UUID tenantA = tenant("ce-4a");
         UUID tenantB = tenant("ce-4b");
         for (int i = 0; i < 3; i++) {
-            repository.create(tenantA, UUID.randomUUID(), event(tenantA, "l-a-" + i, CallStatus.RINGING),
-                    Instant.parse("2026-08-20T10:00:0" + i + "Z"));
+            int idx = i;
+            inTenantVoid(tenantA, () -> repository.create(tenantA, UUID.randomUUID(),
+                    event(tenantA, "l-a-" + idx, CallStatus.RINGING),
+                    Instant.parse("2026-08-20T10:00:0" + idx + "Z")));
         }
-        repository.create(tenantB, UUID.randomUUID(), event(tenantB, "l-b-1", CallStatus.RINGING),
-                Instant.parse("2026-08-20T10:00:00Z"));
+        inTenantVoid(tenantB, () -> repository.create(tenantB, UUID.randomUUID(),
+                event(tenantB, "l-b-1", CallStatus.RINGING), Instant.parse("2026-08-20T10:00:00Z")));
 
-        List<CallEvent> onlyA = repository.list(tenantA, null, 0, null, 10);
+        List<CallEvent> onlyA = inTenant(tenantA, () -> repository.list(tenantA, null, 0, null, 10));
         assertThat(onlyA).hasSize(3);
-        assertThat(repository.list(tenantB, null, 0, null, 10)).hasSize(1);
+        List<CallEvent> onlyB = inTenant(tenantB, () -> repository.list(tenantB, null, 0, null, 10));
+        assertThat(onlyB).hasSize(1);
     }
 
     private UUID tenant(String key) {

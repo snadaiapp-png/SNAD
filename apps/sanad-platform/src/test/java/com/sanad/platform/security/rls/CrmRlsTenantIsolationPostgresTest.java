@@ -84,17 +84,19 @@ class CrmRlsTenantIsolationPostgresTest {
         jdbc = jdbc();
 
         // Create a non-superuser for RLS testing — superusers bypass RLS by default.
-        try {
-            jdbc.execute("DROP OWNED BY crm_rls_test_user");
-        } catch (Exception ignored) {
-            // Role may not exist yet
+        // Idempotent: if the role already exists from a prior test run, reuse it
+        // instead of trying to DROP and re-CREATE (which fails when dependent
+        // grants exist in the test_migration database).
+        Boolean roleExists = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_rls_test_user')",
+                Boolean.class);
+        if (Boolean.FALSE.equals(roleExists)) {
+            jdbc.execute("CREATE ROLE " + RLS_USER + " WITH LOGIN PASSWORD '" + RLS_PASSWORD + "'");
+        } else {
+            // Role already exists — normalize: ensure password is reset and grants
+            // are re-established below. ALTER ROLE is idempotent.
+            jdbc.execute("ALTER ROLE " + RLS_USER + " WITH LOGIN PASSWORD '" + RLS_PASSWORD + "'");
         }
-        try {
-            jdbc.execute("DROP ROLE IF EXISTS crm_rls_test_user");
-        } catch (Exception ignored) {
-            // Role may not exist
-        }
-        jdbc.execute("CREATE ROLE " + RLS_USER + " WITH LOGIN PASSWORD '" + RLS_PASSWORD + "'");
         // Resolve the current database name from the isolated JDBC URL — the
         // test_migration database is the one we just ensured exists and where
         // the crm_rls_test_user will connect via rawConnection().

@@ -3,6 +3,7 @@ package com.sanad.platform.crm.party;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.query.domain.Customer360QueryPort;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -59,6 +60,22 @@ class ContactRelationshipHttpIntegrationTest {
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @Autowired Customer360QueryPort customer360;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
+
+    /**
+     * Run a verification query under a tenant-scoped transaction so that
+     * FORCE-RLS tables accept the SELECT. Uses a fresh TransactionTemplate
+     * per query so the tenant GUC is set correctly.
+     */
+    private <T> T tenantQuery(UUID tenantId, java.util.function.Supplier<T> query) {
+        org.springframework.transaction.support.TransactionTemplate tx =
+                new org.springframework.transaction.support.TransactionTemplate(txManager);
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource("t", tenantId.toString()), String.class);
+            return query.get();
+        });
+    }
 
     @Test
     void supportsZeroOneAndMultipleAccountsWithOnePrimary() throws Exception {
@@ -99,7 +116,13 @@ class ContactRelationshipHttpIntegrationTest {
                 .andExpect(jsonPath("$.data[0].contactId").value(contactId.toString()))
                 .andExpect(jsonPath("$.data[0].roleCode").value("DECISION_MAKER"));
 
-        Customer360QueryPort.Customer360View view = customer360.getCustomer360(fixture.tenantId(), secondAccount);
+        // Set SecurityContextHolder so TenantRlsConnectionHandler applies
+        // SET LOCAL app.tenant_id inside the @Transactional query boundary
+        // for FORCE-RLS table crm_timeline_events.
+        RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
+        Customer360QueryPort.Customer360View view = tenantQuery(fixture.tenantId(),
+                () -> customer360.getCustomer360(fixture.tenantId(), secondAccount));
+        RlsTestSupport.clearSecurityContext();
         assertThat(view.contacts()).hasSize(1);
         assertThat(view.contacts().get(0).relationshipRole()).isEqualTo("TECHNICAL");
         assertThat(view.contacts().get(0).primaryRelationship()).isTrue();
@@ -185,15 +208,15 @@ class ContactRelationshipHttpIntegrationTest {
                 .andExpect(jsonPath("$.data.ownerUserId").value(newOwner.toString()));
 
         Integer ownership = count("crm_contact_ownership_history", fixture.tenantId(), "contact_id", contactId);
-        Integer audit = jdbc.queryForObject(
+        Integer audit = tenantQuery(fixture.tenantId(), () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id=:tenantId " +
                         "AND resource_id=:resourceId AND action IN ('UPDATE','OWNER_CHANGE')",
                 p().addValue("tenantId", fixture.tenantId()).addValue("resourceId", contactId.toString()),
-                Integer.class);
-        Integer timeline = jdbc.queryForObject(
+                Integer.class));
+        Integer timeline = tenantQuery(fixture.tenantId(), () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_id=:contactId " +
                         "AND event_type IN ('crm.contact.profile.updated','crm.contact.owner.changed')",
-                p().addValue("tenantId", fixture.tenantId()).addValue("contactId", contactId), Integer.class);
+                p().addValue("tenantId", fixture.tenantId()).addValue("contactId", contactId), Integer.class));
         assertThat(ownership).isEqualTo(1);
         assertThat(audit).isEqualTo(2);
         assertThat(timeline).isEqualTo(2);
@@ -258,10 +281,10 @@ class ContactRelationshipHttpIntegrationTest {
         UUID contactOne = contact(allowed, "One", "Person", "duplicate@example.test");
         UUID contactTwo = contact(allowed, "Two", "Person", "duplicate@example.test");
         assertThat(contactOne).isNotEqualTo(contactTwo);
-        Integer duplicates = jdbc.queryForObject(
+        Integer duplicates = tenantQuery(allowed.tenantId(), () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_contacts WHERE tenant_id=:tenantId AND normalized_email=:email",
                 p().addValue("tenantId", allowed.tenantId()).addValue("email", "duplicate@example.test"),
-                Integer.class);
+                Integer.class));
         assertThat(duplicates).isEqualTo(2);
 
         mockMvc.perform(get("/api/v2/crm/contacts/{id}/relationships", contactOne))
@@ -368,9 +391,9 @@ class ContactRelationshipHttpIntegrationTest {
     }
 
     private Integer count(String table, UUID tenantId, String idColumn, UUID id) {
-        return jdbc.queryForObject("SELECT COUNT(*) FROM " + table +
+        return tenantQuery(tenantId, () -> jdbc.queryForObject("SELECT COUNT(*) FROM " + table +
                         " WHERE tenant_id=:tenantId AND " + idColumn + "=:id",
-                p().addValue("tenantId", tenantId).addValue("id", id), Integer.class);
+                p().addValue("tenantId", tenantId).addValue("id", id), Integer.class));
     }
 
     private Authentication auth(Fixture fixture) {
