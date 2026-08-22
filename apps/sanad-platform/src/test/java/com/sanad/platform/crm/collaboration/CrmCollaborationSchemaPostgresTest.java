@@ -181,6 +181,60 @@ class CrmCollaborationSchemaPostgresTest {
     }
 
     @Test
+    @DisplayName("V4 outbox contract alignment: aggregate_type / aggregate_id columns + claim_due index")
+    void v4OutboxContractAlignmentAddsAggregateColumnsAndClaimDueIndex() {
+        // V4 additive columns — nullable at schema level so historical rows
+        // remain valid. Domain enforcement (CrmEventEnvelope) guarantees
+        // both fields are non-null on every Task 5 application append.
+        List<String> outboxColumns = columnsOf("crm_event_outbox");
+        assertThat(outboxColumns).contains("aggregate_type", "aggregate_id");
+
+        // The new partial index must include 'FAILED' in its predicate so
+        // failed events are picked up by retry claims. The old idx_crm_event_outbox_due
+        // is intentionally NOT dropped in V4.
+        Boolean claimDueIndexExists = jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND indexname = 'idx_crm_event_outbox_claim_due'
+                )
+                """, Map.of(), Boolean.class);
+        assertThat(claimDueIndexExists)
+                .as("V4 must create idx_crm_event_outbox_claim_due")
+                .isTrue();
+
+        // Verify the new index predicate includes 'FAILED' by inspecting
+        // the indexdef returned by pg_indexes (which contains the full
+        // CREATE INDEX statement including the WHERE clause).
+        String indexDef = jdbc.queryForObject("""
+                SELECT COALESCE(
+                    (SELECT indexdef FROM pg_catalog.pg_indexes
+                      WHERE schemaname = 'public'
+                        AND indexname = 'idx_crm_event_outbox_claim_due'
+                      LIMIT 1),
+                    '')
+                """, Map.of(), String.class);
+        assertThat(indexDef)
+                .as("idx_crm_event_outbox_claim_due predicate must include 'FAILED'")
+                .contains("FAILED");
+        assertThat(indexDef)
+                .as("idx_crm_event_outbox_claim_due predicate must include 'PENDING'")
+                .contains("PENDING");
+
+        // The old idx_crm_event_outbox_due must NOT have been dropped by V4.
+        Boolean oldDueIndexStillExists = jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND indexname = 'idx_crm_event_outbox_due'
+                )
+                """, Map.of(), Boolean.class);
+        assertThat(oldDueIndexStillExists)
+                .as("V4 must NOT drop the legacy idx_crm_event_outbox_due")
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("participant and outbox tables use forced RLS")
     void participantAndOutboxTablesUseForcedRls() {
         // COALESCE + LIMIT 1 — safe pattern that returns a single row even when
