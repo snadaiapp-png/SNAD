@@ -12,14 +12,14 @@ import java.util.Optional;
 import java.util.UUID;
 @Repository
 public class JdbcEntityParticipantRepository implements EntityParticipantRepository {
-    private static final String COLS = "id, tenant_id, entity_type, entity_id, user_id, role, added_by_user_id, added_at, removed_by_user_id, removed_at, version";
+    private static final String COLS = "id, tenant_id, entity_type, entity_id, user_id, role, added_by, added_at, removed_by, removed_at, version";
     private final NamedParameterJdbcTemplate jdbc;
     private static final RowMapper<EntityParticipant> M = (rs, r) -> new EntityParticipant(
         rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),
         CollaborationEntityType.valueOf(rs.getString("entity_type")), rs.getObject("entity_id", UUID.class),
         rs.getObject("user_id", UUID.class), ParticipantRole.valueOf(rs.getString("role")),
-        rs.getObject("added_by_user_id", UUID.class), rs.getTimestamp("added_at").toInstant(),
-        rs.getObject("removed_by_user_id", UUID.class),
+        rs.getObject("added_by", UUID.class), rs.getTimestamp("added_at").toInstant(),
+        rs.getObject("removed_by", UUID.class),
         rs.getTimestamp("removed_at") != null ? rs.getTimestamp("removed_at").toInstant() : null,
         rs.getLong("version"));
     public JdbcEntityParticipantRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
@@ -52,7 +52,7 @@ public class JdbcEntityParticipantRepository implements EntityParticipantReposit
     @Override public boolean markRemoved(UUID t, UUID pid, long ev, UUID rb, Instant ra) {
         Objects.requireNonNull(t, "tenantId"); Objects.requireNonNull(pid, "participantId"); Objects.requireNonNull(rb, "removedByUserId"); Objects.requireNonNull(ra, "removedAt");
         if (ev < 0) throw new IllegalArgumentException("expectedVersion must be non-negative");
-        return jdbc.update("UPDATE crm_entity_participants SET removed_by_user_id=:rb, removed_at=:ra, version=version+1 WHERE tenant_id=:t AND id=:pid AND version=:ev AND removed_at IS NULL",
+        return jdbc.update("UPDATE crm_entity_participants SET removed_by=:rb, removed_at=:ra, version=version+1 WHERE tenant_id=:t AND id=:pid AND version=:ev AND removed_at IS NULL",
             new MapSqlParameterSource().addValue("t", t).addValue("pid", pid).addValue("ev", ev).addValue("rb", rb).addValue("ra", Timestamp.from(ra))) == 1;
     }
 }
