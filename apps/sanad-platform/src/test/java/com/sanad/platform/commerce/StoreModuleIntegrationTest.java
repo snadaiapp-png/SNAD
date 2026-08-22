@@ -3,7 +3,9 @@ package com.sanad.platform.commerce;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.application.*;
 import com.sanad.platform.commerce.domain.CommerceDomain;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,13 +39,27 @@ class StoreModuleIntegrationTest {
     @Autowired private StoreDomainService domainService;
     @Autowired private JdbcTemplate jdbc;
     private UUID tenantId;
+    private UUID userId;
 
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
+        userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "se-" + tenantId.toString().substring(0, 8), now, now);
+        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                        "VALUES (?, ?, ?, 'Test User', 'ACTIVE', 'dummy', ?, ?)",
+                userId, tenantId, "se-" + userId.toString().substring(0, 8) + "@test.example", now, now);
+        // Set SecurityContextHolder so TenantRlsConnectionHandler applies
+        // SET LOCAL app.tenant_id inside @Transactional boundaries for
+        // FORCE-RLS tables (commerce_order_number_sequences, etc.).
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void clearContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test
@@ -114,7 +130,8 @@ class StoreModuleIntegrationTest {
     @Test
     void registerCustomDomain_startsAsPending() {
         var s = createStore("dom");
-        var d = domainService.registerCustomDomain(tenantId, s.id(), new CreateDomainRequest("myboutique.example.com"), null);
+        var d = domainService.registerCustomDomain(tenantId, s.id(),
+                new CreateDomainRequest("myboutique-" + tenantId.toString().substring(0, 8) + ".example.com"), null);
         assertThat(d.verificationStatus()).isEqualTo(CommerceDomain.VerificationStatus.PENDING);
         assertThat(d.activationStatus()).isEqualTo(CommerceDomain.ActivationStatus.INACTIVE);
     }
@@ -122,7 +139,8 @@ class StoreModuleIntegrationTest {
     @Test
     void activateDomain_requiresVerificationFirst() {
         var s = createStore("domact");
-        var d = domainService.registerCustomDomain(tenantId, s.id(), new CreateDomainRequest("myactivestore.example.com"), null);
+        var d = domainService.registerCustomDomain(tenantId, s.id(),
+                new CreateDomainRequest("myactivestore-" + tenantId.toString().substring(0, 8) + ".example.com"), null);
         assertThatThrownBy(() -> domainService.activate(tenantId, s.id(), d.id(), null))
                 .isInstanceOf(ResponseStatusException.class).extracting("statusCode").isEqualTo(HttpStatus.CONFLICT);
     }

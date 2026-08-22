@@ -3,6 +3,8 @@ package com.sanad.platform.crm.party;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.concurrency.ETagService;
+import com.sanad.platform.crm.test.RlsTestSupport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -15,7 +17,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -36,7 +39,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
 class CustomerMasterHttpIntegrationTest {
     private static final List<String> CAPABILITIES = List.of("CRM.ACCOUNT.READ", "CRM.ACCOUNT.WRITE");
     private static final String MASTER_ETAG_TYPE = "customer-master";
@@ -46,6 +48,37 @@ class CustomerMasterHttpIntegrationTest {
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @Autowired ETagService etags;
+    @Autowired PlatformTransactionManager txManager;
+
+    private final java.util.List<UUID> tenantIds = new java.util.ArrayList<>();
+    private TransactionTemplate transactions;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        transactions = new TransactionTemplate(txManager);
+    }
+
+    @AfterEach
+    void cleanup() {
+        RlsTestSupport.clearSecurityContext();
+        for (UUID tenantId : tenantIds) {
+            RlsTestSupport.deleteTenantRows(jdbc, transactions, tenantId, List.of(
+                    "crm_timeline_events", "crm_account_addresses", "crm_account_identifiers",
+                    "crm_account_relationships", "crm_account_status_history",
+                    "crm_account_merge_history", "crm_activities",
+                    "crm_opportunities", "crm_opportunity_stage_history",
+                    "crm_contacts", "crm_leads", "crm_accounts"));
+            MapSqlParameterSource p = new MapSqlParameterSource("t", tenantId);
+            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t", p);
+            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t", p);
+            jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p);
+            jdbc.update("DELETE FROM crm_idempotency_records WHERE tenant_id = :t", p);
+            jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id = :t", p);
+            jdbc.update("DELETE FROM users WHERE tenant_id = :t", p);
+            jdbc.update("DELETE FROM tenants WHERE id = :t", p);
+        }
+        tenantIds.clear();
+    }
 
     @Test
     void readsGoldenRecordEnforcesTenantIsolationAndEmitsStrongEtag() throws Exception {
@@ -93,10 +126,15 @@ class CustomerMasterHttpIntegrationTest {
                 "SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id=:tenantId " +
                         "AND resource_id=:resourceId AND action='UPDATE_CUSTOMER_MASTER'",
                 p().addValue("tenantId", fixture.tenantId()).addValue("resourceId", accountId.toString()), Integer.class);
-        Integer timelineCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_id=:accountId " +
-                        "AND event_type='crm.account.master.updated'",
-                p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Integer.class);
+        // crm_timeline_events is FORCE-RLS — query inside transaction-local GUC scope.
+        Integer timelineCount = transactions.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    p().addValue("t", fixture.tenantId().toString()), String.class);
+            return jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=:tenantId AND subject_id=:accountId " +
+                            "AND event_type='crm.account.master.updated'",
+                    p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Integer.class);
+        });
         assertThat(auditCount).isEqualTo(1);
         assertThat(timelineCount).isEqualTo(1);
     }
@@ -346,6 +384,7 @@ class CustomerMasterHttpIntegrationTest {
                         "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
                 p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
                         .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
+        tenantIds.add(tenantId);
         return new Fixture(tenantId, userId);
     }
 

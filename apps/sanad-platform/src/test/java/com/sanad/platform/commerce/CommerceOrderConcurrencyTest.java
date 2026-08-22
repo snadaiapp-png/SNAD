@@ -2,7 +2,9 @@ package com.sanad.platform.commerce;
 
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.application.*;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,11 +47,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       (the allocator never decrements).</li>
  * </ol>
  *
- * <p>These tests run on the H2 in-memory database (PostgreSQL compatibility
- * mode) but exercise the same SQL INSERT ... ON CONFLICT DO UPDATE ...
- * RETURNING code path that runs in production PostgreSQL. The migration
- * {@code V20260820_1__create_commerce_order_number_sequences.sql} is
- * applied to both test and prod by Flyway.
+ * <p>These tests run on PostgreSQL Direct (local profile) and exercise the
+ * same SQL INSERT ... ON CONFLICT DO UPDATE ... RETURNING code path that
+ * runs in production. The migration {@code V20260820_1__create_commerce_order_number_sequences.sql}
+ * is applied by Flyway. The {@code commerce_order_number_sequences} table is
+ * FORCE-RLS — {@code SecurityContextHolder} must be set so that
+ * {@code TenantRlsConnectionHandler} applies {@code SET LOCAL app.tenant_id}
+ * inside the {@code @Transactional} checkout boundary.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -65,14 +69,28 @@ class CommerceOrderConcurrencyTest {
     @Autowired private JdbcTemplate jdbc;
 
     private UUID tenantId;
+    private UUID userId;
 
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
+        userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "c-" + tenantId.toString().substring(0, 8), now, now);
+        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                        "VALUES (?, ?, ?, 'Test Owner', 'ACTIVE', 'dummy', ?, ?)",
+                userId, tenantId, "owner-" + userId.toString().substring(0, 8) + "@test.example", now, now);
+        // Set SecurityContextHolder so TenantRlsConnectionHandler applies
+        // SET LOCAL app.tenant_id inside @Transactional checkout boundaries
+        // for FORCE-RLS table commerce_order_number_sequences.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void clearContext() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     // ===== Test 1: 20 parallel checkouts produce 20 unique order numbers =====

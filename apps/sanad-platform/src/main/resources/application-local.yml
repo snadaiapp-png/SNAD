@@ -4,47 +4,38 @@
 # Activated with: --spring.profiles.active=local
 #                or SPRING_PROFILES_ACTIVE=local
 #
-# Used for developer laptops and for the automated validation
-# performed by Z.ai. Switches the datasource to H2 in-memory so
-# the application starts with zero external dependencies while
-# still exercising the full Spring Boot + JPA + Flyway stack.
+# Used for developer laptops and for automated backend integration
+# tests. The local profile now uses PostgreSQL Direct (the same
+# engine used in production and in CI) so that FORCE RLS, gen_random_uuid,
+# JSONB, PL/pgSQL triggers, and partial indexes are exercised under
+# their real runtime semantics. H2 is no longer used as a backend
+# acceptance runtime.
+#
+# A disposable PostgreSQL 17 instance must be running on
+# localhost:5432 with database `sanad` accessible to role `sanad`.
 # ============================================================
 
 spring:
   datasource:
-    # PostgreSQL mode plus lower-case identifiers keeps JDBC column labels
-    # identical to PostgreSQL, so JSON contracts do not vary between gates.
-    # VALUE is a valid PostgreSQL alias used by the CRM custom-field queries;
-    # H2 reserves it unless explicitly listed as a non-keyword.
-    url: jdbc:h2:mem:sanad;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=VALUE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sanad}
+    username: ${SPRING_DATASOURCE_USERNAME:sanad}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
 
   jpa:
     show-sql: true
     properties:
       hibernate:
-        # Dialect is auto-detected from JDBC connection (H2 when running locally,
-        # PostgreSQL when CI provides a postgres SPRING_DATASOURCE_URL override).
-        # Hard-coding H2Dialect caused schema-validation failures in CI because
-        # Hibernate tried to validate PostgreSQL columns against H2 type mappings.
         format_sql: true
 
   # Flyway stays enabled so local and integration tests exercise the
-  # complete migration chain, including vendor-specific migration parity.
+  # complete migration chain, including vendor-specific migrations.
   flyway:
     enabled: true
     locations: "classpath:db/migration,classpath:db/vendor/{vendor}"
     baseline-on-migrate: true
     clean-disabled: false
     validate-on-migrate: false
-
-  # H2 console (dev-only convenience)
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
 
 sanad:
   security:
@@ -63,10 +54,14 @@ sanad:
     # The well-known test key is rejected unconditionally. Production must set
     # CRM_CUSTOM_FIELD_ENCRYPTION_KEY through the deployment secret manager.
     custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:}
-  # CRM-018: Row-Level Security — disabled in local/H2 profile because SET LOCAL
-  # is PostgreSQL-specific and not supported by H2's PostgreSQL compatibility mode.
+  # Row-Level Security — enabled in local profile now that PostgreSQL Direct
+  # is the backend runtime. FORCE RLS + fail-closed policies are exercised
+  # under their real semantics. Tests that need to write to FORCE-RLS tables
+  # must establish a transaction-local tenant GUC via TenantRlsTransactionContext
+  # or set SecurityContextHolder so TenantRlsConnectionHandler applies
+  # SET LOCAL app.tenant_id automatically.
   rls:
-    enabled: false
+    enabled: true
 
 logging:
   level:
@@ -85,7 +80,6 @@ management:
       exposure:
         include: health,info,beans,env,loggers,metrics
 
-# Expose the H2 console via Actuator's web exposure
 springdoc:
   swagger-ui:
     enabled: true

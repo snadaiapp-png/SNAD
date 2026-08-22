@@ -8,7 +8,9 @@ import com.sanad.platform.crm.party.domain.CustomerMasterRepository.CreateIdenti
 import com.sanad.platform.crm.party.domain.CustomerMasterRepository.CreateRelationshipCommand;
 import com.sanad.platform.crm.party.domain.CustomerMasterRepository.MergeResult;
 import com.sanad.platform.crm.party.domain.CustomerMasterRepository.UpdateCustomerMasterCommand;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,6 +18,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -36,25 +40,30 @@ import static org.mockito.Mockito.doThrow;
 class CustomerMasterMergeIntegrationTest {
     @Autowired CustomerMasterUseCases useCases;
     @Autowired NamedParameterJdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager txManager;
     @MockBean AuditPort auditPort;
 
     private final List<UUID> tenantIds = new ArrayList<>();
+    private TransactionTemplate transactions;
+
+    @BeforeEach
+    void setUp() {
+        transactions = new TransactionTemplate(txManager);
+    }
 
     @AfterEach
     void removeCommittedFixtures() {
+        RlsTestSupport.clearSecurityContext();
         for (UUID tenantId : tenantIds) {
+            // FORCE-RLS tables: cleanup inside transaction-local GUC scope.
+            RlsTestSupport.deleteTenantRows(jdbc, transactions, tenantId, List.of(
+                    "crm_timeline_events", "crm_account_merge_history",
+                    "crm_account_status_history", "crm_account_relationships",
+                    "crm_account_identifiers", "crm_account_addresses",
+                    "crm_opportunity_stage_history", "crm_activities",
+                    "crm_opportunities", "crm_contacts", "crm_leads"));
+            // Non-RLS tables: cleanup without GUC.
             MapSqlParameterSource tenant = p().addValue("tenantId", tenantId);
-            jdbc.update("DELETE FROM crm_timeline_events WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_account_merge_history WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_account_status_history WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_account_relationships WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_account_identifiers WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_account_addresses WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_opportunity_stage_history WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_activities WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_opportunities WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_contacts WHERE tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM crm_leads WHERE tenant_id=:tenantId", tenant);
             jdbc.update("UPDATE crm_accounts SET merged_into_account_id=NULL,parent_account_id=NULL WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM crm_accounts WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id=:tenantId", tenant);
@@ -67,6 +76,7 @@ class CustomerMasterMergeIntegrationTest {
     @Test
     void movesCompleteMasterDataAndEnrichesGoldenRecord() {
         Fixture fixture = fixture("complete-merge");
+        RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
         UUID source = account(fixture, "Duplicate Enterprise");
         UUID target = account(fixture, "Golden Enterprise");
         UUID related = account(fixture, "Related Enterprise");
@@ -119,6 +129,7 @@ class CustomerMasterMergeIntegrationTest {
     @Test
     void clearsTargetParentWhenTargetWasChildOfMergedSource() {
         Fixture fixture = fixture("merge-parent-cycle");
+        RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
         UUID source = account(fixture, "Parent Duplicate");
         UUID target = account(fixture, "Golden Child");
         jdbc.update("UPDATE crm_accounts SET parent_account_id=:sourceId WHERE tenant_id=:tenantId AND id=:targetId",
@@ -136,6 +147,7 @@ class CustomerMasterMergeIntegrationTest {
     @Test
     void rejectsWritesToArchivedCustomerRecords() {
         Fixture fixture = fixture("archived-master");
+        RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
         UUID accountId = account(fixture, "Archived Customer");
         jdbc.update("UPDATE crm_accounts SET lifecycle_status='ARCHIVED',archived_at=:now WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", accountId).addValue("now", java.sql.Timestamp.from(Instant.now())));
@@ -150,6 +162,7 @@ class CustomerMasterMergeIntegrationTest {
     @Test
     void rollsBackAllMergeWritesWhenAuditFails() {
         Fixture fixture = fixture("merge-rollback");
+        RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
         UUID source = account(fixture, "Rollback Source");
         UUID target = account(fixture, "Rollback Target");
         UUID addressId = useCases.addAddress(fixture.tenantId(), fixture.userId(), source,
