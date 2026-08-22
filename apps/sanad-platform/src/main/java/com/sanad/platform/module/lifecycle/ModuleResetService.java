@@ -2,6 +2,7 @@ package com.sanad.platform.module.lifecycle;
 
 import com.sanad.platform.admin.service.PlatformAuditWriter;
 import com.sanad.platform.module.entitlement.EntitlementResolver;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -37,13 +38,16 @@ public class ModuleResetService {
     private final JdbcTemplate jdbc;
     private final EntitlementResolver entitlementResolver;
     private final PlatformAuditWriter auditWriter;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
     public ModuleResetService(JdbcTemplate jdbc,
                               EntitlementResolver entitlementResolver,
-                              PlatformAuditWriter auditWriter) {
+                              PlatformAuditWriter auditWriter,
+                              TenantRlsTransactionContext tenantRlsContext) {
         this.jdbc = jdbc;
         this.entitlementResolver = entitlementResolver;
         this.auditWriter = auditWriter;
+        this.tenantRlsContext = tenantRlsContext;
     }
 
     /**
@@ -59,6 +63,10 @@ public class ModuleResetService {
     public ModuleResetPreview previewReset(UUID tenantId, String moduleCode) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
         Objects.requireNonNull(moduleCode, "moduleCode must not be null");
+
+        // Apply the trusted tenant scope so FORCE-RLS tables (crm_timeline_events,
+        // crm_call_events, etc.) are counted instead of silently filtered out.
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
 
         ModuleResetRegistry registry = ModuleResetRegistry.getInstance();
         Set<String> tables = registry.getResettableTables(moduleCode);
@@ -119,6 +127,12 @@ public class ModuleResetService {
                 "Module reset started for " + code,
                 null, Map.of("tenantId", tenantId, "moduleCode", code),
                 correlationId, startedAt);
+
+        // Apply the trusted tenant scope so FORCE-RLS tables (crm_timeline_events,
+        // crm_call_events, crm_entity_participants, crm_event_outbox) are
+        // actually deleted instead of silently filtered out by the fail-closed
+        // RLS policy.
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
 
         ModuleResetRegistry registry = ModuleResetRegistry.getInstance();
 

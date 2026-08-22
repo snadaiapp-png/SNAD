@@ -107,6 +107,7 @@ public class LegacyCrmInfrastructureService {
     private final boolean importWorkerEnabled;
     private final String workerId = UUID.randomUUID().toString();
     private final SecretKeySpec customFieldKey;
+    private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
 
     public LegacyCrmInfrastructureService(
             NamedParameterJdbcTemplate jdbc,
@@ -114,7 +115,8 @@ public class LegacyCrmInfrastructureService {
             PlatformTransactionManager transactionManager,
             Environment environment,
             @Value("${sanad.crm.import-worker-enabled:true}") boolean importWorkerEnabled,
-            @Value("${sanad.crm.custom-field-encryption-key:}") String encryptionKey) {
+            @Value("${sanad.crm.custom-field-encryption-key:}") String encryptionKey,
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -122,6 +124,7 @@ public class LegacyCrmInfrastructureService {
         this.requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.importWorkerEnabled = importWorkerEnabled;
         this.customFieldKey = CrmEncryptionKeyValidator.resolve(environment, encryptionKey);
+        this.tenantRlsContext = tenantRlsContext;
     }
 
     @Transactional(readOnly = true)
@@ -627,6 +630,12 @@ public class LegacyCrmInfrastructureService {
             ImportPayload payload, Map<String, String> sourceRow,
             Map<String, String> mapping, long rowNumber) {
         assertImportLease(payload.id());
+        // Scope the transaction to the import job's tenant so writes to
+        // FORCE-RLS tables (crm_timeline_events, crm_call_events,
+        // crm_entity_participants, crm_event_outbox) pass the WITH CHECK
+        // clause. The import worker has no SecurityContextHolder tenant
+        // because it runs as a background scheduled task.
+        tenantRlsContext.applyForCurrentTransaction(payload.tenantId());
         Map<String, String> values = mappedValues(sourceRow, mapping);
         UUID entityId = switch (payload.entityType()) {
             case "ACCOUNT" -> importAccount(payload, values);
@@ -657,6 +666,10 @@ public class LegacyCrmInfrastructureService {
             ImportPayload payload, Map<String, String> sourceRow,
             long rowNumber, RuntimeException exception) {
         assertImportLease(payload.id());
+        // Scope the transaction so the crm_import_errors write (and any
+        // FORCE-RLS crm_timeline_events write the import job may trigger) is
+        // accepted by the fail-closed RLS policy.
+        tenantRlsContext.applyForCurrentTransaction(payload.tenantId());
         Instant now = Instant.now();
         jdbc.update(
                 "INSERT INTO crm_import_errors " +

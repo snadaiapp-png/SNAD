@@ -2,6 +2,7 @@ package com.sanad.platform.module.lifecycle;
 
 import com.sanad.platform.admin.service.PlatformAuditWriter;
 import com.sanad.platform.module.entitlement.EntitlementResolver;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,8 @@ class ModuleResetServiceTest {
     private EntitlementResolver entitlementResolver;
     @Mock
     private PlatformAuditWriter auditWriter;
+    @Mock
+    private TenantRlsTransactionContext tenantRlsContext;
 
     private ModuleResetService service;
 
@@ -48,7 +51,7 @@ class ModuleResetServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ModuleResetService(jdbc, entitlementResolver, auditWriter);
+        service = new ModuleResetService(jdbc, entitlementResolver, auditWriter, tenantRlsContext);
     }
 
     @Test
