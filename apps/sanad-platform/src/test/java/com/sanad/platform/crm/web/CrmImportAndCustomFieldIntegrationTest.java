@@ -19,6 +19,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -42,6 +43,7 @@ class CrmImportAndCustomFieldIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
     @Autowired LegacyCrmInfrastructureService extended;
 
     private UUID tenantA;
@@ -62,15 +64,30 @@ class CrmImportAndCustomFieldIntegrationTest {
     @AfterEach
     void cleanup() {
         if (tenantA == null || tenantB == null) return;
-        Object[] tenants = {tenantA, tenantB};
-        for (String table : List.of(
-                "crm_import_errors", "crm_import_files", "crm_custom_field_values",
-                "crm_timeline_events", "crm_activities", "crm_opportunity_stage_history",
-                "crm_leads", "crm_opportunities", "crm_contacts", "crm_pipeline_stages",
-                "crm_pipelines", "crm_accounts", "crm_import_jobs",
-                "crm_custom_field_definitions")) {
-            jdbc.update("DELETE FROM " + table + " WHERE tenant_id IN (?,?)", tenants);
+        // V20260822_2 introduced FORCE RLS + fail-closed policy on
+        // crm_timeline_events. The cleanup must run inside a tenant-scoped
+        // RLS transaction so the WITH CHECK clause accepts the DELETE.
+        // We set the GUC per-tenant inside a TransactionTemplate and issue
+        // the DELETEs separately for each tenant. We do NOT disable RLS
+        // and we do NOT set a session-global GUC.
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        for (UUID tenant : new UUID[]{tenantA, tenantB}) {
+            tx.executeWithoutResult(status -> {
+                jdbc.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenant.toString());
+                for (String table : List.of(
+                        "crm_import_errors", "crm_import_files", "crm_custom_field_values",
+                        "crm_timeline_events", "crm_activities", "crm_opportunity_stage_history",
+                        "crm_leads", "crm_opportunities", "crm_contacts", "crm_pipeline_stages",
+                        "crm_pipelines", "crm_accounts", "crm_import_jobs",
+                        "crm_custom_field_definitions")) {
+                    jdbc.update("DELETE FROM " + table + " WHERE tenant_id = ?", tenant);
+                }
+            });
         }
+        // Non-RLS tables can be cleaned in one statement without GUC.
+        Object[] tenants = {tenantA, tenantB};
         jdbc.update("DELETE FROM role_capabilities WHERE tenant_id IN (?,?)", tenants);
         jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id IN (?,?)", tenants);
         jdbc.update("DELETE FROM roles WHERE tenant_id IN (?,?)", tenants);

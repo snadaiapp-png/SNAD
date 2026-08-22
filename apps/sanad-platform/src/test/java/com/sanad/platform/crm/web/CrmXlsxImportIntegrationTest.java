@@ -14,6 +14,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("local")
 class CrmXlsxImportIntegrationTest {
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
     @Autowired LegacyCrmInfrastructureService extended;
 
     private UUID tenantId;
@@ -50,19 +52,31 @@ class CrmXlsxImportIntegrationTest {
     @AfterEach
     void cleanup() {
         if (tenantId == null) return;
-        for (String table : List.of(
-                "crm_import_errors", "crm_import_files", "crm_custom_field_values",
-                "crm_timeline_events", "crm_activities", "crm_opportunity_stage_history",
-                "crm_leads", "crm_opportunities", "crm_contacts", "crm_pipeline_stages",
-                "crm_pipelines", "crm_accounts", "crm_import_jobs",
-                "crm_custom_field_definitions")) {
-            jdbc.update("DELETE FROM " + table + " WHERE tenant_id=?", tenantId);
-        }
-        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM roles WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM users WHERE tenant_id=?", tenantId);
-        jdbc.update("DELETE FROM tenants WHERE id=?", tenantId);
+        // V20260822_2 introduced FORCE RLS + fail-closed policy on
+        // crm_timeline_events. The cleanup must run inside a tenant-scoped
+        // RLS transaction so the WITH CHECK clause accepts the DELETE.
+        // We set the GUC inside a TransactionTemplate and do NOT disable RLS
+        // or set a session-global GUC.
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            for (String table : List.of(
+                    "crm_import_errors", "crm_import_files", "crm_custom_field_values",
+                    "crm_timeline_events", "crm_activities", "crm_opportunity_stage_history",
+                    "crm_leads", "crm_opportunities", "crm_contacts", "crm_pipeline_stages",
+                    "crm_pipelines", "crm_accounts", "crm_import_jobs",
+                    "crm_custom_field_definitions")) {
+                jdbc.update("DELETE FROM " + table + " WHERE tenant_id = ?", tenantId);
+            }
+        });
+        // Non-RLS tables can be cleaned without GUC.
+        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
     }
 
     @Test

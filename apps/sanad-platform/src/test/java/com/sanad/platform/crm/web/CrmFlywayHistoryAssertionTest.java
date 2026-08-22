@@ -191,6 +191,11 @@ class CrmFlywayHistoryAssertionTest {
             , "20260820.11"   // create crm_call_events (RLS enabled)
             , "20260820.12"   // force RLS on crm_call_events
             , "20260820.13"   // seed G8 call event capabilities
+            // CRM Collaboration & Event Foundation (R0-R5 — impl/crm-collaboration-event-foundation-20260822)
+            , "20260822.1"   // crm collaboration event foundation (participants + structured timeline + outbox)
+            , "20260822.2"   // crm collaboration event RLS (FORCE RLS + fail-closed)
+            , "20260822.3"   // crm entity participant integrity (FOR KEY SHARE + delete guards)
+            , "20260822.4"   // crm event outbox contract alignment (aggregate_type/id + claim_due index)
     );
 
 

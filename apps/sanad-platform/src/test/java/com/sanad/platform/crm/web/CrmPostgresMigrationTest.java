@@ -154,8 +154,13 @@ class CrmPostgresMigrationTest {
     private static final String CALL_EVENT_TABLE_VERSION = "20260820.11";
     private static final String CALL_EVENT_RLS_FORCE_VERSION = "20260820.12";
     private static final String CALL_EVENT_CAPABILITIES_VERSION = "20260820.13";
+    // CRM Collaboration & Event Foundation (impl/crm-collaboration-event-foundation-20260822)
+    private static final String COLLABORATION_FOUNDATION_VERSION = "20260822.1";
+    private static final String COLLABORATION_RLS_VERSION = "20260822.2";
+    private static final String COLLABORATION_INTEGRITY_VERSION = "20260822.3";
+    private static final String COLLABORATION_OUTBOX_ALIGNMENT_VERSION = "20260822.4";
     // Latest migration — keep in sync with db/migration
-    private static final String LATEST_MIGRATION_VERSION = CALL_EVENT_CAPABILITIES_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = COLLABORATION_OUTBOX_ALIGNMENT_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -209,6 +214,9 @@ class CrmPostgresMigrationTest {
 
     private static final List<String> CRM_EMAIL_LOGS_TABLES = List.of("crm_email_logs");
     private static final List<String> CRM_CALL_EVENT_TABLES = List.of("crm_call_events");
+    // CRM Collaboration & Event Foundation (impl/crm-collaboration-event-foundation-20260822)
+    private static final List<String> CRM_COLLABORATION_TABLES = List.of(
+            "crm_entity_participants", "crm_event_outbox");
 
     private static final List<String> CRM_OWNERSHIP_MGMT_TABLES = List.of(
             "crm_shift_templates", "crm_shift_assignments",
@@ -360,7 +368,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CALLER_IDENTIFICATION_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CALL_EVENT_TABLE_VERSION),
                         MigrationVersion.fromVersion(CALL_EVENT_RLS_FORCE_VERSION),
-                        MigrationVersion.fromVersion(CALL_EVENT_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(CALL_EVENT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(COLLABORATION_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(COLLABORATION_RLS_VERSION),
+                        MigrationVersion.fromVersion(COLLABORATION_INTEGRITY_VERSION),
+                        MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -489,7 +501,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CALLER_IDENTIFICATION_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(CALL_EVENT_TABLE_VERSION),
                         MigrationVersion.fromVersion(CALL_EVENT_RLS_FORCE_VERSION),
-                        MigrationVersion.fromVersion(CALL_EVENT_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(CALL_EVENT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(COLLABORATION_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(COLLABORATION_RLS_VERSION),
+                        MigrationVersion.fromVersion(COLLABORATION_INTEGRITY_VERSION),
+                        MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -682,6 +698,10 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CALL_EVENT_TABLE_VERSION, "SQL", "create crm call events");
         assertMigration(jdbc, CALL_EVENT_RLS_FORCE_VERSION, "SQL", "force rls crm call events");
         assertMigration(jdbc, CALL_EVENT_CAPABILITIES_VERSION, "SQL", "seed crm call event capabilities");
+        assertMigration(jdbc, COLLABORATION_FOUNDATION_VERSION, "SQL", "crm collaboration event foundation");
+        assertMigration(jdbc, COLLABORATION_RLS_VERSION, "SQL", "crm collaboration event rls");
+        assertMigration(jdbc, COLLABORATION_INTEGRITY_VERSION, "SQL", "crm entity participant integrity");
+        assertMigration(jdbc, COLLABORATION_OUTBOX_ALIGNMENT_VERSION, "SQL", "crm event outbox contract alignment");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
@@ -844,7 +864,8 @@ class CrmPostgresMigrationTest {
                         CRM_OWNERSHIP_MGMT_TABLES,
                         CRM_CASES_TABLES,
                         CRM_EMAIL_LOGS_TABLES,
-                        CRM_CALL_EVENT_TABLES)
+                        CRM_CALL_EVENT_TABLES,
+                        CRM_COLLABORATION_TABLES)
                 .flatMap(List::stream)
                 .sorted()
                 .toList();
