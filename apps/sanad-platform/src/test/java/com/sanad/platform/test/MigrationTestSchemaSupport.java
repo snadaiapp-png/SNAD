@@ -183,14 +183,15 @@ public final class MigrationTestSchemaSupport {
      * this connection role only when this helper must actually create the
      * disposable database (first run on a fresh cluster, or after the
      * database has been dropped). A pre-provisioned {@code test_migration}
-     * database — for example one created by an operator via the
-     * {@code postgres} superuser and owned by the application role —
+     * database — for example one created by an authorised
+     * environment/bootstrap actor and owned by the application role —
      * allows a least-privilege application role (no SUPERUSER, no
      * BYPASSRLS, no CREATEDB, no CREATEROLE) to run every migration-upgrade
-     * test. The CI PostgreSQL Docker container continues to work because
-     * its {@code POSTGRES_USER} has CREATEDB and the first call creates
-     * the database; subsequent calls hit the {@code pg_database} existence
-     * short-circuit and skip the CREATE.</p>
+     * test. If the database does not exist when {@code ensureDatabase()}
+     * is called, an authorised environment/bootstrap actor must provision
+     * it before tests run; this helper will then take the
+     * {@code pg_database} existence short-circuit and skip the CREATE on
+     * every subsequent invocation.</p>
      *
      * <p>This call must NOT be issued from inside a transaction — PostgreSQL
      * forbids {@code CREATE DATABASE} in a transaction block. The driver's
