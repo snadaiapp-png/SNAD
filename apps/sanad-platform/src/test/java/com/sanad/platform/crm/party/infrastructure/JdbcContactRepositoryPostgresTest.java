@@ -38,7 +38,7 @@ class JdbcContactRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void create_derivesDisplayNameAndNormalizesEmail() {
-        ContactRecord saved = inTransaction(() -> contacts.create(tenantId, actorId,
+        ContactRecord saved = inTenantTransaction(tenantId, () -> contacts.create(tenantId, actorId,
                 new CreateContactCommand(null, "Jane", "Doe",
                         "Jane.Doe@Example.com", null, "ar-SA", null, actorId, null)));
 
@@ -53,11 +53,11 @@ class JdbcContactRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void update_bumpsVersionAndAppliesChanges() {
-        ContactRecord created = inTransaction(() -> contacts.create(tenantId, actorId,
+        ContactRecord created = inTenantTransaction(tenantId, () -> contacts.create(tenantId, actorId,
                 new CreateContactCommand(null, "Jane", "Doe",
                         null, null, null, null, actorId, null)));
 
-        ContactRecord updated = inTransaction(() -> contacts.update(tenantId, actorId,
+        ContactRecord updated = inTenantTransaction(tenantId, () -> contacts.update(tenantId, actorId,
                 created.id(), new UpdateContactCommand(null, "Janet", "Doe",
                         null, null, null, null, actorId, null), 0));
 
@@ -67,12 +67,12 @@ class JdbcContactRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void update_withStaleVersionThrowsConcurrencyConflict() {
-        ContactRecord created = inTransaction(() -> contacts.create(tenantId, actorId,
+        ContactRecord created = inTenantTransaction(tenantId, () -> contacts.create(tenantId, actorId,
                 new CreateContactCommand(null, "Jane", "Doe", null, null, null, null, actorId, null)));
-        inTransaction(() -> contacts.update(tenantId, actorId, created.id(),
+        inTenantTransaction(tenantId, () -> contacts.update(tenantId, actorId, created.id(),
                 new UpdateContactCommand(null, "v1", null, null, null, null, null, actorId, null), 0));
 
-        assertThatThrownBy(() -> inTransaction(() ->
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () ->
                 contacts.update(tenantId, actorId, created.id(),
                         new UpdateContactCommand(null, "stale", null, null, null, null, null, actorId, null), 0)))
                 .isInstanceOf(CrmContractException.class)
@@ -82,14 +82,14 @@ class JdbcContactRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void archive_thenRestoreTogglesLifecycleStatus() {
-        ContactRecord created = inTransaction(() -> contacts.create(tenantId, actorId,
+        ContactRecord created = inTenantTransaction(tenantId, () -> contacts.create(tenantId, actorId,
                 new CreateContactCommand(null, "Jane", "Doe", null, null, null, null, actorId, null)));
 
-        ContactRecord archived = inTransaction(() ->
+        ContactRecord archived = inTenantTransaction(tenantId, () ->
                 contacts.archive(tenantId, actorId, created.id(), 0));
         assertThat(archived.lifecycleStatus()).isEqualTo("ARCHIVED");
 
-        ContactRecord restored = inTransaction(() ->
+        ContactRecord restored = inTenantTransaction(tenantId, () ->
                 contacts.restore(tenantId, actorId, created.id(), archived.version()));
         assertThat(restored.lifecycleStatus()).isEqualTo("ACTIVE");
     }
