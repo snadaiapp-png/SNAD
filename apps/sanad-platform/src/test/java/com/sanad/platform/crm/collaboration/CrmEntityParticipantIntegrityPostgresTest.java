@@ -74,7 +74,24 @@ class CrmEntityParticipantIntegrityPostgresTest {
     @Test void completingTaskWithParticipantHistoryIsAllowed() { UUID t = seedTask(TENANT_A, "Task"); tx(TENANT_A, () -> insert(TENANT_A, "TASK", t)); tx(TENANT_A, () -> assertThat(jdbc.update("UPDATE crm_tasks SET status = 'COMPLETED' WHERE id = :id", p("id", t))).isEqualTo(1)); }
     @Test void closingCaseWithParticipantHistoryIsAllowed() { UUID c = seedCase(TENANT_A, "Case"); tx(TENANT_A, () -> insert(TENANT_A, "CASE", c)); tx(TENANT_A, () -> assertThat(jdbc.update("UPDATE crm_cases SET status = 'CLOSED' WHERE id = :id", p("id", c))).isEqualTo(1)); }
 
-    @Test void hardDeleteWithoutTenantContextIsRejected() { UUID c = seedContact(TENANT_A, "Ivan"); tx(TENANT_A, () -> insert(TENANT_A, "CONTACT", c)); assertThatThrownBy(() -> transactions.executeWithoutResult(s -> { jdbc.update("DELETE FROM crm_contacts WHERE id = :id", p("id", c)); })).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class); }
+    @Test void hardDeleteWithoutTenantContextIsRejected() {
+        UUID c = seedContact(TENANT_A, "Ivan");
+        tx(TENANT_A, () -> insert(TENANT_A, "CONTACT", c));
+        // Set the GUC to TENANT_A so the SELECT inside the DELETE WHERE
+        // clause can find the row (FORCE RLS on crm_contacts after
+        // V20260823_1 means a DELETE without GUC would silently affect
+        // 0 rows), then clear the GUC inside the same transaction before
+        // issuing the DELETE so the trg_crm_contacts_delete_guard trigger
+        // fires its CRM_DELETE_GUARD_TENANT_CONTEXT_REQUIRED check.
+        assertThatThrownBy(() -> transactions.executeWithoutResult(s -> {
+            // First lock + verify the row exists under TENANT_A's GUC.
+            setGuc(TENANT_A);
+            // Then clear the GUC for the DELETE itself so the trigger's
+            // tenant-context guard fires.
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', NULL, true)", new MapSqlParameterSource(), String.class);
+            jdbc.update("DELETE FROM crm_contacts WHERE id = :id", p("id", c));
+        })).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
 
     @Test void validationFunctionIsNotSecurityDefiner() { assertThat(jdbc.queryForObject("SELECT prosecdef FROM pg_proc WHERE proname = 'crm_validate_entity_participant_reference'", new MapSqlParameterSource(), Boolean.class)).isFalse(); }
     @Test void runtimeRoleIsNotSuperuserOrBypassrls() { assertThat(jdbc.queryForObject("SELECT rolsuper FROM pg_roles WHERE rolname = current_user", new MapSqlParameterSource(), Boolean.class)).isFalse(); assertThat(jdbc.queryForObject("SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user", new MapSqlParameterSource(), Boolean.class)).isFalse(); }
@@ -85,7 +102,7 @@ class CrmEntityParticipantIntegrityPostgresTest {
     private void insert(UUID tenant, String type, UUID entity) { insert(UUID.randomUUID(), tenant, type, entity); }
     private void insert(UUID id, UUID tenant, String type, UUID entity) { jdbc.update("INSERT INTO crm_entity_participants (id,tenant_id,version,entity_type,entity_id,user_id,role,added_at,added_by) VALUES (:id,:t,0,:type,:e,:u,'COLLABORATOR',NOW(),:u)", p("id",id).addValue("t",tenant).addValue("type",type).addValue("e",entity).addValue("u",USER_A)); }
     private void del(UUID t, String table) { jdbc.update("DELETE FROM " + table + " WHERE tenant_id = :t", p("t", t)); }
-    private UUID seedContact(UUID t, String n) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_contacts (id,tenant_id,given_name,display_name,normalized_name,lifecycle_status,created_by,updated_by,created_at,updated_at) VALUES (:id,:t,:n,:n,:norm,'ACTIVE',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("n",n).addValue("norm",n.toLowerCase()).addValue("u",USER_A)); return id; }
+    private UUID seedContact(UUID t, String n) { UUID id = UUID.randomUUID(); tx(t, () -> jdbc.update("INSERT INTO crm_contacts (id,tenant_id,given_name,display_name,normalized_name,lifecycle_status,created_by,updated_by,created_at,updated_at) VALUES (:id,:t,:n,:n,:norm,'ACTIVE',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("n",n).addValue("norm",n.toLowerCase()).addValue("u",USER_A))); return id; }
     private UUID seedTask(UUID t, String title) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_tasks (id,tenant_id,title,status,created_by,updated_by,created_at,updated_at) VALUES (:id,:t,:title,'OPEN',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("title",title).addValue("u",USER_A)); return id; }
     private UUID seedCase(UUID t, String subject) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_cases (id,tenant_id,subject,status) VALUES (:id,:t,:subject,'OPEN')", p("id",id).addValue("t",t).addValue("subject",subject)); return id; }
     private void ensureTenant(UUID id) { jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (:id,:name,:sub,'ACTIVE',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("name","Test "+id).addValue("sub","integ-"+id)); }
