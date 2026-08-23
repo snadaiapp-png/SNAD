@@ -15,7 +15,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionAttribute;
 
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -331,6 +334,58 @@ class ContactCollaborationServiceTest {
 
         assertThat(result).containsExactly(p1, p2);
         verify(membershipService).listParticipants(TENANT_A, CollaborationEntityType.CONTACT, CONTACT_ID);
+    }
+
+    // ── C4-R1: listParticipants @Transactional(readOnly=true) contract ──
+    //
+    // Production contract under FORCE RLS:
+    //   listParticipants reads crm_contacts AND crm_entity_participants,
+    //   both of which have FORCE ROW LEVEL SECURITY. The production
+    //   TenantRlsConnectionHandler applies SET LOCAL app.tenant_id
+    //   only when connection autoCommit == false (i.e. inside a Spring
+    //   @Transactional boundary). Without @Transactional, listParticipants
+    //   runs in autoCommit=true mode and the FORCE RLS predicate fails
+    //   closed (returns 0 rows).
+    //
+    // This test inspects the Spring transaction metadata via
+    // AnnotationTransactionAttributeSource to verify:
+    //   - listParticipants has @Transactional
+    //   - readOnly == true
+    //
+    // Reflection on the raw class (no Spring proxy needed) is sufficient
+    // because AnnotationTransactionAttributeSource reads annotations
+    // directly from the Method.
+
+    private TransactionAttribute transactionAttributeFor(String methodName) throws Exception {
+        AnnotationTransactionAttributeSource source = new AnnotationTransactionAttributeSource();
+        Method method = ContactCollaborationService.class.getMethod(
+                methodName, UUID.class, UUID.class);
+        return source.getTransactionAttribute(method, ContactCollaborationService.class);
+    }
+
+    @Test
+    @DisplayName("C4-R1. listParticipants must be annotated @Transactional (non-null attribute)")
+    void listParticipantsHasTransactionalAttribute() throws Exception {
+        TransactionAttribute attr = transactionAttributeFor("listParticipants");
+        assertThat(attr)
+                .as("listParticipants must carry a Spring @Transactional attribute so the "
+                        + "production TenantRlsConnectionHandler can apply SET LOCAL app.tenant_id "
+                        + "under FORCE RLS")
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("C4-R1. listParticipants @Transactional must be readOnly=true")
+    void listParticipantsIsReadOnly() throws Exception {
+        TransactionAttribute attr = transactionAttributeFor("listParticipants");
+        assertThat(attr)
+                .as("listParticipants must carry a @Transactional attribute")
+                .isNotNull();
+        assertThat(attr.isReadOnly())
+                .as("listParticipants must be @Transactional(readOnly = true) — it issues no writes "
+                        + "and the read-only hint lets the transaction manager route to a read-optimized "
+                        + "path when configured.")
+                .isTrue();
     }
 
     // ── J. removeParticipant requires participantId to belong to the Contact ──

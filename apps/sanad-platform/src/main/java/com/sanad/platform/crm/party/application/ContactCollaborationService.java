@@ -178,7 +178,26 @@ public class ContactCollaborationService {
      *
      * <p>Read-only — no eligibility mutation, no RBAC write, no event.
      * Allowed on archived contacts.</p>
+     *
+     * <p><strong>C4-R1 transaction contract:</strong> annotated
+     * {@code @Transactional(readOnly = true)} so the production
+     * {@code TenantRlsConnectionHandler} applies
+     * {@code SET LOCAL app.tenant_id} to the underlying physical
+     * connection before any SELECT. The handler only activates when
+     * {@code autoCommit == false} (i.e. inside a Spring transaction
+     * boundary). Without {@code @Transactional}, listParticipants
+     * would run in autoCommit=true mode and the FORCE RLS predicate
+     * on {@code crm_contacts} and {@code crm_entity_participants}
+     * would fail closed (0 rows returned) — even for an
+     * authenticated principal with a valid tenant context.</p>
+     *
+     * <p>The {@code readOnly = true} hint signals to the transaction
+     * manager that no writes are issued, allowing read-optimized
+     * routing when configured. It does NOT bypass the GUC application
+     * — the GUC is still applied transaction-locally by
+     * {@code TenantRlsConnectionHandler}.</p>
      */
+    @Transactional(readOnly = true)
     public List<EntityParticipant> listParticipants(UUID tenantId, UUID contactId) {
         // Verify the Contact exists in the tenant (will throw
         // CrmContractException if not found).
