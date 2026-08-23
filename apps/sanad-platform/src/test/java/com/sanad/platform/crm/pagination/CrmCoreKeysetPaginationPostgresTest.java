@@ -6,6 +6,7 @@ import com.sanad.platform.crm.mapper.CrmDtoMapper;
 import com.sanad.platform.crm.pagination.CrmEnvelopes.ListResponse;
 import com.sanad.platform.crm.web.CrmContractController;
 import com.sanad.platform.security.authorization.CapabilityAuthorizationAspect;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
@@ -55,8 +56,11 @@ class CrmCoreKeysetPaginationPostgresTest {
 
     @BeforeEach
     void setUp() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        String baseUrl = System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
+        String user = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
+        String password = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
+        String isolatedUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(baseUrl);
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(isolatedUrl, user, password);
         jdbc = new NamedParameterJdbcTemplate(dataSource);
         // Drop dependent foreign-key constraints first, then drop crm_accounts.
         // PostgreSQL strictly enforces dependencies: DROP TABLE crm_accounts fails

@@ -2,6 +2,7 @@ package com.sanad.platform.crm.collaboration;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,12 +37,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("Task 1 — CRM collaboration event foundation schema (PostgreSQL Direct)")
 class CrmCollaborationSchemaPostgresTest {
 
-    private static final String JDBC_URL = System.getenv().getOrDefault(
+    private static final String BASE_JDBC_URL = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
     private static final String USERNAME = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_USERNAME", "sanad");
     private static final String PASSWORD = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_PASSWORD", "");
+    private static final String JDBC_URL =
+            MigrationTestSchemaSupport.getIsolatedJdbcUrl(BASE_JDBC_URL);
 
     private NamedParameterJdbcTemplate jdbc;
 
@@ -56,6 +59,7 @@ class CrmCollaborationSchemaPostgresTest {
         }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmCollaborationSchemaPostgresTest.");
+        MigrationTestSchemaSupport.ensureDatabase(BASE_JDBC_URL, USERNAME, PASSWORD);
     }
 
     @BeforeEach
@@ -278,6 +282,16 @@ class CrmCollaborationSchemaPostgresTest {
         assertThat(timelineForced)
                 .as("crm_timeline_events must have FORCE ROW LEVEL SECURITY (legacy policy replaced)")
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("schema verification uses isolated test_migration database (not shared sanad)")
+    void schemaVerificationUsesIsolatedMigrationDatabase() {
+        String database = jdbc.queryForObject(
+                "SELECT current_database()", Map.of(), String.class);
+        assertThat(database)
+                .as("schema test must operate on test_migration, not shared sanad")
+                .isEqualTo(MigrationTestSchemaSupport.ISOLATED_DB_NAME);
     }
 
     // ---------- helpers ----------

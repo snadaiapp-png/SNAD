@@ -2,6 +2,7 @@ package com.sanad.platform.security.rls;
 
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -31,12 +32,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("TenantRlsTransactionContext — PostgreSQL Direct regression")
 class TenantRlsTransactionContextPostgresTest {
 
-    private static final String JDBC_URL = System.getenv().getOrDefault(
+    private static final String BASE_JDBC_URL = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
     private static final String USERNAME = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_USERNAME", "sanad");
     private static final String PASSWORD = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_PASSWORD", "");
+    private static final String JDBC_URL =
+            MigrationTestSchemaSupport.getIsolatedJdbcUrl(BASE_JDBC_URL);
 
     private JdbcTemplate jdbc;
     private TransactionTemplate tx;
@@ -53,6 +56,7 @@ class TenantRlsTransactionContextPostgresTest {
         }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping TenantRlsTransactionContextPostgresTest.");
+        MigrationTestSchemaSupport.ensureDatabase(BASE_JDBC_URL, USERNAME, PASSWORD);
     }
 
     @BeforeEach

@@ -3,6 +3,7 @@ package com.sanad.platform.crm.legacy.infrastructure;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -38,12 +39,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("CRM import worker — RLS regression (PostgreSQL Direct)")
 class CrmImportWorkerRlsPostgresTest {
 
-    private static final String JDBC_URL = System.getenv().getOrDefault(
+    private static final String BASE_JDBC_URL = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
     private static final String USERNAME = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_USERNAME", "sanad");
     private static final String PASSWORD = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_PASSWORD", "");
+    private static final String JDBC_URL =
+            MigrationTestSchemaSupport.getIsolatedJdbcUrl(BASE_JDBC_URL);
 
     private LegacyCrmInfrastructureService service;
     private JdbcTemplate jdbc;
@@ -60,6 +63,7 @@ class CrmImportWorkerRlsPostgresTest {
         }
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmImportWorkerRlsPostgresTest.");
+        MigrationTestSchemaSupport.ensureDatabase(BASE_JDBC_URL, USERNAME, PASSWORD);
     }
 
     @BeforeEach

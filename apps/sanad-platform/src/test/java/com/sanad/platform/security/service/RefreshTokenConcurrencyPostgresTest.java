@@ -104,6 +104,11 @@ class RefreshTokenConcurrencyPostgresTest {
                     refresh_tokens
                 RESTART IDENTITY CASCADE
                 """);
+        // Clear refresh_tokens a second time after CASCADE — the first TRUNCATE
+        // may leave self-referencing rows (fk_refresh_tokens_replaced_by) if
+        // a prior test's tokens are still linked. This second TRUNCATE on the
+        // now-orphaned refresh_tokens table ensures no FK violation on commit.
+        jdbcTemplate.execute("TRUNCATE TABLE refresh_tokens RESTART IDENTITY CASCADE");
         // TRUNCATE cleared all rows; JPA first-level cache may still hold
         // stale entities, so we clear the persistence context to avoid
         // accidental re-inserts of detached entities.

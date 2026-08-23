@@ -3,6 +3,7 @@ package com.sanad.platform.crm.integration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -47,15 +48,20 @@ class CrmIntegrationOutboxRecoveryTest {
         boolean postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("CrmIntegrationOutboxRecoveryTest");
         Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct unavailable — skipping in non-CI environment");
 
+        String baseUrl = System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
+        String user = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
+        String password = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
+        MigrationTestSchemaSupport.ensureDatabase(baseUrl, user, password);
+        String isolatedUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(baseUrl);
 
         Flyway.configure()
-                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .dataSource(isolatedUrl, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(false).validateOnMigrate(true).load().migrate();
+                .cleanDisabled(true).validateOnMigrate(false).load().migrate();
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+                isolatedUrl, user, password);
         jdbc = new JdbcTemplate(dataSource);
         store = new CrmIntegrationStore(jdbc, new ObjectMapper());
     }
