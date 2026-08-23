@@ -54,9 +54,27 @@ class WorkflowSlaSchedulerTest {
 
     @BeforeEach
     void setUp() {
+        // Clean ALL workflow + management tables to prevent stale data from
+        // prior test classes from being picked up by the scheduler. The
+        // scheduler queries SELECT id FROM tenants WHERE status='ACTIVE'
+        // and processes ALL active tenants — stale workflow data in tenants
+        // created by other tests causes false breach counts.
         jdbc.execute("TRUNCATE TABLE workflow_transition_audit, workflow_approval_requests, "
                 + "workflow_step_instances, workflow_instances, workflow_steps, "
-                + "workflow_definitions RESTART IDENTITY CASCADE");
+                + "workflow_definitions, escalations, executive_alerts, "
+                + "management_audit_trail, decision_actions, decision_participants, "
+                + "issues, risks, "
+                + "strategic_initiatives, kpi_measurements, kpi_targets "
+                + "RESTART IDENTITY CASCADE");
+        // Also clean stale tenants/users/roles from prior tests so the
+        // scheduler only sees this test's tenants.
+        jdbc.execute("TRUNCATE TABLE crm_tag_assignments, crm_communication_methods, "
+                + "crm_party_addresses, crm_opportunity_stage_history, crm_opportunities, "
+                + "crm_pipeline_stages, crm_pipelines, crm_tasks, crm_notes, crm_tags, "
+                + "crm_activities, crm_contacts, crm_leads, crm_accounts, "
+                + "user_role_assignments, role_capabilities, roles, users, tenants, "
+                + "refresh_tokens "
+                + "RESTART IDENTITY CASCADE");
 
         tenantA = UUID.randomUUID();
         tenantB = UUID.randomUUID();

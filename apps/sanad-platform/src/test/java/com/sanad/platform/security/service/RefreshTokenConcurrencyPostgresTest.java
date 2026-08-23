@@ -61,7 +61,11 @@ class RefreshTokenConcurrencyPostgresTest {
 
     @BeforeEach
     void setUp() {
-        refreshTokenRepository.deleteAll();
+        // Do NOT call refreshTokenRepository.deleteAll() before TRUNCATE.
+        // JPA deleteAll issues individual DELETE statements that violate the
+        // self-referencing FK fk_refresh_tokens_replaced_by when prior tests
+        // have left replacement-chain rows. The TRUNCATE ... CASCADE below
+        // is the authoritative PostgreSQL cleanup that handles the FK graph.
         // PostgreSQL strictly enforces FK constraints. The CRM schema has
         // dozens of cross-referencing tables (crm_accounts → crm_contacts →
         // crm_communication_methods → crm_addresses → ...). Manually listing

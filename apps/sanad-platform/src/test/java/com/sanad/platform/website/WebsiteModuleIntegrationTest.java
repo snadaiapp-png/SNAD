@@ -44,6 +44,14 @@ class WebsiteModuleIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // Clean website tables to prevent stale domain hostname conflicts
+        // from prior test runs. The test uses hardcoded hostnames like
+        // "pub-test.example.com" which collide if stale rows persist.
+        jdbc.execute("TRUNCATE TABLE website_publications, website_pages, "
+                + "website_navigation_items, website_navigation, "
+                + "website_theme_settings, website_domains, websites "
+                + "RESTART IDENTITY CASCADE");
+
         tenantId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
