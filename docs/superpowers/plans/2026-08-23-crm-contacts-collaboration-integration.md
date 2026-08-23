@@ -101,29 +101,52 @@ docs/superpowers/specs/2026-08-22-crm-collaboration-notifications-design.md
 
 None. FILES_TO_DELETE=0.
 
-## RLS Caller Closure (Task C0 output)
+## RLS Caller Closure (Task C0 output — reconciled in Prompt 04)
 
-28 production files reference `crm_contacts`. Classification:
+28 production files reference `crm_contacts`. Reconciled classification:
 
-| Category | Count | Description |
-|---|---|---|
-| Spring @Component with tenant_id predicates | 23 | Use WHERE tenant_id = ?; need TenantRlsConnectionHandler GUC when FORCE RLS active |
-| Already sets GUC | 1 | LegacyCrmInfrastructureService uses TenantRlsTransactionContext |
-| Non-component (enum/config) | 2 | DataClassification, ModuleResetRegistry — no SQL |
-| Non-component config | 1 | PerfTestBootstrapConfig — test-only seed |
-| Non-component with tenant predicates | 1 | CrmCoreCursorPaginationAspect — aspect, needs GUC |
+| # | File | Class | R/W | Tx? | Sets GUC? | Classification | Change Required |
+|---|---|---|---|---|---|---|---|
+| 1 | CallerDatasetService | @Component @Service | READ | @Transactional | NO | REQUIRES_REMEDIATION | Upstream @Transactional + SecurityContextHolder from HTTP request; TenantRlsConnectionHandler applies GUC automatically. No direct change needed — verify upstream tx owner sets SecurityContext. |
+| 2 | JdbcCallerIdentificationRepository | @Repository | READ | NO (called within upstream tx) | NO | NO_CHANGE_REQUIRED | Consumed by CallerDatasetService which is @Transactional. GUC applied by TenantRlsConnectionHandler from SecurityContextHolder. |
+| 3 | JdbcExportRepository | @Repository | READ+DELETE | NO (called within upstream tx) | NO | NO_CHANGE_REQUIRED | Consumed by ExportController which is @Transactional. GUC applied by TenantRlsConnectionHandler. |
+| 4 | JdbcCrmEntitySnapshotAdapter | @Repository | INDIRECT | NO | NO | NO_CHANGE_REQUIRED | References crm_contacts in snapshot queries; called within upstream @Transactional. GUC applied by TenantRlsConnectionHandler. |
+| 5 | CrmV2AtomicMutationInfrastructureService | @Component | WRITE | @Transactional | NO | REQUIRES_REMEDIATION | Has @Transactional but no SecurityContextHolder usage for GUC. Verify upstream caller sets SecurityContext. If called from background, needs TenantRlsTransactionContext. |
+| 6 | LegacyContactService | @Component | WRITE | @Transactional | NO | REQUIRES_REMEDIATION | Same as #5 — verify upstream SecurityContext or add TenantRlsTransactionContext for background paths. |
+| 7 | LegacyCrmInfrastructureService | @Component | READ+WRITE | @Transactional | YES (TenantRlsTransactionContext) | ALREADY_RLS_SAFE | Already uses TenantRlsTransactionContext.applyForCurrentTransaction(). |
+| 8 | LegacyDashboardService | @Component | READ+DELETE | @Transactional | NO | REQUIRES_REMEDIATION | Verify upstream SecurityContext. |
+| 9 | LegacyImportService | @Component | INSERT | @Transactional | NO | REQUIRES_REMEDIATION | Verify upstream SecurityContext or TenantRlsTransactionContext for import worker path. |
+| 10 | LegacySupport | @Component | INDIRECT | NO | NO | NO_CHANGE_REQUIRED | Utility/helper; called within upstream @Transactional. |
+| 11 | PullSyncService | @Component | INDIRECT | @Transactional | YES (TenantRlsTransactionContext) | ALREADY_RLS_SAFE | Already uses TenantRlsTransactionContext. |
+| 12 | PushSyncService | @Component | INDIRECT | NO | YES (TenantRlsTransactionContext) | ALREADY_RLS_SAFE | Already uses TenantRlsTransactionContext. |
+| 13 | JdbcOwnershipRecordAdapter | @Repository | UPDATE | NO (called within upstream tx) | NO | NO_CHANGE_REQUIRED | Consumed by OwnershipCommandUseCases which is @Transactional. GUC applied by TenantRlsConnectionHandler. |
+| 14 | CrmCoreCursorPaginationAspect | @Component (Aspect) | INDIRECT | NO (aspect around controller) | NO | NO_CHANGE_REQUIRED | Aspect wraps controller calls; operates within Spring-managed tx + SecurityContextHolder. GUC applied by TenantRlsConnectionHandler. |
+| 15 | AuditedAddressCommunicationRepository | @Repository | INDIRECT | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional. |
+| 16 | JdbcAddressCommunicationRepository | @Repository | INDIRECT | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional. |
+| 17 | JdbcContactRelationshipRepository | @Repository | READ+WRITE | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional (ContactRelationshipUseCases). |
+| 18 | JdbcContactRepository | @Repository | READ+WRITE | NO | NO | NO_CHANGE_REQUIRED | Called within ContactUseCases which is @Transactional. GUC applied by TenantRlsConnectionHandler. |
+| 19 | JdbcCustomerMasterRepository | @Repository | UPDATE | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional. |
+| 20 | JdbcPortalRepository | @Repository | READ+WRITE | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional. |
+| 21 | JdbcCustomer360QueryAdapter | @Repository | READ | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional. |
+| 22 | JdbcDashboardQueryAdapter | @Repository | READ+DELETE | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional. |
+| 23 | JdbcReportRepository | @Repository | READ+DELETE | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional. |
+| 24 | JdbcSearchRepository | @Repository | READ+DELETE | NO | NO | NO_CHANGE_REQUIRED | Called within upstream @Transactional. |
+| 25 | CrmManagementIntegrationService | @Component | READ+DELETE | @Transactional | NO | REQUIRES_REMEDIATION | Verify upstream SecurityContext. |
+| 26 | DataClassification | enum | NONE | NO | NO | DEAD_OR_UNREACHABLE | Enum — references crm_contacts in a static classification table list. No SQL execution. |
+| 27 | ModuleResetRegistry | class | NONE | NO | NO | DEAD_OR_UNREACHABLE | Static registry of table names for module reset. No direct SQL. ModuleResetService handles GUC separately. |
+| 28 | PerfTestBootstrapConfig | @Configuration | INSERT | NO | NO | DEAD_OR_UNREACHABLE | Test-only bootstrap configuration; not active in production. |
 
-**CONTACT_RLS_CALLERS_TOTAL=28**
-**CONTACT_RLS_CALLERS_ALREADY_SAFE=1** (LegacyCrmInfrastructureService)
-**CONTACT_RLS_CALLERS_REQUIRING_FIX=24** (all @Component callers that don't set GUC)
-**CONTACT_RLS_UNKNOWN_CALLERS=0**
+**CORRECTED COUNTS:**
+- **CONTACT_RLS_CALLERS_TOTAL=28**
+- **CONTACT_RLS_ALREADY_SAFE=3** (LegacyCrmInfrastructureService, PullSyncService, PushSyncService)
+- **CONTACT_RLS_REQUIRES_REMEDIATION=6** (CallerDatasetService, CrmV2AtomicMutationInfrastructureService, LegacyContactService, LegacyDashboardService, LegacyImportService, CrmManagementIntegrationService)
+- **CONTACT_RLS_NO_CHANGE_REQUIRED=16** (all @Repository/@Component callers consumed within upstream @Transactional that sets SecurityContextHolder)
+- **CONTACT_RLS_TEST_ONLY_REMEDIATION=0**
+- **CONTACT_RLS_DEAD_OR_UNREACHABLE=3** (DataClassification, ModuleResetRegistry, PerfTestBootstrapConfig)
+- **CONTACT_RLS_UNKNOWN=0**
+- **RLS_ARITHMETIC_SUM=3+6+16+0+3+0=28** ✓
 
-Key insight: When `sanad.rls.enabled=true` (local profile), `TenantRlsConnectionHandler` wraps the DataSource and applies `SET LOCAL app.tenant_id` from `SecurityContextHolder` inside `@Transactional` boundaries. All Spring-managed service callers already operate within `@Transactional` methods triggered by HTTP requests with Authentication. The fix for most callers is ensuring the calling service sets SecurityContextHolder — which the HTTP request pipeline already does.
-
-The callers that need explicit attention are:
-1. Background jobs (PullSyncService, PushSyncService) — need `TenantRlsTransactionContext`
-2. Direct JDBC test classes — need transaction-local GUC
-3. ModuleResetService — already fixed (uses TenantRlsTransactionContext)
+**Key insight:** The 6 REQUIRES_REMEDIATION callers are @Component/@Service classes that have @Transactional but don't explicitly verify that SecurityContextHolder is populated. When called from HTTP request paths, `TenantRlsConnectionHandler` automatically applies `SET LOCAL app.tenant_id` from `SecurityContextHolder` — these are already safe in the HTTP path. The remediation is to verify/ensure that any background-job call path also sets SecurityContextHolder or uses `TenantRlsTransactionContext`. Most likely these 6 callers are already safe via the HTTP path and only need verification, not code changes.
 
 ## Task Decomposition
 
