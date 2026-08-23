@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.party.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.crm.collaboration.application.CollaborationMembershipService;
 import com.sanad.platform.crm.integration.domain.AuditPort;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.party.domain.*;
@@ -58,5 +59,19 @@ public class PartyModuleConfiguration {
             ObjectMapper objectMapper) {
         return new AddressCommunicationUseCases(addressCommunicationRepository, legacyAddressProjectionPort,
                 auditPort, timelineEventPort, objectMapper);
+    }
+
+    /**
+     * Contact-specific collaboration façade over the generic
+     * {@link CollaborationMembershipService}. Injects ONLY
+     * {@link ContactRepository} and {@link CollaborationMembershipService}
+     * — no timeline / audit / outbox / RBAC ports (those are owned by C7
+     * and C8).
+     */
+    @Bean
+    public ContactCollaborationService contactCollaborationService(
+            ContactRepository contactRepository,
+            CollaborationMembershipService collaborationMembershipService) {
+        return new ContactCollaborationService(contactRepository, collaborationMembershipService);
     }
 }
