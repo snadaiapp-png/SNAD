@@ -4,12 +4,42 @@
 # CRM-022: CRM Integration Tests job (required status check)
 # v20260816.10: PostgreSQL Direct only — Docker/Testcontainers removed.
 # v20260824.1: Pre-provision `crm_contact_rls_test_user` role for
-#   ContactRlsPostgresTest (C2). The postgres:16-alpine POSTGRES_USER env
-#   creates `sanad` as a SUPERUSER (which has CREATEROLE). We use that
-#   superuser to CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD
-#   before tests run — the test asserts presence and refuses to CREATE ROLE
-#   itself because the production least-privilege contract forbids
-#   CREATEROLE on the application role.
+#   ContactRlsPostgresTest (C2).
+# v20260824.2 (C6-D.2A): Bootstrap / application role separation.
+#   The postgres:16-alpine POSTGRES_USER env var creates a SUPERUSER
+#   bootstrap role. Previously we set POSTGRES_USER=sanad which made
+#   the application role itself a SUPERUSER, bypassing FORCE RLS and
+#   defeating every tenant-isolation / least-privilege test (RC-1).
+#
+#   Architecture now:
+#     BOOTSTRAP_ADMIN_ROLE=postgres  (SUPERUSER, used ONLY for provisioning)
+#     APPLICATION_TEST_ROLE=sanad    (NOSUPERUSER NOCREATEDB NOCREATEROLE
+#                                     NOBYPASSRLS — used by Flyway +
+#                                     application + tests)
+#
+#   The bootstrap role provisions:
+#     - the `sanad` application role (least-privilege, LOGIN)
+#     - ownership transfer of the `sanad` database to `sanad`
+#       (so Flyway tables created by `sanad` are owned by `sanad`,
+#        making FORCE RLS apply to the table owner — exactly the
+#        contract the RC-1 security tests verify)
+#     - the disposable `test_migration` database owned by `sanad`
+#       (used by MigrationTestSchemaSupport-leveraging tests:
+#        ContactParticipantInvariantPostgresTest, ContactRlsPostgresTest,
+#        ContactTransferSpringProxyPostgresTest, ContactOwnerPatch-
+#        CanonicalizationPostgresTest, and the least-privilege test itself)
+#     - CONNECT on the `postgres` maintenance DB for `sanad`
+#       (MigrationTestSchemaSupport.ensureDatabase + the least-privilege
+#       test connect to `postgres` to query pg_database / pg_roles)
+#     - the `crm_contact_rls_test_user` role (C2 test RLS user)
+#
+#   Flyway then runs as `sanad` against both `sanad` and `test_migration`.
+#   Since `sanad` owns the tables it creates, FORCE RLS applies to it
+#   as the table owner — proving the security model instead of bypassing it.
+#
+# NOTE on heredoc bodies: SQL heredocs inside run: blocks must use
+#   `--` for comments. Bash-style `#` comments are sent to psql as SQL
+#   and break the script.
 # ============================================================
 # Runs on every push to main and on pull requests.
 # Executes Maven tests against the GitHub-provided PostgreSQL 16 service
@@ -44,13 +74,16 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: sanad_pass
+          # Bootstrap SUPERUSER — used ONLY for the provisioning step below.
+          # The application role `sanad` is created separately as a
+          # least-privilege LOGIN role.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
           POSTGRES_DB: sanad
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-cmd "pg_isready -U postgres -d sanad"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -65,9 +98,10 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
-      # PGPASSWORD for the psql client used in the role-provisioning step
-      # (sanad is created as a SUPERUSER by POSTGRES_USER env, so it has CREATEROLE).
-      PGPASSWORD: sanad_pass
+      # PGPASSWORD for the psql client used in the provisioning step
+      # (connects as the `postgres` bootstrap superuser to CREATE ROLE
+      # `sanad` + databases + grants).
+      PGPASSWORD: postgres_pass
 
     defaults:
       run:
@@ -77,19 +111,71 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Provision crm_contact_rls_test_user role
-        # ContactRlsPostgresTest (C2) requires a pre-provisioned non-superuser
-        # role `crm_contact_rls_test_user` to validate fail-closed RLS behavior
-        # from a non-table-owner perspective. The test refuses to CREATE ROLE
-        # itself because the production least-privilege contract forbids
-        # CREATEROLE on the application role. The CI workflow creates the role
-        # here as the `sanad` superuser (which has CREATEROLE by virtue of
-        # being SUPERUSER).
-        # NOTE: the heredoc body is SQL — only -- comments are allowed inside it,
-        # bash-style # comments would be sent to psql as SQL and break it.
+      - name: Provision application role + databases + test RLS user
+        # Connects as the `postgres` bootstrap SUPERUSER to provision:
+        #   1. The `sanad` application role (NOSUPERUSER NOCREATEDB
+        #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD 'sanad_pass').
+        #   2. ALTER DATABASE sanad OWNER TO sanad — so Flyway tables
+        #      created by `sanad` are owned by `sanad`, making FORCE RLS
+        #      apply to the table owner (the RC-1 security contract).
+        #   3. The disposable `test_migration` database owned by `sanad`
+        #      (used by MigrationTestSchemaSupport-leveraging tests +
+        #      the least-privilege R0-C test).
+        #   4. CONNECT on the `postgres` maintenance DB for `sanad`
+        #      (MigrationTestSchemaSupport.ensureDatabase + the R0-C
+        #      least-privilege test connect to `postgres` to query
+        #      pg_database / pg_roles).
+        #   5. USAGE + CREATE on schema public for `sanad` (Flyway needs
+        #      CREATE TABLE / ALTER TABLE; tests need INSERT/UPDATE/DELETE
+        #      on their own tables — covered by table ownership).
+        #   6. The `crm_contact_rls_test_user` role (C2 RLS test user).
+        # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          psql -h 127.0.0.1 -U sanad -d sanad -v ON_ERROR_STOP=1 <<'SQL'
-          -- Create the test RLS user if absent (idempotent across runs).
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          -- 1. Application role `sanad` (least-privilege LOGIN).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- 2. Transfer database ownership from `postgres` to `sanad`.
+          --    Flyway will then run as `sanad` and own every table it
+          --    creates — making FORCE RLS apply to `sanad` as table owner.
+          ALTER DATABASE sanad OWNER TO sanad;
+
+          -- 3. Pre-provision the disposable `test_migration` database
+          --    (used by MigrationTestSchemaSupport-leveraging tests).
+          --    Owned by `sanad` so the application role can Flyway-migrate
+          --    it without needing CREATEDB. CREATE DATABASE ... OWNER
+          --    requires SUPERUSER (which `postgres` has).
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+
+          -- 4. CONNECT on the maintenance DB for `sanad`. Needed by
+          --    MigrationTestSchemaSupport.ensureDatabase() and the R0-C
+          --    least-privilege test — both connect to `postgres` to
+          --    query pg_database / pg_roles.
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+
+          -- 5. Schema privileges for `sanad` on the `sanad` database.
+          --    Flyway needs CREATE (for CREATE TABLE / ALTER TABLE) +
+          --    USAGE. Tests need USAGE + DML on their own tables
+          --    (covered by table ownership — sanad owns what it creates).
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+
+          -- Mirror the schema privileges on the test_migration database
+          -- (Flyway will run there as `sanad` too).
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+
+          -- 6. Pre-provision the C2 test RLS user (ContactRlsPostgresTest
+          --    asserts presence and refuses to CREATE ROLE itself because
+          --    the production least-privilege contract forbids CREATEROLE
+          --    on the application role).
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
@@ -148,13 +234,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
           POSTGRES_DB: sanad
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-cmd "pg_isready -U postgres -d sanad"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -169,7 +255,7 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
-      PGPASSWORD: sanad_pass
+      PGPASSWORD: postgres_pass
 
     defaults:
       run:
@@ -179,11 +265,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Provision crm_contact_rls_test_user role
-        # Mirror of the test job's provisioning step.
+      - name: Provision application role + databases + test RLS user
+        # Mirror of the test job's provisioning step (same least-privilege
+        # role separation so CRM Integration Tests run against the same
+        # non-superuser application role as the Maven Test Suite).
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          psql -h 127.0.0.1 -U sanad -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
