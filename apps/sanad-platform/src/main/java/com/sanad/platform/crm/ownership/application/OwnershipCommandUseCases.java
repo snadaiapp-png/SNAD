@@ -82,8 +82,8 @@ public class OwnershipCommandUseCases {
     @Transactional
     public List<Assignment> bulkReassign(BulkReassignCommand command) {
         validateRecordIds(command == null ? null : command.recordIds(), "Bulk reassignment");
-        validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
         validateContactOwnerType(command.recordType(), command.ownerType());
+        validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
         for (UUID recordId : command.recordIds()) {
             validateRecord(command.tenantId(), command.recordType(), recordId);
         }
@@ -105,8 +105,8 @@ public class OwnershipCommandUseCases {
         if (command.effectiveTo() != null && !command.effectiveTo().isAfter(Instant.now())) {
             throw new OwnershipDomainException("Temporary transfer end must be in the future");
         }
-        validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
         validateContactOwnerType(command.recordType(), command.ownerType());
+        validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
         for (UUID recordId : command.recordIds()) {
             validateRecord(command.tenantId(), command.recordType(), recordId);
         }
