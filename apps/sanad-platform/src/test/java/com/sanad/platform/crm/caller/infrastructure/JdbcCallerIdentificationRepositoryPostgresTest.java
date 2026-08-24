@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,6 +35,7 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
     private static final String PHONE = "+966541234567";
 
     private JdbcTemplate jdbc;
+    private TransactionTemplate transactions;
     private CallerIdentificationRepository repository;
 
     @BeforeAll
@@ -75,6 +78,7 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(ds));
         repository = new JdbcCallerIdentificationRepository(new NamedParameterJdbcTemplate(ds));
     }
 
@@ -235,13 +239,16 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
     private UUID contact(UUID tenantId, String displayName, UUID userId) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
-                        "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
-                        "created_by,updated_by,created_at,updated_at) " +
-                        "VALUES (?,?,0,NULL,?,?,?,?,'ar-SA','Asia/Riyadh','ACTIVE',?,'GRANTED',?,?,?,?)",
-                id, tenantId, displayName.substring(0, 1), displayName.substring(Math.min(1, displayName.length() - 1)),
-                displayName, displayName.toLowerCase(), userId, userId, userId,
-                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
+                            "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
+                            "created_by,updated_by,created_at,updated_at) " +
+                            "VALUES (?,?,0,NULL,?,?,?,?,'ar-SA','Asia/Riyadh','ACTIVE',?,'GRANTED',?,?,?,?)",
+                    id, tenantId, displayName.substring(0, 1), displayName.substring(Math.min(1, displayName.length() - 1)),
+                    displayName, displayName.toLowerCase(), userId, userId, userId,
+                    java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        });
         return id;
     }
 

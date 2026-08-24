@@ -69,6 +69,8 @@ class CrmContactRelationshipMigrationUpgradeTest {
                 """,
                 userId, tenantId, "migration@example.test", "Migration User",
                 "ACTIVE", "dummy", now, now);
+        // Set tenant GUC for FORCE RLS on crm_contacts (V20260823_1)
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
         jdbc.update(
                 """
                 INSERT INTO crm_accounts
@@ -140,6 +142,8 @@ class CrmContactRelationshipMigrationUpgradeTest {
 
         insertTenantAndUser(jdbc, tenantA, userA, "a", now);
         insertTenantAndUser(jdbc, tenantB, userB, "b", now);
+        // Set tenant GUC for tenant B's crm_accounts INSERT
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantB.toString());
         jdbc.update(
                 """
                 INSERT INTO crm_accounts
@@ -176,6 +180,8 @@ class CrmContactRelationshipMigrationUpgradeTest {
             String email,
             OffsetDateTime now) {
         String displayName = givenName + " " + familyName;
+        // Set tenant GUC for FORCE RLS on crm_contacts (V20260823_1)
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
         jdbc.update(
                 """
                 INSERT INTO crm_contacts

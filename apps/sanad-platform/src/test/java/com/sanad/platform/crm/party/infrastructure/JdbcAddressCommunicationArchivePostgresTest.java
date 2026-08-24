@@ -11,6 +11,8 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.sql.Timestamp;
@@ -34,6 +36,7 @@ class JdbcAddressCommunicationArchivePostgresTest {
 
 
     private static NamedParameterJdbcTemplate jdbc;
+    private static TransactionTemplate transactions;
     private static UUID tenantId;
     private static UUID accountId;
     private static UUID contactId;
@@ -64,6 +67,11 @@ class JdbcAddressCommunicationArchivePostgresTest {
 
         jdbc = new NamedParameterJdbcTemplate(new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(
+                new DriverManagerDataSource(
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))));
 
         tenantId = UUID.randomUUID();
         accountId = UUID.randomUUID();
@@ -80,28 +88,30 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 """, Map.of("id", (Object) tenantId, "name", "CRM-007-R7-Tenant",
                 "subdomain", "crm007r7-" + tenantId.toString().substring(0, 8), "now", ts));
 
-        // Create account
-        jdbc.update("""
-                INSERT INTO crm_accounts (id, tenant_id, version, display_name, normalized_name,
-                    account_type, lifecycle_status, created_by, updated_by, created_at, updated_at)
-                VALUES (:id, :tenantId, 0, :name, :normalized, 'BUSINESS', 'ACTIVE',
-                    :actorId, :actorId, :now, :now)
-                """, new MapSqlParameterSource()
-                .addValue("id", accountId).addValue("tenantId", tenantId)
-                .addValue("name", "CRM-007 R7 Account").addValue("normalized", "crm-007-r7-account")
-                .addValue("actorId", actorId).addValue("now", ts));
-
-        // Create contact
-        jdbc.update("""
-                INSERT INTO crm_contacts (id, tenant_id, version, given_name, display_name, normalized_name,
-                    lifecycle_status, created_by, updated_by, created_at, updated_at)
-                VALUES (:id, :tenantId, 0, :givenName, :name, :normalized, 'ACTIVE',
-                    :actorId, :actorId, :now, :now)
-                """, new MapSqlParameterSource()
-                .addValue("id", contactId).addValue("tenantId", tenantId)
-                .addValue("givenName", "CRM-007")
-                .addValue("name", "CRM-007 R7 Contact").addValue("normalized", "crm-007-r7-contact")
-                .addValue("actorId", actorId).addValue("now", ts));
+        // Create account + contact — wrap in tenant-scoped transaction for FORCE RLS
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource("t", tenantId.toString()), String.class);
+            jdbc.update("""
+                    INSERT INTO crm_accounts (id, tenant_id, version, display_name, normalized_name,
+                        account_type, lifecycle_status, created_by, updated_by, created_at, updated_at)
+                    VALUES (:id, :tenantId, 0, :name, :normalized, 'BUSINESS', 'ACTIVE',
+                        :actorId, :actorId, :now, :now)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", accountId).addValue("tenantId", tenantId)
+                    .addValue("name", "CRM-007 R7 Account").addValue("normalized", "crm-007-r7-account")
+                    .addValue("actorId", actorId).addValue("now", ts));
+            jdbc.update("""
+                    INSERT INTO crm_contacts (id, tenant_id, version, given_name, display_name, normalized_name,
+                        lifecycle_status, created_by, updated_by, created_at, updated_at)
+                    VALUES (:id, :tenantId, 0, :givenName, :name, :normalized, 'ACTIVE',
+                        :actorId, :actorId, :now, :now)
+                    """, new MapSqlParameterSource()
+                    .addValue("id", contactId).addValue("tenantId", tenantId)
+                    .addValue("givenName", "CRM-007")
+                    .addValue("name", "CRM-007 R7 Contact").addValue("normalized", "crm-007-r7-contact")
+                    .addValue("actorId", actorId).addValue("now", ts));
+        });
 
         // Create preferred EMAIL communication method for account
         emailMethodId = UUID.randomUUID();

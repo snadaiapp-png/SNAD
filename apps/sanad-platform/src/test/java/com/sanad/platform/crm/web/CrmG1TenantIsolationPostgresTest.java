@@ -64,6 +64,9 @@ class CrmG1TenantIsolationPostgresTest {
         insertTenant(jdbc, tenantA, "Tenant A", "g1-a-" + tenantA);
         insertTenant(jdbc, tenantB, "Tenant B", "g1-b-" + tenantB);
 
+        // Set tenant GUC for FORCE RLS on crm_contacts (V20260823_1)
+        // and crm_accounts (ENABLE RLS — permissive policy still needs GUC under non-superuser)
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
         jdbc.update("""
                 INSERT INTO crm_accounts (
                     id, tenant_id, version, display_name, normalized_name, account_type,
@@ -71,6 +74,7 @@ class CrmG1TenantIsolationPostgresTest {
                 ) VALUES (?, ?, 0, ?, ?, 'BUSINESS', 'ACTIVE', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, accountA, tenantA, "Account A", "account a", actor, actor);
 
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
         jdbc.update("""
                 INSERT INTO crm_contacts (
                     id, tenant_id, version, account_id, given_name, display_name,
