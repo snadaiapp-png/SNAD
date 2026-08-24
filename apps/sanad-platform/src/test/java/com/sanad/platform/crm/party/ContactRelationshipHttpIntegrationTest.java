@@ -362,12 +362,15 @@ class ContactRelationshipHttpIntegrationTest {
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
-                        "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
-                        "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
-                        "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM006_TEST',:owner,:owner,:owner,:now,:now)",
-                p().addValue("id", id).addValue("tenantId", fixture.tenantId()).addValue("name", name)
-                        .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+        tenantQuery(fixture.tenantId(), () -> {
+            jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
+                            "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
+                            "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
+                            "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM006_TEST',:owner,:owner,:owner,:now,:now)",
+                    p().addValue("id", id).addValue("tenantId", fixture.tenantId()).addValue("name", name)
+                            .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+            return null;
+        });
         return id;
     }
 
