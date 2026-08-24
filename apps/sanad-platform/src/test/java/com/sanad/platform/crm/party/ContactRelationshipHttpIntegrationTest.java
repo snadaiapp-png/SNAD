@@ -375,18 +375,21 @@ class ContactRelationshipHttpIntegrationTest {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         String displayName = givenName + " " + familyName;
-        jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,legal_name,preferred_name," +
-                        "given_name,middle_name,family_name,display_name,normalized_name,primary_email,normalized_email," +
-                        "preferred_locale,time_zone,lifecycle_status,owner_user_id,source,created_by,updated_by,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,0,NULL,:legalName,:preferredName,:givenName,NULL,:familyName,:displayName," +
-                        ":normalizedName,:email,:normalizedEmail,'ar-SA','Asia/Riyadh','ACTIVE',:owner,'CRM006_TEST'," +
-                        ":owner,:owner,:now,:now)",
-                p().addValue("id", id).addValue("tenantId", fixture.tenantId())
-                        .addValue("legalName", displayName).addValue("preferredName", givenName)
-                        .addValue("givenName", givenName).addValue("familyName", familyName)
-                        .addValue("displayName", displayName).addValue("normalizedName", displayName.toLowerCase())
-                        .addValue("email", email).addValue("normalizedEmail", email.toLowerCase())
-                        .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+        tenantQuery(fixture.tenantId(), () -> {
+            jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,legal_name,preferred_name," +
+                            "given_name,middle_name,family_name,display_name,normalized_name,primary_email,normalized_email," +
+                            "preferred_locale,time_zone,lifecycle_status,owner_user_id,source,created_by,updated_by,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,0,NULL,:legalName,:preferredName,:givenName,NULL,:familyName,:displayName," +
+                            ":normalizedName,:email,:normalizedEmail,'ar-SA','Asia/Riyadh','ACTIVE',:owner,'CRM006_TEST'," +
+                            ":owner,:owner,:now,:now)",
+                    p().addValue("id", id).addValue("tenantId", fixture.tenantId())
+                            .addValue("legalName", displayName).addValue("preferredName", givenName)
+                            .addValue("givenName", givenName).addValue("familyName", familyName)
+                            .addValue("displayName", displayName).addValue("normalizedName", displayName.toLowerCase())
+                            .addValue("email", email).addValue("normalizedEmail", email.toLowerCase())
+                            .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+            return null;
+        });
         return id;
     }
 

@@ -300,14 +300,17 @@ class AddressCommunicationHttpIntegrationTest {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         String displayName = givenName + " " + familyName;
-        jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
-                        "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
-                        "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,NULL,:givenName,:familyName," +
-                        ":displayName,:normalized,'ar-SA','Asia/Riyadh','ACTIVE',:owner,'GRANTED',:owner,:owner,:now,:now)",
-                p().addValue("id", id).addValue("tenantId", fixture.tenantId())
-                        .addValue("givenName", givenName).addValue("familyName", familyName)
-                        .addValue("displayName", displayName).addValue("normalized", displayName.toLowerCase())
-                        .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+        tenantQuery(fixture, () -> {
+            jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
+                            "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
+                            "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,NULL,:givenName,:familyName," +
+                            ":displayName,:normalized,'ar-SA','Asia/Riyadh','ACTIVE',:owner,'GRANTED',:owner,:owner,:now,:now)",
+                    p().addValue("id", id).addValue("tenantId", fixture.tenantId())
+                            .addValue("givenName", givenName).addValue("familyName", familyName)
+                            .addValue("displayName", displayName).addValue("normalized", displayName.toLowerCase())
+                            .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+            return null;
+        });
         return id;
     }
 
