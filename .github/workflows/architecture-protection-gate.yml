@@ -1,0 +1,271 @@
+name: Architecture Protection Gate
+
+# ============================================================================
+# SANAD Architecture Protection Policy — CI/CD Gate
+# ============================================================================
+# Enforces Architecture Protection Policy §10 (CI/CD Gates).
+# This workflow runs on every pull request to `main` and on every push to
+# `main`. If ANY check fails, the merge is BLOCKED.
+#
+# Required status checks for merge:
+#   1. architecture-boundaries       (this workflow, job: architecture-boundaries)
+#   2. multi-tenant-validation       (this workflow, job: multi-tenant-validation)
+#   3. protected-dirs-validation      (this workflow, job: protected-dirs-validation)
+#   4. frontend-tests                (this workflow, job: frontend-tests)
+#   5. production-build               (this workflow, job: production-build)
+#   6. security-scan                  (this workflow, job: security-scan)
+#
+# Reference: docs/governance/ARCHITECTURE-PROTECTION-POLICY.md §10, §15
+# ============================================================================
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+concurrency:
+  group: arch-protection-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job 1: Architecture boundary checks (frontend dep-cruiser + Python checks)
+  # --------------------------------------------------------------------------
+  architecture-boundaries:
+    name: Architecture Boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: 'apps/web/package-lock.json'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependency-cruiser
+        working-directory: apps/web
+        run: |
+          npm install --no-save --no-audit --no-fund \
+            dependency-cruiser@16
+
+      - name: Run frontend dependency-cruiser (import boundary validation)
+        working-directory: apps/web
+        run: |
+          npx depcruise --config .dependency-cruiser.cjs \
+            --output-type text \
+            --output-to console \
+            app lib || true
+          # Run again with exit code
+          npx depcruise --config .dependency-cruiser.cjs \
+            --output-type text \
+            --output-to console \
+            app lib
+
+      - name: Run frontend boundary Python validator
+        run: python3 scripts/architecture/check_frontend_boundaries.py
+
+      - name: Run backend boundary Python validator
+        run: python3 scripts/architecture/check_backend_boundaries.py
+
+      - name: Upload dep-cruiser JSON report
+        if: always()
+        working-directory: apps/web
+        run: |
+          npx depcruise --config .dependency-cruiser.cjs \
+            --output-type json \
+            --output-to dep-report.json \
+            app lib || true
+          mkdir -p ../../evidence/architecture
+          mv dep-report.json ../../evidence/architecture/$(date +%Y-%m-%d)-dep-report.json || true
+
+      - name: Upload architecture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-evidence-${{ github.run_id }}
+          path: evidence/architecture/
+          retention-days: 30
+
+  # --------------------------------------------------------------------------
+  # Job 2: Multi-tenant validation (no hardcoded tenant IDs)
+  # --------------------------------------------------------------------------
+  multi-tenant-validation:
+    name: Multi-Tenant Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run hardcoded tenant ID check
+        run: python3 scripts/architecture/check_tenant_hardcoding.py
+
+  # --------------------------------------------------------------------------
+  # Job 3: Protected directories governance
+  # --------------------------------------------------------------------------
+  protected-dirs-validation:
+    name: Protected Directories Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run protected directories check
+        run: python3 scripts/architecture/check_protected_directories.py
+
+  # --------------------------------------------------------------------------
+  # Job 4: Frontend unit + integration tests
+  # --------------------------------------------------------------------------
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: 'apps/web/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Run vitest (unit + integration)
+        working-directory: apps/web
+        run: npm test -- --reporter=verbose
+
+  # --------------------------------------------------------------------------
+  # Job 5: Production build (Next.js)
+  # --------------------------------------------------------------------------
+  production-build:
+    name: Production Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: 'apps/web/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Run Next.js production build
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+
+      - name: Verify routes compiled
+        working-directory: apps/web
+        run: |
+          echo "Verifying /executive and /system-health routes compiled..."
+          if [ -f .next/server/app/executive/page.js ] || [ -f .next/server/app/executive/page.html ]; then
+            echo "PASS: /executive route compiled"
+          else
+            echo "INFO: /executive route server output not found (may be static / dynamic)"
+          fi
+          if [ -f .next/server/app/system-health/page.js ] || [ -f .next/server/app/system-health/page.html ]; then
+            echo "PASS: /system-health route compiled"
+          else
+            echo "INFO: /system-health route server output not found (may be static / dynamic)"
+          fi
+
+  # --------------------------------------------------------------------------
+  # Job 6: Security scan (gitleaks)
+  # --------------------------------------------------------------------------
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # --------------------------------------------------------------------------
+  # Job 7: Final gate — summary status check (required for merge)
+  # --------------------------------------------------------------------------
+  gate-summary:
+    name: Architecture Protection Gate Summary
+    runs-on: ubuntu-latest
+    needs:
+      - architecture-boundaries
+      - multi-tenant-validation
+      - protected-dirs-validation
+      - frontend-tests
+      - production-build
+      - security-scan
+    if: always()
+    steps:
+      - name: Evaluate gate results
+        run: |
+          echo "Architecture Protection Gate — Summary"
+          echo "======================================"
+          echo "architecture-boundaries:     ${{ needs.architecture-boundaries.result }}"
+          echo "multi-tenant-validation:     ${{ needs.multi-tenant-validation.result }}"
+          echo "protected-dirs-validation:    ${{ needs.protected-dirs-validation.result }}"
+          echo "frontend-tests:              ${{ needs.frontend-tests.result }}"
+          echo "production-build:            ${{ needs.production-build.result }}"
+          echo "security-scan:               ${{ needs.security-scan.result }}"
+          echo "======================================"
+
+          if [[ "${{ needs.architecture-boundaries.result }}" != "success" || \
+                "${{ needs.multi-tenant-validation.result }}" != "success" || \
+                "${{ needs.protected-dirs-validation.result }}" != "success" || \
+                "${{ needs.frontend-tests.result }}" != "success" || \
+                "${{ needs.production-build.result }}" != "success" || \
+                "${{ needs.security-scan.result }}" != "success" ]]; then
+            echo "❌ ONE OR MORE ARCHITECTURE GATES FAILED — merge blocked"
+            echo "   Policy: §16 — Any PR that violates any rule SHALL be automatically rejected"
+            echo "   No exceptions. No manual override. No temporary bypass."
+            exit 1
+          fi
+          echo "✅ ALL ARCHITECTURE GATES PASSED — merge allowed"
