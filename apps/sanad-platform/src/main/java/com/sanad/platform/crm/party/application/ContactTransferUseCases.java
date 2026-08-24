@@ -142,7 +142,44 @@ public class ContactTransferUseCases {
     /**
      * Default-on entry point: equivalent to
      * {@code transferContact(new TransferContactCommand(..., true))}.
+     *
+     * <p><strong>C5-R1 transaction boundary contract:</strong> this default
+     * overload is annotated {@code @Transactional} so that an external
+     * caller enters a Spring-managed transaction before the delegating
+     * call to {@link #transferContact(TransferContactCommand)}. Without
+     * this annotation, the Spring AOP proxy would NOT intercept the
+     * default overload — the internal self-call to the command overload
+     * would also bypass proxy interception (Spring self-invocation),
+     * leaving the entire transfer execution without a transaction
+     * boundary. That breaks:</p>
+     * <ul>
+     *   <li>CONTACT_ROW_FIRST lock semantics (FOR UPDATE lifetime not
+     *       transaction-scoped)</li>
+     *   <li>TenantRlsConnectionHandler activation (GUC only applied when
+     *       autoCommit == false)</li>
+     *   <li>SET LOCAL app.tenant_id application (no transaction → no GUC)</li>
+     *   <li>Participant normalization atomicity (no rollback on failure)</li>
+     *   <li>Owner UPDATE rollback (no transaction = no rollback)</li>
+     *   <li>Previous-owner WATCHER rollback (no transaction = no rollback)</li>
+     * </ul>
+     *
+     * <p>After this annotation, the external call enters a transaction via
+     * the proxy; the internal command-overload self-call joins the SAME
+     * transaction via Spring's default PROPAGATION_REQUIRED semantics
+     * (self-invocation does NOT re-intercept the proxy, but that is safe
+     * because the outer default overload already owns an active
+     * transaction).</p>
+     *
+     * <p><strong>Self-invocation contract:</strong>
+     * SELF_INVOCATION_REMAINS=YES (the inner call to
+     * {@code transferContact(TransferContactCommand)} is still a
+     * self-invocation and is NOT re-intercepted by the Spring proxy).
+     * SELF_INVOCATION_UNSAFE=NO (because the externally-callable
+     * delegating entrypoint — this default overload — is itself
+     * transactional, the inner self-call executes inside the
+     * already-active outer transaction).</p>
      */
+    @Transactional
     public ContactRecord transferContact(UUID tenantId,
                                          UUID contactId,
                                          UUID newOwnerUserId,

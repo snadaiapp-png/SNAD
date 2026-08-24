@@ -19,7 +19,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionAttribute;
 
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -555,5 +558,83 @@ class ContactTransferUseCasesTest {
                 TENANT_ID, CONTACT_ID, USER_B, -1L, USER_A, OCCURRED_AT, true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("expectedVersion");
+    }
+
+    // ── C5-R1: default overload @Transactional metadata contract ──
+    //
+    // Production contract: the default public overload
+    //   transferContact(UUID, UUID, UUID, long, UUID, Instant)
+    // is the externally-callable delegating entrypoint. Without
+    // @Transactional, Spring's proxy does not intercept it, so no
+    // transaction is started — meaning TenantRlsConnectionHandler does
+    // not apply SET LOCAL app.tenant_id, FOR UPDATE lifetime is not
+    // transaction-scoped, and the inner command overload's
+    // @Transactional annotation is NOT re-intercepted (Spring proxy
+    // self-invocation). This breaks CONTACT_ROW_FIRST lock semantics,
+    // RLS fail-closed, participant normalization atomicity, owner
+    // UPDATE rollback, and previous-owner WATCHER rollback.
+    //
+    // The fix is to annotate the default overload with @Transactional
+    // so the external entry begins a transaction before delegating to
+    // the command overload (which joins the SAME transaction via
+    // PROPAGATION_REQUIRED default semantics).
+
+    private TransactionAttribute transactionAttributeFor(String methodName,
+                                                          Class<?>... paramTypes) throws Exception {
+        AnnotationTransactionAttributeSource source = new AnnotationTransactionAttributeSource();
+        Method method = ContactTransferUseCases.class.getMethod(methodName, paramTypes);
+        return source.getTransactionAttribute(method, ContactTransferUseCases.class);
+    }
+
+    @Test
+    @DisplayName("C5-R1. Command overload transferContact(TransferContactCommand) has @Transactional metadata")
+    void commandOverloadHasTransactionalAttribute() throws Exception {
+        TransactionAttribute attr = transactionAttributeFor(
+                "transferContact", ContactTransferUseCases.TransferContactCommand.class);
+        assertThat(attr)
+                .as("transferContact(TransferContactCommand) must carry @Transactional metadata so the "
+                        + "Spring proxy begins a transaction on external invocation")
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("C5-R1. Default overload transferContact(UUID, UUID, UUID, long, UUID, Instant) has @Transactional metadata")
+    void defaultOverloadHasTransactionalAttribute() throws Exception {
+        TransactionAttribute attr = transactionAttributeFor(
+                "transferContact",
+                UUID.class, UUID.class, UUID.class, long.class, UUID.class, Instant.class);
+        // RED before fix: attr will be null because no @Transactional is on
+        // the default overload, so the default public entrypoint is not
+        // transaction-safe (self-invocation does not cross Spring proxy).
+        assertThat(attr)
+                .as("default transferContact(UUID, UUID, UUID, long, UUID, Instant) must carry "
+                        + "@Transactional metadata so an external caller enters a Spring transaction")
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("C5-R1. Default overload transaction semantics: PROPAGATION_REQUIRED, readOnly=false")
+    void defaultOverloadTransactionSemantics() throws Exception {
+        TransactionAttribute attr = transactionAttributeFor(
+                "transferContact",
+                UUID.class, UUID.class, UUID.class, long.class, UUID.class, Instant.class);
+        // RED before fix: attr is null, so we cannot inspect propagation /
+        // readOnly. Use softNull check first so the assertion message is
+        // readable rather than NPE.
+        assertThat(attr)
+                .as("default overload must carry @Transactional metadata before we can inspect semantics")
+                .isNotNull();
+        assertThat(attr.isReadOnly())
+                .as("default overload must NOT be readOnly (it issues Contact UPDATE + participant mutations)")
+                .isFalse();
+        // Default Spring @Transactional is PROPAGATION_REQUIRED, which is what
+        // we need: external call starts a new transaction, internal self-call
+        // joins the existing transaction.
+        // TransactionAttribute.getPropagationBehavior() returns the int constant
+        // from org.springframework.transaction.TransactionDefinition.
+        // PROPAGATION_REQUIRED == 0.
+        assertThat(attr.getPropagationBehavior())
+                .as("default overload must use PROPAGATION_REQUIRED (default Spring semantics)")
+                .isEqualTo(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRED);
     }
 }
