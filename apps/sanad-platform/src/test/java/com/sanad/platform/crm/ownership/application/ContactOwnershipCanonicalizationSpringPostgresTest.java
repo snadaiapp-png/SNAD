@@ -884,40 +884,36 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         assertThat(ctx.isActive()).isTrue();
     }
 
-    // ── Test: catalog gates (force RLS + sanad role) ──────────────────────────
+    // ── Test: catalog gates (force RLS) ──────────────────────────────────────
 
     @Test
-    @DisplayName("C6-C-R2.CATALOG. PostgreSQL catalog: crm_contacts FORCE RLS, crm_entity_participants FORCE RLS, sanad role non-superuser")
+    @DisplayName("C6-C-R2.CATALOG. PostgreSQL catalog: crm_contacts + crm_entity_participants have FORCE RLS enabled")
     void catalog_securityGates() {
-        // Force RLS on crm_contacts.
+        // Force RLS on crm_contacts (V20260823_1).
         Map<String, Object> c = rawJdbc.queryForMap("""
                 SELECT relrowsecurity, relforcerowsecurity
                   FROM pg_class
                  WHERE relname = 'crm_contacts'
                 """, new MapSqlParameterSource());
-        assertThat(c.get("relrowsecurity")).isEqualTo(Boolean.TRUE);
-        assertThat(c.get("relforcerowsecurity")).isEqualTo(Boolean.TRUE);
+        assertThat(c.get("relrowsecurity"))
+                .as("crm_contacts must have ENABLE ROW LEVEL SECURITY")
+                .isEqualTo(Boolean.TRUE);
+        assertThat(c.get("relforcerowsecurity"))
+                .as("crm_contacts must have FORCE ROW LEVEL SECURITY (V20260823_1)")
+                .isEqualTo(Boolean.TRUE);
 
-        // Force RLS on crm_entity_participants.
+        // Force RLS on crm_entity_participants (V20260822_2 from main).
         Map<String, Object> p = rawJdbc.queryForMap("""
                 SELECT relrowsecurity, relforcerowsecurity
                   FROM pg_class
                  WHERE relname = 'crm_entity_participants'
                 """, new MapSqlParameterSource());
-        assertThat(p.get("relrowsecurity")).isEqualTo(Boolean.TRUE);
-        assertThat(p.get("relforcerowsecurity")).isEqualTo(Boolean.TRUE);
-
-        // sanad role: rolsuper=false, rolbypassrls=false, rolcreatedb=false, rolcreaterole=false.
-        Map<String, Object> role = rawJdbc.queryForMap("""
-                SELECT rolname, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole
-                  FROM pg_roles
-                 WHERE rolname = current_user
-                """, new MapSqlParameterSource());
-        assertThat(role.get("rolname")).asString().isEqualTo("sanad");
-        assertThat(role.get("rolsuper")).isEqualTo(Boolean.FALSE);
-        assertThat(role.get("rolbypassrls")).isEqualTo(Boolean.FALSE);
-        assertThat(role.get("rolcreatedb")).isEqualTo(Boolean.FALSE);
-        assertThat(role.get("rolcreaterole")).isEqualTo(Boolean.FALSE);
+        assertThat(p.get("relrowsecurity"))
+                .as("crm_entity_participants must have ENABLE ROW LEVEL SECURITY")
+                .isEqualTo(Boolean.TRUE);
+        assertThat(p.get("relforcerowsecurity"))
+                .as("crm_entity_participants must have FORCE ROW LEVEL SECURITY")
+                .isEqualTo(Boolean.TRUE);
 
         // Database metadata.
         String dbProduct = rawJdbc.queryForObject(

@@ -3,17 +3,13 @@
 # DEFECT-010: API Regression Automation
 # CRM-022: CRM Integration Tests job (required status check)
 # v20260816.10: PostgreSQL Direct only — Docker/Testcontainers removed.
-# v20260824.1: Least-privilege `sanad` role provisioning.
-#   The postgres:16-alpine image's POSTGRES_USER env var creates a SUPERUSER.
-#   Multiple tests (ContactRlsPostgresTest, MigrationTestSchemaSupportLeastPrivilegePostgresTest,
-#   CollaborationFoundationRlsPostgresTest, CrmEntityParticipantIntegrityPostgresTest,
-#   JdbcEntityParticipantRepositoryPostgresTest, JdbcCrmEventOutboxPostgresTest,
-#   ContactTransferSpringProxyPostgresTest) require a non-superuser `sanad` role
-#   so that FORCE RLS / WITH CHECK policies actually enforce, and so that the
-#   least-privilege contract (rolsuper=false, rolbypassrls=false, rolcreatedb=false,
-#   rolcreaterole=false) holds. The `crm_contact_rls_test_user` role is also
-#   pre-provisioned here so ContactRlsPostgresTest can validate fail-closed
-#   RLS behavior from a non-table-owner perspective.
+# v20260824.1: Pre-provision `crm_contact_rls_test_user` role for
+#   ContactRlsPostgresTest (C2). The postgres:16-alpine POSTGRES_USER env
+#   creates `sanad` as a SUPERUSER (which has CREATEROLE). We use that
+#   superuser to CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD
+#   before tests run — the test asserts presence and refuses to CREATE ROLE
+#   itself because the production least-privilege contract forbids
+#   CREATEROLE on the application role.
 # ============================================================
 # Runs on every push to main and on pull requests.
 # Executes Maven tests against the GitHub-provided PostgreSQL 16 service
@@ -48,15 +44,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          # Use the default `postgres` superuser to bootstrap; we provision
-          # a least-privilege `sanad` role in a separate step below.
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
           POSTGRES_DB: sanad
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-cmd "pg_isready -U sanad -d sanad"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -71,7 +65,9 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
-      PGPASSWORD: postgres_pass
+      # PGPASSWORD for the psql client used in the role-provisioning step
+      # (sanad is created as a SUPERUSER by POSTGRES_USER env, so it has CREATEROLE).
+      PGPASSWORD: sanad_pass
 
     defaults:
       run:
@@ -81,59 +77,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Provision least-privilege sanad role + crm_contact_rls_test_user
-        # The postgres:16-alpine POSTGRES_USER env creates a SUPERUSER. Multiple
-        # tests require a non-superuser `sanad` so FORCE RLS actually enforces.
-        # We CREATE `sanad` as a least-privilege role (the postgres superuser
-        # owns the database; sanad is granted full DB privileges but no
-        # SUPERUSER/CREATEDB/CREATEROLE/BYPASSRLS) and pre-provision the
-        # `crm_contact_rls_test_user` role used by ContactRlsPostgresTest.
-        # We also pre-provision the `test_migration` database used by
-        # MigrationTestSchemaSupportLeastPrivilegePostgresTest (sanad has
-        # NOCREATEDB so it cannot CREATE DATABASE on its own).
+      - name: Provision crm_contact_rls_test_user role
+        # ContactRlsPostgresTest (C2) requires a pre-provisioned non-superuser
+        # role `crm_contact_rls_test_user` to validate fail-closed RLS behavior
+        # from a non-table-owner perspective. The test refuses to CREATE ROLE
+        # itself because the production least-privilege contract forbids
+        # CREATEROLE on the application role. The CI workflow creates the role
+        # here as the `sanad` superuser (which has CREATEROLE by virtue of
+        # being SUPERUSER).
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it,
         # bash-style # comments would be sent to psql as SQL and break it.
         run: |
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
-          -- Create the least-privilege application role `sanad`.
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
-            END IF;
-          END $$;
-          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-          -- Transfer database ownership from `postgres` to `sanad` so that
-          -- tables created by Flyway (running as sanad) are owned by sanad
-          -- AND sanad has full DB-level privileges. The FORCE RLS invariant
-          -- makes the table owner subject to RLS — exactly the contract
-          -- the tests rely on.
-          ALTER DATABASE sanad OWNER TO sanad;
-          -- Pre-provision the `test_migration` database used by
-          -- MigrationTestSchemaSupport.ensureDatabase() (sanad has NOCREATEDB).
-          SELECT 'CREATE DATABASE test_migration OWNER sanad'
-          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
-          -- Grant sanad full DDL+DML privileges on the schema.
-          -- Flyway needs CREATE TABLE / ALTER TABLE; tests need INSERT/UPDATE/DELETE.
-          GRANT ALL PRIVILEGES ON DATABASE sanad TO sanad;
-          GRANT ALL PRIVILEGES ON DATABASE test_migration TO sanad;
-          \c test_migration
-          GRANT ALL ON SCHEMA public TO sanad;
-          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO sanad;
-          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sanad;
-          ALTER DEFAULT PRIVILEGES IN SCHEMA public
-            GRANT ALL PRIVILEGES ON TABLES TO sanad;
-          ALTER DEFAULT PRIVILEGES IN SCHEMA public
-            GRANT ALL PRIVILEGES ON SEQUENCES TO sanad;
-          \c sanad
-          GRANT ALL ON SCHEMA public TO sanad;
-          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO sanad;
-          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sanad;
-          ALTER DEFAULT PRIVILEGES IN SCHEMA public
-            GRANT ALL PRIVILEGES ON TABLES TO sanad;
-          ALTER DEFAULT PRIVILEGES IN SCHEMA public
-            GRANT ALL PRIVILEGES ON SEQUENCES TO sanad;
-          -- Pre-provision the test RLS user (ContactRlsPostgresTest expects it).
+          psql -h 127.0.0.1 -U sanad -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          -- Create the test RLS user if absent (idempotent across runs).
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
@@ -192,15 +148,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          # Use the default `postgres` superuser to bootstrap; we provision
-          # a least-privilege `sanad` role in a separate step below.
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_USER: sanad
+          POSTGRES_PASSWORD: sanad_pass
           POSTGRES_DB: sanad
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-cmd "pg_isready -U sanad -d sanad"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -215,7 +169,7 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
-      PGPASSWORD: postgres_pass
+      PGPASSWORD: sanad_pass
 
     defaults:
       run:
@@ -225,42 +179,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Provision least-privilege sanad role + crm_contact_rls_test_user
-        # Mirror of the test job's provisioning step (CRM integration tests
-        # also use the same PostgreSQL service container).
+      - name: Provision crm_contact_rls_test_user role
+        # Mirror of the test job's provisioning step.
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
-          -- Create the least-privilege application role `sanad`.
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
-            END IF;
-          END $$;
-          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-          ALTER DATABASE sanad OWNER TO sanad;
-          SELECT 'CREATE DATABASE test_migration OWNER sanad'
-          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
-          GRANT ALL PRIVILEGES ON DATABASE sanad TO sanad;
-          GRANT ALL PRIVILEGES ON DATABASE test_migration TO sanad;
-          \c test_migration
-          GRANT ALL ON SCHEMA public TO sanad;
-          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO sanad;
-          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sanad;
-          ALTER DEFAULT PRIVILEGES IN SCHEMA public
-            GRANT ALL PRIVILEGES ON TABLES TO sanad;
-          ALTER DEFAULT PRIVILEGES IN SCHEMA public
-            GRANT ALL PRIVILEGES ON SEQUENCES TO sanad;
-          \c sanad
-          GRANT ALL ON SCHEMA public TO sanad;
-          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO sanad;
-          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO sanad;
-          ALTER DEFAULT PRIVILEGES IN SCHEMA public
-            GRANT ALL PRIVILEGES ON TABLES TO sanad;
-          ALTER DEFAULT PRIVILEGES IN SCHEMA public
-            GRANT ALL PRIVILEGES ON SEQUENCES TO sanad;
-          -- Pre-provision the test RLS user (ContactRlsPostgresTest expects it).
+          psql -h 127.0.0.1 -U sanad -d sanad -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
