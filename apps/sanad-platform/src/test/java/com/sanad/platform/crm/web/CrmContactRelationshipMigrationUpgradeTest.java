@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.time.OffsetDateTime;
@@ -48,7 +50,9 @@ class CrmContactRelationshipMigrationUpgradeTest {
         Flyway previous = flyway(MigrationVersion.fromVersion(PREVIOUS_VERSION));
         previous.clean();
         previous.migrate();
-        JdbcTemplate jdbc = jdbc();
+        DriverManagerDataSource dataSource = dataSource();
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        TransactionTemplate transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
 
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -69,60 +73,103 @@ class CrmContactRelationshipMigrationUpgradeTest {
                 """,
                 userId, tenantId, "migration@example.test", "Migration User",
                 "ACTIVE", "dummy", now, now);
-        // Set tenant GUC for FORCE RLS on crm_contacts (V20260823_1)
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-        jdbc.update(
-                """
-                INSERT INTO crm_accounts
-                    (id,tenant_id,version,display_name,normalized_name,account_type,lifecycle_status,
-                     primary_currency_code,preferred_locale,time_zone,owner_user_id,
-                     created_by,updated_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh',?,?,?,?,?)
-                """,
-                accountId, tenantId, 0L, "Legacy Account", "legacy account",
-                userId, userId, userId, now, now);
-        insertLegacyContact(jdbc, linkedContactId, tenantId, accountId, userId,
-                "Linked", "Person", "linked@example.test", now);
-        insertLegacyContact(jdbc, standaloneContactId, tenantId, null, userId,
-                "Standalone", "Person", "standalone@example.test", now);
+        // Set tenant GUC + INSERT crm_accounts + crm_contacts inside a single
+        // tenant-scoped transaction so set_config('app.tenant_id', tenantId, true)
+        // (transaction-local) actually persists on the same Connection used by
+        // the INSERTs. Outside an explicit transaction, set_config(...,true) is
+        // a no-op on autoCommit, leaving the GUC unset and triggering FORCE RLS
+        // rejection on crm_contacts (V20260823_1).
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            jdbc.update(
+                    """
+                    INSERT INTO crm_accounts
+                        (id,tenant_id,version,display_name,normalized_name,account_type,lifecycle_status,
+                         primary_currency_code,preferred_locale,time_zone,owner_user_id,
+                         created_by,updated_by,created_at,updated_at)
+                    VALUES (?,?,?,?,?,'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh',?,?,?,?,?)
+                    """,
+                    accountId, tenantId, 0L, "Legacy Account", "legacy account",
+                    userId, userId, userId, now, now);
+            insertLegacyContact(jdbc, linkedContactId, tenantId, accountId, userId,
+                    "Linked", "Person", "linked@example.test", now);
+            insertLegacyContact(jdbc, standaloneContactId, tenantId, null, userId,
+                    "Standalone", "Person", "standalone@example.test", now);
+        });
 
         Flyway upgrade = flyway(null);
         upgrade.migrate();
         upgrade.validate();
 
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_contacts WHERE tenant_id=?",
-                Long.class, tenantId)).isEqualTo(2L);
-        assertThat(jdbc.queryForObject(
-                "SELECT account_id FROM crm_contacts WHERE tenant_id=? AND id=?",
-                UUID.class, tenantId, linkedContactId)).isEqualTo(accountId);
-        assertThat(jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM crm_contact_account_relationships
-                WHERE tenant_id=? AND contact_id=? AND account_id=?
-                  AND role_key='LEGACY_ACCOUNT' AND primary_relationship=TRUE
-                """,
-                Long.class, tenantId, linkedContactId, accountId)).isOne();
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_contact_account_relationships WHERE tenant_id=? AND contact_id=?",
-                Long.class, tenantId, standaloneContactId)).isZero();
-        assertThat(jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM crm_contact_relationship_history
-                WHERE tenant_id=? AND relationship_id=? AND event_type='MIGRATED'
-                """,
-                Long.class, tenantId, linkedContactId)).isOne();
-        assertThat(jdbc.queryForObject(
-                "SELECT legal_name FROM crm_contacts WHERE tenant_id=? AND id=?",
-                String.class, tenantId, linkedContactId)).isEqualTo("Linked Person");
+        // Verification SELECTs query crm_contacts (FORCE RLS under V20260823_1).
+        // Wrap each in its own tenant-scoped transaction so the GUC is set on
+        // the same Connection used by the SELECT — otherwise RLS hides every
+        // row and the count returns 0.
+        Long contactCount = transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_contacts WHERE tenant_id=?",
+                    Long.class, tenantId);
+        });
+        assertThat(contactCount).isEqualTo(2L);
+        UUID linkedAccountId = transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return jdbc.queryForObject(
+                    "SELECT account_id FROM crm_contacts WHERE tenant_id=? AND id=?",
+                    UUID.class, tenantId, linkedContactId);
+        });
+        assertThat(linkedAccountId).isEqualTo(accountId);
+        Long legacyRelCount = transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM crm_contact_account_relationships
+                    WHERE tenant_id=? AND contact_id=? AND account_id=?
+                      AND role_key='LEGACY_ACCOUNT' AND primary_relationship=TRUE
+                    """,
+                    Long.class, tenantId, linkedContactId, accountId);
+        });
+        assertThat(legacyRelCount).isOne();
+        Long standaloneRelCount = transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_contact_account_relationships WHERE tenant_id=? AND contact_id=?",
+                    Long.class, tenantId, standaloneContactId);
+        });
+        assertThat(standaloneRelCount).isZero();
+        Long migratedHistoryCount = transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM crm_contact_relationship_history
+                    WHERE tenant_id=? AND relationship_id=? AND event_type='MIGRATED'
+                    """,
+                    Long.class, tenantId, linkedContactId);
+        });
+        assertThat(migratedHistoryCount).isOne();
+        String legalName = transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return jdbc.queryForObject(
+                    "SELECT legal_name FROM crm_contacts WHERE tenant_id=? AND id=?",
+                    String.class, tenantId, linkedContactId);
+        });
+        assertThat(legalName).isEqualTo("Linked Person");
 
         upgrade.migrate();
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_contact_account_relationships WHERE tenant_id=? AND contact_id=?",
-                Long.class, tenantId, linkedContactId)).isOne();
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crm_contact_relationship_history WHERE tenant_id=? AND relationship_id=?",
-                Long.class, tenantId, linkedContactId)).isOne();
+        Long linkedRelCountAfterRerun = transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_contact_account_relationships WHERE tenant_id=? AND contact_id=?",
+                    Long.class, tenantId, linkedContactId);
+        });
+        assertThat(linkedRelCountAfterRerun).isOne();
+        Long linkedHistoryCountAfterRerun = transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_contact_relationship_history WHERE tenant_id=? AND relationship_id=?",
+                    Long.class, tenantId, linkedContactId);
+        });
+        assertThat(linkedHistoryCountAfterRerun).isOne();
     }
 
     @Test
@@ -130,7 +177,9 @@ class CrmContactRelationshipMigrationUpgradeTest {
         Flyway flyway = flyway(null);
         flyway.clean();
         flyway.migrate();
-        JdbcTemplate jdbc = jdbc();
+        DriverManagerDataSource dataSource = dataSource();
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        TransactionTemplate transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
 
         UUID tenantA = UUID.randomUUID();
         UUID tenantB = UUID.randomUUID();
@@ -142,30 +191,47 @@ class CrmContactRelationshipMigrationUpgradeTest {
 
         insertTenantAndUser(jdbc, tenantA, userA, "a", now);
         insertTenantAndUser(jdbc, tenantB, userB, "b", now);
-        // Set tenant GUC for tenant B's crm_accounts INSERT
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantB.toString());
-        jdbc.update(
-                """
-                INSERT INTO crm_accounts
-                    (id,tenant_id,version,display_name,normalized_name,account_type,lifecycle_status,
-                     primary_currency_code,preferred_locale,time_zone,owner_user_id,
-                     created_by,updated_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh',?,?,?,?,?)
-                """,
-                accountB, tenantB, 0L, "Tenant B", "tenant b",
-                userB, userB, userB, now, now);
-        insertLegacyContact(jdbc, contactA, tenantA, null, userA,
-                "Tenant", "A", "tenant-a@example.test", now);
+        // Set tenant GUC + INSERT crm_accounts + crm_contacts inside a single
+        // tenant-scoped transaction (per tenant) so set_config(...,true)
+        // (transaction-local) persists on the same Connection used by the
+        // INSERTs. Outside an explicit transaction, set_config has no effect,
+        // leaving the GUC unset and triggering FORCE RLS rejection on
+        // crm_contacts (V20260823_1).
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantB.toString());
+            jdbc.update(
+                    """
+                    INSERT INTO crm_accounts
+                        (id,tenant_id,version,display_name,normalized_name,account_type,lifecycle_status,
+                         primary_currency_code,preferred_locale,time_zone,owner_user_id,
+                         created_by,updated_by,created_at,updated_at)
+                    VALUES (?,?,?,?,?,'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh',?,?,?,?,?)
+                    """,
+                    accountB, tenantB, 0L, "Tenant B", "tenant b",
+                    userB, userB, userB, now, now);
+        });
+        transactions.executeWithoutResult(s -> {
+            insertLegacyContact(jdbc, contactA, tenantA, null, userA,
+                    "Tenant", "A", "tenant-a@example.test", now);
+        });
 
-        assertThatThrownBy(() -> jdbc.update(
-                """
-                INSERT INTO crm_contact_account_relationships
-                    (id,tenant_id,contact_id,account_id,version,role_code,role_key,status,
-                     primary_relationship,decision_authority,created_by,updated_by,created_at,updated_at)
-                VALUES (?,?,?,?,0,'EMPLOYEE','EMPLOYEE','ACTIVE',FALSE,'NONE',?,?,?,?)
-                """,
-                UUID.randomUUID(), tenantA, contactA, accountB,
-                userA, userA, now, now))
+        // Cross-tenant INSERT attempt: tenantA lookup pointing at tenantB's
+        // account — must be rejected by the composite-key FK constraint.
+        // Wrap in tenant-scoped transaction so the GUC is set on the same
+        // Connection used by the INSERT.
+        assertThatThrownBy(() -> transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
+            jdbc.update(
+                    """
+                    INSERT INTO crm_contact_account_relationships
+                        (id,tenant_id,contact_id,account_id,version,role_code,role_key,status,
+                         primary_relationship,decision_authority,created_by,updated_by,created_at,updated_at)
+                    VALUES (?,?,?,?,0,'EMPLOYEE','EMPLOYEE','ACTIVE',FALSE,'NONE',?,?,?,?)
+                    """,
+                    UUID.randomUUID(), tenantA, contactA, accountB,
+                    userA, userA, now, now);
+        }))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_crm_contact_relationship_account_same_tenant");
     }
 
@@ -179,9 +245,9 @@ class CrmContactRelationshipMigrationUpgradeTest {
             String familyName,
             String email,
             OffsetDateTime now) {
+        // Caller MUST have set the tenant GUC on the same Connection (i.e. inside
+        // a tenant-scoped transaction) before calling this helper.
         String displayName = givenName + " " + familyName;
-        // Set tenant GUC for FORCE RLS on crm_contacts (V20260823_1)
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
         jdbc.update(
                 """
                 INSERT INTO crm_contacts
@@ -227,10 +293,10 @@ class CrmContactRelationshipMigrationUpgradeTest {
         return configuration.load();
     }
 
-    private JdbcTemplate jdbc() {
+    private DriverManagerDataSource dataSource() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         dataSource.setDriverClassName("org.postgresql.Driver");
-        return new JdbcTemplate(dataSource);
+        return dataSource;
     }
 }

@@ -22,6 +22,7 @@ import java.util.Base64;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -37,6 +38,7 @@ class CallerDatasetPostgresTest {
     private JdbcTemplate jdbc;
     private TransactionTemplate transactions;
     private CallerDatasetService service;
+    private DriverManagerDataSource ds;
 
     @BeforeAll
     static void requirePostgreSql() {
@@ -72,7 +74,7 @@ class CallerDatasetPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(
+        ds = new DriverManagerDataSource(
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
@@ -92,7 +94,8 @@ class CallerDatasetPostgresTest {
         UUID restrictedContact = contact(tenant, "مقيد جدا");
         method(tenant, restrictedContact, "+966599999999", "ACTIVE", "RESTRICTED");
 
-        CallerDatasetService.CallerDatasetDelta delta = service.delta(tenant, 0, null, 500, false);
+        CallerDatasetService.CallerDatasetDelta delta = inTenantTransaction(tenant,
+                () -> service.delta(tenant, 0, null, 500, false));
 
         assertThat(delta.entries()).hasSize(2);
         CallerDatasetService.CallerDatasetRecord mohammed = delta.entries().stream()
@@ -117,21 +120,31 @@ class CallerDatasetPostgresTest {
         UUID contactId = contact(tenant, "عميل مؤرشف");
         UUID methodId = method(tenant, contactId, "+966555555555", "ACTIVE", "INTERNAL");
 
-        CallerDatasetService.CallerDatasetDelta first = service.delta(tenant, 0, null, 500, false);
+        CallerDatasetService.CallerDatasetDelta first = inTenantTransaction(tenant,
+                () -> service.delta(tenant, 0, null, 500, false));
         assertThat(first.entries()).hasSize(1);
         assertThat(first.entries().get(0).deleted()).isFalse();
         // A resume cursor is always provided while entries exist.
         assertThat(first.nextCursor()).isNotNull();
 
         // Archive the method (updated_at moves forward).
-        jdbc.update("UPDATE crm_communication_methods SET status='ARCHIVED', updated_at=? " +
-                        "WHERE id=? AND tenant_id=?", java.sql.Timestamp.from(Instant.now().plusSeconds(5)),
-                methodId, tenant);
+        // The UPDATE touches crm_communication_methods (no FORCE RLS) but does
+        // join with the tenant for the WHERE clause — wrap in tenant transaction
+        // for safety so the GUC matches the row's tenant_id.
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
+            jdbc.update("UPDATE crm_communication_methods SET status='ARCHIVED', updated_at=? " +
+                            "WHERE id=? AND tenant_id=?", java.sql.Timestamp.from(Instant.now().plusSeconds(5)),
+                    methodId, tenant);
+        });
 
         String[] parts = new String(Base64.getUrlDecoder().decode(first.nextCursor())).split(":", 2);
         long cursorMs = Long.parseLong(parts[0]);
         UUID cursorId = UUID.fromString(parts[1]);
-        CallerDatasetService.CallerDatasetDelta second = service.delta(tenant, cursorMs, cursorId, 500, false);
+        final long fcursorMs = cursorMs;
+        final UUID fcursorId = cursorId;
+        CallerDatasetService.CallerDatasetDelta second = inTenantTransaction(tenant,
+                () -> service.delta(tenant, fcursorMs, fcursorId, 500, false));
 
         assertThat(second.entries()).hasSize(1);
         assertThat(second.entries().get(0).deleted()).isTrue();
@@ -151,7 +164,10 @@ class CallerDatasetPostgresTest {
         UUID cursorId = null;
         int pages = 0;
         do {
-            CallerDatasetService.CallerDatasetDelta page = service.delta(tenant, cursorMs, cursorId, 3, false);
+            final long fcursorMs = cursorMs;
+            final UUID fcursorId = cursorId;
+            CallerDatasetService.CallerDatasetDelta page = inTenantTransaction(tenant,
+                    () -> service.delta(tenant, fcursorMs, fcursorId, 3, false));
             for (CallerDatasetService.CallerDatasetRecord record : page.entries()) {
                 assertThat(tokens.add(record.lookupToken())).as("duplicate across pages").isTrue();
             }
@@ -173,8 +189,10 @@ class CallerDatasetPostgresTest {
         UUID contactB = contact(tenantB, "عميل ب");
         method(tenantB, contactB, "+966541234567", "ACTIVE", "INTERNAL");
 
-        CallerDatasetService.CallerDatasetDelta onlyA = service.delta(tenantA, 0, null, 500, false);
-        CallerDatasetService.CallerDatasetDelta onlyB = service.delta(tenantB, 0, null, 500, false);
+        CallerDatasetService.CallerDatasetDelta onlyA = inTenantTransaction(tenantA,
+                () -> service.delta(tenantA, 0, null, 500, false));
+        CallerDatasetService.CallerDatasetDelta onlyB = inTenantTransaction(tenantB,
+                () -> service.delta(tenantB, 0, null, 500, false));
 
         assertThat(onlyA.entries()).hasSize(1);
         assertThat(onlyA.entries().get(0).entityId()).isEqualTo(contactA);
@@ -190,31 +208,47 @@ class CallerDatasetPostgresTest {
         UUID contactId = contact(tenant, "عميل المفتاح");
         method(tenant, contactId, "+966577777777", "ACTIVE", "INTERNAL");
 
-        CallerDatasetService.CallerDatasetDelta first = service.delta(tenant, 0, null, 500, true);
+        CallerDatasetService.CallerDatasetDelta first = inTenantTransaction(tenant,
+                () -> service.delta(tenant, 0, null, 500, true));
         assertThat(first.datasetKey()).isEqualTo(
                 CallerPhoneVectorsParityTest.hmacSha256Hex(MASTER_KEY, tenant.toString()));
 
-        CallerDatasetService.CallerDatasetDelta second = service.delta(tenant, 0, null, 500, false);
+        CallerDatasetService.CallerDatasetDelta second = inTenantTransaction(tenant,
+                () -> service.delta(tenant, 0, null, 500, false));
         assertThat(second.datasetKey()).isNull();
 
         // Fail closed when no master key is configured.
+        // The unconfigured service shares the same `ds` instance so its query
+        // joins the same tenant-scoped transaction (and therefore the same GUC)
+        // as the surrounding inTenantTransaction wrapper. Without this shared
+        // DataSource, the unconfigured service would open its own Connection
+        // (no GUC) and FORCE RLS would hide every row — the RowMapper would
+        // never be called and the master-key IllegalStateException would never
+        // surface.
         CallerDatasetService unconfigured = new CallerDatasetService(
-                new NamedParameterJdbcTemplate(ds()),
+                new NamedParameterJdbcTemplate(ds),
                 new CallerDatasetTokenProvider(null),
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                unconfigured.delta(tenant, 0, null, 500, true))
+                inTenantTransaction(tenant,
+                        () -> unconfigured.delta(tenant, 0, null, 500, true)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("master key");
     }
 
-    private DriverManagerDataSource ds() {
-        DriverManagerDataSource ds = new DriverManagerDataSource(
-                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
-                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
-                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        ds.setDriverClassName("org.postgresql.Driver");
-        return ds;
+    /**
+     * Test-only helper: run an action inside a tenant-scoped transaction so
+     * the {@code app.tenant_id} GUC is set on the same physical Connection
+     * used by the action's RLS-sensitive queries (e.g. JOIN against
+     * {@code crm_contacts}). Without this wrapper, manually-constructed
+     * services (no Spring proxy) skip {@link com.sanad.platform.security.rls.TenantRlsConnectionHandler}
+     * and RLS hides every tenant-scoped row.
+     */
+    private <T> T inTenantTransaction(UUID tenantId, Supplier<T> action) {
+        return transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return action.get();
+        });
     }
 
     private UUID tenant(String key) {

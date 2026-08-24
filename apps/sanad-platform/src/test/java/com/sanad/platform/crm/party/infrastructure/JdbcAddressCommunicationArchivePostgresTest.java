@@ -65,13 +65,18 @@ class JdbcAddressCommunicationArchivePostgresTest {
                 .load()
                 .migrate();
 
-        jdbc = new NamedParameterJdbcTemplate(new DriverManagerDataSource(
-                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
-        transactions = new TransactionTemplate(new DataSourceTransactionManager(
-                new DriverManagerDataSource(
-                        System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
-                        System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
-                        System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))));
+        // Use a SINGLE DriverManagerDataSource instance for both jdbc and transactions
+        // so that set_config('app.tenant_id', ..., true) executed inside the
+        // transaction applies to the same physical Connection used by subsequent
+        // INSERTs. Using two separate DataSource instances breaks this contract
+        // because DataSourceUtils binds Connections per-DataSource-instance.
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        dataSource.setDriverClassName("org.postgresql.Driver");
+        jdbc = new NamedParameterJdbcTemplate(dataSource);
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
 
         tenantId = UUID.randomUUID();
         accountId = UUID.randomUUID();

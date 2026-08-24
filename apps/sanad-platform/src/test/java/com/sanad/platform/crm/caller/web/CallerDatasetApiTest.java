@@ -93,11 +93,23 @@ class CallerDatasetApiTest {
         UUID contactA = contact(tenantA, "عميل أ", "+966541234567");
         UUID contactB = contact(tenantB, "عميل ب", "+966541234567");
 
+        // TenantRlsConnectionHandler caches `tenantApplied=true` on the
+        // transaction-bound Connection proxy after the first SET LOCAL. Once
+        // cached, subsequent SecurityContext changes mid-transaction do NOT
+        // re-issue SET LOCAL, so the GUC stays at whatever value was last
+        // applied. The fixture's contact() helper sets the GUC to tenantB
+        // (the last contact() call), which would leak into the first mockMvc
+        // call for tenantA. Explicitly re-assert the GUC before each mockMvc
+        // call so the correct tenant is in effect for the query.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantA.tenantId().toString()), String.class);
         MvcResult resultA = mockMvc.perform(get(DELTA).with(authentication(auth(tenantA))))
                 .andExpect(status().isOk()).andReturn();
         String jsonA = resultA.getResponse().getContentAsString();
         assertThat(jsonA).contains(contactA.toString()).doesNotContain(contactB.toString());
 
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", tenantB.tenantId().toString()), String.class);
         MvcResult resultB = mockMvc.perform(get(DELTA).with(authentication(auth(tenantB))))
                 .andExpect(status().isOk()).andReturn();
         String jsonB = resultB.getResponse().getContentAsString();

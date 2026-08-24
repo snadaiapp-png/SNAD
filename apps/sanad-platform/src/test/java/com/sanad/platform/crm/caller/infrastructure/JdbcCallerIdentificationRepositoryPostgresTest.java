@@ -88,7 +88,8 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         UUID contactId = contact(tenant, "محمد أحمد", UUID.randomUUID());
         UUID methodId = communicationMethod(tenant, contactId, PHONE, true, "VERIFIED", true, "INTERNAL");
 
-        List<CallerCandidate> candidates = repository.findActiveCallerCandidates(tenant, PHONE);
+        List<CallerCandidate> candidates = inTenantTransaction(tenant,
+                () -> repository.findActiveCallerCandidates(tenant, PHONE));
 
         assertThat(candidates).hasSize(1);
         CallerCandidate winner = candidates.get(0);
@@ -109,8 +110,10 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         communicationMethod(tenantA, contactA, PHONE, false, "UNVERIFIED", false, "INTERNAL");
         communicationMethod(tenantB, contactB, PHONE, false, "UNVERIFIED", false, "INTERNAL");
 
-        List<CallerCandidate> onlyA = repository.findActiveCallerCandidates(tenantA, PHONE);
-        List<CallerCandidate> onlyB = repository.findActiveCallerCandidates(tenantB, PHONE);
+        List<CallerCandidate> onlyA = inTenantTransaction(tenantA,
+                () -> repository.findActiveCallerCandidates(tenantA, PHONE));
+        List<CallerCandidate> onlyB = inTenantTransaction(tenantB,
+                () -> repository.findActiveCallerCandidates(tenantB, PHONE));
 
         assertThat(onlyA).hasSize(1);
         assertThat(onlyA.get(0).contactId()).isEqualTo(contactA);
@@ -127,7 +130,8 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         UUID fax = communicationMethodType(tenant, contactId, "FAX", PHONE);
         communicationMethodType(tenant, contactId, "SMS", PHONE);
 
-        List<CallerCandidate> candidates = repository.findActiveCallerCandidates(tenant, PHONE);
+        List<CallerCandidate> candidates = inTenantTransaction(tenant,
+                () -> repository.findActiveCallerCandidates(tenant, PHONE));
 
         assertThat(candidates).hasSize(1);
         assertThat(candidates.get(0).communicationMethodId()).isEqualTo(mobile);
@@ -141,17 +145,25 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         communicationMethodStatus(tenant, contactId, PHONE, "ARCHIVED");
         communicationMethodStatus(tenant, contactId, PHONE, "INACTIVE");
 
-        assertThat(repository.findActiveCallerCandidates(tenant, PHONE)).isEmpty();
+        List<CallerCandidate> candidates = inTenantTransaction(tenant,
+                () -> repository.findActiveCallerCandidates(tenant, PHONE));
+        assertThat(candidates).isEmpty();
     }
 
     @Test
     void inactiveOwnerIsIgnored() {
         UUID tenant = tenant("caller-owner");
         UUID inactiveContact = contact(tenant, "شخص شبيه محذوف", UUID.randomUUID());
-        jdbc.update("UPDATE crm_contacts SET lifecycle_status='INACTIVE' WHERE id=? AND tenant_id=?", inactiveContact, tenant);
+        // UPDATE crm_contacts requires tenant GUC under FORCE RLS (V20260823_1).
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
+            jdbc.update("UPDATE crm_contacts SET lifecycle_status='INACTIVE' WHERE id=? AND tenant_id=?", inactiveContact, tenant);
+        });
         communicationMethod(tenant, inactiveContact, PHONE, false, "UNVERIFIED", false, "INTERNAL");
 
-        assertThat(repository.findActiveCallerCandidates(tenant, PHONE)).isEmpty();
+        List<CallerCandidate> candidates = inTenantTransaction(tenant,
+                () -> repository.findActiveCallerCandidates(tenant, PHONE));
+        assertThat(candidates).isEmpty();
     }
 
     @Test
@@ -162,7 +174,8 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         communicationMethod(tenant, first, PHONE, true, "VERIFIED", false, "INTERNAL");
         communicationMethod(tenant, second, PHONE, true, "VERIFIED", false, "INTERNAL");
 
-        List<CallerCandidate> candidates = repository.findActiveCallerCandidates(tenant, PHONE);
+        List<CallerCandidate> candidates = inTenantTransaction(tenant,
+                () -> repository.findActiveCallerCandidates(tenant, PHONE));
 
         assertThat(candidates).hasSize(2);
         // Deterministic repository ordering: same rank → updated_at ASC, id ASC.
@@ -204,7 +217,8 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
         lead(tenant, "عميل محتمل", "شركة ناشئة", "0541234567", "NEW");
         lead(tenant, "مستبعد", "شركة مؤرشفة", PHONE, "ARCHIVED");
 
-        List<CallerCandidate> leads = repository.findActiveLeadCandidates(tenant, PHONE);
+        List<CallerCandidate> leads = inTenantTransaction(tenant,
+                () -> repository.findActiveLeadCandidates(tenant, PHONE));
 
         assertThat(leads).hasSize(1);
         assertThat(leads.get(0).displayName()).isEqualTo("عميل محتمل");
@@ -296,5 +310,20 @@ class JdbcCallerIdentificationRepositoryPostgresTest {
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
         return id;
+    }
+
+    /**
+     * Test-only helper: run an action inside a tenant-scoped transaction so the
+     * {@code app.tenant_id} GUC is set on the same physical Connection used by
+     * the action's RLS-sensitive queries (e.g. JOIN against {@code crm_contacts}).
+     * Without this wrapper, the manually-constructed repository (no Spring proxy)
+     * skips {@link com.sanad.platform.security.rls.TenantRlsConnectionHandler}
+     * and RLS hides every tenant-scoped row.
+     */
+    private <T> T inTenantTransaction(UUID tenantId, java.util.function.Supplier<T> action) {
+        return transactions.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            return action.get();
+        });
     }
 }

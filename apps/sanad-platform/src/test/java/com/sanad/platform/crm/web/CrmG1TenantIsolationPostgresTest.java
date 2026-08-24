@@ -8,7 +8,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.UUID;
@@ -54,7 +56,14 @@ class CrmG1TenantIsolationPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        JdbcTemplate jdbc = jdbc();
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        dataSource.setDriverClassName("org.postgresql.Driver");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        TransactionTemplate transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+
         UUID tenantA = UUID.randomUUID();
         UUID tenantB = UUID.randomUUID();
         UUID actor = UUID.randomUUID();
@@ -64,47 +73,66 @@ class CrmG1TenantIsolationPostgresTest {
         insertTenant(jdbc, tenantA, "Tenant A", "g1-a-" + tenantA);
         insertTenant(jdbc, tenantB, "Tenant B", "g1-b-" + tenantB);
 
-        // Set tenant GUC for FORCE RLS on crm_contacts (V20260823_1)
-        // and crm_accounts (ENABLE RLS — permissive policy still needs GUC under non-superuser)
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
-        jdbc.update("""
-                INSERT INTO crm_accounts (
-                    id, tenant_id, version, display_name, normalized_name, account_type,
-                    lifecycle_status, created_by, updated_by, created_at, updated_at
-                ) VALUES (?, ?, 0, ?, ?, 'BUSINESS', 'ACTIVE', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, accountA, tenantA, "Account A", "account a", actor, actor);
+        // Set tenant GUC + INSERT crm_accounts + crm_contacts inside a single
+        // tenant-scoped transaction so set_config('app.tenant_id', tenantA, true)
+        // (transaction-local) actually persists on the same Connection used by
+        // the INSERTs. Outside an explicit transaction, set_config(...,true) is
+        // a no-op on autoCommit, leaving the GUC unset and triggering FORCE RLS
+        // rejection on crm_contacts (V20260823_1).
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
+            jdbc.update("""
+                    INSERT INTO crm_accounts (
+                        id, tenant_id, version, display_name, normalized_name, account_type,
+                        lifecycle_status, created_by, updated_by, created_at, updated_at
+                    ) VALUES (?, ?, 0, ?, ?, 'BUSINESS', 'ACTIVE', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, accountA, tenantA, "Account A", "account a", actor, actor);
+            jdbc.update("""
+                    INSERT INTO crm_contacts (
+                        id, tenant_id, version, account_id, given_name, display_name,
+                        normalized_name, lifecycle_status, consent_summary,
+                        created_by, updated_by, created_at, updated_at
+                    ) VALUES (?, ?, 0, ?, 'Contact', 'Contact A', 'contact a',
+                              'ACTIVE', 'UNKNOWN', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, contactA, tenantA, accountA, actor, actor);
+        });
 
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
-        jdbc.update("""
-                INSERT INTO crm_contacts (
-                    id, tenant_id, version, account_id, given_name, display_name,
-                    normalized_name, lifecycle_status, consent_summary,
-                    created_by, updated_by, created_at, updated_at
-                ) VALUES (?, ?, 0, ?, 'Contact', 'Contact A', 'contact a',
-                          'ACTIVE', 'UNKNOWN', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, contactA, tenantA, accountA, actor, actor);
-
-        assertThatThrownBy(() -> jdbc.update("""
-                INSERT INTO crm_contact_lookup_index (
-                    id, tenant_id, contact_id, version, normalized_phone,
-                    normalized_email, normalized_name, searchable_text,
-                    source_updated_at, active, created_at, updated_at
-                ) VALUES (?, ?, ?, 0, '+966500000001', 'a@example.test',
-                          'contact a', 'contact a a@example.test +966500000001',
-                          CURRENT_TIMESTAMP, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, UUID.randomUUID(), tenantB, contactA))
+        assertThatThrownBy(() -> transactions.executeWithoutResult(s2 -> {
+            // Cross-tenant INSERT attempt: tenantB lookup pointing at tenantA's
+            // contact — must be rejected by the composite-key FK constraint.
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantB.toString());
+            jdbc.update("""
+                    INSERT INTO crm_contact_lookup_index (
+                        id, tenant_id, contact_id, version, normalized_phone,
+                        normalized_email, normalized_name, searchable_text,
+                        source_updated_at, active, created_at, updated_at
+                    ) VALUES (?, ?, ?, 0, '+966500000001', 'a@example.test',
+                              'contact a', 'contact a a@example.test +966500000001',
+                              CURRENT_TIMESTAMP, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, UUID.randomUUID(), tenantB, contactA);
+        }))
+                // TransactionTemplate.executeWithoutResult rethrows the original
+                // DataAccessException (RuntimeException subclass) after rolling back
+                // the transaction. The cross-tenant FK violation surfaces as a
+                // DataIntegrityViolationException.
                 .isInstanceOf(DataIntegrityViolationException.class);
 
+        // Same-tenant INSERT must succeed — wrap in its own tenant-scoped
+        // transaction so the GUC is set on the same Connection used by the INSERT
+        // and the subsequent verification SELECT.
         UUID sameTenantLookupId = UUID.randomUUID();
-        jdbc.update("""
-                INSERT INTO crm_contact_lookup_index (
-                    id, tenant_id, contact_id, version, normalized_phone,
-                    normalized_email, normalized_name, searchable_text,
-                    source_updated_at, active, created_at, updated_at
-                ) VALUES (?, ?, ?, 0, '+966500000001', 'a@example.test',
-                          'contact a', 'contact a a@example.test +966500000001',
-                          CURRENT_TIMESTAMP, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, sameTenantLookupId, tenantA, contactA);
+        transactions.executeWithoutResult(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
+            jdbc.update("""
+                    INSERT INTO crm_contact_lookup_index (
+                        id, tenant_id, contact_id, version, normalized_phone,
+                        normalized_email, normalized_name, searchable_text,
+                        source_updated_at, active, created_at, updated_at
+                    ) VALUES (?, ?, ?, 0, '+966500000001', 'a@example.test',
+                              'contact a', 'contact a a@example.test +966500000001',
+                              CURRENT_TIMESTAMP, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, sameTenantLookupId, tenantA, contactA);
+        });
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE id=? AND tenant_id=? AND contact_id=?",
@@ -112,13 +140,6 @@ class CrmG1TenantIsolationPostgresTest {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_contact_lookup_index WHERE tenant_id=? AND contact_id=?",
                 Long.class, tenantB, contactA)).isZero();
-    }
-
-    private JdbcTemplate jdbc() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
-        dataSource.setDriverClassName("org.postgresql.Driver");
-        return new JdbcTemplate(dataSource);
     }
 
     private void insertTenant(JdbcTemplate jdbc, UUID id, String name, String subdomain) {
