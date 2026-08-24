@@ -219,6 +219,10 @@ public class LegacyCrmInfrastructureService {
         // C6-B: delegate to canonical A1 adapter — no direct Contact business UPDATE SQL.
         // V1 has no If-Match header, so read current version first.
         var current = contactUseCases.getById(tenantId, contactId);
+        // C6-B-R1: restore account existence validation (compatibility regression fix).
+        if (request.accountId() != null) {
+            one("crm_accounts", tenantId, request.accountId(), "CRM account not found");
+        }
         var command = new com.sanad.platform.crm.party.domain.ContactRepository.UpdateContactCommand(
                 request.accountId(),
                 optional(request.givenName(), 120, "givenName"),

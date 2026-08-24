@@ -41,6 +41,10 @@ public class LegacyContactService {
         UUID actorId = support.userId(authentication);
         // C6-B: delegate to canonical A1 adapter — no direct Contact business UPDATE SQL.
         var current = contactUseCases.getById(tenantId, contactId);
+        // C6-B-R1: restore account existence validation (compatibility regression fix).
+        if (request.accountId() != null) {
+            support.one("crm_accounts", tenantId, request.accountId(), "CRM account not found");
+        }
         var command = new com.sanad.platform.crm.party.domain.ContactRepository.UpdateContactCommand(
                 request.accountId(),
                 optional(request.givenName(), 120, "givenName"),
