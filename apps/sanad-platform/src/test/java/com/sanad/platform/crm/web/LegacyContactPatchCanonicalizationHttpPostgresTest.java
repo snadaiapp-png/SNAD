@@ -472,10 +472,11 @@ class LegacyContactPatchCanonicalizationHttpPostgresTest {
     }
 
     @Test
-    @DisplayName("Canonical invalid-owner rejection via V2 HTTP")
+    @DisplayName("Canonical invalid-owner rejection via V2 HTTP → HTTP 400 + VALIDATION_ERROR")
     void canonicalInvalidOwnerRejection() throws Exception {
         UUID contactId = seedContact(USER_A, "Jane");
         long n = contactVersion(contactId);
+        long baselineTimeline = timelineCount(contactId, "crm.contact.updated");
         UUID invalidOwnerId = UUID.fromString("99999999-9999-9999-9999-999999999999");
         Map<String, Object> body = new HashMap<>();
         body.put("ownerUserId", invalidOwnerId.toString());
@@ -486,16 +487,23 @@ class LegacyContactPatchCanonicalizationHttpPostgresTest {
                 .content(objectMapper.writeValueAsString(body))
                 .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
                         .authentication(auth(TENANT_A, ACTOR_ID)));
-        // The canonical path evaluates recipient eligibility via RecipientEligibilityPort.
-        // An invalid (non-existent) user → ineligible → IllegalArgumentException → HTTP 500
-        // OR structured rejection. Accept any 4xx/5xx as long as no mutation occurs.
-        int status = mockMvc.perform(req).andReturn().getResponse().getStatus();
-        assertThat(status).as("Invalid owner must be rejected (got %d)", status).isGreaterThanOrEqualTo(400);
+        MockHttpServletResponse response = mockMvc.perform(req)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andReturn().getResponse();
+        // Explicit 500 guard
+        assertThat(response.getStatus())
+                .as("Invalid owner must be a structured client rejection, never HTTP 500")
+                .isNotEqualTo(500);
         // Verify no mutation
         assertThat(contactOwner(contactId)).as("Owner must be unchanged").isEqualTo(USER_A.toString());
         assertThat(contactVersion(contactId)).as("Version must be unchanged").isEqualTo(n);
-        assertThat(activeParticipantCount(contactId, USER_A)).as("USER_A participant count must be 0").isEqualTo(0);
+        assertThat(contactGivenName(contactId)).as("givenName must be unchanged").isEqualTo("Jane");
+        assertThat(activeParticipantCount(contactId, USER_A)).as("USER_A must have no new participant").isEqualTo(0);
         assertThat(activeParticipantCount(contactId, invalidOwnerId)).as("Invalid owner must have no participant").isEqualTo(0);
+        // No timeline side effect
+        assertThat(timelineCount(contactId, "crm.contact.updated") - baselineTimeline)
+                .as("No timeline event for rejected mutation").isZero();
     }
 
     @Test
