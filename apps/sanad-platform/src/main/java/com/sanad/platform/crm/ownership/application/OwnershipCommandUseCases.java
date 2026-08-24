@@ -7,11 +7,15 @@ import com.sanad.platform.crm.integration.domain.AuditPort;
 import com.sanad.platform.crm.integration.domain.AuditPort.AuditChange;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.ownership.domain.*;
+import com.sanad.platform.crm.party.application.ContactTransferUseCases;
+import com.sanad.platform.crm.party.domain.ContactRepository;
+import com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /** Atomic manual, bulk, rule-driven and transfer ownership commands. */
@@ -25,6 +29,9 @@ public class OwnershipCommandUseCases {
     private final AuditPort audit;
     private final TimelineEventPort timeline;
     private final ObjectMapper mapper;
+    // C6-C: canonical Contact transfer dependencies
+    private final ContactRepository contactRepository;
+    private final ContactTransferUseCases contactTransferUseCases;
 
     public OwnershipCommandUseCases(AssignmentRepository assignments,
                                     OwnershipRecordPort records,
@@ -33,7 +40,9 @@ public class OwnershipCommandUseCases {
                                     QueueRepository queues,
                                     AuditPort audit,
                                     TimelineEventPort timeline,
-                                    ObjectMapper mapper) {
+                                    ObjectMapper mapper,
+                                    ContactRepository contactRepository,
+                                    ContactTransferUseCases contactTransferUseCases) {
         this.assignments = assignments;
         this.records = records;
         this.users = users;
@@ -42,12 +51,17 @@ public class OwnershipCommandUseCases {
         this.audit = audit;
         this.timeline = timeline;
         this.mapper = mapper;
+        this.contactRepository = Objects.requireNonNull(contactRepository,
+                "contactRepository");
+        this.contactTransferUseCases = Objects.requireNonNull(contactTransferUseCases,
+                "contactTransferUseCases");
     }
 
     @Transactional
     public Assignment reassign(ReassignCommand command) {
         requireCommand(command);
         validateRecord(command.tenantId(), command.recordType(), command.recordId());
+        validateContactOwnerType(command.recordType(), command.ownerType());
         validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
         Assignment current = assignments.findActive(
                 command.tenantId(), command.recordType(), command.recordId()).orElse(null);
@@ -59,7 +73,7 @@ public class OwnershipCommandUseCases {
                 command.assignedByRuleId(), null, ChangeType.REASSIGN,
                 command.assignedByRuleId() != null ? TriggerSource.RULE : TriggerSource.MANUAL,
                 current);
-        project(command.tenantId(), command.recordType(), command.recordId(), created);
+        project(command.tenantId(), command.recordType(), command.recordId(), created, command.actorId());
         mutation(command.tenantId(), command.actorId(), command.recordType(), command.recordId(),
                 "REASSIGN", "crm.ownership.reassigned", current, created);
         return created;
@@ -69,6 +83,7 @@ public class OwnershipCommandUseCases {
     public List<Assignment> bulkReassign(BulkReassignCommand command) {
         validateRecordIds(command == null ? null : command.recordIds(), "Bulk reassignment");
         validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
+        validateContactOwnerType(command.recordType(), command.ownerType());
         for (UUID recordId : command.recordIds()) {
             validateRecord(command.tenantId(), command.recordType(), recordId);
         }
@@ -91,6 +106,7 @@ public class OwnershipCommandUseCases {
             throw new OwnershipDomainException("Temporary transfer end must be in the future");
         }
         validateOwner(command.tenantId(), command.recordType(), command.ownerType(), command.ownerId());
+        validateContactOwnerType(command.recordType(), command.ownerType());
         for (UUID recordId : command.recordIds()) {
             validateRecord(command.tenantId(), command.recordType(), recordId);
         }
@@ -105,7 +121,7 @@ public class OwnershipCommandUseCases {
                     command.transferRequestId(), command.correlationId(), current.id(),
                     null, command.effectiveTo(), ChangeType.TRANSFER,
                     TriggerSource.TRANSFER_REQUEST, current);
-            project(command.tenantId(), command.recordType(), recordId, created);
+            project(command.tenantId(), command.recordType(), recordId, created, command.actorId());
             mutation(command.tenantId(), command.actorId(), command.recordType(), recordId,
                     "TRANSFER", "crm.ownership.transferred", current, created);
             return created;
@@ -169,9 +185,25 @@ public class OwnershipCommandUseCases {
     private void project(UUID tenantId,
                          AssignmentRecordType recordType,
                          UUID recordId,
-                         Assignment assignment) {
-        records.updateOwner(tenantId, recordType, recordId,
-                assignment.ownerType(), ownerId(assignment));
+                         Assignment assignment,
+                         UUID actorId) {
+        if (recordType == AssignmentRecordType.CONTACT) {
+            // C6-C: canonical Contact projection via ContactTransferUseCases
+            ContactRecord contact = contactRepository.findById(tenantId, recordId);
+            contactTransferUseCases.transferContact(
+                    tenantId, recordId, assignment.ownerUserId(),
+                    contact.version(), actorId, Instant.now());
+        } else {
+            records.updateOwner(tenantId, recordType, recordId,
+                    assignment.ownerType(), ownerId(assignment));
+        }
+    }
+
+    private void validateContactOwnerType(AssignmentRecordType recordType, OwnerType ownerType) {
+        if (recordType == AssignmentRecordType.CONTACT && ownerType != OwnerType.USER) {
+            throw new OwnershipDomainException(
+                    "CONTACT ownership supports USER owners only");
+        }
     }
 
     private void validateRecord(UUID tenantId, AssignmentRecordType type, UUID id) {

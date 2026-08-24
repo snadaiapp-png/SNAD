@@ -88,10 +88,13 @@ public class OwnershipModuleConfiguration {
             QueueRepository queueRepository,
             AuditPort auditPort,
             TimelineEventPort timelineEventPort,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            com.sanad.platform.crm.party.domain.ContactRepository contactRepository,
+            com.sanad.platform.crm.party.application.ContactTransferUseCases contactTransferUseCases) {
         return new OwnershipCommandUseCases(
                 assignmentRepository, ownershipRecordPort, userValidationPort,
-                salesTeamRepository, queueRepository, auditPort, timelineEventPort, objectMapper);
+                salesTeamRepository, queueRepository, auditPort, timelineEventPort, objectMapper,
+                contactRepository, contactTransferUseCases);
     }
 
     @Bean

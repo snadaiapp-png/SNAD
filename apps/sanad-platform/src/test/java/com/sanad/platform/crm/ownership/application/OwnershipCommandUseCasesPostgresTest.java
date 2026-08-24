@@ -27,7 +27,9 @@ import java.util.UUID;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 class OwnershipCommandUseCasesPostgresTest {
@@ -76,7 +78,9 @@ class OwnershipCommandUseCasesPostgresTest {
         commands = new OwnershipCommandUseCases(
                 assignmentRepository, new JdbcOwnershipRecordAdapter(jdbc),
                 new JdbcOwnershipUserValidationAdapter(jdbc), teamRepository, queueRepository,
-                audit, timeline, new ObjectMapper());
+                audit, timeline, new ObjectMapper(),
+                mock(com.sanad.platform.crm.party.domain.ContactRepository.class),
+                mock(com.sanad.platform.crm.party.application.ContactTransferUseCases.class));
         queries = new OwnershipQueryUseCases(reads);
     }
 

@@ -39,6 +39,11 @@ public class JdbcOwnershipRecordAdapter implements OwnershipRecordPort {
                 || ownerType == null || ownerId == null) {
             throw new OwnershipDomainException("Complete owner projection command required");
         }
+        // C6-C: CONTACT owner projection must use ContactTransferUseCases, not direct SQL.
+        if (recordType == AssignmentRecordType.CONTACT) {
+            throw new OwnershipDomainException(
+                    "CONTACT owner projection must use ContactTransferUseCases");
+        }
         UUID user = ownerType == OwnerType.USER ? ownerId : null;
         UUID team = ownerType == OwnerType.TEAM ? ownerId : null;
         UUID queue = ownerType == OwnerType.QUEUE ? ownerId : null;
