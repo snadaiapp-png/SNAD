@@ -281,6 +281,21 @@ class LegacyContactPatchCanonicalizationHttpPostgresTest {
         });
     }
 
+    private String activeParticipantRole(UUID contactId, UUID userId) {
+        return rawTxn.execute(s -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource().addValue("t", TENANT_A.toString()), String.class);
+            return jdbc.queryForObject("""
+                    SELECT role FROM crm_entity_participants
+                    WHERE tenant_id = :t AND entity_type = 'CONTACT' AND entity_id = :c
+                    AND user_id = :u AND removed_at IS NULL
+                    """, new MapSqlParameterSource()
+                    .addValue("t", TENANT_A)
+                    .addValue("c", contactId)
+                    .addValue("u", userId), String.class);
+        });
+    }
+
     private Authentication auth(UUID tenantId, UUID userId) {
         UsernamePasswordAuthenticationToken authentication =
                 UsernamePasswordAuthenticationToken.authenticated(
@@ -302,7 +317,9 @@ class LegacyContactPatchCanonicalizationHttpPostgresTest {
                 .andReturn().getResponse().getContentAsString();
     }
 
-    private JsonNode patchV2(UUID contactId, Map<String, Object> body, long expectedVersion) throws Exception {
+    private record V2PatchResult(JsonNode body, String etag) {}
+
+    private V2PatchResult patchV2(UUID contactId, Map<String, Object> body, long expectedVersion) throws Exception {
         String ifMatch = etagService.etag("contact", contactId, expectedVersion);
         MockHttpServletRequestBuilder req = patch("/api/v2/crm/contacts/" + contactId)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -313,10 +330,9 @@ class LegacyContactPatchCanonicalizationHttpPostgresTest {
         MockHttpServletResponse resp = mockMvc.perform(req)
                 .andExpect(status().isOk())
                 .andReturn().getResponse();
-        // Verify ETag header exists
         String etagHeader = resp.getHeader("ETag");
         assertThat(etagHeader).as("V2 response must have ETag header").isNotNull();
-        return objectMapper.readTree(resp.getContentAsString());
+        return new V2PatchResult(objectMapper.readTree(resp.getContentAsString()), etagHeader);
     }
 
     // ── V1 Tests ──────────────────────────────────────────────────────────
@@ -367,28 +383,36 @@ class LegacyContactPatchCanonicalizationHttpPostgresTest {
     // ── V2 Tests ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("V2 ordinary-only PATCH → version N+1, ETag=N+1")
+    @DisplayName("V2 ordinary-only PATCH → version N+1, actual ETag=N+1")
     void v2OrdinaryOnly() throws Exception {
         UUID contactId = seedContact(USER_A, "Before");
         long n = contactVersion(contactId);
         Map<String, Object> body = new HashMap<>();
         body.put("givenName", "After");
-        JsonNode resp = patchV2(contactId, body, n);
-        assertThat(resp.path("data").path("version").asLong()).isEqualTo(n + 1);
+        V2PatchResult result = patchV2(contactId, body, n);
+        assertThat(result.body().path("data").path("version").asLong()).isEqualTo(n + 1);
+        // Actual ETag must match N+1
+        String expectedEtagN1 = etagService.etag("contact", contactId, n + 1);
+        assertThat(result.etag()).as("V2 ordinary ETag must match N+1").isEqualTo(expectedEtagN1);
+        // And must NOT match N (negative guard)
+        String etagN = etagService.etag("contact", contactId, n);
+        assertThat(result.etag()).as("V2 ordinary ETag must NOT match N").isNotEqualTo(etagN);
         assertThat(contactGivenName(contactId)).isEqualTo("After");
         assertThat(contactOwner(contactId)).isEqualTo(USER_A.toString());
         assertThat(contactVersion(contactId)).isEqualTo(n + 1);
     }
 
     @Test
-    @DisplayName("V2 owner-only PATCH → version N+1, ETag=N+1")
+    @DisplayName("V2 owner-only PATCH → version N+1, actual ETag=N+1")
     void v2OwnerOnly() throws Exception {
         UUID contactId = seedContact(USER_A, "Jane");
         long n = contactVersion(contactId);
         Map<String, Object> body = new HashMap<>();
         body.put("ownerUserId", USER_B.toString());
-        JsonNode resp = patchV2(contactId, body, n);
-        assertThat(resp.path("data").path("version").asLong()).isEqualTo(n + 1);
+        V2PatchResult result = patchV2(contactId, body, n);
+        assertThat(result.body().path("data").path("version").asLong()).isEqualTo(n + 1);
+        String expectedEtag = etagService.etag("contact", contactId, n + 1);
+        assertThat(result.etag()).as("V2 owner ETag must match N+1").isEqualTo(expectedEtag);
         assertThat(contactOwner(contactId)).isEqualTo(USER_B.toString());
         assertThat(contactVersion(contactId)).isEqualTo(n + 1);
         assertThat(activeParticipantCount(contactId, USER_A)).isEqualTo(1);
@@ -396,23 +420,122 @@ class LegacyContactPatchCanonicalizationHttpPostgresTest {
     }
 
     @Test
-    @DisplayName("V2 mixed PATCH → version N+2, ETag=N+2 (proves ETag from final returned version)")
+    @DisplayName("V2 mixed PATCH → version N+2, actual ETag=N+2 (negative guard: not N+1)")
     void v2Mixed() throws Exception {
         UUID contactId = seedContact(USER_A, "Before");
         long n = contactVersion(contactId);
         Map<String, Object> body = new HashMap<>();
         body.put("givenName", "After");
         body.put("ownerUserId", USER_B.toString());
-        JsonNode resp = patchV2(contactId, body, n);
-        long respVersion = resp.path("data").path("version").asLong();
+        V2PatchResult result = patchV2(contactId, body, n);
+        long respVersion = result.body().path("data").path("version").asLong();
         assertThat(respVersion).as("V2 mixed must return version N+2").isEqualTo(n + 2);
-        assertThat(resp.path("data").path("ownerUserId").asText()).isEqualTo(USER_B.toString());
-        assertThat(resp.path("data").path("givenName").asText()).isEqualTo("After");
-        // Verify ETag corresponds to N+2 (not N+1)
-        String expectedEtag = etagService.etag("contact", contactId, n + 2);
+        assertThat(result.body().path("data").path("ownerUserId").asText()).isEqualTo(USER_B.toString());
+        assertThat(result.body().path("data").path("givenName").asText()).isEqualTo("After");
+        // Actual ETag must match N+2
+        String expectedFinalEtag = etagService.etag("contact", contactId, n + 2);
+        assertThat(result.etag()).as("V2 mixed ETag must match N+2").isEqualTo(expectedFinalEtag);
+        // Negative guard: must NOT match N+1 (proves ETag from final version, not expectedVersion+1)
+        String incorrectNPlusOneEtag = etagService.etag("contact", contactId, n + 1);
+        assertThat(result.etag()).as("V2 mixed ETag must NOT match N+1 (proves final version derivation)")
+                .isNotEqualTo(incorrectNPlusOneEtag);
         assertThat(contactVersion(contactId)).isEqualTo(n + 2);
         assertThat(activeParticipantCount(contactId, USER_A)).isEqualTo(1);
         assertThat(activeParticipantCount(contactId, USER_B)).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("V2 full response mapping — all ContactResponse fields present")
+    void v2FullResponseMapping() throws Exception {
+        UUID contactId = seedContact(USER_A, "TestName");
+        long n = contactVersion(contactId);
+        Map<String, Object> body = new HashMap<>();
+        body.put("givenName", "AfterName");
+        V2PatchResult result = patchV2(contactId, body, n);
+        JsonNode data = result.body().path("data");
+        assertThat(data.path("id").asText()).as("id must be present").isEqualTo(contactId.toString());
+        assertThat(data.path("version").asLong()).as("version must be present").isEqualTo(n + 1);
+        assertThat(data.has("accountId")).as("accountId key must exist").isTrue();
+        assertThat(data.path("givenName").asText()).as("givenName must be present").isEqualTo("AfterName");
+        assertThat(data.has("familyName")).as("familyName key must exist").isTrue();
+        assertThat(data.has("displayName")).as("displayName key must exist").isTrue();
+        assertThat(data.has("primaryEmail")).as("primaryEmail key must exist").isTrue();
+        assertThat(data.has("normalizedEmail")).as("normalizedEmail key must exist").isTrue();
+        assertThat(data.has("primaryPhone")).as("primaryPhone key must exist").isTrue();
+        assertThat(data.has("preferredLocale")).as("preferredLocale key must exist").isTrue();
+        assertThat(data.has("timeZone")).as("timeZone key must exist").isTrue();
+        assertThat(data.path("lifecycleStatus").asText()).as("lifecycleStatus must be present").isEqualTo("ACTIVE");
+        assertThat(data.path("ownerUserId").asText()).as("ownerUserId must be present").isEqualTo(USER_A.toString());
+        assertThat(data.has("consentSummary")).as("consentSummary key must exist").isTrue();
+        assertThat(data.has("createdAt")).as("createdAt key must exist").isTrue();
+        assertThat(data.has("updatedAt")).as("updatedAt key must exist").isTrue();
+    }
+
+    @Test
+    @DisplayName("Canonical invalid-owner rejection via V2 HTTP")
+    void canonicalInvalidOwnerRejection() throws Exception {
+        UUID contactId = seedContact(USER_A, "Jane");
+        long n = contactVersion(contactId);
+        UUID invalidOwnerId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        Map<String, Object> body = new HashMap<>();
+        body.put("ownerUserId", invalidOwnerId.toString());
+        String ifMatch = etagService.etag("contact", contactId, n);
+        MockHttpServletRequestBuilder req = patch("/api/v2/crm/contacts/" + contactId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("If-Match", ifMatch)
+                .content(objectMapper.writeValueAsString(body))
+                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                        .authentication(auth(TENANT_A, ACTOR_ID)));
+        // The canonical path evaluates recipient eligibility via RecipientEligibilityPort.
+        // An invalid (non-existent) user → ineligible → IllegalArgumentException → HTTP 500
+        // OR structured rejection. Accept any 4xx/5xx as long as no mutation occurs.
+        int status = mockMvc.perform(req).andReturn().getResponse().getStatus();
+        assertThat(status).as("Invalid owner must be rejected (got %d)", status).isGreaterThanOrEqualTo(400);
+        // Verify no mutation
+        assertThat(contactOwner(contactId)).as("Owner must be unchanged").isEqualTo(USER_A.toString());
+        assertThat(contactVersion(contactId)).as("Version must be unchanged").isEqualTo(n);
+        assertThat(activeParticipantCount(contactId, USER_A)).as("USER_A participant count must be 0").isEqualTo(0);
+        assertThat(activeParticipantCount(contactId, invalidOwnerId)).as("Invalid owner must have no participant").isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("V1 custom_fields response compatibility")
+    void v1CustomFieldsResponseCompatibility() throws Exception {
+        UUID contactId = seedContact(USER_A, "Jane");
+        Map<String, Object> body = new HashMap<>();
+        body.put("givenName", "After");
+        String response = patchV1(contactId, body);
+        JsonNode json = objectMapper.readTree(response);
+        assertThat(json.has("custom_fields")).as("V1 response must contain custom_fields key").isTrue();
+        assertThat(json.get("custom_fields")).as("custom_fields must not be null").isNotNull();
+    }
+
+    @Test
+    @DisplayName("V2 mixed — exact WATCHER role for USER_A (not just count)")
+    void v2MixedExactWatcherRole() throws Exception {
+        UUID contactId = seedContact(USER_A, "Before");
+        long n = contactVersion(contactId);
+        Map<String, Object> body = new HashMap<>();
+        body.put("givenName", "After");
+        body.put("ownerUserId", USER_B.toString());
+        patchV2(contactId, body, n);
+        // Query exact role
+        String role = activeParticipantRole(contactId, USER_A);
+        assertThat(role).as("USER_A active participant role must be WATCHER").isEqualTo("WATCHER");
+        assertThat(activeParticipantCount(contactId, USER_B)).as("USER_B must have 0 active participants").isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("V1 mixed — exact WATCHER role for USER_A (not just count)")
+    void v1MixedExactWatcherRole() throws Exception {
+        UUID contactId = seedContact(USER_A, "Before");
+        Map<String, Object> body = new HashMap<>();
+        body.put("givenName", "After");
+        body.put("ownerUserId", USER_B.toString());
+        patchV1(contactId, body);
+        String role = activeParticipantRole(contactId, USER_A);
+        assertThat(role).as("USER_A active participant role must be WATCHER").isEqualTo("WATCHER");
+        assertThat(activeParticipantCount(contactId, USER_B)).as("USER_B must have 0 active participants").isEqualTo(0);
     }
 
     @Test
