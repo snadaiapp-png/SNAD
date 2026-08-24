@@ -164,6 +164,12 @@ public class JdbcContactRepository implements ContactRepository {
     public ContactRecord update(
             UUID tenantId, UUID actorId, UUID contactId,
             UpdateContactCommand command, long expectedVersion) {
+        // C6-A: ordinary repository update must NOT change owner.
+        // Owner mutation must go through ContactTransferUseCases → transferOwner.
+        if (command.ownerUserId() != null) {
+            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
+                    "Contact owner mutation requires canonical transfer");
+        }
         ContactRecord current = findById(tenantId, contactId);
         String displayName = command.givenName() != null || command.familyName() != null
                 ? displayName(command.givenName() == null ? current.givenName() : command.givenName(),
@@ -185,7 +191,6 @@ public class JdbcContactRepository implements ContactRepository {
                     primary_phone = COALESCE(:primaryPhone, primary_phone),
                     preferred_locale = COALESCE(:locale, preferred_locale),
                     time_zone = COALESCE(:timeZone, time_zone),
-                    owner_user_id = COALESCE(:ownerUserId, owner_user_id),
                     consent_summary = COALESCE(:consent, consent_summary),
                     updated_by = :actorId, updated_at = :now, version = version + 1
                 WHERE tenant_id = :tenantId AND id = :id AND version = :expectedVersion
@@ -202,13 +207,12 @@ public class JdbcContactRepository implements ContactRepository {
                         .addValue("primaryPhone", command.primaryPhone())
                         .addValue("locale", command.preferredLocale())
                         .addValue("timeZone", command.timeZone())
-                        .addValue("ownerUserId", command.ownerUserId())
                         .addValue("consent", command.consentSummary())
                         .addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
         if (changed == 0) throw new CrmContractException(CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
         if (command.accountId() != null && !Objects.equals(current.accountId(), command.accountId())) {
             switchLegacyRelationship(tenantId, actorId, contactId, command.accountId(),
-                    command.ownerUserId() == null ? current.ownerUserId() : command.ownerUserId(), now);
+                    current.ownerUserId(), now);
         }
         return findById(tenantId, contactId);
     }

@@ -57,9 +57,10 @@ class JdbcContactRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                 new CreateContactCommand(null, "Jane", "Doe",
                         null, null, null, null, actorId, null)));
 
+        // C6-A: repository update must NOT change owner — pass ownerUserId=null
         ContactRecord updated = inTenantTransaction(tenantId, () -> contacts.update(tenantId, actorId,
                 created.id(), new UpdateContactCommand(null, "Janet", "Doe",
-                        null, null, null, null, actorId, null), 0));
+                        null, null, null, null, null, null), 0));
 
         assertThat(updated.version()).isEqualTo(1);
         assertThat(updated.givenName()).isEqualTo("Janet");
@@ -69,12 +70,13 @@ class JdbcContactRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     void update_withStaleVersionThrowsConcurrencyConflict() {
         ContactRecord created = inTenantTransaction(tenantId, () -> contacts.create(tenantId, actorId,
                 new CreateContactCommand(null, "Jane", "Doe", null, null, null, null, actorId, null)));
+        // C6-A: repository update must NOT change owner — pass ownerUserId=null
         inTenantTransaction(tenantId, () -> contacts.update(tenantId, actorId, created.id(),
-                new UpdateContactCommand(null, "v1", null, null, null, null, null, actorId, null), 0));
+                new UpdateContactCommand(null, "v1", null, null, null, null, null, null, null), 0));
 
         assertThatThrownBy(() -> inTenantTransaction(tenantId, () ->
                 contacts.update(tenantId, actorId, created.id(),
-                        new UpdateContactCommand(null, "stale", null, null, null, null, null, actorId, null), 0)))
+                        new UpdateContactCommand(null, "stale", null, null, null, null, null, null, null), 0)))
                 .isInstanceOf(CrmContractException.class)
                 .satisfies(ex -> assertThat(((CrmContractException) ex).code())
                         .isEqualTo(CrmErrorCode.CRM_CONCURRENCY_CONFLICT));
@@ -213,6 +215,30 @@ class JdbcContactRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         .isEqualTo(CrmErrorCode.CRM_CONCURRENCY_CONFLICT));
 
         // The original Contact must be unchanged.
+        ContactRecord current = inTenantTransaction(tenantId, () -> contacts.findById(tenantId, created.id()));
+        assertThat(current.ownerUserId()).isEqualTo(originalOwner);
+        assertThat(current.version()).isEqualTo(created.version());
+    }
+
+    // ── C6-A: Repository defense — ordinary update must NOT change owner ──
+
+    @Test
+    void update_withNonNullOwnerUserIdMustBeRejected() {
+        UUID originalOwner = actorId;
+        ContactRecord created = inTenantTransaction(tenantId, () -> contacts.create(tenantId, actorId,
+                new CreateContactCommand(null, "Jane", "Doe", null, null, null, null, originalOwner, null)));
+
+        UUID newOwner = UUID.randomUUID();
+        assertThatThrownBy(() -> inTenantTransaction(tenantId, () ->
+                contacts.update(tenantId, actorId, created.id(),
+                        new UpdateContactCommand(null, null, null, null, null, null, null, newOwner, null),
+                        created.version())))
+                .isInstanceOf(CrmContractException.class)
+                .satisfies(ex -> assertThat(((CrmContractException) ex).code())
+                        .isEqualTo(CrmErrorCode.VALIDATION_ERROR))
+                .hasMessageContaining("Contact owner mutation requires canonical transfer");
+
+        // Owner must be unchanged.
         ContactRecord current = inTenantTransaction(tenantId, () -> contacts.findById(tenantId, created.id()));
         assertThat(current.ownerUserId()).isEqualTo(originalOwner);
         assertThat(current.version()).isEqualTo(created.version());
