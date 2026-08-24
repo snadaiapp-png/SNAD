@@ -864,12 +864,14 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         UUID contactId = seedContact(USER_A, "JdbcGuard");
 
         // Verify first: exists(CONTACT, realContactId) == true.
-        // Use rawRecordAdapter (rawJdbc — NOT TenantRlsDataSource) because
-        // this test verifies the Java guard in updateOwner, not RLS.
-        // Under non-superuser sanad, the TenantRlsDataSource-wrapped
-        // recordAdapter.exists(...) would be hidden by FORCE RLS without
-        // a SecurityContext — but the exists check is not what we're testing.
-        boolean exists = rawRecordAdapter.exists(TENANT_A, AssignmentRecordType.CONTACT, contactId);
+        // Use rawRecordAdapter (rawJdbc — NOT TenantRlsDataSource) inside a
+        // raw transaction with GUC set. Under non-superuser sanad, even raw
+        // JDBC queries are subject to FORCE RLS — the GUC must be set on
+        // the same physical connection within the same transaction.
+        boolean exists = rawTxn.execute(s -> {
+            setRawGuc(TENANT_A);
+            return rawRecordAdapter.exists(TENANT_A, AssignmentRecordType.CONTACT, contactId);
+        });
         assertThat(exists)
                 .as("JdbcOwnershipRecordAdapter.exists(CONTACT, realContactId) must return true")
                 .isTrue();
