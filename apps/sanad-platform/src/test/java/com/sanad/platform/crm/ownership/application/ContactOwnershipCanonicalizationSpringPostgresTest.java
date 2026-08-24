@@ -147,6 +147,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
     private static JdbcEntityParticipantRepository participantRepo;
     private static JdbcAssignmentRepository assignmentRepo;
     private static JdbcOwnershipRecordAdapter recordAdapter;
+    private static JdbcOwnershipRecordAdapter rawRecordAdapter;
     private static JdbcOwnershipHistoryRepository historyRepo;
     private static JdbcOwnershipUserValidationAdapter userValidationAdapter;
     private static JdbcSalesTeamRepository teamRepo;
@@ -202,6 +203,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         historyRepo = new JdbcOwnershipHistoryRepository(tenantJdbc);
         assignmentRepo = new JdbcAssignmentRepository(tenantJdbc, historyRepo);
         recordAdapter = new JdbcOwnershipRecordAdapter(tenantJdbc);
+        rawRecordAdapter = new JdbcOwnershipRecordAdapter(rawJdbc);
         userValidationAdapter = new JdbcOwnershipUserValidationAdapter(tenantJdbc);
         teamRepo = new JdbcSalesTeamRepository(tenantJdbc);
         queueRepo = new JdbcQueueRepository(tenantJdbc);
@@ -862,7 +864,12 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         UUID contactId = seedContact(USER_A, "JdbcGuard");
 
         // Verify first: exists(CONTACT, realContactId) == true.
-        boolean exists = recordAdapter.exists(TENANT_A, AssignmentRecordType.CONTACT, contactId);
+        // Use rawRecordAdapter (rawJdbc — NOT TenantRlsDataSource) because
+        // this test verifies the Java guard in updateOwner, not RLS.
+        // Under non-superuser sanad, the TenantRlsDataSource-wrapped
+        // recordAdapter.exists(...) would be hidden by FORCE RLS without
+        // a SecurityContext — but the exists check is not what we're testing.
+        boolean exists = rawRecordAdapter.exists(TENANT_A, AssignmentRecordType.CONTACT, contactId);
         assertThat(exists)
                 .as("JdbcOwnershipRecordAdapter.exists(CONTACT, realContactId) must return true")
                 .isTrue();
@@ -870,6 +877,9 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         long n = contactVersion(contactId);
 
         // Then call updateOwner(CONTACT, USER, USER_B) → must throw.
+        // The Java guard fires BEFORE any SQL, so using recordAdapter
+        // (tenantJdbc) is safe — the guard throws before the query reaches
+        // PostgreSQL.
         assertThatThrownBy(() -> recordAdapter.updateOwner(
                 TENANT_A, AssignmentRecordType.CONTACT, contactId,
                 OwnerType.USER, USER_B))
