@@ -160,7 +160,12 @@ class CrmPostgresMigrationTest {
     private static final String COLLABORATION_INTEGRITY_VERSION = "20260822.3";
     private static final String COLLABORATION_OUTBOX_ALIGNMENT_VERSION = "20260822.4";
     // Latest migration — keep in sync with db/migration
-    private static final String LATEST_MIGRATION_VERSION = COLLABORATION_OUTBOX_ALIGNMENT_VERSION;
+    // V20260823_1 (crm_contacts FORCE RLS) + V20260823_2 (participant role exclusivity)
+    // are the new terminal migrations added by the CRM Contacts Collaboration
+    // Integration (impl/crm-contacts-collaboration-20260823).
+    private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
+    private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
+    private static final String LATEST_MIGRATION_VERSION = PARTICIPANT_ROLE_EXCLUSIVITY_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -702,6 +707,8 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, COLLABORATION_RLS_VERSION, "SQL", "crm collaboration event rls");
         assertMigration(jdbc, COLLABORATION_INTEGRITY_VERSION, "SQL", "crm entity participant integrity");
         assertMigration(jdbc, COLLABORATION_OUTBOX_ALIGNMENT_VERSION, "SQL", "crm event outbox contract alignment");
+        assertMigration(jdbc, CONTACTS_FORCE_RLS_VERSION, "SQL", "crm contacts force rls");
+        assertMigration(jdbc, PARTICIPANT_ROLE_EXCLUSIVITY_VERSION, "SQL", "crm participant role exclusivity");
 
         assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());

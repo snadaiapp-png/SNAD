@@ -44,7 +44,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.aop.MethodBeforeAdvice;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -59,6 +61,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -151,7 +154,9 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
 
     private static AnnotationConfigApplicationContext ctx;
     private static FaultingAuditPort faultingAudit;
-    private static CountingContactTransferUseCases countingTransferUseCases;
+
+    /** Counting state — populated by the AOP advice wrapping the real ContactTransferUseCases bean. */
+    private static final AtomicLong transferInvocations = new AtomicLong(0);
 
     @BeforeAll
     static void setup() {
@@ -203,7 +208,6 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
 
         // Spring context producing a Spring-proxied OwnershipCommandUseCases bean.
         faultingAudit = new FaultingAuditPort();
-        countingTransferUseCases = new CountingContactTransferUseCases();
 
         ctx = new AnnotationConfigApplicationContext();
         ctx.getBeanFactory().registerSingleton("tenantRlsDataSource", tenantRlsDataSource);
@@ -265,13 +269,19 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
                 ContactRepository contactRepository,
                 CollaborationMembershipService membershipService,
                 com.sanad.platform.crm.collaboration.domain.RecipientEligibilityPort eligibilityPort) {
-            // Wrap the real ContactTransferUseCases in a counting decorator
-            // so tests can assert CANONICAL_CONTACT_TRANSFER_CALLS >= 1
-            // without mocking the service.
+            // Construct the REAL ContactTransferUseCases with real dependencies —
+            // no mocking, no nulling. Then wrap it in a Spring AOP CGLIB proxy
+            // that counts transferContact(*) invocations on the real bean.
             ContactTransferUseCases real =
                     new ContactTransferUseCases(contactRepository, membershipService, eligibilityPort);
-            countingTransferUseCases.delegate = real;
-            return countingTransferUseCases;
+            ProxyFactory factory = new ProxyFactory(real);
+            factory.setProxyTargetClass(true); // CGLIB subclass — proxy IS-A ContactTransferUseCases
+            factory.addAdvice((MethodBeforeAdvice) (method, args, target) -> {
+                if ("transferContact".equals(method.getName())) {
+                    transferInvocations.incrementAndGet();
+                }
+            });
+            return (ContactTransferUseCases) factory.getProxy();
         }
 
         @Bean
@@ -330,7 +340,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
 
     @BeforeEach
     void seed() {
-        countingTransferUseCases.reset();
+        transferInvocations.set(0);
         faultingAudit.disable();
         // Use RAW datasource for fixture cleanup/seed — NOT the production path.
         rawTxn.executeWithoutResult(s -> {
@@ -461,7 +471,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         UUID requestId = null; // cannot recover from response; assert >=1 REASSIGN history
         assertThat(historyReassignCount(contactId)).isGreaterThanOrEqualTo(1);
         // ContactTransferUseCases was invoked exactly once.
-        assertThat(countingTransferUseCases.transferInvocations.get()).isEqualTo(1);
+        assertThat(transferInvocations.get()).isEqualTo(1);
     }
 
     // ── Test 2: GENERIC_CONTACT_SAME_OWNER_VERSION_DELTA=0 ──────────────────
@@ -585,7 +595,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         assertThat(activeParticipantCount(contactId, USER_A)).isEqualTo(1);
         assertThat(activeParticipantRole(contactId, USER_A)).isEqualTo("WATCHER");
         assertThat(activeAssignmentOwner(contactId)).isEqualTo(USER_B);
-        assertThat(countingTransferUseCases.transferInvocations.get())
+        assertThat(transferInvocations.get())
                 .as("assignByDecision delegates to reassign → canonical transfer called >= 1")
                 .isGreaterThanOrEqualTo(1);
     }
@@ -619,7 +629,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         assertThat(activeAssignmentOwner(contactId)).isEqualTo(USER_B);
         // History: TRANSFER row referencing transferRequestId.
         assertThat(historyTransferCount(contactId, transferRequestId)).isEqualTo(1);
-        assertThat(countingTransferUseCases.transferInvocations.get())
+        assertThat(transferInvocations.get())
                 .as("canonical transfer service invoked once")
                 .isEqualTo(1);
     }
@@ -655,7 +665,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         }
         assertThat(contactVersion(contact1)).isEqualTo(n1 + 1);
         assertThat(contactVersion(contact2)).isEqualTo(n2 + 1);
-        assertThat(countingTransferUseCases.transferInvocations.get())
+        assertThat(transferInvocations.get())
                 .as("bulk canonical transfer invoked once per record")
                 .isEqualTo(2);
     }
@@ -681,7 +691,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         // fires after the canonical transfer is executed → triggers rollback.
         faultingAudit.enable();
 
-        long transfersBefore = countingTransferUseCases.transferInvocations.get();
+        long transfersBefore = transferInvocations.get();
 
         assertNoActiveTransaction();
         assertThatThrownBy(() -> withTenantSecurityContext(TENANT_A, () ->
@@ -694,7 +704,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
 
         // CRITICAL assertions — query from PostgreSQL DIRECTLY in fresh transactions.
         // The canonical transfer was actually entered (fault fires post-project).
-        assertThat(countingTransferUseCases.transferInvocations.get())
+        assertThat(transferInvocations.get())
                 .as("canonical transfer must have been entered before the fault")
                 .isGreaterThan(transfersBefore);
 
@@ -739,7 +749,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         EntityParticipant p2 = seedActiveParticipant(contact2, USER_B, ParticipantRole.COLLABORATOR);
 
         faultingAudit.enable();
-        long transfersBefore = countingTransferUseCases.transferInvocations.get();
+        long transfersBefore = transferInvocations.get();
 
         assertNoActiveTransaction();
         assertThatThrownBy(() -> withTenantSecurityContext(TENANT_A, () ->
@@ -753,7 +763,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         // The canonical transfer must have been entered for at least one record
         // (bulk may fail on the first or second record — either way, the
         // whole transaction rolls back).
-        assertThat(countingTransferUseCases.transferInvocations.get())
+        assertThat(transferInvocations.get())
                 .as("canonical transfer must have been entered before the bulk fault")
                 .isGreaterThan(transfersBefore);
 
@@ -829,7 +839,7 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
         assertThat(activeAssignmentCount(contactId)).isEqualTo(1);
         assertThat(activeAssignmentOwner(contactId)).isEqualTo(USER_A);
         // Canonical transfer was NOT invoked (rejection happens before project).
-        long transfersAfter = countingTransferUseCases.transferInvocations.get();
+        long transfersAfter = transferInvocations.get();
         assertThat(transfersAfter).isZero();
     }
 
@@ -1210,39 +1220,6 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
             if (enabled.get()) {
                 throw new RuntimeException("C6C_POST_PROJECT_FAULT");
             }
-        }
-    }
-
-    /**
-     * Counting decorator around the real {@link ContactTransferUseCases}.
-     * The delegate is the real production instance; this class only counts
-     * invocations and forwards. No behavior is mocked.
-     */
-    static class CountingContactTransferUseCases extends ContactTransferUseCases {
-        private ContactTransferUseCases delegate;
-        private final AtomicLong transferInvocations = new AtomicLong(0);
-
-        CountingContactTransferUseCases() {
-            // Pass nulls to the parent — delegate will be set after Spring wiring.
-            super(null, null, null);
-        }
-
-        @Override
-        public ContactRecord transferContact(UUID tenantId, UUID contactId, UUID newOwnerUserId,
-                                              long expectedVersion, UUID actorId, Instant occurredAt) {
-            transferInvocations.incrementAndGet();
-            return delegate.transferContact(tenantId, contactId, newOwnerUserId,
-                    expectedVersion, actorId, occurredAt);
-        }
-
-        @Override
-        public ContactRecord transferContact(TransferContactCommand command) {
-            transferInvocations.incrementAndGet();
-            return delegate.transferContact(command);
-        }
-
-        void reset() {
-            transferInvocations.set(0);
         }
     }
 
