@@ -365,6 +365,17 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
                     new MapSqlParameterSource().addValue("t", TENANT_A));
             rawJdbc.update("DELETE FROM users WHERE tenant_id = :t",
                     new MapSqlParameterSource().addValue("t", TENANT_A));
+            // Test 3 (TEAM rejection) seeds a real crm_sales_teams row.
+            // Test 4 (QUEUE rejection) seeds a real crm_queues row.
+            // Both have FK to tenants — must delete before tenants.
+            rawJdbc.update("DELETE FROM crm_team_memberships WHERE tenant_id = :t",
+                    new MapSqlParameterSource().addValue("t", TENANT_A));
+            rawJdbc.update("DELETE FROM crm_sales_teams WHERE tenant_id = :t",
+                    new MapSqlParameterSource().addValue("t", TENANT_A));
+            rawJdbc.update("DELETE FROM crm_queue_memberships WHERE tenant_id = :t",
+                    new MapSqlParameterSource().addValue("t", TENANT_A));
+            rawJdbc.update("DELETE FROM crm_queues WHERE tenant_id = :t",
+                    new MapSqlParameterSource().addValue("t", TENANT_A));
         });
         rawJdbc.update("DELETE FROM tenants WHERE id = :t",
                 new MapSqlParameterSource().addValue("t", TENANT_A));
