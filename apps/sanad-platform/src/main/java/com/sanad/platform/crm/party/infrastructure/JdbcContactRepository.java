@@ -47,6 +47,48 @@ public class JdbcContactRepository implements ContactRepository {
     }
 
     @Override
+    public ContactRecord findByIdForUpdate(UUID tenantId, UUID contactId) {
+        try {
+            return mapRow(jdbc.queryForMap(
+                    "SELECT " + CONTACT_COLUMNS + " FROM crm_contacts " +
+                            "WHERE tenant_id = :tenantId AND id = :id " +
+                            "FOR UPDATE",
+                    params("tenantId", tenantId).addValue("id", contactId)));
+        } catch (EmptyResultDataAccessException exception) {
+            throw new CrmContractException(CrmErrorCode.CRM_CONTACT_NOT_FOUND);
+        }
+    }
+
+    @Override
+    public ContactRecord transferOwner(UUID tenantId,
+                                       UUID actorId,
+                                       UUID contactId,
+                                       UUID newOwnerUserId,
+                                       long expectedVersion,
+                                       Instant occurredAt) {
+        int changed = jdbc.update(
+                """
+                UPDATE crm_contacts
+                SET owner_user_id = :newOwnerUserId,
+                    updated_by    = :actorId,
+                    updated_at    = :occurredAt,
+                    version       = version + 1
+                WHERE tenant_id = :tenantId
+                  AND id = :contactId
+                  AND version = :expectedVersion
+                """,
+                params("tenantId", tenantId).addValue("contactId", contactId)
+                        .addValue("newOwnerUserId", newOwnerUserId)
+                        .addValue("actorId", actorId)
+                        .addValue("occurredAt", Timestamp.from(occurredAt))
+                        .addValue("expectedVersion", expectedVersion));
+        if (changed == 0) {
+            throw new CrmContractException(CrmErrorCode.CRM_CONCURRENCY_CONFLICT);
+        }
+        return findById(tenantId, contactId);
+    }
+
+    @Override
     public List<ContactRecord> findAll(UUID tenantId, int limit, UUID accountId, String search) {
         StringBuilder sql = new StringBuilder(
                 "SELECT DISTINCT " + CONTACT_COLUMNS + " FROM crm_contacts c WHERE c.tenant_id = :tenantId");

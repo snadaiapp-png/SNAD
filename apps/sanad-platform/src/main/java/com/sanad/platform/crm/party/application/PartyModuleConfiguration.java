@@ -2,6 +2,7 @@ package com.sanad.platform.crm.party.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.collaboration.application.CollaborationMembershipService;
+import com.sanad.platform.crm.collaboration.domain.RecipientEligibilityPort;
 import com.sanad.platform.crm.integration.domain.AuditPort;
 import com.sanad.platform.crm.integration.domain.TimelineEventPort;
 import com.sanad.platform.crm.party.domain.*;
@@ -73,5 +74,24 @@ public class PartyModuleConfiguration {
             ContactRepository contactRepository,
             CollaborationMembershipService collaborationMembershipService) {
         return new ContactCollaborationService(contactRepository, collaborationMembershipService);
+    }
+
+    /**
+     * C5 canonical Contact owner-transfer orchestration. Injects ONLY
+     * {@link ContactRepository}, {@link CollaborationMembershipService},
+     * and {@link RecipientEligibilityPort}. Does NOT inject
+     * {@code CapabilityEvaluationService}, {@code TimelineEventPort},
+     * {@code AuditPort}, {@code CrmEventOutboxPort},
+     * {@code SecurityContextHolder}, {@code TenantRlsTransactionContext},
+     * {@code JdbcTemplate}, {@code OwnershipCommandUseCases}, or
+     * {@code TransferUseCases} — those concerns are owned by C7/C8/C6.
+     */
+    @Bean
+    public ContactTransferUseCases contactTransferUseCases(
+            ContactRepository contactRepository,
+            CollaborationMembershipService collaborationMembershipService,
+            RecipientEligibilityPort recipientEligibilityPort) {
+        return new ContactTransferUseCases(
+                contactRepository, collaborationMembershipService, recipientEligibilityPort);
     }
 }
