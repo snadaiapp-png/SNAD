@@ -270,18 +270,18 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
                 CollaborationMembershipService membershipService,
                 com.sanad.platform.crm.collaboration.domain.RecipientEligibilityPort eligibilityPort) {
             // Construct the REAL ContactTransferUseCases with real dependencies —
-            // no mocking, no nulling. Then wrap it in a Spring AOP CGLIB proxy
-            // that counts transferContact(*) invocations on the real bean.
-            ContactTransferUseCases real =
-                    new ContactTransferUseCases(contactRepository, membershipService, eligibilityPort);
-            ProxyFactory factory = new ProxyFactory(real);
-            factory.setProxyTargetClass(true); // CGLIB subclass — proxy IS-A ContactTransferUseCases
-            factory.addAdvice((MethodBeforeAdvice) (method, args, target) -> {
-                if ("transferContact".equals(method.getName())) {
-                    transferInvocations.incrementAndGet();
-                }
-            });
-            return (ContactTransferUseCases) factory.getProxy();
+            // no mocking, no nulling. Spring's @EnableTransactionManagement will
+            // wrap this bean with a CGLIB proxy that intercepts @Transactional
+            // methods (transferContact). The transferInvocations counter is
+            // populated by the static CountingTransferPostProcessor bean below,
+            // which adds a counting MethodBeforeAdvice AFTER the transactional
+            // proxy is in place.
+            return new ContactTransferUseCases(contactRepository, membershipService, eligibilityPort);
+        }
+
+        @Bean
+        public static org.springframework.beans.factory.config.BeanPostProcessor countingTransferPostProcessor() {
+            return new CountingTransferPostProcessor();
         }
 
         @Bean
@@ -1195,6 +1195,41 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
     }
 
     // ── Test-only support classes ─────────────────────────────────────────
+
+    /**
+     * BeanPostProcessor that wraps the {@code contactTransferUseCases} bean
+     * (after Spring's @Transactional proxy is in place) with a CGLIB proxy
+     * that adds a {@link MethodBeforeAdvice} counting {@code transferContact}
+     * invocations. The wrapping is purely observational — the counting advice
+     * runs before the transactional method is invoked; the transaction still
+     * commits/rolls back as the @Transactional proxy decides.
+     *
+     * <p>This pattern avoids the JDK-proxy-vs-CGLIB-class issue that arises
+     * when the @Bean method itself returns a ProxyFactory proxy: Spring sees
+     * the returned object's actual class (jdk.proxy2.$ProxyNNN) instead of
+     * the intended target type, and downstream @Bean parameters expecting
+     * the concrete class fail to inject. By returning the plain target
+     * from the @Bean method, Spring wraps it with a CGLIB proxy (because
+     * proxyTargetClass=true) and our BeanPostProcessor wraps THAT proxy
+     * with another CGLIB proxy — keeping the bean type assignable to
+     * {@code ContactTransferUseCases}.</p>
+     */
+    static class CountingTransferPostProcessor implements org.springframework.beans.factory.config.BeanPostProcessor {
+        @Override
+        public Object postProcessAfterInitialization(Object bean, String beanName) {
+            if (!"contactTransferUseCases".equals(beanName)) {
+                return bean;
+            }
+            ProxyFactory factory = new ProxyFactory(bean);
+            factory.setProxyTargetClass(true);
+            factory.addAdvice((MethodBeforeAdvice) (method, args, target) -> {
+                if ("transferContact".equals(method.getName())) {
+                    transferInvocations.incrementAndGet();
+                }
+            });
+            return factory.getProxy();
+        }
+    }
 
     /**
      * Test-only fault-injecting {@link AuditPort}. The

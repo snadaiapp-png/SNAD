@@ -377,7 +377,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(COLLABORATION_RLS_VERSION),
                         MigrationVersion.fromVersion(COLLABORATION_INTEGRITY_VERSION),
-                        MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION));
+                        MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
+                        MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
+                        MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -510,7 +512,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(COLLABORATION_RLS_VERSION),
                         MigrationVersion.fromVersion(COLLABORATION_INTEGRITY_VERSION),
-                        MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION));
+                        MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
+                        MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
+                        MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
