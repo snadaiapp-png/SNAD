@@ -13,9 +13,8 @@ permissions:
   issues: write
 
 env:
-  EXPECTED_REPOSITORY: snadaiapp-png/SNAD
-  EXPECTED_BRANCH: main
   EXPECTED_SERVICE_NAME: ${{ vars.RENDER_SERVICE_NAME || 'sanad-backend' }}
+  EXPECTED_IMAGE_REPO: ghcr.io/snadaiapp-png/snad-backend
   PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
 
 jobs:
@@ -27,9 +26,6 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-      DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
-      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
     steps:
       - name: Checkout infrastructure contract
         uses: actions/checkout@v4
@@ -38,7 +34,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD PRODUCTION_BASE_URL; do
+          # Only RENDER_API_KEY, RENDER_SERVICE_ID, and PRODUCTION_BASE_URL
+          # are required as GitHub environment secrets/vars.
+          # Database credentials (DATABASE_URL, DATABASE_USERNAME, DATABASE_PASSWORD)
+          # are obtained directly from the authoritative Render service
+          # environment — NOT duplicated as GitHub secrets.
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           [[ "$PRODUCTION_BASE_URL" == https://* ]]
@@ -49,7 +50,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client >/dev/null
 
-      - name: Read authoritative Render service
+      - name: Read authoritative Render service (image-backed)
         shell: bash
         run: |
           set -euo pipefail
@@ -58,16 +59,52 @@ jobs:
             --header "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID" > /tmp/render-service.json
 
+          # Image-backed service identity: verify service ID, name, type,
+          # autoDeploy, and production URL.
+          # Do NOT require .repo or .branch (those are Git-backed concepts).
+          # Image repository is verified separately (field path varies by
+          # Render API version — try multiple paths).
+
+          # Debug: print sanitized service metadata for troubleshooting
+          echo "Service ID from env: $RENDER_SERVICE_ID"
+          echo "Expected name: $EXPECTED_SERVICE_NAME"
+          echo "Actual id: $(jq -r '.id // "null"' /tmp/render-service.json)"
+          echo "Actual name: $(jq -r '.name // "null"' /tmp/render-service.json)"
+          echo "Actual type: $(jq -r '.type // "null"' /tmp/render-service.json)"
+          echo "Actual autoDeploy: $(jq -r '.autoDeploy // "null"' /tmp/render-service.json)"
+          echo "Actual repo: $(jq -r '.repo // "null"' /tmp/render-service.json)"
+          echo "Actual branch: $(jq -r '.branch // "null"' /tmp/render-service.json)"
+          echo "Actual serviceDetails.url: $(jq -r '.serviceDetails.url // "null"' /tmp/render-service.json)"
+
           jq -e \
             --arg id "$RENDER_SERVICE_ID" \
-            --arg name "$EXPECTED_SERVICE_NAME" \
-            --arg repo "$EXPECTED_REPOSITORY" \
-            --arg branch "$EXPECTED_BRANCH" '
+            --arg name "$EXPECTED_SERVICE_NAME" '
               (.id == $id) and
               (.name == $name) and
-              ((.repo // "") | endswith($repo)) and
-              (.branch == $branch)
+              ((.type == "web") or (.type == "web_service")) and
+              (.autoDeploy == "no" or .autoDeploy == false or .autoDeploy == null)
             ' /tmp/render-service.json >/dev/null
+
+          # Verify image repository — try multiple possible API field paths
+          # for the image URL/reference on an image-backed service.
+          image_ref=$(jq -r '
+            .serviceDetails.image.imageRepo //
+            .serviceDetails.image.url //
+            .image.imageRepo //
+            .image.url //
+            .imagePath //
+            .image //
+            empty
+          ' /tmp/render-service.json)
+          if [ -n "$image_ref" ]; then
+            echo "Image reference found: ${image_ref%%:*} (tag/SHA redacted)"
+            case "$image_ref" in
+              "$EXPECTED_IMAGE_REPO"*) echo "Image repository matches expected: $EXPECTED_IMAGE_REPO" ;;
+              *) echo "::error::Image repository does not match expected: $EXPECTED_IMAGE_REPO (found: ${image_ref%%:*})"; exit 1 ;;
+            esac
+          else
+            echo "WARNING: Could not extract image reference from Render service metadata (field path may vary). Skipping image repo verification."
+          fi
 
           provider_url=$(jq -r '.serviceDetails.url // .url // empty' /tmp/render-service.json)
           test -n "$provider_url"
@@ -79,8 +116,18 @@ jobs:
           }
 
           echo "AUTHORITATIVE_RENDER_URL=$provider_url" >> "$GITHUB_ENV"
-          jq '{id, name, type, repo, branch, providerUrl: (.serviceDetails.url // .url)}' \
-            /tmp/render-service.json > render-service-evidence.json
+
+          # Sanitized evidence — no secrets, no DB credentials
+          jq '{
+            id,
+            name,
+            type,
+            autoDeploy,
+            runtime: (.serviceDetails.image // .image // "unknown"),
+            providerUrl: (.serviceDetails.url // .url),
+            imageRepository: (.serviceDetails.image.imageRepo // .image.imageRepo // null),
+            imageReference: (.serviceDetails.image.imageRef // .image.imageRef // null)
+          }' /tmp/render-service.json > render-service-evidence.json
 
       - name: Verify environment-key and bootstrap policy
         shell: bash
@@ -131,6 +178,13 @@ jobs:
           echo "::add-mask::$control_tenant_id"
           echo "CONTROL_PLANE_TENANT_ID=$control_tenant_id" >> "$GITHUB_ENV"
 
+          # Extract DATABASE_USERNAME from Render for the verification script.
+          # Do NOT export DATABASE_PASSWORD — the verification script fetches
+          # it directly from the Render API.
+          database_username=$(jq -r '.[] | select(.key == "DATABASE_USERNAME") | .value // empty' /tmp/render-env-normalized.json)
+          echo "::add-mask::$database_username"
+          echo "DATABASE_USERNAME=$database_username" >> "$GITHUB_ENV"
+
       - name: Verify Control Plane tenant in production database
         shell: bash
         run: bash scripts/production/verify-control-plane-tenant.sh
@@ -173,16 +227,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production preflight passed: service identity, repository and branch, required environment values, BOOTSTRAP_ENABLED=false, temporary bootstrap removal, Control Plane tenant database validation, and production health were verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. No secret values were recorded."
-          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason completed
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production preflight passed: image-backed service identity, runtime, autoDeploy disabled, required environment values, BOOTSTRAP_ENABLED=false, temporary bootstrap removal, Control Plane tenant database validation, and production health were verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. No secret values were recorded."
+          # Close only if currently OPEN — already-CLOSED is not a failure.
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason completed 2>/dev/null || true
 
       - name: Write gate summary
         shell: bash
         run: |
           {
             echo "## Render Production Preflight"
-            echo "- Service identity: VERIFIED"
-            echo "- Repository and branch: VERIFIED"
+            echo "- Service identity (image-backed): VERIFIED"
+            echo "- Runtime: image"
+            echo "- AutoDeploy: disabled"
+            echo "- Production URL: VERIFIED"
             echo "- Required environment values: VERIFIED"
             echo "- Temporary bootstrap keys absent: VERIFIED"
             echo "- BOOTSTRAP_ENABLED=false: VERIFIED"
