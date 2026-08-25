@@ -81,6 +81,8 @@ class CommerceOrderPostgresConcurrencyTest {
     @Autowired private CheckoutService checkoutService;
     @Autowired private OrderService orderService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactions;
+    @Autowired private org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate namedJdbc;
 
     // Unique run_id namespace — every record created by this test run is
     // tagged with this prefix so cleanup can target ONLY records from this
@@ -132,10 +134,17 @@ class CommerceOrderPostgresConcurrencyTest {
             }
         }
         if (!createdTenants.isEmpty()) {
-            // Delete order_number_sequences rows for the created tenants
+            // Delete order_number_sequences rows for the created tenants.
+            // commerce_order_number_sequences has FORCE ROW LEVEL SECURITY
+            // (V20260820_6 lines 277-278) — sanad cannot bypass RLS even as
+            // table owner. Use RlsTestSupport.deleteTenantRows which wraps the
+            // DELETE in a tenant-scoped transaction with set_config('app.tenant_id',
+            // tenant, true) so the WITH CHECK clause accepts the DELETE.
             for (UUID tid : new ArrayList<>(createdTenants)) {
-                jdbc.update("DELETE FROM commerce_order_number_sequences WHERE tenant_id = ?", tid);
-                // Delete tenants last
+                RlsTestSupport.deleteTenantRows(namedJdbc, transactions, tid,
+                        java.util.List.of("commerce_order_number_sequences"));
+                // Delete tenants last (tenants table is ENABLE-RLS non-FORCE —
+                // sanad as table owner bypasses RLS, so plain DELETE works).
                 jdbc.update("DELETE FROM tenants WHERE id = ?", tid);
             }
         }
