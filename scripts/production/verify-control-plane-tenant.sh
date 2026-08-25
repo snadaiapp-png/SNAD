@@ -54,6 +54,13 @@ if [[ "$QUERY_PART" == *"user="* ]]; then
   URL_USER=$(echo "$QUERY_PART" | sed -n 's/.*user=\([^&]*\).*/\1/p')
 fi
 
+# Debug: print sanitized URL structure for troubleshooting
+echo "DATABASE_URL structure: scheme-stripped, host=$PGHOST, port=$PGPORT, dbname=$DB_NAME"
+echo "URL contains @: $(echo "$RAW_URL" | grep -c '@' || true)"
+echo "Query part contains user=: $(echo "$QUERY_PART" | grep -c 'user=' || true)"
+echo "URL_USER extracted: $( [ -n "$URL_USER" ] && echo 'YES' || echo 'NO')"
+echo "DATABASE_USERNAME from env: $( [ -n "$DATABASE_USERNAME" ] && echo 'present' || echo 'absent')"
+
 # Use the username from DATABASE_URL if present, otherwise fall back to
 # the DATABASE_USERNAME env var. The Supabase connection pooler requires
 # the username embedded in the connection URL.
@@ -62,6 +69,7 @@ if [ -n "$URL_USER" ]; then
   echo "::add-mask::$PGUSER"
 else
   PGUSER="$DATABASE_USERNAME"
+  echo "::add-mask::$PGUSER"
 fi
 
 echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME (user masked)"
