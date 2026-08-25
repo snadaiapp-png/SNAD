@@ -94,20 +94,57 @@ class JdbcEntityParticipantRepositoryPostgresTest {
     }
 
     @Test void findActiveIsRoleSpecific() {
+        // W2 (V20260823_2) prohibits more than one ACTIVE participant per
+        // (tenant, contact, user) regardless of role. The original fixture
+        // inserted two ACTIVE rows for the same user with different roles
+        // (COLLABORATOR + WATCHER) which V20260823_2 now correctly rejects
+        // with `uk_crm_contact_participant_active_user` DuplicateKeyException.
+        //
+        // The test's intent is to prove `findActive(...)` is role-specific —
+        // i.e., querying for COLLABORATOR returns the COLLABORATOR row and
+        // querying for WATCHER returns the WATCHER row. Using two DIFFERENT
+        // users preserves this proof while complying with W2 (the partial
+        // unique index keys on (tenant_id, entity_id, user_id) so different
+        // users are independent). This mirrors the W2-compliant pattern
+        // established by ContactParticipantInvariantPostgresTest
+        // .c_twoDifferentUsersMayParticipateInSameContact.
         UUID c = seedContact(TENANT_A, "Eve");
+        UUID userCollaborator = USER_A;
+        UUID userWatcher = UUID.randomUUID(); ensureUser(userWatcher, TENANT_A);
         transactions.executeWithoutResult(s -> { setGuc(TENANT_A);
-            repository.insert(EntityParticipant.active(UUID.randomUUID(), TENANT_A, CollaborationEntityType.CONTACT, c, USER_A, ParticipantRole.COLLABORATOR, USER_A, Instant.now()));
-            repository.insert(EntityParticipant.active(UUID.randomUUID(), TENANT_A, CollaborationEntityType.CONTACT, c, USER_A, ParticipantRole.WATCHER, USER_A, Instant.now().plusSeconds(1)));
-            assertThat(repository.findActive(TENANT_A, CollaborationEntityType.CONTACT, c, USER_A, ParticipantRole.COLLABORATOR)).isPresent();
-            assertThat(repository.findActive(TENANT_A, CollaborationEntityType.CONTACT, c, USER_A, ParticipantRole.WATCHER)).isPresent();
+            repository.insert(EntityParticipant.active(UUID.randomUUID(), TENANT_A, CollaborationEntityType.CONTACT, c, userCollaborator, ParticipantRole.COLLABORATOR, USER_A, Instant.now()));
+            repository.insert(EntityParticipant.active(UUID.randomUUID(), TENANT_A, CollaborationEntityType.CONTACT, c, userWatcher, ParticipantRole.WATCHER, USER_A, Instant.now().plusSeconds(1)));
+            assertThat(repository.findActive(TENANT_A, CollaborationEntityType.CONTACT, c, userCollaborator, ParticipantRole.COLLABORATOR)).isPresent();
+            assertThat(repository.findActive(TENANT_A, CollaborationEntityType.CONTACT, c, userWatcher, ParticipantRole.WATCHER)).isPresent();
         });
     }
 
     @Test void listActiveExcludesRemovedHistory() {
+        // W2 (V20260823_2) prohibits two ACTIVE participants for the same
+        // (tenant, contact, user) regardless of role. The original fixture
+        // inserted two ACTIVE rows for USER_A with different roles, then
+        // marked one removed — but the second INSERT was already blocked
+        // by `uk_crm_contact_participant_active_user` before `markRemoved`
+        // could run.
+        //
+        // The test's intent is to prove `listActive(...)` excludes
+        // removed/historical rows while `findById(...)` still returns them.
+        // Using two DIFFERENT users (one COLLABORATOR, one WATCHER) — then
+        // marking the COLLABORATOR as removed — preserves the proof: after
+        // removal, `listActive` returns only the still-active WATCHER row
+        // (hasSize=1, id=id2), and `findById(id1)` still returns the
+        // historical COLLABORATOR row. This mirrors the W2-compliant pattern
+        // established by ContactParticipantInvariantPostgresTest
+        // .d_removedHistoricalThenNewActiveRoleIsAllowed (which uses one
+        // user with role transition) — here we use two users so both
+        // participants can be ACTIVE simultaneously before the removal,
+        // matching the test's original assertion shape.
         UUID c = seedContact(TENANT_A, "Frank"); UUID id1 = UUID.randomUUID(); UUID id2 = UUID.randomUUID();
+        UUID userCollaborator = USER_A;
+        UUID userWatcher = UUID.randomUUID(); ensureUser(userWatcher, TENANT_A);
         transactions.executeWithoutResult(s -> { setGuc(TENANT_A);
-            repository.insert(EntityParticipant.active(id1, TENANT_A, CollaborationEntityType.CONTACT, c, USER_A, ParticipantRole.COLLABORATOR, USER_A, Instant.now()));
-            repository.insert(EntityParticipant.active(id2, TENANT_A, CollaborationEntityType.CONTACT, c, USER_A, ParticipantRole.WATCHER, USER_A, Instant.now().plusSeconds(1)));
+            repository.insert(EntityParticipant.active(id1, TENANT_A, CollaborationEntityType.CONTACT, c, userCollaborator, ParticipantRole.COLLABORATOR, USER_A, Instant.now()));
+            repository.insert(EntityParticipant.active(id2, TENANT_A, CollaborationEntityType.CONTACT, c, userWatcher, ParticipantRole.WATCHER, USER_A, Instant.now().plusSeconds(1)));
             repository.markRemoved(TENANT_A, id1, 0L, USER_A, Instant.now());
             var list = repository.listActive(TENANT_A, CollaborationEntityType.CONTACT, c);
             assertThat(list).hasSize(1); assertThat(list.get(0).id()).isEqualTo(id2);
@@ -143,7 +180,7 @@ class JdbcEntityParticipantRepositoryPostgresTest {
     // ========== HELPERS ==========
     private void setGuc(UUID t) { jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)", p("t", t.toString()), String.class); }
     private MapSqlParameterSource p(String k, Object v) { return new MapSqlParameterSource().addValue(k, v); }
-    private UUID seedContact(UUID t, String n) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_contacts (id, tenant_id, given_name, display_name, normalized_name, lifecycle_status, created_by, updated_by, created_at, updated_at) VALUES (:id,:t,:n,:n,:norm,'ACTIVE',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("n",n).addValue("norm",n.toLowerCase()).addValue("u",USER_A)); return id; }
+    private UUID seedContact(UUID t, String n) { UUID id = UUID.randomUUID(); transactions.executeWithoutResult(s -> { setGuc(t); jdbc.update("INSERT INTO crm_contacts (id, tenant_id, given_name, display_name, normalized_name, lifecycle_status, created_by, updated_by, created_at, updated_at) VALUES (:id,:t,:n,:n,:norm,'ACTIVE',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("n",n).addValue("norm",n.toLowerCase()).addValue("u",USER_A)); }); return id; }
     private void ensureTenant(UUID id) { jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (:id,:name,:sub,'ACTIVE',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("name","Test "+id).addValue("sub","repo-"+id)); }
     private void ensureUser(UUID id, UUID t) { jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (:id,:t,:email,:name,'ACTIVE','dummy',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("t",t).addValue("email","repo-"+id+"@snad.test").addValue("name","Repo User")); }
 }

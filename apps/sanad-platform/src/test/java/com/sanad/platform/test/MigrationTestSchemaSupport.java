@@ -157,43 +157,110 @@ public final class MigrationTestSchemaSupport {
     /**
      * Ensures the {@code test_migration} database exists on the PostgreSQL
      * server reachable via {@code originalUrl}. Idempotent — safe to call
-     * from {@code @BeforeAll}. Connects to the {@code postgres} maintenance
-     * database on the same server, issues {@code CREATE DATABASE
-     * test_migration}, and silently swallows the {@code duplicate_database}
-     * error (SQLSTATE 42P04) when the database already exists.
+     * from {@code @BeforeAll}.
      *
-     * <p>The CI PostgreSQL Docker container uses {@code POSTGRES_USER=sanad}
-     * (or {@code sanad_test}) which is a superuser with CREATEDB permission.
-     * Local dev users must ensure their connection role has CREATEDB.</p>
+     * <p>Algorithm:</p>
+     * <ol>
+     *   <li>Connect to the {@code postgres} maintenance database on the same
+     *       server (resolved from {@code originalUrl} by
+     *       {@link #getAdminJdbcUrl(String)}).</li>
+     *   <li>Query {@code pg_database} for the {@code test_migration} row.
+     *       If the row exists, return successfully <em>without</em> issuing
+     *       {@code CREATE DATABASE}. This avoids requiring the application
+     *       role to have CREATEDB when the disposable database has been
+     *       pre-provisioned.</li>
+     *   <li>If the row does not exist, issue {@code CREATE DATABASE
+     *       test_migration}. This path still requires CREATEDB; it is only
+     *       needed the first time the database is bootstrapped on a fresh
+     *       cluster.</li>
+     *   <li>The legacy {@code duplicate_database} SQLSTATE {@code 42P04}
+     *       handling is preserved for race safety: if a concurrent caller
+     *       creates the database between our SELECT and our CREATE, we
+     *       swallow the error and return success.</li>
+     * </ol>
+     *
+     * <p><strong>Least-privilege contract:</strong> CREATEDB is needed on
+     * this connection role only when this helper must actually create the
+     * disposable database (first run on a fresh cluster, or after the
+     * database has been dropped). A pre-provisioned {@code test_migration}
+     * database — for example one created by an authorised
+     * environment/bootstrap actor and owned by the application role —
+     * allows a least-privilege application role (no SUPERUSER, no
+     * BYPASSRLS, no CREATEDB, no CREATEROLE) to run every migration-upgrade
+     * test. If the database does not exist when {@code ensureDatabase()}
+     * is called, an authorised environment/bootstrap actor must provision
+     * it before tests run; this helper will then take the
+     * {@code pg_database} existence short-circuit and skip the CREATE on
+     * every subsequent invocation.</p>
      *
      * <p>This call must NOT be issued from inside a transaction — PostgreSQL
      * forbids {@code CREATE DATABASE} in a transaction block. The driver's
-     * default auto-commit mode (on) is used here.</p>
+     * default auto-commit mode (on) is used here, and the existence check
+     * is also run in auto-commit so the helper never starts an explicit
+     * transaction.</p>
      *
      * @param originalUrl the source JDBC URL (any database on the same server is fine)
-     * @param user        DB user with CREATEDB privilege
+     * @param user        DB user (needs CREATEDB only if the disposable database
+     *                    does not already exist; otherwise no special privilege
+     *                    beyond CONNECT on the {@code postgres} maintenance DB
+     *                    and SELECT on {@code pg_database})
      * @param password    DB password
      */
     public static void ensureDatabase(String originalUrl, String user, String password) {
         String adminUrl = getAdminJdbcUrl(originalUrl);
         try (Connection conn = DriverManager.getConnection(adminUrl, user, password);
              Statement stmt = conn.createStatement()) {
-            // PostgreSQL does NOT support `CREATE DATABASE IF NOT EXISTS`.
-            // We attempt the CREATE and swallow the duplicate_database error
-            // (SQLSTATE 42P04) on subsequent runs.
+            // Fast path: if the disposable database already exists, return
+            // without attempting CREATE DATABASE. This lets a least-privilege
+            // application role (no CREATEDB) run all migration-upgrade tests
+            // once an operator has pre-provisioned `test_migration`.
+            boolean exists = databaseExists(stmt, ISOLATED_DB_NAME);
+            if (exists) {
+                return;
+            }
+            // Slow path: database is absent. CREATE DATABASE requires
+            // CREATEDB on the connection role. PostgreSQL does NOT support
+            // `CREATE DATABASE IF NOT EXISTS`, so we attempt the CREATE and
+            // swallow the duplicate_database error (SQLSTATE 42P04) for
+            // race safety against concurrent callers.
             try {
                 stmt.executeUpdate("CREATE DATABASE " + ISOLATED_DB_NAME);
             } catch (SQLException sqle) {
                 if (!"42P04".equals(sqle.getSQLState())) {
                     throw sqle;
                 }
-                // Else: database already exists — expected on subsequent runs.
+                // Else: a concurrent caller created the database between our
+                // SELECT and our CREATE — expected on parallel test runs.
             }
         } catch (SQLException sqle) {
             throw new IllegalStateException(
                     "Failed to ensure isolated test database '" + ISOLATED_DB_NAME
                             + "' exists on server reachable via " + adminUrl,
                     sqle);
+        }
+    }
+
+    /**
+     * Read-only existence check on {@code pg_database}. Runs in the
+     * statement's current (auto-commit) mode so it never starts an
+     * explicit transaction — required because the caller may subsequently
+     * issue {@code CREATE DATABASE} on the same connection, which
+     * PostgreSQL forbids inside a transaction block.
+     *
+     * @param stmt        an open statement on the {@code postgres}
+     *                    maintenance database
+     * @param databaseName the database name to look up
+     * @return {@code true} iff a row with the given name exists in
+     *         {@code pg_database}
+     * @throws SQLException if the lookup query fails
+     */
+    private static boolean databaseExists(Statement stmt, String databaseName) throws SQLException {
+        try (var ps = stmt.getConnection().prepareStatement(
+                "SELECT 1 FROM pg_database WHERE datname = ?")) {
+            ps.setString(1, databaseName);
+            try (var rs = ps.executeQuery()) {
+                return rs.next();
+            }
         }
     }
 

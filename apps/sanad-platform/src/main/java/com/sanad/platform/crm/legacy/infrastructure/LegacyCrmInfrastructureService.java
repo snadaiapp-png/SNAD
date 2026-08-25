@@ -108,6 +108,7 @@ public class LegacyCrmInfrastructureService {
     private final String workerId = UUID.randomUUID().toString();
     private final SecretKeySpec customFieldKey;
     private final com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext;
+    private final com.sanad.platform.crm.party.application.ContactUseCases contactUseCases;
 
     public LegacyCrmInfrastructureService(
             NamedParameterJdbcTemplate jdbc,
@@ -116,7 +117,8 @@ public class LegacyCrmInfrastructureService {
             Environment environment,
             @Value("${sanad.crm.import-worker-enabled:true}") boolean importWorkerEnabled,
             @Value("${sanad.crm.custom-field-encryption-key:}") String encryptionKey,
-            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext) {
+            com.sanad.platform.security.rls.TenantRlsTransactionContext tenantRlsContext,
+            com.sanad.platform.crm.party.application.ContactUseCases contactUseCases) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -125,6 +127,7 @@ public class LegacyCrmInfrastructureService {
         this.importWorkerEnabled = importWorkerEnabled;
         this.customFieldKey = CrmEncryptionKeyValidator.resolve(environment, encryptionKey);
         this.tenantRlsContext = tenantRlsContext;
+        this.contactUseCases = contactUseCases;
     }
 
     @Transactional(readOnly = true)
@@ -213,50 +216,24 @@ public class LegacyCrmInfrastructureService {
             Authentication authentication, UUID contactId, UpdateContactRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
-        Map<String, Object> existing =
-                one("crm_contacts", tenantId, contactId, "CRM contact not found");
-        if ("ARCHIVED".equals(existing.get("lifecycle_status"))) {
-            throw conflict("Archived CRM contact cannot be updated");
-        }
+        // C6-B: delegate to canonical A1 adapter — no direct Contact business UPDATE SQL.
+        // V1 has no If-Match header, so read current version first.
+        var current = contactUseCases.getById(tenantId, contactId);
+        // C6-B-R1: restore account existence validation (compatibility regression fix).
         if (request.accountId() != null) {
             one("crm_accounts", tenantId, request.accountId(), "CRM account not found");
         }
-        validateOwner(tenantId, request.ownerUserId());
-        String given = optional(request.givenName(), 120, "givenName");
-        String family = optional(request.familyName(), 120, "familyName");
-        String displayName = null;
-        if (given != null || family != null) {
-            String actualGiven = given == null ? String.valueOf(existing.get("given_name")) : given;
-            Object currentFamily = existing.get("family_name");
-            String actualFamily =
-                    family == null && currentFamily != null ? currentFamily.toString() : family;
-            displayName = actualFamily == null || actualFamily.isBlank()
-                    ? actualGiven : actualGiven + " " + actualFamily;
-        }
-        Instant now = Instant.now();
-        jdbc.update(
-                "UPDATE crm_contacts SET account_id=COALESCE(:accountId,account_id)," +
-                        "given_name=COALESCE(:givenName,given_name),family_name=COALESCE(:familyName,family_name)," +
-                        "display_name=COALESCE(:displayName,display_name),normalized_name=COALESCE(:normalizedName,normalized_name)," +
-                        "primary_email=COALESCE(:email,primary_email),normalized_email=COALESCE(:normalizedEmail,normalized_email)," +
-                        "primary_phone=COALESCE(:phone,primary_phone),preferred_locale=COALESCE(:locale,preferred_locale)," +
-                        "time_zone=COALESCE(:timeZone,time_zone),owner_user_id=COALESCE(:ownerUserId,owner_user_id)," +
-                        "consent_summary=COALESCE(:consent,consent_summary),updated_by=:actorId,updated_at=:now,version=version+1 " +
-                        "WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", tenantId).addValue("id", contactId)
-                        .addValue("accountId", request.accountId()).addValue("givenName", given)
-                        .addValue("familyName", family).addValue("displayName", displayName)
-                        .addValue("normalizedName", displayName == null ? null : normalize(displayName))
-                        .addValue("email", optional(request.primaryEmail(), 255, "primaryEmail"))
-                        .addValue("normalizedEmail", normalizeEmail(request.primaryEmail()))
-                        .addValue("phone", optional(request.primaryPhone(), 64, "primaryPhone"))
-                        .addValue("locale", optional(request.preferredLocale(), 35, "preferredLocale"))
-                        .addValue("timeZone", optional(request.timeZone(), 64, "timeZone"))
-                        .addValue("ownerUserId", request.ownerUserId())
-                        .addValue("consent", upper(request.consentSummary()))
-                        .addValue("actorId", actorId).addValue("now", Timestamp.from(now)));
-        timeline(tenantId, "CONTACT", contactId, "crm.contact.updated",
-                "Contact updated", "CRM_CONTACT", contactId, actorId, now);
+        var command = new com.sanad.platform.crm.party.domain.ContactRepository.UpdateContactCommand(
+                request.accountId(),
+                optional(request.givenName(), 120, "givenName"),
+                optional(request.familyName(), 120, "familyName"),
+                optional(request.primaryEmail(), 255, "primaryEmail"),
+                optional(request.primaryPhone(), 64, "primaryPhone"),
+                optional(request.preferredLocale(), 35, "preferredLocale"),
+                optional(request.timeZone(), 64, "timeZone"),
+                request.ownerUserId(),
+                upper(request.consentSummary()));
+        contactUseCases.update(tenantId, actorId, contactId, command, current.version());
         return getContact(authentication, contactId);
     }
 

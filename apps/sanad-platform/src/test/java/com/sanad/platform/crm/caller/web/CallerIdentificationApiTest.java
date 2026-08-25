@@ -411,6 +411,7 @@ class CallerIdentificationApiTest {
                          boolean verified, String verification, boolean preferred) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)", p().addValue("t", fixture.tenantId().toString()), String.class);
         jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
                         "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
                         "created_by,updated_by,created_at,updated_at) " +

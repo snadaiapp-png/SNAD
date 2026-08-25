@@ -54,6 +54,7 @@ public class ContactRelationshipUseCases {
         this.objectMapper = objectMapper;
     }
 
+    @Transactional(readOnly = true)
     public ContactProfileRecord profile(UUID tenantId, UUID contactId) {
         requireTenant(tenantId);
         return repository.findProfile(tenantId, contactId);
@@ -87,17 +88,20 @@ public class ContactRelationshipUseCases {
         return after;
     }
 
+    @Transactional(readOnly = true)
     public RelationshipRecord relationship(UUID tenantId, UUID relationshipId) {
         requireTenant(tenantId);
         return repository.findRelationship(tenantId, relationshipId);
     }
 
+    @Transactional(readOnly = true)
     public List<RelationshipRecord> relationshipsByContact(
             UUID tenantId, UUID contactId, int limit, Instant beforeUpdatedAt, UUID beforeId) {
         requireTenant(tenantId);
         return repository.listByContact(tenantId, contactId, boundedLimit(limit), beforeUpdatedAt, beforeId);
     }
 
+    @Transactional(readOnly = true)
     public List<RelationshipRecord> relationshipsByAccount(
             UUID tenantId, UUID accountId, int limit, Instant beforeUpdatedAt, UUID beforeId) {
         requireTenant(tenantId);
@@ -209,17 +213,20 @@ public class ContactRelationshipUseCases {
                 "REACTIVATE", "crm.contact.relationship.reactivated", "Contact relationship reactivated");
     }
 
+    @Transactional(readOnly = true)
     public List<RelationshipHistoryRecord> relationshipHistory(
             UUID tenantId, UUID relationshipId, int limit) {
         requireTenant(tenantId);
         return repository.relationshipHistory(tenantId, relationshipId, boundedLimit(limit));
     }
 
+    @Transactional(readOnly = true)
     public List<OwnershipHistoryRecord> ownershipHistory(UUID tenantId, UUID contactId, int limit) {
         requireTenant(tenantId);
         return repository.ownershipHistory(tenantId, contactId, boundedLimit(limit));
     }
 
+    @Transactional(readOnly = true)
     public List<RelationshipRoleRecord> customRoles(UUID tenantId, boolean includeInactive) {
         requireTenant(tenantId);
         return repository.listRoles(tenantId, includeInactive);

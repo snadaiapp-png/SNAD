@@ -42,7 +42,7 @@ class JdbcSearchRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void search_returnsAllMatchingEntityTypes() {
-        var results = search.search(tenantId, "acme", 20);
+        var results = inTenantTransaction(tenantId, () -> search.search(tenantId, "acme", 20));
 
         var types = results.stream().map(SearchResultRecord::entityType).toList();
         assertThat(types).contains("ACCOUNT", "LEAD");
@@ -55,18 +55,18 @@ class JdbcSearchRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
         seedAccount(otherTenant, actorId, "Acme Other Tenant", "acme-other");
 
         // results for tenantId must NOT include the other-tenant account
-        var results = search.search(tenantId, "acme", 20);
+        var results = inTenantTransaction(tenantId, () -> search.search(tenantId, "acme", 20));
         assertThat(results).allSatisfy(r -> assertThat(r.entityId()).isNotNull());
     }
 
     @Test
     void search_withNoMatchesReturnsEmpty() {
-        assertThat(search.search(tenantId, "nonexistent-xyz", 20)).isEmpty();
+        assertThat(inTenantTransaction(tenantId, () -> search.search(tenantId, "nonexistent-xyz", 20))).isEmpty();
     }
 
     @Test
     void search_resultForAccountCarriesAccountTypeAsSecondaryInfo() {
-        var results = search.search(tenantId, "acme corp", 20);
+        var results = inTenantTransaction(tenantId, () -> search.search(tenantId, "acme corp", 20));
         var account = results.stream()
                 .filter(r -> r.entityType().equals("ACCOUNT"))
                 .findFirst().orElseThrow();

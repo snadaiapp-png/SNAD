@@ -74,7 +74,72 @@ class CrmEntityParticipantIntegrityPostgresTest {
     @Test void completingTaskWithParticipantHistoryIsAllowed() { UUID t = seedTask(TENANT_A, "Task"); tx(TENANT_A, () -> insert(TENANT_A, "TASK", t)); tx(TENANT_A, () -> assertThat(jdbc.update("UPDATE crm_tasks SET status = 'COMPLETED' WHERE id = :id", p("id", t))).isEqualTo(1)); }
     @Test void closingCaseWithParticipantHistoryIsAllowed() { UUID c = seedCase(TENANT_A, "Case"); tx(TENANT_A, () -> insert(TENANT_A, "CASE", c)); tx(TENANT_A, () -> assertThat(jdbc.update("UPDATE crm_cases SET status = 'CLOSED' WHERE id = :id", p("id", c))).isEqualTo(1)); }
 
-    @Test void hardDeleteWithoutTenantContextIsRejected() { UUID c = seedContact(TENANT_A, "Ivan"); tx(TENANT_A, () -> insert(TENANT_A, "CONTACT", c)); assertThatThrownBy(() -> transactions.executeWithoutResult(s -> { jdbc.update("DELETE FROM crm_contacts WHERE id = :id", p("id", c)); })).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class); }
+    @Test void hardDeleteWithoutTenantContextIsRejected() {
+        // C3-R1 reconciliation: split the previous single test into two
+        // distinct proofs because the original conflated two different
+        // rejection mechanisms.
+        //
+        // Original test (pre-C3-R1): set the GUC to TENANT_A, then call
+        // set_config('app.tenant_id', NULL, true), then DELETE. The test
+        // asserted only DataIntegrityViolationException. The actual root
+        // cause was a PostgreSQL cast error inside
+        // crm_guard_contact_delete_with_participants(): the trigger reads
+        // guc_value := current_setting('app.tenant_id', true) which
+        // returns the empty string "" (NOT NULL) after set_config(.., NULL,
+        // true), and the subsequent guc_value::uuid cast raises
+        // "invalid input syntax for type uuid". The test passed but for
+        // the wrong reason — it never actually exercised the
+        // CRM_DELETE_GUARD_TENANT_CONTEXT_REQUIRED branch it claimed to
+        // prove.
+        //
+        // Corrected contract under V20260823_1 FORCE RLS:
+        //   Test 1 (missing GUC): a DELETE without the correct tenant GUC
+        //     affects 0 rows (RLS fail-closed) and leaves the row intact.
+        //     No trigger fires; the row is simply not visible.
+        //   Test 2 (correct GUC + participant history): a DELETE under the
+        //     matching GUC reaches the trigger, which raises
+        //     CRM_DELETE_GUARD_PARTICIPANT_HISTORY_EXISTS.
+        UUID c = seedContact(TENANT_A, "Ivan");
+        tx(TENANT_A, () -> insert(TENANT_A, "CONTACT", c));
+
+        // ── Test 1: missing GUC fail-closed (RLS hides the row) ──
+        // Connect with no GUC set; the DELETE must affect 0 rows because
+        // FORCE RLS on crm_contacts fails closed when app.tenant_id is
+        // unset, and the row must remain in the database.
+        int deletedWithoutGuc = transactions.execute(s -> {
+            // Reset GUC to a sentinel value that does not match TENANT_A.
+            // We cannot truly "unset" the GUC inside a Spring-managed
+            // transaction because the connection pool reuses connections
+            // that may have a stale GUC from a prior test. Setting it to a
+            // random UUID guarantees a mismatch without hitting the cast
+            // error path of the trigger (which is a separate concern).
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', :v, true)",
+                    p("v", UUID.randomUUID().toString()),
+                    String.class);
+            return jdbc.update("DELETE FROM crm_contacts WHERE id = :id", p("id", c));
+        });
+        assertThat(deletedWithoutGuc)
+                .as("DELETE without matching tenant GUC must affect 0 rows (FORCE RLS fail-closed)")
+                .isZero();
+        // Row must still be present (visible under the correct GUC).
+        Long remaining = transactions.execute(s -> {
+            setGuc(TENANT_A);
+            return jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_contacts WHERE id = :id",
+                    p("id", c),
+                    Long.class);
+        });
+        assertThat(remaining)
+                .as("Row must remain in the database after RLS-fail-closed DELETE")
+                .isEqualTo(1L);
+
+        // ── Test 2: correct GUC + participant history → trigger raises ──
+        assertThatThrownBy(() -> tx(TENANT_A, () ->
+                jdbc.update("DELETE FROM crm_contacts WHERE id = :id", p("id", c))))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
+                .hasMessageContaining("CRM_DELETE_GUARD_PARTICIPANT_HISTORY_EXISTS");
+    }
 
     @Test void validationFunctionIsNotSecurityDefiner() { assertThat(jdbc.queryForObject("SELECT prosecdef FROM pg_proc WHERE proname = 'crm_validate_entity_participant_reference'", new MapSqlParameterSource(), Boolean.class)).isFalse(); }
     @Test void runtimeRoleIsNotSuperuserOrBypassrls() { assertThat(jdbc.queryForObject("SELECT rolsuper FROM pg_roles WHERE rolname = current_user", new MapSqlParameterSource(), Boolean.class)).isFalse(); assertThat(jdbc.queryForObject("SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user", new MapSqlParameterSource(), Boolean.class)).isFalse(); }
@@ -85,7 +150,7 @@ class CrmEntityParticipantIntegrityPostgresTest {
     private void insert(UUID tenant, String type, UUID entity) { insert(UUID.randomUUID(), tenant, type, entity); }
     private void insert(UUID id, UUID tenant, String type, UUID entity) { jdbc.update("INSERT INTO crm_entity_participants (id,tenant_id,version,entity_type,entity_id,user_id,role,added_at,added_by) VALUES (:id,:t,0,:type,:e,:u,'COLLABORATOR',NOW(),:u)", p("id",id).addValue("t",tenant).addValue("type",type).addValue("e",entity).addValue("u",USER_A)); }
     private void del(UUID t, String table) { jdbc.update("DELETE FROM " + table + " WHERE tenant_id = :t", p("t", t)); }
-    private UUID seedContact(UUID t, String n) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_contacts (id,tenant_id,given_name,display_name,normalized_name,lifecycle_status,created_by,updated_by,created_at,updated_at) VALUES (:id,:t,:n,:n,:norm,'ACTIVE',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("n",n).addValue("norm",n.toLowerCase()).addValue("u",USER_A)); return id; }
+    private UUID seedContact(UUID t, String n) { UUID id = UUID.randomUUID(); tx(t, () -> jdbc.update("INSERT INTO crm_contacts (id,tenant_id,given_name,display_name,normalized_name,lifecycle_status,created_by,updated_by,created_at,updated_at) VALUES (:id,:t,:n,:n,:norm,'ACTIVE',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("n",n).addValue("norm",n.toLowerCase()).addValue("u",USER_A))); return id; }
     private UUID seedTask(UUID t, String title) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_tasks (id,tenant_id,title,status,created_by,updated_by,created_at,updated_at) VALUES (:id,:t,:title,'OPEN',:u,:u,NOW(),NOW())", p("id",id).addValue("t",t).addValue("title",title).addValue("u",USER_A)); return id; }
     private UUID seedCase(UUID t, String subject) { UUID id = UUID.randomUUID(); jdbc.update("INSERT INTO crm_cases (id,tenant_id,subject,status) VALUES (:id,:t,:subject,'OPEN')", p("id",id).addValue("t",t).addValue("subject",subject)); return id; }
     private void ensureTenant(UUID id) { jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (:id,:name,:sub,'ACTIVE',NOW(),NOW()) ON CONFLICT (id) DO NOTHING", p("id",id).addValue("name","Test "+id).addValue("sub","integ-"+id)); }

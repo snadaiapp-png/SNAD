@@ -28,7 +28,9 @@ import java.util.UUID;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 class TransferUseCasesPostgresTest {
@@ -82,7 +84,9 @@ class TransferUseCasesPostgresTest {
 
         ownershipCommands = new OwnershipCommandUseCases(
                 assignmentRepository, records, users, teamRepository, queues,
-                audit, timeline, mapper);
+                audit, timeline, mapper,
+                mock(com.sanad.platform.crm.party.domain.ContactRepository.class),
+                mock(com.sanad.platform.crm.party.application.ContactTransferUseCases.class));
         transfers = new TransferUseCases(
                 transferRepository, assignmentRepository, records, ownershipCommands,
                 users, teamRepository, new InlineTransferWorkflowStubAdapter(),

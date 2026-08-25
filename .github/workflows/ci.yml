@@ -3,6 +3,49 @@
 # DEFECT-010: API Regression Automation
 # CRM-022: CRM Integration Tests job (required status check)
 # v20260816.10: PostgreSQL Direct only — Docker/Testcontainers removed.
+# v20260824.1: Pre-provision `crm_contact_rls_test_user` role for
+#   ContactRlsPostgresTest (C2).
+# v20260824.2 (C6-D.2A): Bootstrap / application role separation.
+# v20260825.1 (RC-4): PostgreSQL Acceptance Tests job — executes
+#   CommerceOrderPostgresConcurrencyTest against a dedicated
+#   `pg_acceptance` database under SPRING_PROFILES_ACTIVE=pg-acceptance.
+#   The @EnabledIfEnvironmentVariable guard makes the default-profile
+#   Maven Test Suite report 6 intentional SKIPPED; this dedicated job
+#   is the authoritative execution path for those 6 concurrency tests.
+#   The postgres:16-alpine POSTGRES_USER env var creates a SUPERUSER
+#   bootstrap role. Previously we set POSTGRES_USER=sanad which made
+#   the application role itself a SUPERUSER, bypassing FORCE RLS and
+#   defeating every tenant-isolation / least-privilege test (RC-1).
+#
+#   Architecture now:
+#     BOOTSTRAP_ADMIN_ROLE=postgres  (SUPERUSER, used ONLY for provisioning)
+#     APPLICATION_TEST_ROLE=sanad    (NOSUPERUSER NOCREATEDB NOCREATEROLE
+#                                     NOBYPASSRLS — used by Flyway +
+#                                     application + tests)
+#
+#   The bootstrap role provisions:
+#     - the `sanad` application role (least-privilege, LOGIN)
+#     - ownership transfer of the `sanad` database to `sanad`
+#       (so Flyway tables created by `sanad` are owned by `sanad`,
+#        making FORCE RLS apply to the table owner — exactly the
+#        contract the RC-1 security tests verify)
+#     - the disposable `test_migration` database owned by `sanad`
+#       (used by MigrationTestSchemaSupport-leveraging tests:
+#        ContactParticipantInvariantPostgresTest, ContactRlsPostgresTest,
+#        ContactTransferSpringProxyPostgresTest, ContactOwnerPatch-
+#        CanonicalizationPostgresTest, and the least-privilege test itself)
+#     - CONNECT on the `postgres` maintenance DB for `sanad`
+#       (MigrationTestSchemaSupport.ensureDatabase + the least-privilege
+#       test connect to `postgres` to query pg_database / pg_roles)
+#     - the `crm_contact_rls_test_user` role (C2 test RLS user)
+#
+#   Flyway then runs as `sanad` against both `sanad` and `test_migration`.
+#   Since `sanad` owns the tables it creates, FORCE RLS applies to it
+#   as the table owner — proving the security model instead of bypassing it.
+#
+# NOTE on heredoc bodies: SQL heredocs inside run: blocks must use
+#   `--` for comments. Bash-style `#` comments are sent to psql as SQL
+#   and break the script.
 # ============================================================
 # Runs on every push to main and on pull requests.
 # Executes Maven tests against the GitHub-provided PostgreSQL 16 service
@@ -37,13 +80,16 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: sanad_pass
+          # Bootstrap SUPERUSER — used ONLY for the provisioning step below.
+          # The application role `sanad` is created separately as a
+          # least-privilege LOGIN role.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
           POSTGRES_DB: sanad
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-cmd "pg_isready -U postgres -d sanad"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -58,6 +104,10 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
+      # PGPASSWORD for the psql client used in the provisioning step
+      # (connects as the `postgres` bootstrap superuser to CREATE ROLE
+      # `sanad` + databases + grants).
+      PGPASSWORD: postgres_pass
 
     defaults:
       run:
@@ -66,6 +116,80 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Provision application role + databases + test RLS user
+        # Connects as the `postgres` bootstrap SUPERUSER to provision:
+        #   1. The `sanad` application role (NOSUPERUSER NOCREATEDB
+        #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD 'sanad_pass').
+        #   2. ALTER DATABASE sanad OWNER TO sanad — so Flyway tables
+        #      created by `sanad` are owned by `sanad`, making FORCE RLS
+        #      apply to the table owner (the RC-1 security contract).
+        #   3. The disposable `test_migration` database owned by `sanad`
+        #      (used by MigrationTestSchemaSupport-leveraging tests +
+        #      the least-privilege R0-C test).
+        #   4. CONNECT on the `postgres` maintenance DB for `sanad`
+        #      (MigrationTestSchemaSupport.ensureDatabase + the R0-C
+        #      least-privilege test connect to `postgres` to query
+        #      pg_database / pg_roles).
+        #   5. USAGE + CREATE on schema public for `sanad` (Flyway needs
+        #      CREATE TABLE / ALTER TABLE; tests need INSERT/UPDATE/DELETE
+        #      on their own tables — covered by table ownership).
+        #   6. The `crm_contact_rls_test_user` role (C2 RLS test user).
+        # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
+        run: |
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          -- 1. Application role `sanad` (least-privilege LOGIN).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- 2. Transfer database ownership from `postgres` to `sanad`.
+          --    Flyway will then run as `sanad` and own every table it
+          --    creates — making FORCE RLS apply to `sanad` as table owner.
+          ALTER DATABASE sanad OWNER TO sanad;
+
+          -- 3. Pre-provision the disposable `test_migration` database
+          --    (used by MigrationTestSchemaSupport-leveraging tests).
+          --    Owned by `sanad` so the application role can Flyway-migrate
+          --    it without needing CREATEDB. CREATE DATABASE ... OWNER
+          --    requires SUPERUSER (which `postgres` has).
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+
+          -- 4. CONNECT on the maintenance DB for `sanad`. Needed by
+          --    MigrationTestSchemaSupport.ensureDatabase() and the R0-C
+          --    least-privilege test — both connect to `postgres` to
+          --    query pg_database / pg_roles.
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+
+          -- 5. Schema privileges for `sanad` on the `sanad` database.
+          --    Flyway needs CREATE (for CREATE TABLE / ALTER TABLE) +
+          --    USAGE. Tests need USAGE + DML on their own tables
+          --    (covered by table ownership — sanad owns what it creates).
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+
+          -- Mirror the schema privileges on the test_migration database
+          -- (Flyway will run there as `sanad` too).
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+
+          -- 6. Pre-provision the C2 test RLS user (ContactRlsPostgresTest
+          --    asserts presence and refuses to CREATE ROLE itself because
+          --    the production least-privilege contract forbids CREATEROLE
+          --    on the application role).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+            END IF;
+          END $$;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -116,13 +240,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: sanad_pass
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
           POSTGRES_DB: sanad
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-cmd "pg_isready -U postgres -d sanad"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -137,6 +261,7 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
+      PGPASSWORD: postgres_pass
 
     defaults:
       run:
@@ -145,6 +270,37 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Provision application role + databases + test RLS user
+        # Mirror of the test job's provisioning step (same least-privilege
+        # role separation so CRM Integration Tests run against the same
+        # non-superuser application role as the Maven Test Suite).
+        # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
+        run: |
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+            END IF;
+          END $$;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -188,4 +344,190 @@ jobs:
           # Parse surefire reports for summary
           find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
             awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # RC-4 — PostgreSQL Acceptance Tests (concurrency certification)
+  # ------------------------------------------------------------
+  # Executes CommerceOrderPostgresConcurrencyTest against a dedicated
+  # isolated `pg_acceptance` database. The test class is gated by
+  # @EnabledIfEnvironmentVariable(SPRING_PROFILES_ACTIVE=pg-acceptance)
+  # and @ActiveProfiles("pg-acceptance") which requires dedicated
+  # PG_ACCEPTANCE_* credentials — the profile never falls back to the
+  # shared sanad/test_migration databases.
+  #
+  # Why dedicated DB:
+  #   - Tests perform 20-way parallel checkout, 8-way idempotency
+  #     replay, 6-way same-cart concurrent no-key checkout
+  #   - Tests assert ORD-NNNNNN-00001 sequence (first row for a
+  #     fresh tenant in commerce_order_number_sequences) — any
+  #     cross-run residue breaks the assertion
+  #   - @AfterEach cleanup targets ONLY this-run records by runId
+  #     prefix, but sequence-state contamination cannot be cleaned
+  #     by id-based DELETE
+  #
+  # Why dedicated job:
+  #   - The default-profile Maven Test Suite MUST NOT execute these
+  #     tests (would collide with concurrently-running SpringBootTest
+  #     contexts in the shared `sanad` database)
+  #   - The @EnabledIfEnvironmentVariable guard causes the default
+  #     profile to report them as SKIPPED — that skip is correct
+  #     and intentional, NOT a defect.
+  #
+  # Security contract preserved:
+  #   - sanad role remains NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS
+  #   - PgAcceptanceDatabaseGuard fail-fast still gates this job
+  #   - pg_acceptance DB is owned by sanad (table owner contract intact)
+  #   - application-pg-acceptance.yml lives in src/test/resources/
+  #     (NOT packaged into production JAR/Docker)
+  # ============================================================
+  pg-acceptance:
+    name: PostgreSQL Acceptance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # SPRING_DATASOURCE_URL is intentionally NOT set here.
+      # Spring Boot binds SPRING_DATASOURCE_URL env var directly to
+      # spring.datasource.url with HIGHER precedence than profile-specific
+      # YAML. If we set SPRING_DATASOURCE_URL=sanad here, the
+      # application-pg-acceptance.yml override (spring.datasource.url:
+      # ${PG_ACCEPTANCE_JDBC_URL:}) would be IGNORED, and HikariCP would
+      # connect to the shared `sanad` database — defeating the entire
+      # isolation contract of this job. The pg-acceptance profile reads
+      # PG_ACCEPTANCE_JDBC_URL/USERNAME/PASSWORD exclusively.
+      PGPASSWORD: postgres_pass
+      # pg-acceptance profile activation (gates @EnabledIfEnvironmentVariable).
+      SPRING_PROFILES_ACTIVE: pg-acceptance
+      # Dedicated isolated acceptance DB credentials.
+      # The PgAcceptanceDatabaseGuard enforces that this URL must NOT match
+      # the production Supabase / Render managed DB markers (snad-prod,
+      # render-db.internal, supabase.co refs, db names containing 'prod').
+      # The pg_acceptance database is dedicated to this job — no other job
+      # touches it.
+      PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
+      PG_ACCEPTANCE_USERNAME: sanad
+      PG_ACCEPTANCE_PASSWORD: sanad_pass
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Provision application role + dedicated pg_acceptance database
+        # Connects as the `postgres` bootstrap SUPERUSER to provision:
+        #   1. The `sanad` application role (NOSUPERUSER NOCREATEDB
+        #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD 'sanad_pass').
+        #      Reuses the same least-privilege application role as the
+        #      other jobs — no new role is created.
+        #   2. The dedicated `pg_acceptance` database owned by `sanad`.
+        #      CREATE DATABASE ... OWNER requires SUPERUSER (which
+        #      `postgres` has). The DB is idempotently re-created (DROP
+        #      IF EXISTS + CREATE) on every run so the concurrency tests
+        #      start from a known-empty sequence state — required by the
+        #      test 2 assertion "ORD-\\d{6}-00001" (first row for a fresh
+        #      tenant in commerce_order_number_sequences).
+        #   3. Schema privileges for `sanad` on the `pg_acceptance` database.
+        #      Mirrors the proven pattern used by the `test_migration`
+        #      database provisioning in the Maven Test Suite and CRM
+        #      Integration Tests jobs (lines 167-172 of this file):
+        #      GRANT USAGE, CREATE ON SCHEMA public TO sanad.
+        # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
+        run: |
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          -- 1. Application role `sanad` (least-privilege LOGIN).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- 2. Recreate the dedicated pg_acceptance database from scratch.
+          --    DROP + CREATE guarantees a known-empty sequence state at
+          --    the start of every run (the test asserts ORD-NNNNNN-00001
+          --    for the first sequence row of a fresh tenant). Idempotent
+          --    DROP IF EXISTS handles the first run on a fresh container.
+          --    Terminate any lingering connections before DROP (defensive).
+          SELECT pg_terminate_backend(pid)
+          FROM pg_stat_activity
+          WHERE datname = 'pg_acceptance' AND pid <> pg_backend_pid();
+          DROP DATABASE IF EXISTS pg_acceptance;
+          CREATE DATABASE pg_acceptance OWNER sanad;
+
+          -- 3. Schema privileges for `sanad` on the `pg_acceptance` database.
+          --    Mirrors the proven pattern from the Maven Test Suite and
+          --    CRM Integration Tests jobs (which provision the
+          --    `test_migration` database with the exact same GRANT).
+          \c pg_acceptance
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run PostgreSQL acceptance tests
+        # -Dtest=CommerceOrderPostgresConcurrencyTest runs ONLY this single
+        #   class — the @EnabledIfEnvironmentVariable guard ensures all 6
+        #   methods execute under SPRING_PROFILES_ACTIVE=pg-acceptance.
+        # -DfailIfNoTests=true fails loudly if the test class is ever
+        #   renamed/moved/disabled — prevents silent SKIPPED=6 from passing.
+        # -Dsurefire.useFile=true emits per-class JUnit XML under
+        #   target/surefire-reports/ for the artifact upload below.
+        env:
+          # Required by ProductionSecurityGuard (prod profile) — must not be
+          # the test default. The pg-acceptance profile still loads
+          # ProductionSecurityGuard via @SpringBootTest.
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
+        run: |
+          mvn test -B -ntp \
+            -Dsurefire.useFile=true \
+            -DfailIfNoTests=true \
+            -Dtest=CommerceOrderPostgresConcurrencyTest
+
+      - name: Upload acceptance test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-acceptance-surefire-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Acceptance test summary
+        if: always()
+        run: |
+          echo "## PostgreSQL Acceptance Test Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Parse surefire reports for summary
+          find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
+            awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Explicit check: the 6 concurrency tests MUST actually execute (skipped=0)
+          echo "RC-4 acceptance check: CommerceOrderPostgresConcurrencyTest must report 6/0/0/0" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          find target/surefire-reports -name "*CommerceOrderPostgresConcurrencyTest.txt" -exec cat {} \; 2>/dev/null >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

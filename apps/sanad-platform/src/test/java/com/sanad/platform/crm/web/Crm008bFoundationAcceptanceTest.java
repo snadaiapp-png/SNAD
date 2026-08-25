@@ -69,7 +69,11 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260822.4 - crm event outbox contract alignment is the new terminal
     //   collaboration migration. Earlier 20260820.13 remains the last pre-collaboration
     //   terminal.
-    private static final String CRM_LATEST_VERSION = "20260822.4";
+    //
+    // CRM Contacts Collaboration Integration (impl/crm-contacts-collaboration-20260823):
+    //   V20260823.2 - crm participant role exclusivity is the new terminal migration.
+    //   Earlier V20260823.1 (crm contacts force rls) precedes it.
+    private static final String CRM_LATEST_VERSION = "20260823.2";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

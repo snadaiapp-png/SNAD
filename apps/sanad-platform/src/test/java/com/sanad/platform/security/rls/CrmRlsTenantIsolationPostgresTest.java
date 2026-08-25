@@ -64,8 +64,16 @@ class CrmRlsTenantIsolationPostgresTest {
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
-    private static final String RLS_USER = "crm_rls_test_user";
-    private static final String RLS_PASSWORD = "rls_test_pass";
+    // Reuse the CI-pre-provisioned crm_contact_rls_test_user role (the same
+    // role used by ContactRlsPostgresTest) instead of attempting to CREATE ROLE
+    // crm_rls_test_user at test setup. Under the least-privilege CI contract
+    // (commit f8c79bb9 — C6-D.2A) the application role `sanad` has
+    // NOCREATEROLE, so any in-test CREATE ROLE fails with
+    // 'permission denied to create role'. The role is global to the PostgreSQL
+    // cluster, so one pre-provisioned role can serve both RLS test classes.
+    // See .github/workflows/ci.yml lines 181-185 for the bootstrap CREATE ROLE.
+    private static final String RLS_USER = "crm_contact_rls_test_user";
+    private static final String RLS_PASSWORD = "rls_contact_test_pass";
 
     @BeforeEach
     void migrateAndSeed() {
@@ -83,23 +91,26 @@ class CrmRlsTenantIsolationPostgresTest {
 
         jdbc = jdbc();
 
-        // Create a non-superuser for RLS testing — superusers bypass RLS by default.
-        // Idempotent: if the role already exists from a prior test run, reuse it
-        // instead of trying to DROP and re-CREATE (which fails when dependent
-        // grants exist in the test_migration database).
+        // The crm_contact_rls_test_user role is pre-provisioned by the
+        // environment/bootstrap setup (see .github/workflows/ci.yml lines
+        // 181-185) so the application role sanad does not need CREATEROLE.
+        // Verify presence; do not attempt CREATE ROLE because sanad lacks
+        // CREATEROLE under the least-privilege contract (commit f8c79bb9).
+        // This mirrors the pattern established by ContactRlsPostgresTest.
         Boolean roleExists = jdbc.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_rls_test_user')",
-                Boolean.class);
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",
+                Boolean.class, RLS_USER);
         if (Boolean.FALSE.equals(roleExists)) {
-            jdbc.execute("CREATE ROLE " + RLS_USER + " WITH LOGIN PASSWORD '" + RLS_PASSWORD + "'");
-        } else {
-            // Role already exists — normalize: ensure password is reset and grants
-            // are re-established below. ALTER ROLE is idempotent.
-            jdbc.execute("ALTER ROLE " + RLS_USER + " WITH LOGIN PASSWORD '" + RLS_PASSWORD + "'");
+            throw new IllegalStateException(
+                    "Pre-provisioned role '" + RLS_USER + "' is missing. "
+                            + "An environment/bootstrap actor must CREATE ROLE "
+                            + RLS_USER + " WITH LOGIN PASSWORD '<redacted>' "
+                            + "before running CrmRlsTenantIsolationPostgresTest. sanad does not have "
+                            + "CREATEROLE under the least-privilege contract.");
         }
         // Resolve the current database name from the isolated JDBC URL — the
         // test_migration database is the one we just ensured exists and where
-        // the crm_rls_test_user will connect via rawConnection().
+        // the crm_contact_rls_test_user will connect via rawConnection().
         // GRANT CONNECT requires a literal database name in PostgreSQL.
         String jdbcUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"));
@@ -283,7 +294,7 @@ class CrmRlsTenantIsolationPostgresTest {
         // Simulate the rollback migration: disable RLS on all CRM tables
         // (mirrors V20260730_2__disable_crm_row_level_security.sql).
         // We disable RLS directly rather than re-running flyway.clean()+migrate()
-        // because clean() drops tables and wipes the crm_rls_test_user grants.
+        // because clean() drops tables and wipes the crm_contact_rls_test_user grants.
         jdbc.execute("""
                 DO $$
                 DECLARE tbl record;
@@ -326,7 +337,7 @@ class CrmRlsTenantIsolationPostgresTest {
         // Use non-superuser to verify RLS — superusers bypass RLS by default.
         // Connect to the isolated test_migration database (same as the Flyway
         // instance and JdbcTemplate above) so the RLS policies apply to the
-        // same tables crm_rls_test_user was granted privileges on.
+        // same tables crm_contact_rls_test_user was granted privileges on.
         return java.sql.DriverManager.getConnection(
                 MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), RLS_USER, RLS_PASSWORD);
     }
