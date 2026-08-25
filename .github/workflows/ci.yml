@@ -449,6 +449,13 @@ jobs:
         #      schema — without this, Flyway's CREATE TABLE on public fails
         #      with 'permission denied for schema public' even though
         #      `sanad` is the database owner.
+        #   4. Also GRANT ALL PRIVILEGES ON SCHEMA public TO sanad as a
+        #      belt-and-suspenders measure (covers CREATE, USAGE, and any
+        #      future privilege PostgreSQL may add). Plus GRANT CREATE ON
+        #      DATABASE pg_acceptance TO sanad so sanad can create new
+        #      schemas if ever needed (defense-in-depth).
+        #   5. Verification step: print the actual schema ownership +
+        #      privileges to aid debugging if Flyway still fails.
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
           psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
@@ -480,12 +487,31 @@ jobs:
           --    `public` schema. Transfer ownership explicitly so `sanad`
           --    can CREATE TABLE / ALTER TABLE on `public` (Flyway needs
           --    this for flyway_schema_history + every migration table).
-          --    Then also GRANT explicit USAGE, CREATE as a belt-and-
-          --    suspenders measure mirroring the other CI jobs' pattern.
+          --    Then GRANT ALL ON SCHEMA + GRANT CREATE ON DATABASE as
+          --    belt-and-suspenders measures mirroring the other CI jobs'
+          --    pattern + ensuring sanad can create new schemas if needed.
           \c pg_acceptance
           ALTER SCHEMA public OWNER TO sanad;
-          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          GRANT ALL PRIVILEGES ON SCHEMA public TO sanad;
+          GRANT CREATE ON DATABASE pg_acceptance TO sanad;
           SQL
+
+          echo "=== Verifying pg_acceptance schema ownership + privileges ==="
+          PGPASSWORD=postgres_pass psql -h 127.0.0.1 -U postgres -d pg_acceptance -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT n.nspname AS schema_name,
+                 pg_catalog.pg_get_userbyid(n.nspowner) AS owner
+          FROM pg_catalog.pg_namespace n
+          WHERE n.nspname = 'public';
+          SELECT n.nspname AS schema_name,
+                 pg_catalog.array_to_string(n.nspacl, E'\n           ') AS acl
+          FROM pg_catalog.pg_namespace n
+          WHERE n.nspname = 'public';
+          SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls
+          FROM pg_roles WHERE rolname = 'sanad';
+          SELECT datname, pg_catalog.pg_get_userbyid(datdba) AS owner
+          FROM pg_database WHERE datname = 'pg_acceptance';
+          SQL
+          echo "=== Done verifying ==="
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
