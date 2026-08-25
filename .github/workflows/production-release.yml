@@ -179,7 +179,17 @@ jobs:
               live)
                 # Verify deployed image matches the exact requested image
                 deployed_image=$(jq -r '(.deploy // .).image.ref // empty' render-deployment-state.json)
-                echo "Deployed image: $deployed_image"
+                test -n "$deployed_image" || {
+                  echo "::error::Render live deployment returned no image reference"
+                  exit 1
+                }
+                test "$deployed_image" = "${{ steps.image.outputs.image_ref }}" || {
+                  echo "::error::Render deployed image does not match requested immutable image"
+                  echo "  Requested: ${{ steps.image.outputs.image_ref }}"
+                  echo "  Deployed:   $deployed_image"
+                  exit 1
+                }
+                echo "Deployed image: $deployed_image (exact match)"
                 exit 0
                 ;;
               build_failed|update_failed|canceled|deactivated)
