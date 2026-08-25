@@ -211,6 +211,10 @@ class CrmContactRelationshipMigrationUpgradeTest {
                     userB, userB, userB, now, now);
         });
         transactions.executeWithoutResult(s -> {
+            // insertLegacyContact requires the caller to have set the tenant
+            // GUC on the same Connection (i.e. inside this tenant-scoped
+            // transaction) before invoking the helper.
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantA.toString());
             insertLegacyContact(jdbc, contactA, tenantA, null, userA,
                     "Tenant", "A", "tenant-a@example.test", now);
         });
