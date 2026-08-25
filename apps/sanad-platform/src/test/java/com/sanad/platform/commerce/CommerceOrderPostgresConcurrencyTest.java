@@ -14,6 +14,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.server.ResponseStatusException;
 
+// Import the test-only wiring config that provides beans missing under
+// the pg-acceptance profile (e.g., EmailPort via LocalEmailAdapter).
+// See PgAcceptanceWiringConfig class doc for the full rationale.
+
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -65,7 +69,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("pg-acceptance")
-@Import(SecurityPermitAllTestConfig.class)
+@Import({SecurityPermitAllTestConfig.class, PgAcceptanceWiringConfig.class})
 @EnabledIfEnvironmentVariable(named = "SPRING_PROFILES_ACTIVE", matches = "pg-acceptance")
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class CommerceOrderPostgresConcurrencyTest {
