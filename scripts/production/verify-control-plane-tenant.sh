@@ -72,6 +72,45 @@ else
   echo "::add-mask::$PGUSER"
 fi
 
+# Supabase connection pooler (PgBouncer) requires username format:
+# postgres.<project_ref>
+# If connecting to a Supabase pooler host and the username doesn't contain
+# a dot, prepend the Supabase project ref extracted from the hostname.
+# Supabase pooler hostname pattern: aws-X-<region>.pooler.supabase.com
+# The project ref is NOT in the pooler hostname — it's in the direct DB
+# hostname (db.<project_ref>.supabase.co). For the pooler, the username
+# must be postgres.<project_ref>.
+# We construct it by appending the project ref from the DATABASE_USERNAME
+# env var if it contains a dot, or by using the DATABASE_USERNAME as-is
+# if it already contains a dot (already in pooler format).
+if [[ "$PGHOST" == *"pooler.supabase.com"* ]] && [[ "$PGUSER" != *.* ]]; then
+  # The username doesn't contain a dot — Supabase pooler needs postgres.<ref>
+  # Try to extract the project ref from other Render env vars that might
+  # contain the direct DB host (db.<ref>.supabase.co).
+  SUPABASE_REF=""
+  # Check PRODUCTION_DATABASE_JDBC_URL if it exists in Render env
+  PROD_JDBC_URL=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "PRODUCTION_DATABASE_JDBC_URL") | .value // empty')
+  if [[ -n "$PROD_JDBC_URL" ]] && [[ "$PROD_JDBC_URL" == *"db."*".supabase.co"* ]]; then
+    SUPABASE_REF=$(echo "$PROD_JDBC_URL" | sed -n 's/.*db\.\([^.]*\)\.supabase\.co.*/\1/p')
+    echo "Extracted Supabase project ref from PRODUCTION_DATABASE_JDBC_URL"
+  fi
+  # Check PRODUCTION_DATABASE_URL if it exists in Render env
+  if [ -z "$SUPABASE_REF" ]; then
+    PROD_DB_URL=$(echo "$RENDER_ENV" | jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "PRODUCTION_DATABASE_URL") | .value // empty')
+    if [[ -n "$PROD_DB_URL" ]] && [[ "$PROD_DB_URL" == *"db."*".supabase.co"* ]]; then
+      SUPABASE_REF=$(echo "$PROD_DB_URL" | sed -n 's/.*db\.\([^.]*\)\.supabase\.co.*/\1/p')
+      echo "Extracted Supabase project ref from PRODUCTION_DATABASE_URL"
+    fi
+  fi
+  if [ -n "$SUPABASE_REF" ]; then
+    PGUSER="postgres.$SUPABASE_REF"
+    echo "::add-mask::$PGUSER"
+    echo "Constructed Supabase pooler username from project ref"
+  else
+    echo "WARNING: Could not extract Supabase project ref for pooler username construction"
+  fi
+fi
+
 echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME (user masked)"
 
 TENANT_EXISTS=$(PGPASSWORD="$DATABASE_PASSWORD" psql \
