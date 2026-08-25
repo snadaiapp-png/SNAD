@@ -39,21 +39,11 @@ spring:
 
   flyway:
     enabled: true
-    # Explicit Flyway URL/user/password so Flyway uses its own dedicated
-    # connection to the pg_acceptance database (rather than potentially
-    # inheriting a different DataSource via Spring Boot's auto-config).
-    # This eliminates any chance of Flyway accidentally targeting the
-    # default `sanad` database due to env-var fallback ordering.
-    url: ${PG_ACCEPTANCE_JDBC_URL:}
-    user: ${PG_ACCEPTANCE_USERNAME:}
-    password: ${PG_ACCEPTANCE_PASSWORD:}
     locations: "classpath:db/migration,classpath:db/vendor/postgresql"
     baseline-on-migrate: true
     clean-disabled: true
     validate-on-migrate: true
     out-of-order: false
-    default-schema: public
-    schemas: public
 
   h2:
     console:

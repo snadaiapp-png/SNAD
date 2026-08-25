@@ -402,12 +402,15 @@ jobs:
           --health-retries 20
 
     env:
-      # Default-profile env vars (unused by the pg-acceptance profile but
-      # required by the Maven build to satisfy property placeholders).
-      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
-      SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      # SPRING_DATASOURCE_URL is intentionally NOT set here.
+      # Spring Boot binds SPRING_DATASOURCE_URL env var directly to
+      # spring.datasource.url with HIGHER precedence than profile-specific
+      # YAML. If we set SPRING_DATASOURCE_URL=sanad here, the
+      # application-pg-acceptance.yml override (spring.datasource.url:
+      # ${PG_ACCEPTANCE_JDBC_URL:}) would be IGNORED, and HikariCP would
+      # connect to the shared `sanad` database — defeating the entire
+      # isolation contract of this job. The pg-acceptance profile reads
+      # PG_ACCEPTANCE_JDBC_URL/USERNAME/PASSWORD exclusively.
       PGPASSWORD: postgres_pass
       # pg-acceptance profile activation (gates @EnabledIfEnvironmentVariable).
       SPRING_PROFILES_ACTIVE: pg-acceptance
