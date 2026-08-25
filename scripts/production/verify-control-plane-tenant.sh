@@ -25,10 +25,22 @@ test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL not found in Render"; e
 test -n "$DATABASE_PASSWORD" || { echo "::error::DATABASE_PASSWORD not found in Render"; exit 1; }
 
 # Parse DATABASE_URL (from Render — format: jdbc:postgresql://host:port/db?params)
+# Also extract username from DATABASE_URL if present (Supabase pooler requires
+# the username embedded in the connection URL, which may differ from the
+# separate DATABASE_USERNAME env var).
 RAW_URL="$DATABASE_URL"
 RAW_URL="${RAW_URL#jdbc:}"
 RAW_URL="${RAW_URL#postgresql://}"
 RAW_URL="${RAW_URL#https://}"
+
+# Extract username from URL if present (user=... or postgresql://user:pass@host)
+URL_USER=""
+if [[ "$RAW_URL" == *@* ]]; then
+  URL_USER="${RAW_URL%%@*}"
+  URL_USER="${URL_USER%%:*}"  # strip password if present
+  RAW_URL="${RAW_URL#*@}"
+fi
+
 HOST_PORT="${RAW_URL%%/*}"
 DB_PART="${RAW_URL#*/}"
 DB_NAME="${DB_PART%%\?*}"
@@ -36,10 +48,26 @@ PGHOST="${HOST_PORT%%:*}"
 PGPORT="${HOST_PORT#*:}"
 PGPORT="${PGPORT:-5432}"
 
-echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME"
+# Also check for user= query parameter
+QUERY_PART="${DB_PART#*\?}"
+if [[ "$QUERY_PART" == *"user="* ]]; then
+  URL_USER=$(echo "$QUERY_PART" | sed -n 's/.*user=\([^&]*\).*/\1/p')
+fi
+
+# Use the username from DATABASE_URL if present, otherwise fall back to
+# the DATABASE_USERNAME env var. The Supabase connection pooler requires
+# the username embedded in the connection URL.
+if [ -n "$URL_USER" ]; then
+  PGUSER="$URL_USER"
+  echo "::add-mask::$PGUSER"
+else
+  PGUSER="$DATABASE_USERNAME"
+fi
+
+echo "Connecting to: host=$PGHOST port=$PGPORT dbname=$DB_NAME (user masked)"
 
 TENANT_EXISTS=$(PGPASSWORD="$DATABASE_PASSWORD" psql \
-  -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
+  -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DB_NAME" \
   --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
   --command="SELECT COUNT(*) FROM tenants WHERE id = '${CONTROL_PLANE_TENANT_ID}' AND status = 'ACTIVE';")
 
@@ -49,7 +77,7 @@ TENANT_EXISTS=$(PGPASSWORD="$DATABASE_PASSWORD" psql \
 }
 
 ADMIN_EXISTS=$(PGPASSWORD="$DATABASE_PASSWORD" psql \
-  -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$DB_NAME" \
+  -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DB_NAME" \
   --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
   --command="SELECT COUNT(*) FROM roles WHERE tenant_id = '${CONTROL_PLANE_TENANT_ID}' AND code = 'ADMIN' AND status = 'ACTIVE';")
 
