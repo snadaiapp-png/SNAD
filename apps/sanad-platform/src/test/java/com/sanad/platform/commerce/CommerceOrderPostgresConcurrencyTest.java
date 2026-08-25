@@ -2,6 +2,7 @@ package com.sanad.platform.commerce;
 
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.application.*;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -163,6 +164,12 @@ class CommerceOrderPostgresConcurrencyTest {
             final int idx = i;
             pool.submit(() -> {
                 try {
+                    // SecurityContextHolder is THREADLOCAL — each worker must
+                    // install its own tenant-aware SecurityContext so
+                    // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id
+                    // inside the @Transactional checkout boundary. Required for
+                    // FORCE-RLS commerce_order_number_sequences INSERT.
+                    RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
                     UUID cartId = cartService.create(tenantId, storeId,
                             new CreateCartRequest(null, "SAR"), null).id();
                     createdCarts.add(cartId);
@@ -180,6 +187,10 @@ class CommerceOrderPostgresConcurrencyTest {
                     unexpectedErrors.incrementAndGet();
                 } catch (Exception e) {
                     unexpectedErrors.incrementAndGet();
+                } finally {
+                    // Clear per-thread SecurityContext to prevent tenant leakage
+                    // across subsequent test methods reusing the same thread pool.
+                    RlsTestSupport.clearSecurityContext();
                 }
                 return null;
             });
@@ -309,6 +320,12 @@ class CommerceOrderPostgresConcurrencyTest {
                 ready.countDown();
                 try {
                     start.await();
+                    // SecurityContextHolder is THREADLOCAL — each worker must
+                    // install its own tenant-aware SecurityContext so
+                    // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id
+                    // inside the @Transactional checkout boundary. Required for
+                    // FORCE-RLS commerce_order_number_sequences INSERT.
+                    RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
                     var order = checkoutService.checkout(tenantId, storeId,
                             new CheckoutRequest(sharedCartId, idempotencyKey,
                                     "test@example.com", "Test", null, null), null);
@@ -330,6 +347,9 @@ class CommerceOrderPostgresConcurrencyTest {
                     }
                 } catch (Exception e) {
                     unexpectedErrors.incrementAndGet();
+                } finally {
+                    // Clear per-thread SecurityContext to prevent tenant leakage.
+                    RlsTestSupport.clearSecurityContext();
                 }
                 return null;
             });
@@ -400,20 +420,28 @@ class CommerceOrderPostgresConcurrencyTest {
         cartService.addItem(tenantId, storeId, cartB, new AddCartItemRequest(productId, null, 1), null);
 
         String key = "pg-mismatch-key-" + System.nanoTime();
-        // First checkout with cartA
-        var order1 = checkoutService.checkout(tenantId, storeId,
-                new CheckoutRequest(cartA, key, "test@example.com", "Test", null, null), null);
-        createdOrders.add(order1.orderId());
+        // Install tenant-aware SecurityContext so TenantRlsConnectionHandler
+        // applies SET LOCAL app.tenant_id inside the @Transactional checkout
+        // boundary — required for FORCE-RLS commerce_order_number_sequences INSERT.
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+        try {
+            // First checkout with cartA
+            var order1 = checkoutService.checkout(tenantId, storeId,
+                    new CheckoutRequest(cartA, key, "test@example.com", "Test", null, null), null);
+            createdOrders.add(order1.orderId());
 
-        // Replay with the SAME key but DIFFERENT cart → must 409
-        assertThatThrownBy(() -> checkoutService.checkout(tenantId, storeId,
-                new CheckoutRequest(cartB, key, "test@example.com", "Test", null, null), null))
-                .isInstanceOf(ResponseStatusException.class)
-                .satisfies(t -> {
-                    var rse = (ResponseStatusException) t;
-                    assertThat(rse.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-                    assertThat(rse.getMessage()).contains("IDEMPOTENCY_KEY_REUSE_MISMATCH");
-                });
+            // Replay with the SAME key but DIFFERENT cart → must 409
+            assertThatThrownBy(() -> checkoutService.checkout(tenantId, storeId,
+                    new CheckoutRequest(cartB, key, "test@example.com", "Test", null, null), null))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .satisfies(t -> {
+                        var rse = (ResponseStatusException) t;
+                        assertThat(rse.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                        assertThat(rse.getMessage()).contains("IDEMPOTENCY_KEY_REUSE_MISMATCH");
+                    });
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
     }
 
     // ===== Test 6: Same-cart concurrent no-key checkouts → at most ONE order =====
@@ -445,6 +473,12 @@ class CommerceOrderPostgresConcurrencyTest {
                 ready.countDown();
                 try {
                     start.await();
+                    // SecurityContextHolder is THREADLOCAL — each worker must
+                    // install its own tenant-aware SecurityContext so
+                    // TenantRlsConnectionHandler applies SET LOCAL app.tenant_id
+                    // inside the @Transactional checkout boundary. Required for
+                    // FORCE-RLS commerce_order_number_sequences INSERT.
+                    RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
                     var order = checkoutService.checkout(tenantId, storeId,
                             new CheckoutRequest(sharedCartId, null, "test@example.com", "Test", null, null), null);
                     distinctOrderIds.add(order.orderId());
@@ -460,6 +494,9 @@ class CommerceOrderPostgresConcurrencyTest {
                     }
                 } catch (Exception e) {
                     unexpectedErrors.incrementAndGet();
+                } finally {
+                    // Clear per-thread SecurityContext to prevent tenant leakage.
+                    RlsTestSupport.clearSecurityContext();
                 }
                 return null;
             });
@@ -512,10 +549,18 @@ class CommerceOrderPostgresConcurrencyTest {
         UUID cartId = cartService.create(tid, storeId, new CreateCartRequest(null, "SAR"), null).id();
         createdCarts.add(cartId);
         cartService.addItem(tid, storeId, cartId, new AddCartItemRequest(productId, null, 1), null);
-        var order = checkoutService.checkout(tid, storeId,
-                new CheckoutRequest(cartId, "pg-idem-" + UUID.randomUUID() + "-" + System.nanoTime(),
-                        "test@example.com", "Test", null, null), null);
-        createdOrders.add(order.orderId());
-        return order;
+        // Install tenant-aware SecurityContext so TenantRlsConnectionHandler
+        // applies SET LOCAL app.tenant_id inside the @Transactional checkout
+        // boundary — required for FORCE-RLS commerce_order_number_sequences INSERT.
+        RlsTestSupport.setSecurityContext(tid, UUID.randomUUID());
+        try {
+            var order = checkoutService.checkout(tid, storeId,
+                    new CheckoutRequest(cartId, "pg-idem-" + UUID.randomUUID() + "-" + System.nanoTime(),
+                            "test@example.com", "Test", null, null), null);
+            createdOrders.add(order.orderId());
+            return order;
+        } finally {
+            RlsTestSupport.clearSecurityContext();
+        }
     }
 }
