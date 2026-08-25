@@ -35,10 +35,10 @@ jobs:
           test -n "$DATABASE_PASSWORD" || { echo "::error::DATABASE_PASSWORD not found"; exit 1; }
           test -n "$DATABASE_USERNAME" || { echo "::error::DATABASE_USERNAME not found"; exit 1; }
 
-          # Parse DATABASE_URL
+          # Parse DATABASE_URL (format: jdbc:postgresql://host:port/db?params)
           RAW_URL="$DATABASE_URL"
           RAW_URL="${RAW_URL#jdbc:}"
-          RAW_URL="${RAW_URL#postgresql:}"
+          RAW_URL="${RAW_URL#postgresql://}"
           RAW_URL="${RAW_URL#https://}"
           HOST_PORT="${RAW_URL%%/*}"
           DB_PART="${RAW_URL#*/}"
