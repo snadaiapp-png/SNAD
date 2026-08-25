@@ -195,6 +195,14 @@ jobs:
           python3 scripts/ci/check-performance-budget.py
 
       # === Backend Checks ===
+      - name: Generate ephemeral CRM encryption key
+        shell: bash
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
       - name: Backend compile
         id: backend-compile
         shell: bash
@@ -208,7 +216,7 @@ jobs:
         shell: bash
         working-directory: apps/sanad-platform
         env:
-          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
           mvn --batch-mode --no-transfer-progress test

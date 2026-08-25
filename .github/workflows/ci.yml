@@ -198,10 +198,18 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      - name: Generate ephemeral CRM encryption key
+        shell: bash
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
       - name: Run tests (PostgreSQL Direct)
         env:
-          # Required by ProductionSecurityGuard (prod profile) — must not be the test default
-          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
+          # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: mvn test -B -ntp -Dsurefire.useFile=false
 
       - name: Upload test reports
@@ -489,6 +497,14 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      - name: Generate ephemeral CRM encryption key (pg-acceptance)
+        shell: bash
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
       - name: Run PostgreSQL acceptance tests
         # -Dtest=CommerceOrderPostgresConcurrencyTest runs ONLY this single
         #   class — the @EnabledIfEnvironmentVariable guard ensures all 6
@@ -498,10 +514,8 @@ jobs:
         # -Dsurefire.useFile=true emits per-class JUnit XML under
         #   target/surefire-reports/ for the artifact upload below.
         env:
-          # Required by ProductionSecurityGuard (prod profile) — must not be
-          # the test default. The pg-acceptance profile still loads
-          # ProductionSecurityGuard via @SpringBootTest.
-          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
+          # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: |
           mvn test -B -ntp \
             -Dsurefire.useFile=true \
