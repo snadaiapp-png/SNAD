@@ -76,6 +76,17 @@ sanad:
       secret: ${JWT_SECRET:}
   rls:
     enabled: true
+  commerce:
+    payment:
+      # Activate SimulatedPaymentAdapter for the pg-acceptance profile
+      # so the concurrency tests exercise the full payment side-effect
+      # path (createPaymentIntent → verifyPayment → payment_ref status
+      # history row). The production-safe default remains
+      # DefaultNoOpPaymentAdapter (returns null → PENDING order) when
+      # no provider is configured. This setting is TEST-ONLY — it lives
+      # in src/test/resources and is NOT packaged into production.
+      # (SIMULATED_PAYMENT_ACTIVE_IN_PROD=NO — prod never sets this.)
+      provider: simulated
 
 logging:
   level:
