@@ -134,17 +134,32 @@ class CommerceOrderPostgresConcurrencyTest {
             }
         }
         if (!createdTenants.isEmpty()) {
-            // Delete order_number_sequences rows for the created tenants.
-            // commerce_order_number_sequences has FORCE ROW LEVEL SECURITY
-            // (V20260820_6 lines 277-278) — sanad cannot bypass RLS even as
-            // table owner. Use RlsTestSupport.deleteTenantRows which wraps the
-            // DELETE in a tenant-scoped transaction with set_config('app.tenant_id',
-            // tenant, true) so the WITH CHECK clause accepts the DELETE.
+            // Delete order_number_sequences + finance rows for the created tenants.
+            // FORCE ROW LEVEL SECURITY tables (V20260820_6):
+            //   - commerce_order_number_sequences (lines 277-278)
+            //   - commerce_order_finance_links (lines 292-293)
+            //   - finance_invoice_number_sequences (lines 322-323)
+            // sanad cannot bypass FORCE RLS even as table owner. Use
+            // RlsTestSupport.deleteTenantRows which wraps the DELETE in a
+            // tenant-scoped transaction with set_config('app.tenant_id', tenant,
+            // true) so the WITH CHECK clause accepts the DELETE.
+            //
+            // When SimulatedPaymentAdapter is active (sanad.commerce.payment.provider=
+            // simulated), verified=true triggers financePort.markOrderSettled which
+            // creates rows in finance_invoices, commerce_order_finance_links, and
+            // finance_invoice_number_sequences. These must be cleaned before deleting
+            // tenants to avoid FK violations.
             for (UUID tid : new ArrayList<>(createdTenants)) {
+                // FORCE-RLS tables — need tenant-scoped transaction + GUC.
                 RlsTestSupport.deleteTenantRows(namedJdbc, transactions, tid,
-                        java.util.List.of("commerce_order_number_sequences"));
-                // Delete tenants last (tenants table is ENABLE-RLS non-FORCE —
-                // sanad as table owner bypasses RLS, so plain DELETE works).
+                        java.util.List.of(
+                                "commerce_order_number_sequences",
+                                "commerce_order_finance_links",
+                                "finance_invoice_number_sequences"));
+                // ENABLE-RLS (non-FORCE) tables — sanad as table owner bypasses RLS.
+                // Must delete finance_invoices BEFORE tenants (FK constraint).
+                jdbc.update("DELETE FROM finance_invoices WHERE tenant_id = ?", tid);
+                // Delete tenants last.
                 jdbc.update("DELETE FROM tenants WHERE id = ?", tid);
             }
         }
