@@ -443,7 +443,12 @@ jobs:
         #      test 2 assertion "ORD-\\d{6}-00001" (first row for a fresh
         #      tenant in commerce_order_number_sequences).
         #   3. Schema privileges for `sanad` on the `pg_acceptance` database.
-        #      Flyway needs CREATE (for CREATE TABLE / ALTER TABLE) + USAGE.
+        #      PostgreSQL 15+ cloned databases inherit template1's `public`
+        #      schema owner (typically `postgres`), so we explicitly
+        #      ALTER SCHEMA public OWNER TO sanad to ensure `sanad` owns the
+        #      schema — without this, Flyway's CREATE TABLE on public fails
+        #      with 'permission denied for schema public' even though
+        #      `sanad` is the database owner.
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
           psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
@@ -469,10 +474,16 @@ jobs:
           CREATE DATABASE pg_acceptance OWNER sanad;
 
           -- 3. Schema privileges for `sanad` on the `pg_acceptance` database.
-          --    Flyway needs CREATE (for CREATE TABLE / ALTER TABLE) + USAGE.
-          --    Tests need USAGE + DML on their own tables (covered by table
-          --    ownership — sanad owns what it creates via Flyway).
+          --    PostgreSQL 15+ cloned databases inherit template1's `public`
+          --    schema owner (typically `postgres` bootstrap superuser),
+          --    so `sanad` (the DB owner) does NOT implicitly own the
+          --    `public` schema. Transfer ownership explicitly so `sanad`
+          --    can CREATE TABLE / ALTER TABLE on `public` (Flyway needs
+          --    this for flyway_schema_history + every migration table).
+          --    Then also GRANT explicit USAGE, CREATE as a belt-and-
+          --    suspenders measure mirroring the other CI jobs' pattern.
           \c pg_acceptance
+          ALTER SCHEMA public OWNER TO sanad;
           GRANT USAGE, CREATE ON SCHEMA public TO sanad;
           SQL
 
