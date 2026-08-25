@@ -510,6 +510,12 @@ production data are modified by this reconciliation.
 | `20260820.11` | `V20260820_11__create_crm_call_events.sql` | CRM calls / G8 | CURRENT CHAIN |
 | `20260820.12` | `V20260820_12__force_rls_crm_call_events.sql` | CRM calls RLS / G8 | CURRENT CHAIN |
 | `20260820.13` | `V20260820_13__seed_crm_call_event_capabilities.sql` | CRM calls RBAC / G8 | CURRENT CHAIN |
+| `20260822.1` | `V20260822_1__crm_collaboration_event_foundation.sql` | CRM collaboration event foundation | CURRENT CHAIN |
+| `20260822.2` | `V20260822_2__crm_collaboration_event_rls.sql` | CRM collaboration event RLS | CURRENT CHAIN |
+| `20260822.3` | `V20260822_3__crm_entity_participant_integrity.sql` | CRM entity participant integrity | CURRENT CHAIN |
+| `20260822.4` | `V20260822_4__crm_event_outbox_contract_alignment.sql` | CRM event outbox contract alignment | CURRENT CHAIN |
+| `20260823.1` | `V20260823_1__crm_contacts_force_rls.sql` | CRM contacts FORCE RLS + fail-closed | CURRENT CHAIN |
+| `20260823.2` | `V20260823_2__crm_participant_role_exclusivity.sql` | CRM participant role exclusivity + W2 invariant | CURRENT CHAIN |
 
 This section exists specifically so the governance drift gate can reconcile the
 current on-disk CRM migration inventory without weakening the gate or editing
