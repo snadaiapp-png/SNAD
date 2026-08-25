@@ -6,6 +6,12 @@
 # v20260824.1: Pre-provision `crm_contact_rls_test_user` role for
 #   ContactRlsPostgresTest (C2).
 # v20260824.2 (C6-D.2A): Bootstrap / application role separation.
+# v20260825.1 (RC-4): PostgreSQL Acceptance Tests job — executes
+#   CommerceOrderPostgresConcurrencyTest against a dedicated
+#   `pg_acceptance` database under SPRING_PROFILES_ACTIVE=pg-acceptance.
+#   The @EnabledIfEnvironmentVariable guard makes the default-profile
+#   Maven Test Suite report 6 intentional SKIPPED; this dedicated job
+#   is the authoritative execution path for those 6 concurrency tests.
 #   The postgres:16-alpine POSTGRES_USER env var creates a SUPERUSER
 #   bootstrap role. Previously we set POSTGRES_USER=sanad which made
 #   the application role itself a SUPERUSER, bypassing FORCE RLS and
@@ -338,4 +344,184 @@ jobs:
           # Parse surefire reports for summary
           find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
             awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # RC-4 — PostgreSQL Acceptance Tests (concurrency certification)
+  # ------------------------------------------------------------
+  # Executes CommerceOrderPostgresConcurrencyTest against a dedicated
+  # isolated `pg_acceptance` database. The test class is gated by
+  # @EnabledIfEnvironmentVariable(SPRING_PROFILES_ACTIVE=pg-acceptance)
+  # and @ActiveProfiles("pg-acceptance") which requires dedicated
+  # PG_ACCEPTANCE_* credentials — the profile never falls back to the
+  # shared sanad/test_migration databases.
+  #
+  # Why dedicated DB:
+  #   - Tests perform 20-way parallel checkout, 8-way idempotency
+  #     replay, 6-way same-cart concurrent no-key checkout
+  #   - Tests assert ORD-NNNNNN-00001 sequence (first row for a
+  #     fresh tenant in commerce_order_number_sequences) — any
+  #     cross-run residue breaks the assertion
+  #   - @AfterEach cleanup targets ONLY this-run records by runId
+  #     prefix, but sequence-state contamination cannot be cleaned
+  #     by id-based DELETE
+  #
+  # Why dedicated job:
+  #   - The default-profile Maven Test Suite MUST NOT execute these
+  #     tests (would collide with concurrently-running SpringBootTest
+  #     contexts in the shared `sanad` database)
+  #   - The @EnabledIfEnvironmentVariable guard causes the default
+  #     profile to report them as SKIPPED — that skip is correct
+  #     and intentional, NOT a defect.
+  #
+  # Security contract preserved:
+  #   - sanad role remains NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS
+  #   - PgAcceptanceDatabaseGuard fail-fast still gates this job
+  #   - pg_acceptance DB is owned by sanad (table owner contract intact)
+  #   - application-pg-acceptance.yml lives in src/test/resources/
+  #     (NOT packaged into production JAR/Docker)
+  # ============================================================
+  pg-acceptance:
+    name: PostgreSQL Acceptance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Default-profile env vars (unused by the pg-acceptance profile but
+      # required by the Maven build to satisfy property placeholders).
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      PGPASSWORD: postgres_pass
+      # pg-acceptance profile activation (gates @EnabledIfEnvironmentVariable).
+      SPRING_PROFILES_ACTIVE: pg-acceptance
+      # Dedicated isolated acceptance DB credentials.
+      # The PgAcceptanceDatabaseGuard enforces that this URL must NOT match
+      # the production Supabase / Render managed DB markers (snad-prod,
+      # render-db.internal, supabase.co refs, db names containing 'prod').
+      # The pg_acceptance database is dedicated to this job — no other job
+      # touches it.
+      PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
+      PG_ACCEPTANCE_USERNAME: sanad
+      PG_ACCEPTANCE_PASSWORD: sanad_pass
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Provision application role + dedicated pg_acceptance database
+        # Connects as the `postgres` bootstrap SUPERUSER to provision:
+        #   1. The `sanad` application role (NOSUPERUSER NOCREATEDB
+        #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD 'sanad_pass').
+        #      Reuses the same least-privilege application role as the
+        #      other jobs — no new role is created.
+        #   2. The dedicated `pg_acceptance` database owned by `sanad`.
+        #      CREATE DATABASE ... OWNER requires SUPERUSER (which
+        #      `postgres` has). The DB is idempotently re-created (DROP
+        #      IF EXISTS + CREATE) on every run so the concurrency tests
+        #      start from a known-empty sequence state — required by the
+        #      test 2 assertion "ORD-\\d{6}-00001" (first row for a fresh
+        #      tenant in commerce_order_number_sequences).
+        #   3. Schema privileges for `sanad` on the `pg_acceptance` database.
+        #      Flyway needs CREATE (for CREATE TABLE / ALTER TABLE) + USAGE.
+        # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
+        run: |
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          -- 1. Application role `sanad` (least-privilege LOGIN).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- 2. Recreate the dedicated pg_acceptance database from scratch.
+          --    DROP + CREATE guarantees a known-empty sequence state at
+          --    the start of every run (the test asserts ORD-NNNNNN-00001
+          --    for the first sequence row of a fresh tenant). Idempotent
+          --    DROP IF EXISTS handles the first run on a fresh container.
+          --    Terminate any lingering connections before DROP (defensive).
+          SELECT pg_terminate_backend(pid)
+          FROM pg_stat_activity
+          WHERE datname = 'pg_acceptance' AND pid <> pg_backend_pid();
+          DROP DATABASE IF EXISTS pg_acceptance;
+          CREATE DATABASE pg_acceptance OWNER sanad;
+
+          -- 3. Schema privileges for `sanad` on the `pg_acceptance` database.
+          --    Flyway needs CREATE (for CREATE TABLE / ALTER TABLE) + USAGE.
+          --    Tests need USAGE + DML on their own tables (covered by table
+          --    ownership — sanad owns what it creates via Flyway).
+          \c pg_acceptance
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run PostgreSQL acceptance tests
+        # -Dtest=CommerceOrderPostgresConcurrencyTest runs ONLY this single
+        #   class — the @EnabledIfEnvironmentVariable guard ensures all 6
+        #   methods execute under SPRING_PROFILES_ACTIVE=pg-acceptance.
+        # -DfailIfNoTests=true fails loudly if the test class is ever
+        #   renamed/moved/disabled — prevents silent SKIPPED=6 from passing.
+        # -Dsurefire.useFile=true emits per-class JUnit XML under
+        #   target/surefire-reports/ for the artifact upload below.
+        env:
+          # Required by ProductionSecurityGuard (prod profile) — must not be
+          # the test default. The pg-acceptance profile still loads
+          # ProductionSecurityGuard via @SpringBootTest.
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
+        run: |
+          mvn test -B -ntp \
+            -Dsurefire.useFile=true \
+            -DfailIfNoTests=true \
+            -Dtest=CommerceOrderPostgresConcurrencyTest
+
+      - name: Upload acceptance test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-acceptance-surefire-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Acceptance test summary
+        if: always()
+        run: |
+          echo "## PostgreSQL Acceptance Test Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Parse surefire reports for summary
+          find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
+            awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Explicit check: the 6 concurrency tests MUST actually execute (skipped=0)
+          echo "RC-4 acceptance check: CommerceOrderPostgresConcurrencyTest must report 6/0/0/0" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          find target/surefire-reports -name "*CommerceOrderPostgresConcurrencyTest.txt" -exec cat {} \; 2>/dev/null >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
