@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'audit | recovery_auth | recovery_full'
+        description: 'audit | recovery_auth | recovery_full | diagnostic_pooler'
         required: true
         default: 'audit'
       apply_render:
@@ -123,6 +123,298 @@ jobs:
             -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d postgres \
             --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
             --command="SELECT pg_catalog.pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='public';"
+
+      # =====================================================================
+      # DIAGNOSTIC — Pooler auth investigation.
+      # ONE password rotation only, then tests direct Postgres + session
+      # pooler + transaction pooler to classify the auth failure.
+      # NO migration, NO Render, NO deploy.
+      # =====================================================================
+      - name: Diagnostic — Pooler auth root cause isolation
+        if: inputs.action == 'diagnostic_pooler'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          POOLER_HOST="aws-0-eu-central-1.pooler.supabase.com"
+          POOLER_PORT_SESSION="5432"
+          POOLER_PORT_TRANSACTION="6543"
+          POOLER_DB="postgres"
+          POOLER_USER_SANAD="sanad.$SUPABASE_PROJECT"
+          DIRECT_HOST="db.$SUPABASE_PROJECT.supabase.co"
+          DIRECT_PORT="5432"
+          SB_API="https://api.supabase.com/v1/projects/$SUPABASE_PROJECT/database/query"
+
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN secret is empty"
+            exit 1
+          fi
+          SB_TOKEN="$SUPABASE_ACCESS_TOKEN"
+          echo "MANAGEMENT_API_TOKEN_PRESENT=YES"
+          echo "::add-mask::$SB_TOKEN"
+
+          # Helper: execute SQL via Supabase Management API
+          sb_query() {
+            local sql="$1" read_only="${2:-false}"
+            local payload
+            payload=$(jq -n --arg q "$sql" --argjson ro "$read_only" '{query: $q, read_only: $ro}')
+            local resp http_code body
+            resp=$(curl --silent --show-error --write-out '\n%{http_code}' \
+              -X POST "$SB_API" \
+              -H "Authorization: Bearer $SB_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$payload" 2>&1)
+            http_code=$(echo "$resp" | tail -1)
+            body=$(echo "$resp" | sed '$d')
+            sb_query_http="$http_code"
+            sb_query_body="$body"
+          }
+
+          sb_value() {
+            echo "$sb_query_body" | jq -r '
+              if type == "array" then
+                if length > 0 then .[0].value // empty else empty end
+              elif type == "object" then
+                .value // empty
+              else
+                .
+              end' 2>/dev/null | tr -d '"' | tr -d '[:space:]'
+          }
+
+          # ============ Item 2: Main/SHA lock ============
+          echo "===== Main/SHA execution lock ====="
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "::error::Diagnostic may run only from refs/heads/main (got: ${GITHUB_REF:-unset})"
+            exit 1
+          fi
+          echo "GITHUB_REF_MAIN_ONLY=YES"
+          git fetch origin main --quiet 2>/dev/null
+          DISPATCH_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+          HEAD_SHA=$(git rev-parse HEAD)
+          REMOTE_MAIN_SHA=$(git rev-parse origin/main)
+          echo "GITHUB_SHA=$DISPATCH_SHA HEAD=$HEAD_SHA origin/main=$REMOTE_MAIN_SHA"
+          [ "$DISPATCH_SHA" = "$REMOTE_MAIN_SHA" ] && [ "$HEAD_SHA" = "$REMOTE_MAIN_SHA" ] || {
+            echo "::error::SHA mismatch"
+            exit 1
+          }
+          echo "PRODUCTION_REF_LOCK=PASS"
+
+          # ============ Item 3: Management API probe ============
+          echo "===== Management API probe ====="
+          sb_query "SELECT 1 AS value;" true
+          PROBE_HTTP="$sb_query_http"
+          echo "MANAGEMENT_API_PROBE_HTTP=$PROBE_HTTP"
+          [ "$PROBE_HTTP" = "201" ] || { echo "::error::Management API probe failed"; exit 1; }
+          echo "MANAGEMENT_API_PROBE=PASS"
+
+          # ============ Item 4: Verify role before rotation ============
+          echo "===== Role state before rotation ====="
+          sb_query "SELECT (CASE WHEN rolcanlogin THEN 't' ELSE 'f' END || '|' || CASE WHEN rolsuper THEN 't' ELSE 'f' END || '|' || CASE WHEN rolbypassrls THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreatedb THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreaterole THEN 't' ELSE 'f' END || '|' || CASE WHEN rolvaliduntil IS NULL THEN 't' ELSE 'f' END) AS value FROM pg_authid WHERE rolname='sanad';" true
+          [ "$sb_query_http" = "201" ] || { echo "::error::Role query failed"; exit 1; }
+          ROLE_FLAGS_BEFORE=$(sb_value)
+          echo "ROLE_FLAGS_BEFORE=$ROLE_FLAGS_BEFORE (login|super|bypass|createdb|createrole|valid_until_null)"
+          # Expected: t|f|f|f|f|t
+
+          # Verify password format (SCRAM-SHA-256) without printing hash
+          sb_query "SELECT CASE WHEN rolpassword LIKE 'SCRAM-SHA-256%' THEN 'SCRAM-SHA-256' WHEN rolpassword LIKE 'SCRAM-%' THEN 'SCRAM' WHEN rolpassword LIKE 'md5%' THEN 'MD5' ELSE 'UNKNOWN' END AS value FROM pg_authid WHERE rolname='sanad';" true
+          [ "$sb_query_http" = "201" ] || { echo "::error::Password format query failed"; exit 1; }
+          PASSWORD_FORMAT_BEFORE=$(sb_value)
+          echo "PASSWORD_FORMAT_BEFORE=$PASSWORD_FORMAT_BEFORE"
+
+          # ============ Item 5: Rotate password ONCE ============
+          echo "===== Password rotation (single) ====="
+          DIAG_PASS="$(openssl rand -hex 32)"
+          [ ${#DIAG_PASS} -ge 32 ] || { echo "::error::password too short"; exit 1; }
+          echo "::add-mask::$DIAG_PASS"
+          echo "PASSWORD_MASKED=YES"
+
+          ALTER_SQL="ALTER ROLE sanad PASSWORD '${DIAG_PASS}';"
+          sb_query "$ALTER_SQL" false
+          ALTER_HTTP="$sb_query_http"
+          echo "PASSWORD_ROTATION_HTTP=$ALTER_HTTP"
+          [ "$ALTER_HTTP" = "201" ] || { echo "::error::ALTER ROLE failed"; exit 1; }
+          echo "ALTER_ROLE_SUCCEEDED=YES"
+
+          # Verify password format after rotation
+          sb_query "SELECT CASE WHEN rolpassword LIKE 'SCRAM-SHA-256%' THEN 'SCRAM-SHA-256' WHEN rolpassword LIKE 'SCRAM-%' THEN 'SCRAM' WHEN rolpassword LIKE 'md5%' THEN 'MD5' ELSE 'UNKNOWN' END AS value FROM pg_authid WHERE rolname='sanad';" true
+          [ "$sb_query_http" = "201" ] || { echo "::error::Post-rotation password format query failed"; exit 1; }
+          PASSWORD_FORMAT_AFTER=$(sb_value)
+          echo "PASSWORD_FORMAT_AFTER=$PASSWORD_FORMAT_AFTER"
+
+          # ============ Item 6: Record endpoints ============
+          echo ""
+          echo "===== Connection endpoints ====="
+          echo "DIRECT_HOST=$DIRECT_HOST:$DIRECT_PORT"
+          echo "SESSION_POOLER_HOST=$POOLER_HOST:$POOLER_PORT_SESSION"
+          echo "TRANSACTION_POOLER_HOST=$POOLER_HOST:$POOLER_PORT_TRANSACTION"
+
+          # ============ Item 7: Network capability probe ============
+          echo ""
+          echo "===== Network capability probe ====="
+          DIRECT_IPV4=$(getent ahostsv4 "$DIRECT_HOST" 2>/dev/null | head -1 | awk '{print $1}')
+          DIRECT_IPV6=$(getent ahostsv6 "$DIRECT_HOST" 2>/dev/null | head -1 | awk '{print $1}')
+          [ -n "$DIRECT_IPV4" ] && echo "DIRECT_DNS_IPV4=YES ($DIRECT_IPV4)" || echo "DIRECT_DNS_IPV4=NO"
+          [ -n "$DIRECT_IPV6" ] && echo "DIRECT_DNS_IPV6=YES ($DIRECT_IPV6)" || echo "DIRECT_DNS_IPV6=NO"
+
+          # Check runner IPv6 route
+          RUNNER_IPV6=$(curl -s --max-time 5 -6 https://ipv6.icanhazip.com 2>/dev/null || true)
+          [ -n "$RUNNER_IPV6" ] && echo "RUNNER_IPV6_ROUTE=YES" || echo "RUNNER_IPV6_ROUTE=NO"
+
+          # ============ Item 8: Direct Postgres auth test ============
+          echo ""
+          echo "===== Direct Postgres auth test ====="
+          DIRECT_NETWORK=UNREACHABLE
+          DIRECT_AUTH=NOT_RUN
+          DIRECT_CURRENT_USER=NOT_RUN
+
+          if [ -n "$DIRECT_IPV4" ] || [ -n "$DIRECT_IPV6" ]; then
+            echo "Direct endpoint resolves — attempting connection..."
+            set +e
+            DIRECT_OUT=$(PGPASSWORD="$DIAG_PASS" psql \
+              -h "$DIRECT_HOST" -p "$DIRECT_PORT" -U "sanad" -d "$POOLER_DB" \
+              --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+              -c "SELECT current_user;" 2>&1)
+            DIRECT_RC=$?
+            set -e
+            echo "DIRECT_RC=$DIRECT_RC"
+            echo "DIRECT_OUT=$DIRECT_OUT"
+
+            if [ $DIRECT_RC -eq 0 ]; then
+              DIRECT_NETWORK=PASS
+              DIRECT_AUTH=PASS
+              DIRECT_CURRENT_USER=$(echo "$DIRECT_OUT" | head -1 | tr -d '[:space:]')
+              echo "DIRECT_POSTGRES_NETWORK=PASS"
+              echo "DIRECT_POSTGRES_AUTH=PASS"
+              echo "DIRECT_CURRENT_USER=$DIRECT_CURRENT_USER"
+            else
+              DIRECT_NETWORK=PASS
+              DIRECT_AUTH=FAIL
+              echo "DIRECT_POSTGRES_NETWORK=PASS (reachable but auth failed)"
+              echo "DIRECT_POSTGRES_AUTH=FAIL"
+              echo "DIRECT_ERROR_SANITIZED=$(echo "$DIRECT_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g')"
+            fi
+          else
+            echo "DIRECT_POSTGRES_NETWORK=UNREACHABLE (no DNS resolution)"
+            echo "DIRECT_POSTGRES_AUTH=NOT_RUN"
+          fi
+
+          # ============ Item 9: Session Supavisor test ============
+          echo ""
+          echo "===== Session Supavisor auth test (port 5432) ====="
+          set +e
+          SESSION_OUT=$(PGPASSWORD="$DIAG_PASS" psql \
+            -h "$POOLER_HOST" -p "$POOLER_PORT_SESSION" -U "$POOLER_USER_SANAD" -d "$POOLER_DB" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            -c "SELECT current_user;" 2>&1)
+          SESSION_RC=$?
+          set -e
+          echo "SESSION_RC=$SESSION_RC"
+          echo "SESSION_OUT=$SESSION_OUT"
+
+          if [ $SESSION_RC -eq 0 ]; then
+            SESSION_POOLER_AUTH=PASS
+            SESSION_CURRENT_USER=$(echo "$SESSION_OUT" | head -1 | tr -d '[:space:]')
+            echo "SESSION_POOLER_AUTH=PASS"
+            echo "SESSION_POOLER_CURRENT_USER=$SESSION_CURRENT_USER"
+            SESSION_POOLER_SQLSTATE="UNKNOWN"
+          else
+            SESSION_POOLER_AUTH=FAIL
+            echo "SESSION_POOLER_AUTH=FAIL"
+            echo "SESSION_ERROR_SANITIZED=$(echo "$SESSION_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g')"
+            # Extract SQLSTATE if present
+            SESSION_SQLSTATE=$(echo "$SESSION_OUT" | grep -oE 'SQLSTATE [A-Z0-9]+' | head -1 | awk '{print $2}')
+            [ -n "$SESSION_SQLSTATE" ] && echo "SESSION_POOLER_SQLSTATE=$SESSION_SQLSTATE" || echo "SESSION_POOLER_SQLSTATE=UNKNOWN"
+          fi
+
+          # ============ Item 10: Transaction Supavisor test ============
+          echo ""
+          echo "===== Transaction Supavisor auth test (port 6543) ====="
+          set +e
+          TRANSACTION_OUT=$(PGPASSWORD="$DIAG_PASS" psql \
+            -h "$POOLER_HOST" -p "$POOLER_PORT_TRANSACTION" -U "$POOLER_USER_SANAD" -d "$POOLER_DB" \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+            -c "SELECT current_user;" 2>&1)
+          TRANSACTION_RC=$?
+          set -e
+          echo "TRANSACTION_RC=$TRANSACTION_RC"
+          echo "TRANSACTION_OUT=$TRANSACTION_OUT"
+
+          if [ $TRANSACTION_RC -eq 0 ]; then
+            TRANSACTION_POOLER_AUTH=PASS
+            TRANSACTION_CURRENT_USER=$(echo "$TRANSACTION_OUT" | head -1 | tr -d '[:space:]')
+            echo "TRANSACTION_POOLER_AUTH=PASS"
+            echo "TRANSACTION_POOLER_CURRENT_USER=$TRANSACTION_CURRENT_USER"
+            echo "TRANSACTION_POOLER_SQLSTATE=UNKNOWN"
+          else
+            TRANSACTION_POOLER_AUTH=FAIL
+            echo "TRANSACTION_POOLER_AUTH=FAIL"
+            echo "TRANSACTION_ERROR_SANITIZED=$(echo "$TRANSACTION_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g')"
+            TRANSACTION_SQLSTATE=$(echo "$TRANSACTION_OUT" | grep -oE 'SQLSTATE [A-Z0-9]+' | head -1 | awk '{print $2}')
+            [ -n "$TRANSACTION_SQLSTATE" ] && echo "TRANSACTION_POOLER_SQLSTATE=$TRANSACTION_SQLSTATE" || echo "TRANSACTION_POOLER_SQLSTATE=UNKNOWN"
+          fi
+
+          # ============ Item 12: Classification matrix ============
+          echo ""
+          echo "===== Classification ====="
+          echo "DIRECT_AUTH=$DIRECT_AUTH"
+          echo "SESSION_AUTH=$SESSION_POOLER_AUTH"
+          echo "TRANSACTION_AUTH=$TRANSACTION_POOLER_AUTH"
+
+          CLASSIFICATION=UNKNOWN
+          if [ "$DIRECT_AUTH" = "PASS" ] && [ "$SESSION_POOLER_AUTH" = "FAIL" ] && [ "$TRANSACTION_POOLER_AUTH" = "FAIL" ]; then
+            CLASSIFICATION="CLASS_A_SUPAVISOR_AUTH_DESYNC"
+            echo "CLASSIFICATION=$CLASSIFICATION"
+            echo "  => SUPAVISOR_AUTH_DESYNC=PROVEN"
+            echo "  => POSTGRES_ROLE_PASSWORD_VALID=YES"
+            echo "  => CUSTOM_ROLE_SUPPORT_NOT_THE_PROBLEM=YES"
+          elif [ "$DIRECT_AUTH" = "PASS" ] && [ "$SESSION_POOLER_AUTH" = "PASS" ] && [ "$TRANSACTION_POOLER_AUTH" = "PASS" ]; then
+            CLASSIFICATION="CLASS_B_POOLER_AUTH_RECOVERED"
+            echo "CLASSIFICATION=$CLASSIFICATION"
+            echo "  => POOLER_AUTH_RECOVERED=YES"
+          elif [ "$DIRECT_AUTH" = "PASS" ] && [ "$SESSION_POOLER_AUTH" = "PASS" ] && [ "$TRANSACTION_POOLER_AUTH" = "FAIL" ]; then
+            CLASSIFICATION="CLASS_C_TRANSACTION_MODE_SPECIFIC_FAILURE"
+            echo "CLASSIFICATION=$CLASSIFICATION"
+          elif [ "$DIRECT_AUTH" = "PASS" ] && [ "$SESSION_POOLER_AUTH" = "FAIL" ] && [ "$TRANSACTION_POOLER_AUTH" = "PASS" ]; then
+            CLASSIFICATION="CLASS_D_SESSION_MODE_SPECIFIC_FAILURE"
+            echo "CLASSIFICATION=$CLASSIFICATION"
+          elif [ "$DIRECT_AUTH" = "FAIL" ]; then
+            CLASSIFICATION="CLASS_E_POSTGRES_AUTH_OR_PASSWORD_PATH_FAILURE"
+            echo "CLASSIFICATION=$CLASSIFICATION"
+          elif [ "$DIRECT_NETWORK" = "UNREACHABLE" ] && [ "$SESSION_POOLER_AUTH" = "FAIL" ] && [ "$TRANSACTION_POOLER_AUTH" = "FAIL" ]; then
+            CLASSIFICATION="CLASS_F_ROOT_CAUSE_NOT_YET_CONCLUSIVE"
+            echo "CLASSIFICATION=$CLASSIFICATION"
+            echo "  => SUPAVISOR_DESYNC_SUSPECTED=YES"
+            echo "  => POOLER_LOGS_REQUIRED=YES"
+          fi
+
+          # ============ Final diagnostic report ============
+          echo ""
+          echo "=========================================="
+          echo "DIAGNOSTIC FINAL REPORT"
+          echo "=========================================="
+          echo "PHASE_10_STATUS=BLOCKED_DIAGNOSTIC"
+          echo "MAIN_SHA=$(git rev-parse origin/main)"
+          echo "ROLE_LOGIN=$(echo "$ROLE_FLAGS_BEFORE" | cut -d'|' -f1)"
+          echo "PASSWORD_FORMAT=$PASSWORD_FORMAT_AFTER"
+          echo "PASSWORD_ROTATION_HTTP=$ALTER_HTTP"
+          echo "DIRECT_DNS_IPV4=$([ -n "$DIRECT_IPV4" ] && echo YES || echo NO)"
+          echo "DIRECT_DNS_IPV6=$([ -n "$DIRECT_IPV6" ] && echo YES || echo NO)"
+          echo "RUNNER_IPV6_ROUTE=$([ -n "$RUNNER_IPV6" ] && echo YES || echo NO)"
+          echo "DIRECT_POSTGRES_NETWORK=$DIRECT_NETWORK"
+          echo "DIRECT_POSTGRES_AUTH=$DIRECT_AUTH"
+          echo "SESSION_POOLER_AUTH=$SESSION_POOLER_AUTH"
+          echo "SESSION_POOLER_SQLSTATE=${SESSION_SQLSTATE:-UNKNOWN}"
+          echo "TRANSACTION_POOLER_AUTH=$TRANSACTION_POOLER_AUTH"
+          echo "TRANSACTION_POOLER_SQLSTATE=${TRANSACTION_SQLSTATE:-UNKNOWN}"
+          echo "POOLER_LOG_UPSTREAM_USER=UNKNOWN (requires Supabase dashboard/logs access)"
+          echo "SECRET_CHECKER_EVENT=UNKNOWN (requires pooler logs)"
+          echo "CIRCUIT_BREAKER_ACTIVE=UNKNOWN (requires pooler logs)"
+          echo "SUPAVISOR_AUTH_DESYNC=$([ "$CLASSIFICATION" = "CLASS_A_SUPAVISOR_AUTH_DESYNC" ] && echo PROVEN || echo SUSPECTED)"
+          echo "CUSTOM_ROLE_UNSUPPORTED=NO_EVIDENCE"
+          echo "READY_FOR_PHASE_11=NO"
+          echo "READY_FOR_PRODUCTION_RELEASE=NO"
+          echo "READY_FOR_G7=NO"
+          echo "=========================================="
 
       # =====================================================================
       # RECOVERY_AUTH — Pre-migration safe subset.
