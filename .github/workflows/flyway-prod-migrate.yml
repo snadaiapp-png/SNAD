@@ -70,6 +70,30 @@ jobs:
           [ "$ACTUAL_SHA_V2" = "$EXPECTED_V2" ] || { echo "::error::V20260823_2 SHA256 mismatch — migration file tampered"; exit 1; }
           echo "MIGRATION_IMMUTABILITY=PASS"
 
+      - name: Flyway repair (handle removed migrations)
+        env:
+          DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MIGRATIONS="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
+          VENDOR="$(pwd)/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+
+          echo "=== FLYWAY REPAIR ==="
+          echo "Marking any applied-but-removed migrations as deleted in flyway_schema_history"
+          docker run --rm \
+            -v "$MIGRATIONS:/flyway/sql:ro" \
+            -v "$VENDOR:/flyway/vendorpg:ro" \
+            flyway/flyway:10 \
+            -url="$DB_URL" -user="$DB_USER" -password="$DB_PASS" \
+            -connectRetries=8 -table=flyway_schema_history \
+            -locations="filesystem:/flyway/sql,filesystem:/flyway/vendorpg" \
+            -cleanDisabled=true \
+            repair
+          echo "FLYWAY_REPAIR=PASS"
+
       - name: Flyway validate + info (before migrate)
         env:
           DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
