@@ -1,7 +1,9 @@
 package com.sanad.platform.management.health;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.health.SystemHealthModel.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +43,13 @@ class SystemHealthIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "sh-" + tenantId.toString().substring(0, 8), now, now);
+
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+    }
+
+    @AfterEach
+    void tearDown() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     // ===== 1. all-healthy snapshot =====
@@ -309,6 +318,7 @@ class SystemHealthIntegrationTest {
                         + "VALUES (?, 'Other', ?, 'ACTIVE', ?, ?)",
                 otherTenant, "sh-ot-" + otherTenant.toString().substring(0, 8), now, now);
         var snapshotA = aggregationService.aggregate(tenantId);
+        RlsTestSupport.setSecurityContext(otherTenant, UUID.randomUUID());
         var snapshotB = aggregationService.aggregate(otherTenant);
         // Both succeed and produce valid snapshots
         assertThat(snapshotA).isNotNull();

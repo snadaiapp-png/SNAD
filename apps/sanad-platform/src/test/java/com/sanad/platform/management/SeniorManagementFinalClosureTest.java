@@ -1,7 +1,9 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +70,13 @@ class SeniorManagementFinalClosureTest {
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "fc-" + userId.toString().substring(0, 8) + "@test", now, now);
+
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void tearDown() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test

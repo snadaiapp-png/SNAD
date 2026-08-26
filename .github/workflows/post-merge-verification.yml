@@ -40,13 +40,17 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: sanad
-          POSTGRES_PASSWORD: sanad_pass
+          # Bootstrap SUPERUSER — used ONLY for the provisioning step below.
+          # The application test role `sanad` is created separately as a
+          # least-privilege LOGIN role (NOSUPERUSER NOCREATEDB NOCREATEROLE
+          # NOBYPASSRLS), matching the C6-D.2A contract from ci.yml.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
           POSTGRES_DB: sanad
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U sanad -d sanad"
+          --health-cmd "pg_isready -U postgres -d sanad"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -61,6 +65,9 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
+      # PGPASSWORD for the psql client used in the provisioning step
+      # (connects as the `postgres` bootstrap superuser).
+      PGPASSWORD: postgres_pass
 
     steps:
       - name: Record start metadata
@@ -195,6 +202,91 @@ jobs:
           python3 scripts/ci/check-performance-budget.py
 
       # === Backend Checks ===
+      - name: Provision least-privilege application role
+        # C6-D.2A alignment: create `sanad` as NOSUPERUSER NOCREATEDB
+        # NOCREATEROLE NOBYPASSRLS so FORCE RLS is exercised correctly.
+        # Without this, POSTGRES_USER=postgres creates a SUPERUSER that
+        # bypasses FORCE RLS, causing RLS tests to fail.
+        shell: bash
+        run: |
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          -- 1. Application role `sanad` (least-privilege LOGIN).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- 2. Transfer database ownership from `postgres` to `sanad`.
+          ALTER DATABASE sanad OWNER TO sanad;
+
+          -- 3. Pre-provision the disposable `test_migration` database.
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+
+          -- 4. CONNECT on the maintenance DB for `sanad`.
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+
+          -- 5. Schema privileges for `sanad` on the `sanad` database.
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+
+          -- 6. Mirror the schema privileges on the test_migration database.
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+
+          -- 7. Pre-provision the C2 test RLS user.
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+            END IF;
+          END $$;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
+
+      - name: Assert least-privilege role contract
+        # Fail-closed: verify sanad and crm_contact_rls_test_user have
+        # NO SUPERUSER / BYPASSRLS / CREATEDB / CREATEROLE before tests run.
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d sanad --no-psqlrc --set=ON_ERROR_STOP=1 \
+            --tuples-only --no-align --command="
+              SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin, rolbypassrls
+              FROM pg_roles
+              WHERE rolname IN ('sanad','crm_contact_rls_test_user')
+              ORDER BY rolname;
+            " > /tmp/role-contract.txt
+          # Assert sanad contract
+          sanad_line=$(grep '^sanad' /tmp/role-contract.txt)
+          echo "$sanad_line" | awk -F'|' '{
+            if ($2 != "f") { print "::error::sanad rolsuper must be false"; exit 1 }
+            if ($3 != "f") { print "::error::sanad rolcreatedb must be false"; exit 1 }
+            if ($4 != "f") { print "::error::sanad rolcreaterole must be false"; exit 1 }
+            if ($5 != "t") { print "::error::sanad rolcanlogin must be true"; exit 1 }
+            if ($6 != "f") { print "::error::sanad rolbypassrls must be false"; exit 1 }
+          }'
+          # Assert crm_contact_rls_test_user contract
+          rls_line=$(grep '^crm_contact_rls_test_user' /tmp/role-contract.txt)
+          echo "$rls_line" | awk -F'|' '{
+            if ($2 != "f") { print "::error::crm_contact_rls_test_user rolsuper must be false"; exit 1 }
+            if ($3 != "f") { print "::error::crm_contact_rls_test_user rolcreatedb must be false"; exit 1 }
+            if ($4 != "f") { print "::error::crm_contact_rls_test_user rolcreaterole must be false"; exit 1 }
+            if ($6 != "f") { print "::error::crm_contact_rls_test_user rolbypassrls must be false"; exit 1 }
+          }'
+          echo "POST_MERGE_DB_ROLE_CONTRACT=PASS"
+
+      - name: Generate ephemeral CRM encryption key
+        shell: bash
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
       - name: Backend compile
         id: backend-compile
         shell: bash
@@ -208,7 +300,7 @@ jobs:
         shell: bash
         working-directory: apps/sanad-platform
         env:
-          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
           mvn --batch-mode --no-transfer-progress test

@@ -1,8 +1,10 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.*;
 import com.sanad.platform.management.domain.*;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +86,13 @@ class CommandCenterAlertsIntelligenceTest {
             jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
                     + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantId, roleId, cap.get("id"), now);
         }
+
+        RlsTestSupport.setSecurityContext(tenantId, userId);
+    }
+
+    @AfterEach
+    void tearDown() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     private Authentication auth() {

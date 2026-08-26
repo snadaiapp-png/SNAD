@@ -46,7 +46,7 @@ class JdbcContactRelationshipRepositoryPostgresTest extends CrmRepositoryPostgre
 
     @Test
     void createRelationship_persistsAndEmitsCreatedHistory() {
-        RelationshipRecord saved = inTransaction(() -> relationships.createRelationship(
+        RelationshipRecord saved = inTenantTransaction(tenantId, () -> relationships.createRelationship(
                 tenantId, actorId, contactId,
                 new CreateRelationshipCommand(accountId, "DECISION_MAKER", null,
                         false, null, null, "CTO", "Engineering",
@@ -59,13 +59,15 @@ class JdbcContactRelationshipRepositoryPostgresTest extends CrmRepositoryPostgre
         assertThat(saved.accountId()).isEqualTo(accountId);
 
         // a CREATED history row should be present with a parseable JSON snapshot
-        var history = relationships.relationshipHistory(tenantId, saved.id(), 10);
+        var history = inTenantTransaction(tenantId, () ->
+                relationships.relationshipHistory(tenantId, saved.id(), 10));
         assertThat(history).hasSize(1);
         assertThat(history.get(0).eventType()).isEqualTo("CREATED");
         assertThat(history.get(0).snapshot()).isNotBlank();
 
         // list-by-contact returns the new relationship
-        var byContact = relationships.listByContact(tenantId, contactId, 10, null, null);
+        var byContact = inTenantTransaction(tenantId, () ->
+                relationships.listByContact(tenantId, contactId, 10, null, null));
         assertThat(byContact).hasSize(1);
         assertThat(byContact.get(0).id()).isEqualTo(saved.id());
     }
@@ -73,13 +75,13 @@ class JdbcContactRelationshipRepositoryPostgresTest extends CrmRepositoryPostgre
     @Test
     void createRelationship_forOtherRoleRequiresCustomRole() {
         // seed a custom role first
-        RelationshipRoleRecord role = inTransaction(() -> relationships.createRole(tenantId, actorId,
+        RelationshipRoleRecord role = inTenantTransaction(tenantId, () -> relationships.createRole(tenantId, actorId,
                 new CreateRelationshipRoleCommand("VIP_BUYER", "مشتري مميز", "VIP Buyer")));
 
         assertThat(role.code()).isEqualTo("VIP_BUYER");
         assertThat(role.active()).isTrue();
 
-        RelationshipRecord saved = inTransaction(() -> relationships.createRelationship(
+        RelationshipRecord saved = inTenantTransaction(tenantId, () -> relationships.createRelationship(
                 tenantId, actorId, contactId,
                 new CreateRelationshipCommand(accountId, "OTHER", role.id(),
                         false, null, null, null, null, "NONE", actorId)));
@@ -89,17 +91,18 @@ class JdbcContactRelationshipRepositoryPostgresTest extends CrmRepositoryPostgre
         assertThat(saved.customRoleNameEn()).isEqualTo("VIP Buyer");
 
         // role catalog list returns the seeded role
-        var roles = relationships.listRoles(tenantId, false);
+        var roles = inTenantTransaction(tenantId, () -> relationships.listRoles(tenantId, false));
         assertThat(roles).extracting(RelationshipRoleRecord::code).contains("VIP_BUYER");
     }
 
     @Test
     void listByAccount_returnsRelationshipsForAccount() {
-        inTransaction(() -> relationships.createRelationship(tenantId, actorId, contactId,
+        inTenantTransaction(tenantId, () -> relationships.createRelationship(tenantId, actorId, contactId,
                 new CreateRelationshipCommand(accountId, "BILLING", null,
                         false, null, null, null, null, "NONE", actorId)));
 
-        var byAccount = relationships.listByAccount(tenantId, accountId, 10, null, null);
+        var byAccount = inTenantTransaction(tenantId, () ->
+                relationships.listByAccount(tenantId, accountId, 10, null, null));
         assertThat(byAccount).hasSize(1);
         assertThat(byAccount.get(0).accountId()).isEqualTo(accountId);
     }
@@ -107,7 +110,7 @@ class JdbcContactRelationshipRepositoryPostgresTest extends CrmRepositoryPostgre
     @Test
     void findProfile_returnsContactProfile() {
         // the contact's profile row is created by V20260717_1 backfill; verify it is retrievable
-        var profile = relationships.findProfile(tenantId, contactId);
+        var profile = inTenantTransaction(tenantId, () -> relationships.findProfile(tenantId, contactId));
         assertThat(profile).isNotNull();
         assertThat(profile.id()).isEqualTo(contactId);
     }

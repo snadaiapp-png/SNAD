@@ -49,17 +49,44 @@ spring:
     console:
       enabled: false
 
-# RLS is disabled ONLY for this dedicated isolated acceptance DB
-# so test fixtures can seed cross-tenant data. The application
-# layer still enforces tenant isolation via SecurityContextUtils.
+# RLS is ENABLED for the pg-acceptance profile so that
+# TenantRlsDataSourcePostProcessor wraps the DataSource and
+# TenantRlsConnectionHandler applies SET LOCAL app.tenant_id
+# inside @Transactional service boundaries (the canonical RLS
+# pattern used by all production code paths).
+#
+# The test class installs a tenant-aware SecurityContext
+# (via RlsTestSupport.setSecurityContext) before each
+# checkoutService.checkout(...) call so that the GUC is set
+# correctly for the FORCE-RLS commerce_order_number_sequences
+# INSERT. Fixture INSERTs into ENABLE-RLS (non-FORCE) tables
+# (tenants, commerce_stores, etc.) continue to work because
+# sanad is the table owner and ENABLE RLS does not apply to
+# the owner.
+#
 # PRODUCTION_RLS_NEVER_DISABLED=PASS — the prod profile never
-# disables RLS; only this isolated test profile does.
+# disables RLS; this test profile now MATCHES production RLS
+# semantics rather than the previous invalid assumption that
+# sanad.rls.enabled=false would disable DB-level FORCE RLS
+# (it cannot — FORCE RLS is enforced at the PostgreSQL level
+# regardless of any Spring config flag).
 sanad:
   security:
     jwt:
       secret: ${JWT_SECRET:}
   rls:
-    enabled: false
+    enabled: true
+  commerce:
+    payment:
+      # Activate SimulatedPaymentAdapter for the pg-acceptance profile
+      # so the concurrency tests exercise the full payment side-effect
+      # path (createPaymentIntent → verifyPayment → payment_ref status
+      # history row). The production-safe default remains
+      # DefaultNoOpPaymentAdapter (returns null → PENDING order) when
+      # no provider is configured. This setting is TEST-ONLY — it lives
+      # in src/test/resources and is NOT packaged into production.
+      # (SIMULATED_PAYMENT_ACTIVE_IN_PROD=NO — prod never sets this.)
+      provider: simulated
 
 logging:
   level:

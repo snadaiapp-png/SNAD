@@ -195,6 +195,8 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", fixture.tenantId().toString()), String.class);
         jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
                         "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
@@ -208,6 +210,8 @@ class AddressCommunicationOperationsHttpIntegrationTest {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         String displayName = givenName + " " + familyName;
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                p().addValue("t", fixture.tenantId().toString()), String.class);
         jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
                         "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,NULL,:givenName,:familyName," +

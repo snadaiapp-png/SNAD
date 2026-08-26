@@ -21,6 +21,7 @@ import java.util.Base64;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 /**
  * CRM import worker RLS regression (Commit 2).
@@ -96,7 +97,10 @@ class CrmImportWorkerRlsPostgresTest {
         service = new LegacyCrmInfrastructureService(
                 namedJdbc, new ObjectMapper(), tm, env, true,
                 validTestEncryptionKey(),
-                rlsContext);
+                rlsContext,
+                // C6-B: ContactUseCases mock — only needed for constructor wiring,
+                // the import worker test does not exercise contact update.
+                mock(com.sanad.platform.crm.party.application.ContactUseCases.class));
     }
 
     @Test

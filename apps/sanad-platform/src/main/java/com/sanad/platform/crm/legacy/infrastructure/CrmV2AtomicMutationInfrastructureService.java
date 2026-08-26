@@ -1,5 +1,7 @@
 package com.sanad.platform.crm.legacy.infrastructure;
 
+import com.sanad.platform.crm.party.application.ContactUseCases;
+import com.sanad.platform.crm.party.domain.ContactRepository.UpdateContactCommand;
 import com.sanad.platform.crm.web.*;
 
 import com.sanad.platform.crm.error.CrmContractException;
@@ -14,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -35,9 +38,13 @@ public class CrmV2AtomicMutationInfrastructureService {
             "ARCHIVED", Set.of());
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final ContactUseCases contactUseCases;
 
-    public CrmV2AtomicMutationInfrastructureService(NamedParameterJdbcTemplate jdbc) {
+    public CrmV2AtomicMutationInfrastructureService(
+            NamedParameterJdbcTemplate jdbc,
+            ContactUseCases contactUseCases) {
         this.jdbc = jdbc;
+        this.contactUseCases = contactUseCases;
     }
 
     @Transactional
@@ -133,49 +140,19 @@ public class CrmV2AtomicMutationInfrastructureService {
             long expectedVersion) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
-        Map<String, Object> current = row("crm_contacts", tenantId, contactId, CrmErrorCode.CRM_CONTACT_NOT_FOUND);
-        if ("ARCHIVED".equals(current.get("lifecycle_status"))) {
-            throw new CrmContractException(CrmErrorCode.CONFLICT, "Archived CRM contact cannot be updated.");
-        }
-        String given = clean(request.givenName(), 120);
-        String family = clean(request.familyName(), 120);
-        String effectiveGiven = given == null ? String.valueOf(current.get("given_name")) : given;
-        String effectiveFamily = family == null ? asNullableString(current.get("family_name")) : family;
-        String display = effectiveFamily == null || effectiveFamily.isBlank()
-                ? effectiveGiven : effectiveGiven + " " + effectiveFamily;
-        Instant now = Instant.now();
-        MapSqlParameterSource params = context(tenantId, actorId, contactId, expectedVersion, now)
-                .addValue("accountId", request.accountId())
-                .addValue("givenName", given)
-                .addValue("familyName", family)
-                .addValue("displayName", display)
-                .addValue("normalizedName", normalize(display))
-                .addValue("email", clean(request.primaryEmail(), 255))
-                .addValue("normalizedEmail", request.primaryEmail() == null ? null : request.primaryEmail().trim().toLowerCase(Locale.ROOT))
-                .addValue("phone", clean(request.primaryPhone(), 64))
-                .addValue("locale", locale(request.preferredLocale()))
-                .addValue("timeZone", zone(request.timeZone()))
-                .addValue("ownerUserId", request.ownerUserId())
-                .addValue("consent", upper(request.consentSummary()));
-        int updated = jdbc.update(
-                "UPDATE crm_contacts SET "
-                        + "account_id=COALESCE(:accountId,account_id),"
-                        + "given_name=COALESCE(:givenName,given_name),"
-                        + "family_name=COALESCE(:familyName,family_name),"
-                        + "display_name=:displayName,normalized_name=:normalizedName,"
-                        + "primary_email=COALESCE(:email,primary_email),"
-                        + "normalized_email=COALESCE(:normalizedEmail,normalized_email),"
-                        + "primary_phone=COALESCE(:phone,primary_phone),"
-                        + "preferred_locale=COALESCE(:locale,preferred_locale),"
-                        + "time_zone=COALESCE(:timeZone,time_zone),"
-                        + "owner_user_id=COALESCE(:ownerUserId,owner_user_id),"
-                        + "consent_summary=COALESCE(:consent,consent_summary),"
-                        + "updated_by=:actorId,updated_at=:now,version=version+1 "
-                        + "WHERE tenant_id=:tenantId AND id=:id AND version=:expectedVersion",
-                params);
-        requireUpdated(updated);
-        timeline(tenantId, "CONTACT", contactId, "crm.contact.updated", "Contact updated", "CRM_CONTACT", contactId, actorId, now);
-        return row("crm_contacts", tenantId, contactId, CrmErrorCode.CRM_CONTACT_NOT_FOUND);
+        // C6-B: delegate to canonical A1 adapter — no direct Contact business UPDATE SQL.
+        UpdateContactCommand command = new UpdateContactCommand(
+                request.accountId(),
+                clean(request.givenName(), 120),
+                clean(request.familyName(), 120),
+                clean(request.primaryEmail(), 255),
+                clean(request.primaryPhone(), 64),
+                locale(request.preferredLocale()),
+                zone(request.timeZone()),
+                request.ownerUserId(),
+                upper(request.consentSummary()));
+        var updated = contactUseCases.update(tenantId, actorId, contactId, command, expectedVersion);
+        return contactRecordToMap(updated);
     }
 
     @Transactional
@@ -441,5 +418,27 @@ public class CrmV2AtomicMutationInfrastructureService {
 
     private static String asNullableString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private static Map<String, Object> contactRecordToMap(
+            com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord r) {
+        LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.id());
+        m.put("version", r.version());
+        m.put("account_id", r.accountId());
+        m.put("given_name", r.givenName());
+        m.put("family_name", r.familyName());
+        m.put("display_name", r.displayName());
+        m.put("primary_email", r.primaryEmail());
+        m.put("normalized_email", r.normalizedEmail());
+        m.put("primary_phone", r.primaryPhone());
+        m.put("preferred_locale", r.preferredLocale());
+        m.put("time_zone", r.timeZone());
+        m.put("lifecycle_status", r.lifecycleStatus());
+        m.put("owner_user_id", r.ownerUserId());
+        m.put("consent_summary", r.consentSummary());
+        m.put("created_at", r.createdAt());
+        m.put("updated_at", r.updatedAt());
+        return m;
     }
 }

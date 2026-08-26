@@ -70,11 +70,19 @@ jobs:
       - name: Prepare evidence directory
         run: mkdir -p "$RUNNER_TEMP/business-process-e2e"
 
+      - name: Generate ephemeral CRM encryption key
+        shell: bash
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
       - name: Execute complete governed process suite
         working-directory: apps/sanad-platform
         shell: bash
         env:
-          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: |
           set -o pipefail
           mvn --batch-mode --no-transfer-progress \

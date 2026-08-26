@@ -35,6 +35,17 @@ class ContactRelationshipImportHttpIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
+
+    private <T> T tenantQuery(UUID tenantId, java.util.function.Supplier<T> query) {
+        org.springframework.transaction.support.TransactionTemplate tx =
+                new org.springframework.transaction.support.TransactionTemplate(txManager);
+        return tx.execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    new MapSqlParameterSource("t", tenantId.toString()), String.class);
+            return query.get();
+        });
+    }
 
     @Test
     void importsOnePersonWithMultipleRelationshipsAndKeepsValidRows() throws Exception {
@@ -120,10 +131,10 @@ class ContactRelationshipImportHttpIntegrationTest {
                 .andExpect(jsonPath("$.data.succeededRows").value(2))
                 .andExpect(jsonPath("$.data.failedRows").value(0));
 
-        Integer contacts = jdbc.queryForObject(
+        Integer contacts = tenantQuery(tenant.tenantId(), () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_contacts WHERE tenant_id=:tenantId " +
                         "AND normalized_email='same@example.test'",
-                parameters().addValue("tenantId", tenant.tenantId()), Integer.class);
+                parameters().addValue("tenantId", tenant.tenantId()), Integer.class));
         assertThat(contacts).isEqualTo(2);
     }
 
@@ -182,21 +193,24 @@ class ContactRelationshipImportHttpIntegrationTest {
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("INSERT INTO crm_accounts " +
-                        "(id,tenant_id,version,display_name,normalized_name,account_type,lifecycle_status," +
-                        "primary_currency_code,preferred_locale,time_zone,source,owner_user_id,created_by,updated_by,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,0,:name,:normalized,'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh'," +
-                        "'CRM006_IMPORT_TEST',:owner,:owner,:owner,:now,:now)",
-                parameters().addValue("id", id).addValue("tenantId", fixture.tenantId())
-                        .addValue("name", name).addValue("normalized", name.toLowerCase())
-                        .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+        tenantQuery(fixture.tenantId(), () -> {
+            jdbc.update("INSERT INTO crm_accounts " +
+                            "(id,tenant_id,version,display_name,normalized_name,account_type,lifecycle_status," +
+                            "primary_currency_code,preferred_locale,time_zone,source,owner_user_id,created_by,updated_by,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,0,:name,:normalized,'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh'," +
+                            "'CRM006_IMPORT_TEST',:owner,:owner,:owner,:now,:now)",
+                    parameters().addValue("id", id).addValue("tenantId", fixture.tenantId())
+                            .addValue("name", name).addValue("normalized", name.toLowerCase())
+                            .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
+            return null;
+        });
         return id;
     }
 
     private Integer count(String table, UUID tenantId, String column, UUID id) {
-        return jdbc.queryForObject(
+        return tenantQuery(tenantId, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM " + table + " WHERE tenant_id=:tenantId AND " + column + "=:id",
-                parameters().addValue("tenantId", tenantId).addValue("id", id), Integer.class);
+                parameters().addValue("tenantId", tenantId).addValue("id", id), Integer.class));
     }
 
     private Authentication auth(Fixture fixture) {

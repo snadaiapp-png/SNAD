@@ -120,12 +120,30 @@ class CrmCollaborationSchemaPostgresTest {
         java.util.UUID entity = java.util.UUID.randomUUID();
         java.util.UUID user = java.util.UUID.randomUUID();
         // Seed a real contact for the V3 integrity trigger (FOR KEY SHARE validation)
+        // Note: the seeded contact owner is `user`, so the same user cannot also be a
+        // CONTACT participant after V20260823_2 (CRM_CONTACT_OWNER_CANNOT_PARTICIPATE).
+        // Use a second user for the participant role assertions.
+        java.util.UUID participantUser = java.util.UUID.randomUUID();
+        // Ensure participantUser exists so crm_entity_participants.added_by FK is satisfied.
+        jdbc.update("""
+                INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+                VALUES (:id, :t, :email, :name, 'ACTIVE', 'dummy', NOW(), NOW())
+                ON CONFLICT (id) DO NOTHING
+                """, new MapSqlParameterSource()
+                .addValue("id", participantUser)
+                .addValue("t", tenant)
+                .addValue("email", "schema-" + participantUser + "@snad.test")
+                .addValue("name", "Schema Test User"));
         seedContactForParticipantTest(tenant, entity, user);
-        insertActiveParticipant(tenant, entity, "CONTACT", user, "COLLABORATOR");
-        insertActiveParticipant(tenant, entity, "CONTACT", user, "WATCHER");
-        assertThatThrownBy(() -> insertActiveParticipant(tenant, entity, "CONTACT", user, "OWNER"))
+        // C3 (V20260823_2) makes one-active-role-per-user-per-CONTACT the rule:
+        // a second active role for the same user on the same CONTACT is rejected
+        // by the partial unique index `uk_crm_contact_participant_active_user`.
+        insertActiveParticipant(tenant, entity, "CONTACT", participantUser, "COLLABORATOR");
+        assertThatThrownBy(() -> insertActiveParticipant(tenant, entity, "CONTACT", participantUser, "WATCHER"))
                 .isInstanceOf(DataIntegrityViolationException.class);
-        assertThatThrownBy(() -> insertActiveParticipant(tenant, entity, "CONTACT", user, "REVIEWER"))
+        assertThatThrownBy(() -> insertActiveParticipant(tenant, entity, "CONTACT", participantUser, "OWNER"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> insertActiveParticipant(tenant, entity, "CONTACT", participantUser, "REVIEWER"))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // entity_type CHECK — CONTACT / TASK / CASE only.

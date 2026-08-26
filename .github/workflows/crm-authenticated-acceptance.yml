@@ -87,7 +87,7 @@ jobs:
       SANAD_CRM_IMPORT_WORKER_ENABLED: 'true'
       SANAD_CRM_IMPORT_WORKER_INITIAL_DELAY_MS: '2000'
       SANAD_CRM_IMPORT_WORKER_DELAY_MS: '2000'
-      CRM_CUSTOM_FIELD_ENCRYPTION_KEY: 'El3BbUMQ882dQYiAqNEEMxfTr3CVlf0FTbrCOrIKKsw='
+      CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
       SECURITY_NOTIFICATION_PROVIDER: disabled
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
       CRM_TENANT_A_EMAIL: tenant-a-admin@snad-crm-acceptance.example
@@ -112,6 +112,9 @@ jobs:
           set -euo pipefail
           echo "JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
           echo "SANAD_CONTROL_PLANE_TENANT_ID=$(uuidgen)" >> "$GITHUB_ENV"
+          crm_key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$crm_key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$crm_key" >> "$GITHUB_ENV"
 
       - name: Validate acceptance inputs
         shell: bash

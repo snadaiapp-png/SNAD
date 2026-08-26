@@ -1,8 +1,10 @@
 package com.sanad.platform.management;
 
+import com.sanad.platform.crm.test.RlsTestSupport;
 import com.sanad.platform.management.application.CrmManagementIntegrationService;
 import com.sanad.platform.management.application.RevenueOversightService;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +53,13 @@ class RevenueOversightIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "rev-" + tenantId.toString().substring(0, 8), now, now);
+
+        RlsTestSupport.setSecurityContext(tenantId, UUID.randomUUID());
+    }
+
+    @AfterEach
+    void tearDown() {
+        RlsTestSupport.clearSecurityContext();
     }
 
     @Test
