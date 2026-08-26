@@ -123,37 +123,44 @@ jobs:
           echo "RUNTIME_DB_PASSWORD=$RUNTIME_PASS" >> "$GITHUB_ENV"
 
           # Supavisor pooler requires tenant suffix and restricts ALTER ROLE.
-          # Use direct Supabase DB host via IPv4 for DDL operations.
+          # Use direct Supabase DB host for DDL operations.
+          # Resolve IPv4 address manually (Supabase direct host may resolve to IPv6).
           DIRECT_HOST="db.$SUPABASE_PROJECT.supabase.co"
           DIRECT_USER="postgres"
-          echo "Using direct DB host for DDL: $DIRECT_HOST (user=$DIRECT_USER)"
+          DIRECT_IPv4=$(dig +short A "$DIRECT_HOST" | head -1)
+          echo "Using direct DB host for DDL: $DIRECT_HOST (IPv4=$DIRECT_IPv4, user=$DIRECT_USER)"
+
+          if [ -z "$DIRECT_IPv4" ]; then
+            echo "::error::Could not resolve IPv4 for $DIRECT_HOST"
+            exit 1
+          fi
 
           echo "=== PROVISION: Creating sanad role ==="
-          PGPASSWORD="$DATABASE_PASSWORD" psql -4 \
-            -h "$DIRECT_HOST" -p 5432 -U "$DIRECT_USER" -d postgres \
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h "$DIRECT_IPv4" -p 5432 -U "$DIRECT_USER" -d postgres \
             --no-psqlrc --set=ON_ERROR_STOP=1 \
             --command="DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad') THEN CREATE ROLE sanad WITH LOGIN PASSWORD '$RUNTIME_PASS'; END IF; END \$\$;"
 
-          PGPASSWORD="$DATABASE_PASSWORD" psql -4 \
-            -h "$DIRECT_HOST" -p 5432 -U "$DIRECT_USER" -d postgres \
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h "$DIRECT_IPv4" -p 5432 -U "$DIRECT_USER" -d postgres \
             --no-psqlrc --set=ON_ERROR_STOP=1 \
             --command="ALTER ROLE sanad NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;"
 
           echo "=== PROVISION: Grants ==="
-          PGPASSWORD="$DATABASE_PASSWORD" psql -4 \
-            -h "$DIRECT_HOST" -p 5432 -U "$DIRECT_USER" -d postgres \
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h "$DIRECT_IPv4" -p 5432 -U "$DIRECT_USER" -d postgres \
             --no-psqlrc --set=ON_ERROR_STOP=1 \
             --command="GRANT CONNECT ON DATABASE postgres TO sanad; GRANT USAGE ON SCHEMA public TO sanad; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sanad; GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sanad;"
 
           echo "=== PROVISION: Default privileges for future objects ==="
-          PGPASSWORD="$DATABASE_PASSWORD" psql -4 \
-            -h "$DIRECT_HOST" -p 5432 -U "$DIRECT_USER" -d postgres \
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h "$DIRECT_IPv4" -p 5432 -U "$DIRECT_USER" -d postgres \
             --no-psqlrc --set=ON_ERROR_STOP=1 \
             --command="ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sanad; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO sanad;"
 
           echo "=== PROVISION: Verify role ==="
-          PGPASSWORD="$DATABASE_PASSWORD" psql -4 \
-            -h "$DIRECT_HOST" -p 5432 -U "$DIRECT_USER" -d postgres \
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h "$DIRECT_IPv4" -p 5432 -U "$DIRECT_USER" -d postgres \
             --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
             --command="SELECT rolname, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolcanlogin FROM pg_roles WHERE rolname='sanad';"
 
