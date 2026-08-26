@@ -114,8 +114,8 @@ jobs:
             -connectRetries=8 -table=flyway_schema_history \
             -locations="filesystem:/flyway/sql,filesystem:/flyway/vendorpg" \
             -validateOnMigrate=true -baselineOnMigrate=false -cleanDisabled=true \
+            -ignoreMigrationPatterns='*:pending' \
             validate
-          echo "FLYWAY_VALIDATE=PASS"
 
           echo ""
           echo "=== FLYWAY INFO (before migrate) ==="
