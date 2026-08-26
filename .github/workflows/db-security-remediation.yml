@@ -264,7 +264,7 @@ jobs:
 
           # ============ PHASE 1 — READ-ONLY ROLE STATE ============
           echo "===== PHASE 1: Read-only role state verification ====="
-          sb_query "SELECT (rolsuper::text || '|' || rolbypassrls::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolcanlogin::text) AS value FROM pg_authid WHERE rolname='sanad';" true
+          sb_query "SELECT (CASE WHEN rolsuper THEN 't' ELSE 'f' END || '|' || CASE WHEN rolbypassrls THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreatedb THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreaterole THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcanlogin THEN 't' ELSE 'f' END) AS value FROM pg_authid WHERE rolname='sanad';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::Phase 1 failed: HTTP $sb_query_http"; exit 1; }
           ROLE_FLAGS_BEFORE=$(sb_value)
           echo "ROLE_FLAGS_BEFORE=$ROLE_FLAGS_BEFORE"
@@ -314,7 +314,7 @@ jobs:
           [ "$PHASE4_RESULT" = "PASS" ] || { echo "::error::Pooler login failed"; exit 1; }
 
           # ============ PHASE 4.5 — POST-ROTATION INVARIANTS ============
-          sb_query "SELECT (rolsuper::text || '|' || rolbypassrls::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolcanlogin::text) AS value FROM pg_authid WHERE rolname='sanad';" true
+          sb_query "SELECT (CASE WHEN rolsuper THEN 't' ELSE 'f' END || '|' || CASE WHEN rolbypassrls THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreatedb THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreaterole THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcanlogin THEN 't' ELSE 'f' END) AS value FROM pg_authid WHERE rolname='sanad';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::post-rotation query failed"; exit 1; }
           ROLE_FLAGS_AFTER=$(sb_value)
           echo "ROLE_FLAGS_AFTER=$ROLE_FLAGS_AFTER"
@@ -524,7 +524,7 @@ jobs:
 
           # ============ PHASE 1 — READ-ONLY ROLE STATE ============
           echo "===== PHASE 1: Read-only role state verification ====="
-          sb_query "SELECT (rolsuper::text || '|' || rolbypassrls::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolcanlogin::text) AS value FROM pg_authid WHERE rolname='sanad';" true
+          sb_query "SELECT (CASE WHEN rolsuper THEN 't' ELSE 'f' END || '|' || CASE WHEN rolbypassrls THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreatedb THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreaterole THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcanlogin THEN 't' ELSE 'f' END) AS value FROM pg_authid WHERE rolname='sanad';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::Phase 1 failed"; exit 1; }
           ROLE_FLAGS_BEFORE=$(sb_value)
           echo "ROLE_FLAGS_BEFORE=$ROLE_FLAGS_BEFORE"
@@ -573,7 +573,7 @@ jobs:
           [ "$PHASE4_RESULT" = "PASS" ] || { echo "::error::Pooler login failed"; exit 1; }
 
           # ============ PHASE 4.5 — POST-ROTATION INVARIANTS ============
-          sb_query "SELECT (rolsuper::text || '|' || rolbypassrls::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolcanlogin::text) AS value FROM pg_authid WHERE rolname='sanad';" true
+          sb_query "SELECT (CASE WHEN rolsuper THEN 't' ELSE 'f' END || '|' || CASE WHEN rolbypassrls THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreatedb THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcreaterole THEN 't' ELSE 'f' END || '|' || CASE WHEN rolcanlogin THEN 't' ELSE 'f' END) AS value FROM pg_authid WHERE rolname='sanad';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::post-rotation query failed"; exit 1; }
           ROLE_FLAGS_AFTER=$(sb_value)
           echo "ROLE_FLAGS_AFTER=$ROLE_FLAGS_AFTER"
@@ -631,7 +631,7 @@ jobs:
           echo "PRODUCTION_G6_MIGRATION=PASS"
 
           # Item 9: FORCE-RLS structural queries (single named value)
-          sb_query "SELECT (c.relrowsecurity::text || '|' || c.relforcerowsecurity::text) AS value FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='crm_contacts';" true
+          sb_query "SELECT (CASE WHEN c.relrowsecurity THEN 't' ELSE 'f' END || '|' || CASE WHEN c.relforcerowsecurity THEN 't' ELSE 'f' END) AS value FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='crm_contacts';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::crm_contacts RLS query failed"; exit 1; }
           CONTACTS_RLS=$(sb_value)
           echo "CRM_CONTACTS_RLS_FLAGS=$CONTACTS_RLS (expect true|true or t|t)"
@@ -643,7 +643,7 @@ jobs:
             exit 1
           fi
 
-          sb_query "SELECT (c.relrowsecurity::text || '|' || c.relforcerowsecurity::text) AS value FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='crm_entity_participants';" true
+          sb_query "SELECT (CASE WHEN c.relrowsecurity THEN 't' ELSE 'f' END || '|' || CASE WHEN c.relforcerowsecurity THEN 't' ELSE 'f' END) AS value FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='crm_entity_participants';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::crm_entity_participants RLS query failed"; exit 1; }
           PARTICIPANTS_RLS=$(sb_value)
           echo "CRM_PARTICIPANTS_RLS_FLAGS=$PARTICIPANTS_RLS"
@@ -710,7 +710,7 @@ jobs:
           echo "REVOKE_FLYWAY_HISTORY_WRITE=PASS"
 
           # Verify: has_table_privilege should return false for INSERT/UPDATE/DELETE
-          sb_query "SELECT (has_table_privilege('sanad','public.flyway_schema_history','INSERT')::text || '|' || has_table_privilege('sanad','public.flyway_schema_history','UPDATE')::text || '|' || has_table_privilege('sanad','public.flyway_schema_history','DELETE')::text) AS value;" true
+          sb_query "SELECT (CASE WHEN has_table_privilege('sanad','public.flyway_schema_history','INSERT') THEN 't' ELSE 'f' END || '|' || CASE WHEN has_table_privilege('sanad','public.flyway_schema_history','UPDATE') THEN 't' ELSE 'f' END || '|' || CASE WHEN has_table_privilege('sanad','public.flyway_schema_history','DELETE') THEN 't' ELSE 'f' END) AS value;" true
           [ "$sb_query_http" = "201" ] || { echo "::error::has_table_privilege query failed"; exit 1; }
           FLYWAY_PRIVS=$(sb_value)
           echo "SANAD_FLYWAY_PRIVILEGES=$FLYWAY_PRIVS (expect f|f|f or false|false|false)"
@@ -746,7 +746,7 @@ jobs:
           FRESH_OUT=$(PGPASSWORD="$RUNTIME_PASS" psql \
             -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$POOLER_USER_SANAD" -d "$POOLER_DB" \
             --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
-            --command="SELECT (current_setting('app.tenant_id', true) IS NULL)::text;" \
+            --command="SELECT CASE WHEN current_setting('app.tenant_id', true) IS NULL THEN 't' ELSE 'f' END;" \
             --command="SELECT COUNT(*)::text FROM crm_contacts;" 2>&1)
           FRESH_RC=$?
           set -e
