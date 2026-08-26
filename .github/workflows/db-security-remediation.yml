@@ -251,8 +251,10 @@ jobs:
           # ============ Item 7: Network capability probe ============
           echo ""
           echo "===== Network capability probe ====="
+          set +e
           DIRECT_IPV4=$(getent ahostsv4 "$DIRECT_HOST" 2>/dev/null | head -1 | awk '{print $1}')
           DIRECT_IPV6=$(getent ahostsv6 "$DIRECT_HOST" 2>/dev/null | head -1 | awk '{print $1}')
+          set -e
           [ -n "$DIRECT_IPV4" ] && echo "DIRECT_DNS_IPV4=YES ($DIRECT_IPV4)" || echo "DIRECT_DNS_IPV4=NO"
           [ -n "$DIRECT_IPV6" ] && echo "DIRECT_DNS_IPV6=YES ($DIRECT_IPV6)" || echo "DIRECT_DNS_IPV6=NO"
 
