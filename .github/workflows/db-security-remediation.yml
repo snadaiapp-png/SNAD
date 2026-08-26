@@ -390,6 +390,8 @@ jobs:
       - name: Recovery_full — Phase 0-9B + optional Phase 12 (full RLS certification)
         if: inputs.action == 'recovery_full'
         shell: bash
+        env:
+          APPLY_RENDER: ${{ inputs.apply_render }}
         run: |
           set -euo pipefail
 
@@ -1001,7 +1003,7 @@ jobs:
           RENDER_ROLLBACK_COMPLETED="N/A"
           RENDER_CONFIG_PARTIAL=NO
 
-          if [ "${{ inputs.apply_render }}" = "true" ]; then
+          if [ "$APPLY_RENDER" = "true" ]; then
             # 6 preconditions
             [ "$PHASE4_RESULT" = "PASS" ] || { echo "::error::apply_render forbidden: pooler login"; exit 1; }
             [ "$MIGRATION_SUCCESS_COUNT" = "2" ] || { echo "::error::apply_render forbidden: migration"; exit 1; }
