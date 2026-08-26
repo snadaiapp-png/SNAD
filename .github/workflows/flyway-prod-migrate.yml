@@ -1,10 +1,22 @@
-name: Flyway production migrate (apply pending)
+name: Flyway production migrate (canonical hardened)
 
-# Applies the pending Flyway migrations (V20260716.1 -> V20260813.1, including
-# G7 V20260812_1/2/3) to the sanad-production-v2 database so that the backend's
-# validate-on-migrate passes and startup succeeds. All migrations are additive
-# and idempotent (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
-# validateOnMigrate=false here to force the apply past the pending-gap failure.
+# Canonical hardened production migration workflow.
+# Applies pending Flyway migrations to the production database.
+#
+# Contract (per G6 Final Production Closure runbook Phase 8):
+#   - workflow_dispatch only
+#   - environment: production
+#   - GITHUB_REF must equal refs/heads/main
+#   - HEAD == GITHUB_SHA == origin/main
+#   - set -euo pipefail
+#   - validateOnMigrate=true
+#   - baselineOnMigrate=false
+#   - cleanDisabled=true
+#   - flyway validate before migrate
+#   - flyway info to verify pending set
+#   - Migration file SHA256 immutability gate
+#   - Migration runtime identity is NOT sanad (uses privileged migration role)
+#   - NO set +e, || true, silent fallback, validateOnMigrate=false
 
 on:
   workflow_dispatch:
@@ -14,24 +26,62 @@ permissions:
 
 jobs:
   migrate:
-    name: Apply pending migrations to production
+    name: Apply pending migrations to production (canonical)
     runs-on: ubuntu-latest
-    environment: Production
-    timeout-minutes: 12
+    environment: production
+    timeout-minutes: 20
     steps:
-      - name: Checkout migrations
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Flyway migrate (portable + vendor locations)
+      - name: Verify main/SHA execution lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "::error::Production migration may run only from refs/heads/main (got: ${GITHUB_REF:-unset})"
+            exit 1
+          fi
+          echo "GITHUB_REF_MAIN_ONLY=YES"
+          git fetch origin main --quiet
+          DISPATCH_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+          HEAD_SHA=$(git rev-parse HEAD)
+          REMOTE_MAIN_SHA=$(git rev-parse origin/main)
+          echo "GITHUB_SHA=$DISPATCH_SHA HEAD=$HEAD_SHA origin/main=$REMOTE_MAIN_SHA"
+          if [ "$DISPATCH_SHA" != "$REMOTE_MAIN_SHA" ] || [ "$HEAD_SHA" != "$REMOTE_MAIN_SHA" ]; then
+            echo "::error::SHA mismatch — production migration requires exact main"
+            exit 1
+          fi
+          echo "PRODUCTION_REF_LOCK=PASS"
+
+      - name: Verify migration file SHA256 immutability
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL_SHA_V1=$(sha256sum apps/sanad-platform/src/main/resources/db/migration/V20260823_1__crm_contacts_force_rls.sql | cut -d' ' -f1)
+          ACTUAL_SHA_V2=$(sha256sum apps/sanad-platform/src/main/resources/db/migration/V20260823_2__crm_participant_role_exclusivity.sql | cut -d' ' -f1)
+          echo "V20260823_1_SHA256=$ACTUAL_SHA_V1"
+          echo "V20260823_2_SHA256=$ACTUAL_SHA_V2"
+          EXPECTED_V1="a9851b90ad1c5af01ebe0760527065edf82a7abf6240a85ea40c77f118cfb2d6"
+          EXPECTED_V2="587615a3f2de09962e891dbadd5dfb0bcca8f80aa9be8fc9f8832c519bbb6f18"
+          [ "$ACTUAL_SHA_V1" = "$EXPECTED_V1" ] || { echo "::error::V20260823_1 SHA256 mismatch — migration file tampered"; exit 1; }
+          [ "$ACTUAL_SHA_V2" = "$EXPECTED_V2" ] || { echo "::error::V20260823_2 SHA256 mismatch — migration file tampered"; exit 1; }
+          echo "MIGRATION_IMMUTABILITY=PASS"
+
+      - name: Flyway validate + info (before migrate)
         env:
           DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
           DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
           DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
           MIGRATIONS="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
           VENDOR="$(pwd)/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
-          echo "=== INFO BEFORE ==="
+
+          echo "=== FLYWAY VALIDATE ==="
           docker run --rm \
             -v "$MIGRATIONS:/flyway/sql:ro" \
             -v "$VENDOR:/flyway/vendorpg:ro" \
@@ -39,9 +89,12 @@ jobs:
             -url="$DB_URL" -user="$DB_USER" -password="$DB_PASS" \
             -connectRetries=8 -table=flyway_schema_history \
             -locations="filesystem:/flyway/sql,filesystem:/flyway/vendorpg" \
-            info
+            -validateOnMigrate=true -baselineOnMigrate=false -cleanDisabled=true \
+            validate
+          echo "FLYWAY_VALIDATE=PASS"
+
           echo ""
-          echo "=== MIGRATE (apply pending) ==="
+          echo "=== FLYWAY INFO (before migrate) ==="
           docker run --rm \
             -v "$MIGRATIONS:/flyway/sql:ro" \
             -v "$VENDOR:/flyway/vendorpg:ro" \
@@ -49,10 +102,44 @@ jobs:
             -url="$DB_URL" -user="$DB_USER" -password="$DB_PASS" \
             -connectRetries=8 -table=flyway_schema_history \
             -locations="filesystem:/flyway/sql,filesystem:/flyway/vendorpg" \
-            -validateOnMigrate=false -baselineOnMigrate=false \
+            -cleanDisabled=true \
+            info
+
+      - name: Flyway migrate (apply pending)
+        env:
+          DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MIGRATIONS="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
+          VENDOR="$(pwd)/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+
+          echo "=== FLYWAY MIGRATE ==="
+          docker run --rm \
+            -v "$MIGRATIONS:/flyway/sql:ro" \
+            -v "$VENDOR:/flyway/vendorpg:ro" \
+            flyway/flyway:10 \
+            -url="$DB_URL" -user="$DB_USER" -password="$DB_PASS" \
+            -connectRetries=8 -table=flyway_schema_history \
+            -locations="filesystem:/flyway/sql,filesystem:/flyway/vendorpg" \
+            -validateOnMigrate=true -baselineOnMigrate=false -cleanDisabled=true \
             migrate
-          echo ""
-          echo "=== INFO AFTER (expect schema version at latest, no pending) ==="
+          echo "FLYWAY_MIGRATE=PASS"
+
+      - name: Flyway info (after migrate)
+        env:
+          DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MIGRATIONS="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
+          VENDOR="$(pwd)/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
+
+          echo "=== FLYWAY INFO (after migrate) ==="
           docker run --rm \
             -v "$MIGRATIONS:/flyway/sql:ro" \
             -v "$VENDOR:/flyway/vendorpg:ro" \
@@ -60,4 +147,27 @@ jobs:
             -url="$DB_URL" -user="$DB_USER" -password="$DB_PASS" \
             -connectRetries=8 -table=flyway_schema_history \
             -locations="filesystem:/flyway/sql,filesystem:/flyway/vendorpg" \
+            -cleanDisabled=true \
             info
+
+      - name: Verify migration applied
+        env:
+          DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Verify V20260823.1 and V20260823.2 in flyway_schema_history ==="
+          docker run --rm \
+            -v "$(pwd)/apps/sanad-platform/src/main/resources/db/migration:/flyway/sql:ro" \
+            flyway/flyway:10 \
+            -url="$DB_URL" -user="$DB_USER" -password="$DB_PASS" \
+            -connectRetries=8 -table=flyway_schema_history \
+            -locations="filesystem:/flyway/sql" \
+            -cleanDisabled=true \
+            info | grep -E "20260823.1|20260823.2" | grep "Success" || {
+              echo "::error::G6 migrations not found in flyway_schema_history"
+              exit 1
+            }
+          echo "PRODUCTION_G6_MIGRATION=PASS"

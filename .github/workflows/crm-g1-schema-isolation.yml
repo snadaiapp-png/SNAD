@@ -1,3 +1,4 @@
+# Trigger for migration hardening PR
 # G6 recovery PR trigger: touch own file to satisfy required check
 name: CRM G1 Schema Isolation
 
