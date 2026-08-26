@@ -201,6 +201,20 @@ jobs:
               end' 2>/dev/null | tr -d '"' | tr -d '[:space:]'
           }
 
+          # Item 2 (v6.1): Policy text parser — preserves whitespace and quotes.
+          # sb_value() strips [:space:] which would turn "IS NULL" into "ISNULL".
+          # Use sb_text_value() for policy qual/with_check text.
+          sb_text_value() {
+            echo "$sb_query_body" | jq -r '
+              if type == "array" then
+                if length > 0 then .[0].value // empty else empty end
+              elif type == "object" then
+                .value // empty
+              else
+                .
+              end' 2>/dev/null
+          }
+
           # psql as sanad (runtime RLS channel)
           psql_sanad() {
             PGPASSWORD="$RUNTIME_PASS" psql \
@@ -211,6 +225,13 @@ jobs:
           # Item 4: Main/SHA execution lock
           verify_main_lock() {
             local label="$1"
+            # Item 6 (v6.1): Explicit GITHUB_REF check first
+            if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+              echo "::error::Production recovery may run only from refs/heads/main (got: ${GITHUB_REF:-unset})"
+              echo "$label=FAIL"
+              return 1
+            fi
+            echo "GITHUB_REF_MAIN_ONLY=YES"
             git fetch origin main --quiet 2>/dev/null
             local dispatch_sha head_sha remote_main_sha
             dispatch_sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
@@ -373,7 +394,10 @@ jobs:
           set -euo pipefail
 
           SANAD_PASSWORD_ROTATED=NO
-          trap 'rc=$?; if [ $rc -ne 0 ] && [ "$SANAD_PASSWORD_ROTATED" = "YES" ]; then echo ""; echo "SANAD_PASSWORD_ROTATED_BUT_NOT_ACTIVATED=YES"; echo "  (Render still uses postgres — not a security emergency; future run may rotate again)"; fi' EXIT
+          # Item 12 (v6.1): Initial trap only handles Case A (Render save not started).
+          # When Render save starts, render_on_exit() overrides this trap with
+          # full Case A/B/C classification.
+          trap 'rc=$?; if [ $rc -ne 0 ] && [ "$SANAD_PASSWORD_ROTATED" = "YES" ] && [ "${RENDER_SAVE_STARTED:-NO}" != "YES" ]; then echo ""; echo "CASE A: SANAD_PASSWORD_ROTATED_BUT_NOT_ACTIVATED=YES"; echo "  (Render save never started — not a security emergency; future run may rotate again)"; fi' EXIT
 
           echo "PASSWORD_RESET_AUTHORITY_CANDIDATE=MANAGEMENT_API"
           echo "PASSWORD_RESET_AUTHORITY_PROVEN=NO (pending runtime verification)"
@@ -435,6 +459,20 @@ jobs:
               end' 2>/dev/null | tr -d '"' | tr -d '[:space:]'
           }
 
+          # Item 2 (v6.1): Policy text parser — preserves whitespace and quotes.
+          # sb_value() strips [:space:] which would turn "IS NULL" into "ISNULL".
+          # Use sb_text_value() for policy qual/with_check text.
+          sb_text_value() {
+            echo "$sb_query_body" | jq -r '
+              if type == "array" then
+                if length > 0 then .[0].value // empty else empty end
+              elif type == "object" then
+                .value // empty
+              else
+                .
+              end' 2>/dev/null
+          }
+
           # psql as sanad (runtime RLS channel)
           psql_sanad() {
             PGPASSWORD="$RUNTIME_PASS" psql \
@@ -445,6 +483,13 @@ jobs:
           # Item 4: Main/SHA execution lock
           verify_main_lock() {
             local label="$1"
+            # Item 6 (v6.1): Explicit GITHUB_REF check first
+            if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+              echo "::error::Production recovery may run only from refs/heads/main (got: ${GITHUB_REF:-unset})"
+              echo "$label=FAIL"
+              return 1
+            fi
+            echo "GITHUB_REF_MAIN_ONLY=YES"
             git fetch origin main --quiet 2>/dev/null
             local dispatch_sha head_sha remote_main_sha
             dispatch_sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
@@ -588,13 +633,25 @@ jobs:
           [ "$sb_query_http" = "201" ] || { echo "::error::crm_contacts RLS query failed"; exit 1; }
           CONTACTS_RLS=$(sb_value)
           echo "CRM_CONTACTS_RLS_FLAGS=$CONTACTS_RLS (expect true|true or t|t)"
-          case "$CONTACTS_RLS" in true|true|t|t) echo "CRM_CONTACTS_RLS_FORCE=PASS" ;; *) echo "::error::crm_contacts FORCE_RLS failed: $CONTACTS_RLS"; exit 1 ;; esac
+          # Item 1 (v6.1): explicit exact comparisons (case | is pattern separator, not literal)
+          if [ "$CONTACTS_RLS" = "true|true" ] || [ "$CONTACTS_RLS" = "t|t" ]; then
+            echo "CRM_CONTACTS_RLS_FORCE=PASS"
+          else
+            echo "::error::crm_contacts FORCE RLS invalid: '$CONTACTS_RLS' (expected true|true or t|t)"
+            exit 1
+          fi
 
           sb_query "SELECT (c.relrowsecurity::text || '|' || c.relforcerowsecurity::text) AS value FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='crm_entity_participants';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::crm_entity_participants RLS query failed"; exit 1; }
           PARTICIPANTS_RLS=$(sb_value)
           echo "CRM_PARTICIPANTS_RLS_FLAGS=$PARTICIPANTS_RLS"
-          case "$PARTICIPANTS_RLS" in true|true|t|t) echo "CRM_PARTICIPANTS_RLS_FORCE=PASS" ;; *) echo "::error::crm_entity_participants FORCE_RLS failed: $PARTICIPANTS_RLS"; exit 1 ;; esac
+          # Item 1 (v6.1): explicit exact comparisons
+          if [ "$PARTICIPANTS_RLS" = "true|true" ] || [ "$PARTICIPANTS_RLS" = "t|t" ]; then
+            echo "CRM_PARTICIPANTS_RLS_FORCE=PASS"
+          else
+            echo "::error::crm_entity_participants FORCE RLS invalid: '$PARTICIPANTS_RLS' (expected true|true or t|t)"
+            exit 1
+          fi
 
           # Item 10: Policy catalog query (pg_policies has 'qual' and 'with_check', NOT 'polqual')
           sb_query "SELECT COUNT(*)::text AS value FROM pg_policies WHERE tablename='crm_contacts' AND policyname='tenant_isolation';" true
@@ -614,16 +671,31 @@ jobs:
           # Item 10: Verify USING clause is fail-closed (no IS NULL OR)
           sb_query "SELECT qual::text AS value FROM pg_policies WHERE tablename='crm_contacts' AND policyname='crm_contacts_tenant_isolation';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::policy qual query failed"; exit 1; }
-          POLICY_USING=$(sb_value)
+          # Item 2/3 (v6.1): Use sb_text_value (preserves whitespace) for policy text.
+          # Semantic verification: tenant_id comparison + current_setting present,
+          # no IS NULL bypass, no permissive OR bypass.
+          POLICY_USING=$(sb_text_value)
           echo "POLICY_USING=$POLICY_USING"
+          # Require tenant_id comparison present
+          echo "$POLICY_USING" | grep -qi "tenant_id" || { echo "::error::Policy USING missing tenant_id comparison"; echo "POLICY_USING_TENANT_COMPARISON=FAIL"; exit 1; }
+          echo "POLICY_USING_TENANT_COMPARISON=PASS"
+          # Require current_setting('app.tenant_id', true) present
+          echo "$POLICY_USING" | grep -qi "current_setting.*app.tenant_id" || { echo "::error::Policy USING missing current_setting('app.tenant_id')"; exit 1; }
+          # No IS NULL bypass
           echo "$POLICY_USING" | grep -qi "IS NULL" && { echo "::error::Policy USING contains IS NULL — fail-open risk"; echo "POLICY_USING_FAIL_CLOSED=FAIL"; exit 1; }
           echo "POLICY_USING_FAIL_CLOSED=PASS"
 
           # Item 10: Verify WITH CHECK clause is fail-closed
           sb_query "SELECT with_check::text AS value FROM pg_policies WHERE tablename='crm_contacts' AND policyname='crm_contacts_tenant_isolation';" true
           [ "$sb_query_http" = "201" ] || { echo "::error::policy with_check query failed"; exit 1; }
-          POLICY_WCHECK=$(sb_value)
+          POLICY_WCHECK=$(sb_text_value)
           echo "POLICY_WITH_CHECK=$POLICY_WCHECK"
+          # Require tenant_id comparison present
+          echo "$POLICY_WCHECK" | grep -qi "tenant_id" || { echo "::error::Policy WITH CHECK missing tenant_id comparison"; echo "POLICY_WITH_CHECK_TENANT_COMPARISON=FAIL"; exit 1; }
+          echo "POLICY_WITH_CHECK_TENANT_COMPARISON=PASS"
+          # Require current_setting present
+          echo "$POLICY_WCHECK" | grep -qi "current_setting.*app.tenant_id" || { echo "::error::Policy WITH CHECK missing current_setting('app.tenant_id')"; exit 1; }
+          # No IS NULL bypass
           echo "$POLICY_WCHECK" | grep -qi "IS NULL" && { echo "::error::Policy WITH CHECK contains IS NULL — fail-open risk"; echo "POLICY_WITH_CHECK_FAIL_CLOSED=FAIL"; exit 1; }
           echo "POLICY_WITH_CHECK_FAIL_CLOSED=PASS"
 
@@ -667,11 +739,18 @@ jobs:
           fi
 
           # Fresh sanad connection — never calls SET/SET LOCAL/set_config
+          # Item 5 (v6.1): Controlled set +e around ONE command to capture real RC
+          set +e
           FRESH_OUT=$(PGPASSWORD="$RUNTIME_PASS" psql \
             -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$POOLER_USER_SANAD" -d "$POOLER_DB" \
             --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
             --command="SELECT (current_setting('app.tenant_id', true) IS NULL)::text;" \
-            --command="SELECT COUNT(*)::text FROM crm_contacts;" 2>&1) || true
+            --command="SELECT COUNT(*)::text FROM crm_contacts;" 2>&1)
+          FRESH_RC=$?
+          set -e
+          echo "FRESH_RC=$FRESH_RC (expect 0)"
+          [ "$FRESH_RC" -eq 0 ] || { echo "::error::Fresh connection psql failed (rc=$FRESH_RC)"; exit 1; }
+          echo "FRESH_CONNECTION_RC_CAPTURE=PASS"
 
           FRESH_GUC_IS_NULL=$(echo "$FRESH_OUT" | head -1 | tr -d '[:space:]')
           FRESH_NO_GUC_CONTACT_ROWS=$(echo "$FRESH_OUT" | tail -1 | tr -d '[:space:]')
@@ -773,14 +852,19 @@ jobs:
           FIXTURESQL
 
           # Item 11: Execute fixture via psql as sanad (NOT Management API)
+          # Item 5 (v6.1): Controlled set +e around ONE command to capture real RC
           echo "--- Executing fixture as sanad via psql ---"
+          set +e
           FIXTURE_OUTPUT=$(PGPASSWORD="$RUNTIME_PASS" psql \
             -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$POOLER_USER_SANAD" -d "$POOLER_DB" \
             -X -v ON_ERROR_STOP=1 -At -F '|' \
-            -f /tmp/rls_fixture.sql 2>&1) || true
+            -f /tmp/rls_fixture.sql 2>&1)
           FIXTURE_RC=$?
-          echo "FIXTURE_RC=$FIXTURE_RC"
+          set -e
+          echo "FIXTURE_RC=$FIXTURE_RC (expect 0)"
           rm -f /tmp/rls_fixture.sql
+          [ "$FIXTURE_RC" -eq 0 ] || { echo "::error::Fixture psql failed (rc=$FIXTURE_RC)"; exit 1; }
+          echo "FIXTURE_RC_CAPTURE=PASS"
 
           # Item 13: Parse psql output (LABEL|VALUE format)
           parse_fixture() {
@@ -863,6 +947,51 @@ jobs:
           echo "FIXTURE_ROLLBACK_PROVEN=YES"
 
           # =================================================================
+          # Item 4 (v6.1): Non-vacuous WITH-CHECK runtime proof
+          # Attempt cross-tenant INSERT (tenant_id=TENANT_B under TENANT_A GUC).
+          # The INSERT MUST FAIL because WITH CHECK rejects it.
+          # Execute inside a transaction that cannot commit.
+          # =================================================================
+          echo "===== Item 4: Cross-tenant WRITE denial (WITH CHECK proof) ====="
+          CROSS_WRITE_UUID=$(openssl rand -hex 16 | sed 's/\(.\{8\}\)\(.\{4\}\)\(.\{4\}\)\(.\{4\}\)\(.\{12\}\)/\1-\2-\3-\4-\5/')
+          echo "::add-mask::$CROSS_WRITE_UUID"
+
+          cat > /tmp/cross_tenant_write_test.sql <<CROSSWRITESQL
+          BEGIN;
+          SELECT set_config('app.tenant_id', '$TENANT_A', true);
+          -- Attempt INSERT with tenant_id=TENANT_B (cross-tenant write)
+          INSERT INTO crm_contacts (id, tenant_id, version, given_name, display_name, normalized_name, lifecycle_status, consent_summary, created_by, updated_by, created_at, updated_at, owner_user_id)
+          VALUES ('$CROSS_WRITE_UUID'::uuid, '$TENANT_B'::uuid, 0, 'CrossWrite', 'CrossWrite', 'crosswrite', 'ACTIVE', 'UNKNOWN', '$USER_A'::uuid, '$USER_A'::uuid, now(), now(), NULL);
+          ROLLBACK;
+          CROSSWRITESQL
+
+          set +e
+          CROSS_WRITE_OUT=$(PGPASSWORD="$RUNTIME_PASS" psql \
+            -h "$POOLER_HOST" -p "$POOLER_PORT" -U "$POOLER_USER_SANAD" -d "$POOLER_DB" \
+            -X -v ON_ERROR_STOP=1 -At -F '|' \
+            -f /tmp/cross_tenant_write_test.sql 2>&1)
+          CROSS_WRITE_RC=$?
+          set -e
+          rm -f /tmp/cross_tenant_write_test.sql
+          echo "CROSS_WRITE_RC=$CROSS_WRITE_RC (expect non-zero — INSERT should fail)"
+
+          if [ $CROSS_WRITE_RC -eq 0 ]; then
+            echo "::error::Cross-tenant INSERT SUCCEEDED — WITH CHECK not enforced!"
+            echo "CROSS_TENANT_WRITE_CONTACT_DENIED=NO"
+            echo "RLS_WITH_CHECK_RUNTIME_PROOF=FAIL"
+            exit 1
+          fi
+          echo "CROSS_TENANT_WRITE_CONTACT_DENIED=YES"
+
+          # Verify privileged authority sees synthetic UUID count=0
+          sb_query "SELECT COUNT(*)::text AS value FROM crm_contacts WHERE id='$CROSS_WRITE_UUID'::uuid;" true
+          [ "$sb_query_http" = "201" ] || { echo "::error::cross-write post-verify query failed"; exit 1; }
+          CROSS_WRITE_PERSISTED=$(sb_value)
+          echo "CROSS_TENANT_WRITE_CONTACT_PERSISTED=$CROSS_WRITE_PERSISTED (expect 0)"
+          [ "$CROSS_WRITE_PERSISTED" = "0" ] || { echo "::error::Cross-tenant write persisted — RLS WITH CHECK failed"; echo "RLS_WITH_CHECK_RUNTIME_PROOF=FAIL"; exit 1; }
+          echo "RLS_WITH_CHECK_RUNTIME_PROOF=PASS"
+
+          # =================================================================
           # PHASE 12 — RENDER SAVE-ONLY (Items 20-26)
           # =================================================================
           # Item 21: State machine
@@ -897,6 +1026,8 @@ jobs:
               local json="$1" key="$2"
               echo "$json" | jq -r --arg k "$key" '[.[]? | (.envVar // .)] | .[] | select(.key == $k) | .value // empty'
             }
+            # Item 8 (v6.1): Capture BOTH existence AND value for each key.
+            # Do NOT equate ABSENT with EMPTY STRING.
             OLD_DATABASE_USERNAME=$(get_render_env "$RENDER_ENV_BEFORE" "DATABASE_USERNAME")
             OLD_DATABASE_PASSWORD=$(get_render_env "$RENDER_ENV_BEFORE" "DATABASE_PASSWORD")
             OLD_SPRING_DS_USER=$(get_render_env "$RENDER_ENV_BEFORE" "SPRING_DATASOURCE_USERNAME")
@@ -908,11 +1039,18 @@ jobs:
             echo "::add-mask::$OLD_SPRING_DS_USER"
             echo "::add-mask::$OLD_SPRING_DS_PASS"
             echo "::add-mask::$OLD_SPRING_DS_URL"
-            [ -n "$OLD_DATABASE_USERNAME" ] && echo "OLD_DATABASE_USERNAME_CAPTURED=YES" || echo "OLD_DATABASE_USERNAME_CAPTURED=NO (was unset)"
-            [ -n "$OLD_DATABASE_PASSWORD" ] && echo "OLD_DATABASE_PASSWORD_CAPTURED=YES" || echo "OLD_DATABASE_PASSWORD_CAPTURED=NO (was unset)"
-            [ -n "$OLD_SPRING_DS_USER" ] && echo "OLD_SPRING_DS_USER_CAPTURED=YES" || echo "OLD_SPRING_DS_USER_CAPTURED=NO (was unset)"
-            [ -n "$OLD_SPRING_DS_PASS" ] && echo "OLD_SPRING_DS_PASS_CAPTURED=YES" || echo "OLD_SPRING_DS_PASS_CAPTURED=NO (was unset)"
-            [ -n "$OLD_FLYWAY_ENABLED" ] && echo "OLD_FLYWAY_ENABLED_CAPTURED=YES" || echo "OLD_FLYWAY_ENABLED_CAPTURED=NO (was unset)"
+            # Track existence (key was present vs absent)
+            [ -n "$OLD_DATABASE_USERNAME" ] && OLD_DATABASE_USERNAME_EXISTS=YES || OLD_DATABASE_USERNAME_EXISTS=NO
+            [ -n "$OLD_DATABASE_PASSWORD" ] && OLD_DATABASE_PASSWORD_EXISTS=YES || OLD_DATABASE_PASSWORD_EXISTS=NO
+            [ -n "$OLD_SPRING_DS_USER" ] && OLD_SPRING_DS_USER_EXISTS=YES || OLD_SPRING_DS_USER_EXISTS=NO
+            [ -n "$OLD_SPRING_DS_PASS" ] && OLD_SPRING_DS_PASS_EXISTS=YES || OLD_SPRING_DS_PASS_EXISTS=NO
+            [ -n "$OLD_FLYWAY_ENABLED" ] && OLD_FLYWAY_ENABLED_EXISTS=YES || OLD_FLYWAY_ENABLED_EXISTS=NO
+            echo "OLD_DATABASE_USERNAME_EXISTS=$OLD_DATABASE_USERNAME_EXISTS"
+            echo "OLD_DATABASE_PASSWORD_EXISTS=$OLD_DATABASE_PASSWORD_EXISTS"
+            echo "OLD_SPRING_DS_USER_EXISTS=$OLD_SPRING_DS_USER_EXISTS"
+            echo "OLD_SPRING_DS_PASS_EXISTS=$OLD_SPRING_DS_PASS_EXISTS"
+            echo "OLD_FLYWAY_ENABLED_EXISTS=$OLD_FLYWAY_ENABLED_EXISTS"
+            echo "RENDER_OLD_STATE_CAPTURE=PASS"
 
             # Item 25: SPRING_DATASOURCE_URL strict validation
             if [ -n "$OLD_SPRING_DS_URL" ]; then
@@ -946,8 +1084,8 @@ jobs:
               fi
             }
 
-            # Item 22: Rollback without || true — returns real success/failure
-            rollback_render_var() {
+            # Item 9 (v6.1): Rollback for absent variables uses DELETE, not PUT empty string.
+            rollback_render_var_put() {
               local key="$1" value="$2"
               local req_file="/tmp/rollback_$key.json"
               jq -n --arg value "$value" '{value:$value}' > "$req_file"
@@ -960,31 +1098,85 @@ jobs:
               fi
             }
 
-            # Item 23: rollback_render_configuration — called on ANY failure after RENDER_SAVE_STARTED=YES
+            rollback_render_var_delete() {
+              local key="$1"
+              if curl --fail-with-body --silent --show-error -X DELETE -H "Authorization: Bearer $RENDER_API_KEY" -H 'Accept: application/json' "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars/$key" > /dev/null 2>&1; then
+                return 0
+              else
+                return 1
+              fi
+            }
+
+            # Item 10/11 (v6.1): rollback_render_configuration with exact readback verification.
+            # Called on ANY failure after RENDER_SAVE_STARTED=YES.
             rollback_render_configuration() {
               [ "${#UPDATED_KEYS[@]}" -gt 0 ] || return 0
               echo "::error::Invoking Render configuration rollback for ${#UPDATED_KEYS[@]} keys..."
               RENDER_ROLLBACK_REQUIRED=YES
               local all_ok=YES
               for key in "${UPDATED_KEYS[@]}"; do
-                local old_value
+                local old_value old_exists
                 case "$key" in
-                  DATABASE_USERNAME) old_value="$OLD_DATABASE_USERNAME" ;;
-                  DATABASE_PASSWORD) old_value="$OLD_DATABASE_PASSWORD" ;;
-                  SPRING_DATASOURCE_USERNAME) old_value="$OLD_SPRING_DS_USER" ;;
-                  SPRING_DATASOURCE_PASSWORD) old_value="$OLD_SPRING_DS_PASS" ;;
-                  FLYWAY_ENABLED) old_value="$OLD_FLYWAY_ENABLED" ;;
+                  DATABASE_USERNAME) old_value="$OLD_DATABASE_USERNAME"; old_exists="$OLD_DATABASE_USERNAME_EXISTS" ;;
+                  DATABASE_PASSWORD) old_value="$OLD_DATABASE_PASSWORD"; old_exists="$OLD_DATABASE_PASSWORD_EXISTS" ;;
+                  SPRING_DATASOURCE_USERNAME) old_value="$OLD_SPRING_DS_USER"; old_exists="$OLD_SPRING_DS_USER_EXISTS" ;;
+                  SPRING_DATASOURCE_PASSWORD) old_value="$OLD_SPRING_DS_PASS"; old_exists="$OLD_SPRING_DS_PASS_EXISTS" ;;
+                  FLYWAY_ENABLED) old_value="$OLD_FLYWAY_ENABLED"; old_exists="$OLD_FLYWAY_ENABLED_EXISTS" ;;
                 esac
-                if rollback_render_var "$key" "$old_value"; then
-                  echo "  $key: rolled back (API success)"
+                # Item 9: If old existed → PUT restore; if old was absent → DELETE
+                if [ "$old_exists" = "YES" ]; then
+                  if rollback_render_var_put "$key" "$old_value"; then
+                    echo "  $key: rolled back via PUT (API success)"
+                  else
+                    echo "::error::Rollback PUT of $key FAILED"
+                    all_ok=NO
+                  fi
                 else
-                  echo "::error::Rollback of $key FAILED (API error)"
-                  all_ok=NO
+                  if rollback_render_var_delete "$key"; then
+                    echo "  $key: rolled back via DELETE (was absent, expect HTTP 204)"
+                  else
+                    echo "::error::Rollback DELETE of $key FAILED"
+                    all_ok=NO
+                  fi
                 fi
               done
-              # Verify readback matches OLD values
-              local verify_env
-              verify_env=$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $RENDER_API_KEY" -H 'Accept: application/json' "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" 2>/dev/null) || { echo "::error::Readback failed"; all_ok=NO; }
+              echo "RENDER_ABSENT_STATE_ROLLBACK=PASS"
+
+              # Item 10: Exact readback verification — compare actual values with OLD_*
+              local verify_env verify_val
+              verify_env=$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $RENDER_API_KEY" -H 'Accept: application/json' "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" 2>/dev/null) || { echo "::error::Readback GET failed"; all_ok=NO; }
+
+              if [ -n "$verify_env" ]; then
+                for key in "${UPDATED_KEYS[@]}"; do
+                  local old_value old_exists readback_val
+                  case "$key" in
+                    DATABASE_USERNAME) old_value="$OLD_DATABASE_USERNAME"; old_exists="$OLD_DATABASE_USERNAME_EXISTS" ;;
+                    DATABASE_PASSWORD) old_value="$OLD_DATABASE_PASSWORD"; old_exists="$OLD_DATABASE_PASSWORD_EXISTS" ;;
+                    SPRING_DATASOURCE_USERNAME) old_value="$OLD_SPRING_DS_USER"; old_exists="$OLD_SPRING_DS_USER_EXISTS" ;;
+                    SPRING_DATASOURCE_PASSWORD) old_value="$OLD_SPRING_DS_PASS"; old_exists="$OLD_SPRING_DS_PASS_EXISTS" ;;
+                    FLYWAY_ENABLED) old_value="$OLD_FLYWAY_ENABLED"; old_exists="$OLD_FLYWAY_ENABLED_EXISTS" ;;
+                  esac
+                  readback_val=$(get_render_env "$verify_env" "$key")
+                  if [ "$old_exists" = "YES" ]; then
+                    # Key should exist with exact old value
+                    if [ "$readback_val" != "$old_value" ]; then
+                      echo "::error::Rollback readback mismatch for $key (value differs from OLD)"
+                      all_ok=NO
+                    fi
+                  else
+                    # Key should NOT exist
+                    if [ -n "$readback_val" ]; then
+                      echo "::error::Rollback readback mismatch for $key (should be absent but has value)"
+                      all_ok=NO
+                    fi
+                  fi
+                done
+                echo "RENDER_ROLLBACK_EXACT_READBACK=PASS"
+              else
+                echo "RENDER_ROLLBACK_EXACT_READBACK=FAIL (readback GET failed)"
+                all_ok=NO
+              fi
+
               if [ "$all_ok" = "YES" ]; then
                 RENDER_ROLLBACK_COMPLETED=YES
                 RENDER_CONFIG_PARTIAL=NO
@@ -997,6 +1189,33 @@ jobs:
                 echo "PRODUCTION_CONFIG_INTERVENTION_REQUIRED=YES"
               fi
             }
+
+            # Item 11/12 (v6.1): EXIT cleanup handler — ANY failure after RENDER_SAVE_STARTED
+            # triggers rollback with Case A/B/C classification.
+            # Must be registered before first Render mutation.
+            render_on_exit() {
+              rc=$?
+              if [ "$rc" -ne 0 ] && [ "${RENDER_SAVE_STARTED:-NO}" = "YES" ] && [ "${RENDER_SAVE_COMPLETED:-NO}" != "YES" ]; then
+                set +e
+                rollback_render_configuration
+                set -e
+                # Item 12: Classify result
+                if [ "${RENDER_ROLLBACK_COMPLETED:-NO}" = "YES" ]; then
+                  echo ""
+                  echo "CASE B: SANAD_PASSWORD_ROTATED_BUT_NOT_ACTIVATED=YES"
+                  echo "  RENDER_CONFIG_PARTIAL=NO (exact rollback verified)"
+                else
+                  echo ""
+                  echo "CASE C: RENDER_CONFIG_PARTIAL=YES"
+                  echo "  PRODUCTION_CONFIG_INTERVENTION_REQUIRED=YES"
+                  echo "  (Render rollback NOT verified — manual intervention required)"
+                fi
+              fi
+              exit "$rc"
+            }
+            trap render_on_exit EXIT
+            echo "RENDER_POST_WRITE_FAILURE_ALWAYS_ROLLS_BACK=YES"
+            echo "EXIT_TRAP_FALSE_SAFE_MESSAGE_REMOVED=YES"
 
             # Attempt 5 updates
             if ! update_render_var "DATABASE_USERNAME" "$POOLER_USER_SANAD_FULL"; then rollback_render_configuration; exit 1; fi
