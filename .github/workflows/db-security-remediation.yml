@@ -293,7 +293,9 @@ jobs:
               DIRECT_AUTH=FAIL
               echo "DIRECT_POSTGRES_NETWORK=PASS (reachable but auth failed)"
               echo "DIRECT_POSTGRES_AUTH=FAIL"
-              echo "DIRECT_ERROR_SANITIZED=$(echo "$DIRECT_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g')"
+              # Item 2 (fix): Sanitize AFTER RC capture, use || to prevent set -e abort
+              DIRECT_ERROR_SANITIZED="$(printf '%s\n' "$DIRECT_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g; s/PGPASSWORD=[^ ]*/PGPASSWORD=***/g' | head -5)" || DIRECT_ERROR_SANITIZED="<sanitize-failed>"
+              echo "DIRECT_ERROR_SANITIZED=$DIRECT_ERROR_SANITIZED"
             fi
           else
             echo "DIRECT_POSTGRES_NETWORK=UNREACHABLE (no DNS resolution)"
@@ -322,9 +324,11 @@ jobs:
           else
             SESSION_POOLER_AUTH=FAIL
             echo "SESSION_POOLER_AUTH=FAIL"
-            echo "SESSION_ERROR_SANITIZED=$(echo "$SESSION_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g')"
-            # Extract SQLSTATE if present
-            SESSION_SQLSTATE=$(echo "$SESSION_OUT" | grep -oE 'SQLSTATE [A-Z0-9]+' | head -1 | awk '{print $2}')
+            # Item 2 (fix): Sanitize AFTER RC capture, use || to prevent set -e abort
+            SESSION_ERROR_SANITIZED="$(printf '%s\n' "$SESSION_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g; s/PGPASSWORD=[^ ]*/PGPASSWORD=***/g' | head -5)" || SESSION_ERROR_SANITIZED="<sanitize-failed>"
+            echo "SESSION_ERROR_SANITIZED=$SESSION_ERROR_SANITIZED"
+            # Extract SQLSTATE if present (psql doesn't usually print SQLSTATE for auth failures)
+            SESSION_SQLSTATE=$(printf '%s\n' "$SESSION_OUT" | grep -oE 'SQLSTATE [A-Z0-9]+' | head -1 | awk '{print $2}') || true
             [ -n "$SESSION_SQLSTATE" ] && echo "SESSION_POOLER_SQLSTATE=$SESSION_SQLSTATE" || echo "SESSION_POOLER_SQLSTATE=UNKNOWN"
           fi
 
@@ -350,8 +354,10 @@ jobs:
           else
             TRANSACTION_POOLER_AUTH=FAIL
             echo "TRANSACTION_POOLER_AUTH=FAIL"
-            echo "TRANSACTION_ERROR_SANITIZED=$(echo "$TRANSACTION_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g')"
-            TRANSACTION_SQLSTATE=$(echo "$TRANSACTION_OUT" | grep -oE 'SQLSTATE [A-Z0-9]+' | head -1 | awk '{print $2}')
+            # Item 2 (fix): Sanitize AFTER RC capture, use || to prevent set -e abort
+            TRANSACTION_ERROR_SANITIZED="$(printf '%s\n' "$TRANSACTION_OUT" | sed -E 's/[Pp]assword[^,}]*/password=***/g; s/PGPASSWORD=[^ ]*/PGPASSWORD=***/g' | head -5)" || TRANSACTION_ERROR_SANITIZED="<sanitize-failed>"
+            echo "TRANSACTION_ERROR_SANITIZED=$TRANSACTION_ERROR_SANITIZED"
+            TRANSACTION_SQLSTATE=$(printf '%s\n' "$TRANSACTION_OUT" | grep -oE 'SQLSTATE [A-Z0-9]+' | head -1 | awk '{print $2}') || true
             [ -n "$TRANSACTION_SQLSTATE" ] && echo "TRANSACTION_POOLER_SQLSTATE=$TRANSACTION_SQLSTATE" || echo "TRANSACTION_POOLER_SQLSTATE=UNKNOWN"
           fi
 
