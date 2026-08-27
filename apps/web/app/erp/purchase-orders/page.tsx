@@ -48,11 +48,17 @@ function PurchaseOrdersContent() {
   const approvedRequisitions = useMemo(() => requisitions.filter((row) => row.status === "APPROVED"), [requisitions]);
   const draftTotal = lines.reduce((sum, line) => sum + (Number(line.quantity) || 0) * (Number(line.unitCost) || 0), 0);
 
-  async function mutate(action: () => Promise<unknown>, message: string) {
+  async function mutate(action: () => Promise<unknown>, message: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
-    try { await action(); setNotice(message); await reload(); }
-    catch (reason) { setError(toUserFacingError(reason).message); }
-    finally { setBusy(false); }
+    try {
+      await action();
+      setNotice(message);
+      await reload();
+      return true;
+    } catch (reason) {
+      setError(toUserFacingError(reason).message);
+      return false;
+    } finally { setBusy(false); }
   }
 
   function chooseRequisition(id: string) {
@@ -64,15 +70,21 @@ function PurchaseOrdersContent() {
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const validLines = lines.filter((line) => line.itemId && line.quantity > 0 && line.unitCost >= 0);
     if (validLines.length === 0) { setError("أضف بند شراء واحدًا على الأقل."); return; }
-    await mutate(() => erpApi.createPurchaseOrder({
+    const succeeded = await mutate(() => erpApi.createPurchaseOrder({
       supplierId: String(form.get("supplierId") ?? ""), currency: String(form.get("currency") || "SAR").toUpperCase(),
       expectedDate: String(form.get("expectedDate") || "") || null, requisitionId: requisitionId || null,
       items: validLines,
     }), "تم إنشاء أمر الشراء.");
-    setLines([emptyLine()]); setRequisitionId(""); event.currentTarget.reset();
+    if (succeeded) {
+      setLines([emptyLine()]);
+      setRequisitionId("");
+      formElement.reset();
+    }
   }
 
   if (loading) return <ErpLoading />;
