@@ -27,16 +27,17 @@ function SuppliersContent() {
   }, []);
   useEffect(() => { void reload(); }, [reload]);
 
-  async function mutate(action: () => Promise<unknown>, message: string) {
+  async function mutate(action: () => Promise<unknown>, message: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
-    try { await action(); setNotice(message); await reload(); }
-    catch (reason) { setError(toUserFacingError(reason).message); }
+    try { await action(); setNotice(message); await reload(); return true; }
+    catch (reason) { setError(toUserFacingError(reason).message); return false; }
     finally { setBusy(false); }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const common = {
       name: required(form, "name"), contactEmail: text(form, "contactEmail"), contactPhone: text(form, "contactPhone"),
       address: text(form, "address"), taxNumber: text(form, "taxNumber"), paymentTerms: text(form, "paymentTerms"),
@@ -44,13 +45,13 @@ function SuppliersContent() {
     };
     if (!common.name) { setError("اسم المورد مطلوب."); return; }
     if (editing) {
-      await mutate(() => erpApi.updateSupplier(editing.id, { ...common, expectedVersion: editing.version }), "تم تحديث المورد.");
-      setEditing(null);
+      const saved = await mutate(() => erpApi.updateSupplier(editing.id, { ...common, expectedVersion: editing.version }), "تم تحديث المورد.");
+      if (saved) setEditing(null);
     } else {
       const supplierCode = required(form, "supplierCode");
       if (!supplierCode) { setError("كود المورد مطلوب."); return; }
-      await mutate(() => erpApi.createSupplier({ supplierCode, ...common }), "تم إنشاء المورد.");
-      event.currentTarget.reset();
+      const saved = await mutate(() => erpApi.createSupplier({ supplierCode, ...common }), "تم إنشاء المورد.");
+      if (saved) formElement.reset();
     }
   }
 
