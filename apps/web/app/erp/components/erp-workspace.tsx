@@ -52,7 +52,7 @@ export function ErpWorkspace({ title, description, actions, children }: ErpWorks
       <main className={styles.content} dir="rtl">
         <header className={styles.header}>
           <div>
-            <p className={styles.eyebrow}>SANAD ERP</p>
+            <p className={styles.eyebrow}>SNAD ERP</p>
             <h1 className={styles.pageTitle}>{title}</h1>
             {description ? <p className={styles.pageDescription}>{description}</p> : null}
           </div>
