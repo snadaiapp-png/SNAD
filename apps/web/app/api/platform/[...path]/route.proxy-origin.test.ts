@@ -24,11 +24,12 @@ describe("platform BFF proxy-origin validation", () => {
     vi.restoreAllMocks();
   });
 
-  it("accepts the browser public origin when Next.js is reached through the preview reverse proxy", async () => {
+  it("accepts a browser same-origin POST when Next.js is reached through a reverse proxy", async () => {
     const request = new NextRequest("http://127.0.0.1:3000/api/platform/api/v1/auth/login", {
       method: "POST",
       headers: {
         origin: "https://preview.trycloudflare.com",
+        "sec-fetch-site": "same-origin",
         "x-forwarded-host": "preview.trycloudflare.com",
         "x-forwarded-proto": "https",
         "content-type": "application/json",
@@ -43,5 +44,27 @@ describe("platform BFF proxy-origin validation", () => {
 
     expect(response.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("still rejects a browser cross-site POST behind the same reverse proxy", async () => {
+    const request = new NextRequest("http://127.0.0.1:3000/api/platform/api/v1/auth/login", {
+      method: "POST",
+      headers: {
+        origin: "https://evil.example.com",
+        "sec-fetch-site": "cross-site",
+        "x-forwarded-host": "preview.trycloudflare.com",
+        "x-forwarded-proto": "https",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ email: "admin@example.com", password: "secret" }),
+    });
+
+    const response = await POST(
+      request,
+      context("api", "v1", "auth", "login"),
+    );
+
+    expect(response.status).toBe(403);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
