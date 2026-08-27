@@ -18,9 +18,6 @@ jobs:
     if: github.event.pull_request.number == 912
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    # Vercel credentials are protected in the existing Production environment.
-    # This job never deploys with --prod and never reads production DB secrets.
-    environment: Production
 
     services:
       postgres:
