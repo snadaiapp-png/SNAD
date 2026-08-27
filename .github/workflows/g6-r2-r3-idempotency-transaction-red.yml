@@ -1,4 +1,4 @@
-name: G6 R2 R3 Idempotency Transaction RED
+name: G6 R2 R3 Idempotency Transaction GREEN
 
 on:
   push:
@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  r2-r3-red-evidence:
-    name: R2/R3 RED Evidence — Transaction + Concurrency
+  r2-r3-green-gate:
+    name: R2/R3 GREEN — Transaction + Concurrency
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -91,26 +91,18 @@ jobs:
           echo "::add-mask::$key"
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
 
-      - name: Execute R2/R3 contract tests and capture Maven exit
-        id: r23
+      - name: Execute R2/R3 GREEN contract tests
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           rm -f target/surefire-reports/*CrmIdempotencyTransactionConcurrencyPostgresTest* 2>/dev/null || true
-          set +e
           mvn test -B -ntp \
             -Dtest=CrmIdempotencyTransactionConcurrencyPostgresTest \
             -DfailIfNoTests=true \
             -Dsurefire.useFile=true
-          rc=$?
-          set -e
-          echo "maven_exit=$rc" >> "$GITHUB_OUTPUT"
-          echo "Maven exit code: $rc"
 
-      - name: Classify genuine R2/R3 TDD RED
+      - name: Verify exact GREEN evidence
         shell: bash
-        env:
-          MAVEN_EXIT: ${{ steps.r23.outputs.maven_exit }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -128,63 +120,25 @@ jobs:
           failures = int(root.attrib.get('failures', 0))
           errors = int(root.attrib.get('errors', 0))
           skipped = int(root.attrib.get('skipped', 0))
-          maven_exit = int(os.environ.get('MAVEN_EXIT', '-1'))
-          print(f'R2/R3 results: tests={tests} failures={failures} errors={errors} skipped={skipped} maven_exit={maven_exit}')
+          print(f'R2/R3 results: tests={tests} failures={failures} errors={errors} skipped={skipped}')
 
-          if tests != 2:
-              print(f'::error::Expected exactly 2 R2/R3 tests, got {tests}')
-              raise SystemExit(1)
-          if skipped != 0:
-              print('::error::R2/R3 was skipped; this is not valid RED evidence')
-              raise SystemExit(1)
-          if errors != 0:
-              print('::error::R2/R3 produced test errors, not assertion RED')
-              raise SystemExit(1)
-          if failures <= 0 or maven_exit == 0:
-              print('::error::R2/R3 unexpectedly GREEN; desired runtime contract was not shown RED')
+          if (tests, failures, errors, skipped) != (2, 0, 0, 0):
+              print('::error::R2/R3 GREEN contract not satisfied')
               raise SystemExit(1)
 
-          allowed = {
-              'r2_serviceOwnsTenantScopedTransactionForBeginCompleteAndFail',
-              'r3_concurrentSameKeyProducesOneMissAndOneContractConflict',
-          }
-          failed = []
-          unexpected = []
-          for case in root.findall('testcase'):
-              failure = case.find('failure')
-              if failure is None:
-                  continue
-              name = case.attrib.get('name', '<unknown>')
-              failed.append(name)
-              if name not in allowed:
-                  unexpected.append(name)
-              message = failure.attrib.get('message', '')
-              body = (failure.text or '').strip()
-              evidence = (message + ' ' + body).replace('\n', ' ')[:700]
-              print(f'RED_EVIDENCE: {name}: {evidence}')
-
-          if unexpected:
-              print(f'::error::Unexpected failing testcases: {unexpected}')
-              raise SystemExit(1)
-          if not failed:
-              print('::error::Surefire reported failures but no assertion failure testcase was found')
-              raise SystemExit(1)
-
-          print('R2_R3_RED_CONFIRMED=YES')
-          print('Expected failing testcases: ' + ', '.join(failed))
+          print('R2_R3_GREEN_CONFIRMED=YES')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as fh:
-              fh.write('## G6 R2/R3 — Genuine RED confirmed\n\n')
-              fh.write(f'- Tests: {tests}\n- Assertion failures: {failures}\n- Errors: {errors}\n- Skipped: {skipped}\n')
-              fh.write('- `R2_R3_RED_CONFIRMED=YES`\n')
-              fh.write('- Production code changed: **NO**\n')
-              fh.write('- Next permitted step: minimal idempotency runtime fix\n')
+              fh.write('## G6 R2/R3 — GREEN confirmed\n\n')
+              fh.write('- Tests: 2\n- Failures: 0\n- Errors: 0\n- Skipped: 0\n')
+              fh.write('- `R2_R3_GREEN_CONFIRMED=YES`\n')
+              fh.write('- Next permitted step: targeted CRM idempotency regression, then R4 schema hardening\n')
           PY
 
       - name: Upload R2/R3 Surefire evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: g6-r2-r3-idempotency-red-${{ github.sha }}
+          name: g6-r2-r3-idempotency-green-${{ github.sha }}
           path: apps/sanad-platform/target/surefire-reports/TEST-*CrmIdempotencyTransactionConcurrencyPostgresTest*.xml
           if-no-files-found: error
           retention-days: 30
