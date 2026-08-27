@@ -20,6 +20,11 @@ export const ERP_NAV = [
   { href: "/erp/goods-receipts", label: "استلام البضاعة" },
 ] as const;
 
+const TRANSITIONAL_STATES = [
+  "INITIALIZING", "CHECKING_SESSION", "AUTHENTICATING", "REFRESHING",
+  "REFRESHING_SESSION", "LOADING_WORKSPACE", "LOGGING_OUT",
+] as const;
+
 interface ErpWorkspaceProps {
   title: string;
   description?: string;
@@ -31,16 +36,15 @@ export function ErpWorkspace({ title, description, actions, children }: ErpWorks
   const { state } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const transitioning = (TRANSITIONAL_STATES as readonly string[]).includes(state);
 
   useEffect(() => {
-    if (state === "UNAUTHENTICATED") {
+    if (!transitioning && state !== "AUTHENTICATED") {
       router.replace(`/?returnUrl=${encodeURIComponent(pathname || "/erp")}`);
     }
-  }, [pathname, router, state]);
+  }, [pathname, router, state, transitioning]);
 
-  if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state)) {
-    return <AuthLoadingState phase="session" />;
-  }
+  if (transitioning) return <AuthLoadingState phase="session" />;
   if (state !== "AUTHENTICATED") return <AuthLoadingState phase="workspace" />;
 
   return (
