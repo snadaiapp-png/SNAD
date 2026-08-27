@@ -27,27 +27,28 @@ function WarehousesContent() {
   }, []);
   useEffect(() => { void reload(); }, [reload]);
 
-  async function mutate(action: () => Promise<unknown>, message: string) {
+  async function mutate(action: () => Promise<unknown>, message: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
-    try { await action(); setNotice(message); await reload(); }
-    catch (reason) { setError(toUserFacingError(reason).message); }
+    try { await action(); setNotice(message); await reload(); return true; }
+    catch (reason) { setError(toUserFacingError(reason).message); return false; }
     finally { setBusy(false); }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const name = String(form.get("name") ?? "").trim();
     const location = String(form.get("location") ?? "").trim() || null;
     if (!name) { setError("اسم المستودع مطلوب."); return; }
     if (editing) {
-      await mutate(() => erpApi.updateWarehouse(editing.id, { name, location, expectedVersion: editing.version }), "تم تحديث المستودع.");
-      setEditing(null);
+      const saved = await mutate(() => erpApi.updateWarehouse(editing.id, { name, location, expectedVersion: editing.version }), "تم تحديث المستودع.");
+      if (saved) setEditing(null);
     } else {
       const code = String(form.get("code") ?? "").trim();
       if (!code) { setError("كود المستودع مطلوب."); return; }
-      await mutate(() => erpApi.createWarehouse({ code, name, location, isPrimary: form.get("isPrimary") === "on" }), "تم إنشاء المستودع.");
-      event.currentTarget.reset();
+      const saved = await mutate(() => erpApi.createWarehouse({ code, name, location, isPrimary: form.get("isPrimary") === "on" }), "تم إنشاء المستودع.");
+      if (saved) formElement.reset();
     }
   }
 
