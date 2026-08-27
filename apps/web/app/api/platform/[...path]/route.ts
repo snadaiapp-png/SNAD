@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Render's production free-tier instance can require ~100 seconds to restart.
+// Keep the Vercel function ceiling above the auth-specific upstream budget.
+export const maxDuration = 150;
 
 const REFRESH_COOKIE = "sanad_refresh";
 const SESSION_HINT_COOKIE = "sanad_session_hint";
@@ -21,6 +24,9 @@ const PRODUCTION_BACKEND_HOST = new URL(PRODUCTION_BACKEND_URL).hostname;
 const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
 const MIN_REQUEST_TIMEOUT_MS = 2_500;
 const MAX_REQUEST_TIMEOUT_MS = 45_000;
+// Auth must survive the observed production Render cold-start/restart window (~101s).
+// Keep this below both the browser auth budget (140s) and maxDuration (150s).
+const AUTH_BACKEND_REQUEST_TIMEOUT_MS = 125_000;
 const MIN_ATTEMPT_TIMEOUT_MS = 1_000;
 const RETRY_DELAY_MS = 250;
 const MAX_IDEMPOTENT_ATTEMPTS = 2;
@@ -95,7 +101,9 @@ function backendBaseUrl(): string | null {
   }
 }
 
-function requestTimeoutMs(): number {
+function requestTimeoutMs(path: string): number {
+  if (path.startsWith(AUTH_PATH_PREFIX)) return AUTH_BACKEND_REQUEST_TIMEOUT_MS;
+
   const raw = process.env.BACKEND_REQUEST_TIMEOUT_MS || "";
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return DEFAULT_REQUEST_TIMEOUT_MS;
@@ -273,12 +281,13 @@ function attemptTimeoutMs(deadline: number, attempt: number, totalAttempts: numb
 
 async function fetchBackend(
   target: string,
+  path: string,
   request: NextRequest,
   headers: Headers,
   body: ArrayBuffer | undefined,
 ): Promise<BackendResult> {
   const attempts = isIdempotent(request.method) ? MAX_IDEMPOTENT_ATTEMPTS : 1;
-  const deadline = Date.now() + requestTimeoutMs();
+  const deadline = Date.now() + requestTimeoutMs(path);
   let lastFailure: BackendFailureKind = "network";
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -347,7 +356,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   try {
     const supportsBody = !["GET", "HEAD"].includes(request.method);
     const body = supportsBody ? await request.arrayBuffer() : undefined;
-    const result = await fetchBackend(target, request, headers, body);
+    const result = await fetchBackend(target, path, request, headers, body);
     const upstream = result.response;
     const response = new NextResponse(
       upstream.status === 204 || upstream.status === 304 ? null : upstream.body,
