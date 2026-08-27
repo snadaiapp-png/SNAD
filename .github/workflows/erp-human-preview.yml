@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_SHA" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           test "${{ github.event.pull_request.head.repo.full_name }}" = "$GITHUB_REPOSITORY"
           test "${{ github.event.pull_request.number }}" = "912"
 
