@@ -1,4 +1,4 @@
-name: G6 R1 Idempotency RLS RED
+name: G6 R1 Idempotency RLS GREEN
 
 on:
   push:
@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  r1-red-evidence:
-    name: R1 RED Evidence — Idempotency RLS
+  r1-green-gate:
+    name: R1 GREEN — Idempotency RLS
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -91,32 +91,23 @@ jobs:
           echo "::add-mask::$key"
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
 
-      - name: Execute R1 contract test and capture Maven exit
-        id: r1
+      - name: Execute R1 GREEN contract test
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           rm -f target/surefire-reports/*CrmIdempotencyRlsPostgresTest* 2>/dev/null || true
-          set +e
           mvn test -B -ntp \
             -Dtest=CrmIdempotencyRlsPostgresTest \
             -DfailIfNoTests=true \
             -Dsurefire.useFile=true
-          rc=$?
-          set -e
-          echo "maven_exit=$rc" >> "$GITHUB_OUTPUT"
-          echo "Maven exit code: $rc"
 
-      - name: Classify genuine TDD RED
+      - name: Verify exact R1 GREEN evidence
         shell: bash
-        env:
-          MAVEN_EXIT: ${{ steps.r1.outputs.maven_exit }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import glob
           import os
-          import sys
           import xml.etree.ElementTree as ET
 
           files = glob.glob('target/surefire-reports/TEST-*CrmIdempotencyRlsPostgresTest*.xml')
@@ -129,73 +120,27 @@ jobs:
           failures = int(root.attrib.get('failures', 0))
           errors = int(root.attrib.get('errors', 0))
           skipped = int(root.attrib.get('skipped', 0))
-          maven_exit = int(os.environ.get('MAVEN_EXIT', '-1'))
+          print(f'R1 results: tests={tests} failures={failures} errors={errors} skipped={skipped}')
 
-          print(f'R1 results: tests={tests} failures={failures} errors={errors} skipped={skipped} maven_exit={maven_exit}')
-
-          if tests <= 0:
-              print('::error::R1 test did not execute')
-              raise SystemExit(1)
-          if skipped != 0:
-              print('::error::R1 test was skipped; this is not valid RED evidence')
-              raise SystemExit(1)
-          if errors != 0:
-              print('::error::R1 produced test errors (environment/setup/code), not assertion RED')
-              raise SystemExit(1)
-          if failures <= 0 or maven_exit == 0:
-              print('::error::R1 unexpectedly GREEN; desired fail-closed contract was not shown RED')
+          if (tests, failures, errors, skipped) != (8, 0, 0, 0):
+              print('::error::R1 fail-closed RLS contract is not clean GREEN')
               raise SystemExit(1)
 
-          allowed_red_tests = {
-              'a_rlsIsEnabledAndForced',
-              'b_strictFailClosedTenantPolicyExists',
-              'd_crossTenantInsertIsDenied',
-              'e_missingTenantGucInsertIsDenied',
-              'f_crossTenantReadReturnsZeroRows',
-              'g_crossTenantUpdateAffectsZeroRows',
-              'h_crossTenantDeleteAffectsZeroRows',
-          }
-          failed = []
-          unexpected = []
-          evidence = []
-          for case in root.findall('testcase'):
-              failure = case.find('failure')
-              if failure is None:
-                  continue
-              name = case.attrib.get('name', '<unknown>')
-              failed.append(name)
-              message = failure.attrib.get('message', '')
-              body = (failure.text or '').strip()
-              summary = (message + ' ' + body).replace('\n', ' ')[:500]
-              evidence.append(f'{name}: {summary}')
-              if name not in allowed_red_tests:
-                  unexpected.append(name)
-
-          if unexpected:
-              print(f'::error::Unexpected failing testcases: {unexpected}')
-              raise SystemExit(1)
-          if not failed:
-              print('::error::Surefire reported failures but no assertion failure testcase was found')
-              raise SystemExit(1)
-
-          print('R1_RED_CONFIRMED=YES')
-          print('Expected failing testcases: ' + ', '.join(failed))
-          for item in evidence:
-              print('RED_EVIDENCE: ' + item)
-
+          print('R1_GREEN_CONFIRMED=YES')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as fh:
-              fh.write('## G6 R1 — Genuine RED confirmed\n\n')
-              fh.write(f'- Tests: {tests}\n- Assertion failures: {failures}\n- Errors: {errors}\n- Skipped: {skipped}\n')
-              fh.write('- `R1_RED_CONFIRMED=YES`\n')
-              fh.write('- Production mutated: **NO**\n')
-              fh.write('- Ready for R2 implementation: **YES**\n')
+              fh.write('## G6 R1 — GREEN confirmed\n\n')
+              fh.write('- Tests: 8\n- Failures: 0\n- Errors: 0\n- Skipped: 0\n')
+              fh.write('- FORCE RLS + fail-closed tenant policy: verified by behavioral contract\n')
+              fh.write('- `R1_GREEN_CONFIRMED=YES`\n')
+              fh.write('- Production DB mutated by this workflow: **NO**\n')
+              fh.write('- Historical R1 RED evidence remains preserved in the earlier Actions run\n')
           PY
 
       - name: Upload R1 Surefire evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: g6-r1-idempotency-rls-red-${{ github.sha }}
+          name: g6-r1-idempotency-rls-green-${{ github.sha }}
           path: apps/sanad-platform/target/surefire-reports/TEST-*CrmIdempotencyRlsPostgresTest*.xml
           if-no-files-found: error
           retention-days: 30
