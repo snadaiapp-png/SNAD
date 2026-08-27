@@ -1,12 +1,11 @@
 package com.sanad.platform.erp;
 
-import com.sanad.platform.erp.api.ErpController;
-import com.sanad.platform.erp.application.ErpInventoryService;
+import com.sanad.platform.erp.api.ErpInventoryReadController;
 import com.sanad.platform.erp.application.ErpInventoryReservationService;
+import com.sanad.platform.erp.application.ErpInventoryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.GetMapping;
 
-import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.UUID;
 
@@ -34,7 +33,7 @@ class ErpOperationalReadSurfaceTest {
     }
 
     private boolean hasGetMapping(String path) {
-        return Arrays.stream(ErpController.class.getDeclaredMethods())
+        return Arrays.stream(ErpInventoryReadController.class.getDeclaredMethods())
                 .map(method -> method.getAnnotation(GetMapping.class))
                 .filter(annotation -> annotation != null)
                 .flatMap(annotation -> Arrays.stream(annotation.value()))
