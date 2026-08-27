@@ -1,0 +1,190 @@
+name: G6 R2 R3 Idempotency Transaction RED
+
+on:
+  push:
+    branches:
+      - g6/human-acceptance-remediation
+    paths:
+      - 'apps/sanad-platform/src/**'
+      - '.github/workflows/g6-r2-r3-idempotency-transaction-red.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r2-r3-red-evidence:
+    name: R2/R3 RED Evidence — Transaction + Concurrency
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+      CRM_009_POSTGRES_MANDATORY: 'true'
+      PGPASSWORD: postgres_pass
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout remediation branch
+        uses: actions/checkout@v4
+
+      - name: Provision least-privilege application role and isolated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Generate ephemeral CRM encryption key
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Execute R2/R3 contract tests and capture Maven exit
+        id: r23
+        shell: bash
+        run: |
+          set -uo pipefail
+          rm -f target/surefire-reports/*CrmIdempotencyTransactionConcurrencyPostgresTest* 2>/dev/null || true
+          set +e
+          mvn test -B -ntp \
+            -Dtest=CrmIdempotencyTransactionConcurrencyPostgresTest \
+            -DfailIfNoTests=true \
+            -Dsurefire.useFile=true
+          rc=$?
+          set -e
+          echo "maven_exit=$rc" >> "$GITHUB_OUTPUT"
+          echo "Maven exit code: $rc"
+
+      - name: Classify genuine R2/R3 TDD RED
+        shell: bash
+        env:
+          MAVEN_EXIT: ${{ steps.r23.outputs.maven_exit }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          files = glob.glob('target/surefire-reports/TEST-*CrmIdempotencyTransactionConcurrencyPostgresTest*.xml')
+          if len(files) != 1:
+              print(f'::error::Expected exactly one R2/R3 Surefire XML report, found {len(files)}')
+              raise SystemExit(1)
+
+          root = ET.parse(files[0]).getroot()
+          tests = int(root.attrib.get('tests', 0))
+          failures = int(root.attrib.get('failures', 0))
+          errors = int(root.attrib.get('errors', 0))
+          skipped = int(root.attrib.get('skipped', 0))
+          maven_exit = int(os.environ.get('MAVEN_EXIT', '-1'))
+          print(f'R2/R3 results: tests={tests} failures={failures} errors={errors} skipped={skipped} maven_exit={maven_exit}')
+
+          if tests != 2:
+              print(f'::error::Expected exactly 2 R2/R3 tests, got {tests}')
+              raise SystemExit(1)
+          if skipped != 0:
+              print('::error::R2/R3 was skipped; this is not valid RED evidence')
+              raise SystemExit(1)
+          if errors != 0:
+              print('::error::R2/R3 produced test errors, not assertion RED')
+              raise SystemExit(1)
+          if failures <= 0 or maven_exit == 0:
+              print('::error::R2/R3 unexpectedly GREEN; desired runtime contract was not shown RED')
+              raise SystemExit(1)
+
+          allowed = {
+              'r2_serviceOwnsTenantScopedTransactionForBeginCompleteAndFail',
+              'r3_concurrentSameKeyProducesOneMissAndOneContractConflict',
+          }
+          failed = []
+          unexpected = []
+          for case in root.findall('testcase'):
+              failure = case.find('failure')
+              if failure is None:
+                  continue
+              name = case.attrib.get('name', '<unknown>')
+              failed.append(name)
+              if name not in allowed:
+                  unexpected.append(name)
+              message = failure.attrib.get('message', '')
+              body = (failure.text or '').strip()
+              evidence = (message + ' ' + body).replace('\n', ' ')[:700]
+              print(f'RED_EVIDENCE: {name}: {evidence}')
+
+          if unexpected:
+              print(f'::error::Unexpected failing testcases: {unexpected}')
+              raise SystemExit(1)
+          if not failed:
+              print('::error::Surefire reported failures but no assertion failure testcase was found')
+              raise SystemExit(1)
+
+          print('R2_R3_RED_CONFIRMED=YES')
+          print('Expected failing testcases: ' + ', '.join(failed))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as fh:
+              fh.write('## G6 R2/R3 — Genuine RED confirmed\n\n')
+              fh.write(f'- Tests: {tests}\n- Assertion failures: {failures}\n- Errors: {errors}\n- Skipped: {skipped}\n')
+              fh.write('- `R2_R3_RED_CONFIRMED=YES`\n')
+              fh.write('- Production code changed: **NO**\n')
+              fh.write('- Next permitted step: minimal idempotency runtime fix\n')
+          PY
+
+      - name: Upload R2/R3 Surefire evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g6-r2-r3-idempotency-red-${{ github.sha }}
+          path: apps/sanad-platform/target/surefire-reports/TEST-*CrmIdempotencyTransactionConcurrencyPostgresTest*.xml
+          if-no-files-found: error
+          retention-days: 30
