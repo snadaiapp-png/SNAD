@@ -85,7 +85,6 @@ public class ErpInventoryService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "inventory balance update failed (optimistic lock)");
         }
-        // Negative check (post-update) — must not go below zero
         BigDecimal onHand = jdbc.queryForObject(
                 "SELECT on_hand FROM erp_inventory_balances WHERE tenant_id = ? AND warehouse_id = ? AND item_id = ?",
                 BigDecimal.class, tenantId, warehouseId, itemId);
@@ -102,7 +101,6 @@ public class ErpInventoryService {
                     "SELECT * FROM erp_inventory_balances WHERE tenant_id = ? AND warehouse_id = ? AND item_id = ?",
                     this::mapRow, tenantId, warehouseId, itemId);
         } catch (EmptyResultDataAccessException e) {
-            // Validate warehouse + item exist
             warehouseService.getOrThrow(tenantId, warehouseId);
             itemService.getOrThrow(tenantId, itemId);
             UUID id = UUID.randomUUID();
@@ -113,7 +111,6 @@ public class ErpInventoryService {
                                 + "VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?)",
                         id, tenantId, warehouseId, itemId, Timestamp.from(now));
             } catch (org.springframework.dao.DuplicateKeyException ignored) {
-                // race — re-read
                 return jdbc.queryForObject(
                         "SELECT * FROM erp_inventory_balances WHERE tenant_id = ? AND warehouse_id = ? AND item_id = ?",
                         this::mapRow, tenantId, warehouseId, itemId);
@@ -136,9 +133,6 @@ public class ErpInventoryService {
         }
     }
 
-    /**
-     * Atomic stock adjustment: append movement + update balance.
-     */
     @Transactional
     public MovementResponse adjustStock(UUID tenantId, UUID warehouseId, UUID itemId,
                                           BigDecimal quantity, ErpDomain.MovementType movementType,
@@ -147,11 +141,9 @@ public class ErpInventoryService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "quantity must be non-zero");
         if (movementType == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "movementType is required");
-        // Validate the warehouse + item exist
         warehouseService.getOrThrow(tenantId, warehouseId);
         itemService.getOrThrow(tenantId, itemId);
 
-        // Compute on-hand delta based on movement direction
         BigDecimal onHandDelta;
         switch (movementType) {
             case RECEIPT, TRANSFER_IN, ADJUSTMENT_IN, RETURN -> onHandDelta = quantity;
@@ -165,7 +157,6 @@ public class ErpInventoryService {
         audit(tenantId, auth, "INVENTORY.ADJUSTED", itemId,
                 "wh=" + warehouseId + ",type=" + movementType + ",qty=" + quantity);
 
-        // Return the latest movement row (just inserted)
         return jdbc.queryForObject(
                 "SELECT * FROM erp_inventory_movements WHERE tenant_id = ? AND warehouse_id = ? AND item_id = ? "
                         + "ORDER BY created_at DESC LIMIT 1",
@@ -180,6 +171,13 @@ public class ErpInventoryService {
                     this::mapRow, tenantId, warehouseId);
         }
         return jdbc.query("SELECT * FROM erp_inventory_balances WHERE tenant_id = ?", this::mapRow, tenantId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<MovementResponse> listMovements(UUID tenantId) {
+        return jdbc.query(
+                "SELECT * FROM erp_inventory_movements WHERE tenant_id = ? ORDER BY created_at DESC",
+                this::mapMovement, tenantId);
     }
 
     @Transactional(readOnly = true)
@@ -199,7 +197,6 @@ public class ErpInventoryService {
                         + "JOIN erp_inventory_balances b ON b.tenant_id = i.tenant_id AND b.item_id = i.id "
                         + "WHERE i.tenant_id = ? AND i.track_inventory = TRUE AND i.reorder_level > 0 "
                         + "AND (b.on_hand - b.reserved) <= i.reorder_level");
-        // Total inventory value: sum(on_hand × unit_cost) — using last PO unit_cost as proxy when available
         BigDecimal totalValue = BigDecimal.ZERO;
         try {
             BigDecimal v = jdbc.queryForObject(
@@ -216,7 +213,7 @@ public class ErpInventoryService {
                     BigDecimal.class, tenantId);
             if (v != null) totalValue = v;
         } catch (Exception ignored) {
-            // queries can fail on H2 due to LATERAL — fall back to zero
+            // H2 does not support the PostgreSQL LATERAL query used for valuation.
         }
         return new InventorySummary(
                 totalItems != null ? totalItems : 0,
@@ -227,7 +224,6 @@ public class ErpInventoryService {
                 totalValue);
     }
 
-    // ===== Helpers =====
     private Integer countFor(UUID tenantId, String sql) {
         try {
             Integer v = jdbc.queryForObject(sql, Integer.class, tenantId);
