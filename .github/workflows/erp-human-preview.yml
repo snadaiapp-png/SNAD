@@ -211,7 +211,7 @@ jobs:
           test "$(curl --silent --show-error --max-time 20 -o /dev/null -w '%{http_code}' "$PREVIEW_URL/api/platform/api/v1/auth/me")" = "401"
           jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
 
-      - name: Verify preview admin login through public BFF
+      - name: Verify preview admin login through browser-equivalent public BFF request
         env:
           PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
         shell: bash
@@ -219,8 +219,28 @@ jobs:
           set -euo pipefail
           PREVIEW_PASSWORD="SnadPreview-${GITHUB_RUN_ID}!A9"
           echo "::add-mask::$PREVIEW_PASSWORD"
-          LOGIN_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/login.json" -w '%{http_code}' -X POST "$PREVIEW_URL/api/platform/api/v1/auth/login" -H 'Content-Type: application/json' --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${PREVIEW_PASSWORD}\"}" || true)"
+
+          CROSS_SITE_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/cross-site-login.json" -w '%{http_code}' \
+            -X POST "$PREVIEW_URL/api/platform/api/v1/auth/login" \
+            -H 'Origin: https://evil.example.com' \
+            -H 'Sec-Fetch-Site: cross-site' \
+            -H 'Sec-Fetch-Mode: cors' \
+            -H 'Sec-Fetch-Dest: empty' \
+            -H 'Content-Type: application/json' \
+            --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${PREVIEW_PASSWORD}\"}" || true)"
+          test "$CROSS_SITE_CODE" = "403" || { cat "$RUNNER_TEMP/cross-site-login.json"; exit 1; }
+
+          LOGIN_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/login.json" -w '%{http_code}' \
+            -X POST "$PREVIEW_URL/api/platform/api/v1/auth/login" \
+            -H "Origin: $PREVIEW_URL" \
+            -H 'Sec-Fetch-Site: same-origin' \
+            -H 'Sec-Fetch-Mode: cors' \
+            -H 'Sec-Fetch-Dest: empty' \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json' \
+            --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${PREVIEW_PASSWORD}\"}" || true)"
           test "$LOGIN_CODE" = "200" || { cat "$RUNNER_TEMP/login.json"; exit 1; }
+          jq -e --arg email "$PREVIEW_ADMIN_EMAIL" '.accessToken and .user.email == $email and .credentialRotationRequired == false' "$RUNNER_TEMP/login.json" >/dev/null
 
       - name: Publish human-test coordinates
         env:
@@ -234,6 +254,7 @@ jobs:
             echo "- Exact source SHA: \`${{ github.event.pull_request.head.sha }}\`"
             echo "- ERP URL: ${PREVIEW_URL}/erp"
             echo "- Login email: \`${PREVIEW_ADMIN_EMAIL}\`"
+            echo '- Browser-equivalent same-origin login passed; cross-site POST remained denied.'
             echo '- Isolated PostgreSQL + exact Spring/Next.js PR build; production unchanged.'
             echo '- Lifetime: approximately 90 minutes from readiness.'
           } >> "$GITHUB_STEP_SUMMARY"
