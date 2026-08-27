@@ -59,37 +59,43 @@ function InventoryContent() {
   const itemName = (id: string) => items.find((item) => item.id === id)?.name ?? id;
   const warehouseName = (id: string) => warehouses.find((warehouse) => warehouse.id === id)?.name ?? id;
 
-  async function mutate(action: () => Promise<unknown>, message: string) {
+  async function mutate(action: () => Promise<unknown>, message: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
-    try { await action(); setNotice(message); await reload(); }
-    catch (reason) { setError(toUserFacingError(reason).message); }
+    try { await action(); setNotice(message); await reload(); return true; }
+    catch (reason) { setError(toUserFacingError(reason).message); return false; }
     finally { setBusy(false); }
   }
 
   async function createReservation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
-    await mutate(() => erpApi.createReservation({
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const saved = await mutate(() => erpApi.createReservation({
       warehouseId: value(form, "warehouseId"), itemId: value(form, "itemId"), quantity: numberValue(form, "quantity"),
       source: nullable(form, "source"), externalReference: nullable(form, "externalReference"), expiresAt: null,
     }), "تم إنشاء حجز المخزون.");
-    event.currentTarget.reset();
+    if (saved) formElement.reset();
   }
 
   async function createTransfer(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const lines = transferLines.filter((line) => line.itemId && line.quantity > 0);
     if (lines.length === 0) { setError("أضف صنفًا واحدًا على الأقل للتحويل."); return; }
-    await mutate(() => erpApi.createTransfer({ fromWarehouseId: value(form, "fromWarehouseId"), toWarehouseId: value(form, "toWarehouseId"), items: lines }), "تم إنشاء تحويل المخزون.");
-    setTransferLines([{ itemId: "", quantity: 1 }]); event.currentTarget.reset();
+    const saved = await mutate(() => erpApi.createTransfer({ fromWarehouseId: value(form, "fromWarehouseId"), toWarehouseId: value(form, "toWarehouseId"), items: lines }), "تم إنشاء تحويل المخزون.");
+    if (saved) { setTransferLines([{ itemId: "", quantity: 1 }]); formElement.reset(); }
   }
 
   async function createAdjustment(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
-    await mutate(() => erpApi.createAdjustment({
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const saved = await mutate(() => erpApi.createAdjustment({
       warehouseId: value(form, "warehouseId"), itemId: value(form, "itemId"), quantityDelta: numberValue(form, "quantityDelta"),
       reasonCode: value(form, "reasonCode"), notes: nullable(form, "notes"),
     }), "تم إنشاء تسوية المخزون وإرسالها للاعتماد.");
-    event.currentTarget.reset();
+    if (saved) formElement.reset();
   }
 
   if (loading) return <ErpLoading />;
@@ -104,7 +110,7 @@ function InventoryContent() {
     </section> : null}
 
     <section className={styles.sectionCard}>
-      <div className={styles.toolbar}><h2 className={styles.sectionHeading}>أرصدة المخزون</h2><select aria-label="تصفية حسب المستودع" value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)}><option value="">كل المستودعات</option>{activeWarehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select><button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => void reload()}>تحديث</button></div>
+      <div className={styles.toolbar}><h2 className={styles.sectionHeading}>أرصدة المخزون</h2><select aria-label="تصفية حسب المستودع" value={warehouseFilter} disabled={busy} onChange={(e) => setWarehouseFilter(e.target.value)}><option value="">كل المستودعات</option>{activeWarehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select><button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => void reload()}>تحديث</button></div>
       {visibleBalances.length === 0 ? <ErpEmpty>لا توجد أرصدة بعد. يتم إنشاء الرصيد عند أول حركة مخزون أو استلام.</ErpEmpty> : <div className={styles.tableWrap}><table>
         <thead><tr><th>المستودع</th><th>الصنف</th><th>المتاح</th><th>على اليد</th><th>محجوز</th><th>قادم</th><th>آخر تحديث</th></tr></thead>
         <tbody>{visibleBalances.map((row) => <tr key={row.id}><td>{row.warehouseCode || warehouseName(row.warehouseId)}</td><td>{row.itemName || itemName(row.itemId)}<div className={styles.muted}>{row.itemCode || ""}</div></td><td>{row.available}</td><td>{row.onHand}</td><td>{row.reserved}</td><td>{row.incoming}</td><td>{dateTime(row.updatedAt)}</td></tr>)}</tbody>
@@ -128,7 +134,7 @@ function InventoryContent() {
         <h2 className={styles.sectionHeading}>تحويل بين المستودعات</h2>
         <form className={styles.formCard} onSubmit={createTransfer}>
           <div className={styles.formGrid}><label>من مستودع<select name="fromWarehouseId" required disabled={busy}><option value="">اختر</option>{activeWarehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>إلى مستودع<select name="toWarehouseId" required disabled={busy}><option value="">اختر</option>{activeWarehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label></div>
-          <div className={styles.lineEditor}><strong>أصناف التحويل</strong>{transferLines.map((line, index) => <div className={styles.lineRow} key={index}><label>الصنف<select value={line.itemId} onChange={(e) => changeTransferLine(index, { itemId: e.target.value })}><option value="">اختر</option>{activeItems.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}</select></label><label>الكمية<input type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(e) => changeTransferLine(index, { quantity: Number(e.target.value) })} /></label><span /><button type="button" className={styles.dangerButton} disabled={transferLines.length === 1} onClick={() => setTransferLines((rows) => rows.filter((_, i) => i !== index))}>حذف</button></div>)}<button type="button" className={styles.secondaryButton} onClick={() => setTransferLines((rows) => [...rows, { itemId: "", quantity: 1 }])}>إضافة سطر</button></div>
+          <div className={styles.lineEditor}><strong>أصناف التحويل</strong>{transferLines.map((line, index) => <div className={styles.lineRow} key={index}><label>الصنف<select value={line.itemId} disabled={busy} onChange={(e) => changeTransferLine(index, { itemId: e.target.value })}><option value="">اختر</option>{activeItems.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}</select></label><label>الكمية<input type="number" min="0.0001" step="0.0001" value={line.quantity} disabled={busy} onChange={(e) => changeTransferLine(index, { quantity: Number(e.target.value) })} /></label><span /><button type="button" className={styles.dangerButton} disabled={busy || transferLines.length === 1} onClick={() => setTransferLines((rows) => rows.filter((_, i) => i !== index))}>حذف</button></div>)}<button type="button" className={styles.secondaryButton} disabled={busy} onClick={() => setTransferLines((rows) => [...rows, { itemId: "", quantity: 1 }])}>إضافة سطر</button></div>
           <button className={styles.primaryButton} type="submit" disabled={busy}>إنشاء التحويل</button>
         </form>
         {transfers.length === 0 ? <ErpEmpty>لا توجد تحويلات.</ErpEmpty> : <div className={styles.tableWrap}><table><thead><tr><th>الرقم</th><th>المسار</th><th>الأصناف</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>{transfers.map((row) => <tr key={row.id}><td>{row.transferNumber}</td><td>{row.fromWarehouseCode || warehouseName(row.fromWarehouseId)} ← {row.toWarehouseCode || warehouseName(row.toWarehouseId)}</td><td>{row.items.map((line) => `${line.itemName || itemName(line.itemId)} (${line.quantity})`).join("، ")}</td><td><Status status={row.status} /></td><td><div className={styles.rowActions}>{row.status === "DRAFT" ? <button type="button" className={styles.button} disabled={busy} onClick={() => void mutate(() => erpApi.submitTransfer(row.id), "تم إرسال التحويل.")}>إرسال</button> : null}{["SUBMITTED", "IN_TRANSIT"].includes(row.status) ? <button type="button" className={styles.primaryButton} disabled={busy} onClick={() => void mutate(() => erpApi.receiveTransfer(row.id), "تم استلام التحويل وتحديث المخزون.")}>استلام</button> : null}</div></td></tr>)}</tbody></table></div>}
