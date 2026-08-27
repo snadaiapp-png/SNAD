@@ -183,6 +183,13 @@ public class ErpInventoryService {
     }
 
     @Transactional(readOnly = true)
+    public List<MovementResponse> listMovements(UUID tenantId) {
+        return jdbc.query(
+                "SELECT * FROM erp_inventory_movements WHERE tenant_id = ? ORDER BY created_at DESC",
+                this::mapMovement, tenantId);
+    }
+
+    @Transactional(readOnly = true)
     public List<ItemResponse> getLowStockItems(UUID tenantId) {
         return itemService.getLowStockItems(tenantId);
     }

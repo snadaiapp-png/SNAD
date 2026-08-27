@@ -129,7 +129,15 @@ function isTimeoutLike(error: unknown): boolean {
 
 function hasValidOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
-  return !origin || origin === request.nextUrl.origin;
+  if (!origin || origin === request.nextUrl.origin) return true;
+
+  // Reverse proxies can legitimately terminate HTTPS before Next.js and leave
+  // request.nextUrl.origin describing the internal HTTP hop. Modern browsers
+  // provide Fetch Metadata headers that remain tied to the browser-visible
+  // origin. `Sec-Fetch-Site: same-origin` is browser-controlled (Sec-* headers
+  // cannot be set by page JavaScript), so it safely preserves CSRF protection
+  // without trusting spoofable forwarded-host headers.
+  return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
 function requestHeaders(request: NextRequest, path: string, baseUrl: string, id: string): Headers {

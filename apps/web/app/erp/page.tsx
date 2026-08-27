@@ -1,78 +1,107 @@
 "use client";
+
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { AuthLoadingState } from "@/components/auth/auth-loading-state";
-import { useAuth } from "@/lib/auth/auth-provider";
-import { ExecutiveShell } from "@/components/shell";
+import Link from "next/link";
 import { erpApi, type ErpDashboardSummary, type ItemResponse } from "@/lib/api/erp-api";
+import { toUserFacingError } from "@/lib/api/user-facing-errors";
+import { ErpWorkspace } from "./components/erp-workspace";
+import { ErpEmpty, ErpFeedback, ErpLoading } from "./components/erp-feedback";
+import styles from "./erp.module.css";
+
+const QUICK_LINKS = [
+  { href: "/erp/items", title: "إدارة الأصناف", hint: "إنشاء الأصناف وتفعيلها وضبط مستويات إعادة الطلب." },
+  { href: "/erp/warehouses", title: "إدارة المستودعات", hint: "إنشاء المستودعات وتحديد مواقعها وحالتها." },
+  { href: "/erp/suppliers", title: "إدارة الموردين", hint: "إضافة الموردين وتجهيزهم للمشتريات." },
+  { href: "/erp/inventory", title: "تشغيل المخزون", hint: "الأرصدة والحجوزات والتحويلات والتسويات." },
+  { href: "/erp/requisitions", title: "طلبات الشراء", hint: "إنشاء الطلبات وإرسالها للاعتماد." },
+  { href: "/erp/purchase-orders", title: "أوامر الشراء", hint: "إنشاء واعتماد أوامر الشراء ومتابعة حالتها." },
+  { href: "/erp/goods-receipts", title: "استلام البضاعة", hint: "استلام أوامر الشراء وترحيلها إلى المخزون." },
+] as const;
 
 export default function ErpPage() {
-  const { state } = useAuth();
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<ErpDashboardSummary | null>(null);
-  const [items, setItems] = useState<ItemResponse[]>([]);
+  return (
+    <ErpWorkspace title="منصة ERP" description="مركز التشغيل للمخزون والموردين والمشتريات والاستلام.">
+      <ErpDashboardContent />
+    </ErpWorkspace>
+  );
+}
 
-  const loadData = useCallback(async () => {
-    setLoading(true); setError(null);
+function ErpDashboardContent() {
+  const [summary, setSummary] = useState<ErpDashboardSummary | null>(null);
+  const [lowStock, setLowStock] = useState<ItemResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError("");
     try {
-      const [dash, list] = await Promise.all([erpApi.dashboard(), erpApi.listItems()]);
-      setSummary(dash); setItems(list || []);
-    } catch (e: unknown) { setError(e instanceof Error ? e.message : "فشل تحميل ERP"); }
-    finally { setLoading(false); }
+      const [dashboard, low] = await Promise.all([erpApi.dashboard(), erpApi.lowStockItems()]);
+      setSummary(dashboard);
+      setLowStock(low ?? []);
+    } catch (reason) {
+      setError(toUserFacingError(reason).message);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { if (state === "AUTHENTICATED") loadData(); }, [state, loadData]);
+  useEffect(() => { void reload(); }, [reload]);
 
-  if (["INITIALIZING","CHECKING_SESSION","REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
-  if (state !== "AUTHENTICATED") { router.replace("/?returnUrl=%2Ferp"); return <AuthLoadingState phase="workspace" />; }
-  if (loading) return <AuthLoadingState />;
-  if (error) return (<div style={{ padding: 24, textAlign: "center", color: "var(--snad-color-error)" }}>{error}<button onClick={loadData} style={{ marginLeft: 12, padding: "4px 12px", cursor: "pointer" }}>إعادة المحاولة</button></div>);
-
-  const sc: Record<string,string> = { DRAFT:"var(--snad-color-warning)", ACTIVE:"var(--snad-color-success)", INACTIVE:"var(--snad-color-text-secondary)", ARCHIVED:"var(--snad-color-text-muted)" };
-  const sl: Record<string,string> = { DRAFT:"مسودة", ACTIVE:"نشط", INACTIVE:"غير نشط", ARCHIVED:"مؤرشف" };
+  if (loading) return <ErpLoading />;
 
   return (
-    <ExecutiveShell>
-      <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>منصة ERP</h1>
-        {summary && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 24 }}>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-info-soft)", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-info)" }}>{summary.totalItems}</div>
-              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>الأصناف</div>
-            </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-success-soft)", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-success)" }}>{summary.totalWarehouses}</div>
-              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>المستودعات</div>
-            </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-warning-soft)", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-warning)" }}>{summary.lowStockItems}</div>
-              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>مخزون منخفض</div>
-            </div>
-            <div style={{ padding: 12, borderRadius: 8, backgroundColor: "var(--snad-color-surface-secondary)", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "var(--snad-color-brand-accent)" }}>{summary.pendingPurchaseOrders}</div>
-              <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>أوامر شراء معلقة</div>
-            </div>
-          </div>
-        )}
-        {items.length === 0 ? (
-          <div style={{ padding: 48, textAlign: "center", color: "var(--snad-color-text-muted)" }}>لا توجد أصناف بعد.</div>
+    <>
+      <ErpFeedback error={error} />
+      {summary ? (
+        <section className={styles.metrics} aria-label="ملخص ERP">
+          <Metric label="الأصناف" value={summary.totalItems} />
+          <Metric label="المستودعات" value={summary.totalWarehouses} />
+          <Metric label="الموردون" value={summary.totalSuppliers} />
+          <Metric label="مخزون منخفض" value={summary.lowStockItems} />
+          <Metric label="طلبات شراء معلقة" value={summary.pendingRequisitions} />
+          <Metric label="أوامر شراء معلقة" value={summary.pendingPurchaseOrders} />
+          <Metric label="أصناف نشطة" value={summary.activeItems} />
+          <Metric label="قيمة المخزون" value={`${Number(summary.totalInventoryValue || 0).toLocaleString("ar-SA")} ر.س`} />
+        </section>
+      ) : null}
+
+      <section className={styles.quickGrid} aria-label="إجراءات ERP السريعة">
+        {QUICK_LINKS.map((item) => (
+          <Link className={styles.quickLink} href={item.href} key={item.href}>
+            <div className={styles.quickTitle}>{item.title}</div>
+            <div className={styles.muted}>{item.hint}</div>
+          </Link>
+        ))}
+      </section>
+
+      <section className={styles.sectionCard}>
+        <div className={styles.toolbar}>
+          <h2 className={styles.sectionHeading}>الأصناف التي وصلت إلى حد إعادة الطلب</h2>
+          <button className={styles.secondaryButton} type="button" onClick={() => void reload()}>تحديث</button>
+        </div>
+        {lowStock.length === 0 ? (
+          <ErpEmpty>لا توجد أصناف منخفضة المخزون حاليًا.</ErpEmpty>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {items.map((i) => (
-              <div key={i.id} style={{ padding: 16, borderRadius: 8, border: "1px solid var(--snad-color-border-default)", backgroundColor: "var(--snad-color-surface-primary)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 600 }}>{i.name}</div>
-                  <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>{i.code} · {i.sku || "—"} · {i.unitOfMeasure}</div>
-                </div>
-                <span style={{ padding: "4px 12px", borderRadius: 12, fontSize: 12, fontWeight: 500, backgroundColor: (sc[i.status]||"var(--snad-color-text-secondary)")+"20", color: sc[i.status]||"var(--snad-color-text-secondary)" }}>{sl[i.status]||i.status}</span>
-              </div>
-            ))}
+          <div className={styles.tableWrap}>
+            <table>
+              <thead><tr><th>الكود</th><th>الصنف</th><th>الوحدة</th><th>حد إعادة الطلب</th><th>كمية إعادة الطلب</th></tr></thead>
+              <tbody>
+                {lowStock.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.code}</td><td>{item.name}</td><td>{item.unitOfMeasure}</td>
+                    <td>{item.reorderLevel}</td><td>{item.reorderQuantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
-    </ExecutiveShell>
+      </section>
+    </>
   );
+}
+
+function Metric({ label, value }: { label: string; value: number | string }) {
+  return <div className={styles.metric}><div className={styles.metricLabel}>{label}</div><div className={styles.metricValue}>{value}</div></div>;
 }
