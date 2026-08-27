@@ -35,11 +35,17 @@ function GoodsReceiptsContent() {
   const receivableOrders = useMemo(() => orders.filter((order) => ["APPROVED", "SENT", "PARTIALLY_RECEIVED"].includes(order.status)), [orders]);
   const activeWarehouses = useMemo(() => warehouses.filter((warehouse) => warehouse.status === "ACTIVE"), [warehouses]);
 
-  async function mutate(action: () => Promise<unknown>, message: string) {
+  async function mutate(action: () => Promise<unknown>, message: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
-    try { await action(); setNotice(message); await reload(); }
-    catch (reason) { setError(toUserFacingError(reason).message); }
-    finally { setBusy(false); }
+    try {
+      await action();
+      setNotice(message);
+      await reload();
+      return true;
+    } catch (reason) {
+      setError(toUserFacingError(reason).message);
+      return false;
+    } finally { setBusy(false); }
   }
 
   function selectOrder(id: string) {
@@ -53,12 +59,18 @@ function GoodsReceiptsContent() {
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const receiptLines = lines.filter((line) => line.quantity > 0).map((line) => ({ poItemId: line.poItemId, itemId: line.itemId, quantity: line.quantity }));
     if (!poId) { setError("اختر أمر شراء."); return; }
     if (receiptLines.length === 0) { setError("أدخل كمية مستلمة لسطر واحد على الأقل."); return; }
-    await mutate(() => erpApi.createGoodsReceipt({ poId, warehouseId: String(form.get("warehouseId") ?? ""), items: receiptLines }), "تم إنشاء سند الاستلام كمسودة. راجعه ثم قم بالترحيل.");
-    setPoId(""); setLines([]); event.currentTarget.reset();
+    const succeeded = await mutate(() => erpApi.createGoodsReceipt({ poId, warehouseId: String(form.get("warehouseId") ?? ""), items: receiptLines }), "تم إنشاء سند الاستلام كمسودة. راجعه ثم قم بالترحيل.");
+    if (succeeded) {
+      setPoId("");
+      setLines([]);
+      formElement.reset();
+    }
   }
 
   if (loading) return <ErpLoading />;
