@@ -35,16 +35,17 @@ function ItemsContent() {
 
   useEffect(() => { void reload(); }, [reload]);
 
-  async function mutate(action: () => Promise<unknown>, message: string) {
+  async function mutate(action: () => Promise<unknown>, message: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
-    try { await action(); setNotice(message); await reload(); }
-    catch (reason) { setError(toUserFacingError(reason).message); }
+    try { await action(); setNotice(message); await reload(); return true; }
+    catch (reason) { setError(toUserFacingError(reason).message); return false; }
     finally { setBusy(false); }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const common = {
       sku: text(form, "sku"), name: required(form, "name"), description: text(form, "description"),
       itemType: required(form, "itemType") as ItemType,
@@ -54,13 +55,13 @@ function ItemsContent() {
     };
     if (!common.name) { setError("اسم الصنف مطلوب."); return; }
     if (editing) {
-      await mutate(() => erpApi.updateItem(editing.id, { ...common, expectedVersion: editing.version }), "تم تحديث الصنف.");
-      setEditing(null);
+      const saved = await mutate(() => erpApi.updateItem(editing.id, { ...common, expectedVersion: editing.version }), "تم تحديث الصنف.");
+      if (saved) setEditing(null);
     } else {
       const code = required(form, "code");
       if (!code) { setError("كود الصنف مطلوب."); return; }
-      await mutate(() => erpApi.createItem({ code, ...common }), "تم إنشاء الصنف.");
-      event.currentTarget.reset();
+      const saved = await mutate(() => erpApi.createItem({ code, ...common }), "تم إنشاء الصنف.");
+      if (saved) formElement.reset();
     }
   }
 
