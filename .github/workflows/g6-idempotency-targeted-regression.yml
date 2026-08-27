@@ -1,0 +1,165 @@
+name: G6 Targeted CRM Idempotency Regression
+
+on:
+  push:
+    branches:
+      - g6/human-acceptance-remediation
+    paths:
+      - 'apps/sanad-platform/src/**'
+      - '.github/workflows/g6-idempotency-targeted-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  targeted-idempotency-regression:
+    name: Targeted CRM Idempotency Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: local
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+      CRM_009_POSTGRES_MANDATORY: 'true'
+      PGPASSWORD: postgres_pass
+
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout remediation branch
+        uses: actions/checkout@v4
+
+      - name: Provision least-privilege application role and isolated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Generate ephemeral CRM encryption key
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Run targeted idempotency regression set
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f target/surefire-reports/TEST-*CrmIdempotencyContractTest*.xml \
+                target/surefire-reports/TEST-*CrmIdempotencyTransactionConcurrencyPostgresTest*.xml \
+                target/surefire-reports/TEST-*AccountV2HttpIntegrationTest*.xml 2>/dev/null || true
+          mvn test -B -ntp \
+            -Dtest=CrmIdempotencyContractTest,CrmIdempotencyTransactionConcurrencyPostgresTest,AccountV2HttpIntegrationTest \
+            -DfailIfNoTests=true \
+            -Dsurefire.useFile=true
+
+      - name: Verify targeted regression evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          expected = {
+              'CrmIdempotencyContractTest': None,
+              'CrmIdempotencyTransactionConcurrencyPostgresTest': 2,
+              'AccountV2HttpIntegrationTest': None,
+          }
+          totals = {'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}
+          rows = []
+
+          for suffix, exact_tests in expected.items():
+              files = glob.glob(f'target/surefire-reports/TEST-*{suffix}.xml')
+              if len(files) != 1:
+                  print(f'::error::Expected exactly one Surefire XML for {suffix}, found {len(files)}')
+                  raise SystemExit(1)
+              root = ET.parse(files[0]).getroot()
+              values = {k: int(root.attrib.get(k, 0)) for k in totals}
+              if exact_tests is not None and values['tests'] != exact_tests:
+                  print(f"::error::{suffix} expected {exact_tests} tests, got {values['tests']}")
+                  raise SystemExit(1)
+              if values['tests'] <= 0:
+                  print(f'::error::{suffix} executed zero tests')
+                  raise SystemExit(1)
+              if values['failures'] or values['errors'] or values['skipped']:
+                  print(f'::error::{suffix} is not clean GREEN: {values}')
+                  raise SystemExit(1)
+              for key in totals:
+                  totals[key] += values[key]
+              rows.append((suffix, values['tests']))
+              print(f"{suffix}: tests={values['tests']} failures=0 errors=0 skipped=0")
+
+          print('TARGETED_IDEMPOTENCY_REGRESSION=PASS')
+          print(f"TOTAL: tests={totals['tests']} failures={totals['failures']} errors={totals['errors']} skipped={totals['skipped']}")
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as fh:
+              fh.write('## G6 Targeted CRM Idempotency Regression\n\n')
+              for name, count in rows:
+                  fh.write(f'- `{name}`: {count} tests, clean GREEN\n')
+              fh.write(f"- Total: **{totals['tests']}** tests / 0 failures / 0 errors / 0 skipped\n")
+              fh.write('- `TARGETED_IDEMPOTENCY_REGRESSION=PASS`\n')
+              fh.write('- Scope note: existing HTTP regression coverage is representative via Accounts; Leads/Activities/Tags share the common idempotency runtime path but do not yet have equivalent dedicated HTTP integration tests.\n')
+          PY
+
+      - name: Upload targeted Surefire evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g6-targeted-idempotency-regression-${{ github.sha }}
+          path: |
+            apps/sanad-platform/target/surefire-reports/TEST-*CrmIdempotencyContractTest*.xml
+            apps/sanad-platform/target/surefire-reports/TEST-*CrmIdempotencyTransactionConcurrencyPostgresTest*.xml
+            apps/sanad-platform/target/surefire-reports/TEST-*AccountV2HttpIntegrationTest*.xml
+          if-no-files-found: error
+          retention-days: 30
