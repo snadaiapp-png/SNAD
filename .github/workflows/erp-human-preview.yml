@@ -42,9 +42,6 @@ jobs:
       SPRING_PROFILES_ACTIVE: local
       PGPASSWORD: postgres_pass
       PREVIEW_ADMIN_EMAIL: erp-preview@snad.local
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
       CI: '1'
 
     steps:
@@ -60,12 +57,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_SHA" = "${{ github.event.pull_request.head.sha }}"
           test "${{ github.event.pull_request.head.repo.full_name }}" = "$GITHUB_REPOSITORY"
-          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_ORG_ID; do
-            test -n "${!name:-}" || { echo "::error::Missing protected Vercel input: $name"; exit 1; }
-            echo "::add-mask::${!name}"
-          done
-          [[ "$VERCEL_PROJECT_ID" == prj_* ]]
-          [[ "$VERCEL_ORG_ID" == team_* ]]
+          test "${{ github.event.pull_request.number }}" = "912"
 
       - name: Provision least-privilege PostgreSQL application role
         shell: bash
@@ -91,10 +83,12 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
 
       - name: Prepare isolated preview identity
         shell: bash
@@ -137,13 +131,13 @@ jobs:
               exit 0
             fi
             if ! kill -0 "$(cat "$RUNNER_TEMP/erp-preview-backend.pid")" 2>/dev/null; then
-              tail -n 160 "$RUNNER_TEMP/erp-preview-backend.log"
+              tail -n 180 "$RUNNER_TEMP/erp-preview-backend.log"
               echo "::error::Preview backend exited before becoming healthy"
               exit 1
             fi
             sleep 3
           done
-          tail -n 160 "$RUNNER_TEMP/erp-preview-backend.log"
+          tail -n 180 "$RUNNER_TEMP/erp-preview-backend.log"
           echo "::error::Preview backend did not become healthy"
           exit 1
 
@@ -156,7 +150,45 @@ jobs:
           COUNT="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT COUNT(*) FROM users WHERE email = '${PREVIEW_ADMIN_EMAIL}' AND must_change_password = FALSE")"
           test "$COUNT" = "1"
 
-      - name: Open ephemeral HTTPS tunnel to isolated backend
+      - name: Build exact ERP web application
+        working-directory: apps/web
+        env:
+          BACKEND_API_BASE_URL: http://127.0.0.1:8080
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Start production-mode web application
+        working-directory: apps/web
+        env:
+          BACKEND_API_BASE_URL: http://127.0.0.1:8080
+          PORT: '3000'
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npm run start -- -p 3000 > "$RUNNER_TEMP/erp-preview-web.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/erp-preview-web.pid"
+          for attempt in $(seq 1 60); do
+            ROOT_CODE="$(curl -L --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ || true)"
+            STATUS_CODE="$(curl --silent --show-error --max-time 5 -o "$RUNNER_TEMP/local-backend-status.json" -w '%{http_code}' http://127.0.0.1:3000/api/system/backend-status || true)"
+            if [ "$ROOT_CODE" = "200" ] && [ "$STATUS_CODE" = "200" ] && \
+               jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/local-backend-status.json" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/erp-preview-web.pid")" 2>/dev/null; then
+              cat "$RUNNER_TEMP/erp-preview-web.log"
+              echo "::error::Preview web process exited before becoming healthy"
+              exit 1
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/erp-preview-web.log"
+          echo "::error::Preview web did not become healthy"
+          exit 1
+
+      - name: Open ephemeral HTTPS tunnel to full-stack web
         id: tunnel
         shell: bash
         run: |
@@ -165,72 +197,43 @@ jobs:
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
             -o "$RUNNER_TEMP/cloudflared"
           chmod +x "$RUNNER_TEMP/cloudflared"
-          nohup "$RUNNER_TEMP/cloudflared" tunnel --no-autoupdate --url http://127.0.0.1:8080 \
+          nohup "$RUNNER_TEMP/cloudflared" tunnel --no-autoupdate --url http://127.0.0.1:3000 \
             > "$RUNNER_TEMP/cloudflared.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/cloudflared.pid"
 
-          TUNNEL_URL=''
+          PREVIEW_URL=''
           for attempt in $(seq 1 60); do
-            TUNNEL_URL="$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$RUNNER_TEMP/cloudflared.log" | tail -n 1 || true)"
-            if [ -n "$TUNNEL_URL" ] && curl -fsS --max-time 10 "$TUNNEL_URL/actuator/health" >/dev/null; then
+            PREVIEW_URL="$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$RUNNER_TEMP/cloudflared.log" | tail -n 1 || true)"
+            if [ -n "$PREVIEW_URL" ] && curl -L -fsS --max-time 15 "$PREVIEW_URL/" >/dev/null; then
               break
             fi
             sleep 2
           done
-          [[ "$TUNNEL_URL" == https://*.trycloudflare.com ]] || {
+          [[ "$PREVIEW_URL" == https://*.trycloudflare.com ]] || {
             cat "$RUNNER_TEMP/cloudflared.log"
-            echo "::error::Could not establish isolated backend tunnel"
+            echo "::error::Could not establish isolated full-stack preview tunnel"
             exit 1
           }
-          echo "url=$TUNNEL_URL" >> "$GITHUB_OUTPUT"
+          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          echo "HUMAN_PREVIEW_URL=$PREVIEW_URL"
 
-      - name: Link Vercel project for Preview only
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx --yes vercel@latest pull --yes --environment=preview --token "$VERCEL_TOKEN"
-
-      - name: Deploy exact PR SHA to Vercel Preview
-        id: vercel
+      - name: Verify full-stack public preview routing
         env:
-          BACKEND_PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
+          PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
         shell: bash
         run: |
           set -euo pipefail
-          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy --yes --force \
-            --token "$VERCEL_TOKEN" \
-            --env "BACKEND_API_BASE_URL=$BACKEND_PREVIEW_URL" | tail -n 1)"
-          [[ "$DEPLOYMENT_URL" == https://*.vercel.app ]] || {
-            echo "::error::Vercel CLI did not return a Preview URL"
-            exit 1
-          }
-          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-          echo "HUMAN_PREVIEW_URL=$DEPLOYMENT_URL"
-
-      - name: Verify full-stack Preview routing
-        env:
-          PREVIEW_URL: ${{ steps.vercel.outputs.url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 60); do
-            ROOT_CODE="$(curl -L --silent --show-error --max-time 20 -o "$RUNNER_TEMP/preview-root.html" -w '%{http_code}' "$PREVIEW_URL/" || true)"
-            STATUS_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "$PREVIEW_URL/api/system/backend-status" || true)"
-            AUTH_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/auth-me.json" -w '%{http_code}' "$PREVIEW_URL/api/platform/api/v1/auth/me" || true)"
-            if [ "$ROOT_CODE" = "200" ] && [ "$STATUS_CODE" = "200" ] && [ "$AUTH_CODE" = "401" ] && \
-               jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
-              break
-            fi
-            sleep 5
-          done
+          ROOT_CODE="$(curl -L --silent --show-error --max-time 20 -o "$RUNNER_TEMP/preview-root.html" -w '%{http_code}' "$PREVIEW_URL/")"
+          STATUS_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "$PREVIEW_URL/api/system/backend-status")"
+          AUTH_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/auth-me.json" -w '%{http_code}' "$PREVIEW_URL/api/platform/api/v1/auth/me")"
           test "$ROOT_CODE" = "200"
           test "$STATUS_CODE" = "200"
           test "$AUTH_CODE" = "401"
           jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
 
-      - name: Verify preview admin login through Vercel BFF
+      - name: Verify preview admin login through public BFF
         env:
-          PREVIEW_URL: ${{ steps.vercel.outputs.url }}
+          PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
         shell: bash
         run: |
           set -euo pipefail
@@ -243,13 +246,13 @@ jobs:
             --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${PREVIEW_PASSWORD}\"}" || true)"
           test "$LOGIN_CODE" = "200" || {
             cat "$RUNNER_TEMP/login.json"
-            echo "::error::Preview admin could not authenticate through Vercel BFF"
+            echo "::error::Preview admin could not authenticate through public BFF"
             exit 1
           }
 
       - name: Publish human-test coordinates
         env:
-          PREVIEW_URL: ${{ steps.vercel.outputs.url }}
+          PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
         shell: bash
         run: |
           {
@@ -258,10 +261,10 @@ jobs:
             echo "- Exact source SHA: \`${{ github.event.pull_request.head.sha }}\`"
             echo "- ERP URL: ${PREVIEW_URL}/erp"
             echo "- Login email: \`${PREVIEW_ADMIN_EMAIL}\`"
-            echo "- Password is derived per-run and is supplied in the active ChatGPT execution session."
             echo '- Data source: isolated ephemeral PostgreSQL 16 — no production data.'
-            echo '- Backend: exact PR SHA through ephemeral HTTPS tunnel.'
-            echo '- Frontend: Vercel Preview only — no production alias mutation.'
+            echo '- Backend: exact PR SHA on the isolated runner.'
+            echo '- Frontend: exact production-mode Next.js build on the isolated runner.'
+            echo '- Production Vercel and Render: unchanged.'
             echo '- Lifetime: approximately 90 minutes from readiness.'
           } >> "$GITHUB_STEP_SUMMARY"
           echo "ERP_HUMAN_PREVIEW_READY ${PREVIEW_URL}/erp"
@@ -272,6 +275,7 @@ jobs:
           set -euo pipefail
           for minute in $(seq 1 90); do
             kill -0 "$(cat "$RUNNER_TEMP/erp-preview-backend.pid")"
+            kill -0 "$(cat "$RUNNER_TEMP/erp-preview-web.pid")"
             kill -0 "$(cat "$RUNNER_TEMP/cloudflared.pid")"
             sleep 60
           done
