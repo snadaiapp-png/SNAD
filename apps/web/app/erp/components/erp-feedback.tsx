@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import styles from "../erp.module.css";
 
 export function ErpFeedback({ error, notice }: { error?: string; notice?: string }) {
@@ -9,7 +10,7 @@ export function ErpFeedback({ error, notice }: { error?: string; notice?: string
   );
 }
 
-export function ErpEmpty({ children }: { children: React.ReactNode }) {
+export function ErpEmpty({ children }: { children: ReactNode }) {
   return <div className={styles.empty}>{children}</div>;
 }
 
