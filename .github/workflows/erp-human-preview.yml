@@ -1,0 +1,280 @@
+name: ERP Human Preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: erp-human-preview-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Full-stack ERP human preview
+    if: github.event.pull_request.number == 912
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Vercel credentials are protected in the existing Production environment.
+    # This job never deploys with --prod and never reads production DB secrets.
+    environment: Production
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: local
+      PGPASSWORD: postgres_pass
+      PREVIEW_ADMIN_EMAIL: erp-preview@snad.local
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      CI: '1'
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Verify isolated preview contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "${{ github.event.pull_request.head.sha }}"
+          test "${{ github.event.pull_request.head.repo.full_name }}" = "$GITHUB_REPOSITORY"
+          for name in VERCEL_TOKEN VERCEL_PROJECT_ID VERCEL_ORG_ID; do
+            test -n "${!name:-}" || { echo "::error::Missing protected Vercel input: $name"; exit 1; }
+            echo "::add-mask::${!name}"
+          done
+          [[ "$VERCEL_PROJECT_ID" == prj_* ]]
+          [[ "$VERCEL_ORG_ID" == team_* ]]
+
+      - name: Provision least-privilege PostgreSQL application role
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE sanad OWNER TO sanad;
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Prepare isolated preview identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIEW_PASSWORD="SnadPreview-${GITHUB_RUN_ID}!A9"
+          PREVIEW_SUBDOMAIN="erp-preview-${GITHUB_RUN_ID}"
+          echo "::add-mask::$PREVIEW_PASSWORD"
+          {
+            echo "SANAD_SECURITY_BOOTSTRAP_ENABLED=true"
+            echo "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET=false"
+            echo "SANAD_SECURITY_BOOTSTRAP_TENANT_NAME=ERP Human Preview"
+            echo "SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN=$PREVIEW_SUBDOMAIN"
+            echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL=$PREVIEW_ADMIN_EMAIL"
+            echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD=$PREVIEW_PASSWORD"
+            echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME=ERP Preview Admin"
+            echo "SANAD_SECURITY_BOOTSTRAP_AUDIT_ACTOR=erp-human-preview"
+          } >> "$GITHUB_ENV"
+
+      - name: Build backend from exact PR SHA
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x mvnw
+          ./mvnw -B -ntp -DskipTests package
+
+      - name: Start isolated backend and bootstrap tenant
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="$(find apps/sanad-platform/target -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' | head -n 1)"
+          test -n "$JAR"
+          nohup java -jar "$JAR" --spring.profiles.active=local > "$RUNNER_TEMP/erp-preview-backend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/erp-preview-backend.pid"
+
+          for attempt in $(seq 1 90); do
+            if curl -fsS --max-time 5 http://127.0.0.1:8080/actuator/health > "$RUNNER_TEMP/backend-health.json"; then
+              jq -e '.status == "UP"' "$RUNNER_TEMP/backend-health.json" >/dev/null
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/erp-preview-backend.pid")" 2>/dev/null; then
+              tail -n 160 "$RUNNER_TEMP/erp-preview-backend.log"
+              echo "::error::Preview backend exited before becoming healthy"
+              exit 1
+            fi
+            sleep 3
+          done
+          tail -n 160 "$RUNNER_TEMP/erp-preview-backend.log"
+          echo "::error::Preview backend did not become healthy"
+          exit 1
+
+      - name: Remove first-login rotation for disposable preview admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 \
+            -c "UPDATE users SET must_change_password = FALSE WHERE email = '${PREVIEW_ADMIN_EMAIL}';"
+          COUNT="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT COUNT(*) FROM users WHERE email = '${PREVIEW_ADMIN_EMAIL}' AND must_change_password = FALSE")"
+          test "$COUNT" = "1"
+
+      - name: Open ephemeral HTTPS tunnel to isolated backend
+        id: tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o "$RUNNER_TEMP/cloudflared"
+          chmod +x "$RUNNER_TEMP/cloudflared"
+          nohup "$RUNNER_TEMP/cloudflared" tunnel --no-autoupdate --url http://127.0.0.1:8080 \
+            > "$RUNNER_TEMP/cloudflared.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/cloudflared.pid"
+
+          TUNNEL_URL=''
+          for attempt in $(seq 1 60); do
+            TUNNEL_URL="$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$RUNNER_TEMP/cloudflared.log" | tail -n 1 || true)"
+            if [ -n "$TUNNEL_URL" ] && curl -fsS --max-time 10 "$TUNNEL_URL/actuator/health" >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          [[ "$TUNNEL_URL" == https://*.trycloudflare.com ]] || {
+            cat "$RUNNER_TEMP/cloudflared.log"
+            echo "::error::Could not establish isolated backend tunnel"
+            exit 1
+          }
+          echo "url=$TUNNEL_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Link Vercel project for Preview only
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest pull --yes --environment=preview --token "$VERCEL_TOKEN"
+
+      - name: Deploy exact PR SHA to Vercel Preview
+        id: vercel
+        env:
+          BACKEND_PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_URL="$(npx --yes vercel@latest deploy --yes --force \
+            --token "$VERCEL_TOKEN" \
+            --env "BACKEND_API_BASE_URL=$BACKEND_PREVIEW_URL" | tail -n 1)"
+          [[ "$DEPLOYMENT_URL" == https://*.vercel.app ]] || {
+            echo "::error::Vercel CLI did not return a Preview URL"
+            exit 1
+          }
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          echo "HUMAN_PREVIEW_URL=$DEPLOYMENT_URL"
+
+      - name: Verify full-stack Preview routing
+        env:
+          PREVIEW_URL: ${{ steps.vercel.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            ROOT_CODE="$(curl -L --silent --show-error --max-time 20 -o "$RUNNER_TEMP/preview-root.html" -w '%{http_code}' "$PREVIEW_URL/" || true)"
+            STATUS_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "$PREVIEW_URL/api/system/backend-status" || true)"
+            AUTH_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/auth-me.json" -w '%{http_code}' "$PREVIEW_URL/api/platform/api/v1/auth/me" || true)"
+            if [ "$ROOT_CODE" = "200" ] && [ "$STATUS_CODE" = "200" ] && [ "$AUTH_CODE" = "401" ] && \
+               jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          test "$ROOT_CODE" = "200"
+          test "$STATUS_CODE" = "200"
+          test "$AUTH_CODE" = "401"
+          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
+
+      - name: Verify preview admin login through Vercel BFF
+        env:
+          PREVIEW_URL: ${{ steps.vercel.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIEW_PASSWORD="SnadPreview-${GITHUB_RUN_ID}!A9"
+          echo "::add-mask::$PREVIEW_PASSWORD"
+          LOGIN_CODE="$(curl --silent --show-error --max-time 20 \
+            -o "$RUNNER_TEMP/login.json" -w '%{http_code}' \
+            -X POST "$PREVIEW_URL/api/platform/api/v1/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${PREVIEW_PASSWORD}\"}" || true)"
+          test "$LOGIN_CODE" = "200" || {
+            cat "$RUNNER_TEMP/login.json"
+            echo "::error::Preview admin could not authenticate through Vercel BFF"
+            exit 1
+          }
+
+      - name: Publish human-test coordinates
+        env:
+          PREVIEW_URL: ${{ steps.vercel.outputs.url }}
+        shell: bash
+        run: |
+          {
+            echo '## ERP Full-Stack Human Preview READY'
+            echo ''
+            echo "- Exact source SHA: \`${{ github.event.pull_request.head.sha }}\`"
+            echo "- ERP URL: ${PREVIEW_URL}/erp"
+            echo "- Login email: \`${PREVIEW_ADMIN_EMAIL}\`"
+            echo "- Password is derived per-run and is supplied in the active ChatGPT execution session."
+            echo '- Data source: isolated ephemeral PostgreSQL 16 — no production data.'
+            echo '- Backend: exact PR SHA through ephemeral HTTPS tunnel.'
+            echo '- Frontend: Vercel Preview only — no production alias mutation.'
+            echo '- Lifetime: approximately 90 minutes from readiness.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "ERP_HUMAN_PREVIEW_READY ${PREVIEW_URL}/erp"
+
+      - name: Keep isolated environment alive for human acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          for minute in $(seq 1 90); do
+            kill -0 "$(cat "$RUNNER_TEMP/erp-preview-backend.pid")"
+            kill -0 "$(cat "$RUNNER_TEMP/cloudflared.pid")"
+            sleep 60
+          done
