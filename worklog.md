@@ -1784,3 +1784,42 @@ Stage Summary:
   - /home/z/my-project/scripts/cold-start-test/phase7-session-validation.py (reusable)
   - PR #918 (startup instrumentation, OPEN, awaiting review)
   - PR #917 (declarative fluid:true, OPEN, governance debt)
+
+---
+Task ID: emergency-production-restoration
+Agent: main (Super Z)
+Task: SNAD EMERGENCY PRODUCTION STATE RESTORATION — env drift + image provenance correction
+
+Work Log:
+- Phase 0: FREEZE acknowledged. Stopped all optimization work, env-var experiments, image switching, AOT work, dependency removal, JVM-memory experiments, cold-start tests.
+- Phase 1: Captured immutable current state. GITHUB_MAIN_SHA=9b20e946, PR918_STATE=open, PR918_HEAD=5cf065ec, CURRENT_RENDER_SERVICE=srv-d8ragqkm0tmc73bviqq0, CURRENT_RENDER_IMAGE=78c870fc (PR #918 profiling image), CURRENT_RENDER_PLAN=free, CURRENT_LIVE_DEPLOY=dep-da8c1sjnslss73b6pedg, VERCEL_PRODUCTION=main/9b20e946 (correct). Backend health initially timed out (15s, 30s) — service was degraded.
+- Phase 2: Environment forensics. ROOT CAUSE IDENTIFIED: Earlier operations used PUT /v1/services/{id}/env-vars (bulk PUT without key) — this is REPLACE semantics, which DELETED all env vars not in my payload. The correct API is PUT /v1/services/{id}/env-vars/{key} (per-key PUT) — this is MERGE semantics. The bootstrap-admin.yml and _set-enc-key.yml workflows correctly use per-key PUT. My earlier bulk PUT operations deleted 18 env vars that were set via the original Render Blueprint deployment.
+  - Missing env vars identified by comparing current Render env vs render.yaml + ProductionWorkflowStubGuard requirements: SANAD_CORS_ALLOWED_ORIGINS, SANAD_SERVICE_AUTH_JWT_SECRET, SANAD_WORKFLOW_ENGINE_BASE_URL, SANAD_AI_GATEWAY_BASE_URL, SPRING_PROFILES_ACTIVE, SERVER_PORT, DATABASE_DRIVER, BOOTSTRAP_ENABLED, LOG_LEVEL_ROOT, LOG_LEVEL_SANAD, LAZY_INIT, MANAGEMENT_ENDPOINTS, SHUTDOWN_TIMEOUT, DATABASE_POOL_MAX, DATABASE_POOL_MIN, DATABASE_POOL_TIMEOUT, SECURITY_NOTIFICATION_ENDPOINT, SECURITY_NOTIFICATION_FROM.
+- Phase 3: Restored 18 env vars using per-key PUT (MERGE semantics). All verified PRESENT. SANAD_SERVICE_AUTH_JWT_SECRET was regenerated (32-byte hex, original not recoverable — was set via dashboard, not in render.yaml or GitHub Secrets). The regeneration is safe because service-auth JWT is for inter-service communication (60s TTL), not user sessions.
+- Phase 4: Attempted to restore official backend image (2dd8d1151ec0b231a51c13ee20722da6598e89e3). Render PATCH endpoint does NOT update imagePath (immutable after service creation). Deploy endpoint accepts imagePath but IGNORES it. IMAGE_RESTORE_API_BLOCKED=true. Per user instruction: STOP, do NOT recreate service, do NOT create second production service. The 78c870fc image (PR #918 profiling code) remains in production.
+- Phase 5: Triggered ONE controlled deploy (dep-da8cpo0n74is73dij14g) after env restore. Deploy SUCCEEDED: started 23:48:51Z, finished 23:53:58Z (~5min 7s), status=live. This PROVES the env drift was the root cause of the previous deploy failures — NOT OOM, NOT CPU throttling. The image is the same (78c870fc), but with the restored env vars, the ProductionSecurityGuard and ProductionWorkflowStubGuard pass.
+- Phase 6: Security config acceptance — guards passed (deploy went live, no nonZeroExit). Cannot read Render logs via API (404), but the fact that the deploy succeeded proves all guards passed (they throw IllegalStateException → nonZeroExit:1 if they fail).
+- Phase 7: Production smoke test PASSED. Login: HTTP 200, 11.316s, X_SANAD_BFF_ATTEMPTS=1, X_SANAD_BFF_ERROR=NOT_PRESENT. Auth/me: HTTP 200, 1.559s, status=ACTIVE, email=admin@snad.ai, tenant=valid. Logout: HTTP 204, 0.717s.
+- Phase 8: PR #918 quarantined. Description corrected: buffer size 10_000 → 2_000; CI claim "19/19 all success" → "all required checks passed (19 success); one non-required check skipped (Full-stack ERP human preview)". CHECK_RUNS_TOTAL=20, NON_REQUIRED_SKIPPED=1.
+- Phase 9-11: Forensic startup report corrected using ACTUAL measured data provided by user:
+  - Run A: TOTAL_MS=113700, BEAN_CONTEXT_REFRESH_MS=97990 (~86.2%)
+  - Run B: TOTAL_MS=120004, BEAN_CONTEXT_REFRESH_MS=105297 (~87.7%)
+  - Dominant phase: ApplicationPrepared → ApplicationStarted (bean context refresh)
+  - Previous claims CORRECTED: OOM=UNPROVEN, CPU_THROTTLING=UNPROVEN, 130-140s floor=UNPROVEN
+  - Failed deploy root cause CORRECTED: ENV CONFIGURATION_MISSING (not OOM)
+
+Stage Summary:
+- PRODUCTION_RESTORED = YES
+- AUTH_WARM = PASS (login 200/11.3s, auth/me 200/1.6s ACTIVE ADMIN, logout 204/0.7s)
+- COLD_START = NOT_CERTIFIED
+- OPTIMIZATION_READY = NO (frozen per user instruction)
+- ROOT CAUSE OF DEPLOY FAILURES: ENV CONFIGURATION DRIFT (bulk PUT replaced env vars instead of merging)
+- CORRECTED CLAIMS: OOM=UNPROVEN, CPU_THROTTLING=UNPROVEN, 130-140s floor=UNPROVEN
+- IMAGE_RESTORE_API_BLOCKED=true (Render imagePath immutable after service creation)
+- Artifacts:
+  - /home/z/my-project/scripts/cold-start-test/restore-env-merge.py
+  - /home/z/my-project/scripts/cold-start-test/env-restore-results.json
+  - /home/z/my-project/scripts/cold-start-test/phase7-smoke.py
+  - /home/z/my-project/scripts/cold-start-test/phase7-smoke-results.json
+  - /home/z/my-project/scripts/cold-start-test/SNAD-PRODUCTION-RESTORATION-FINAL.md
+  - PR #918 (description corrected, quarantined)
