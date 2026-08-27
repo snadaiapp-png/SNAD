@@ -2,12 +2,12 @@ import { apiClient, ApiClient } from "./client";
 import { ApiHttpError } from "./errors";
 
 /**
- * Keep the browser-side budget greater than the BFF's maximum upstream budget
- * (45 seconds) so the frontend receives the BFF's definitive 502/503/504
+ * Keep the browser-side budget greater than the auth BFF upstream budget
+ * (125 seconds) so the frontend receives the BFF's definitive 502/503/504
  * response instead of aborting early and masking the real failure as a generic
- * client timeout.
+ * client timeout. The Vercel route ceiling is 150 seconds.
  */
-const AUTH_REQUEST_TIMEOUT_MS = 60_000;
+const AUTH_REQUEST_TIMEOUT_MS = 140_000;
 
 export interface AuthUser {
   id: string;
