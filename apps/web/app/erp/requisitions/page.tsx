@@ -31,22 +31,24 @@ function RequisitionsContent() {
   useEffect(() => { void reload(); }, [reload]);
   const activeItems = useMemo(() => items.filter((item) => item.status === "ACTIVE"), [items]);
 
-  async function mutate(action: () => Promise<unknown>, message: string) {
+  async function mutate(action: () => Promise<unknown>, message: string): Promise<boolean> {
     setBusy(true); setError(""); setNotice("");
-    try { await action(); setNotice(message); await reload(); }
-    catch (reason) { setError(toUserFacingError(reason).message); }
+    try { await action(); setNotice(message); await reload(); return true; }
+    catch (reason) { setError(toUserFacingError(reason).message); return false; }
     finally { setBusy(false); }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const validLines = lines.filter((line) => line.itemId && line.quantity > 0);
     if (validLines.length === 0) { setError("أضف سطر شراء واحدًا على الأقل."); return; }
-    await mutate(() => erpApi.createRequisition({
+    const saved = await mutate(() => erpApi.createRequisition({
       reason: text(form, "reason"), priority: (String(form.get("priority") || "NORMAL") as RequisitionPriority), requesterId: null,
       items: validLines.map((line) => ({ itemId: line.itemId, quantity: line.quantity, requiredDate: line.requiredDate || null, estimatedUnitCost: line.estimatedUnitCost > 0 ? line.estimatedUnitCost : null, notes: line.notes || null })),
     }), "تم إنشاء طلب الشراء.");
-    setLines([emptyLine()]); event.currentTarget.reset();
+    if (saved) { setLines([emptyLine()]); formElement.reset(); }
   }
 
   if (loading) return <ErpLoading />;
