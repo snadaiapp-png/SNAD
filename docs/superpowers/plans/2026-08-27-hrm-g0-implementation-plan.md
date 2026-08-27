@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Baseline implementation starts from `snadaiapp-png/SNAD@2dd8d1151ec0b231a51c13ee20722da6598e89e3` plus the approved design commits; rebase before implementation and re-check migration-number collisions.
+- Baseline implementation starts from current protected `main`; the approved design baseline was `2dd8d1151ec0b231a51c13ee20722da6598e89e3`. Re-check all repository facts and migration-number collisions after rebasing to a newer `main`.
 - PostgreSQL Direct is the backend acceptance runtime; do not introduce H2-only acceptance behavior.
 - Country/jurisdiction resolution is G0.0 and precedes statutory HR behavior.
 - Saudi Arabia is the first localized pack; AE, QA, BH, KW, OM use the same dynamic Country Pack mechanism; unsupported/unapproved countries use Global Mode only.
@@ -67,13 +67,13 @@ WS3 and WS4 may run in parallel only after WS2 has committed the canonical IDs a
 ### Task 1: Establish an isolated execution baseline
 
 **Files:**
-- Read: `docs/superpowers/specs/2026-08-27-hrm-g0-foundation-design.md`
-- Read: all six subplans in `docs/superpowers/plans/2026-08-27-hrm-g0-0*.md`
+- Read/import: `docs/superpowers/specs/2026-08-27-hrm-g0-foundation-design.md`
+- Read/import: all HRM-G0 plan files under `docs/superpowers/plans/`.
 - No production file changes in this task.
 
 **Interfaces:**
 - Consumes: approved design and this plan suite.
-- Produces: isolated implementation worktree/branch based on current `main`, with no uncommitted changes.
+- Produces: isolated implementation worktree/branch based on current `main`, with no uncommitted production changes.
 
 - [ ] **Step 1: Create the isolated worktree using the required Superpowers workflow**
 
@@ -87,7 +87,7 @@ cd ../SNAD-hrm-g0
 
 Expected: clean worktree on `feat/hrm-g0-foundation`.
 
-- [ ] **Step 2: Verify baseline and design ancestry**
+- [ ] **Step 2: Verify baseline**
 
 ```bash
 git status --short
@@ -97,15 +97,25 @@ git log --oneline -5
 
 Expected: clean status. If `main` advanced beyond `2dd8d1151ec0b231a51c13ee20722da6598e89e3`, treat the newer `main` as execution baseline and re-run repository/preflight checks before migrations.
 
-- [ ] **Step 3: Bring the approved design/plan commits onto the implementation branch without production-code changes**
+- [ ] **Step 3: Import the exact approved design and latest plan suite without relying on future commit SHAs**
 
 ```bash
-git cherry-pick 607c3b7d58208eb871c0b751d7275cf5967c9aa4 8e4f4bc50e741f80694b24ced856ec537f1a4abc
+git fetch origin docs/hrm-g0-foundation-design
+git checkout origin/docs/hrm-g0-foundation-design -- \
+  docs/superpowers/specs/2026-08-27-hrm-g0-foundation-design.md \
+  docs/superpowers/specs/2026-08-27-hrm-g0-cross-decision-review.md \
+  docs/superpowers/plans/2026-08-27-hrm-g0-implementation-plan.md \
+  docs/superpowers/plans/2026-08-27-hrm-g0-01-platform-prerequisites.md \
+  docs/superpowers/plans/2026-08-27-hrm-g0-02-core-migration.md \
+  docs/superpowers/plans/2026-08-27-hrm-g0-03-country-compliance.md \
+  docs/superpowers/plans/2026-08-27-hrm-g0-04-security-integration.md \
+  docs/superpowers/plans/2026-08-27-hrm-g0-05-api-ui-cutover.md \
+  docs/superpowers/plans/2026-08-27-hrm-g0-06-contract-compensation.md
+git add docs/superpowers/specs docs/superpowers/plans
+git commit -m "docs(hrm): import approved G0 design and plans"
 ```
 
-Then cherry-pick the plan-suite commits recorded on `docs/hrm-g0-foundation-design` after this document was created.
-
-Expected: only `docs/superpowers/specs/**` and `docs/superpowers/plans/**` differ from `origin/main` before implementation begins.
+Expected: before implementation begins, the only changes relative to `origin/main` are the approved HRM design/plan documents.
 
 - [ ] **Step 4: Verify Flyway sequence is still free**
 
@@ -161,7 +171,7 @@ Expected: BUILD SUCCESS.
 
 **Interfaces:**
 - Consumes: WS1 master-data IDs/contracts.
-- Produces: Person, Employment/history, Org Units/Jobs/Positions versions, Assignments, deterministic backfill, fail-closed RLS.
+- Produces: Person, Employment/history, Org Units/Jobs/Positions versions, Assignments, deterministic backfill, tenant migration state, fail-closed RLS.
 
 - [ ] Execute WS2 task-by-task using TDD and PostgreSQL Direct.
 - [ ] Stop cutover if any migration row is ambiguous or blocked.
@@ -176,7 +186,7 @@ mvn -f apps/sanad-platform/pom.xml \
   test
 ```
 
-Expected: BUILD SUCCESS with zero unresolved migration rows in test fixtures.
+Expected: BUILD SUCCESS with zero unresolved migration rows in unambiguous test fixtures.
 
 ### Task 4: Execute WS3 and WS4 with controlled parallelism
 
@@ -190,7 +200,7 @@ Expected: BUILD SUCCESS with zero unresolved migration rows in test fixtures.
 
 - [ ] Run WS3 and WS4 in separate task branches/subagents only after WS2 canonical interfaces are stable.
 - [ ] Do not let either workstream modify the other's migration files.
-- [ ] Merge/reconcile WS3 first if both need compliance event names; merge WS4 first if both need audit/outbox port names. The names specified in the subplans are authoritative and must not be renamed independently.
+- [ ] Integrate against the port/event names specified in the subplans; do not independently invent duplicate interfaces.
 - [ ] Run both focused test sets after integration.
 
 Verification command:
@@ -335,6 +345,8 @@ PRODUCTION_SMOKE=PASS|FAIL
 BACKEND_5XX=NONE|FAIL
 HRM_G0_CERTIFIED=YES|NO
 ```
+
+The angle-bracket values in this evidence skeleton are runtime output slots, not implementation placeholders; the certification task replaces every slot with observed evidence before commit.
 
 - [ ] **Step 6: Update HR execution metadata only if certified**
 
