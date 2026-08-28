@@ -165,7 +165,8 @@ class CrmPostgresMigrationTest {
     // Integration (impl/crm-contacts-collaboration-20260823).
     private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
     private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
-    private static final String LATEST_MIGRATION_VERSION = PARTICIPANT_ROLE_EXCLUSIVITY_VERSION;
+    private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
+    private static final String LATEST_MIGRATION_VERSION = OWNER_EMAIL_CANONICALIZATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -379,7 +380,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_INTEGRITY_VERSION),
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
-                        MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION));
+                        MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
+                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -514,7 +516,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_INTEGRITY_VERSION),
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
-                        MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION));
+                        MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
+                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

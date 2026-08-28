@@ -7,15 +7,10 @@ import { authApi } from "@/lib/api/auth";
 /**
  * Forgot Password page.
  *
- * Flow:
- *  1. User enters their email.
- *  2. We POST /api/v1/auth/forgot-password via the BFF.
- *  3. Backend always returns 200 (anti-enumeration) and emails a
- *     single-use reset link if the account exists.
- *  4. UI shows a generic confirmation message regardless of whether
- *     the email is registered, to mirror the backend's behavior.
- *  5. If the backend returns a resetUrl (pilot/dev mode), we display
- *     it inline so the user can click through without email roundtrip.
+ * Unknown accounts still receive the backend's generic 200 response to prevent
+ * account enumeration. Transport/rate-limit/server failures are different: the
+ * UI must not falsely claim that a recovery email was sent when the request
+ * itself did not complete.
  */
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -39,6 +34,7 @@ export default function ForgotPasswordPage() {
     }
 
     setBusy(true);
+    setSubmitted(false);
     setError(null);
     setResetUrl(null);
 
@@ -49,9 +45,11 @@ export default function ForgotPasswordPage() {
         setResetUrl(response.resetUrl);
       }
     } catch {
-      // Per anti-enumeration design, still show the success message.
-      // The backend itself returns 200 even for unknown emails.
-      setSubmitted(true);
+      // Unknown accounts are already masked by the backend's generic HTTP 200.
+      // Reaching this branch therefore means the request itself failed (for
+      // example rate limiting, network failure, or a server error), which is
+      // safe and necessary to report without disclosing account existence.
+      setError("تعذر إرسال طلب الاستعادة. حاول مرة أخرى بعد قليل.");
     } finally {
       setBusy(false);
     }
@@ -60,7 +58,6 @@ export default function ForgotPasswordPage() {
   return (
     <main className="snad-reset-root" aria-label="استعادة كلمة المرور">
       <div className="snad-reset-card">
-        {/* Key icon (inline SVG — no external dependency) */}
         <svg
           className="snad-reset-brand-icon"
           width="32"
@@ -82,7 +79,7 @@ export default function ForgotPasswordPage() {
         <p className="snad-reset-description">
           {submitted
             ? "إذا كان البريد الإلكتروني مرتبطًا بحساب في منصة سند، فقد أرسلنا رابط استعادة آمنًا صالحًا لمرة واحدة فقط."
-            : "أدخل بريدك الإلكتروني وسنرسل لك رابطًا آمنًا لإعادة تعيين كلمة المرور."}
+            : "أدخل نفس البريد الإلكتروني الذي تستخدمه لتسجيل الدخول وسنرسل لك رابطًا آمنًا لإعادة تعيين كلمة المرور."}
         </p>
 
         {submitted ? (
@@ -111,8 +108,11 @@ export default function ForgotPasswordPage() {
             </label>
             <input
               id="forgot-email"
+              name="username"
               type="email"
-              autoComplete="email"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
               inputMode="email"
               dir="ltr"
               placeholder="you@example.com"

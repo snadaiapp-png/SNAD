@@ -121,8 +121,11 @@ export function LoginForm({
           <div className={styles.authInputWrapper}>
             <input
               id="login-email"
+              name="username"
               type="email"
-              autoComplete="email"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
               inputMode="email"
               dir="ltr"
               className={styles.authInput}
@@ -147,6 +150,7 @@ export function LoginForm({
           <div className={styles.authInputWrapper}>
             <input
               id="login-password"
+              name="password"
               type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               dir="ltr"

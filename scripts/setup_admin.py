@@ -1,60 +1,85 @@
 #!/usr/bin/env python3
 """
-Generate BCrypt hash and write SQL file.
-Uses psql to execute the SQL (avoids psycopg2 connection issues with Supabase pooler).
+Generate a BCrypt hash and write a SQL file for the deterministic SNAD
+control-plane owner. Uses psql to execute the SQL (avoids psycopg2 connection
+issues with hosted PostgreSQL poolers).
 """
 import bcrypt
 import os
 import sys
 
+OWNER_ID = '00000000-0000-0000-0000-000000000010'
+CANONICAL_OWNER_EMAIL = 'snad.ai.app@gmail.com'
+
+
 def main():
     new_password = os.environ.get('NEW_PASSWORD', '')
-    admin_email = os.environ.get('ADMIN_EMAIL', 'admin@snad.ai')
+    admin_email = os.environ.get('ADMIN_EMAIL', CANONICAL_OWNER_EMAIL).strip().lower()
     tenant_id = os.environ.get('CONTROL_PLANE_TENANT_ID', '')
 
     if not new_password:
         print("ERROR: NEW_PASSWORD is not set", file=sys.stderr)
         sys.exit(1)
+    if admin_email != CANONICAL_OWNER_EMAIL:
+        print(f"ERROR: ADMIN_EMAIL must be {CANONICAL_OWNER_EMAIL}", file=sys.stderr)
+        sys.exit(1)
+    if not tenant_id:
+        print("ERROR: CONTROL_PLANE_TENANT_ID is not set", file=sys.stderr)
+        sys.exit(1)
 
-    # Generate BCrypt hash
     password_bytes = new_password.encode('utf-8')
     hash_val = bcrypt.hashpw(password_bytes, bcrypt.gensalt(rounds=10)).decode('utf-8')
     print(f"Generated BCrypt hash (length: {len(hash_val)})", file=sys.stderr)
 
-    # Write SQL file using psql variable syntax to avoid shell expansion
-    # The hash is passed as a psql variable :hash_val
     sql = f"""SET search_path TO public;
 
--- Check if users table exists
-SELECT count(*) AS user_count FROM public.users;
+-- The owner identity is deterministic. Never create a second admin account.
+UPDATE public.users
+SET email = '{CANONICAL_OWNER_EMAIL}',
+    password_hash = $BODY${hash_val}$BODY$,
+    status = 'ACTIVE',
+    platform_admin = true,
+    must_change_password = false,
+    password_set_at = CURRENT_TIMESTAMP,
+    password_set_by = 'controlled-owner-setup',
+    session_version = session_version + 1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = '{OWNER_ID}'::uuid
+  AND tenant_id = '{tenant_id}'::uuid;
 
--- Insert or update admin user
-INSERT INTO public.users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
-SELECT gen_random_uuid(), '{tenant_id}'::uuid, '{admin_email}', 'SNAD Administrator',
-       'ACTIVE', $BODY${hash_val}$BODY$, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-WHERE NOT EXISTS (SELECT 1 FROM public.users WHERE email = '{admin_email}');
+DO $BODY$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM public.users
+        WHERE id = '{OWNER_ID}'::uuid
+          AND tenant_id = '{tenant_id}'::uuid
+          AND email = '{CANONICAL_OWNER_EMAIL}'
+    ) THEN
+        RAISE EXCEPTION 'Deterministic control-plane owner not found';
+    END IF;
+END
+$BODY$;
 
--- Update password for existing user
-UPDATE public.users SET password_hash = $BODY${hash_val}$BODY$, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
-WHERE email = '{admin_email}';
+UPDATE public.refresh_tokens
+SET status = 'REVOKED'
+WHERE tenant_id = '{tenant_id}'::uuid
+  AND user_id = '{OWNER_ID}'::uuid
+  AND status = 'ACTIVE';
 
--- Assign ADMIN role
-INSERT INTO public.user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
-SELECT gen_random_uuid(), u.tenant_id, u.id, r.id, NULL, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-FROM public.users u
-JOIN public.roles r ON r.tenant_id = u.tenant_id AND r.code = 'ADMIN'
-WHERE u.email = '{admin_email}'
-AND NOT EXISTS (
-    SELECT 1 FROM public.user_role_assignments ura
-    WHERE ura.tenant_id = u.tenant_id AND ura.user_id = u.id AND ura.role_id = r.id
-);
+UPDATE public.password_reset_tokens
+SET status = 'REVOKED'
+WHERE tenant_id = '{tenant_id}'::uuid
+  AND user_id = '{OWNER_ID}'::uuid
+  AND status = 'ACTIVE';
 
--- Verify
-SELECT email, status, (password_hash IS NOT NULL) AS has_password FROM public.users;
+SELECT id, email, status, platform_admin
+FROM public.users
+WHERE id = '{OWNER_ID}'::uuid;
 """
-    with open('/tmp/update.sql', 'w') as f:
-        f.write(sql)
+    with open('/tmp/update.sql', 'w', encoding='utf-8') as file:
+        file.write(sql)
     print("SQL file written to /tmp/update.sql", file=sys.stderr)
+
 
 if __name__ == '__main__':
     main()
