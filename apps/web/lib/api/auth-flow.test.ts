@@ -45,7 +45,7 @@ describe("Auth bootstrap contract", () => {
     expect(me.credentialRotationRequired).toBe(false);
   });
 
-  it("uses a safe authorized return URL before the default destination", () => {
+  it("uses a safe authorized return URL before the workspace landing page", () => {
     expect(resolvePostLoginDestination({
       returnUrl: "/crm/leads",
       defaultDestination: response.defaultDestination,
@@ -53,12 +53,12 @@ describe("Auth bootstrap contract", () => {
     })).toBe("/crm/leads");
   });
 
-  it("rejects open redirects", () => {
+  it("rejects open redirects and falls back to workspace", () => {
     expect(safeReturnUrl("https://evil.example", response.availableDestinations)).toBeNull();
     expect(resolvePostLoginDestination({
       returnUrl: "//evil.example",
       defaultDestination: response.defaultDestination,
       availableDestinations: response.availableDestinations,
-    })).toBe("/crm");
+    })).toBe("/workspace");
   });
 });
