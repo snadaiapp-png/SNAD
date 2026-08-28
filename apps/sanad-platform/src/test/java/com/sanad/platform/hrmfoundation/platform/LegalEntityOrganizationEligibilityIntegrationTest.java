@@ -41,8 +41,12 @@ class LegalEntityOrganizationEligibilityIntegrationTest {
         jdbc = new JdbcTemplate(dataSource);
         Flyway flyway = Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration,classpath:db/vendor/{vendor}")
-                .baselineOnMigrate(true).cleanDisabled(false).validateOnMigrate(false).load();
-        flyway.clean(); flyway.migrate();
+                .baselineOnMigrate(false)
+                .cleanDisabled(false)
+                .validateOnMigrate(false)
+                .load();
+        flyway.clean();
+        flyway.migrate();
     }
 
     @Test

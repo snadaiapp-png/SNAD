@@ -198,8 +198,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260822.4"   // crm event outbox contract alignment (aggregate_type/id + claim_due index)
             , "20260823.1"   // crm contacts force rls (C2 — FORCE RLS on crm_contacts + fail-closed tenant_isolation policy)
             , "20260823.2"   // crm participant role exclusivity (C3 — W2 partial unique index + owner↔participant trigger guards)
-            , "20260828.1"   // canonicalize control plane owner email (auth fix)
-    );
+            , "20260827.1"   // hrm-g0 ws1 platform country and employer prerequisites    );
 
 
     @BeforeAll

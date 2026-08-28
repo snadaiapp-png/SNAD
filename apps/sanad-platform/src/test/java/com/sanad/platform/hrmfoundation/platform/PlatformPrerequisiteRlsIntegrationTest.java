@@ -36,27 +36,38 @@ class PlatformPrerequisiteRlsIntegrationTest {
     void migrateAndSeed() {
         dataSource = new DriverManagerDataSource(ISOLATED_URL, DB_USER, DB_PASSWORD);
         jdbc = new JdbcTemplate(dataSource);
+        // Clean the test_migration database, then migrate with baselineOnMigrate=false
+        // so Flyway runs ALL migrations from scratch (not just baseline).
         Flyway flyway = Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration,classpath:db/vendor/{vendor}")
-                .baselineOnMigrate(true).cleanDisabled(false).validateOnMigrate(false).load();
-        flyway.clean(); flyway.migrate();
+                .baselineOnMigrate(false)
+                .cleanDisabled(false)
+                .validateOnMigrate(false)
+                .load();
+        flyway.clean();
+        flyway.migrate();
     }
 
     @Test
     void rlsIsFailClosedWhenTenantContextMissing() {
+        // Without app.tenant_id, fail-closed RLS should return 0 rows
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM legal_entities", Integer.class);
         assertThat(count).as("missing tenant context should return 0 rows (fail-closed)").isEqualTo(0);
     }
 
     @Test
     void runtimeRoleIsNotSuperuser() {
-        Boolean isSuperuser = jdbc.queryForObject("SELECT current_user IS SUPERUSER", Boolean.class);
+        // Use pg_user catalog (compatible with all PostgreSQL versions)
+        Boolean isSuperuser = jdbc.queryForObject(
+                "SELECT usesuper FROM pg_user WHERE usename = current_user", Boolean.class);
         assertThat(isSuperuser).as("RLS tests must run as non-superuser role").isFalse();
     }
 
     @Test
     void runtimeRoleDoesNotHaveBypassrls() {
-        Boolean hasBypass = jdbc.queryForObject("SELECT COALESCE((SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user), false)", Boolean.class);
+        Boolean hasBypass = jdbc.queryForObject(
+                "SELECT COALESCE((SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user), false)",
+                Boolean.class);
         assertThat(hasBypass).as("RLS tests must run as role without BYPASSRLS").isFalse();
     }
 }
