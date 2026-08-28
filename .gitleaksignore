@@ -16,3 +16,7 @@ README.md:sidekiq-secret:50
 /repo/docs/crm/g8/caller-phone-normalization-vectors.json:generic-api-key:29
 /repo/.github/workflows/provision-auth-smoke-tenants.yml:generic-password:69
 /repo/.github/workflows/provision-auth-smoke-tenants.yml:generic-password:75
+
+# HRM-G0 documentation false positives — test class name and URI path, NOT secrets
+2aef7d000d4a3fe886ffa8812a4e717032f4984f:docs/superpowers/plans/2026-08-27-hrm-g0-implementation-plan.md:generic-api-key:248
+607c3b7d58208eb871c0b751d7275cf5967c9aa4:docs/superpowers/specs/2026-08-27-hrm-g0-foundation-design.md:generic-api-key:313

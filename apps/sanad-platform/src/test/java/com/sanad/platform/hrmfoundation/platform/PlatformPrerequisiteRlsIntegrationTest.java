@@ -1,0 +1,60 @@
+package com.sanad.platform.hrmfoundation.platform;
+
+import com.sanad.platform.test.MigrationTestSchemaSupport;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import java.sql.Connection;
+import java.util.UUID;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class PlatformPrerequisiteRlsIntegrationTest {
+    private JdbcTemplate jdbc;
+    private DriverManagerDataSource dataSource;
+    private static final String DB_URL = System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
+    private static final String DB_USER = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
+    private static final String DB_PASSWORD = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
+
+    @BeforeAll
+    static void requirePostgreSql() {
+        boolean postgresAvailable = false;
+        try {
+            DriverManagerDataSource ds = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
+            try (Connection conn = ds.getConnection()) { postgresAvailable = conn.isValid(5); }
+        } catch (Throwable ignored) { postgresAvailable = false; }
+        Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct is not available");
+        MigrationTestSchemaSupport.ensureDatabase(DB_URL, DB_USER, DB_PASSWORD);
+    }
+
+    @BeforeEach
+    void migrateAndSeed() {
+        dataSource = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
+        jdbc = new JdbcTemplate(dataSource);
+        Flyway flyway = Flyway.configure().dataSource(dataSource)
+                .locations("classpath:db/migration,classpath:db/vendor/{vendor}")
+                .baselineOnMigrate(true).cleanDisabled(false).validateOnMigrate(false).load();
+        flyway.clean(); flyway.migrate();
+    }
+
+    @Test
+    void rlsIsFailClosedWhenTenantContextMissing() {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM legal_entities", Integer.class);
+        assertThat(count).as("missing tenant context should return 0 rows (fail-closed)").isEqualTo(0);
+    }
+
+    @Test
+    void runtimeRoleIsNotSuperuser() {
+        Boolean isSuperuser = jdbc.queryForObject("SELECT current_user IS SUPERUSER", Boolean.class);
+        assertThat(isSuperuser).as("RLS tests must run as non-superuser role").isFalse();
+    }
+
+    @Test
+    void runtimeRoleDoesNotHaveBypassrls() {
+        Boolean hasBypass = jdbc.queryForObject("SELECT COALESCE((SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user), false)", Boolean.class);
+        assertThat(hasBypass).as("RLS tests must run as role without BYPASSRLS").isFalse();
+    }
+}
