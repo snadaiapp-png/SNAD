@@ -1,17 +1,17 @@
 {
   "login": {
     "http": 200,
-    "elapsed": 11.315514812999936,
-    "x_request_id": "dbec3819-9e45-404a-b50a-5518dbc502a3",
+    "elapsed": 10.454128287999993,
+    "x_request_id": "e22a26da-3773-4c2e-88ba-a6289bec9a1d",
     "x_bff_attempts": "1",
     "x_bff_error": null
   },
   "auth_me": {
     "http": 200,
-    "elapsed": 1.5593115009996836
+    "elapsed": 0.9583599390007294
   },
   "logout": {
     "http": 204,
-    "elapsed": 0.7170120480004698
+    "elapsed": 0.5218699010001728
   }
 }
