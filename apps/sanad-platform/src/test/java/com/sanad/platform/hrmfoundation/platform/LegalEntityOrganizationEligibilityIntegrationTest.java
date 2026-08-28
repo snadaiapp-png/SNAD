@@ -93,12 +93,12 @@ class LegalEntityOrganizationEligibilityIntegrationTest {
 
     private void insertElig(UUID tenantId, UUID orgId, UUID leId, String from, String to, String status) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, effective_from, effective_to, status, created_at) VALUES (gen_random_uuid(), ?, ?, ?, DATE ?, CAST(? AS date), ?, NOW())")) {
+                "INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, effective_from, effective_to, status, created_at) VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, NOW())")) {
             ps.setObject(1, tenantId);
             ps.setObject(2, orgId);
             ps.setObject(3, leId);
-            ps.setString(4, from);
-            if (to != null) ps.setString(5, to); else ps.setNull(5, java.sql.Types.VARCHAR);
+            ps.setDate(4, java.sql.Date.valueOf(from));
+            if (to != null) ps.setDate(5, java.sql.Date.valueOf(to)); else ps.setNull(5, java.sql.Types.DATE);
             ps.setString(6, status);
             ps.executeUpdate();
         }
