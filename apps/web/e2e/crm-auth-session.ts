@@ -15,24 +15,7 @@ export interface CrmLoginResponse {
   };
 }
 
-const AUTHENTICATED_DESTINATIONS = [
-  "/workspace",
-  "/crm",
-  "/control-plane",
-] as const;
-
-function expectedDestination(body: CrmLoginResponse): string {
-  const destination = body.defaultDestination;
-  if (
-    typeof destination === "string"
-    && AUTHENTICATED_DESTINATIONS.some(
-      (root) => destination === root || destination.startsWith(`${root}/`),
-    )
-  ) {
-    return destination;
-  }
-  return "/workspace";
-}
+const NORMAL_LOGIN_DESTINATION = "/workspace";
 
 function configuredTenantId(email: string): string | undefined {
   const normalized = email.trim().toLowerCase();
@@ -53,6 +36,10 @@ function configuredTenantId(email: string): string | undefined {
  * in-memory access token and the BFF refresh cookie is stored in this exact
  * browser context. Direct API login alone cannot authenticate the SPA because
  * access tokens are intentionally never persisted in browser storage.
+ *
+ * Normal login lands on /workspace. CRM specs navigate explicitly to their
+ * target route after authentication, while dedicated returnUrl tests cover
+ * authorized deep-link behavior separately.
  *
  * Production closure may provide CRM_TENANT_A_ID / CRM_TENANT_B_ID. When an
  * email exists in more than one tenant, the helper injects the proven tenantId
@@ -117,7 +104,7 @@ export async function loginThroughUi(
   }
   expect(body.credentialRotationRequired, `Login for ${email} unexpectedly requires credential rotation`).not.toBe(true);
 
-  const destination = expectedDestination(body);
+  const destination = NORMAL_LOGIN_DESTINATION;
   if (Array.isArray(body.availableDestinations)) {
     expect(
       body.availableDestinations.some(
