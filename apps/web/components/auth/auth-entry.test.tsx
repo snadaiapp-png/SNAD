@@ -101,12 +101,12 @@ describe("AuthEntry session bootstrap", () => {
     expect(screen.queryByPlaceholderText("name@company.com")).not.toBeInTheDocument();
   });
 
-  it("redirects directly to the bootstrap destination without /me", async () => {
+  it("redirects to workspace after session bootstrap without /me", async () => {
     document.cookie = "sanad_session_hint=1; Path=/";
     authApiMock.refresh.mockResolvedValue(bootstrap);
     renderEntry();
-    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/crm"));
-    expect(prefetchMock).toHaveBeenCalledWith("/crm");
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/workspace"));
+    expect(prefetchMock).toHaveBeenCalledWith("/workspace");
     expect(authApiMock.me).not.toHaveBeenCalled();
   });
 
