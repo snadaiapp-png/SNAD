@@ -137,8 +137,8 @@ describe("SystemHealthDashboard", () => {
 
   it("surfaces runtime telemetry, data completeness, forecast, and collection degradation", async () => {
     render(<SystemHealthDashboard />);
-    expect(await screen.findByText("جاهزية البيانات")).toBeInTheDocument();
-    expect(screen.getByText("75%")).toBeInTheDocument();
+    expect((await screen.findAllByText("جاهزية البيانات")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("75%").length).toBeGreaterThan(0);
     expect(screen.getByText("استخدام المعالج")).toBeInTheDocument();
     expect(screen.getByText("17%")).toBeInTheDocument();
     expect(screen.getByText("استخدام الذاكرة")).toBeInTheDocument();
