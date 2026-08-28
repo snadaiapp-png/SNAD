@@ -9,12 +9,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import java.sql.Connection;
-import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PlatformPrerequisiteRlsIntegrationTest {
     private JdbcTemplate jdbc;
     private DriverManagerDataSource dataSource;
+    private static String ISOLATED_URL;
+
     private static final String DB_URL = System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
     private static final String DB_USER = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
     private static final String DB_PASSWORD = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
@@ -28,11 +29,12 @@ class PlatformPrerequisiteRlsIntegrationTest {
         } catch (Throwable ignored) { postgresAvailable = false; }
         Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct is not available");
         MigrationTestSchemaSupport.ensureDatabase(DB_URL, DB_USER, DB_PASSWORD);
+        ISOLATED_URL = MigrationTestSchemaSupport.getIsolatedJdbcUrl(DB_URL);
     }
 
     @BeforeEach
     void migrateAndSeed() {
-        dataSource = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
+        dataSource = new DriverManagerDataSource(ISOLATED_URL, DB_USER, DB_PASSWORD);
         jdbc = new JdbcTemplate(dataSource);
         Flyway flyway = Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration,classpath:db/vendor/{vendor}")
