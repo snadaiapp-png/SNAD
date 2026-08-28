@@ -40,8 +40,8 @@ class LegalEntityOrganizationEligibilityIntegrationTest {
         dataSource = new DriverManagerDataSource(ISOLATED_URL, DB_USER, DB_PASSWORD);
         jdbc = new JdbcTemplate(dataSource);
         Flyway flyway = Flyway.configure().dataSource(dataSource)
-                .locations("classpath:db/migration,classpath:db/vendor/{vendor}")
-                .baselineOnMigrate(false)
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .baselineOnMigrate(true)
                 .cleanDisabled(false)
                 .validateOnMigrate(false)
                 .load();

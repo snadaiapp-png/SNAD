@@ -39,8 +39,8 @@ class PlatformPrerequisiteRlsIntegrationTest {
         // Clean the test_migration database, then migrate with baselineOnMigrate=false
         // so Flyway runs ALL migrations from scratch (not just baseline).
         Flyway flyway = Flyway.configure().dataSource(dataSource)
-                .locations("classpath:db/migration,classpath:db/vendor/{vendor}")
-                .baselineOnMigrate(false)
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .baselineOnMigrate(true)
                 .cleanDisabled(false)
                 .validateOnMigrate(false)
                 .load();
