@@ -52,6 +52,8 @@ class LegalEntityOrganizationEligibilityIntegrationTest {
     @Test
     void overlappingActiveIntervalIsRejectedByDatabase() {
         UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenantContext(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId);
         insertEligibility(tenantId, orgId, leId, "2026-01-01", null, "ACTIVE");
@@ -63,6 +65,8 @@ class LegalEntityOrganizationEligibilityIntegrationTest {
     @Test
     void overlappingClosedIntervalIsRejectedByDatabase() {
         UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenantContext(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId);
         insertEligibility(tenantId, orgId, leId, "2026-01-01", "2026-06-30", "ACTIVE");
@@ -73,6 +77,8 @@ class LegalEntityOrganizationEligibilityIntegrationTest {
     @Test
     void nonOverlappingIntervalIsAccepted() {
         UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenantContext(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId);
         insertEligibility(tenantId, orgId, leId, "2026-01-01", "2026-05-31", "ACTIVE");
@@ -84,12 +90,23 @@ class LegalEntityOrganizationEligibilityIntegrationTest {
     @Test
     void inactiveIntervalDoesNotBlockNewActiveInterval() {
         UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenantContext(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId);
         insertEligibility(tenantId, orgId, leId, "2026-01-01", null, "INACTIVE");
         insertEligibility(tenantId, orgId, leId, "2026-06-01", null, "ACTIVE");
         Integer activeCount = jdbc.queryForObject("SELECT COUNT(*) FROM organization_legal_entities WHERE organization_id = ? AND status = 'ACTIVE'", Integer.class, orgId);
         assertThat(activeCount).isEqualTo(1);
+    }
+
+    private void setTenantContext(UUID tenantId) {
+        jdbc.execute("SET LOCAL app.tenant_id = '" + tenantId + "'");
+    }
+
+    private void seedTenant(UUID tenantId) {
+        jdbc.update("INSERT INTO tenants (id, name, slug, status, created_at, updated_at) VALUES (?, 'Test Tenant', ?, 'ACTIVE', NOW(), NOW())",
+                tenantId, "tenant-" + tenantId.toString().substring(0, 8));
     }
 
     private UUID seedOrganization(UUID tenantId) {
