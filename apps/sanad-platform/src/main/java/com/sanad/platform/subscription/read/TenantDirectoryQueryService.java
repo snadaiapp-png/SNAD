@@ -22,7 +22,8 @@ public class TenantDirectoryQueryService {
 
     public record TenantRow(UUID id, String name, String code, String status,
                             String countryCode, String currencyCode,
-                            int subscriptionCount, String subscriptionStatus) {
+                            int subscriptionCount, String subscriptionStatus,
+                            java.time.Instant createdAt) {
     }
 
     private final JdbcTemplate jdbc;
@@ -65,6 +66,7 @@ public class TenantDirectoryQueryService {
 
         List<Map<String, Object>> rows = jdbc.queryForList("""
                         SELECT t.id, t.name, t.subdomain AS code, t.status, t.country_code, t.currency_code,
+                               t.created_at,
                                (SELECT COUNT(*) FROM tenant_subscriptions s WHERE s.tenant_id = t.id) AS subscription_count,
                                (SELECT s.status FROM tenant_subscriptions s WHERE s.tenant_id = t.id
                                 ORDER BY s.created_at DESC LIMIT 1) AS subscription_status
@@ -83,7 +85,9 @@ public class TenantDirectoryQueryService {
                         (String) r.get("country_code"),
                         (String) r.get("currency_code"),
                         ((Number) r.getOrDefault("subscription_count", 0)).intValue(),
-                        (String) r.get("subscription_status")))
+                        (String) r.get("subscription_status"),
+                        r.get("created_at") == null ? null
+                                : ((java.sql.Timestamp) r.get("created_at")).toInstant()))
                 .toList();
 
         return PageResponse.of(content, safePage, safeSize, total == null ? 0 : total);

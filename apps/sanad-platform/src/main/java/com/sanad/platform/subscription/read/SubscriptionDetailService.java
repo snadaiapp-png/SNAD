@@ -41,14 +41,14 @@ public class SubscriptionDetailService {
         Map<String, Object> overview;
         try {
             overview = jdbc.queryForMap("""
-                            SELECT s.id, s.tenant_id, t.name AS tenant_name, t.subdomain AS tenant_code,
-                                   t.country_code, s.status, s.billing_cycle, s.seat_quantity,
-                                   s.plan_id, p.name AS plan_name, p.code AS plan_code,
-                                   pv.version_number AS plan_version,
-                                   s.credit_balance_minor, p.currency_code,
-                                   s.started_at, s.trial_ends_at,
-                                   s.current_period_start, s.current_period_end,
-                                   s.cancel_at_period_end, s.cancelled_at, s.created_at
+                            SELECT s.id, s.tenant_id AS "tenantId", t.name AS "tenantName", t.subdomain AS "tenantCode",
+                                   t.country_code AS "countryCode", s.status, s.billing_cycle AS "billingCycle", s.seat_quantity AS "seatQuantity",
+                                   s.plan_id AS "planId", p.name AS "planName", p.code AS "planCode",
+                                   pv.version_number AS "planVersion",
+                                   s.credit_balance_minor AS "creditBalanceMinor", p.currency_code AS "currencyCode",
+                                   s.started_at AS "startedAt", s.trial_ends_at AS "trialEndsAt",
+                                   s.current_period_start AS "currentPeriodStart", s.current_period_end AS "currentPeriodEnd",
+                                   s.cancel_at_period_end AS "cancelAtPeriodEnd", s.cancelled_at AS "cancelledAt", s.created_at AS "createdAt"
                             FROM tenant_subscriptions s
                             JOIN tenants t ON t.id = s.tenant_id
                             LEFT JOIN saas_plans p ON p.id = s.plan_id
@@ -63,15 +63,17 @@ public class SubscriptionDetailService {
                 subscriptionId,
                 overview,
                 jdbc.queryForList("""
-                                SELECT id, item_type, name_snapshot, quantity, unit_amount_minor,
-                                       currency_code, status, plan_version_id, created_at
+                                SELECT id, item_type AS "itemType", name_snapshot AS "nameSnapshot", quantity,
+                                       unit_amount_minor AS "unitAmountMinor",
+                                       currency_code AS "currencyCode", status, plan_version_id AS "planVersionId", created_at AS "createdAt"
                                 FROM subscription_items WHERE subscription_id = ?
                                 ORDER BY created_at, id
                                 """, subscriptionId),
                 jdbc.queryForList("""
-                                SELECT id, invoice_number, status, currency_code, subtotal_minor,
-                                       tax_minor, total_minor, amount_paid_minor,
-                                       period_start, period_end, due_at, paid_at
+                                SELECT id, invoice_number AS "invoiceNumber", status, currency_code AS "currencyCode",
+                                       subtotal_minor AS "subtotalMinor",
+                                       tax_minor AS "taxMinor", total_minor AS "totalMinor", amount_paid_minor AS "amountPaidMinor",
+                                       period_start AS "periodStart", period_end AS "periodEnd", due_at AS "dueAt", paid_at AS "paidAt"
                                 FROM billing_invoices WHERE subscription_id = ?
                                 ORDER BY created_at DESC LIMIT 50
                                 """, subscriptionId),
@@ -93,13 +95,13 @@ public class SubscriptionDetailService {
                                 "createdAt", rs.getObject("created_at")),
                         subscriptionId, subscriptionId),
                 jdbc.queryForList("""
-                                SELECT id, action, status, attempts, started_at, completed_at,
-                                       error_code, error_message, created_at
+                                SELECT id, action, status, attempts, started_at AS "startedAt", completed_at AS "completedAt",
+                                       error_code AS "errorCode", error_message AS "errorMessage", created_at AS "createdAt"
                                 FROM provisioning_jobs WHERE subscription_id = ?
                                 ORDER BY created_at DESC LIMIT 50
                                 """, subscriptionId),
                 jdbc.queryForList("""
-                                SELECT id, action, resource_type, resource_id, reason, result, created_at
+                                SELECT id, action, resource_type AS "resourceType", resource_id AS "resourceId", reason, result, created_at AS "createdAt"
                                 FROM platform_audit_logs
                                 WHERE (resource_type = 'subscription' AND resource_id = ?::text)
                                    OR (resource_type = 'subscription_item' AND resource_id IN (
