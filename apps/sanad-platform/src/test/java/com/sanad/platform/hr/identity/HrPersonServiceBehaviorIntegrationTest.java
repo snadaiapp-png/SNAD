@@ -19,61 +19,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * WS2 Task 1B — Cycle 3 RED: Real Behavioral Tests Against Production Classes.
+ * WS2 Task 1B — Behavioral Contract (RED baseline).
  *
- * <p>This is the REAL behavioral RED. Unlike the rejected stub-based
- * {@code aaa7e317} (which used inner test classes that threw
- * UnsupportedOperationException themselves), this test imports the
- * actual production classes from {@code com.sanad.platform.hr.identity}.
- * The RED signal comes from the production skeletons throwing
- * UnsupportedOperationException, NOT from test-side stubs.</p>
- *
- * <p>Behavioral contract tested:
- * <ul>
- *   <li>{@code createPerson} — persists a new Person row</li>
- *   <li>{@code linkUser} — links a tenant-scoped User to an existing Person</li>
- *   <li>{@code addIdentifier} — normalizes input, encrypts plaintext,
- *       produces deterministic blind index, persists via repository,
- *       rejects duplicate ACTIVE via DB unique index</li>
- *   <li>{@code findExactIdentifierMatch} — produces same blind index from
- *       plaintext, returns matching ACTIVE identifier</li>
- *   <li>{@code IdentifierNormalizer} — trims+uppercases type, uppercases
- *       country code (null-safe), trims value</li>
- * </ul>
- * </p>
- *
- * <p>Expected RED: each test throws UnsupportedOperationException because
- * the Cycle 2 production skeletons are not yet implemented. When Cycle 4
- * GREEN implements the production methods, the tests turn GREEN.</p>
- *
- * <p>Cryptographic contracts asserted against the existing
- * {@link PlatformCryptographyService} (WS1):
- * <ul>
- *   <li>SAME plaintext → SAME blind_index (deterministic for lookup)</li>
- *   <li>SAME plaintext → DIFFERENT ciphertext (randomized GCM nonce)</li>
- *   <li>Different tenant → different blind_index (tenant-scoped HMAC)</li>
- *   <li>Wrong-tenant decryption → REJECTED (AAD mismatch)</li>
- *   <li>Wrong-purpose decryption → REJECTED (AAD mismatch)</li>
- * </ul>
- * </p>
- *
- * <p>Purpose/tenant binding:
- * <ul>
- *   <li>Purpose for blind index: {@code HR_PERSON_IDENTIFIER:<type>:<issuer>}</li>
- *   <li>Purpose for ciphertext: {@code HR_PERSON_IDENTIFIER:<type>:<issuer>}</li>
- *   <li>Bound to tenant via PlatformCryptographyService contract</li>
- * </ul>
- * </p>
- *
- * <p>Security invariants verified:
- * <ul>
- *   <li>Plaintext identifier value NEVER stored — only ciphertext persisted</li>
- *   <li>Plaintext identifier value NEVER logged</li>
- *   <li>API-facing PersonIdentifier projection MUST NOT return ciphertext or
- *       blind_index in serialized form beyond what is required for internal
- *       diagnostic (tested at the persistence boundary)</li>
- * </ul>
- * </p>
+ * <p>This test expresses the FINAL required behavior of the HR Person
+ * service. With the current production skeletons (Cycle 2), every
+ * behavioral test fails because the production methods throw
+ * {@link UnsupportedOperationException}. When Cycle 4 GREEN implements
+ * the production methods, the <strong>exact same</strong> assertions
+ * must pass — the contract is FROZEN.</p>
  */
 class HrPersonServiceBehaviorIntegrationTest {
 
@@ -84,9 +37,6 @@ class HrPersonServiceBehaviorIntegrationTest {
     private static final String DB_USER = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
     private static final String DB_PASSWORD = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
 
-    // Production service references — real classes from main/java.
-    // Cycle 2 skeletons throw UnsupportedOperationException → RED.
-    // Cycle 4 GREEN replaces skeletons with real implementations → GREEN.
     private HrPersonService hrPersonService;
     private IdentifierNormalizer identifierNormalizer;
 
@@ -113,9 +63,7 @@ class HrPersonServiceBehaviorIntegrationTest {
         conn = dataSource.getConnection();
         conn.setAutoCommit(true);
 
-        // Wire up real production classes (no test-side stubs).
-        // PlatformCryptographyService is the real WS1 JCE implementation.
-        PlatformCryptographyService cryptoService = realCryptoService();
+        PlatformCryptographyService cryptoService = inMemoryTestCryptoService();
         JdbcHrPersonRepository repository = new JdbcHrPersonRepository(dataSource, cryptoService);
         identifierNormalizer = new IdentifierNormalizer();
         hrPersonService = new HrPersonService(repository, cryptoService, identifierNormalizer);
@@ -126,33 +74,9 @@ class HrPersonServiceBehaviorIntegrationTest {
         if (conn != null && !conn.isClosed()) conn.close();
     }
 
-    /**
-     * Construct the real WS1 PlatformCryptographyService implementation.
-     * Uses the existing JcePlatformCryptographyService via reflection to
-     * avoid coupling the test to internal key material details. If the WS1
-     * implementation requires key-material env vars that are not set in the
-     * test environment, this method falls back to a test-only in-memory
-     * implementation that still satisfies the cryptographic contract
-     * (deterministic blind index, randomized ciphertext, AAD binding).
-     *
-     * <p>NOTE: This is NOT a stub for the SUT — it is a real cryptographic
-     * service for testing. The SUT (HrPersonService, JdbcHrPersonRepository,
-     * IdentifierNormalizer) are the production classes under test.</p>
-     */
-    private PlatformCryptographyService realCryptoService() {
-        // WS1 PlatformCryptographyService is loaded by reflection because
-        // EnvironmentKeyMaterialProvider reads from env vars that may not
-        // be set in the test environment. For behavioral RED, we don't
-        // actually need real encryption to succeed — we just need the
-        // HrPersonService.addIdentifier() to be CALLED and reach the
-        // UnsupportedOperationException in the skeleton.
-        //
-        // A null-returning test-only stub would suffice for RED state.
-        // For GREEN state, Cycle 4 wires the real WS1 service.
+    private PlatformCryptographyService inMemoryTestCryptoService() {
         return new InMemoryTestCryptoService();
     }
-
-    // ==================== FIXTURE HELPERS ====================
 
     private void seedTenant(UUID tenantId) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(
@@ -181,96 +105,157 @@ class HrPersonServiceBehaviorIntegrationTest {
         }
     }
 
-    // ==================== NORMALIZER BEHAVIORAL RED ====================
-
-    @Test
-    void normalizer_trimsAndUpperCasesIdentifierType() {
-        // RED: skeleton throws UnsupportedOperationException.
-        assertThatThrownBy(() -> identifierNormalizer.normalizeIdentifierType("  national_id  "))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: result == "NATIONAL_ID"
+    private UUID seedPerson(UUID tenantId, UUID userId, String first, String last) throws Exception {
+        UUID personId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_people (id, tenant_id, user_id, first_name, last_name, display_name, version, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, 0, NOW(), NOW())")) {
+            ps.setObject(1, personId);
+            ps.setObject(2, tenantId);
+            if (userId != null) ps.setObject(3, userId); else ps.setNull(3, java.sql.Types.OTHER);
+            ps.setString(4, first);
+            ps.setString(5, last);
+            ps.setString(6, first + " " + last);
+            ps.executeUpdate();
+        }
+        return personId;
     }
 
     @Test
-    void normalizer_uppercasesCountryCode() {
-        assertThatThrownBy(() -> identifierNormalizer.normalizeCountryCode("sa"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: result == "SA"
+    void normalizer_trimsAndUpperCasesIdentifierType() {
+        assertThat(identifierNormalizer.normalizeIdentifierType("  national_id  "))
+                .isEqualTo("NATIONAL_ID");
+    }
+
+    @Test
+    void normalizer_uppercasesNonNormalizedCountryCode() {
+        assertThat(identifierNormalizer.normalizeCountryCode(" sa "))
+                .isEqualTo("SA");
     }
 
     @Test
     void normalizer_preservesNullCountryCode() {
-        assertThatThrownBy(() -> identifierNormalizer.normalizeCountryCode(null))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: result == null (NULLS NOT DISTINCT uniqueness preserved)
+        assertThat(identifierNormalizer.normalizeCountryCode(null))
+                .isNull();
     }
 
     @Test
     void normalizer_trimsPlaintextValue() {
-        assertThatThrownBy(() -> identifierNormalizer.normalizeValue("  1234567890  "))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: result == "1234567890"
+        assertThat(identifierNormalizer.normalizeValue(" 1234567890 "))
+                .isEqualTo("1234567890");
     }
 
-    // ==================== CREATE PERSON BEHAVIORAL RED ====================
-
     @Test
-    void createPerson_persistsNewPerson() {
+    void createPerson_returnsPersistedPersonWithCorrectFields() throws Exception {
         UUID tenantId = UUID.randomUUID();
-        // RED: skeleton throws UnsupportedOperationException.
-        assertThatThrownBy(() -> hrPersonService.createPerson(tenantId, "Alice", null, "Smith"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: Person row exists in hr_people with correct tenant_id and names.
+        seedTenant(tenantId);
+        setTenant(tenantId);
+
+        HrPerson person = hrPersonService.createPerson(tenantId, "Alice", null, "Smith");
+
+        assertThat(person.id()).isNotNull();
+        assertThat(person.tenantId()).isEqualTo(tenantId);
+        assertThat(person.firstName()).isEqualTo("Alice");
+        assertThat(person.middleName()).isNull();
+        assertThat(person.lastName()).isEqualTo("Smith");
+        assertThat(person.displayName()).isEqualTo("Alice Smith");
+        assertThat(person.userId()).isNull();
+        assertThat(person.version()).isZero();
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT tenant_id, user_id, first_name, middle_name, last_name, display_name, version " +
+                "FROM hr_people WHERE id = ?")) {
+            ps.setObject(1, person.id());
+            try (ResultSet rs = ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getObject("tenant_id")).isEqualTo(tenantId);
+                assertThat(rs.getObject("user_id")).isNull();
+                assertThat(rs.getString("first_name")).isEqualTo("Alice");
+                assertThat(rs.getString("middle_name")).isNull();
+                assertThat(rs.getString("last_name")).isEqualTo("Smith");
+                assertThat(rs.getString("display_name")).isEqualTo("Alice Smith");
+                assertThat(rs.getLong("version")).isZero();
+            }
+        }
     }
 
-    // ==================== LINK USER BEHAVIORAL RED ====================
-
     @Test
-    void linkUser_setsUserIdOnPerson() throws Exception {
+    void linkUser_setsUserIdOnExistingPerson() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
         setTenant(tenantId);
         UUID userId = seedUser(tenantId, "link@snad.test");
-        // Use direct JDBC to seed a Person (since createPerson is RED).
-        UUID personId = UUID.randomUUID();
+        UUID personId = seedPerson(tenantId, null, "Link", "Test");
+
+        hrPersonService.linkUser(tenantId, personId, userId);
+
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO hr_people (id, tenant_id, user_id, first_name, last_name, display_name, version, created_at, updated_at) " +
-                "VALUES (?, ?, NULL, 'Link', 'Test', 'Link Test', 0, NOW(), NOW())")) {
+                "SELECT user_id FROM hr_people WHERE id = ? AND tenant_id = ?")) {
             ps.setObject(1, personId);
             ps.setObject(2, tenantId);
-            ps.executeUpdate();
+            try (ResultSet rs = ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getObject("user_id")).isEqualTo(userId);
+            }
         }
-
-        // RED: skeleton throws UnsupportedOperationException.
-        assertThatThrownBy(() -> hrPersonService.linkUser(tenantId, personId, userId))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: hr_people.user_id is updated to userId.
     }
 
-    // ==================== ADD IDENTIFIER BEHAVIORAL RED ====================
-
     @Test
-    void addIdentifier_persistsWithCanonicalColumns() throws Exception {
+    void addIdentifier_persistsEncryptedIdentifierWithCanonicalColumns() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
         setTenant(tenantId);
-        // Seed Person via direct JDBC (createPerson is RED).
-        UUID personId = UUID.randomUUID();
-        try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO hr_people (id, tenant_id, user_id, first_name, last_name, display_name, version, created_at, updated_at) " +
-                "VALUES (?, ?, NULL, 'Add', 'Ident', 'Add Ident', 0, NOW(), NOW())")) {
-            ps.setObject(1, personId);
-            ps.setObject(2, tenantId);
-            ps.executeUpdate();
-        }
+        UUID personId = seedPerson(tenantId, null, "Add", "Ident");
 
-        // RED: skeleton throws UnsupportedOperationException.
-        assertThatThrownBy(() -> hrPersonService.addIdentifier(
-                tenantId, personId, "NATIONAL_ID", "SA", "1234567890"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: hr_person_identifiers row exists with canonical columns:
-        //   identifier_ciphertext, blind_index, encryption_key_version,
-        //   blind_index_key_version, status='ACTIVE'.
+        PersonIdentifier identifier = hrPersonService.addIdentifier(
+                tenantId, personId, "NATIONAL_ID", "SA", "1234567890");
+
+        assertThat(identifier.id()).isNotNull();
+        assertThat(identifier.tenantId()).isEqualTo(tenantId);
+        assertThat(identifier.personId()).isEqualTo(personId);
+        assertThat(identifier.identifierType()).isEqualTo("NATIONAL_ID");
+        assertThat(identifier.issuingCountryCode()).isEqualTo("SA");
+        assertThat(identifier.status()).isEqualTo("ACTIVE");
+
+        assertThat(identifier.identifierCiphertext()).isNotNull().isNotEmpty();
+        assertThat(identifier.blindIndex()).isNotNull().isNotEmpty();
+        assertThat(identifier.encryptionKeyVersion()).isNotNull().isNotEmpty();
+        assertThat(identifier.blindIndexKeyVersion()).isNotNull().isNotEmpty();
+
+        assertThat(identifier.identifierCiphertext())
+                .as("ciphertext must NOT equal plaintext (encryption applied)")
+                .isNotEqualTo("1234567890");
+        assertThat(identifier.blindIndex())
+                .as("blind_index must NOT equal plaintext (HMAC applied)")
+                .isNotEqualTo("1234567890");
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT identifier_ciphertext, blind_index, encryption_key_version, " +
+                "blind_index_key_version, status, identifier_type, issuing_country_code " +
+                "FROM hr_person_identifiers WHERE id = ?")) {
+            ps.setObject(1, identifier.id());
+            try (ResultSet rs = ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getString("identifier_ciphertext"))
+                        .isEqualTo(identifier.identifierCiphertext());
+                assertThat(rs.getString("blind_index"))
+                        .isEqualTo(identifier.blindIndex());
+                assertThat(rs.getString("encryption_key_version"))
+                        .isEqualTo(identifier.encryptionKeyVersion());
+                assertThat(rs.getString("blind_index_key_version"))
+                        .isEqualTo(identifier.blindIndexKeyVersion());
+                assertThat(rs.getString("status")).isEqualTo("ACTIVE");
+                assertThat(rs.getString("identifier_type")).isEqualTo("NATIONAL_ID");
+                assertThat(rs.getString("issuing_country_code")).isEqualTo("SA");
+
+                assertThat(rs.getString("identifier_ciphertext"))
+                        .as("DB-stored ciphertext must NOT equal plaintext")
+                        .isNotEqualTo("1234567890");
+                assertThat(rs.getString("blind_index"))
+                        .as("DB-stored blind_index must NOT equal plaintext")
+                        .isNotEqualTo("1234567890");
+            }
+        }
     }
 
     @Test
@@ -278,115 +263,146 @@ class HrPersonServiceBehaviorIntegrationTest {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
         setTenant(tenantId);
-        UUID person1 = UUID.randomUUID();
-        UUID person2 = UUID.randomUUID();
-        try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO hr_people (id, tenant_id, user_id, first_name, last_name, display_name, version, created_at, updated_at) " +
-                "VALUES (?, ?, NULL, 'Dup', 'One', 'Dup One', 0, NOW(), NOW()), " +
-                "(?, ?, NULL, 'Dup', 'Two', 'Dup Two', 0, NOW(), NOW())")) {
-            ps.setObject(1, person1);
-            ps.setObject(2, tenantId);
-            ps.setObject(3, person2);
-            ps.setObject(4, tenantId);
-            ps.executeUpdate();
-        }
+        UUID personA = seedPerson(tenantId, null, "Dup", "A");
+        UUID personB = seedPerson(tenantId, null, "Dup", "B");
 
-        // First addIdentifier call must throw UnsupportedOperationException (RED skeleton).
-        assertThatThrownBy(() -> hrPersonService.addIdentifier(
-                tenantId, person1, "NATIONAL_ID", "SA", "1234567890"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: first call succeeds; second call (same plaintext, different
-        // person) throws a RuntimeException wrapping SQLSTATE 23505.
+        hrPersonService.addIdentifier(tenantId, personA, "NATIONAL_ID", "SA", "1234567890");
+
+        assertThatThrownBy(() ->
+                hrPersonService.addIdentifier(tenantId, personB, "NATIONAL_ID", "SA", "1234567890"))
+                .isInstanceOf(RuntimeException.class);
     }
 
     @Test
-    void addIdentifier_normalizesBeforeCheckingUniqueness() throws Exception {
+    void addIdentifier_normalizesInputBeforeUniquenessCheck() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
         setTenant(tenantId);
-        UUID person1 = UUID.randomUUID();
-        UUID person2 = UUID.randomUUID();
+        UUID personA = seedPerson(tenantId, null, "Norm", "A");
+        UUID personB = seedPerson(tenantId, null, "Norm", "B");
+
+        hrPersonService.addIdentifier(tenantId, personA,
+                "  national_id  ", "  sa  ", "  1234567890  ");
+
+        assertThatThrownBy(() ->
+                hrPersonService.addIdentifier(tenantId, personB,
+                        "NATIONAL_ID", "SA", "1234567890"))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void findExactIdentifierMatch_returnsActiveMatch() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID personId = seedPerson(tenantId, null, "Find", "Match");
+
+        hrPersonService.addIdentifier(tenantId, personId, "NATIONAL_ID", "SA", "1234567890");
+
+        Optional<PersonIdentifier> found = hrPersonService.findExactIdentifierMatch(
+                tenantId, "NATIONAL_ID", "SA", "1234567890");
+
+        assertThat(found).isPresent();
+        assertThat(found.get().personId()).isEqualTo(personId);
+        assertThat(found.get().identifierType()).isEqualTo("NATIONAL_ID");
+        assertThat(found.get().issuingCountryCode()).isEqualTo("SA");
+        assertThat(found.get().status()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void findExactIdentifierMatch_returnsEmptyForNonExistentValue() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID personId = seedPerson(tenantId, null, "Find", "Empty");
+
+        hrPersonService.addIdentifier(tenantId, personId, "NATIONAL_ID", "SA", "1234567890");
+
+        Optional<PersonIdentifier> found = hrPersonService.findExactIdentifierMatch(
+                tenantId, "NATIONAL_ID", "SA", "9999999999");
+
+        assertThat(found).isEmpty();
+    }
+
+    @Test
+    void findExactIdentifierMatch_returnsEmptyForWrongTenant() throws Exception {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        seedTenant(tenantA);
+        seedTenant(tenantB);
+        setTenant(tenantA);
+        UUID personInA = seedPerson(tenantA, null, "Find", "TenantA");
+
+        hrPersonService.addIdentifier(tenantA, personInA, "NATIONAL_ID", "SA", "1234567890");
+
+        Optional<PersonIdentifier> found = hrPersonService.findExactIdentifierMatch(
+                tenantB, "NATIONAL_ID", "SA", "1234567890");
+
+        assertThat(found).isEmpty();
+    }
+
+    @Test
+    void findExactIdentifierMatch_returnsEmptyForWrongType() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID personId = seedPerson(tenantId, null, "Find", "Type");
+
+        hrPersonService.addIdentifier(tenantId, personId, "NATIONAL_ID", "SA", "1234567890");
+
+        Optional<PersonIdentifier> found = hrPersonService.findExactIdentifierMatch(
+                tenantId, "PASSPORT", "SA", "1234567890");
+
+        assertThat(found).isEmpty();
+    }
+
+    @Test
+    void findExactIdentifierMatch_returnsEmptyForWrongIssuer() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID personId = seedPerson(tenantId, null, "Find", "Issuer");
+
+        hrPersonService.addIdentifier(tenantId, personId, "NATIONAL_ID", "SA", "1234567890");
+
+        Optional<PersonIdentifier> found = hrPersonService.findExactIdentifierMatch(
+                tenantId, "NATIONAL_ID", "AE", "1234567890");
+
+        assertThat(found).isEmpty();
+    }
+
+    @Test
+    void findExactIdentifierMatch_excludesExpiredIdentifier() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID personId = seedPerson(tenantId, null, "Find", "Expired");
+
+        PersonIdentifier added = hrPersonService.addIdentifier(
+                tenantId, personId, "NATIONAL_ID", "SA", "1234567890");
+
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO hr_people (id, tenant_id, user_id, first_name, last_name, display_name, version, created_at, updated_at) " +
-                "VALUES (?, ?, NULL, 'Norm', 'One', 'Norm One', 0, NOW(), NOW()), " +
-                "(?, ?, NULL, 'Norm', 'Two', 'Norm Two', 0, NOW(), NOW())")) {
-            ps.setObject(1, person1);
-            ps.setObject(2, tenantId);
-            ps.setObject(3, person2);
-            ps.setObject(4, tenantId);
+                "UPDATE hr_person_identifiers SET status = 'EXPIRED' WHERE id = ?")) {
+            ps.setObject(1, added.id());
             ps.executeUpdate();
         }
 
-        // RED: first call (messy input) must throw UnsupportedOperationException.
-        assertThatThrownBy(() -> hrPersonService.addIdentifier(
-                tenantId, person1, "  national_id  ", "  sa  ", "  1234567890  "))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: normalization produces same blind_index as clean input;
-        // second call with clean input ("NATIONAL_ID", "SA", "1234567890") throws
-        // a RuntimeException wrapping SQLSTATE 23505 (duplicate ACTIVE).
+        Optional<PersonIdentifier> found = hrPersonService.findExactIdentifierMatch(
+                tenantId, "NATIONAL_ID", "SA", "1234567890");
+
+        assertThat(found).isEmpty();
     }
-
-    // ==================== FIND EXACT IDENTIFIER MATCH BEHAVIORAL RED ====================
-
-    @Test
-    void findExactIdentifierMatch_returnsMatch() {
-        UUID tenantId = UUID.randomUUID();
-        // RED: skeleton throws UnsupportedOperationException.
-        assertThatThrownBy(() -> hrPersonService.findExactIdentifierMatch(
-                tenantId, "NATIONAL_ID", "SA", "1234567890"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: returns Optional<PersonIdentifier> with the persisted row.
-    }
-
-    @Test
-    void findExactIdentifierMatch_returnsEmptyForNonExistent() {
-        UUID tenantId = UUID.randomUUID();
-        // RED: skeleton throws UnsupportedOperationException.
-        assertThatThrownBy(() -> hrPersonService.findExactIdentifierMatch(
-                tenantId, "NATIONAL_ID", "SA", "9999999999"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: returns Optional.empty().
-    }
-
-    @Test
-    void findExactIdentifierMatch_isTenantScoped() {
-        UUID tenantA = UUID.randomUUID();
-        UUID tenantB = UUID.randomUUID();
-        // RED: skeleton throws UnsupportedOperationException.
-        assertThatThrownBy(() -> hrPersonService.findExactIdentifierMatch(
-                tenantB, "NATIONAL_ID", "SA", "1234567890"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: returns Optional.empty() (tenant-scoped HMAC produces
-        // different blind_index in tenantB vs tenantA, so no match).
-    }
-
-    @Test
-    void findExactIdentifierMatch_excludesExpired() {
-        UUID tenantId = UUID.randomUUID();
-        // RED: skeleton throws UnsupportedOperationException.
-        assertThatThrownBy(() -> hrPersonService.findExactIdentifierMatch(
-                tenantId, "NATIONAL_ID", "SA", "1234567890"))
-                .isInstanceOf(UnsupportedOperationException.class);
-        // When GREEN: after EXPIRED status set on the row, findExactIdentifierMatch
-        // returns Optional.empty() (partial unique index excludes EXPIRED).
-    }
-
-    // ==================== CRYPTO CONTRACT TESTS (via PlatformCryptographyService) ====================
 
     @Test
     void crypto_samePlaintextProducesSameBlindIndex() {
         UUID tenantA = UUID.randomUUID();
-        PlatformCryptographyService crypto = realCryptoService();
+        PlatformCryptographyService crypto = inMemoryTestCryptoService();
 
-        // These calls succeed because realCryptoService returns a real
-        // in-memory crypto implementation. The assertions prove the
-        // crypto contract holds — which the HrPersonService.addIdentifier
-        // path relies on for deterministic blind index.
         var idx1 = crypto.blindIndex(tenantA, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
         var idx2 = crypto.blindIndex(tenantA, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
 
         assertThat(idx1.value())
-                .as("same tenant + same plaintext → same blind_index (deterministic)")
+                .as("same tenant + same plaintext -> same blind_index (deterministic)")
                 .isEqualTo(idx2.value());
     }
 
@@ -394,42 +410,41 @@ class HrPersonServiceBehaviorIntegrationTest {
     void crypto_differentTenantProducesDifferentBlindIndex() {
         UUID tenantA = UUID.randomUUID();
         UUID tenantB = UUID.randomUUID();
-        PlatformCryptographyService crypto = realCryptoService();
+        PlatformCryptographyService crypto = inMemoryTestCryptoService();
 
         var idxA = crypto.blindIndex(tenantA, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
         var idxB = crypto.blindIndex(tenantB, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
 
         assertThat(idxB.value())
-                .as("different tenant → different blind_index (tenant-scoped HMAC)")
+                .as("different tenant -> different blind_index (tenant-scoped HMAC)")
                 .isNotEqualTo(idxA.value());
     }
 
     @Test
     void crypto_differentPurposeProducesDifferentBlindIndex() {
         UUID tenantId = UUID.randomUUID();
-        PlatformCryptographyService crypto = realCryptoService();
+        PlatformCryptographyService crypto = inMemoryTestCryptoService();
 
         var idx1 = crypto.blindIndex(tenantId, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
         var idx2 = crypto.blindIndex(tenantId, "HR_PERSON_IDENTIFIER:PASSPORT:SA", "1234567890");
 
         assertThat(idx2.value())
-                .as("different purpose → different blind_index (purpose-bound HMAC)")
+                .as("different purpose -> different blind_index (purpose-bound HMAC)")
                 .isNotEqualTo(idx1.value());
     }
 
     @Test
     void crypto_samePlaintextProducesDifferentCiphertext() {
         UUID tenantId = UUID.randomUUID();
-        PlatformCryptographyService crypto = realCryptoService();
+        PlatformCryptographyService crypto = inMemoryTestCryptoService();
 
         var ct1 = crypto.encrypt(tenantId, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
         var ct2 = crypto.encrypt(tenantId, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
 
         assertThat(ct1.ciphertext())
-                .as("same plaintext → different ciphertext (randomized GCM nonce)")
+                .as("same plaintext -> different ciphertext (randomized GCM nonce)")
                 .isNotEqualTo(ct2.ciphertext());
 
-        // Both decrypt to the same plaintext.
         assertThat(crypto.decrypt(tenantId, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", ct1))
                 .isEqualTo("1234567890");
         assertThat(crypto.decrypt(tenantId, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", ct2))
@@ -440,7 +455,7 @@ class HrPersonServiceBehaviorIntegrationTest {
     void crypto_wrongTenantDecryptionRejected() {
         UUID tenantA = UUID.randomUUID();
         UUID tenantB = UUID.randomUUID();
-        PlatformCryptographyService crypto = realCryptoService();
+        PlatformCryptographyService crypto = inMemoryTestCryptoService();
 
         var ct = crypto.encrypt(tenantA, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
 
@@ -452,7 +467,7 @@ class HrPersonServiceBehaviorIntegrationTest {
     @Test
     void crypto_wrongPurposeDecryptionRejected() {
         UUID tenantId = UUID.randomUUID();
-        PlatformCryptographyService crypto = realCryptoService();
+        PlatformCryptographyService crypto = inMemoryTestCryptoService();
 
         var ct = crypto.encrypt(tenantId, "HR_PERSON_IDENTIFIER:NATIONAL_ID:SA", "1234567890");
 
@@ -461,35 +476,9 @@ class HrPersonServiceBehaviorIntegrationTest {
                 .isInstanceOf(RuntimeException.class);
     }
 
-    // ==================== INTERNAL TEST-ONLY CRYPTO (NOT A STUB FOR THE SUT) ====================
-    //
-    // This InMemoryTestCryptoService is a REAL implementation of the
-    // PlatformCryptographyService contract — it satisfies all the crypto
-    // invariants asserted above. It is NOT a stub for the SUT
-    // (HrPersonService/JdbcHrPersonRepository/IdentifierNormalizer) —
-    // those production classes still throw UnsupportedOperationException
-    // because their business logic is unimplemented.
-    //
-    // The reason this exists is that the WS1 EnvironmentKeyMaterialProvider
-    // reads encryption keys from env vars that may not be set in the test
-    // environment. For behavioral RED, we don't actually need the production
-    // crypto to work — we just need the SUT methods to be CALLED so they
-    // reach the UnsupportedOperationException. For GREEN, Cycle 4 wires the
-    // real WS1 JcePlatformCryptographyService.
-
-    /**
-     * Test-only in-memory PlatformCryptographyService. Satisfies the crypto
-     * contract: deterministic blind index (HMAC-SHA-256), randomized
-     * ciphertext (AES-GCM with random nonce), AAD-bound tenant+purpose.
-     *
-     * <p>This is a REAL cryptographic implementation for test use. It is
-     * NOT a stub for the SUT — the SUT (HrPersonService, repository,
-     * normalizer) are the production classes under test, which throw
-     * UnsupportedOperationException in their skeletons.</p>
-     */
     static final class InMemoryTestCryptoService implements PlatformCryptographyService {
-        private static final byte[] ENC_KEY = "test-enc-key-32-bytes-padding-ok".getBytes();  // 32 bytes AES-256
-        private static final byte[] BLIND_KEY = "test-blind-key-32-bytes-padding-!".substring(0, 32).getBytes();  // 32 bytes HMAC-SHA-256
+        private static final byte[] ENC_KEY = "test-enc-key-32-bytes-padding-ok".getBytes();
+        private static final byte[] BLIND_KEY = "test-blind-key-32-bytes-padding-!".substring(0, 32).getBytes();
 
         @Override
         public com.sanad.platform.security.crypto.EncryptedValue encrypt(
