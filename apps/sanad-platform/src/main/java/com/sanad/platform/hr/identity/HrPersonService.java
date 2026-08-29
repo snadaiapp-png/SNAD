@@ -1,55 +1,25 @@
 package com.sanad.platform.hr.identity;
 
+import com.sanad.platform.security.crypto.BlindIndex;
+import com.sanad.platform.security.crypto.EncryptedValue;
 import com.sanad.platform.security.crypto.PlatformCryptographyService;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
  * HR Person Service — application-layer facade for HR Person identity operations.
  *
- * <p>Service contract:
- * <ul>
- *   <li>{@link #createPerson(UUID, String, String, String)} — persist a new
- *       Person row (no User link by default)</li>
- *   <li>{@link #linkUser(UUID, UUID, UUID)} — link a tenant-scoped User to
- *       an existing Person (1:1 max within a tenant)</li>
- *   <li>{@link #addIdentifier(UUID, UUID, String, String, String)} —
- *       normalize + encrypt + blind-index + persist a sensitive identifier;
- *       rejects duplicate ACTIVE via DB unique index</li>
- *   <li>{@link #findExactIdentifierMatch(UUID, String, String, String)} —
- *       produce same blind index from plaintext, query ACTIVE rows</li>
- * </ul>
- * </p>
+ * <p>Sensitive identifier flow is fixed as:
+ * normalize → blind-index → encrypt → repository → PostgreSQL.</p>
  *
- * <p>Service path:
- * <pre>
- *   HrPersonService
- *       ↓
- *   IdentifierNormalizer        (canonicalize input)
- *       ↓
- *   PlatformCryptographyService (existing WS1 — encrypt + blindIndex)
- *       ↓
- *   HrPersonRepository          (persistence)
- *       ↓
- *   PostgreSQL
- * </pre>
- * </p>
- *
- * <p><strong>Security invariants:</strong>
- * <ul>
- *   <li>Plaintext identifier values are NEVER stored or logged.</li>
- *   <li>The ciphertext is the only persisted form of the raw value.</li>
- *   <li>The blind index is the only persisted searchable form (deterministic).</li>
- *   <li>API-facing projections MUST NOT return ciphertext or blind index.</li>
- * </ul>
- * </p>
- *
- * <p>This is a Cycle 2 minimal skeleton — methods throw
- * {@link UnsupportedOperationException}. Real behavior is added in
- * Cycle 4 GREEN after Cycle 3 establishes the real behavioral RED.</p>
+ * <p>Plaintext identifier values are never persisted or logged. Search uses
+ * only a deterministic tenant+purpose-bound blind index.</p>
  */
 public final class HrPersonService {
+
+    private static final String IDENTIFIER_PURPOSE_PREFIX = "HR_PERSON_IDENTIFIER:";
 
     private final HrPersonRepository repository;
     private final PlatformCryptographyService crypto;
@@ -58,82 +28,93 @@ public final class HrPersonService {
     public HrPersonService(HrPersonRepository repository,
                            PlatformCryptographyService crypto,
                            IdentifierNormalizer normalizer) {
-        this.repository = repository;
-        this.crypto = crypto;
-        this.normalizer = normalizer;
+        this.repository = Objects.requireNonNull(repository, "repository");
+        this.crypto = Objects.requireNonNull(crypto, "crypto");
+        this.normalizer = Objects.requireNonNull(normalizer, "normalizer");
     }
 
-    /**
-     * Create a new Person row (no User link by default).
-     *
-     * @param tenantId   the owning tenant
-     * @param firstName  Person first name
-     * @param middleName Person middle name (nullable)
-     * @param lastName   Person last name
-     * @return the newly created Person
-     */
     public HrPerson createPerson(UUID tenantId, String firstName, String middleName, String lastName) {
-        throw new UnsupportedOperationException(
-                "HrPersonService.createPerson — Cycle 2 skeleton, implement in Cycle 4");
+        Objects.requireNonNull(tenantId, "tenantId");
+        Objects.requireNonNull(firstName, "firstName");
+        Objects.requireNonNull(lastName, "lastName");
+
+        HrPerson person = new HrPerson(
+                UUID.randomUUID(),
+                tenantId,
+                null,
+                firstName,
+                middleName,
+                lastName,
+                buildDisplayName(firstName, middleName, lastName),
+                0L);
+        repository.savePerson(person);
+        return person;
     }
 
-    /**
-     * Link a tenant-scoped User to an existing Person.
-     * At most one non-null User per Tenant (enforced by partial unique index).
-     *
-     * @param tenantId the tenant scope
-     * @param personId the Person to update
-     * @param userId   the User to link
-     */
     public void linkUser(UUID tenantId, UUID personId, UUID userId) {
-        throw new UnsupportedOperationException(
-                "HrPersonService.linkUser — Cycle 2 skeleton, implement in Cycle 4");
+        Objects.requireNonNull(tenantId, "tenantId");
+        repository.linkUser(tenantId, personId, userId);
     }
 
-    /**
-     * Add a sensitive identifier to a Person.
-     *
-     * <p>Normalization is applied to type/country/value. The plaintext value
-     * is encrypted via {@link PlatformCryptographyService#encrypt} and a
-     * deterministic blind index is produced via
-     * {@link PlatformCryptographyService#blindIndex}. Both are persisted via
-     * {@link HrPersonRepository#saveIdentifier}. Duplicate ACTIVE identifier
-     * detection relies on the DB partial unique index (SQLSTATE 23505).</p>
-     *
-     * @param tenantId           the tenant scope
-     * @param personId           the owning Person
-     * @param identifierType     raw identifier type (will be normalized)
-     * @param issuingCountryCode raw issuing country (will be normalized; may be null)
-     * @param plaintextValue    raw plaintext identifier value (will be trimmed)
-     * @return the persisted PersonIdentifier
-     */
     public PersonIdentifier addIdentifier(UUID tenantId, UUID personId,
                                           String identifierType,
                                           String issuingCountryCode,
                                           String plaintextValue) {
-        throw new UnsupportedOperationException(
-                "HrPersonService.addIdentifier — Cycle 2 skeleton, implement in Cycle 4");
+        Objects.requireNonNull(tenantId, "tenantId");
+        Objects.requireNonNull(personId, "personId");
+
+        String normalizedType = normalizer.normalizeIdentifierType(identifierType);
+        String normalizedCountry = normalizer.normalizeCountryCode(issuingCountryCode);
+        String normalizedValue = normalizer.normalizeValue(plaintextValue);
+        String purpose = identifierPurpose(normalizedType, normalizedCountry);
+
+        BlindIndex blindIndex = crypto.blindIndex(tenantId, purpose, normalizedValue);
+        EncryptedValue encryptedValue = crypto.encrypt(tenantId, purpose, normalizedValue);
+
+        PersonIdentifier identifier = new PersonIdentifier(
+                UUID.randomUUID(),
+                tenantId,
+                personId,
+                normalizedType,
+                normalizedCountry,
+                encryptedValue.ciphertext(),
+                blindIndex.value(),
+                encryptedValue.keyVersion(),
+                blindIndex.keyVersion(),
+                "ACTIVE");
+
+        repository.saveIdentifier(identifier);
+        return identifier;
     }
 
-    /**
-     * Find an ACTIVE Person identifier by exact match on (tenant, type, issuer,
-     * plaintext value).
-     *
-     * <p>Produces the same blind index from the plaintext input and queries
-     * the repository for an ACTIVE row with matching blind_index. Tenant
-     * scoping is enforced by the deterministic HMAC bound to tenant+purpose.</p>
-     *
-     * @param tenantId           the tenant scope
-     * @param identifierType     raw identifier type (will be normalized)
-     * @param issuingCountryCode raw issuing country (will be normalized; may be null)
-     * @param plaintextValue     raw plaintext identifier value (will be trimmed)
-     * @return the matching ACTIVE identifier, or empty if not found
-     */
     public Optional<PersonIdentifier> findExactIdentifierMatch(UUID tenantId,
                                                                 String identifierType,
                                                                 String issuingCountryCode,
                                                                 String plaintextValue) {
-        throw new UnsupportedOperationException(
-                "HrPersonService.findExactIdentifierMatch — Cycle 2 skeleton, implement in Cycle 4");
+        Objects.requireNonNull(tenantId, "tenantId");
+
+        String normalizedType = normalizer.normalizeIdentifierType(identifierType);
+        String normalizedCountry = normalizer.normalizeCountryCode(issuingCountryCode);
+        String normalizedValue = normalizer.normalizeValue(plaintextValue);
+        String purpose = identifierPurpose(normalizedType, normalizedCountry);
+
+        BlindIndex blindIndex = crypto.blindIndex(tenantId, purpose, normalizedValue);
+        return repository.findActiveIdentifierByBlindIndex(
+                tenantId,
+                normalizedType,
+                normalizedCountry,
+                blindIndex.value());
+    }
+
+    private String identifierPurpose(String identifierType, String issuingCountryCode) {
+        return IDENTIFIER_PURPOSE_PREFIX + identifierType + ":" +
+                (issuingCountryCode == null ? "NONE" : issuingCountryCode);
+    }
+
+    private String buildDisplayName(String firstName, String middleName, String lastName) {
+        if (middleName == null || middleName.isBlank()) {
+            return firstName + " " + lastName;
+        }
+        return firstName + " " + middleName + " " + lastName;
     }
 }
