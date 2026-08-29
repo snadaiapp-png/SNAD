@@ -488,8 +488,8 @@ class HrPersonServiceBehaviorIntegrationTest {
      * UnsupportedOperationException in their skeletons.</p>
      */
     static final class InMemoryTestCryptoService implements PlatformCryptographyService {
-        private static final byte[] ENC_KEY = "test-enc-key-32-bytes-padding-!".getBytes();
-        private static final byte[] BLIND_KEY = "test-blind-key-different!!".getBytes();
+        private static final byte[] ENC_KEY = "test-enc-key-32-bytes-padding-ok".getBytes();  // 32 bytes AES-256
+        private static final byte[] BLIND_KEY = "test-blind-key-32-bytes-padding-!".substring(0, 32).getBytes();  // 32 bytes HMAC-SHA-256
 
         @Override
         public com.sanad.platform.security.crypto.EncryptedValue encrypt(
