@@ -16,8 +16,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Governance read endpoints: granular access check (v2) and the audit trail.
- * Both are additive to the existing executive namespace.
+ * Governance read endpoints: granular access check (v2) and the paginated SCP audit trail (v2).
+ * Both are additive to the existing executive namespace and preserve legacy routes.
  */
 @RestController
 @RequestMapping("/api/v1/executive")
@@ -43,7 +43,7 @@ public class GovernanceController {
         return ResponseEntity.ok(accessService.accessCheck(authentication));
     }
 
-    @GetMapping("/audit")
+    @GetMapping("/audit/v2")
     @RequireCapability("audit.read")
     public ResponseEntity<PageResponse<Map<String, Object>>> audit(
             @RequestParam(name = "tenantId", required = false) UUID tenantId,
