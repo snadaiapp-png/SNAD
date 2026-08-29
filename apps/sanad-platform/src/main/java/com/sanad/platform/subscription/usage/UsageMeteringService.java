@@ -1,5 +1,6 @@
 package com.sanad.platform.subscription.usage;
 
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -32,9 +33,11 @@ public class UsageMeteringService {
     public static final int WARNING_THRESHOLD_90 = 90;
 
     private final JdbcTemplate jdbc;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
-    public UsageMeteringService(JdbcTemplate jdbc) {
+    public UsageMeteringService(JdbcTemplate jdbc, TenantRlsTransactionContext tenantRlsContext) {
         this.jdbc = jdbc;
+        this.tenantRlsContext = tenantRlsContext;
     }
 
     public record IngestResult(UUID eventId, boolean duplicate) {
@@ -50,6 +53,9 @@ public class UsageMeteringService {
         if (quantity < 0) {
             throw new IllegalArgumentException("usage quantity must be non-negative");
         }
+        // usage tables are FORCE-RLS fail-closed — trusted paths must scope the
+        // transaction to the tenant before touching them
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
         UUID eventId = UUID.randomUUID();
         try {
             jdbc.update("""
@@ -87,6 +93,7 @@ public class UsageMeteringService {
 
     @Transactional(readOnly = true)
     public Optional<UsageSnapshot> usageSnapshot(UUID tenantId, String metricCode) {
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT total FROM usage_aggregates "
                         + "WHERE tenant_id = ? AND metric_code = ? AND period_type = 'MONTHLY' "

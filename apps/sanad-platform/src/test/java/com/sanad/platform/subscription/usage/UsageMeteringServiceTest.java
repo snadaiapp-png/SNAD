@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
@@ -21,6 +22,7 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -33,6 +35,8 @@ class UsageMeteringServiceTest {
 
     @Mock
     private JdbcTemplate jdbc;
+    @Mock
+    private TenantRlsTransactionContext tenantRlsContext;
 
     private UsageMeteringService service;
 
@@ -40,7 +44,7 @@ class UsageMeteringServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new UsageMeteringService(jdbc);
+        service = new UsageMeteringService(jdbc, tenantRlsContext);
     }
 
     @Test
@@ -71,6 +75,13 @@ class UsageMeteringServiceTest {
         assertThat(result.duplicate()).isTrue();
         verify(jdbc, never()).update(contains("INSERT INTO usage_aggregates"),
                 any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("ingest: scopes the transaction to the tenant (FORCE RLS contract)")
+    void ingestAppliesTenantRlsScope() {
+        service.ingest(TENANT_ID, "ai_tokens", 10L, "src", "key-1", Instant.now());
+        verify(tenantRlsContext).applyForCurrentTransaction(TENANT_ID);
     }
 
     @Test
