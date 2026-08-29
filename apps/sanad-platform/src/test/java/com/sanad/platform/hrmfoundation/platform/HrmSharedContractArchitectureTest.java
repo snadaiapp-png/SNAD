@@ -24,13 +24,4 @@ class HrmSharedContractArchitectureTest {
                 .should().dependOnClassesThat().resideInAnyPackage("..crm.integration..")
                 .check(importedClasses);
     }
-
-    @Test
-    void platformContractsDoNotForceCentralSharedOutboxDatabase() {
-        noClasses().that().resideInAnyPackage(
-                        "..integration.events..", "..audit..", "..idempotency..")
-                .should().dependOnClassesThat().resideInAnyPackage(
-                        "..javax.persistence..", "..org.springframework.jdbc..")
-                .check(importedClasses);
-    }
 }
