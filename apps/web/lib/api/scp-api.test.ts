@@ -53,13 +53,13 @@ describe("scpApi — endpoint construction", () => {
     );
   });
 
-  it("builds usage and audit routes tenant-scoped", async () => {
+  it("builds usage and additive v2 audit routes tenant-scoped", async () => {
     await scpApi.usage("tenant-1");
     await scpApi.audit({ page: 1, size: 20, direction: "DESC" });
     expect(getMock).toHaveBeenNthCalledWith(1, "/api/v1/executive/usage?tenantId=tenant-1");
     expect(getMock).toHaveBeenNthCalledWith(
       2,
-      "/api/v1/executive/audit?page=1&size=20&direction=DESC",
+      "/api/v1/executive/audit/v2?page=1&size=20&direction=DESC",
     );
   });
 
