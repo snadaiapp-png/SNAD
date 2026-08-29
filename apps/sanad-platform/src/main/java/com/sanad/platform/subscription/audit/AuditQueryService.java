@@ -33,7 +33,7 @@ public class AuditQueryService {
                                                    String sort, String direction) {
         int safeSize = Math.min(Math.max(size, 1), 200);
         int safePage = Math.max(page, 0);
-        String sortColumn = SORTABLE.contains(sort) ? sort : "created_at";
+        String sortColumn = sort != null && SORTABLE.contains(sort) ? sort : "created_at";
         String sortDirection = "ASC".equalsIgnoreCase(direction) ? "ASC" : "DESC";
 
         StringBuilder where = new StringBuilder(" WHERE 1 = 1 ");
