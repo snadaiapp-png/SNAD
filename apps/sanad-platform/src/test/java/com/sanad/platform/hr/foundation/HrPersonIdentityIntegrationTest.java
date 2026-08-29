@@ -394,6 +394,10 @@ class HrPersonIdentityIntegrationTest {
     }
 
     // --- PRIVATE-03: tenant_id FK to tenants(id) (SQLSTATE 23503) ---
+    // Test design: the row's tenant_id must MATCH the session's app.tenant_id
+    // (otherwise RLS WITH CHECK fires first — SQLSTATE 42501 — masking the FK).
+    // We set app.tenant_id = fakeTenantId (so RLS WITH CHECK passes) and verify
+    // the FK to tenants(id) then rejects because fakeTenantId doesn't exist.
     @Test
     void private03_tenantIdFkToTenants() throws Exception {
         UUID tenantId = UUID.randomUUID();
@@ -402,7 +406,11 @@ class HrPersonIdentityIntegrationTest {
         UUID personId = insertPerson(tenantId, null, "Private", "Tenant");
 
         // Insert a private row with valid person_id but a non-existent tenant_id.
+        // IMPORTANT: set app.tenant_id to MATCH the row's intended tenant_id so
+        // RLS WITH CHECK passes and lets the FK to tenants(id) be evaluated.
+        // Otherwise RLS WITH CHECK fires first (42501) and masks the FK violation.
         UUID fakeTenantId = UUID.randomUUID();
+        setTenant(fakeTenantId);
         assertThatThrownBy(() -> insertPrivate(personId, fakeTenantId,
                 "1990-01-01", "SA", "SINGLE"))
                 .isInstanceOf(SQLException.class)
@@ -428,6 +436,12 @@ class HrPersonIdentityIntegrationTest {
     // Person in Tenant A cannot have a private row in Tenant B.
     // Enforced by composite FK (tenant_id, person_id) REFERENCES hr_people(tenant_id, id)
     // — requires UNIQUE (tenant_id, id) constraint on hr_people to permit composite FK.
+    //
+    // Test design: set app.tenant_id = tenantB (so RLS WITH CHECK passes for the
+    // row with tenant_id = tenantB). The person_in_A exists (so a simple FK to
+    // hr_people(id) would pass), but the composite FK (tenant_id, person_id) →
+    // hr_people(tenant_id, id) rejects because (tenantB, person_in_A) does not
+    // exist in hr_people. SQLSTATE 23503 = foreign_key_violation.
     @Test
     void private05_crossTenantPrivateTenantCongruence() throws Exception {
         UUID tenantA = UUID.randomUUID();
@@ -438,10 +452,11 @@ class HrPersonIdentityIntegrationTest {
         UUID personInA = insertPerson(tenantA, null, "In", "TenantA");
 
         // Try to insert a private row in Tenant B pointing to person in Tenant A.
-        // The person EXISTS (so FK to hr_people(id) would pass), but composite FK
-        // (tenant_id, person_id) REFERENCES hr_people(tenant_id, id) rejects because
-        // (tenantB, personInA) does not exist in hr_people.
-        // SQLSTATE 23503 = foreign_key_violation (root-cause specific).
+        // IMPORTANT: set app.tenant_id = tenantB (NOT tenantA) so the row's
+        // tenant_id (tenantB) matches the session's app.tenant_id. RLS WITH CHECK
+        // passes; the composite FK (tenant_id, person_id) → hr_people(tenant_id, id)
+        // then rejects because (tenantB, personInA) does not exist in hr_people.
+        setTenant(tenantB);
         assertThatThrownBy(() -> insertPrivate(personInA, tenantB,
                 "1990-01-01", "SA", "SINGLE"))
                 .isInstanceOf(SQLException.class)

@@ -386,7 +386,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
                         MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
-                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION));
+                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -523,7 +524,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
                         MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
-                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION));
+                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
