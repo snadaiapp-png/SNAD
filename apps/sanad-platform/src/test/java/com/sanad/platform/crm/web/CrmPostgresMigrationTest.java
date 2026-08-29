@@ -170,7 +170,8 @@ class CrmPostgresMigrationTest {
     private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260827.1";
     // HRM-G0 WS2 Task 1A — Person Identity Schema (hr_people + hr_person_private + hr_person_identifiers)
     private static final String HR_PERSON_IDENTITY_SCHEMA_VERSION = "20260829.1";
-    private static final String LATEST_MIGRATION_VERSION = HR_PERSON_IDENTITY_SCHEMA_VERSION;
+    private static final String EMPLOYMENT_EXPANSION_VERSION = "20260830.1";
+    private static final String LATEST_MIGRATION_VERSION = EMPLOYMENT_EXPANSION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -387,7 +388,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
                         MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
-                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION));
+                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -525,7 +527,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
                         MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
-                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION));
+                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
