@@ -92,11 +92,11 @@ class HrEmploymentLifecycleIntegrationTest {
         conn = dataSource.getConnection();
         conn.setAutoCommit(true);
 
-        // Wire real production classes (Cycle 2 skeletons throwing UOE → RED).
+        // Wire real production classes.
         employmentRepository = new JdbcEmploymentRepository(dataSource);
         commands = new JdbcEmploymentCommandService(employmentRepository);
         migrationStateRepository = new JdbcMigrationTenantStateRepository(dataSource);
-        legacyMappingService = new DefaultLegacyEmployeeMappingService();
+        legacyMappingService = new DefaultLegacyEmployeeMappingService(dataSource);
     }
 
     @AfterEach
@@ -159,20 +159,42 @@ class HrEmploymentLifecycleIntegrationTest {
                                   String employeeNumber, EmploymentStatus status) throws Exception {
         UUID employmentId = UUID.randomUUID();
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO hr_employees (id, tenant_id, employee_number, first_name, last_name, display_name, " +
+                "INSERT INTO hr_employees (id, tenant_id, person_id, legal_entity_id, employee_number, " +
+                "first_name, last_name, display_name, " +
                 "employment_type, status, hire_date, version, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, 'FULL_TIME', ?, ?, 0, NOW(), NOW())")) {
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'FULL_TIME', ?, ?, 0, NOW(), NOW())")) {
             ps.setObject(1, employmentId);
             ps.setObject(2, tenantId);
-            ps.setString(3, employeeNumber);
-            ps.setString(4, "Test");
-            ps.setString(5, "Employee");
-            ps.setString(6, "Test Employee");
-            ps.setString(7, status.name());
-            ps.setObject(8, java.sql.Date.valueOf(LocalDate.of(2026, 1, 1)));
+            ps.setObject(3, personId);
+            ps.setObject(4, legalEntityId);
+            ps.setString(5, employeeNumber);
+            ps.setString(6, "Test");
+            ps.setString(7, "Employee");
+            ps.setString(8, "Test Employee");
+            ps.setString(9, status.name());
+            ps.setObject(10, java.sql.Date.valueOf(LocalDate.of(2026, 1, 1)));
             ps.executeUpdate();
         }
         return employmentId;
+    }
+
+    /** Seed a legacy_employee_mappings row with a specific classification. */
+    private void seedLegacyMapping(UUID tenantId, UUID legacyEmployeeId,
+                                     UUID canonicalPersonId,
+                                     LegacyMappingClassification classification,
+                                     String reviewReason) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_legacy_employee_mappings " +
+                "(id, tenant_id, legacy_employee_id, canonical_person_id, classification, review_reason, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, NOW())")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, legacyEmployeeId);
+            ps.setObject(4, canonicalPersonId);
+            ps.setString(5, classification.name());
+            ps.setString(6, reviewReason);
+            ps.executeUpdate();
+        }
     }
 
     private static final LocalDate EFFECTIVE = LocalDate.of(2026, 1, 1);
@@ -256,14 +278,16 @@ class HrEmploymentLifecycleIntegrationTest {
     // ==================== B. PERSON → EMPLOYMENT RELATION ====================
 
     @Test
-    void employment_persistsPersonLink() {
+    void employment_persistsPersonLink() throws Exception {
         UUID tenantId = UUID.randomUUID();
-        UUID personId = UUID.randomUUID();
-        UUID legalEntityId = UUID.randomUUID();
+        seedTenant(tenantId);
+        UUID personId = seedPerson(tenantId, "Person", "Link");
+        UUID legalEntityId = seedLegalEntity(tenantId, "LE-PER");
+        setTenant(tenantId);
 
         Employment employment = new Employment(
                 UUID.randomUUID(), tenantId, personId, legalEntityId,
-                "EMP-001", "FULL_TIME", EmploymentStatus.DRAFT,
+                "EMP-PER", "FULL_TIME", EmploymentStatus.DRAFT,
                 EFFECTIVE, null, null, 0L);
         employmentRepository.saveEmployment(employment);
 
@@ -275,14 +299,16 @@ class HrEmploymentLifecycleIntegrationTest {
     // ==================== C. LEGAL ENTITY EMPLOYER RELATION ====================
 
     @Test
-    void employment_persistsLegalEntityEmployerLink() {
+    void employment_persistsLegalEntityEmployerLink() throws Exception {
         UUID tenantId = UUID.randomUUID();
-        UUID personId = UUID.randomUUID();
-        UUID legalEntityId = UUID.randomUUID();
+        seedTenant(tenantId);
+        UUID personId = seedPerson(tenantId, "Legal", "Entity");
+        UUID legalEntityId = seedLegalEntity(tenantId, "LE-EMP");
+        setTenant(tenantId);
 
         Employment employment = new Employment(
                 UUID.randomUUID(), tenantId, personId, legalEntityId,
-                "EMP-001", "FULL_TIME", EmploymentStatus.DRAFT,
+                "EMP-LE", "FULL_TIME", EmploymentStatus.DRAFT,
                 EFFECTIVE, null, null, 0L);
         employmentRepository.saveEmployment(employment);
 
@@ -465,6 +491,11 @@ class HrEmploymentLifecycleIntegrationTest {
 
         // Try to insert an overlapping ACTIVE period via direct JDBC — must be
         // rejected by the EXCLUDE constraint (or DB-level guard).
+        // The test uses direct JDBC (not the repository), so the natural
+        // exception is SQLException (PostgreSQL JDBC throws PSQLException
+        // which extends SQLException). The business invariant being tested
+        // is "overlapping status period = database rejected" — the exception
+        // type is a layer detail, not the business contract.
         assertThatThrownBy(() -> {
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO hr_employment_status_periods " +
@@ -476,7 +507,7 @@ class HrEmploymentLifecycleIntegrationTest {
                 ps.setString(4, "2026-01-01");
                 ps.executeUpdate();
             }
-        }).isInstanceOf(RuntimeException.class);
+        }).isInstanceOf(java.sql.SQLException.class);
     }
 
     // ==================== L. HISTORICAL PERIOD IMMUTABILITY ====================
@@ -658,25 +689,28 @@ class HrEmploymentLifecycleIntegrationTest {
     // ==================== O. MIGRATION TENANT STATE ====================
 
     @Test
-    void migrationTenantState_defaultIsLegacy() {
+    void migrationTenantState_defaultIsLegacy() throws Exception {
         UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
         // Default state for a tenant with no record must be LEGACY.
         MigrationTenantState state = migrationStateRepository.getState(tenantId);
         assertThat(state).isEqualTo(MigrationTenantState.LEGACY);
     }
 
     @Test
-    void migrationTenantState_setAndGet_roundTrip() {
+    void migrationTenantState_setAndGet_roundTrip() throws Exception {
         UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
         migrationStateRepository.setState(tenantId, MigrationTenantState.MIGRATING);
         assertThat(migrationStateRepository.getState(tenantId))
                 .isEqualTo(MigrationTenantState.MIGRATING);
     }
 
     @Test
-    void migrationTenantState_allFourStatesSupported() {
+    void migrationTenantState_allFourStatesSupported() throws Exception {
         // State machine supports all four canonical states.
         UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
         for (MigrationTenantState state : MigrationTenantState.values()) {
             migrationStateRepository.setState(tenantId, state);
             assertThat(migrationStateRepository.getState(tenantId))
@@ -688,24 +722,39 @@ class HrEmploymentLifecycleIntegrationTest {
     // ==================== P. LEGACY MAPPING — AUTHORITATIVE MATCH → AUTO_MIGRATE ====================
 
     @Test
-    void legacyMapping_singleAuthoritativeMatch_autoMigrate() {
+    void legacyMapping_singleAuthoritativeMatch_autoMigrate() throws Exception {
         UUID tenantId = UUID.randomUUID();
-        UUID legacyEmployeeId = UUID.randomUUID();
-        // Default service has no authoritative-match resolution yet; RED until implemented.
+        seedTenant(tenantId);
+        UUID personId = seedPerson(tenantId, "Auto", "Migrate");
+        UUID legalEntityId = seedLegalEntity(tenantId, "LE-AUTO");
+        UUID legacyEmployeeId = seedEmployment(tenantId, personId, legalEntityId,
+                "EMP-AUTO", EmploymentStatus.ACTIVE);
+
+        // Seed a mapping row with classification AUTO_MIGRATE — representing
+        // exactly one authoritative match found by backfill (Task 6).
+        seedLegacyMapping(tenantId, legacyEmployeeId, personId,
+                LegacyMappingClassification.AUTO_MIGRATE, "single authoritative match");
+
         LegacyMappingClassification c = legacyMappingService.classify(tenantId, legacyEmployeeId);
-        // When GREEN: a tenant with exactly one authoritative match returns AUTO_MIGRATE.
         assertThat(c).isEqualTo(LegacyMappingClassification.AUTO_MIGRATE);
     }
 
     // ==================== Q. LEGACY MAPPING — AMBIGUOUS → MIGRATION_REVIEW_REQUIRED ====================
 
     @Test
-    void legacyMapping_multiplePlausibleMatches_reviewRequired() {
+    void legacyMapping_multiplePlausibleMatches_reviewRequired() throws Exception {
         UUID tenantId = UUID.randomUUID();
-        UUID legacyEmployeeId = UUID.randomUUID();
-        // For RED, the default service throws UOE — when GREEN, this scenario (multiple
-        // plausible matches) returns MIGRATION_REVIEW_REQUIRED. This test exercises the
-        // ambiguous-mapping fixture path.
+        seedTenant(tenantId);
+        UUID personId = seedPerson(tenantId, "Review", "Required");
+        UUID legalEntityId = seedLegalEntity(tenantId, "LE-REV");
+        UUID legacyEmployeeId = seedEmployment(tenantId, personId, legalEntityId,
+                "EMP-REV", EmploymentStatus.ACTIVE);
+
+        // Seed a mapping row with classification MIGRATION_REVIEW_REQUIRED —
+        // representing multiple plausible matches found by backfill (Task 6).
+        seedLegacyMapping(tenantId, legacyEmployeeId, personId,
+                LegacyMappingClassification.MIGRATION_REVIEW_REQUIRED, "multiple plausible matches");
+
         LegacyMappingClassification c = legacyMappingService.classify(tenantId, legacyEmployeeId);
         assertThat(c).isEqualTo(LegacyMappingClassification.MIGRATION_REVIEW_REQUIRED);
     }
@@ -713,10 +762,17 @@ class HrEmploymentLifecycleIntegrationTest {
     // ==================== R. LEGACY MAPPING — NO MATCH → MIGRATION_BLOCKED ====================
 
     @Test
-    void legacyMapping_noAuthoritativeMatch_blocked() {
+    void legacyMapping_noAuthoritativeMatch_blocked() throws Exception {
         UUID tenantId = UUID.randomUUID();
-        UUID legacyEmployeeId = UUID.randomUUID();
-        // For RED, default service throws UOE — when GREEN, no-match scenario returns MIGRATION_BLOCKED.
+        seedTenant(tenantId);
+        UUID personId = seedPerson(tenantId, "Blocked", "Mapping");
+        UUID legalEntityId = seedLegalEntity(tenantId, "LE-BLK");
+        UUID legacyEmployeeId = seedEmployment(tenantId, personId, legalEntityId,
+                "EMP-BLK", EmploymentStatus.ACTIVE);
+
+        // NO mapping row seeded — represents no authoritative match found.
+        // The service must return MIGRATION_BLOCKED (never guess).
+
         LegacyMappingClassification c = legacyMappingService.classify(tenantId, legacyEmployeeId);
         assertThat(c).isEqualTo(LegacyMappingClassification.MIGRATION_BLOCKED);
     }
