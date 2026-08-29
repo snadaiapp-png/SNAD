@@ -21,11 +21,16 @@ README.md:sidekiq-secret:50
 2aef7d000d4a3fe886ffa8812a4e717032f4984f:docs/superpowers/plans/2026-08-27-hrm-g0-implementation-plan.md:generic-api-key:248
 607c3b7d58208eb871c0b751d7275cf5967c9aa4:docs/superpowers/specs/2026-08-27-hrm-g0-foundation-design.md:generic-api-key:313
 
+# the WS1 EnvironmentKeyMaterialProvider reads encryption keys from env vars
+# that may not be set in the test environment. The SUT (HrPersonService,
+# JdbcHrPersonRepository, IdentifierNormalizer) are the production classes
+# under test which throw UnsupportedOperationException (RED state).
+
 # HRM-G0 WS2 Task 1B behavioral RED test — synthetic AES-256 + HMAC-SHA-256
 # test-only keys for InMemoryTestCryptoService (NOT real secrets). Used because
 # the WS1 EnvironmentKeyMaterialProvider reads encryption keys from env vars
 # that may not be set in the test environment. The SUT (HrPersonService,
 # JdbcHrPersonRepository, IdentifierNormalizer) are the production classes
 # under test which throw UnsupportedOperationException (RED state).
-/repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:491
-/repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:492
+/repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:480
+/repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:481
