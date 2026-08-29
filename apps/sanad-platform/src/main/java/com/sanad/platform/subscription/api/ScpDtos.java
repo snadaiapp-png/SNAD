@@ -3,6 +3,7 @@ package com.sanad.platform.subscription.api;
 import com.sanad.platform.subscription.catalog.ApplicationEntity;
 import com.sanad.platform.subscription.item.SubscriptionItemEntity;
 import com.sanad.platform.subscription.plan.PlanVersionEntity;
+import com.sanad.platform.subscription.pricing.PriceEntity;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -102,6 +103,51 @@ public final class ScpDtos {
                     v.getMaxUsers(), v.getMaxOrganizations(), v.getStorageMb(),
                     v.getCreatedAt(), v.getUpdatedAt());
         }
+    }
+
+    // ============================================================
+    // Prices
+    // ============================================================
+
+    public record PriceRequest(
+            @NotBlank @Pattern(regexp = "^(FLAT|PER_USER|PER_EMPLOYEE|PER_BRANCH|PER_TRANSACTION|PER_API_REQUEST|PER_AI_TOKEN|TIERED|VOLUME|USAGE_BASED|HYBRID|CUSTOM_CONTRACT)$")
+            String priceModel,
+            String countryCode,
+            @NotBlank @Pattern(regexp = "^[A-Z]{3}$") String currencyCode,
+            String billingInterval,
+            Long baseAmountMinor,
+            Long unitAmountMinor,
+            String tiersJson,
+            Long minAmountMinor,
+            Long maxAmountMinor) {
+    }
+
+    public record PriceResponse(
+            UUID id,
+            UUID planVersionId,
+            UUID productId,
+            String priceModel,
+            String countryCode,
+            String currencyCode,
+            String billingInterval,
+            long baseAmountMinor,
+            Long unitAmountMinor,
+            String tiersJson,
+            Long minAmountMinor,
+            Long maxAmountMinor,
+            Instant effectiveFrom,
+            Instant effectiveTo) {
+
+        public static PriceResponse from(PriceEntity p) {
+            return new PriceResponse(p.getId(), p.getPlanVersionId(), p.getProductId(),
+                    p.getPriceModel(), p.getCountryCode(), p.getCurrencyCode(),
+                    p.getBillingInterval(), p.getBaseAmountMinor(), p.getUnitAmountMinor(),
+                    p.getTiersJson(), p.getMinAmountMinor(), p.getMaxAmountMinor(),
+                    p.getEffectiveFrom(), p.getEffectiveTo());
+        }
+    }
+
+    public record CountryCurrencyResponse(String countryCode, String currencyCode, boolean isDefault) {
     }
 
     // ============================================================
