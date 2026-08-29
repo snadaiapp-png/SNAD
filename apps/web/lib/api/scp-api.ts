@@ -5,7 +5,7 @@ import { apiClient } from "./client";
  *
  * These are the additive `/api/v1/executive` read models and commands
  * introduced by the control plane (overview, tenants/v2, subscriptions/v2,
- * detail, catalog, versions, prices, items, usage, provisioning, audit).
+ * detail, catalog, versions, prices, items, usage, provisioning, audit/v2).
  * Legacy endpoints remain in `executive-api.ts`.
  */
 
@@ -397,7 +397,7 @@ export const scpApi = {
     size?: number;
     sort?: string;
     direction?: "ASC" | "DESC";
-  } = {}) => apiClient.get<PageResponse<AuditEntry>>(`${root}/audit${qs(query)}`),
+  } = {}) => apiClient.get<PageResponse<AuditEntry>>(`${root}/audit/v2${qs(query)}`),
 
   accessCheckV2: () => apiClient.get<AccessCheckV2>(`${root}/access-check/v2`),
 };
