@@ -168,7 +168,9 @@ class CrmPostgresMigrationTest {
     private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
     // HRM-G0 WS1 — Platform Country and Employer Prerequisites
     private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260827.1";
-    private static final String LATEST_MIGRATION_VERSION = OWNER_EMAIL_CANONICALIZATION_VERSION;
+    // HRM-G0 WS2 Task 1A — Person Identity Schema (hr_people + hr_person_private + hr_person_identifiers)
+    private static final String HR_PERSON_IDENTITY_SCHEMA_VERSION = "20260829.1";
+    private static final String LATEST_MIGRATION_VERSION = HR_PERSON_IDENTITY_SCHEMA_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",

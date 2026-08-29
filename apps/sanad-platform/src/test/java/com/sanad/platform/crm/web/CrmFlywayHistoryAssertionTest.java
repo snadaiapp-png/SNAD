@@ -200,6 +200,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260823.2"   // crm participant role exclusivity (C3 — W2 partial unique index + owner↔participant trigger guards)
             , "20260827.1"   // hrm-g0 ws1 platform country and employer prerequisites
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
+            , "20260829.1"   // hrm-g0 ws2 task 1a create hr_people + private + identifiers
     );
 
 
