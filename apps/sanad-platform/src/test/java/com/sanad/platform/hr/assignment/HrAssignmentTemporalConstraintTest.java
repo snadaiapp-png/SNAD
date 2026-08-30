@@ -376,7 +376,8 @@ class HrAssignmentTemporalConstraintTest {
                         tenantId, empId, orgId, null, null, null, null,
                         AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
                         BigDecimal.ZERO, D1, null))
-                .isInstanceOf(RuntimeException.class);
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("allocation");
     }
 
     // ==================== I. ALLOCATION <= 100 ====================
@@ -396,7 +397,8 @@ class HrAssignmentTemporalConstraintTest {
                         tenantId, empId, orgId, null, null, null, null,
                         AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
                         new BigDecimal("101"), D1, null))
-                .isInstanceOf(RuntimeException.class);
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("allocation");
     }
 
     // ==================== S. NEW TABLE RLS ENABLED + FORCED ====================
@@ -447,4 +449,362 @@ class HrAssignmentTemporalConstraintTest {
             }
         }
     }
+
+    // ==================== H2. ALLOCATION NEGATIVE REJECTED ====================
+
+    @Test
+    void allocation_negative_rejected() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-H2");
+        UUID personId = seedPerson(tenantId, "Alloc", "Neg");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-H2");
+
+        assertThatThrownBy(() ->
+                assignmentService.createAssignment(
+                        tenantId, empId, orgId, null, null, null, null,
+                        AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                        new BigDecimal("-1"), D1, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("allocation");
+    }
+
+    // ==================== J. TOTAL EFFECTIVE ALLOCATION = 100% ALLOWED ====================
+
+    @Test
+    void totalEffectiveAllocation_100Percent_allowed() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-J");
+        UUID personId = seedPerson(tenantId, "Total", "Alloc");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-J");
+
+        // PRIMARY 80% + SECONDARY 20% = 100% → PASS
+        assignmentService.createAssignment(
+                tenantId, empId, orgId, null, null, null, null,
+                AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                EIGHTY, D1, null);
+        assignmentService.createAssignment(
+                tenantId, empId, orgId, null, null, null, null,
+                AssignmentType.SECONDARY, OccupancyMode.NON_OCCUPYING,
+                TWENTY, D1, null);
+        // No exception expected.
+    }
+
+    // ==================== J2. TOTAL EFFECTIVE ALLOCATION > 100% REJECTED ====================
+
+    @Test
+    void totalEffectiveAllocation_over100_rejected() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-J2");
+        UUID personId = seedPerson(tenantId, "Over", "Alloc");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-J2");
+
+        // PRIMARY 80%
+        assignmentService.createAssignment(
+                tenantId, empId, orgId, null, null, null, null,
+                AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                EIGHTY, D1, null);
+
+        // SECONDARY 30% → total = 110% → REJECT
+        assertThatThrownBy(() ->
+                assignmentService.createAssignment(
+                        tenantId, empId, orgId, null, null, null, null,
+                        AssignmentType.SECONDARY, OccupancyMode.NON_OCCUPYING,
+                        new BigDecimal("30"), D1, null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("allocation");
+    }
+
+    // ==================== J3. PERIOD-AWARE ALLOCATION — NON-OVERLAPPING ====================
+
+    @Test
+    void allocation_periodAware_nonOverlappingAllowed() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-J3");
+        UUID personId = seedPerson(tenantId, "Period", "Aware");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-J3");
+
+        // PRIMARY 100% in Period 1 [D1, D2] (closed)
+        assignmentService.createAssignment(
+                tenantId, empId, orgId, null, null, null, null,
+                AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                HUNDRED, D1, D2);
+
+        // SECONDARY 20% in Period 2 [D3, NULL] — non-overlapping → PASS
+        assignmentService.createAssignment(
+                tenantId, empId, orgId, null, null, null, null,
+                AssignmentType.SECONDARY, OccupancyMode.NON_OCCUPYING,
+                TWENTY, D3, null);
+        // No exception expected.
+    }
+
+    // ==================== K. LEGAL ENTITY ↔ ORGANIZATION ELIGIBILITY ====================
+
+    @Test
+    void legalEntityOrgEligibility_eligibleOrg_allowed() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-K");
+        // Seed eligibility: org ↔ le is ACTIVE
+        seedOrgLegalEntity(tenantId, orgId, leId);
+        UUID personId = seedPerson(tenantId, "Eligible", "Org");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K");
+
+        // Assignment to eligible org → PASS
+        assignmentService.createAssignment(
+                tenantId, empId, orgId, null, null, null, null,
+                AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                HUNDRED, D1, null);
+        // No exception expected.
+    }
+
+    @Test
+    void legalEntityOrgEligibility_ineligibleOrg_rejected() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID orgId2 = seedOrganization(tenantId); // second org, no eligibility
+        UUID leId = seedLegalEntity(tenantId, "LE-K2");
+        // Only orgId is eligible — orgId2 is NOT
+        seedOrgLegalEntity(tenantId, orgId, leId);
+        UUID personId = seedPerson(tenantId, "Ineligible", "Org");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K2");
+
+        // Assignment to ineligible orgId2 → REJECT
+        assertThatThrownBy(() ->
+                assignmentService.createAssignment(
+                        tenantId, empId, orgId2, null, null, null, null,
+                        AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                        HUNDRED, D1, null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("eligib");
+    }
+
+    // ==================== K2. EFFECTIVE ORG UNIT VALIDATION ====================
+
+    @Test
+    void orgUnitEffectiveness_expiredOrgUnit_rejected() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-K2B");
+        UUID personId = seedPerson(tenantId, "OrgUnit", "Expired");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K2B");
+
+        // Create Org Unit with a version that EXPIRED before D1
+        UUID orgUnitId = seedOrgUnitWithVersion(tenantId, orgId, "OU-EXP",
+                LocalDate.of(2025, 1, 1), LocalDate.of(2025, 12, 31)); // expired
+
+        // Assignment at D1 references expired Org Unit → REJECT
+        assertThatThrownBy(() ->
+                assignmentService.createAssignment(
+                        tenantId, empId, orgId, orgUnitId, null, null, null,
+                        AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                        HUNDRED, D1, null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("org unit");
+    }
+
+    @Test
+    void orgUnitEffectiveness_effectiveOrgUnit_allowed() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-K2C");
+        UUID personId = seedPerson(tenantId, "OrgUnit", "Active");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K2C");
+
+        // Create Org Unit with an effective version covering D1
+        UUID orgUnitId = seedOrgUnitWithVersion(tenantId, orgId, "OU-ACT",
+                D1, null); // open from D1
+
+        // Assignment at D1 references effective Org Unit → PASS
+        assignmentService.createAssignment(
+                tenantId, empId, orgId, orgUnitId, null, null, null,
+                AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                HUNDRED, D1, null);
+        // No exception expected.
+    }
+
+    // ==================== K3. EFFECTIVE POSITION VALIDATION ====================
+
+    @Test
+    void positionEffectiveness_noVersion_rejected() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-K3");
+        UUID personId = seedPerson(tenantId, "Pos", "NoVer");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3");
+        UUID posId = seedLegacyPosition(tenantId);
+
+        // Position exists as stable identity but has NO Position Version
+        // → Assignment referencing it should be rejected
+        assertThatThrownBy(() ->
+                assignmentService.createAssignment(
+                        tenantId, empId, orgId, null, posId, null, null,
+                        AssignmentType.PRIMARY, OccupancyMode.OCCUPYING,
+                        HUNDRED, D1, null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("position");
+    }
+
+    @Test
+    void positionEffectiveness_effectiveVersion_allowed() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        UUID leId = seedLegalEntity(tenantId, "LE-K3B");
+        UUID personId = seedPerson(tenantId, "Pos", "EffVer");
+        UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3B");
+        UUID posId = seedLegacyPosition(tenantId);
+
+        // Create Position Version covering D1
+        seedPositionVersion(tenantId, posId, orgId, "Active Pos", D1, null);
+
+        // Assignment referencing Position with effective version → PASS
+        assignmentService.createAssignment(
+                tenantId, empId, orgId, null, posId, null, null,
+                AssignmentType.PRIMARY, OccupancyMode.OCCUPYING,
+                HUNDRED, D1, null);
+        // No exception expected.
+    }
+
+    // ==================== V. WRONG-TENANT READ BLOCKED ====================
+
+    @Test
+    void wrongTenantRead_blocked() throws Exception {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        seedTenant(tenantA);
+        seedTenant(tenantB);
+        setTenant(tenantA);
+        UUID orgA = seedOrganization(tenantA);
+        UUID leA = seedLegalEntity(tenantA, "LE-V");
+        UUID personA = seedPerson(tenantA, "Wrong", "Read");
+        UUID empA = seedEmployment(tenantA, personA, leA, "EMP-V");
+
+        // Create assignment in Tenant A
+        HrAssignment a = assignmentService.createAssignment(
+                tenantA, empA, orgA, null, null, null, null,
+                AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                HUNDRED, D1, null);
+
+        // Tenant B tries to read Tenant A's assignment → must not find it
+        setTenant(tenantB);
+        var found = repository.findAssignmentById(tenantB, a.id());
+        assertThat(found)
+                .as("Tenant B must not see Tenant A's assignment")
+                .isEmpty();
+    }
+
+    // ==================== W. WRONG-TENANT WRITE BLOCKED ====================
+
+    @Test
+    void wrongTenantWrite_blocked() throws Exception {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        seedTenant(tenantA);
+        seedTenant(tenantB);
+        setTenant(tenantA);
+        UUID orgA = seedOrganization(tenantA);
+        UUID leA = seedLegalEntity(tenantA, "LE-W");
+        UUID personA = seedPerson(tenantA, "Wrong", "Write");
+        UUID empA = seedEmployment(tenantA, personA, leA, "EMP-W");
+
+        HrAssignment a = assignmentService.createAssignment(
+                tenantA, empA, orgA, null, null, null, null,
+                AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
+                HUNDRED, D1, null);
+
+        // Tenant B tries to revise Tenant A's assignment → must be rejected
+        setTenant(tenantB);
+        assertThatThrownBy(() ->
+                assignmentService.reviseAssignment(
+                        tenantB, a.id(), D1, null, null,
+                        OccupancyMode.NON_OCCUPYING, HUNDRED))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    // ==================== FIXTURE HELPERS (additional) ====================
+
+    private void seedOrgLegalEntity(UUID tenantId, UUID orgId, UUID leId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, " +
+                "effective_from, effective_to, status, created_at) " +
+                "VALUES (?, ?, ?, ?, ?::date, NULL, 'ACTIVE', NOW())")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, orgId);
+            ps.setObject(4, leId);
+            ps.setString(5, "2026-01-01");
+            ps.executeUpdate();
+        }
+    }
+
+    private UUID seedOrgUnitWithVersion(UUID tenantId, UUID orgId, String code,
+                                          LocalDate from, LocalDate to) throws Exception {
+        UUID orgUnitId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_org_units (id, tenant_id, organization_id, stable_code, created_at) " +
+                "VALUES (?, ?, ?, ?, NOW())")) {
+            ps.setObject(1, orgUnitId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, orgId);
+            ps.setString(4, code);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_org_unit_versions (id, tenant_id, org_unit_id, name, code, unit_type, " +
+                "parent_org_unit_id, effective_from, effective_to, status) " +
+                "VALUES (?, ?, ?, ?, ?, 'DEPARTMENT', NULL, ?::date, ?::date, 'ACTIVE')")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, orgUnitId);
+            ps.setString(4, code);
+            ps.setString(5, code);
+            ps.setString(6, from.toString());
+            if (to != null) ps.setString(7, to.toString());
+            else ps.setNull(7, java.sql.Types.DATE);
+            ps.executeUpdate();
+        }
+        return orgUnitId;
+    }
+
+    private void seedPositionVersion(UUID tenantId, UUID posId, UUID orgId,
+                                        String title, LocalDate from, LocalDate to) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_position_versions (id, tenant_id, position_id, organization_id, " +
+                "job_id, org_unit_id, title, effective_from, effective_to, status) " +
+                "VALUES (?, ?, ?, ?, NULL, NULL, ?, ?::date, ?::date, 'ACTIVE')")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, posId);
+            ps.setObject(4, orgId);
+            ps.setString(5, title);
+            ps.setString(6, from.toString());
+            if (to != null) ps.setString(7, to.toString());
+            else ps.setNull(7, java.sql.Types.DATE);
+            ps.executeUpdate();
+        }
+    }
+
 }
