@@ -174,7 +174,8 @@ class CrmPostgresMigrationTest {
     private static final String EMPLOYMENT_EXPANSION_VERSION = "20260830.1";
     // HRM-G0 WS2 Task 3 — Effective-Dated Structure
     private static final String STRUCTURE_VERSIONING_VERSION = "20260831.1";
-    private static final String LATEST_MIGRATION_VERSION = STRUCTURE_VERSIONING_VERSION;
+    private static final String ASSIGNMENT_TEMPORAL_GUARDS_VERSION = "20260831.2";
+    private static final String LATEST_MIGRATION_VERSION = ASSIGNMENT_TEMPORAL_GUARDS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -393,7 +394,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
-                        MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION));
+                        MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
+                        MigrationVersion.fromVersion(ASSIGNMENT_TEMPORAL_GUARDS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -533,7 +535,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
-                        MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION));
+                        MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
+                        MigrationVersion.fromVersion(ASSIGNMENT_TEMPORAL_GUARDS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

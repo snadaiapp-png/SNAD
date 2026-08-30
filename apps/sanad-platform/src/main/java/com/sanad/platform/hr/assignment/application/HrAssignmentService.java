@@ -10,12 +10,8 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * HR Assignment service — application-layer facade for creating and
- * revising assignments with temporal, occupancy, and reporting-cycle
- * validation.
- *
- * <p>Task 4 RED skeleton — methods throw UnsupportedOperationException.
- * GREEN replaces with real implementation.</p>
+ * HR Assignment service — delegates to JdbcHrAssignmentRepository for
+ * atomic validate-before-mutate operations.
  */
 public final class HrAssignmentService {
 
@@ -25,15 +21,6 @@ public final class HrAssignmentService {
         this.repository = repository;
     }
 
-    /**
-     * Create a new assignment. Validates:
-     * - allocation_percent > 0 and <= 100
-     * - PRIMARY overlap (no two overlapping PRIMARY for same Employment)
-     * - Position occupancy (no two OCCUPYING for same Position overlapping)
-     * - Reporting cycle (if reports_to_assignment_id is set)
-     *
-     * All validation happens BEFORE any mutation (atomic).
-     */
     public HrAssignment createAssignment(
             UUID tenantId, UUID employmentId, UUID organizationId,
             UUID orgUnitId, UUID positionId, UUID reportsToAssignmentId,
@@ -41,19 +28,23 @@ public final class HrAssignmentService {
             AssignmentType assignmentType, OccupancyMode occupancyMode,
             BigDecimal allocationPercent,
             LocalDate effectiveFrom, LocalDate effectiveTo) {
-        throw new UnsupportedOperationException("HrAssignmentService.createAssignment — Task 4 RED skeleton");
+        return repository.createAssignmentAtomically(
+                tenantId, employmentId, organizationId,
+                orgUnitId, positionId, reportsToAssignmentId,
+                workLocationId, null,
+                assignmentType, occupancyMode,
+                allocationPercent, effectiveFrom, effectiveTo);
     }
 
-    /**
-     * Revise an assignment: close the existing open assignment and
-     * insert a new one. Validates cycle + occupancy before mutating.
-     */
     public HrAssignment reviseAssignment(UUID tenantId, UUID assignmentId,
                                            LocalDate effectiveFrom,
                                            UUID newReportsToAssignmentId,
                                            UUID newPositionId,
                                            OccupancyMode newOccupancyMode,
                                            BigDecimal newAllocationPercent) {
-        throw new UnsupportedOperationException("HrAssignmentService.reviseAssignment — Task 4 RED skeleton");
+        return repository.reviseAssignmentAtomically(
+                tenantId, assignmentId, effectiveFrom,
+                newReportsToAssignmentId, newPositionId,
+                newOccupancyMode, newAllocationPercent);
     }
 }
