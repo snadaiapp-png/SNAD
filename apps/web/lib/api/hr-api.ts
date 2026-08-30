@@ -5,6 +5,7 @@
 export interface HrEmployeeResponse {
   id: string;
   tenantId: string;
+  userId: string | null;
   employeeNumber: string;
   firstName: string;
   lastName: string;
