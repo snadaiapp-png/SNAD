@@ -175,8 +175,10 @@ class HrReportingCycleIntegrationTest {
         UUID[] managerChain = seedFullEmploymentChain(tenantId, "Mgr");
         UUID[] employeeChain = seedFullEmploymentChain(tenantId, "Emp");
         UUID orgId = managerChain[0];
+        UUID mgrLe = managerChain[1];
         UUID mgrEmp = managerChain[3];
         UUID empEmp = employeeChain[3];
+        seedOrgLegalEntity(tenantId, orgId, mgrLe);
 
         // Create manager's PRIMARY assignment.
         HrAssignment mgrAssign = assignmentService.createAssignment(
@@ -228,8 +230,11 @@ class HrReportingCycleIntegrationTest {
         UUID[] mgrChain = seedFullEmploymentChain(tenantId, "TwoA");
         UUID[] empChain = seedFullEmploymentChain(tenantId, "TwoB");
         UUID orgId = mgrChain[0];
+        UUID mgrLe = mgrChain[1];
         UUID mgrEmp = mgrChain[3];
         UUID empEmp = empChain[3];
+        seedOrgLegalEntity(tenantId, orgId, mgrLe);
+        seedOrgLegalEntity(tenantId, empChain[0], empChain[1]);
 
         // Manager's assignment (no reporting yet).
         HrAssignment mgrAssign = assignmentService.createAssignment(
@@ -264,7 +269,12 @@ class HrReportingCycleIntegrationTest {
         UUID orgId = chainA[0];
         UUID empA = chainA[3];
         UUID empB = chainB[3];
+        seedOrgLegalEntity(tenantId, orgId, chainA[1]);
+        seedOrgLegalEntity(tenantId, chainB[0], chainB[1]);
         UUID empC = chainC[3];
+        seedOrgLegalEntity(tenantId, orgId, chainA[1]);
+        seedOrgLegalEntity(tenantId, chainB[0], chainB[1]);
+        seedOrgLegalEntity(tenantId, chainC[0], chainC[1]);
 
         // A (no manager)
         HrAssignment assignA = assignmentService.createAssignment(
@@ -304,6 +314,8 @@ class HrReportingCycleIntegrationTest {
         UUID orgId = chainA[0];
         UUID empA = chainA[3];
         UUID empB = chainB[3];
+        seedOrgLegalEntity(tenantId, orgId, chainA[1]);
+        seedOrgLegalEntity(tenantId, chainB[0], chainB[1]);
 
         // Period 1: A reports to B (D1 → D2, CLOSED).
         HrAssignment assignB_p1 = assignmentService.createAssignment(
