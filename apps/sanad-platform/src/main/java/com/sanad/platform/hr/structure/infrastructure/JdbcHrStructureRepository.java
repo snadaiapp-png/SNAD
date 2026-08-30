@@ -213,47 +213,30 @@ public final class JdbcHrStructureRepository {
     public boolean createsCycle(UUID tenantId, UUID orgUnitId, UUID parentOrgUnitId,
                                   LocalDate effectiveFrom, LocalDate effectiveTo) {
         return inTenantTransaction(tenantId, connection -> {
-            String candidateRange = "daterange(" +
-                    "?, " +
-                    "COALESCE(?::date + 1, 'infinity'::date), '[)')";
-            String existingRange = "daterange(" +
-                    "effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)')";
+            // Build the candidate date range as a literal — simpler and avoids
+            // parameter-binding ordering issues in the recursive CTE.
+            String candidateEnd = effectiveTo != null
+                    ? "'" + effectiveTo.plusDays(1) + "'::date"
+                    : "'infinity'::date";
+            String candidateRange = "daterange('" + effectiveFrom + "'::date, " + candidateEnd + ", '[)')";
 
             String sql = "WITH RECURSIVE chain AS (" +
-                    "  SELECT org_unit_id, parent_org_unit_id, effective_from, effective_to " +
+                    "  SELECT org_unit_id, parent_org_unit_id " +
                     "  FROM hr_org_unit_versions " +
                     "  WHERE org_unit_id = ? " +
                     "    AND parent_org_unit_id IS NOT NULL" +
-                    "    AND " + existingRange + " && " + candidateRange + " " +
+                    "    AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') && " + candidateRange + " " +
                     "  UNION ALL" +
-                    "  SELECT v.org_unit_id, v.parent_org_unit_id, v.effective_from, v.effective_to " +
+                    "  SELECT v.org_unit_id, v.parent_org_unit_id " +
                     "  FROM hr_org_unit_versions v " +
                     "  JOIN chain c ON v.org_unit_id = c.parent_org_unit_id " +
                     "  WHERE v.parent_org_unit_id IS NOT NULL" +
-                    "    AND " + existingRange.replace("effective_from", "v.effective_from")
-                                              .replace("effective_to", "v.effective_to") +
-                    " && " + candidateRange + " " +
+                    "    AND daterange(v.effective_from, COALESCE(v.effective_to + 1, 'infinity'::date), '[)') && " + candidateRange + " " +
                     ") SELECT EXISTS(SELECT 1 FROM chain WHERE org_unit_id = ?) AS has_cycle";
 
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                // candidate range params (used twice)
-                ps.setObject(1, java.sql.Date.valueOf(effectiveFrom));
-                if (effectiveTo != null) {
-                    ps.setObject(2, java.sql.Date.valueOf(effectiveTo));
-                } else {
-                    ps.setNull(2, Types.DATE);
-                }
-                // Start node
-                ps.setObject(3, orgUnitId);
-                // candidate range params again for recursive part
-                ps.setObject(4, java.sql.Date.valueOf(effectiveFrom));
-                if (effectiveTo != null) {
-                    ps.setObject(5, java.sql.Date.valueOf(effectiveTo));
-                } else {
-                    ps.setNull(5, Types.DATE);
-                }
-                // Target — does the chain reach back to parentOrgUnitId?
-                ps.setObject(6, parentOrgUnitId);
+                ps.setObject(1, orgUnitId);
+                ps.setObject(2, parentOrgUnitId);
                 try (ResultSet rs = ps.executeQuery()) {
                     rs.next();
                     return rs.getBoolean(1);
