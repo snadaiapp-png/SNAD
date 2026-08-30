@@ -38,6 +38,7 @@ class WorkflowActionabilityServiceIntegrationTest {
     private UUID tenantId;
     private UUID activeUserId;
     private UUID inactiveUserId;
+    private UUID suspendedEmployeeUserId;
     private UUID activeEmployeeId;
 
     @BeforeEach
@@ -45,6 +46,7 @@ class WorkflowActionabilityServiceIntegrationTest {
         tenantId = UUID.randomUUID();
         activeUserId = UUID.randomUUID();
         inactiveUserId = UUID.randomUUID();
+        suspendedEmployeeUserId = UUID.randomUUID();
         activeEmployeeId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
 
@@ -53,9 +55,11 @@ class WorkflowActionabilityServiceIntegrationTest {
 
         insertUser(activeUserId, "ACTIVE", "active");
         insertUser(inactiveUserId, "INACTIVE", "inactive");
+        insertUser(suspendedEmployeeUserId, "ACTIVE", "suspended-employee");
 
-        insertEmployee(activeEmployeeId, activeUserId, "E-ACTIVE");
-        insertEmployee(UUID.randomUUID(), inactiveUserId, "E-INACTIVE");
+        insertEmployee(activeEmployeeId, activeUserId, "E-ACTIVE", "ACTIVE");
+        insertEmployee(UUID.randomUUID(), inactiveUserId, "E-INACTIVE-USER", "ACTIVE");
+        insertEmployee(UUID.randomUUID(), suspendedEmployeeUserId, "E-SUSPENDED", "SUSPENDED");
     }
 
     @Test
@@ -67,7 +71,7 @@ class WorkflowActionabilityServiceIntegrationTest {
     }
 
     @Test
-    void activeLinkedUserIsActionableAndResolvesConcreteEmployeeIdentity() {
+    void activeLinkedUserAndEmployeeAreActionableAndResolveConcreteEmployeeIdentity() {
         var employee = actionability.requireActionableEmployee(tenantId, activeUserId);
 
         assertThat(employee.id()).isEqualTo(activeEmployeeId);
@@ -78,6 +82,13 @@ class WorkflowActionabilityServiceIntegrationTest {
         assertThatThrownBy(() -> actionability.requireActionableEmployee(tenantId, inactiveUserId))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("not actionable");
+    }
+
+    @Test
+    void nonActiveEmployeeIsNotActionableEvenWhenLinkedUserIsActive() {
+        assertThatThrownBy(() -> actionability.requireActionableEmployee(tenantId, suspendedEmployeeUserId))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Employee is not actionable");
     }
 
     @Test
@@ -96,15 +107,15 @@ class WorkflowActionabilityServiceIntegrationTest {
                 userId, tenantId, prefix + "-" + userId.toString().substring(0, 8) + "@test", "Workflow " + prefix, status, now, now);
     }
 
-    private void insertEmployee(UUID employeeId, UUID userId, String employeeNumber) {
+    private void insertEmployee(UUID employeeId, UUID userId, String employeeNumber, String status) {
         var now = Timestamp.from(Instant.now());
         jdbc.update("""
                 INSERT INTO hr_employees (
                     id, tenant_id, user_id, employee_number, first_name, last_name,
                     display_name, employment_type, status, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, 'Workflow', 'Employee', 'Workflow Employee',
-                          'FULL_TIME', 'ACTIVE', ?, ?)
+                          'FULL_TIME', ?, ?, ?)
                 """,
-                employeeId, tenantId, userId, employeeNumber, now, now);
+                employeeId, tenantId, userId, employeeNumber, status, now, now);
     }
 }
