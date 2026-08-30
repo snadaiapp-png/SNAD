@@ -32,8 +32,15 @@ public final class HrStructureService {
                                             LocalDate effectiveFrom,
                                             UUID parentOrgUnitId,
                                             String name, String code, String unitType) {
-        // Period-aware cycle check: does setting parentOrgUnitId as parent
-        // of orgUnitId create a cycle during [effectiveFrom, ∞)?
+        // Close any existing open version for this org unit before the new
+        // effective date. This prevents the EXCLUDE constraint from rejecting
+        // the new open version AND ensures the cycle check only considers
+        // versions that are actually active during the candidate period.
+        repository.closeOpenOrgUnitVersion(tenantId, orgUnitId, effectiveFrom);
+
+        // Period-aware cycle check: traverse the parent chain from parentOrgUnitId
+        // and check if orgUnitId appears as a parent anywhere in the chain
+        // during the candidate effective period [effectiveFrom, ∞).
         if (parentOrgUnitId != null && !parentOrgUnitId.equals(orgUnitId)) {
             boolean cycle = repository.createsCycle(
                     tenantId, orgUnitId, parentOrgUnitId, effectiveFrom, null);

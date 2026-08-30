@@ -206,6 +206,24 @@ public final class JdbcHrStructureRepository {
     }
 
     /**
+     * Close any existing open version (effective_to IS NULL) for an org unit
+     * by setting effective_to to the day before the new effective_from.
+     */
+    public void closeOpenOrgUnitVersion(UUID tenantId, UUID orgUnitId, LocalDate newEffectiveFrom) {
+        inTenantTransaction(tenantId, connection -> {
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "UPDATE hr_org_unit_versions SET effective_to = ? " +
+                    "WHERE tenant_id = ? AND org_unit_id = ? AND effective_to IS NULL")) {
+                ps.setObject(1, java.sql.Date.valueOf(newEffectiveFrom.minusDays(1)));
+                ps.setObject(2, tenantId);
+                ps.setObject(3, orgUnitId);
+                ps.executeUpdate();
+            }
+            return null;
+        });
+    }
+
+    /**
      * Check if setting parentOrgUnitId as parent of orgUnitId creates a cycle
      * during the given effective period. Uses a recursive CTE constrained to
      * the candidate effective interval (period-aware).
