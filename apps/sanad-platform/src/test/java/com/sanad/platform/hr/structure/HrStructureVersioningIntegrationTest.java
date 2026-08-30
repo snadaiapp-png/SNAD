@@ -315,7 +315,10 @@ class HrStructureVersioningIntegrationTest {
         repository.saveOrgUnit(b);
         repository.saveOrgUnit(c);
 
-        // Build a 3-node chain: B→A, C→B (no cycle yet).
+        // Build a 3-node chain: A has no parent, B→A, C→B (no cycle yet).
+        // Give A an initial OPEN version (no parent) so we can test that
+        // a rejected revision doesn't close it.
+        structureService.reviseOrgUnit(tenantId, a.id(), D1, null, "A", "A", "DEPARTMENT");
         structureService.reviseOrgUnit(tenantId, b.id(), D1, a.id(), "B", "B", "DEPARTMENT");
         structureService.reviseOrgUnit(tenantId, c.id(), D1, b.id(), "C", "C", "DEPARTMENT");
 
