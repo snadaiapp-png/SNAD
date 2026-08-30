@@ -279,13 +279,95 @@ class HrStructureVersioningIntegrationTest {
         repository.saveOrgUnit(a);
         repository.saveOrgUnit(b);
 
-        // Period 1: A → B (A's parent is B, 2026-01-01 → 2026-06-30)
-        structureService.reviseOrgUnit(tenantId, a.id(), D1, b.id(), "A2", "A2", "DEPARTMENT");
+        // Period 1: A → B — CLOSED period (effective_to = D2 = 2026-06-30).
+        // Insert directly as a closed version so it does NOT overlap with Period 2.
+        HrOrgUnitVersion period1 = new HrOrgUnitVersion(
+                UUID.randomUUID(), tenantId, a.id(), "A2", "A2",
+                "DEPARTMENT", b.id(), D1, D2, "ACTIVE");
+        repository.saveOrgUnitVersion(period1);
+
+        // Verify Period 1 is actually closed in DB.
+        List<HrOrgUnitVersion> aVersions = repository.orgUnitVersions(tenantId, a.id());
+        assertThat(aVersions).hasSize(1);
+        assertThat(aVersions.get(0).effectiveTo())
+                .as("Period 1 must be closed (effective_to = D2)")
+                .isEqualTo(D2);
 
         // Period 2: B → A (B's parent is A, 2026-07-01 → NULL)
-        // This does NOT create a cycle because Period 1 is closed before Period 2 starts.
+        // This does NOT create a cycle because Period 1 [D1, D2] is closed
+        // and does NOT overlap with Period 2 [D3, ∞).
         structureService.reviseOrgUnit(tenantId, b.id(), D3, a.id(), "B2", "B2", "DEPARTMENT");
         // No exception expected — no false positive.
+    }
+
+    // ==================== H2. REJECTED CYCLE ATOMICITY — NO SIDE EFFECTS ====================
+
+    @Test
+    void rejectedHierarchyCycleDoesNotMutateExistingVersion() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        seedTenant(tenantId);
+        setTenant(tenantId);
+        UUID orgId = seedOrganization(tenantId);
+        HrOrgUnit a = new HrOrgUnit(UUID.randomUUID(), tenantId, orgId, "A-ATM");
+        HrOrgUnit b = new HrOrgUnit(UUID.randomUUID(), tenantId, orgId, "B-ATM");
+        repository.saveOrgUnit(a);
+        repository.saveOrgUnit(b);
+
+        // Give B an existing OPEN version (parent = A, effective from D1).
+        structureService.reviseOrgUnit(tenantId, b.id(), D1, a.id(), "B", "B", "DEPARTMENT");
+
+        // Capture B's existing open version state.
+        List<HrOrgUnitVersion> bVersionsBefore = repository.orgUnitVersions(tenantId, b.id());
+        assertThat(bVersionsBefore).hasSize(1);
+        HrOrgUnitVersion openVersionBefore = bVersionsBefore.get(0);
+        assertThat(openVersionBefore.effectiveTo())
+                .as("B's version must be open (effective_to = NULL) before rejected revision")
+                .isNull();
+
+        // Now establish A → B (A's parent is B) so that revising A with
+        // parent=B would create a cycle A → B → A during the overlapping period.
+        structureService.reviseOrgUnit(tenantId, a.id(), D1, b.id(), "A", "A", "DEPARTMENT");
+
+        // Attempt to revise B with parent=A — this SHOULD be rejected as a cycle
+        // because B → A (existing) and A → B (existing) create a cycle.
+        // But wait — the cycle check for B's revision traverses from A (proposed parent)
+        // and checks if B appears. A's parent is B → so A → B is in the chain.
+        // B is the org unit being revised → cycle detected.
+        // Actually, we need to try revising B with parent that creates a cycle.
+        // B currently has parent=A. If we try to revise B at D1 with parent=A
+        // again... that wouldn't create a cycle. We need a scenario where
+        // the cycle check rejects AND we verify B's version is unchanged.
+
+        // Let's create the cycle scenario: A → B (done above). Now try to
+        // revise A with parent=B at the SAME effective date — wait, A already
+        // has parent=B. Let me revise B with a new effective date that
+        // overlaps with A → B relationship.
+
+        // Actually, the simplest atomicity test: try to revise B at D1
+        // with a parent that creates a cycle. Currently A → B (open from D1).
+        // If B's parent becomes A, then: traverse from A (proposed parent of B),
+        // A → B (open from D1), B is being revised → cycle.
+        assertThatThrownBy(() ->
+                structureService.reviseOrgUnit(tenantId, b.id(), D1, a.id(),
+                        "B-NEW", "B-NEW", "DEPARTMENT"))
+                .isInstanceOf(RuntimeException.class);
+
+        // CRITICAL: B's existing open version must be UNCHANGED.
+        List<HrOrgUnitVersion> bVersionsAfter = repository.orgUnitVersions(tenantId, b.id());
+        assertThat(bVersionsAfter)
+                .as("rejected revision must not add any new versions")
+                .hasSize(1);
+
+        HrOrgUnitVersion openVersionAfter = bVersionsAfter.get(0);
+        assertThat(openVersionAfter.effectiveTo())
+                .as("rejected revision must not close the existing open version")
+                .isNull();
+        assertThat(openVersionAfter.id())
+                .as("rejected revision must not change the existing version's id")
+                .isEqualTo(openVersionBefore.id());
+        assertThat(openVersionAfter.effectiveFrom())
+                .as("rejected revision must not change the existing version's effective_from")
+                .isEqualTo(openVersionBefore.effectiveFrom());
     }
 
     // ==================== I. JOB STABLE IDENTITY ====================

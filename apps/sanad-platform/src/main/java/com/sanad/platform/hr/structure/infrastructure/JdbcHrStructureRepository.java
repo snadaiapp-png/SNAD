@@ -206,6 +206,91 @@ public final class JdbcHrStructureRepository {
     }
 
     /**
+     * Atomically revise an Org Unit: validate cycle → close old version →
+     * insert new version, all on ONE connection/transaction. If validation
+     * fails, NOTHING is mutated (rollback).
+     *
+     * <p>This prevents the prevalidation-mutation defect where a rejected
+     * cycle check left the previous version closed.</p>
+     *
+     * @return the new HrOrgUnitVersion
+     * @throws IllegalStateException if a cycle is detected
+     */
+    public HrOrgUnitVersion reviseOrgUnitAtomically(
+            UUID tenantId, UUID orgUnitId,
+            LocalDate effectiveFrom,
+            UUID parentOrgUnitId,
+            String name, String code, String unitType) {
+        return inTenantTransaction(tenantId, connection -> {
+            String candidateRange = "daterange('" + effectiveFrom + "'::date, 'infinity'::date, '[)')";
+
+            // 1. VALIDATE — period-aware cycle check BEFORE any mutation.
+            if (parentOrgUnitId != null && !parentOrgUnitId.equals(orgUnitId)) {
+                String cycleSql = "WITH RECURSIVE chain AS (" +
+                        "  SELECT org_unit_id, parent_org_unit_id " +
+                        "  FROM hr_org_unit_versions " +
+                        "  WHERE org_unit_id = ? " +
+                        "    AND parent_org_unit_id IS NOT NULL" +
+                        "    AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') && " + candidateRange + " " +
+                        "  UNION ALL" +
+                        "  SELECT v.org_unit_id, v.parent_org_unit_id " +
+                        "  FROM hr_org_unit_versions v " +
+                        "  JOIN chain c ON v.org_unit_id = c.parent_org_unit_id " +
+                        "  WHERE v.parent_org_unit_id IS NOT NULL" +
+                        "    AND daterange(v.effective_from, COALESCE(v.effective_to + 1, 'infinity'::date), '[)') && " + candidateRange + " " +
+                        ") SELECT EXISTS(SELECT 1 FROM chain WHERE parent_org_unit_id = ?) AS has_cycle";
+
+                try (PreparedStatement ps = connection.prepareStatement(cycleSql)) {
+                    ps.setObject(1, parentOrgUnitId);
+                    ps.setObject(2, orgUnitId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        rs.next();
+                        if (rs.getBoolean(1)) {
+                            throw new IllegalStateException(
+                                "ORG_CYCLE: setting parent " + parentOrgUnitId +
+                                " for org unit " + orgUnitId +
+                                " creates a cycle during effective period from " + effectiveFrom);
+                        }
+                    }
+                }
+            }
+
+            // 2. CLOSE — close any existing open version.
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "UPDATE hr_org_unit_versions SET effective_to = ? " +
+                    "WHERE tenant_id = ? AND org_unit_id = ? AND effective_to IS NULL")) {
+                ps.setObject(1, java.sql.Date.valueOf(effectiveFrom.minusDays(1)));
+                ps.setObject(2, tenantId);
+                ps.setObject(3, orgUnitId);
+                ps.executeUpdate();
+            }
+
+            // 3. INSERT — create the new open version.
+            UUID versionId = UUID.randomUUID();
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO hr_org_unit_versions " +
+                    "(id, tenant_id, org_unit_id, name, code, unit_type, parent_org_unit_id, " +
+                    "effective_from, effective_to, status) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)")) {
+                ps.setObject(1, versionId);
+                ps.setObject(2, tenantId);
+                ps.setObject(3, orgUnitId);
+                ps.setString(4, name);
+                ps.setString(5, code);
+                ps.setString(6, unitType);
+                ps.setObject(7, parentOrgUnitId);
+                ps.setObject(8, java.sql.Date.valueOf(effectiveFrom));
+                ps.setString(9, "ACTIVE");
+                ps.executeUpdate();
+            }
+
+            return new HrOrgUnitVersion(
+                    versionId, tenantId, orgUnitId, name, code, unitType,
+                    parentOrgUnitId, effectiveFrom, null, "ACTIVE");
+        });
+    }
+
+    /**
      * Close any existing open version (effective_to IS NULL) for an org unit
      * by setting effective_to to the day before the new effective_from.
      */

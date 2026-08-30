@@ -14,6 +14,11 @@ import java.util.UUID;
  * the service checks whether the proposed parent relationship would
  * create a cycle DURING the candidate effective period. Historical
  * non-overlapping relationships do NOT trigger false positives.</p>
+ *
+ * <p>Atomic revision: validation (cycle check) happens BEFORE any
+ * mutation (close/insert). If the cycle check rejects the revision,
+ * ZERO state changes are persisted. All three operations (validate,
+ * close, insert) execute on ONE JDBC connection/transaction.</p>
  */
 public final class HrStructureService {
 
@@ -24,38 +29,19 @@ public final class HrStructureService {
     }
 
     /**
-     * Revise an Org Unit: create a new effective-dated version. If the
-     * proposed parent creates a cycle during the overlapping effective
-     * period, reject with a cycle error.
+     * Revise an Org Unit: atomically validate cycle → close old version →
+     * insert new version, all on ONE connection/transaction.
+     *
+     * <p>If the proposed parent creates a cycle during the overlapping
+     * effective period, reject with a cycle error. NO state is mutated
+     * on rejection (the old open version remains unchanged).</p>
      */
     public HrOrgUnitVersion reviseOrgUnit(UUID tenantId, UUID orgUnitId,
                                             LocalDate effectiveFrom,
                                             UUID parentOrgUnitId,
                                             String name, String code, String unitType) {
-        // Close any existing open version for this org unit before the new
-        // effective date. This prevents the EXCLUDE constraint from rejecting
-        // the new open version AND ensures the cycle check only considers
-        // versions that are actually active during the candidate period.
-        repository.closeOpenOrgUnitVersion(tenantId, orgUnitId, effectiveFrom);
-
-        // Period-aware cycle check: traverse the parent chain from parentOrgUnitId
-        // and check if orgUnitId appears as a parent anywhere in the chain
-        // during the candidate effective period [effectiveFrom, ∞).
-        if (parentOrgUnitId != null && !parentOrgUnitId.equals(orgUnitId)) {
-            boolean cycle = repository.createsCycle(
-                    tenantId, orgUnitId, parentOrgUnitId, effectiveFrom, null);
-            if (cycle) {
-                throw new IllegalStateException(
-                    "ORG_CYCLE: setting parent " + parentOrgUnitId +
-                    " for org unit " + orgUnitId +
-                    " creates a cycle during effective period from " + effectiveFrom);
-            }
-        }
-
-        HrOrgUnitVersion version = new HrOrgUnitVersion(
-                UUID.randomUUID(), tenantId, orgUnitId, name, code, unitType,
-                parentOrgUnitId, effectiveFrom, null, "ACTIVE");
-        repository.saveOrgUnitVersion(version);
-        return version;
+        return repository.reviseOrgUnitAtomically(
+                tenantId, orgUnitId, effectiveFrom,
+                parentOrgUnitId, name, code, unitType);
     }
 }
