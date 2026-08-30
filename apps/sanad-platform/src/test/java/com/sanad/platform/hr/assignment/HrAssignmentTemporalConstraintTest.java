@@ -577,7 +577,6 @@ class HrAssignmentTemporalConstraintTest {
         UUID leId = seedLegalEntity(tenantId, "LE-K");
         seedOrgLegalEntity(tenantId, orgId, leId);
         // Seed eligibility: org ↔ le is ACTIVE
-        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Eligible", "Org");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K");
 
@@ -702,7 +701,6 @@ class HrAssignmentTemporalConstraintTest {
         seedPositionVersion(tenantId, posId, orgId, "Test Pos", D1, null);
 
         // Create Position Version covering D1
-        seedPositionVersion(tenantId, posId, orgId, "Active Pos", D1, null);
 
         // Assignment referencing Position with effective version → PASS
         assignmentService.createAssignment(
