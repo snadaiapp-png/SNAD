@@ -178,6 +178,7 @@ class HrReportingCycleIntegrationTest {
         UUID mgrEmp = managerChain[3];
         UUID empEmp = employeeChain[3];
         seedOrgLegalEntity(tenantId, orgId, mgrLe);
+        seedOrgLegalEntity(tenantId, orgId, employeeChain[1]);
 
         // Create manager's PRIMARY assignment.
         HrAssignment mgrAssign = assignmentService.createAssignment(
@@ -206,6 +207,7 @@ class HrReportingCycleIntegrationTest {
         UUID empId = chain[3];
 
         // Create assignment, then try to make it report to itself.
+        seedOrgLegalEntity(tenantId, orgId, chain[1]);
         HrAssignment a = assignmentService.createAssignment(
                 tenantId, empId, orgId, null, null, null, null,
                 AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
@@ -233,7 +235,7 @@ class HrReportingCycleIntegrationTest {
         UUID mgrEmp = mgrChain[3];
         UUID empEmp = empChain[3];
         seedOrgLegalEntity(tenantId, orgId, mgrLe);
-        seedOrgLegalEntity(tenantId, empChain[0], empChain[1]);
+        seedOrgLegalEntity(tenantId, orgId, empChain[1]);
 
         // Manager's assignment (no reporting yet).
         HrAssignment mgrAssign = assignmentService.createAssignment(
@@ -269,11 +271,11 @@ class HrReportingCycleIntegrationTest {
         UUID empA = chainA[3];
         UUID empB = chainB[3];
         seedOrgLegalEntity(tenantId, orgId, chainA[1]);
-        seedOrgLegalEntity(tenantId, chainB[0], chainB[1]);
+        seedOrgLegalEntity(tenantId, orgId, chainB[1]);
         UUID empC = chainC[3];
         seedOrgLegalEntity(tenantId, orgId, chainA[1]);
-        seedOrgLegalEntity(tenantId, chainB[0], chainB[1]);
-        seedOrgLegalEntity(tenantId, chainC[0], chainC[1]);
+        seedOrgLegalEntity(tenantId, orgId, chainB[1]);
+        seedOrgLegalEntity(tenantId, orgId, chainC[1]);
 
         // A (no manager)
         HrAssignment assignA = assignmentService.createAssignment(
@@ -314,7 +316,7 @@ class HrReportingCycleIntegrationTest {
         UUID empA = chainA[3];
         UUID empB = chainB[3];
         seedOrgLegalEntity(tenantId, orgId, chainA[1]);
-        seedOrgLegalEntity(tenantId, chainB[0], chainB[1]);
+        seedOrgLegalEntity(tenantId, orgId, chainB[1]);
 
         // Period 1: A reports to B (D1 → D2, CLOSED).
         HrAssignment assignB_p1 = assignmentService.createAssignment(
@@ -363,6 +365,7 @@ class HrReportingCycleIntegrationTest {
 
         // Create assignment in Tenant A.
         setTenant(tenantA);
+        seedOrgLegalEntity(tenantA, orgA, chainA[1]);
         HrAssignment assignA = assignmentService.createAssignment(
                 tenantA, empA, orgA, null, null, null, null,
                 AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
@@ -370,6 +373,7 @@ class HrReportingCycleIntegrationTest {
 
         // Create assignment in Tenant B.
         setTenant(tenantB);
+        seedOrgLegalEntity(tenantB, orgB, chainB[1]);
         HrAssignment assignB = assignmentService.createAssignment(
                 tenantB, empB, orgB, null, null, null, null,
                 AssignmentType.PRIMARY, OccupancyMode.NON_OCCUPYING,
