@@ -162,7 +162,6 @@ class HrReportingCycleIntegrationTest {
         seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, prefix, "Person");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-" + prefix);
-        seedOrgLegalEntity(tenantId, orgId, leId);
         return new UUID[]{orgId, leId, personId, empId};
     }
 

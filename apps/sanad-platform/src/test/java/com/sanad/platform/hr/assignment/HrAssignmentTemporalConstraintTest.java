@@ -674,7 +674,6 @@ class HrAssignmentTemporalConstraintTest {
         UUID personId = seedPerson(tenantId, "Pos", "NoVer");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3");
         UUID posId = seedLegacyPosition(tenantId);
-        seedPositionVersion(tenantId, posId, orgId, "Test Pos", D1, null);
 
         // Position exists as stable identity but has NO Position Version
         // → Assignment referencing it should be rejected
@@ -698,7 +697,6 @@ class HrAssignmentTemporalConstraintTest {
         UUID personId = seedPerson(tenantId, "Pos", "EffVer");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3B");
         UUID posId = seedLegacyPosition(tenantId);
-        seedPositionVersion(tenantId, posId, orgId, "Test Pos", D1, null);
 
         // Create Position Version covering D1
 
