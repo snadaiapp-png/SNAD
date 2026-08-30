@@ -159,7 +159,6 @@ class HrReportingCycleIntegrationTest {
     private UUID[] seedFullEmploymentChain(UUID tenantId, String prefix) throws Exception {
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-" + prefix);
-        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, prefix, "Person");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-" + prefix);
         return new UUID[]{orgId, leId, personId, empId};

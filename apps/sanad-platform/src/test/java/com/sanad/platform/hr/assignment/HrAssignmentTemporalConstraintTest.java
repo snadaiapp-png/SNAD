@@ -697,8 +697,7 @@ class HrAssignmentTemporalConstraintTest {
         UUID personId = seedPerson(tenantId, "Pos", "EffVer");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3B");
         UUID posId = seedLegacyPosition(tenantId);
-
-        // Create Position Version covering D1
+        seedPositionVersion(tenantId, posId, orgId, "Active Pos", D1, null);
 
         // Assignment referencing Position with effective version → PASS
         assignmentService.createAssignment(
