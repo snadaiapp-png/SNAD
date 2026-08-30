@@ -273,8 +273,6 @@ class HrReportingCycleIntegrationTest {
         seedOrgLegalEntity(tenantId, orgId, chainA[1]);
         seedOrgLegalEntity(tenantId, orgId, chainB[1]);
         UUID empC = chainC[3];
-        seedOrgLegalEntity(tenantId, orgId, chainA[1]);
-        seedOrgLegalEntity(tenantId, orgId, chainB[1]);
         seedOrgLegalEntity(tenantId, orgId, chainC[1]);
 
         // A (no manager)
