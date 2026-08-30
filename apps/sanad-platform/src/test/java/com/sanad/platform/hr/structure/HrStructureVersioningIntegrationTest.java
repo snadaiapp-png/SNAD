@@ -313,8 +313,15 @@ class HrStructureVersioningIntegrationTest {
         repository.saveOrgUnit(a);
         repository.saveOrgUnit(b);
 
-        // Give B an existing OPEN version (parent = A, effective from D1).
+        // Establish: B → A (B's parent is A) and A → B (A's parent is B).
+        // Both at D1 — this creates a cycle A → B → A.
+        // Step 1: B → A (succeeds — no cycle yet).
         structureService.reviseOrgUnit(tenantId, b.id(), D1, a.id(), "B", "B", "DEPARTMENT");
+        // Step 2: A → B (succeeds — no cycle yet, A has no parent).
+        structureService.reviseOrgUnit(tenantId, a.id(), D1, b.id(), "A", "A", "DEPARTMENT");
+
+        // Now the hierarchy is: B → A → B (cycle exists during [D1, ∞)).
+        // B has an existing OPEN version (parent=A, effective_from=D1).
 
         // Capture B's existing open version state.
         List<HrOrgUnitVersion> bVersionsBefore = repository.orgUnitVersions(tenantId, b.id());
@@ -324,29 +331,9 @@ class HrStructureVersioningIntegrationTest {
                 .as("B's version must be open (effective_to = NULL) before rejected revision")
                 .isNull();
 
-        // Now establish A → B (A's parent is B) so that revising A with
-        // parent=B would create a cycle A → B → A during the overlapping period.
-        structureService.reviseOrgUnit(tenantId, a.id(), D1, b.id(), "A", "A", "DEPARTMENT");
-
-        // Attempt to revise B with parent=A — this SHOULD be rejected as a cycle
-        // because B → A (existing) and A → B (existing) create a cycle.
-        // But wait — the cycle check for B's revision traverses from A (proposed parent)
-        // and checks if B appears. A's parent is B → so A → B is in the chain.
-        // B is the org unit being revised → cycle detected.
-        // Actually, we need to try revising B with parent that creates a cycle.
-        // B currently has parent=A. If we try to revise B at D1 with parent=A
-        // again... that wouldn't create a cycle. We need a scenario where
-        // the cycle check rejects AND we verify B's version is unchanged.
-
-        // Let's create the cycle scenario: A → B (done above). Now try to
-        // revise A with parent=B at the SAME effective date — wait, A already
-        // has parent=B. Let me revise B with a new effective date that
-        // overlaps with A → B relationship.
-
-        // Actually, the simplest atomicity test: try to revise B at D1
-        // with a parent that creates a cycle. Currently A → B (open from D1).
-        // If B's parent becomes A, then: traverse from A (proposed parent of B),
-        // A → B (open from D1), B is being revised → cycle.
+        // Attempt to revise B with parent=A at D1 — this is a cycle because
+        // A → B (existing) and B → A (proposed) creates A → B → A.
+        // The revision must be REJECTED with zero state changes.
         assertThatThrownBy(() ->
                 structureService.reviseOrgUnit(tenantId, b.id(), D1, a.id(),
                         "B-NEW", "B-NEW", "DEPARTMENT"))
