@@ -310,42 +310,38 @@ class HrStructureVersioningIntegrationTest {
         UUID orgId = seedOrganization(tenantId);
         HrOrgUnit a = new HrOrgUnit(UUID.randomUUID(), tenantId, orgId, "A-ATM");
         HrOrgUnit b = new HrOrgUnit(UUID.randomUUID(), tenantId, orgId, "B-ATM");
+        HrOrgUnit c = new HrOrgUnit(UUID.randomUUID(), tenantId, orgId, "C-ATM");
         repository.saveOrgUnit(a);
         repository.saveOrgUnit(b);
+        repository.saveOrgUnit(c);
 
-        // Establish: B → A (B's parent is A) and A → B (A's parent is B).
-        // Both at D1 — this creates a cycle A → B → A.
-        // Step 1: B → A (succeeds — no cycle yet).
+        // Build a 3-node chain: B→A, C→B (no cycle yet).
         structureService.reviseOrgUnit(tenantId, b.id(), D1, a.id(), "B", "B", "DEPARTMENT");
-        // Step 2: A → B (succeeds — no cycle yet, A has no parent).
-        structureService.reviseOrgUnit(tenantId, a.id(), D1, b.id(), "A", "A", "DEPARTMENT");
+        structureService.reviseOrgUnit(tenantId, c.id(), D1, b.id(), "C", "C", "DEPARTMENT");
 
-        // Now the hierarchy is: B → A → B (cycle exists during [D1, ∞)).
-        // B has an existing OPEN version (parent=A, effective_from=D1).
-
-        // Capture B's existing open version state.
-        List<HrOrgUnitVersion> bVersionsBefore = repository.orgUnitVersions(tenantId, b.id());
-        assertThat(bVersionsBefore).hasSize(1);
-        HrOrgUnitVersion openVersionBefore = bVersionsBefore.get(0);
+        // Capture A's existing open version state.
+        List<HrOrgUnitVersion> aVersionsBefore = repository.orgUnitVersions(tenantId, a.id());
+        assertThat(aVersionsBefore).hasSize(1);
+        HrOrgUnitVersion openVersionBefore = aVersionsBefore.get(0);
         assertThat(openVersionBefore.effectiveTo())
-                .as("B's version must be open (effective_to = NULL) before rejected revision")
+                .as("A's version must be open (effective_to = NULL) before rejected revision")
                 .isNull();
 
-        // Attempt to revise B with parent=A at D1 — this is a cycle because
-        // A → B (existing) and B → A (proposed) creates A → B → A.
+        // Attempt to revise A with parent=C — this creates a cycle:
+        // A→C→B→A (traverse from C: C→B→A, and A is being revised).
         // The revision must be REJECTED with zero state changes.
         assertThatThrownBy(() ->
-                structureService.reviseOrgUnit(tenantId, b.id(), D1, a.id(),
-                        "B-NEW", "B-NEW", "DEPARTMENT"))
+                structureService.reviseOrgUnit(tenantId, a.id(), D1, c.id(),
+                        "A-NEW", "A-NEW", "DEPARTMENT"))
                 .isInstanceOf(RuntimeException.class);
 
-        // CRITICAL: B's existing open version must be UNCHANGED.
-        List<HrOrgUnitVersion> bVersionsAfter = repository.orgUnitVersions(tenantId, b.id());
-        assertThat(bVersionsAfter)
+        // CRITICAL: A's existing open version must be UNCHANGED.
+        List<HrOrgUnitVersion> aVersionsAfter = repository.orgUnitVersions(tenantId, a.id());
+        assertThat(aVersionsAfter)
                 .as("rejected revision must not add any new versions")
                 .hasSize(1);
 
-        HrOrgUnitVersion openVersionAfter = bVersionsAfter.get(0);
+        HrOrgUnitVersion openVersionAfter = aVersionsAfter.get(0);
         assertThat(openVersionAfter.effectiveTo())
                 .as("rejected revision must not close the existing open version")
                 .isNull();
