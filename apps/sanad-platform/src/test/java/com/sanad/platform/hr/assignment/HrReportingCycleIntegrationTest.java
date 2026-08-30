@@ -87,7 +87,7 @@ class HrReportingCycleIntegrationTest {
     private UUID seedOrganization(UUID tenantId) throws Exception {
         UUID orgId = UUID.randomUUID();
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) VALUES (?, ?, 'Test Org ' || ?::text, 'ACTIVE', NOW(), NOW())")) {
+                "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) VALUES (?, ?, 'Test Org ' || substring(md5(random()::text), 1, 8), 'ACTIVE', NOW(), NOW())")) {
             ps.setObject(1, orgId);
             ps.setObject(2, tenantId);
             ps.executeUpdate();
