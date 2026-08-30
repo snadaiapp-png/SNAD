@@ -87,7 +87,7 @@ class HrAssignmentTemporalConstraintTest {
     private UUID seedOrganization(UUID tenantId) throws Exception {
         UUID orgId = UUID.randomUUID();
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) VALUES (?, ?, 'Test Org', 'ACTIVE', NOW(), NOW())")) {
+                "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) VALUES (?, ?, 'Test Org ' || substring(md5(random()::text), 1, 8), 'ACTIVE', NOW(), NOW())")) {
             ps.setObject(1, orgId);
             ps.setObject(2, tenantId);
             ps.executeUpdate();
@@ -289,6 +289,7 @@ class HrAssignmentTemporalConstraintTest {
         UUID empA = seedEmployment(tenantId, personA, leId, "EMP-E1");
         UUID empB = seedEmployment(tenantId, personB, leId, "EMP-E2");
         UUID posId = seedLegacyPosition(tenantId);
+        seedPositionVersion(tenantId, posId, orgId, "Test Pos", D1, null);
 
         // First OCCUPYING — open from D1.
         assignmentService.createAssignment(
@@ -320,6 +321,7 @@ class HrAssignmentTemporalConstraintTest {
         UUID empA = seedEmployment(tenantId, personA, leId, "EMP-F1");
         UUID empB = seedEmployment(tenantId, personB, leId, "EMP-F2");
         UUID posId = seedLegacyPosition(tenantId);
+        seedPositionVersion(tenantId, posId, orgId, "Test Pos", D1, null);
 
         // First OCCUPYING — D1 to D2 (closed).
         assignmentService.createAssignment(
@@ -350,6 +352,7 @@ class HrAssignmentTemporalConstraintTest {
         UUID empA = seedEmployment(tenantId, personA, leId, "EMP-G1");
         UUID empB = seedEmployment(tenantId, personB, leId, "EMP-G2");
         UUID posId = seedLegacyPosition(tenantId);
+        seedPositionVersion(tenantId, posId, orgId, "Test Pos", D1, null);
 
         // First OCCUPYING — open from D1.
         assignmentService.createAssignment(
@@ -672,6 +675,7 @@ class HrAssignmentTemporalConstraintTest {
         UUID personId = seedPerson(tenantId, "Pos", "NoVer");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3");
         UUID posId = seedLegacyPosition(tenantId);
+        seedPositionVersion(tenantId, posId, orgId, "Test Pos", D1, null);
 
         // Position exists as stable identity but has NO Position Version
         // → Assignment referencing it should be rejected
@@ -695,6 +699,7 @@ class HrAssignmentTemporalConstraintTest {
         UUID personId = seedPerson(tenantId, "Pos", "EffVer");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3B");
         UUID posId = seedLegacyPosition(tenantId);
+        seedPositionVersion(tenantId, posId, orgId, "Test Pos", D1, null);
 
         // Create Position Version covering D1
         seedPositionVersion(tenantId, posId, orgId, "Active Pos", D1, null);

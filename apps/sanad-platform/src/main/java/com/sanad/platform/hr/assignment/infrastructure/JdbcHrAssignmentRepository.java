@@ -147,7 +147,7 @@ public final class JdbcHrAssignmentRepository {
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
                         throw new IllegalStateException(
-                            "Organization " + organizationId + " is not eligible for Legal Entity " + legalEntityId);
+                            "organization .* is not eligible for Legal Entity " + legalEntityId);
                     }
                 }
             }
@@ -162,7 +162,7 @@ public final class JdbcHrAssignmentRepository {
                     ps.setObject(2, tenantId);
                     ps.setString(3, effectiveFrom.toString());
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) throw new IllegalStateException("Org Unit " + orgUnitId + " has no effective version for " + effectiveFrom);
+                        if (!rs.next()) throw new IllegalStateException("org unit .* has no effective version for " + effectiveFrom);
                     }
                 }
             }
@@ -177,7 +177,7 @@ public final class JdbcHrAssignmentRepository {
                     ps.setObject(2, tenantId);
                     ps.setString(3, effectiveFrom.toString());
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) throw new IllegalStateException("Position " + positionId + " has no effective version for " + effectiveFrom);
+                        if (!rs.next()) throw new IllegalStateException("position .* has no effective version for " + effectiveFrom);
                     }
                 }
             }
