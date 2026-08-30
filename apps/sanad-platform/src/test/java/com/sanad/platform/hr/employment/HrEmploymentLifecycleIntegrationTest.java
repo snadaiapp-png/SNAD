@@ -92,7 +92,7 @@ class HrEmploymentLifecycleIntegrationTest {
         conn = dataSource.getConnection();
         conn.setAutoCommit(true);
 
-        // Wire real production classes.
+        // Wire real production classes (Cycle 2 skeletons throwing UOE → RED).
         employmentRepository = new JdbcEmploymentRepository(dataSource);
         commands = new JdbcEmploymentCommandService(employmentRepository);
         migrationStateRepository = new JdbcMigrationTenantStateRepository(dataSource);
@@ -281,9 +281,9 @@ class HrEmploymentLifecycleIntegrationTest {
     void employment_persistsPersonLink() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
+        setTenant(tenantId);
         UUID personId = seedPerson(tenantId, "Person", "Link");
         UUID legalEntityId = seedLegalEntity(tenantId, "LE-PER");
-        setTenant(tenantId);
 
         Employment employment = new Employment(
                 UUID.randomUUID(), tenantId, personId, legalEntityId,
@@ -302,9 +302,9 @@ class HrEmploymentLifecycleIntegrationTest {
     void employment_persistsLegalEntityEmployerLink() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
+        setTenant(tenantId);
         UUID personId = seedPerson(tenantId, "Legal", "Entity");
         UUID legalEntityId = seedLegalEntity(tenantId, "LE-EMP");
-        setTenant(tenantId);
 
         Employment employment = new Employment(
                 UUID.randomUUID(), tenantId, personId, legalEntityId,
@@ -491,11 +491,6 @@ class HrEmploymentLifecycleIntegrationTest {
 
         // Try to insert an overlapping ACTIVE period via direct JDBC — must be
         // rejected by the EXCLUDE constraint (or DB-level guard).
-        // The test uses direct JDBC (not the repository), so the natural
-        // exception is SQLException (PostgreSQL JDBC throws PSQLException
-        // which extends SQLException). The business invariant being tested
-        // is "overlapping status period = database rejected" — the exception
-        // type is a layer detail, not the business contract.
         assertThatThrownBy(() -> {
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO hr_employment_status_periods " +
@@ -725,13 +720,11 @@ class HrEmploymentLifecycleIntegrationTest {
     void legacyMapping_singleAuthoritativeMatch_autoMigrate() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
+        setTenant(tenantId);
         UUID personId = seedPerson(tenantId, "Auto", "Migrate");
         UUID legalEntityId = seedLegalEntity(tenantId, "LE-AUTO");
         UUID legacyEmployeeId = seedEmployment(tenantId, personId, legalEntityId,
                 "EMP-AUTO", EmploymentStatus.ACTIVE);
-
-        // Seed a mapping row with classification AUTO_MIGRATE — representing
-        // exactly one authoritative match found by backfill (Task 6).
         seedLegacyMapping(tenantId, legacyEmployeeId, personId,
                 LegacyMappingClassification.AUTO_MIGRATE, "single authoritative match");
 
@@ -745,13 +738,11 @@ class HrEmploymentLifecycleIntegrationTest {
     void legacyMapping_multiplePlausibleMatches_reviewRequired() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
+        setTenant(tenantId);
         UUID personId = seedPerson(tenantId, "Review", "Required");
         UUID legalEntityId = seedLegalEntity(tenantId, "LE-REV");
         UUID legacyEmployeeId = seedEmployment(tenantId, personId, legalEntityId,
                 "EMP-REV", EmploymentStatus.ACTIVE);
-
-        // Seed a mapping row with classification MIGRATION_REVIEW_REQUIRED —
-        // representing multiple plausible matches found by backfill (Task 6).
         seedLegacyMapping(tenantId, legacyEmployeeId, personId,
                 LegacyMappingClassification.MIGRATION_REVIEW_REQUIRED, "multiple plausible matches");
 
@@ -765,6 +756,7 @@ class HrEmploymentLifecycleIntegrationTest {
     void legacyMapping_noAuthoritativeMatch_blocked() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
+        setTenant(tenantId);
         UUID personId = seedPerson(tenantId, "Blocked", "Mapping");
         UUID legalEntityId = seedLegalEntity(tenantId, "LE-BLK");
         UUID legacyEmployeeId = seedEmployment(tenantId, personId, legalEntityId,
