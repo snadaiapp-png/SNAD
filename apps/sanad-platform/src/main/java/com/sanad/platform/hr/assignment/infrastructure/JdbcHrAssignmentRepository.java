@@ -19,6 +19,8 @@ import java.util.UUID;
 
 public final class JdbcHrAssignmentRepository {
 
+    private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+
     private final DataSource dataSource;
 
     public JdbcHrAssignmentRepository(DataSource dataSource) {
@@ -73,33 +75,11 @@ public final class JdbcHrAssignmentRepository {
      * appears in the chain during the candidate effective period.
      */
     public boolean createsReportingCycle(UUID tenantId, UUID assignmentId,
-                                           UUID reportsToAssignmentId,
-                                           LocalDate effectiveFrom, LocalDate effectiveTo) {
-        return inTenantTransaction(tenantId, connection -> {
-            String candidateEnd = effectiveTo != null
-                    ? "'" + effectiveTo.plusDays(1) + "'::date" : "'infinity'::date";
-            String candidateRange = "daterange('" + effectiveFrom + "'::date, " + candidateEnd + ", '[)')";
-
-            String sql = "WITH RECURSIVE chain AS (" +
-                    "  SELECT id, reports_to_assignment_id FROM hr_employee_assignments " +
-                    "  WHERE id = ? AND reports_to_assignment_id IS NOT NULL" +
-                    "    AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') && " + candidateRange + " " +
-                    "  UNION ALL" +
-                    "  SELECT a.id, a.reports_to_assignment_id FROM hr_employee_assignments a" +
-                    "  JOIN chain c ON a.id = c.reports_to_assignment_id" +
-                    "  WHERE a.reports_to_assignment_id IS NOT NULL" +
-                    "    AND daterange(a.effective_from, COALESCE(a.effective_to + 1, 'infinity'::date), '[)') && " + candidateRange + " " +
-                    ") SELECT EXISTS(SELECT 1 FROM chain WHERE reports_to_assignment_id = ?) AS has_cycle";
-
-            try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                ps.setObject(1, reportsToAssignmentId);
-                ps.setObject(2, assignmentId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    rs.next();
-                    return rs.getBoolean(1);
-                }
-            }
-        });
+                                         UUID reportsToAssignmentId,
+                                         LocalDate effectiveFrom, LocalDate effectiveTo) {
+        return inTenantTransaction(tenantId, connection ->
+                checkCycleOnConnection(connection, assignmentId, reportsToAssignmentId,
+                        effectiveFrom, effectiveTo));
     }
 
     /**
@@ -113,125 +93,21 @@ public final class JdbcHrAssignmentRepository {
             BigDecimal allocationPercent,
             LocalDate effectiveFrom, LocalDate effectiveTo) {
         return inTenantTransaction(tenantId, connection -> {
-            // 1. Validate allocation range
-            if (allocationPercent == null || allocationPercent.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new IllegalArgumentException("allocation_percent must be > 0");
-            }
-            if (allocationPercent.compareTo(new BigDecimal("100")) > 0) {
-                throw new IllegalArgumentException("allocation_percent must be <= 100");
-            }
+            validateAllocationRange(allocationPercent);
 
-            // 2. Validate employment exists and get legal_entity_id
-            UUID legalEntityId;
-            try (PreparedStatement ps = connection.prepareStatement(
-                    "SELECT legal_entity_id FROM hr_employees WHERE tenant_id = ? AND id = ?")) {
-                ps.setObject(1, tenantId);
-                ps.setObject(2, employmentId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) throw new IllegalStateException("Employment not found: " + employmentId);
-                    legalEntityId = rs.getObject("legal_entity_id", UUID.class);
-                    if (legalEntityId == null) throw new IllegalStateException("Employment has no legal_entity_id");
-                }
-            }
+            UUID legalEntityId = loadEmploymentLegalEntity(connection, tenantId, employmentId);
+            validateOrganizationEligibility(connection, tenantId, organizationId, legalEntityId, effectiveFrom);
+            validateOrgUnitEffectiveness(connection, tenantId, orgUnitId, effectiveFrom);
+            validatePositionEffectiveness(connection, tenantId, positionId, effectiveFrom);
 
-            // 3. Validate Legal Entity ↔ Organization eligibility
-            try (PreparedStatement ps = connection.prepareStatement(
-                    "SELECT 1 FROM organization_legal_entities " +
-                    "WHERE tenant_id = ? AND organization_id = ? AND legal_entity_id = ? " +
-                    "AND status = 'ACTIVE' " +
-                    "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') @> ?::date LIMIT 1")) {
-                ps.setObject(1, tenantId);
-                ps.setObject(2, organizationId);
-                ps.setObject(3, legalEntityId);
-                ps.setString(4, effectiveFrom.toString());
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        throw new IllegalStateException(
-                            "organization " + organizationId + " is not eligible for Legal Entity " + legalEntityId);
-                    }
-                }
-            }
+            // An incomplete intermediate FTE state is valid. Only overlapping
+            // effective allocation above 100% is rejected.
+            validateEffectiveAllocation(connection, tenantId, employmentId,
+                    allocationPercent, effectiveFrom, effectiveTo, null);
 
-            // 4. Validate Org Unit effectiveness (if set)
-            if (orgUnitId != null) {
-                try (PreparedStatement ps = connection.prepareStatement(
-                        "SELECT 1 FROM hr_org_unit_versions " +
-                        "WHERE org_unit_id = ? AND tenant_id = ? " +
-                        "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') @> ?::date LIMIT 1")) {
-                    ps.setObject(1, orgUnitId);
-                    ps.setObject(2, tenantId);
-                    ps.setString(3, effectiveFrom.toString());
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) throw new IllegalStateException("org unit " + orgUnitId + " has no effective version for " + effectiveFrom);
-                    }
-                }
-            }
+            validateReporting(connection, tenantId, null, reportsToAssignmentId,
+                    effectiveFrom, effectiveTo);
 
-            // 5. Validate Position effectiveness (if set)
-            if (positionId != null) {
-                try (PreparedStatement ps = connection.prepareStatement(
-                        "SELECT 1 FROM hr_position_versions " +
-                        "WHERE position_id = ? AND tenant_id = ? " +
-                        "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') @> ?::date LIMIT 1")) {
-                    ps.setObject(1, positionId);
-                    ps.setObject(2, tenantId);
-                    ps.setString(3, effectiveFrom.toString());
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) throw new IllegalStateException("position " + positionId + " has no effective version for " + effectiveFrom);
-                    }
-                }
-            }
-
-            // 6. Validate total effective allocation (period-aware)
-            String candidateRange = "daterange('" + effectiveFrom + "'::date, " +
-                    (effectiveTo != null ? "'" + effectiveTo.plusDays(1) + "'::date" : "'infinity'::date") + ", '[)')";
-            try (PreparedStatement ps = connection.prepareStatement(
-                    "SELECT COALESCE(SUM(allocation_percent), 0) FROM hr_employee_assignments " +
-                    "WHERE tenant_id = ? AND employment_id = ? AND status = 'ACTIVE' " +
-                    "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') && " + candidateRange)) {
-                ps.setObject(1, tenantId);
-                ps.setObject(2, employmentId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    rs.next();
-                    BigDecimal currentTotal = rs.getBigDecimal(1);
-                    if (currentTotal == null) currentTotal = BigDecimal.ZERO;
-                    if (currentTotal.add(allocationPercent).compareTo(new BigDecimal("100")) > 0) {
-                        throw new IllegalStateException(
-                            "Total effective allocation would exceed 100%: current=" + currentTotal + " + candidate=" + allocationPercent);
-                    }
-                }
-            }
-
-            // 7. Validate reporting (self-report + cycle)
-            if (reportsToAssignmentId != null) {
-                // Self-report check
-                // (The assignment doesn't have an ID yet, so we check if
-                // the proposed manager IS the assignment we're creating —
-                // but that's not possible pre-INSERT. The self-report check
-                // is handled in reviseAssignment where the ID exists.)
-                
-                // Cross-tenant check
-                try (PreparedStatement ps = connection.prepareStatement(
-                        "SELECT tenant_id FROM hr_employee_assignments WHERE id = ?")) {
-                    ps.setObject(1, reportsToAssignmentId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (!rs.next()) throw new IllegalStateException("Manager assignment not found: " + reportsToAssignmentId);
-                        UUID managerTenant = rs.getObject("tenant_id", UUID.class);
-                        if (!managerTenant.equals(tenantId)) {
-                            throw new IllegalStateException("Cross-tenant reporting link rejected");
-                        }
-                    }
-                }
-                
-                // Cycle check
-                UUID newId = UUID.randomUUID(); // pre-generate ID for cycle check
-                boolean cycle = checkCycleOnConnection(connection, newId, reportsToAssignmentId, effectiveFrom, effectiveTo);
-                if (cycle) {
-                    throw new IllegalStateException("REPORTING_CYCLE: setting reports_to " + reportsToAssignmentId + " creates a cycle");
-                }
-            }
-
-            // 8. INSERT
             UUID assignmentId = UUID.randomUUID();
             try (PreparedStatement ps = connection.prepareStatement(
                     "INSERT INTO hr_employee_assignments " +
@@ -268,7 +144,9 @@ public final class JdbcHrAssignmentRepository {
     }
 
     /**
-     * Atomically revise an assignment: validate → close old → insert new, on ONE connection.
+     * Atomically revise an assignment. Every prospective invariant is
+     * validated before the first persisted mutation; then the old period is
+     * closed and the replacement is inserted on the same connection/transaction.
      */
     public HrAssignment reviseAssignmentAtomically(
             UUID tenantId, UUID assignmentId,
@@ -276,40 +154,50 @@ public final class JdbcHrAssignmentRepository {
             UUID newReportsToAssignmentId, UUID newPositionId,
             OccupancyMode newOccupancyMode, BigDecimal newAllocationPercent) {
         return inTenantTransaction(tenantId, connection -> {
-            // 1. Load existing assignment
-            HrAssignment existing;
-            try (PreparedStatement ps = connection.prepareStatement(
-                    "SELECT * FROM hr_employee_assignments WHERE id = ?")) {
-                ps.setObject(1, assignmentId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) throw new IllegalStateException("Assignment not found: " + assignmentId);
-                    existing = mapAssignment(rs);
-                }
-            }
+            HrAssignment existing = loadAssignmentForUpdate(connection, assignmentId);
 
-            // 2. Self-report check
-            if (newReportsToAssignmentId != null && newReportsToAssignmentId.equals(assignmentId)) {
-                throw new IllegalStateException("Self-reporting is not allowed");
-            }
+            UUID candidatePositionId = newPositionId != null ? newPositionId : existing.positionId();
+            UUID candidateReportsToId = newReportsToAssignmentId != null
+                    ? newReportsToAssignmentId : existing.reportsToAssignmentId();
+            OccupancyMode candidateOccupancyMode = newOccupancyMode != null
+                    ? newOccupancyMode : existing.occupancyMode();
+            BigDecimal candidateAllocation = newAllocationPercent != null
+                    ? newAllocationPercent : existing.allocationPercent();
 
-            // 3. Cycle check (if reports_to is changing)
-            if (newReportsToAssignmentId != null && !newReportsToAssignmentId.equals(existing.reportsToAssignmentId())) {
-                boolean cycle = checkCycleOnConnection(connection, assignmentId, newReportsToAssignmentId, effectiveFrom, null);
-                if (cycle) {
-                    throw new IllegalStateException("REPORTING_CYCLE: setting reports_to " + newReportsToAssignmentId + " creates a cycle");
-                }
-            }
+            // Validate the complete candidate before UPDATE/INSERT.
+            validateAllocationRange(candidateAllocation);
 
-            // 4. Close existing open assignment
+            UUID legalEntityId = loadEmploymentLegalEntity(
+                    connection, tenantId, existing.employmentId());
+            validateOrganizationEligibility(connection, tenantId, existing.organizationId(),
+                    legalEntityId, effectiveFrom);
+            validateOrgUnitEffectiveness(connection, tenantId, existing.orgUnitId(), effectiveFrom);
+            validatePositionEffectiveness(connection, tenantId, candidatePositionId, effectiveFrom);
+
+            // Exclude the row being superseded so its old open-ended period is
+            // not double-counted against the prospective replacement.
+            validateEffectiveAllocation(connection, tenantId, existing.employmentId(),
+                    candidateAllocation, effectiveFrom, null, assignmentId);
+            validatePrimaryOverlap(connection, tenantId, existing.employmentId(),
+                    existing.assignmentType(), effectiveFrom, null, assignmentId);
+            validatePositionOccupancy(connection, tenantId, candidatePositionId,
+                    candidateOccupancyMode, effectiveFrom, null, assignmentId);
+            validateReporting(connection, tenantId, assignmentId, candidateReportsToId,
+                    effectiveFrom, null);
+
+            // No persisted mutation occurs before this point.
             try (PreparedStatement ps = connection.prepareStatement(
                     "UPDATE hr_employee_assignments SET effective_to = ?, updated_at = NOW() " +
                     "WHERE id = ? AND effective_to IS NULL")) {
                 ps.setObject(1, java.sql.Date.valueOf(effectiveFrom.minusDays(1)));
                 ps.setObject(2, assignmentId);
-                ps.executeUpdate();
+                int updated = ps.executeUpdate();
+                if (updated != 1) {
+                    throw new IllegalStateException(
+                            "Assignment is not open for revision: " + assignmentId);
+                }
             }
 
-            // 5. Insert new version
             UUID newId = UUID.randomUUID();
             try (PreparedStatement ps = connection.prepareStatement(
                     "INSERT INTO hr_employee_assignments " +
@@ -323,13 +211,13 @@ public final class JdbcHrAssignmentRepository {
                 ps.setObject(3, existing.employmentId());
                 ps.setObject(4, existing.organizationId());
                 ps.setObject(5, existing.orgUnitId());
-                ps.setObject(6, newPositionId != null ? newPositionId : existing.positionId());
-                ps.setObject(7, newReportsToAssignmentId != null ? newReportsToAssignmentId : existing.reportsToAssignmentId());
+                ps.setObject(6, candidatePositionId);
+                ps.setObject(7, candidateReportsToId);
                 ps.setObject(8, existing.workLocationId());
                 ps.setObject(9, null); // cost_center_id not in frozen record
                 ps.setString(10, existing.assignmentType().name());
-                ps.setString(11, newOccupancyMode != null ? newOccupancyMode.name() : existing.occupancyMode().name());
-                ps.setBigDecimal(12, newAllocationPercent != null ? newAllocationPercent : existing.allocationPercent());
+                ps.setString(11, candidateOccupancyMode.name());
+                ps.setBigDecimal(12, candidateAllocation);
                 ps.setObject(13, java.sql.Date.valueOf(effectiveFrom));
                 ps.setString(14, "ACTIVE");
                 ps.setLong(15, existing.version() + 1);
@@ -337,23 +225,222 @@ public final class JdbcHrAssignmentRepository {
             }
 
             return new HrAssignment(newId, tenantId, existing.employmentId(), existing.organizationId(),
-                    existing.orgUnitId(),
-                    newPositionId != null ? newPositionId : existing.positionId(),
-                    newReportsToAssignmentId != null ? newReportsToAssignmentId : existing.reportsToAssignmentId(),
-                    existing.workLocationId(),
-                    existing.assignmentType(),
-                    newOccupancyMode != null ? newOccupancyMode : existing.occupancyMode(),
-                    newAllocationPercent != null ? newAllocationPercent : existing.allocationPercent(),
-                    effectiveFrom, null, "ACTIVE", existing.version() + 1);
+                    existing.orgUnitId(), candidatePositionId, candidateReportsToId,
+                    existing.workLocationId(), existing.assignmentType(), candidateOccupancyMode,
+                    candidateAllocation, effectiveFrom, null, "ACTIVE", existing.version() + 1);
         });
     }
 
-    // --- helpers ---
+    private HrAssignment loadAssignmentForUpdate(Connection connection, UUID assignmentId) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT * FROM hr_employee_assignments WHERE id = ? FOR UPDATE")) {
+            ps.setObject(1, assignmentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) throw new IllegalStateException("Assignment not found: " + assignmentId);
+                return mapAssignment(rs);
+            }
+        }
+    }
+
+    private void validateAllocationRange(BigDecimal allocationPercent) {
+        if (allocationPercent == null || allocationPercent.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("allocation_percent must be > 0");
+        }
+        if (allocationPercent.compareTo(ONE_HUNDRED) > 0) {
+            throw new IllegalArgumentException("allocation_percent must be <= 100");
+        }
+    }
+
+    private UUID loadEmploymentLegalEntity(Connection connection, UUID tenantId, UUID employmentId)
+            throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT legal_entity_id FROM hr_employees WHERE tenant_id = ? AND id = ?")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, employmentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) throw new IllegalStateException("Employment not found: " + employmentId);
+                UUID legalEntityId = rs.getObject("legal_entity_id", UUID.class);
+                if (legalEntityId == null) throw new IllegalStateException("Employment has no legal_entity_id");
+                return legalEntityId;
+            }
+        }
+    }
+
+    private void validateOrganizationEligibility(Connection connection, UUID tenantId,
+                                                 UUID organizationId, UUID legalEntityId,
+                                                 LocalDate effectiveFrom) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT 1 FROM organization_legal_entities " +
+                "WHERE tenant_id = ? AND organization_id = ? AND legal_entity_id = ? " +
+                "AND status = 'ACTIVE' " +
+                "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') @> ?::date LIMIT 1")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, organizationId);
+            ps.setObject(3, legalEntityId);
+            ps.setString(4, effectiveFrom.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalStateException(
+                            "organization " + organizationId + " is not eligible for Legal Entity " + legalEntityId);
+                }
+            }
+        }
+    }
+
+    private void validateOrgUnitEffectiveness(Connection connection, UUID tenantId,
+                                              UUID orgUnitId, LocalDate effectiveFrom) throws SQLException {
+        if (orgUnitId == null) return;
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT 1 FROM hr_org_unit_versions " +
+                "WHERE org_unit_id = ? AND tenant_id = ? " +
+                "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') @> ?::date LIMIT 1")) {
+            ps.setObject(1, orgUnitId);
+            ps.setObject(2, tenantId);
+            ps.setString(3, effectiveFrom.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalStateException(
+                            "org unit " + orgUnitId + " has no effective version for " + effectiveFrom);
+                }
+            }
+        }
+    }
+
+    private void validatePositionEffectiveness(Connection connection, UUID tenantId,
+                                               UUID positionId, LocalDate effectiveFrom) throws SQLException {
+        if (positionId == null) return;
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT 1 FROM hr_position_versions " +
+                "WHERE position_id = ? AND tenant_id = ? " +
+                "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') @> ?::date LIMIT 1")) {
+            ps.setObject(1, positionId);
+            ps.setObject(2, tenantId);
+            ps.setString(3, effectiveFrom.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalStateException(
+                            "position " + positionId + " has no effective version for " + effectiveFrom);
+                }
+            }
+        }
+    }
+
+    private void validateEffectiveAllocation(Connection connection, UUID tenantId, UUID employmentId,
+                                             BigDecimal candidateAllocation,
+                                             LocalDate effectiveFrom, LocalDate effectiveTo,
+                                             UUID excludeAssignmentId) throws SQLException {
+        String sql = "SELECT COALESCE(SUM(allocation_percent), 0) FROM hr_employee_assignments " +
+                "WHERE tenant_id = ? AND employment_id = ? AND status = 'ACTIVE' " +
+                "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') " +
+                "&& daterange(?::date, COALESCE(?::date + 1, 'infinity'::date), '[)')" +
+                (excludeAssignmentId != null ? " AND id <> ?" : "");
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, employmentId);
+            ps.setObject(3, java.sql.Date.valueOf(effectiveFrom));
+            if (effectiveTo != null) ps.setObject(4, java.sql.Date.valueOf(effectiveTo));
+            else ps.setNull(4, Types.DATE);
+            if (excludeAssignmentId != null) ps.setObject(5, excludeAssignmentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                BigDecimal currentTotal = rs.getBigDecimal(1);
+                if (currentTotal == null) currentTotal = BigDecimal.ZERO;
+                BigDecimal prospectiveTotal = currentTotal.add(candidateAllocation);
+                if (prospectiveTotal.compareTo(ONE_HUNDRED) > 0) {
+                    throw new IllegalStateException(
+                            "Total effective allocation would exceed 100%: current=" + currentTotal +
+                                    " + candidate=" + candidateAllocation);
+                }
+            }
+        }
+    }
+
+    private void validatePrimaryOverlap(Connection connection, UUID tenantId, UUID employmentId,
+                                        AssignmentType assignmentType,
+                                        LocalDate effectiveFrom, LocalDate effectiveTo,
+                                        UUID excludeAssignmentId) throws SQLException {
+        if (assignmentType != AssignmentType.PRIMARY) return;
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT 1 FROM hr_employee_assignments " +
+                "WHERE tenant_id = ? AND employment_id = ? AND assignment_type = 'PRIMARY' AND status = 'ACTIVE' " +
+                "AND id <> ? " +
+                "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') " +
+                "&& daterange(?::date, COALESCE(?::date + 1, 'infinity'::date), '[)') LIMIT 1")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, employmentId);
+            ps.setObject(3, excludeAssignmentId);
+            ps.setObject(4, java.sql.Date.valueOf(effectiveFrom));
+            if (effectiveTo != null) ps.setObject(5, java.sql.Date.valueOf(effectiveTo));
+            else ps.setNull(5, Types.DATE);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    throw new IllegalStateException(
+                            "PRIMARY assignment period overlaps an existing PRIMARY assignment");
+                }
+            }
+        }
+    }
+
+    private void validatePositionOccupancy(Connection connection, UUID tenantId, UUID positionId,
+                                           OccupancyMode occupancyMode,
+                                           LocalDate effectiveFrom, LocalDate effectiveTo,
+                                           UUID excludeAssignmentId) throws SQLException {
+        if (positionId == null || occupancyMode != OccupancyMode.OCCUPYING) return;
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT 1 FROM hr_employee_assignments " +
+                "WHERE tenant_id = ? AND position_id = ? AND occupancy_mode = 'OCCUPYING' AND status = 'ACTIVE' " +
+                "AND id <> ? " +
+                "AND daterange(effective_from, COALESCE(effective_to + 1, 'infinity'::date), '[)') " +
+                "&& daterange(?::date, COALESCE(?::date + 1, 'infinity'::date), '[)') LIMIT 1")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, positionId);
+            ps.setObject(3, excludeAssignmentId);
+            ps.setObject(4, java.sql.Date.valueOf(effectiveFrom));
+            if (effectiveTo != null) ps.setObject(5, java.sql.Date.valueOf(effectiveTo));
+            else ps.setNull(5, Types.DATE);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    throw new IllegalStateException(
+                            "Position occupancy period overlaps an existing OCCUPYING assignment");
+                }
+            }
+        }
+    }
+
+    private void validateReporting(Connection connection, UUID tenantId, UUID assignmentId,
+                                   UUID reportsToAssignmentId,
+                                   LocalDate effectiveFrom, LocalDate effectiveTo) throws SQLException {
+        if (reportsToAssignmentId == null) return;
+        if (assignmentId != null && reportsToAssignmentId.equals(assignmentId)) {
+            throw new IllegalStateException("Self-reporting is not allowed");
+        }
+
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT tenant_id FROM hr_employee_assignments WHERE id = ?")) {
+            ps.setObject(1, reportsToAssignmentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalStateException("Manager assignment not found: " + reportsToAssignmentId);
+                }
+                UUID managerTenant = rs.getObject("tenant_id", UUID.class);
+                if (!tenantId.equals(managerTenant)) {
+                    throw new IllegalStateException("Cross-tenant reporting link rejected");
+                }
+            }
+        }
+
+        if (assignmentId != null && checkCycleOnConnection(connection, assignmentId,
+                reportsToAssignmentId, effectiveFrom, effectiveTo)) {
+            throw new IllegalStateException(
+                    "REPORTING_CYCLE: setting reports_to " + reportsToAssignmentId + " creates a cycle");
+        }
+    }
 
     private boolean checkCycleOnConnection(Connection connection, UUID assignmentId,
-                                            UUID reportsToAssignmentId,
-                                            LocalDate effectiveFrom, LocalDate effectiveTo) throws SQLException {
-        String candidateEnd = effectiveTo != null ? "'" + effectiveTo.plusDays(1) + "'::date" : "'infinity'::date";
+                                           UUID reportsToAssignmentId,
+                                           LocalDate effectiveFrom, LocalDate effectiveTo) throws SQLException {
+        String candidateEnd = effectiveTo != null
+                ? "'" + effectiveTo.plusDays(1) + "'::date" : "'infinity'::date";
         String candidateRange = "daterange('" + effectiveFrom + "'::date, " + candidateEnd + ", '[)')";
 
         String sql = "WITH RECURSIVE chain AS (" +
