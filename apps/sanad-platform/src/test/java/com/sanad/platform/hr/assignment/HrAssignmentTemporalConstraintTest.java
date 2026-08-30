@@ -178,6 +178,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-A");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Assign", "Test");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-A");
 
@@ -204,6 +205,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-B");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Emp", "Link");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-B");
 
@@ -226,6 +228,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-C");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Primary", "Overlap");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-C");
 
@@ -253,6 +256,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-D");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Adjacent", "Primary");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-D");
 
@@ -279,6 +283,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-E");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personA = seedPerson(tenantId, "Pos", "A");
         UUID personB = seedPerson(tenantId, "Pos", "B");
         UUID empA = seedEmployment(tenantId, personA, leId, "EMP-E1");
@@ -309,6 +314,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-F");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personA = seedPerson(tenantId, "Adj", "PosA");
         UUID personB = seedPerson(tenantId, "Adj", "PosB");
         UUID empA = seedEmployment(tenantId, personA, leId, "EMP-F1");
@@ -338,6 +344,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-G");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personA = seedPerson(tenantId, "Non", "OccA");
         UUID personB = seedPerson(tenantId, "Non", "OccB");
         UUID empA = seedEmployment(tenantId, personA, leId, "EMP-G1");
@@ -368,6 +375,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-H");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Alloc", "Zero");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-H");
 
@@ -389,6 +397,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-I");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Alloc", "Over");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-I");
 
@@ -428,6 +437,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-U");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Fail", "Closed");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-U");
 
@@ -459,6 +469,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-H2");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Alloc", "Neg");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-H2");
 
@@ -480,6 +491,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-J");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Total", "Alloc");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-J");
 
@@ -504,6 +516,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-J2");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Over", "Alloc");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-J2");
 
@@ -532,6 +545,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-J3");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Period", "Aware");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-J3");
 
@@ -558,6 +572,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-K");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         // Seed eligibility: org ↔ le is ACTIVE
         seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Eligible", "Org");
@@ -603,6 +618,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-K2B");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "OrgUnit", "Expired");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K2B");
 
@@ -627,6 +643,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-K2C");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "OrgUnit", "Active");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K2C");
 
@@ -651,6 +668,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-K3");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Pos", "NoVer");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3");
         UUID posId = seedLegacyPosition(tenantId);
@@ -673,6 +691,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantId);
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-K3B");
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, "Pos", "EffVer");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-K3B");
         UUID posId = seedLegacyPosition(tenantId);
@@ -699,6 +718,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantA);
         UUID orgA = seedOrganization(tenantA);
         UUID leA = seedLegalEntity(tenantA, "LE-V");
+        seedOrgLegalEntity(tenantA, orgA, leA);
         UUID personA = seedPerson(tenantA, "Wrong", "Read");
         UUID empA = seedEmployment(tenantA, personA, leA, "EMP-V");
 
@@ -727,6 +747,7 @@ class HrAssignmentTemporalConstraintTest {
         setTenant(tenantA);
         UUID orgA = seedOrganization(tenantA);
         UUID leA = seedLegalEntity(tenantA, "LE-W");
+        seedOrgLegalEntity(tenantA, orgA, leA);
         UUID personA = seedPerson(tenantA, "Wrong", "Write");
         UUID empA = seedEmployment(tenantA, personA, leA, "EMP-W");
 

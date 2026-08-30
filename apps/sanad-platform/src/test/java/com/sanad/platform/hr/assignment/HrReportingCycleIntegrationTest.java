@@ -159,6 +159,7 @@ class HrReportingCycleIntegrationTest {
     private UUID[] seedFullEmploymentChain(UUID tenantId, String prefix) throws Exception {
         UUID orgId = seedOrganization(tenantId);
         UUID leId = seedLegalEntity(tenantId, "LE-" + prefix);
+        seedOrgLegalEntity(tenantId, orgId, leId);
         UUID personId = seedPerson(tenantId, prefix, "Person");
         UUID empId = seedEmployment(tenantId, personId, leId, "EMP-" + prefix);
         return new UUID[]{orgId, leId, personId, empId};
@@ -371,4 +372,20 @@ class HrReportingCycleIntegrationTest {
                         OccupancyMode.NON_OCCUPYING, HUNDRED))
                 .isInstanceOf(RuntimeException.class);
     }
+
+    private void seedOrgLegalEntity(UUID tenantId, UUID orgId, UUID leId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, " +
+                "effective_from, effective_to, status, created_at) " +
+                "VALUES (?, ?, ?, ?, ?::date, NULL, 'ACTIVE', NOW())")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, orgId);
+            ps.setObject(4, leId);
+            ps.setString(5, "2026-01-01");
+            ps.executeUpdate();
+        }
+    }
+
+
 }
