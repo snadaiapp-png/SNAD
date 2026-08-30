@@ -209,17 +209,21 @@ public final class JdbcHrStructureRepository {
      * Check if setting parentOrgUnitId as parent of orgUnitId creates a cycle
      * during the given effective period. Uses a recursive CTE constrained to
      * the candidate effective interval (period-aware).
+     *
+     * <p>Logic: traverse the parent chain starting from parentOrgUnitId.
+     * If the chain reaches back to orgUnitId, a cycle exists.</p>
      */
     public boolean createsCycle(UUID tenantId, UUID orgUnitId, UUID parentOrgUnitId,
                                   LocalDate effectiveFrom, LocalDate effectiveTo) {
         return inTenantTransaction(tenantId, connection -> {
-            // Build the candidate date range as a literal — simpler and avoids
-            // parameter-binding ordering issues in the recursive CTE.
             String candidateEnd = effectiveTo != null
                     ? "'" + effectiveTo.plusDays(1) + "'::date"
                     : "'infinity'::date";
             String candidateRange = "daterange('" + effectiveFrom + "'::date, " + candidateEnd + ", '[)')";
 
+            // Traverse from parentOrgUnitId upward through the parent chain.
+            // If any ancestor in the chain (including parentOrgUnitId itself)
+            // equals orgUnitId, we have a cycle.
             String sql = "WITH RECURSIVE chain AS (" +
                     "  SELECT org_unit_id, parent_org_unit_id " +
                     "  FROM hr_org_unit_versions " +
@@ -232,11 +236,14 @@ public final class JdbcHrStructureRepository {
                     "  JOIN chain c ON v.org_unit_id = c.parent_org_unit_id " +
                     "  WHERE v.parent_org_unit_id IS NOT NULL" +
                     "    AND daterange(v.effective_from, COALESCE(v.effective_to + 1, 'infinity'::date), '[)') && " + candidateRange + " " +
-                    ") SELECT EXISTS(SELECT 1 FROM chain WHERE org_unit_id = ?) AS has_cycle";
+                    ") SELECT EXISTS(SELECT 1 FROM chain WHERE parent_org_unit_id = ?) AS has_cycle";
 
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                ps.setObject(1, orgUnitId);
-                ps.setObject(2, parentOrgUnitId);
+                // Start traversal from parentOrgUnitId (the proposed parent).
+                ps.setObject(1, parentOrgUnitId);
+                // Check if any node in the chain has orgUnitId as its parent
+                // (meaning the chain leads back to orgUnitId).
+                ps.setObject(2, orgUnitId);
                 try (ResultSet rs = ps.executeQuery()) {
                     rs.next();
                     return rs.getBoolean(1);
