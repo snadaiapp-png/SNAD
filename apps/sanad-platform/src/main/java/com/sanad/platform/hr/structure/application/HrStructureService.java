@@ -10,8 +10,10 @@ import java.util.UUID;
  * HR Structure service — application-layer facade for Org Unit, Job, and
  * Position versioning operations.
  *
- * <p>Task 3 RED skeleton — methods throw UnsupportedOperationException.
- * GREEN replaces with real implementation using JdbcHrStructureRepository.</p>
+ * <p>Period-aware cycle detection: when revising an Org Unit's parent,
+ * the service checks whether the proposed parent relationship would
+ * create a cycle DURING the candidate effective period. Historical
+ * non-overlapping relationships do NOT trigger false positives.</p>
  */
 public final class HrStructureService {
 
@@ -30,6 +32,23 @@ public final class HrStructureService {
                                             LocalDate effectiveFrom,
                                             UUID parentOrgUnitId,
                                             String name, String code, String unitType) {
-        throw new UnsupportedOperationException("HrStructureService.reviseOrgUnit — Task 3 RED skeleton");
+        // Period-aware cycle check: does setting parentOrgUnitId as parent
+        // of orgUnitId create a cycle during [effectiveFrom, ∞)?
+        if (parentOrgUnitId != null && !parentOrgUnitId.equals(orgUnitId)) {
+            boolean cycle = repository.createsCycle(
+                    tenantId, orgUnitId, parentOrgUnitId, effectiveFrom, null);
+            if (cycle) {
+                throw new IllegalStateException(
+                    "ORG_CYCLE: setting parent " + parentOrgUnitId +
+                    " for org unit " + orgUnitId +
+                    " creates a cycle during effective period from " + effectiveFrom);
+            }
+        }
+
+        HrOrgUnitVersion version = new HrOrgUnitVersion(
+                UUID.randomUUID(), tenantId, orgUnitId, name, code, unitType,
+                parentOrgUnitId, effectiveFrom, null, "ACTIVE");
+        repository.saveOrgUnitVersion(version);
+        return version;
     }
 }

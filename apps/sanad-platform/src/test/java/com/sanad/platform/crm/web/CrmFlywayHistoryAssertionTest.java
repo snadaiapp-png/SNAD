@@ -201,7 +201,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260827.1"   // hrm-g0 ws1 platform country and employer prerequisites
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
             , "20260829.1"   // hrm-g0 ws2 task 1a create hr_people + private + identifiers
-            , "20260830.1"   // hrm-g0 ws2 task 2 expand_hr_employment_and_history
+            , "20260830.1"   // hrm-g0 ws2 task 2 expand hr_employment and history
+            , "20260831.1"   // hrm-g0 ws2 task 3 create hr structure versions
     );
 
 
