@@ -621,8 +621,8 @@ class HrRlsFailClosedIntegrationTest {
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO hr_employees (id, tenant_id, employee_number, first_name, last_name, display_name, " +
                 "employment_type, status, hire_date, version, created_at, updated_at) " +
-                "VALUES (empId, ?, ?, 'Test', 'Employee', 'Test Employee', 'FULL_TIME', 'ACTIVE', ?::date, 0, NOW(), NOW())")) {
-            ps.setObject(1, UUID.randomUUID());
+                "VALUES (?, ?, ?, 'Test', 'Employee', 'Test Employee', 'FULL_TIME', 'ACTIVE', ?::date, 0, NOW(), NOW())")) {
+            ps.setObject(1, empId);
             ps.setObject(2, tenantId);
             ps.setString(3, empNum);
             ps.setString(4, "2026-01-01");
