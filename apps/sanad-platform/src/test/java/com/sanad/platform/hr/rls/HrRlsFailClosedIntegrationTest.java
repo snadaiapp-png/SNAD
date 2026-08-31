@@ -21,6 +21,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * WS2 Task 5 — Fail-Closed HR RLS TRUE RED (Corrected + Complete).
@@ -245,8 +246,18 @@ class HrRlsFailClosedIntegrationTest {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
         resetTenant();
-        assertThatThrownBy(() -> insertHrEmployee(tenantId))
-                .isInstanceOf(SQLException.class);
+        // Contract: only a real RLS rejection may satisfy this assertion.
+        // Binding errors, FK errors, CHECK errors, EXCLUDE constraint
+        // violations — none of these qualify as RLS enforcement.
+        // Verified SQLSTATE 42501 is stable on PostgreSQL 16/17 for
+        // "new row violates row-level security policy" errors.
+        Throwable thrown = catchThrowable(() -> insertHrEmployee(tenantId));
+        assertThat(thrown)
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("row-level security");
+        assertThat(((SQLException) thrown).getSQLState())
+                .as("SQLSTATE must be 42501 (insufficient_privilege) for RLS denial")
+                .isEqualTo("42501");
     }
 
     @Test
@@ -277,8 +288,18 @@ class HrRlsFailClosedIntegrationTest {
         seedTenant(tenantB);
         setTenant(tenantB);
         // Try to insert row with tenant_id = A under context B
-        assertThatThrownBy(() -> insertHrEmployee(tenantA))
-                .isInstanceOf(SQLException.class);
+        // Contract: only a real RLS rejection may satisfy this assertion.
+        // Binding errors, FK errors, CHECK errors, EXCLUDE constraint
+        // violations — none of these qualify as RLS enforcement.
+        // Verified SQLSTATE 42501 is stable on PostgreSQL 16/17 for
+        // "new row violates row-level security policy" errors.
+        Throwable thrown = catchThrowable(() -> insertHrEmployee(tenantA));
+        assertThat(thrown)
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("row-level security");
+        assertThat(((SQLException) thrown).getSQLState())
+                .as("SQLSTATE must be 42501 (insufficient_privilege) for RLS denial")
+                .isEqualTo("42501");
     }
 
     // ==================== 8. WRONG-TENANT UPDATE = ZERO ROWS ====================
@@ -474,7 +495,7 @@ class HrRlsFailClosedIntegrationTest {
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO hr_employees (id, tenant_id, employee_number, first_name, last_name, display_name, " +
                 "employment_type, status, hire_date, version, created_at, updated_at) " +
-                "VALUES (empId, ?, ?, 'Test', 'Employee', 'Test Employee', 'FULL_TIME', 'ACTIVE', ?::date, 0, NOW(), NOW())")) {
+                "VALUES (?, ?, ?, 'Test', 'Employee', 'Test Employee', 'FULL_TIME', 'ACTIVE', ?::date, 0, NOW(), NOW())")) {
             ps.setObject(1, empId);
             ps.setObject(2, tenantId);
             ps.setString(3, "EMP-" + empId.toString().substring(0, 8));
