@@ -85,7 +85,51 @@ Do not summarize from memory.
 
 ## 6. Current CI Evidence
 
-Record GitHub CI evidence for the exact HANDOFF_SHA.
+### RESOLVED — FINAL CERTIFICATION (engine order 01, 2026-08-31)
+
+Maven root cause on cbab7ebb (RUN_ID 33382602609, JOB_ID 99458110666):
+`Tests run: 2405, Failures: 7, Errors: 0, Skipped: 6` — ZERO ApplicationContext
+failures; the earlier "context failure threshold" symptom belonged to the older
+job 99314330558 only. All 7 failures were stale pinned contract tests:
+
+- 6× "expected 20260828.1 but was 20260830.2" / unexpected
+  [20260829.1, 20260829.2, 20260829.3, 20260829.4, 20260830.1, 20260830.2]
+  in CrmFlywayHistoryAssertionTest (2), Crm008bFoundationAcceptanceTest (1),
+  CrmPostgresMigrationTest (3) — the six intentional SCP migrations
+  (V20260829_1..4, V20260830_1..2) were applied by Flyway but absent from pins.
+- 1× PlatformApiCountTest: /api/v1/executive expected 46 but was 75 (29 new
+  SCP endpoints); total pin 717 → 746.
+
+CI_SQLSTATE = N/A (pure assertion failures, no SQL exceptions).
+CI_UNIQUE_ROOT_CAUSES = 2 (stale Flyway inventory pins; stale API-count pins).
+LOCAL_VS_CI_SIGNATURE_MATCH = YES (exact CI environment reproduced locally:
+PostgreSQL 16 + ci.yml role provisioning → identical 7 failures).
+The historical local "798 errors" were local-environment contamination
+(broken local PostgreSQL credentials) — LOCAL_FAILURE_CAUSAL_TO_CI = NO.
+Why only Maven fails: CRM gate selects crm.**.*IntegrationTest only and PG
+acceptance only CommerceOrderPostgresConcurrencyTest — none of the four
+pinned classes is in their selection.
+
+FIX COMMIT = cef08f83ce56725fa2bece665adcb8d16f4c7128
+(4 test files only; no product code, no CI config, no migration changes).
+
+FINAL CI ON FIX COMMIT (RUN_ID 33392694483, JOB_ID 99489830215):
+- Maven Test Suite = SUCCESS — `Tests run: 2405, Failures: 0, Errors: 0, Skipped: 6`,
+  step "Run tests (PostgreSQL Direct)" = success, BUILD SUCCESS.
+- CRM Integration Tests = SUCCESS · PostgreSQL Acceptance Tests = SUCCESS
+- Required checks on SHA cef08f83…: 6/6 SUCCESS (exact branch-protection names:
+  Build Next.js Web, provenance, CRM Integration Tests, Maven Test Suite,
+  CRM Deployment Readiness, Verify 8 tables, 26 indexes, and tenant isolation).
+- Non-required: Playwright E2E, Performance Baseline, Security Baseline,
+  CRM API Contract Validation, CRM G1 Schema Isolation, Backup Restore
+  Validation, Compile Diagnostics — ALL SUCCESS. Zero failures on any of the
+  26 check runs for the SHA.
+
+A final documentation checkpoint commit (this file) moves the PR head; per
+the SHA identity rule, fresh CI re-certifies that final PR head SHA before
+PR #924 is switched to Ready for Review.
+
+### Historical evidence (pre-resolution)
 
 Known previous results on a52f8c6f2e23ab89514c5991abd5e65f3312b0a3 included:
 
@@ -102,59 +146,37 @@ Known previous results on a52f8c6f2e23ab89514c5991abd5e65f3312b0a3 included:
 
 Maven Test Suite = FAILURE
 
-Do NOT copy these values onto a newer SHA.
-
-For HANDOFF_SHA write: CHECK_NAME, RUN_ID, JOB_ID, STATUS, CONCLUSION
-
-- CHECK_NAME: Maven Test Suite
-- RUN_ID: 33332810258
-- JOB_ID: 99314330558
-- STATUS: FAILURE
-- CONCLUSION: Maven Test Suite failure on PostgreSQL Direct; root cause DUPLICATE_SPRING_MVC_MAPPING proven and fixed; 798 local errors NON_CAUSAL_TO_CI
+For that HANDOFF_SHA the record was: CHECK_NAME Maven Test Suite, RUN_ID
+33332810258, JOB_ID 99314330558, STATUS FAILURE — superseded by the final
+certification above.
 
 ---
 
 ## 7. Current Blocking Issue
 
-The remaining authoritative blocker at the last verified stage was: Maven Test Suite
+RESOLVED. There is no remaining blocker.
 
-Previous failing GitHub job:
-
-- RUN_ID = 33332810258
-- JOB_ID = 99314330558
-- SHA = a52f8c6f2e23ab89514c5991abd5e65f3312b0a3
-
-Failed step: Run tests (PostgreSQL Direct)
-
-The next engine MUST extract:
-
-- first original failing test
-- first original ApplicationContext failure
-- deepest Caused by
-- SQLSTATE if present
-- failure signature
-- unique root-cause count
-
-ApplicationContext failure threshold exceeded is NOT the root cause.
+The Maven Test Suite blocker was diagnosed and fixed (see section 6):
+root cause = stale pinned contract-test expectations after the intentional
+SCP surface expansion (6 migrations + 29 executive endpoints); fixed by
+commit cef08f83ce56725fa2bece665adcb8d16f4c7128; fresh CI certifies Maven
+SUCCESS with 0 failures / 0 errors and 6/6 required checks green.
 
 ---
 
 ## 8. Local Maven Evidence
 
-One local execution reported:
-
-TOTAL = 1943
-FAILURES = 0
-ERRORS = 798
-SKIPPED = 18
-
-Therefore: PASSED = 1127
-
-MAVEN_LOCAL_RESULT = FAIL
-
-The 798 errors MUST NOT automatically be classified as NON_CAUSAL_TO_CI.
-
-The next engine must compare: LOCAL_FAILURE_SIGNATURE vs CI_FAILURE_SIGNATURE before classification.
+RESOLVED. A fresh CI-equivalent local environment (user-space PostgreSQL 16
+provisioned exactly per ci.yml: role sanad NOSUPERUSER + database ownership
+transfer + test_migration DB + crm_contact_rls_test_user, same env vars)
+reproduced the CI failures EXACTLY before the fix: 24 targeted tests, 7
+failures, 0 errors — identical signatures. After the fix the full suite was
+executed locally in three exhaustive package chunks (820 + 338 + 1247 =
+2405 tests, 0 failures, 0 errors, 6 skipped, exit 0 per chunk) and the class
+set matched the CI surefire artifact exactly (322/322 XMLs).
+The historical local result (TOTAL 1943 / ERRORS 798) came from a local
+database with credential mismatches — classified LOCAL_ENVIRONMENT_MISMATCH,
+NON_CAUSAL_TO_CI (the contaminated local PostgreSQL, not repository code).
 
 ---
 
@@ -172,7 +194,14 @@ Always distinguish: LOCAL_ENVIRONMENT_MISMATCH from CI_ROOT_CAUSE
 
 ## 10. Current Maven Mission
 
-The next engine must execute: GitHub Maven CI log → first original failure → deepest cause → compare local/CI signatures → determine repository vs environment causality → minimum fix → regression test → targeted green → full Maven green → commit → push closure → fresh CI → require exact 6/6 → STOP BEFORE MERGE
+COMPLETED by engine order 01 (2026-08-31): GitHub Maven CI log → first
+original failure (7 assertion failures, first = CrmPostgresMigrationTest.
+upgradesExistingPlatformThroughCrmRbacAndCompletion) → deepest cause (stale
+version/API pins vs intentional SCP surface) → local/CI signature match YES →
+root cause TEST_CONFIGURATION proven HIGH confidence → minimum fix (4 test
+files) → targeted green (24/24) → full Maven green (2405/0/0/6) → commit
+cef08f83 → pushed closure → fresh CI RUN_ID 33392694483 → exact 6/6 →
+STOP BEFORE MERGE honored.
 
 ---
 
