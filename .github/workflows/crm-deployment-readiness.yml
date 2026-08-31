@@ -16,6 +16,7 @@ on:
     paths:
       - 'apps/web/**'
       - 'apps/sanad-platform/**'
+      - 'scripts/ci/secret-scan-allowlist.json'
       - '.github/workflows/crm-deployment-readiness.yml'
   push:
     branches: [main]
