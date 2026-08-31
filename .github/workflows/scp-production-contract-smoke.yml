@@ -1,0 +1,72 @@
+name: SCP Production Contract Smoke
+
+# ============================================================
+# Incident-prevention gate for the Executive / Subscription
+# Control Plane. Authenticates a least-privilege smoke identity
+# and proves every additive SCP read route answers 200 JSON —
+# never 404/405/unexpected 400 or HTML-as-JSON. Read-only.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      transport:
+        description: 'Transport under test: backend-direct or vercel-bff'
+        required: false
+        default: 'backend-direct'
+        type: choice
+        options:
+          - backend-direct
+          - vercel-bff
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scp-contract-smoke
+  cancel-in-progress: true
+
+jobs:
+  scp-contract-smoke:
+    name: Verify SCP contract in production
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve main head SHA
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Run SCP contract smoke
+        env:
+          SCP_SMOKE_BASE_URL: ${{ inputs.transport == 'vercel-bff' && format('{0}/api/platform', vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app') || vars.PRODUCTION_BASE_URL }}
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+          SCP_SMOKE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+          DEPLOYED_COMMIT_SHA: ${{ steps.target.outputs.sha }}
+          SCP_SMOKE_EVIDENCE_FILE: scp-contract-smoke.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in SCP_SMOKE_BASE_URL CONTROL_PLANE_ADMIN_EMAIL CONTROL_PLANE_ADMIN_PASSWORD CONTROL_PLANE_TENANT_ID; do
+            test -n "${!name:-}" || { echo "::error::$name is required (configure the production environment)"; exit 1; }
+          done
+          bash scripts/production/verify-scp-contract-smoke.sh
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scp-contract-smoke-${{ github.run_id }}
+          path: scp-contract-smoke.json
+          if-no-files-found: warn
+          retention-days: 90
