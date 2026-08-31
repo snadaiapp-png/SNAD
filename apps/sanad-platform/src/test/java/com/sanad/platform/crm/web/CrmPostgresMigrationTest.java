@@ -166,7 +166,15 @@ class CrmPostgresMigrationTest {
     private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
     private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
     private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
-    private static final String LATEST_MIGRATION_VERSION = OWNER_EMAIL_CANONICALIZATION_VERSION;
+    // Subscription Control Plane (SCP closure — closure/scp-final-verification):
+    //   six intentional SCP migrations extend the inventory beyond the last CRM migration.
+    private static final String SCP_APPLICATIONS_CATALOG_VERSION = "20260829.1";
+    private static final String SCP_PRODUCTS_PLAN_VERSIONS_VERSION = "20260829.2";
+    private static final String SCP_SUBSCRIPTION_ITEMS_VERSION = "20260829.3";
+    private static final String SCP_PRICES_COUNTRY_CURRENCIES_VERSION = "20260829.4";
+    private static final String SCP_LIFECYCLE_PROVISIONING_VERSION = "20260830.1";
+    private static final String SCP_USAGE_METERING_RBAC_VERSION = "20260830.2";
+    private static final String LATEST_MIGRATION_VERSION = SCP_USAGE_METERING_RBAC_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -381,7 +389,13 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
-                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION));
+                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
+                        MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
+                        MigrationVersion.fromVersion(SCP_SUBSCRIPTION_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
+                        MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
+                        MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -517,7 +531,13 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
-                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION));
+                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
+                        MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
+                        MigrationVersion.fromVersion(SCP_SUBSCRIPTION_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
+                        MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
+                        MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
