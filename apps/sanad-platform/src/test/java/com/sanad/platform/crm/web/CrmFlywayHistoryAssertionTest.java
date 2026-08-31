@@ -199,6 +199,16 @@ class CrmFlywayHistoryAssertionTest {
             , "20260823.1"   // crm contacts force rls (C2 — FORCE RLS on crm_contacts + fail-closed tenant_isolation policy)
             , "20260823.2"   // crm participant role exclusivity (C3 — W2 partial unique index + owner↔participant trigger guards)
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
+            // Subscription Control Plane (SCP closure — closure/scp-final-verification):
+            //   V20260829.1–V20260830.2 are the six intentional SCP migrations. They are
+            //   part of the platform migration inventory applied after the last CRM
+            //   migration, so they must appear in flyway_schema_history in order.
+            , "20260829.1"   // scp applications catalog
+            , "20260829.2"   // scp products and plan versions
+            , "20260829.3"   // scp subscription items
+            , "20260829.4"   // scp prices, country currencies and product entitlements
+            , "20260830.1"   // scp lifecycle and provisioning
+            , "20260830.2"   // scp usage metering and rbac
     );
 
 
