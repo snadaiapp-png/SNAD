@@ -17,6 +17,7 @@
 # Trigger for SCP reconcile exact-image dependency-ordering PR (#936)
 # Trigger for flyway verify repair-marker fix PR (#937)
 # Trigger for capability-code canonicalization + RBAC deny 403 contract PR (#938)
+# Trigger for SCP smoke UUID-shape contract PR (#939)
 name: CRM Deployment Readiness
 
 on:

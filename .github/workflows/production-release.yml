@@ -121,7 +121,10 @@ jobs:
           test "$(jq -r '.[] | select(.key == "BOOTSTRAP_ENABLED") | .value' /tmp/render-env-normalized.json)" = "false"
           control_tenant_id=$(jq -r '.[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value' /tmp/render-env-normalized.json)
           database_username=$(jq -r '.[] | select(.key == "DATABASE_USERNAME") | .value' /tmp/render-env-normalized.json)
-          [[ "$control_tenant_id" =~ ^[0-9a-fA-F-]{36}$ ]]
+          # Canonical UUID shape (8-4-4-4-12): accepts the deterministic
+          # control-plane sentinel tenant and every RFC version, while still
+          # rejecting structurally invalid ids.
+          [[ "$control_tenant_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
           echo "::add-mask::$control_tenant_id"
           echo "::add-mask::$database_username"
           echo "CONTROL_PLANE_TENANT_ID=$control_tenant_id" >> "$GITHUB_ENV"

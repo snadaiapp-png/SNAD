@@ -10,6 +10,7 @@ Run:
 """
 
 import os
+import re
 import sys
 import unittest
 
@@ -168,6 +169,86 @@ jobs:
     def test_22_scp_smoke_usage_contract_is_array(self):
         smoke = repo_text("scripts/production/verify-scp-contract-smoke.sh")
         self.assertIn('check "usageTenantScoped" "array"', smoke)
+
+    # -- UUID-shape contract (SCP-939): gates must accept what the API accepts --
+
+    SENTINEL_CONTROL_PLANE_TENANT = "00000000-0000-0000-0000-000000000001"
+    CANONICAL_UUID_SHAPE = (
+        "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
+        "-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    )
+
+    def _uuid_regex_of(self, path):
+        import re
+        text = repo_text(path)
+        match = re.search(r"uuid_regex='([^']+)'", text)
+        self.assertIsNotNone(match, f"{path} must define uuid_regex")
+        return match.group(1)
+
+    def test_23_scp_smoke_uuid_gate_accepts_control_plane_sentinel(self):
+        # The production control-plane tenant is the deterministic sentinel UUID
+        # 00000000-0000-0000-0000-000000000001 (version/variant nibbles 0), served
+        # HTTP 200 by /api/v1/executive/usage on both transports. The smoke gate
+        # must validate the SAME UUID shape the API contract accepts (canonical
+        # 8-4-4-4-12, any version/variant) — not an RFC-4122 v1-5-only subset.
+        pattern = re.compile(self._uuid_regex_of("scripts/production/verify-scp-contract-smoke.sh"))
+        self.assertIsNotNone(
+            pattern.fullmatch(self.SENTINEL_CONTROL_PLANE_TENANT),
+            "smoke UUID gate must accept the deterministic control-plane sentinel tenant",
+        )
+        self.assertIsNotNone(
+            pattern.fullmatch("3f2b8a10-1234-4abc-8def-001122334455"),
+            "smoke UUID gate must accept standard v4 UUIDs",
+        )
+        for malformed in (
+            "not-a-uuid",
+            "00000000-0000-0000-0000-00000000000",      # 35 chars
+            "00000000000000000000000000000000001",        # no hyphens
+            "00000000-0000-0000-0000-00000000000g",       # non-hex
+        ):
+            self.assertIsNone(
+                pattern.fullmatch(malformed),
+                f"smoke UUID gate must still reject malformed input: {malformed}",
+            )
+
+    def test_24_control_plane_authenticated_smoke_uuid_gate_accepts_sentinel(self):
+        # Same contract for the authenticated control-plane smoke (go-live path):
+        # its tenant gates must not false-deny the sentinel control-plane tenant.
+        path = "scripts/production/verify-control-plane-authenticated-smoke.sh"
+        pattern = re.compile(self._uuid_regex_of(path))
+        self.assertIsNotNone(
+            pattern.fullmatch(self.SENTINEL_CONTROL_PLANE_TENANT),
+            "authenticated smoke UUID gate must accept the control-plane sentinel tenant",
+        )
+        self.assertIsNotNone(
+            pattern.fullmatch("3f2b8a10-1234-4abc-8def-001122334455"),
+            "authenticated smoke UUID gate must accept standard v4 UUIDs",
+        )
+
+    def test_25_workflow_tenant_gates_use_canonical_uuid_shape(self):
+        # Workflow-level tenant gates must validate the canonical 8-4-4-4-12 shape
+        # (accepts sentinel + RFC versions) instead of a loose 36-char hex/hyphen
+        # soup that would admit structurally invalid ids.
+        for path in (
+            ".github/workflows/production-release.yml",
+            ".github/workflows/scp-production-contract-smoke.yml",
+        ):
+            text = repo_text(path)
+            self.assertIn(
+                self.CANONICAL_UUID_SHAPE,
+                text,
+                f"{path} must gate the control-plane tenant on the canonical UUID shape",
+            )
+            self.assertNotIn(
+                "[0-9a-fA-F-]{36}",
+                text,
+                f"{path} must not use the loose 36-char tenant gate",
+            )
+            self.assertNotIn(
+                "[1-5][0-9a-fA-F]{3}",
+                text,
+                f"{path} must not use the RFC-4122 v1-5-only tenant gate",
+            )
 
 
 if __name__ == "__main__":
