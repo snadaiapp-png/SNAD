@@ -157,6 +157,18 @@ jobs:
             "Reconcile must derive the canonical tenant from the platform-admin production invariant",
         )
 
+    def test_20_scp_smoke_applications_contract_is_array(self):
+        smoke = repo_text("scripts/production/verify-scp-contract-smoke.sh")
+        self.assertIn('check "applications"        "array"', smoke)
+
+    def test_21_scp_smoke_provisioning_contract_is_array(self):
+        smoke = repo_text("scripts/production/verify-scp-contract-smoke.sh")
+        self.assertIn('check "provisioningJobs"    "array"', smoke)
+
+    def test_22_scp_smoke_usage_contract_is_array(self):
+        smoke = repo_text("scripts/production/verify-scp-contract-smoke.sh")
+        self.assertIn('check "usageTenantScoped" "array"', smoke)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
