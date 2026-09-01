@@ -114,7 +114,7 @@ class WorkflowDefinitionValidatorTest {
     void executableCodeAndSecretFieldsFailValidation() {
         UUID defId = createDefinition();
         UUID start = createStep(defId, "start", "START", null);
-        UUID scripted = createStep(defId, "task", "HUMAN_TASK",
+        UUID scripted = createStepWithConfig(defId, "task", "HUMAN_TASK",
                 "{\"script\": \"return secrets.apiKey;\"}");
         UUID end = createStep(defId, "end", "END", null);
         createTransition(defId, start, scripted, "begin", "SUCCESS", null);

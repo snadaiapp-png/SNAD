@@ -35,8 +35,11 @@ class PlatformApiCountTest {
      *  /api/v2/crm/caller-identification/lookup (1), /caller-identification/delta (1),
      *  /api/v2/crm/calls (1), /calls/events (1), /calls/{callId} (1) = 715.
      *  + 2 ERP inventory endpoints (PR #912):
-     *  /api/v1/erp/inventory/reservations (1), /movements (1) = 717. */
-    private static final long EXPECTED_TOTAL_OPS = 717;
+     *  /api/v1/erp/inventory/reservations (1), /movements (1) = 717.
+     *  + 2 Workflow Y2 endpoints (Wave 1 / Task 6):
+     *  /api/v1/workflows/definitions/{id}/validate (1),
+     *  /api/v1/workflows/definitions/{id}/simulate (1) = 719. */
+    private static final long EXPECTED_TOTAL_OPS = 719;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;

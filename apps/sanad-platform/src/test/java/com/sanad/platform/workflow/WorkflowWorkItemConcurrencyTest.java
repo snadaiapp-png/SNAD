@@ -52,8 +52,6 @@ class WorkflowWorkItemConcurrencyTest {
     void setUp() {
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
-        employeeA = createEmployee("E-A");
-        employeeB = createEmployee("E-B");
         var now = Timestamp.from(Instant.now());
 
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
@@ -62,6 +60,8 @@ class WorkflowWorkItemConcurrencyTest {
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Concurrency User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "wi-conc-" + userId.toString().substring(0, 8) + "@test", now, now);
+        employeeA = createEmployee("E-A");
+        employeeB = createEmployee("E-B");
         jdbc.update("""
                 INSERT INTO workflow_instances (
                     id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
