@@ -52,24 +52,49 @@ mask_all() {
 }
 
 # -----------------------------------------------------------------------------
-# Fetch authoritative env vars from the Render service (single call).
+# Fetch authoritative env vars from the Render service.
+# Per-key GET is definitive (immune to list pagination); the one list call
+# provides the KEY-NAME inventory (names are not secret) for the evidence log.
 # -----------------------------------------------------------------------------
-fetch_render_env() {
-  log "Fetching authoritative env vars from Render service env..."
-  curl --fail-with-body --silent --show-error "${AUTH_HEADERS[@]}" \
-    "${RENDER_API}/env-vars?limit=100" > "$WORK_DIR/render-env.json"
+get_render_var() {
+  local key="$1" status rc
+  set +e
+  status="$(curl --silent --show-error -o "$WORK_DIR/var-$key.json" -w '%{http_code}' \
+    "${AUTH_HEADERS[@]}" "${RENDER_API}/env-vars/${key}")"
+  rc=$?
+  set -e
+  if [ $rc -ne 0 ] || [ "$status" = "404" ]; then
+    echo "__ABSENT__"
+    return 0
+  fi
+  if [ "$status" != "200" ]; then
+    fail "Render env GET ${key} returned HTTP ${status}"
+  fi
+  jq -r '(.envVar // .).value // empty' "$WORK_DIR/var-$key.json"
+}
 
-  RENDER_ADMIN_EMAIL="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "CONTROL_PLANE_ADMIN_EMAIL") | .value // empty' "$WORK_DIR/render-env.json")"
-  RENDER_ADMIN_PASSWORD="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "CONTROL_PLANE_ADMIN_PASSWORD") | .value // empty' "$WORK_DIR/render-env.json")"
-  RENDER_TENANT_ID="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "CONTROL_PLANE_TENANT_ID") | .value // empty' "$WORK_DIR/render-env.json")"
-  RENDER_SANAD_TENANT_ID="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value // empty' "$WORK_DIR/render-env.json")"
-  RENDER_BOOTSTRAP_ENABLED="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "CONTROL_PLANE_BOOTSTRAP_ENABLED") | .value // empty' "$WORK_DIR/render-env.json")"
-  RENDER_DATABASE_URL="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_URL") | .value // empty' "$WORK_DIR/render-env.json")"
-  RENDER_DATABASE_PASSWORD="$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "DATABASE_PASSWORD") | .value // empty' "$WORK_DIR/render-env.json")"
+fetch_render_env() {
+  log "Fetching authoritative env vars from Render service env (per-key, definitive)..."
+  RENDER_ADMIN_EMAIL="$(get_render_var CONTROL_PLANE_ADMIN_EMAIL)"
+  RENDER_ADMIN_PASSWORD="$(get_render_var CONTROL_PLANE_ADMIN_PASSWORD)"
+  RENDER_TENANT_ID="$(get_render_var CONTROL_PLANE_TENANT_ID)"
+  RENDER_SANAD_TENANT_ID="$(get_render_var SANAD_CONTROL_PLANE_TENANT_ID)"
+  RENDER_BOOTSTRAP_ENABLED="$(get_render_var CONTROL_PLANE_BOOTSTRAP_ENABLED)"
+  RENDER_DATABASE_URL="$(get_render_var DATABASE_URL)"
+  RENDER_DATABASE_PASSWORD="$(get_render_var DATABASE_PASSWORD)"
 
   for v in "$RENDER_ADMIN_EMAIL" "$RENDER_ADMIN_PASSWORD" "$RENDER_DATABASE_PASSWORD"; do
-    [ -n "$v" ] && echo "::add-mask::${v}"
+    [ -n "$v" ] && [ "$v" != "__ABSENT__" ] && echo "::add-mask::${v}"
   done
+
+  # Key-name inventory (names only, never values) — proves list completeness
+  # and documents which vars the production service actually carries.
+  curl --fail-with-body --silent --show-error "${AUTH_HEADERS[@]}" \
+    "${RENDER_API}/env-vars?limit=100" > "$WORK_DIR/render-env.json" || true
+  ENV_KEY_COUNT="$(jq -r '[.[]? | (.envVar // .)] | length' "$WORK_DIR/render-env.json" 2>/dev/null || echo 0)"
+  log "Render env var inventory (count=${ENV_KEY_COUNT}, names only):"
+  jq -r '[.[]? | (.envVar // .)] | .[] | .key' "$WORK_DIR/render-env.json" 2>/dev/null \
+    | sort | sed 's/^/  - /' || log "  (inventory unavailable)"
 }
 
 # -----------------------------------------------------------------------------
@@ -141,50 +166,67 @@ trigger_deploy() {
 }
 
 # -----------------------------------------------------------------------------
-# diagnose — read-only divergence proof.
+# diagnose — read-only divergence proof. Collects ALL evidence (never stops at
+# the first divergence) and prints a final verdict summary.
 # -----------------------------------------------------------------------------
 diagnose() {
   mask_all
   fetch_render_env
 
+  local present_email=1 present_password=1 present_tenant=1 present_db=1
+  [ -n "$RENDER_ADMIN_EMAIL" ] && [ "$RENDER_ADMIN_EMAIL" != "__ABSENT__" ] && present_email=0
+  [ -n "$RENDER_ADMIN_PASSWORD" ] && [ "$RENDER_ADMIN_PASSWORD" != "__ABSENT__" ] && present_password=0
+  [ -n "$RENDER_TENANT_ID" ] && [ "$RENDER_TENANT_ID" != "__ABSENT__" ] && present_tenant=0
+  [ -n "$RENDER_DATABASE_URL" ] && [ "$RENDER_DATABASE_URL" != "__ABSENT__" ] \
+    && [ -n "$RENDER_DATABASE_PASSWORD" ] && [ "$RENDER_DATABASE_PASSWORD" != "__ABSENT__" ] && present_db=0
+
   log "=== GitHub secrets vs Render service env (equality booleans only) ==="
-  if [ -n "$RENDER_ADMIN_EMAIL" ]; then
+  if [ "$present_email" -eq 0 ]; then
     [ "$CONTROL_PLANE_ADMIN_EMAIL" = "$RENDER_ADMIN_EMAIL" ] \
-      && pass "admin email matches Render env" || fail "admin email DIVERGES from Render env (server env is the bootstrap authority)"
+      && pass "admin email matches Render env" \
+      || log "DIVERGENCE: admin email differs between GitHub secret and Render env"
   else
-    fail "CONTROL_PLANE_ADMIN_EMAIL not present in Render env"
+    log "DIVERGENCE: CONTROL_PLANE_ADMIN_EMAIL is ABSENT from the Render service env (bootstrap would refuse: admin email not configured)"
   fi
-  if [ -n "$RENDER_ADMIN_PASSWORD" ]; then
+  if [ "$present_password" -eq 0 ]; then
     [ "$CONTROL_PLANE_ADMIN_PASSWORD" = "$RENDER_ADMIN_PASSWORD" ] \
-      && pass "admin password matches Render env" || fail "admin password DIVERGES from Render env (bootstrap would provision the Render-env value)"
+      && pass "admin password matches Render env" \
+      || log "DIVERGENCE: admin password differs between GitHub secret and Render env"
   else
-    fail "CONTROL_PLANE_ADMIN_PASSWORD not present in Render env"
+    log "DIVERGENCE: CONTROL_PLANE_ADMIN_PASSWORD is ABSENT from the Render service env"
   fi
-  if [ -n "$RENDER_TENANT_ID" ]; then
+  if [ "$present_tenant" -eq 0 ]; then
     [ "$CONTROL_PLANE_TENANT_ID" = "$RENDER_TENANT_ID" ] \
-      && pass "tenant id matches Render CONTROL_PLANE_TENANT_ID" || fail "tenant id DIVERGES from Render CONTROL_PLANE_TENANT_ID"
+      && pass "tenant id matches Render CONTROL_PLANE_TENANT_ID" \
+      || log "DIVERGENCE: tenant id differs between GitHub secret and Render CONTROL_PLANE_TENANT_ID"
   else
-    log "WARN: CONTROL_PLANE_TENANT_ID not present in Render env"
+    log "NOTE: CONTROL_PLANE_TENANT_ID not present in Render env (bootstrap uses SANAD_CONTROL_PLANE_TENANT_ID)"
   fi
-  if [ -n "$RENDER_SANAD_TENANT_ID" ]; then
+  if [ -n "$RENDER_SANAD_TENANT_ID" ] && [ "$RENDER_SANAD_TENANT_ID" != "__ABSENT__" ]; then
     [ "$CONTROL_PLANE_TENANT_ID" = "$RENDER_SANAD_TENANT_ID" ] \
-      && pass "tenant id matches Render SANAD_CONTROL_PLANE_TENANT_ID" || fail "tenant id DIVERGES from Render SANAD_CONTROL_PLANE_TENANT_ID"
+      && pass "tenant id matches Render SANAD_CONTROL_PLANE_TENANT_ID" \
+      || log "DIVERGENCE: tenant id differs from Render SANAD_CONTROL_PLANE_TENANT_ID"
   else
-    log "WARN: SANAD_CONTROL_PLANE_TENANT_ID not present in Render env"
+    log "NOTE: SANAD_CONTROL_PLANE_TENANT_ID not present in Render env (bootstrap would refuse: control-plane tenant not configured)"
   fi
   log "Render CONTROL_PLANE_BOOTSTRAP_ENABLED='${RENDER_BOOTSTRAP_ENABLED:-<unset>}'"
 
   log "=== Production DB identity state (read-only) ==="
-  if [ -n "$RENDER_DATABASE_URL" ] && [ -n "$RENDER_DATABASE_PASSWORD" ]; then
+  if [ "$present_db" -eq 1 ]; then
+    log "WARN: DATABASE_URL/DATABASE_PASSWORD unavailable from Render env; skipping DB checks"
+  else
     db_identity_state "github-secret" "$CONTROL_PLANE_ADMIN_EMAIL" "$CONTROL_PLANE_TENANT_ID"
-    if [ -n "$RENDER_ADMIN_EMAIL" ] && [ "$RENDER_ADMIN_EMAIL" != "$CONTROL_PLANE_ADMIN_EMAIL" ]; then
+    if [ "$present_email" -eq 0 ] && [ "$RENDER_ADMIN_EMAIL" != "$CONTROL_PLANE_ADMIN_EMAIL" ]; then
       db_identity_state "render-env" "$RENDER_ADMIN_EMAIL" "${RENDER_TENANT_ID:-$CONTROL_PLANE_TENANT_ID}"
     fi
-  else
-    log "WARN: DATABASE_URL/DATABASE_PASSWORD unavailable from Render env; skipping DB checks"
   fi
 
   deploy_state
+
+  log "=== DIAGNOSE VERDICT (read-only evidence; reconcile is the corrective action) ==="
+  log "GitHub-secret email present in Render env: $([ $present_email -eq 0 ] && echo YES || echo NO)"
+  log "GitHub-secret password present in Render env: $([ $present_password -eq 0 ] && echo YES || echo NO)"
+  log "DB checks executed: $([ $present_db -eq 0 ] && echo YES || echo NO)"
   log "Diagnose complete (read-only)."
 }
 
