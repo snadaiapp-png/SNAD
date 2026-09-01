@@ -1,0 +1,134 @@
+name: SCP Tenant Discovery (read-only)
+
+# ============================================================
+# READ-ONLY production tenant inventory for smoke-identity
+# reconciliation forensics.
+#
+# Purpose: when the configured CONTROL_PLANE_TENANT_ID points
+# at a tenant that does not exist in the production database
+# (bootstrap fails with "Bootstrap tenant does not exist"),
+# this workflow produces the authoritative inventory needed
+# to identify the REAL control-plane tenant:
+#   1. all rows of `tenants` (id / name / subdomain / status)
+#   2. all ACTIVE-eligible `ADMIN` role grants per tenant
+#   3. optional tenant binding for a supplied admin email
+#
+# Safety model:
+#   - SELECT-only statements inside a read-only transaction
+#     (SET default_transaction_read_only = on).
+#   - Credentials come from the Production environment secrets
+#     and are never printed; GitHub masks them automatically.
+#   - Two independent credential sets are tried in order
+#     (PROD_JDBC_URL, then PRODUCTION_DATABASE_*); the script
+#     fails closed if neither connects.
+#   - No mutation, no deployment, no env var writes.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      admin_email:
+        description: 'Optional admin email to resolve tenant binding (read-only)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scp-tenant-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Read-only production tenant inventory (SELECT only)
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Read-only tenant inventory
+        env:
+          JDBC_URL_A: ${{ secrets.PROD_JDBC_URL }}
+          DB_USER_A: ${{ secrets.PROD_DB_USER }}
+          DB_PW_A: ${{ secrets.PROD_DB_PASSWORD }}
+          JDBC_URL_B: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          DB_USER_B: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DB_PW_B: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+          ADMIN_EMAIL: ${{ inputs.admin_email }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$ADMIN_EMAIL" ]; then
+            echo "::add-mask::${ADMIN_EMAIL}"
+          fi
+          esc_email="${ADMIN_EMAIL//\'/\'\'}"
+
+          parse_jdbc() {
+            local raw="${1#jdbc:}"
+            raw="${raw#postgresql://}"
+            raw="${raw#postgres://}"
+            local host_port="${raw%%/*}"
+            local rest="${raw#*/}"
+            DB_NAME="${rest%%\?*}"
+            PGHOST="${host_port%%:*}"
+            PGPORT="${host_port#*:}"
+            PGPORT="${PGPORT:-5432}"
+          }
+
+          psql_ro() {
+            PGPASSWORD="$DB_PW" psql \
+              -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -d "$DB_NAME" \
+              --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align "$@"
+          }
+
+          run_inventory() {
+            parse_jdbc "$JDBC_URL"
+            echo "Connection set candidate: host=${PGHOST} port=${PGPORT} db=${DB_NAME} (user masked)"
+            if ! PGPASSWORD="$DB_PW" psql -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -d "$DB_NAME" \
+                 --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+                 --command="SET default_transaction_read_only = on; SELECT 1;" >/dev/null 2>&1; then
+              echo "This credential set failed to connect; trying next (if any)."
+              return 1
+            fi
+
+            echo ""
+            echo "=== [1/3] tenants (id | name | subdomain | status | created) ==="
+            psql_ro --command="SET default_transaction_read_only = on; \
+              SELECT id || ' | ' || COALESCE(name,'') || ' | ' || COALESCE(subdomain,'') || ' | ' \
+              || status || ' | ' || COALESCE(created_at::date::text,'') \
+              FROM tenants ORDER BY created_at;"
+
+            echo ""
+            echo "=== [2/3] ADMIN role grants (tenant_id | code | status) ==="
+            psql_ro --command="SET default_transaction_read_only = on; \
+              SELECT tenant_id || ' | ' || code || ' | ' || status \
+              FROM roles WHERE code = 'ADMIN' ORDER BY tenant_id;"
+
+            echo ""
+            echo "=== [3/3] user binding for supplied admin email (tenant_id | status) ==="
+            if [ -n "$esc_email" ]; then
+              psql_ro --command="SET default_transaction_read_only = on; \
+                SELECT tenant_id || ' | ' || status || ' | ' || COALESCE(CAST(last_login_at AS text),'never') \
+                FROM users WHERE email = lower('${esc_email}');"
+            else
+              echo "(no admin_email input supplied; skipped)"
+            fi
+            return 0
+          }
+
+          JDBC_URL="$JDBC_URL_A"; DB_USER="$DB_USER_A"; DB_PW="$DB_PW_A"
+          if ! run_inventory; then
+            JDBC_URL="$JDBC_URL_B"; DB_USER="$DB_USER_B"; DB_PW="$DB_PW_B"
+            [ -n "$JDBC_URL" ] || { echo "::error::No fallback credential set configured"; exit 1; }
+            run_inventory || { echo "::error::All credential sets failed to connect"; exit 1; }
+          fi
+
+          echo ""
+          echo "Discovery complete (read-only). No mutations performed."
