@@ -779,6 +779,7 @@ class HrCanonicalBackfillIntegrationTest {
      */
     private UUID seedLegalEntity(UUID tenantId, String code) throws Exception {
         UUID leId = UUID.randomUUID();
+        setTenant(tenantId);  // Required: legal_entities has FORCE RLS
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO legal_entities (id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at) " +
                 "VALUES (?, ?, ?, ?, 'SA', 'SA', 'ACTIVE', NOW(), NOW())")) {
@@ -796,6 +797,7 @@ class HrCanonicalBackfillIntegrationTest {
      * This is the REQUIRED link that makes a tenant migration-ready.
      */
     private void seedOrgLegalEntity(UUID tenantId, UUID orgId, UUID leId) throws Exception {
+        setTenant(tenantId);  // Required: organization_legal_entities has FORCE RLS
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, " +
                 "effective_from, effective_to, status, created_at) " +
