@@ -199,6 +199,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260823.1"   // crm contacts force rls (C2 — FORCE RLS on crm_contacts + fail-closed tenant_isolation policy)
             , "20260823.2"   // crm participant role exclusivity (C3 — W2 partial unique index + owner↔participant trigger guards)
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
+            // Workflow Y2 Wave 0 — identity bridge (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
+            , "20260830.1"   // enforce employee/user identity bridge unique index
     );
 
 
