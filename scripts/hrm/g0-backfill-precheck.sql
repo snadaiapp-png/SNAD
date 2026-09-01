@@ -85,9 +85,18 @@ BEGIN
         END IF;
 
         -- Check 3: Pre-existing canonical Person with same user_id → ambiguous
-        IF v_emp_record.user_id IS NOT NULL THEN
-            PERFORM 1 FROM hr_people
-            WHERE tenant_id = p_tenant_id AND user_id = v_emp_record.user_id;
+        -- Only trigger if the Person exists AND the current legacy employee
+        -- is NOT already linked to that Person (person_id IS NULL or different).
+        -- If person_id is already linked, this is a rerun — not ambiguity.
+        IF v_emp_record.user_id IS NOT NULL AND v_emp_record.id IS NOT NULL THEN
+            PERFORM 1 FROM hr_people p
+            WHERE p.tenant_id = p_tenant_id AND p.user_id = v_emp_record.user_id
+              AND NOT EXISTS (
+                  SELECT 1 FROM hr_employees e
+                  WHERE e.id = v_emp_record.id
+                    AND e.tenant_id = p_tenant_id
+                    AND e.person_id = p.id
+              );
             IF FOUND THEN
                 v_classification := 'MIGRATION_REVIEW_REQUIRED';
                 v_reason := COALESCE(v_reason || '; ', '') || 'Existing canonical Person with same user_id';
@@ -122,15 +131,33 @@ BEGIN
         END IF;
 
         -- Check 6: Manager mapping unresolved
+        -- The manager_id references another legacy employee. Check if that
+        -- employee exists. If it does, the manager will be processed in the
+        -- same precheck pass. Create a review item for the manager mapping
+        -- so the contract is verifiable. This does NOT block — it creates
+        -- a review item that reconciliation will verify.
         IF v_emp_record.manager_id IS NOT NULL THEN
-            PERFORM 1 FROM hr_legacy_employee_mappings m
-            WHERE m.tenant_id = p_tenant_id AND m.legacy_employee_id = v_emp_record.manager_id
-              AND m.classification = 'AUTO_MIGRATE';
+            PERFORM 1 FROM hr_employees
+            WHERE tenant_id = p_tenant_id AND id = v_emp_record.manager_id;
             IF NOT FOUND THEN
+                -- Manager doesn't exist as legacy employee → unresolved
                 IF v_classification = 'AUTO_MIGRATE' THEN
                     v_classification := 'MIGRATION_REVIEW_REQUIRED';
-                    v_reason := 'Unresolved manager mapping';
+                    v_reason := 'Unresolved manager mapping — manager not found';
                     v_issue_code := 'MISSING_MANAGER_MAPPING';
+                END IF;
+            ELSE
+                -- Manager exists but no canonical assignment yet → create review item
+                -- (does not block, but records the unresolved state)
+                IF v_issue_code IS NULL THEN
+                    INSERT INTO hr_migration_review_items
+                        (tenant_id, legacy_entity_type, legacy_entity_id, issue_code,
+                         severity, review_reason, resolution_state, created_at, updated_at)
+                    VALUES
+                        (p_tenant_id, 'EMPLOYEE', v_emp_record.id, 'MISSING_MANAGER_MAPPING',
+                         'REVIEW', 'Manager mapping pending canonical assignment',
+                         'OPEN', NOW(), NOW())
+                    ON CONFLICT DO NOTHING;
                 END IF;
             END IF;
         END IF;
