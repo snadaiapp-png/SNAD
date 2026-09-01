@@ -2,7 +2,9 @@ package com.sanad.platform.workflow.application;
 
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionRepository;
+import com.sanad.platform.workflow.domain.WorkflowDefinitionValidation;
 import com.sanad.platform.workflow.domain.WorkflowStep;
+import com.sanad.platform.workflow.domain.WorkflowTransition;
 import com.sanad.platform.workflow.domain.WorkflowTransitionAudit;
 import com.sanad.platform.workflow.domain.WorkflowTransitionAuditRepository;
 import org.slf4j.Logger;
@@ -37,12 +39,15 @@ public class WorkflowDefinitionService {
 
     private final WorkflowDefinitionRepository defRepo;
     private final WorkflowTransitionAuditRepository auditRepo;
+    private final WorkflowDefinitionValidator validator;
 
     public WorkflowDefinitionService(
             WorkflowDefinitionRepository defRepo,
-            WorkflowTransitionAuditRepository auditRepo) {
+            WorkflowTransitionAuditRepository auditRepo,
+            WorkflowDefinitionValidator validator) {
         this.defRepo = defRepo;
         this.auditRepo = auditRepo;
+        this.validator = validator;
     }
 
     @Transactional
@@ -95,17 +100,49 @@ public class WorkflowDefinitionService {
     }
 
     /**
-     * Publishes a DRAFT as an immutable Y2 version (I3). The published
-     * checksum is the tamper-detection reference for audit and runtime
-     * loading. The validation publish gate (AN3) is wired in Task 6.
+     * Publishes a DRAFT as an immutable Y2 version (I3). The AN3 publish
+     * gate runs the structural validator first; a failing validation blocks
+     * publication with HTTP 422 semantics. The published checksum is the
+     * tamper-detection reference for audit and runtime loading.
      */
     @Transactional
-    public WorkflowDefinition publish(UUID tenantId, UUID id, UUID actorUserId, String checksum) {
+    public WorkflowDefinition publish(UUID tenantId, UUID id, UUID actorUserId) {
         var def = load(tenantId, id);
-        var updated = defRepo.save(def.publish(actorUserId, checksum));
+        var validation = validator.validate(tenantId, id);
+        if (!validation.valid()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Workflow definition validation failed: " + validation.errors().get(0).code());
+        }
+        var updated = defRepo.save(def.publish(actorUserId, checksum(def)));
         logDefEvent(actorUserId, updated, WorkflowTransitionAudit.Action.ACTIVATE,
                 def.publicationState().name(), updated.publicationState().name());
         return updated;
+    }
+
+    /**
+     * Deterministic tamper-detection checksum over the published graph
+     * (steps + transitions), stable for identical definition content.
+     */
+    private String checksum(WorkflowDefinition def) {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            var payload = new StringBuilder();
+            defRepo.findSteps(def.id()).stream()
+                    .sorted(java.util.Comparator.comparing(WorkflowStep::stepKey))
+                    .forEach(s -> payload.append(s.stepKey()).append(':')
+                            .append(s.stepType()).append(':')
+                            .append(s.sequenceOrder()).append(';'));
+            defRepo.findTransitions(def.id()).stream()
+                    .sorted(java.util.Comparator.comparing(WorkflowTransition::transitionKey))
+                    .forEach(t -> payload.append(t.transitionKey()).append("->")
+                            .append(t.toStepId()).append(':')
+                            .append(t.outcome()).append(';'));
+            var hash = digest.digest(payload.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(hash);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     /**
@@ -125,6 +162,11 @@ public class WorkflowDefinitionService {
     @Transactional(readOnly = true)
     public List<WorkflowDefinition> findVersions(UUID tenantId, UUID definitionFamilyId) {
         return defRepo.findVersions(tenantId, definitionFamilyId);
+    }
+
+    @Transactional(readOnly = true)
+    public WorkflowDefinitionValidation validate(UUID tenantId, UUID definitionId) {
+        return validator.validate(tenantId, definitionId);
     }
 
     @Transactional

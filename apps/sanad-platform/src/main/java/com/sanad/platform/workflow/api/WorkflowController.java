@@ -4,6 +4,7 @@ import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
+import com.sanad.platform.workflow.application.WorkflowSimulationService;
 import com.sanad.platform.workflow.application.WorkflowMonitoringService;
 import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
@@ -42,16 +43,19 @@ public class WorkflowController {
     private final WorkflowExecutionService executionService;
     private final WorkflowApprovalService approvalService;
     private final WorkflowMonitoringService monitoringService;
+    private final WorkflowSimulationService simulationService;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
             WorkflowExecutionService executionService,
             WorkflowApprovalService approvalService,
-            WorkflowMonitoringService monitoringService) {
+            WorkflowMonitoringService monitoringService,
+            WorkflowSimulationService simulationService) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
         this.monitoringService = monitoringService;
+        this.simulationService = simulationService;
     }
 
     // ===== Exception Handling =====
@@ -117,6 +121,44 @@ public class WorkflowController {
         return definitionService.findById(tenantId(auth), id)
                 .map(d -> ResponseEntity.ok(toDefinitionMap(d)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * AN3 publish-gate preview: runs the structural validator against the
+     * draft and reports stable, language-neutral error codes.
+     */
+    @PostMapping("/definitions/{id}/validate")
+    @RequireCapability("WORKFLOW.VALIDATE")
+    public ResponseEntity<Map<String, Object>> validateDefinition(
+            Authentication auth, @PathVariable UUID id) {
+        var validation = definitionService.validate(tenantId(auth), id);
+        return ResponseEntity.ok(Map.of(
+                "valid", validation.valid(),
+                "errors", validation.errors().stream()
+                        .map(e -> Map.of(
+                                "code", (Object) e.code(),
+                                "message", e.message() != null ? e.message() : "",
+                                "stepId", e.stepId() != null ? e.stepId().toString() : ""))
+                        .toList()));
+    }
+
+    /**
+     * Side-effect-free simulation (AN3). System actions, notifications, and
+     * sub-workflows are stubbed; the response is explicitly marked
+     * non-production.
+     */
+    @PostMapping("/definitions/{id}/simulate")
+    @RequireCapability("WORKFLOW.VALIDATE")
+    public ResponseEntity<Map<String, Object>> simulateDefinition(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody(required = false) Map<String, Object> context) {
+        var result = simulationService.simulate(tenantId(auth), id,
+                context != null ? context : Map.of());
+        return ResponseEntity.ok(Map.of(
+                "valid", result.valid(),
+                "simulated", result.simulated(),
+                "visitedStepIds", result.visitedStepIds().stream().map(UUID::toString).toList(),
+                "notes", result.notes()));
     }
 
     @PostMapping("/definitions/{id}/activate")
