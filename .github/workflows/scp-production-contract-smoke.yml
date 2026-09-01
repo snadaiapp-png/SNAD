@@ -60,7 +60,10 @@ jobs:
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars/SANAD_CONTROL_PLANE_TENANT_ID")"
           [ "$status" = "200" ] || { echo "::error::Unable to resolve runtime control-plane tenant from Render"; exit 1; }
           tenant="$(jq -r '(.envVar // .).value // empty' /tmp/runtime-tenant.json)"
-          [[ "$tenant" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Runtime control-plane tenant is missing or invalid"; exit 1; }
+          # Canonical UUID shape (8-4-4-4-12): accepts the deterministic
+          # control-plane sentinel tenant and every RFC version, while still
+          # rejecting structurally invalid ids.
+          [[ "$tenant" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || { echo "::error::Runtime control-plane tenant is missing or invalid"; exit 1; }
           echo "::add-mask::$tenant"
           echo "id=$tenant" >> "$GITHUB_OUTPUT"
           rm -f /tmp/runtime-tenant.json

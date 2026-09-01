@@ -26,7 +26,11 @@ do
   echo "::add-mask::$value"
 done
 
-uuid_regex='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+# Canonical UUID shape (8-4-4-4-12), matching the API contract (java.util.UUID
+# and Postgres uuid accept any version/variant, including the deterministic
+# control-plane sentinel tenant 00000000-0000-0000-0000-000000000001).
+# Same convention as verify-control-plane-tenant.sh.
+uuid_regex='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 sha_regex='^[0-9a-f]{40}$'
 
 [[ "$CONTROL_PLANE_TENANT_ID" =~ $uuid_regex ]] || {
