@@ -132,11 +132,18 @@ deploy_state() {
 }
 
 trigger_deploy() {
-  local status deploy_id rc
+  local status deploy_id rc payload
+  if [ -n "${IMAGE_REF:-}" ]; then
+    payload="$(jq -n --arg image "$IMAGE_REF" '{imageUrl:$image,clearCache:"do_not_clear"}')"
+    log "Deploy trigger for exact immutable image: ${IMAGE_REF}"
+  else
+    payload='{"clearCache":"do_not_clear"}'
+    log "Deploy trigger for the service currently configured image."
+  fi
   set +e
   status="$(curl --silent --show-error -o "$WORK_DIR/trigger.json" -w '%{http_code}' \
     -X POST "${AUTH_HEADERS[@]}" -H "Content-Type: application/json" \
-    --data '{"clearCache":"do_not_clear"}' "${RENDER_API}/deploys")"
+    --data "$payload" "${RENDER_API}/deploys")"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "Render deploy trigger curl failed"
@@ -191,8 +198,34 @@ verify_login() {
   fi
   token="$(jq -r '.accessToken // empty' "$WORK_DIR/login-check.json")"
   [ -n "$token" ] || fail "login 200 returned no access token (${label})"
+  printf '%s' "$token" > "$WORK_DIR/last-token"
   echo "::add-mask::${token}"
   pass "login verified (${label})"
+}
+
+# Proves the smoke identity is not blocked by forced-credential rotation:
+# /api/v1/executive/overview is a protected /api/** route, so a 200 here means
+# the JWT was NOT minted with credential_rotation_required=true — i.e. the
+# control-plane bootstrap (PR #935 semantics) left a steady-state credential.
+verify_protected_call() {
+  local label="$1" status rc token safe_body
+  [ -f "$WORK_DIR/last-token" ] || fail "no login token available for protected-call verification (${label})"
+  token="$(cat "$WORK_DIR/last-token")"
+  set +e
+  status="$(curl --silent --show-error --max-time 60 -o "$WORK_DIR/protected-call.json" -w '%{http_code}' \
+    -H "Authorization: Bearer ${token}" -H 'Accept: application/json' \
+    "${PRODUCTION_BASE_URL%/}/api/v1/executive/overview")"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "protected overview request failed (${label})"
+  if [ "$status" != "200" ]; then
+    safe_body="unparseable"
+    if jq -e . "$WORK_DIR/protected-call.json" >/dev/null 2>&1; then
+      safe_body="$(jq -c '{status,error,message,path}' "$WORK_DIR/protected-call.json")"
+    fi
+    fail "protected /api/v1/executive/overview returned HTTP ${status} (${label}); body=${safe_body} — forced rotation still armed?"
+  fi
+  pass "protected executive/overview accessible (${label}) — no forced-rotation block"
 }
 
 set_render_var() {
@@ -233,6 +266,12 @@ reconcile() {
   : "${PRODUCTION_BASE_URL:?PRODUCTION_BASE_URL is required for reconcile}"
   [ "${#CONTROL_PLANE_ADMIN_PASSWORD}" -ge 12 ] || fail "CONTROL_PLANE_ADMIN_PASSWORD shorter than 12 chars"
   [[ "$PRODUCTION_BASE_URL" == https://* ]] || fail "PRODUCTION_BASE_URL must be https"
+  if [ -n "${IMAGE_REF:-}" ]; then
+    local image_regex='^ghcr\.io/snadaiapp-png/snad-backend:[0-9a-f]{40}$'
+    [[ "$IMAGE_REF" =~ $image_regex ]] \
+      || fail "IMAGE_REF must be an exact immutable image reference (ghcr.io/snadaiapp-png/snad-backend:<40-hex sha>)"
+    log "Dependency ordering: bootstrap will run on the exact image ${IMAGE_REF} (never on a stale pre-fix image)."
+  fi
 
   log "=== Step 1/6: sync validated smoke identity to Render ==="
   set_render_var "CONTROL_PLANE_ADMIN_EMAIL" "$CONTROL_PLANE_ADMIN_EMAIL" secret
@@ -242,7 +281,7 @@ reconcile() {
   set_render_var "CONTROL_PLANE_BOOTSTRAP_TOKEN" "$CONTROL_PLANE_BOOTSTRAP_TOKEN" secret
   set_render_var "CONTROL_PLANE_BOOTSTRAP_ENABLED" "true"
 
-  log "=== Step 2/6: deploy current live image with reconciled env ==="
+  log "=== Step 2/6: deploy ${IMAGE_REF:-current live image} with reconciled env ==="
   local deploy_id bootstrap_status bootstrap_result rc
   deploy_id="$(trigger_deploy)"
   wait_for_live "$deploy_id" 1200
@@ -261,8 +300,9 @@ reconcile() {
     || fail "bootstrap returned HTTP ${bootstrap_status}; sanitized=$(jq -c '{status,code,message}' "$WORK_DIR/bootstrap.json" 2>/dev/null || echo unparseable)"
   pass "bootstrap complete"
 
-  log "=== Step 4/6: verify post-bootstrap login ==="
+  log "=== Step 4/6: verify post-bootstrap login and protected access ==="
   verify_login post-bootstrap
+  verify_protected_call post-bootstrap
 
   log "=== Step 5/6: disable bootstrap and redeploy ==="
   set_render_var "CONTROL_PLANE_BOOTSTRAP_ENABLED" "false"
@@ -270,8 +310,9 @@ reconcile() {
   wait_for_live "$deploy_id" 1200
   wait_for_health 420
 
-  log "=== Step 6/6: verify steady-state login ==="
+  log "=== Step 6/6: verify steady-state login and protected access ==="
   verify_login final
+  verify_protected_call steady-state
   deploy_state
   pass "reconcile complete; smoke identity is production-coherent"
 }
