@@ -13,6 +13,7 @@
 # Trigger for SCP bootstrap token sync PR (#930)
 # Trigger for SCP tenant discovery PR (#931)
 # Trigger for SCP tenant redaction/canonicalization PR (#933)
+# SCP-PRODUCTION-RECOVERY-933: trigger required readiness for the one-time recovery arm PR.
 name: CRM Deployment Readiness
 
 on:
