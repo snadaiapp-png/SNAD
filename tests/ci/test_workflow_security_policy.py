@@ -2,8 +2,8 @@
 """
 SANAD — Workflow Security Policy Tests (Structural)
 =====================================================
-EXEC-PROMPT-010R9 Section 9.3: 15 deterministic test scenarios
-using the structural scanner with fixture files.
+Deterministic workflow-security scenarios using the structural scanner
+with fixture files.
 
 Run:
     python3 -m pytest tests/ci/test_workflow_security_policy.py -q
@@ -26,7 +26,7 @@ def fixture(name):
 
 
 class TestWorkflowSecurityPolicy(unittest.TestCase):
-    """15 required scenarios per EXEC-PROMPT-010R9 Section 9.3."""
+    """Workflow structural-security regression scenarios."""
 
     def scan(self, name):
         return scan_workflow(fixture(name))
@@ -62,10 +62,6 @@ class TestWorkflowSecurityPolicy(unittest.TestCase):
 
     # 6. Render API secret retrieval + mutation fails
     def test_06_render_api_mutation_fails(self):
-        # The unsafe fixture doesn't have a separate Render API call —
-        # it uses environment variables directly. The Render API pattern
-        # is checked in the scanner but the fixture uses psycopg2 directly.
-        # We verify the scanner catches psycopg2+Production instead.
         violations = self.scan("unsafe-reset-admin-password.yml")
         psycopg2_violations = [v for v in violations if v["type"] == "production_psycopg2_access"]
         self.assertGreater(len(psycopg2_violations), 0, "Production psycopg2 access must be flagged")
@@ -106,16 +102,11 @@ class TestWorkflowSecurityPolicy(unittest.TestCase):
 
     # 13. Safe application code outside workflows is ignored
     def test_13_safe_application_ignored(self):
-        """The scanner only scans .github/workflows/ — app source is ignored."""
-        # This is tested by the fact that scan_workflow only processes
-        # files passed to it, and main() only globs .github/workflows/
-        # We verify a safe workflow passes
         violations = self.scan("safe-testcontainers.yml")
         self.assertEqual(len(violations), 0)
 
     # 14. Documentation-only text is handled correctly
     def test_14_documentation_text_handled(self):
-        """A workflow file that only contains documentation/comments should pass."""
         import tempfile
         content = """# This is a documentation file
 # It describes workflows but does not execute anything
@@ -141,6 +132,20 @@ jobs:
         token_violations = [v for v in violations if v["type"] == "direct_refresh_token_deletion"]
         self.assertGreater(len(hash_violations) + len(token_violations), 0,
                            "Multiline DB mutation must be caught")
+
+    # 16. Production tenant inventory must never be emitted to workflow logs.
+    def test_16_production_tenant_inventory_logging_fails(self):
+        violations = self.scan("unsafe-production-tenant-inventory.yml")
+        matches = [v for v in violations if v["type"] == "production_tenant_inventory_logging"]
+        self.assertGreater(len(matches), 0,
+                           "Production tenant identity inventory logging must be rejected")
+
+    # 17. Production DB topology must not be deliberately echoed to public logs.
+    def test_17_production_db_topology_logging_fails(self):
+        violations = self.scan("unsafe-production-tenant-inventory.yml")
+        matches = [v for v in violations if v["type"] == "production_db_topology_logging"]
+        self.assertGreater(len(matches), 0,
+                           "Production DB host/database topology logging must be rejected")
 
 
 if __name__ == "__main__":
