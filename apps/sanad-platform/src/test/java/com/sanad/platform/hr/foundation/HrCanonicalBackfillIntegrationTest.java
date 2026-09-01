@@ -275,7 +275,7 @@ class HrCanonicalBackfillIntegrationTest {
     void duplicateLegacyUserId_blocksTenantAndCreatesReviewItem() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Dup Org");
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-T1", "Dup Org");
         UUID sharedUserId = UUID.randomUUID();
         seedUser(tenantId, sharedUserId);
         seedLegacyEmployee(tenantId, sharedUserId, "EMP-DUP-1", "Dup", "One");
@@ -304,7 +304,7 @@ class HrCanonicalBackfillIntegrationTest {
     void unresolvedDepartmentMapping_createsReviewItem() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Dept Org");
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-T2", "Dept Org");
         UUID userId = UUID.randomUUID();
         seedUser(tenantId, userId);
         UUID legacyDeptId = seedLegacyDepartment(tenantId, "Unmapped Dept", "UNMAPPED");
@@ -329,7 +329,7 @@ class HrCanonicalBackfillIntegrationTest {
     void unresolvedPositionMapping_createsReviewItem() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Pos Org");
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-T3", "Pos Org");
         UUID userId = UUID.randomUUID();
         seedUser(tenantId, userId);
         UUID legacyPosId = seedLegacyPosition(tenantId, "Unmapped Pos", "UNMAPPED-POS");
@@ -354,7 +354,7 @@ class HrCanonicalBackfillIntegrationTest {
     void unresolvedManagerMapping_createsReviewItem() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Mgr Org");
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-T4", "Mgr Org");
         UUID managerUserId = UUID.randomUUID();
         seedUser(tenantId, managerUserId);
         UUID managerEmpId = seedLegacyEmployee(tenantId, managerUserId, "EMP-MGR-MGR", "Manager", "Person");
@@ -381,7 +381,7 @@ class HrCanonicalBackfillIntegrationTest {
     void ambiguousIdentity_isNeverGuessed() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Ambig Org");
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-T5", "Ambig Org");
         UUID userId = UUID.randomUUID();
         seedUser(tenantId, userId);
         seedLegacyEmployee(tenantId, userId, "EMP-AMBIG", "Ambig", "Person");
@@ -413,7 +413,7 @@ class HrCanonicalBackfillIntegrationTest {
     void reconciliationArithmetic_accountsForEveryLegacyRow() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Recon Org");
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-T6", "Recon Org");
         // Seed 3 resolvable employees
         for (int i = 1; i <= 3; i++) {
             UUID uid = UUID.randomUUID();
@@ -629,7 +629,7 @@ class HrCanonicalBackfillIntegrationTest {
     void reviewItemIssueCodesAreStableAndMachineReadable() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Stable Org");
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-T7", "Stable Org");
         UUID sharedUserId = UUID.randomUUID();
         seedUser(tenantId, sharedUserId);
         seedLegacyEmployee(tenantId, sharedUserId, "EMP-STABLE-1", "Stable", "One");
@@ -658,7 +658,7 @@ class HrCanonicalBackfillIntegrationTest {
     void partialErrorExecution_neverClaimsCanonical() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Partial Org");
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-T8", "Partial Org");
         // Seed 1 resolvable + 1 unresolvable (duplicate user_id)
         UUID uid1 = UUID.randomUUID();
         seedUser(tenantId, uid1);
@@ -691,7 +691,8 @@ class HrCanonicalBackfillIntegrationTest {
     private UUID seedTenantA() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        UUID orgId = seedOrganization(tenantId, "Tenant A Org");
+        // Authoritative: 1 Legal Entity + 1 eligible Organization
+        UUID orgId = seedEligibleEmploymentContext(tenantId, "LE-A", "Tenant A Org");
         UUID userId = UUID.randomUUID();
         seedUser(tenantId, userId);
         seedLegacyEmployee(tenantId, userId, "EMP-A-" + tenantId.toString().substring(0, 8), "TenantA", "Employee");
@@ -705,8 +706,12 @@ class HrCanonicalBackfillIntegrationTest {
     private UUID seedTenantB() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        seedOrganization(tenantId, "Tenant B Org 1");
-        seedOrganization(tenantId, "Tenant B Org 2"); // Second org → ambiguous
+        // Authoritative: 1 Legal Entity + 2 eligible Organizations (ambiguous)
+        UUID leId = seedLegalEntity(tenantId, "LE-B");
+        UUID org1 = seedOrganization(tenantId, "Tenant B Org 1");
+        UUID org2 = seedOrganization(tenantId, "Tenant B Org 2");
+        seedOrgLegalEntity(tenantId, org1, leId);
+        seedOrgLegalEntity(tenantId, org2, leId);
         UUID userId = UUID.randomUUID();
         seedUser(tenantId, userId);
         seedLegacyEmployee(tenantId, userId, "EMP-B-" + tenantId.toString().substring(0, 8), "TenantB", "Employee");
@@ -720,7 +725,8 @@ class HrCanonicalBackfillIntegrationTest {
     private UUID seedTenantC() throws Exception {
         UUID tenantId = UUID.randomUUID();
         seedTenant(tenantId);
-        // No organization seeded → no legal_entity ↔ org eligibility
+        // Intentionally: 0 Legal Entities → MIGRATION_BLOCKED
+        // No organization, no legal entity, no eligibility
         UUID userId = UUID.randomUUID();
         seedUser(tenantId, userId);
         seedLegacyEmployee(tenantId, userId, "EMP-C-" + tenantId.toString().substring(0, 8), "TenantC", "Employee");
@@ -764,6 +770,53 @@ class HrCanonicalBackfillIntegrationTest {
             ps.executeUpdate();
         }
         setTenant(tenantId);
+        return orgId;
+    }
+
+    /**
+     * Seed an ACTIVE Legal Entity (employer of record).
+     * Uses 'SA' country code (seeded by V20260827_1).
+     */
+    private UUID seedLegalEntity(UUID tenantId, String code) throws Exception {
+        UUID leId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO legal_entities (id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, 'SA', 'SA', 'ACTIVE', NOW(), NOW())")) {
+            ps.setObject(1, leId);
+            ps.setObject(2, tenantId);
+            ps.setString(3, code);
+            ps.setString(4, "Test LE " + code);
+            ps.executeUpdate();
+        }
+        return leId;
+    }
+
+    /**
+     * Seed authoritative Legal Entity ↔ Organization eligibility.
+     * This is the REQUIRED link that makes a tenant migration-ready.
+     */
+    private void seedOrgLegalEntity(UUID tenantId, UUID orgId, UUID leId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, " +
+                "effective_from, effective_to, status, created_at) " +
+                "VALUES (?, ?, ?, ?, ?::date, NULL, 'ACTIVE', NOW())")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, orgId);
+            ps.setObject(4, leId);
+            ps.setString(5, "2026-01-01");
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Seed a complete valid employment context: Legal Entity + Organization + eligibility.
+     * Returns the orgId for use in assignment creation.
+     */
+    private UUID seedEligibleEmploymentContext(UUID tenantId, String leCode, String orgName) throws Exception {
+        UUID orgId = seedOrganization(tenantId, orgName);
+        UUID leId = seedLegalEntity(tenantId, leCode);
+        seedOrgLegalEntity(tenantId, orgId, leId);
         return orgId;
     }
 
