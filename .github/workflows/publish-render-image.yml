@@ -1,3 +1,4 @@
+# Trigger exact immutable backend image publication for SCP recovery PR #933.
 name: Publish Render Backend Image
 
 on:
