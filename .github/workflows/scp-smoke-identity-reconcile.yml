@@ -1,24 +1,20 @@
 name: SCP Smoke Identity Reconcile
 
-# ============================================================
 # Forensic + healing tool for the SCP contract smoke identity.
 #
 # mode=diagnose (default, READ-ONLY):
-#   proves where the smoke identity diverges — GitHub secrets vs
-#   authoritative Render service env (equality booleans only),
-#   production DB user-row state (SELECT only), and the current
-#   live Render image reference.
+#   validates the GitHub smoke credentials against Render and derives the
+#   authoritative control-plane tenant from production DB invariants without
+#   printing tenant identity data.
 #
 # mode=reconcile (confirm-gated, SURGICAL):
-#   syncs the five smoke-identity env vars (GitHub secrets ->
-#   Render env), waits for the Render auto-deploy, calls the
-#   canonical token-gated bootstrap endpoint (idempotent,
-#   server-side credentials only), verifies the smoke login,
-#   then disables bootstrap mode and re-verifies.
+#   derives exactly one ACTIVE platform-admin tenant with an ACTIVE ADMIN role,
+#   syncs that masked tenant + smoke credentials to Render, invokes the
+#   canonical token-gated bootstrap endpoint, verifies login, disables
+#   bootstrap, redeploys and verifies steady-state login.
 #
-# Deliberately does NOT touch JWT secrets, Flyway settings, or
-# any unrelated env var (unlike the legacy emergency workflows).
-# ============================================================
+# No duplicated CONTROL_PLANE_TENANT_ID GitHub secret is trusted.
+# JWT secrets, Flyway settings and unrelated env vars are untouched.
 
 on:
   workflow_dispatch:
@@ -84,7 +80,6 @@ jobs:
           PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
           CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
           CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
-          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
           CONTROL_PLANE_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
         run: |
           set -euo pipefail
