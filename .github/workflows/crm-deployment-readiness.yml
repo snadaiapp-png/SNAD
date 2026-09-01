@@ -15,6 +15,7 @@
 # Trigger for SCP tenant redaction/canonicalization PR (#933)
 # SCP-PRODUCTION-RECOVERY-933: trigger required readiness for the one-time recovery arm PR.
 # Trigger for SCP reconcile exact-image dependency-ordering PR (#936)
+# Trigger for flyway verify repair-marker fix PR (#937)
 name: CRM Deployment Readiness
 
 on:
