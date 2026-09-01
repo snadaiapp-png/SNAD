@@ -94,6 +94,39 @@ public class WorkflowDefinitionService {
         return updated;
     }
 
+    /**
+     * Publishes a DRAFT as an immutable Y2 version (I3). The published
+     * checksum is the tamper-detection reference for audit and runtime
+     * loading. The validation publish gate (AN3) is wired in Task 6.
+     */
+    @Transactional
+    public WorkflowDefinition publish(UUID tenantId, UUID id, UUID actorUserId, String checksum) {
+        var def = load(tenantId, id);
+        var updated = defRepo.save(def.publish(actorUserId, checksum));
+        logDefEvent(actorUserId, updated, WorkflowTransitionAudit.Action.ACTIVATE,
+                def.publicationState().name(), updated.publicationState().name());
+        return updated;
+    }
+
+    /**
+     * Creates the next DRAFT version in the same definition family from a
+     * published source version. The source version stays PUBLISHED and keeps
+     * serving the instances pinned to it.
+     */
+    @Transactional
+    public WorkflowDefinition createNextDraft(UUID tenantId, UUID sourceDefinitionId, UUID actorUserId) {
+        var source = load(tenantId, sourceDefinitionId);
+        var draft = defRepo.save(source.nextDraft(actorUserId));
+        log.info("WorkflowDefinition next draft: tenant={} family={} sourceVersion={} draftId={} draftVersion={} actor={}",
+                tenantId, source.definitionFamilyId(), source.version(), draft.id(), draft.version(), actorUserId);
+        return draft;
+    }
+
+    @Transactional(readOnly = true)
+    public List<WorkflowDefinition> findVersions(UUID tenantId, UUID definitionFamilyId) {
+        return defRepo.findVersions(tenantId, definitionFamilyId);
+    }
+
     @Transactional
     public WorkflowStep addStep(WorkflowStep step, UUID actorUserId) {
         var saved = defRepo.saveStep(step);
