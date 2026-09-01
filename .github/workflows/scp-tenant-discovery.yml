@@ -111,16 +111,18 @@ jobs:
           if run_validation; then
             echo "CONNECTION_SET=A"
             exit 0
+          else
+            first_rc=$?
           fi
-          first_rc=$?
           [ "$first_rc" -ne 2 ] || exit 1
 
           JDBC_URL="$JDBC_URL_B"; DB_USER="$DB_USER_B"; DB_PW="$DB_PW_B"
           if run_validation; then
             echo "CONNECTION_SET=B"
             exit 0
+          else
+            second_rc=$?
           fi
-          second_rc=$?
           [ "$second_rc" -ne 2 ] || exit 1
 
           echo "::error::No configured production credential set could perform the read-only validation"
