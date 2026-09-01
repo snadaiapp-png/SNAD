@@ -209,6 +209,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260831.5"   // hrm-g0 ws2 task 6 install_hr_backfill_orchestration
             , "20260901.1"   // hrm-g0 ws2 task 6 complete_hr_backfill_plan_conformance
             , "20260901.2"   // hrm-g0 ws2 task 6 fix_hr_backfill_reconcile_and_review
+            , "20260901.3"   // hrm-g0 ws2 task 6 fix_idempotency_and_manager_resolution
     );
 
 
