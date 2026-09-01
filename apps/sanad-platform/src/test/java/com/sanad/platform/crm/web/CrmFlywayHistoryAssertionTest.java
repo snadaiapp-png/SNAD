@@ -203,6 +203,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260830.1"   // enforce employee/user identity bridge unique index
             // Workflow Y2 Wave 1 — definition graph (same plan)
             , "20260830.2"   // definition family/publication metadata + step transitions
+            // Workflow Y2 Wave 1 — central work items (same plan)
+            , "20260830.3"   // work items + candidate pools + tenant-safe employee FK
     );
 
 
