@@ -91,6 +91,7 @@ class HrRlsFailClosedIntegrationTest {
                 "hr_job_versions",
                 "hr_jobs",
                 "hr_legacy_employee_mappings",
+                "hr_migration_review_items",
                 "hr_migration_tenant_state",
                 "hr_org_unit_versions",
                 "hr_org_units",
