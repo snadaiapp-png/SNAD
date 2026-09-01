@@ -61,7 +61,16 @@ FAILED=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = FAL
 echo "FAILED MIGRATIONS: 0"
 
 # Check for duplicate versions
-DUP=$(run_sql "SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL GROUP BY version HAVING COUNT(*) > 1) d;")
+# Rows with type='DELETE' are Flyway repair markers: `flyway repair` writes one such row
+# per migration that was applied historically but has since been removed from the
+# migration locations (e.g. V15, removed from this repository). A DELETE marker is
+# history metadata, not an applied migration, so it must not be counted when detecting
+# duplicate applied versions. Without this exclusion, the canonical production pipeline
+# (flyway-prod-migrate.yml runs `flyway repair` before `migrate`) permanently arms this
+# gate with a false "Duplicate versions: 1" against the repair marker — blocking every
+# subsequent production-release verification. True duplicate applied versions (two
+# non-DELETE rows for the same version) are still detected and still fail this gate.
+DUP=$(run_sql "SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL AND type != 'DELETE' GROUP BY version HAVING COUNT(*) > 1) d;")
 [ "$(tr -d '[:space:]' <<< "$DUP")" = "0" ] || { echo "::error::Duplicate versions: $DUP"; exit 1; }
 echo "DUPLICATE VERSIONS: 0"
 
