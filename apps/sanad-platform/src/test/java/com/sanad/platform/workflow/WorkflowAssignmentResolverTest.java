@@ -75,7 +75,7 @@ class WorkflowAssignmentResolverTest {
                 """, adminRoleId, tenantId, now, now);
         jdbc.update("""
                 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
-                SELECT ?, ?, id, NOW() FROM access_capabilities WHERE code = 'WORKFLOW.ADMIN'
+                SELECT ?, ?, ?, ac.id, NOW() FROM access_capabilities ac WHERE ac.code = 'WORKFLOW.ADMIN'
                 """, UUID.randomUUID(), tenantId, adminRoleId);
     }
 

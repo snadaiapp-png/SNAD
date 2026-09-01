@@ -62,12 +62,22 @@ class WorkflowWorkItemConcurrencyTest {
                 userId, tenantId, "wi-conc-" + userId.toString().substring(0, 8) + "@test", now, now);
         employeeA = createEmployee("E-A");
         employeeB = createEmployee("E-B");
+
+        UUID definitionId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO workflow_definitions (
+                    id, tenant_id, definition_family_id, code, name, module, version, status,
+                    trigger_type, created_by, version_lock, engine_generation, publication_state,
+                    schema_version, created_at, updated_at
+                ) VALUES (?, ?, ?, 'WF-CONC', 'Concurrency Fixture', 'GENERAL', 1, 'ACTIVE',
+                          'MANUAL', ?, 0, 'LEGACY', 'DRAFT', 1, ?, ?)
+                """, definitionId, tenantId, definitionId, userId, now, now);
         jdbc.update("""
                 INSERT INTO workflow_instances (
                     id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
                     business_entity_id, status, started_by, started_at, version, created_at, updated_at
-                ) VALUES (?, ?, gen_random_uuid(), 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, ?, 0, ?, ?)
-                """, instanceId = UUID.randomUUID(), tenantId, userId, now, now, now);
+                ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, ?, 0, ?, ?)
+                """, instanceId = UUID.randomUUID(), tenantId, definitionId, userId, now, now, now);
         jdbc.update("""
                 INSERT INTO workflow_step_instances (
                     id, tenant_id, workflow_instance_id, workflow_step_id, step_key,
