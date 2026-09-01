@@ -201,6 +201,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
             // Workflow Y2 Wave 0 — identity bridge (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
             , "20260830.1"   // enforce employee/user identity bridge unique index
+            // Workflow Y2 Wave 1 — definition graph (same plan)
+            , "20260830.2"   // definition family/publication metadata + step transitions
     );
 
 

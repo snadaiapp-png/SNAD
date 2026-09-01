@@ -75,8 +75,10 @@ class Crm008bFoundationAcceptanceTest {
     //   Earlier V20260823.1 (crm contacts force rls) precedes it.
     //
     // Workflow Y2 (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md):
-    //   V20260830.1 - employee/user identity bridge is the current platform terminal.
-    private static final String CRM_LATEST_VERSION = "20260830.1";
+    //   V20260830.1 - employee/user identity bridge, then V20260830.2 -
+    //   definition family/publication metadata + step transitions is the
+    //   current platform terminal.
+    private static final String CRM_LATEST_VERSION = "20260830.2";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
