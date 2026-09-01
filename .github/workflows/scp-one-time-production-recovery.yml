@@ -1,0 +1,159 @@
+name: SCP One-Time Production Recovery
+
+# One-time orchestrator for PR #933. It owns no production secrets and performs
+# no production mutation itself. After the exact main image is published, it
+# dispatches the existing protected production workflows and waits fail-closed.
+# Future image publications no-op unless their main commit carries the explicit
+# SCP-PRODUCTION-RECOVERY-933 marker.
+
+on:
+  workflow_run:
+    workflows:
+      - Publish Render Backend Image
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: scp-one-time-production-recovery
+  cancel-in-progress: false
+
+jobs:
+  orchestrate:
+    name: Reconcile, release, and verify SCP production
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+      RECOVERY_MARKER: SCP-PRODUCTION-RECOVERY-933
+
+    steps:
+      - name: Checkout exact published source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Gate exact one-time recovery marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::workflow_run head SHA is invalid"
+            exit 1
+          }
+
+          message="$(git log -1 --format=%B "$TARGET_SHA")"
+          if ! grep -Fq "$RECOVERY_MARKER" <<<"$message"; then
+            echo "No one-time SCP recovery marker on this main commit; no-op."
+            exit 0
+          fi
+
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          [ "$remote_main" = "$TARGET_SHA" ] || {
+            echo "::error::Published recovery image is no longer the current main head"
+            exit 1
+          }
+          echo "RECOVERY_AUTHORIZED=true" >> "$GITHUB_ENV"
+
+      - name: Dispatch canonical recovery chain
+        if: env.RECOVERY_AUTHORIZED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_run() {
+            local workflow="$1"
+            local dispatched_after="$2"
+            local label="$3"
+            local run_id=""
+
+            for _ in $(seq 1 60); do
+              run_id="$(gh api \
+                "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=workflow_dispatch&branch=main&per_page=20" \
+                --jq ".workflow_runs[] | select(.head_sha == \"$TARGET_SHA\" and .created_at >= \"$dispatched_after\") | .id" \
+                | head -n1)"
+              [ -n "$run_id" ] && break
+              sleep 2
+            done
+
+            [ -n "$run_id" ] || {
+              echo "::error::Unable to resolve dispatched $label workflow run"
+              return 1
+            }
+
+            echo "$label run: $run_id"
+            for _ in $(seq 1 450); do
+              state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+                --jq '[.status, (.conclusion // "")] | @tsv')"
+              status="${state%%$'\t'*}"
+              conclusion="${state#*$'\t'}"
+
+              if [ "$status" = "completed" ]; then
+                [ "$conclusion" = "success" ] || {
+                  echo "::error::$label failed with conclusion=$conclusion (run $run_id)"
+                  return 1
+                }
+                echo "$label: PASS"
+                return 0
+              fi
+              sleep 10
+            done
+
+            echo "::error::$label timed out (run $run_id)"
+            return 1
+          }
+
+          assert_main_unchanged() {
+            local remote_main
+            remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+            [ "$remote_main" = "$TARGET_SHA" ] || {
+              echo "::error::main changed during SCP recovery; refusing to continue"
+              return 1
+            }
+          }
+
+          assert_main_unchanged
+          reconcile_after="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/scp-smoke-identity-reconcile.yml/dispatches" \
+            --input - <<'JSON'
+          {"ref":"main","inputs":{"mode":"reconcile","confirm":"reconcile"}}
+          JSON
+          wait_for_run "scp-smoke-identity-reconcile.yml" "$reconcile_after" "SCP identity reconcile"
+
+          assert_main_unchanged
+          release_after="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n \
+            --arg sha "$TARGET_SHA" \
+            '{ref:"main",inputs:{commit_sha:$sha,pull_request_number:"933",rollback_on_failure:"true"}}' \
+            | gh api --method POST \
+                "repos/$GITHUB_REPOSITORY/actions/workflows/production-release.yml/dispatches" \
+                --input -
+          wait_for_run "production-release.yml" "$release_after" "SANAD production release"
+
+          assert_main_unchanged
+          backend_after="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/scp-production-contract-smoke.yml/dispatches" \
+            --input - <<'JSON'
+          {"ref":"main","inputs":{"transport":"backend-direct"}}
+          JSON
+          wait_for_run "scp-production-contract-smoke.yml" "$backend_after" "SCP backend-direct smoke"
+
+          bff_after="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/scp-production-contract-smoke.yml/dispatches" \
+            --input - <<'JSON'
+          {"ref":"main","inputs":{"transport":"vercel-bff"}}
+          JSON
+          wait_for_run "scp-production-contract-smoke.yml" "$bff_after" "SCP Vercel-BFF smoke"
+
+          echo "SCP_ONE_TIME_PRODUCTION_RECOVERY=PASS"
