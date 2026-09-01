@@ -76,3 +76,20 @@ ALTER TABLE workflow_work_item_candidates ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON workflow_work_item_candidates;
 CREATE POLICY tenant_isolation ON workflow_work_item_candidates
     USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+-- ============================================================
+-- Task 9: Y2 approval policy snapshots on approval requests
+-- ============================================================
+
+ALTER TABLE workflow_approval_requests ADD COLUMN IF NOT EXISTS requested_from_employee_id UUID;
+ALTER TABLE workflow_approval_requests ADD COLUMN IF NOT EXISTS approval_policy VARCHAR(20) NOT NULL DEFAULT 'ANY_ONE';
+ALTER TABLE workflow_approval_requests ADD COLUMN IF NOT EXISTS self_approval_policy VARCHAR(20) NOT NULL DEFAULT 'DENY';
+ALTER TABLE workflow_approval_requests ADD COLUMN IF NOT EXISTS policy_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE workflow_approval_requests DROP CONSTRAINT IF EXISTS ck_wf_approval_policy;
+ALTER TABLE workflow_approval_requests ADD CONSTRAINT ck_wf_approval_policy
+    CHECK (approval_policy IN ('ANY_ONE', 'ALL'));
+
+ALTER TABLE workflow_approval_requests DROP CONSTRAINT IF EXISTS ck_wf_self_approval_policy;
+ALTER TABLE workflow_approval_requests ADD CONSTRAINT ck_wf_self_approval_policy
+    CHECK (self_approval_policy IN ('DENY', 'ALLOW'));

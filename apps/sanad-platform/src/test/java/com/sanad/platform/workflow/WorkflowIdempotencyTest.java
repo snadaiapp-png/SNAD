@@ -211,6 +211,8 @@ class WorkflowIdempotencyTest {
         var duplicate = new WorkflowApprovalRequest(
                 savedApproval.id(), tenantId, savedInstance.id(), null,
                 approverId, "APPROVER", userId,
+                null, WorkflowApprovalPolicy.Aggregation.ANY_ONE,
+                WorkflowApprovalPolicy.SelfApproval.DENY, "{}",
                 WorkflowApprovalRequest.Status.PENDING,
                 savedApproval.requestedAt(), savedApproval.dueAt(),
                 null, null, null, null,
