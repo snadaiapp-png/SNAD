@@ -179,7 +179,7 @@ class HrCanonicalBackfillPlanConformanceIntegrationTest {
         invokeBackfill(tenantId);
 
         // Contract: at least 1 canonical hr_position_version must exist
-        int posVerCount = countPositionVersionsForLegacyPositions(tenantId);
+        int posVerCount = countPositionVersionForLegacyPositions(tenantId);
         assertThat(posVerCount)
                 .as("Position backfill MUST create at least 1 hr_position_version — DIRECT RED")
                 .isGreaterThanOrEqualTo(1);
