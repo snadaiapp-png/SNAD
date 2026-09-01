@@ -1,5 +1,6 @@
 package com.sanad.platform.security;
 
+import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
@@ -29,9 +30,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * EXECUTIVE_VIEW-holding roles (correlationId
  * edfce834-25db-4fff-a023-a268b2ed6ede, 2026-09-01T19:16:14Z).</p>
  *
- * <p>This test runs the FULL forward migration chain on a real PostgreSQL
- * instance (CI provides one; skipped locally when unavailable) and asserts
- * the exact failure chain end-to-end at the data layer:</p>
+ * <p>This test baselines the isolated {@code test_migration} database with the
+ * FULL forward migration chain (same configuration as the canonical
+ * {@code CrmPostgresMigrationTest} harness: both SQL locations plus the V15
+ * Java migration) and asserts the exact failure chain end-to-end at the data
+ * layer:</p>
  * <ol>
  *   <li>every capability code is stored UPPERCASE (the lookup normalizer's
  *       convention — dotted codes are uppercase: CRM.ACCOUNT.READ, ...);</li>
@@ -60,6 +63,23 @@ class AccessCapabilityCodeCanonicalizationPostgresTest {
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+
+        // Baseline the isolated database with the full canonical forward chain:
+        // the same locations + V15 Java migration configuration the sibling
+        // migration harnesses use, so validation cannot report applied-but-
+        // unresolved migrations regardless of shared-database ordering.
+        Flyway flyway = Flyway.configure()
+                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
+                .cleanDisabled(false)
+                .validateOnMigrate(true)
+                .load();
+        flyway.clean();
+        flyway.migrate();
     }
 
     private static JdbcTemplate jdbc() {
@@ -72,23 +92,9 @@ class AccessCapabilityCodeCanonicalizationPostgresTest {
         return new JdbcTemplate(ds);
     }
 
-    private static void migrateFully() {
-        Flyway.configure()
-                .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(
-                        System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")),
-                        System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
-                        System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
-                .locations("classpath:db/migration")
-                .cleanDisabled(false)
-                .validateOnMigrate(true)
-                .load()
-                .migrate();
-    }
-
     @Test
     @DisplayName("after full migration every capability code is UPPERCASE-conformant")
     void everyCapabilityCodeIsUppercase() {
-        migrateFully();
         Integer nonUppercase = jdbc().queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code <> UPPER(code)", Integer.class);
         assertThat(nonUppercase).as("rows violating the UPPERCASE convention").isZero();
@@ -97,7 +103,6 @@ class AccessCapabilityCodeCanonicalizationPostgresTest {
     @Test
     @DisplayName("loadByCode-normalized forms AUDIT.READ and USAGE.READ exist and are ACTIVE")
     void normalizedControllerCapabilityCodesResolve() {
-        migrateFully();
         List<Map<String, Object>> rows = jdbc().queryForList(
                 "SELECT code, status FROM access_capabilities WHERE code IN ('AUDIT.READ', 'USAGE.READ')");
         assertThat(rows).as("AUDIT.READ + USAGE.READ must both resolve").hasSize(2);
@@ -107,7 +112,6 @@ class AccessCapabilityCodeCanonicalizationPostgresTest {
     @Test
     @DisplayName("every EXECUTIVE_VIEW (tenant, role) also holds AUDIT.READ and USAGE.READ")
     void executiveViewRolesKeepTheBackwardCompatibleReadGrants() {
-        migrateFully();
         JdbcTemplate template = jdbc();
 
         Integer total = template.queryForObject(
