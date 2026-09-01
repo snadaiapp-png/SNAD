@@ -13,21 +13,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Prevents the reviewed Task 6 scripts from drifting away from the final
- * forward-only migration that installs the same logic.
+ * repeatable Flyway deployment unit. The repeatable migration is a new,
+ * forward repository change (old versioned migrations remain immutable),
+ * is tracked by Flyway history, and executes after the versioned migrations.
  */
 class HrBackfillSourceOfTruthTest {
 
     private static final String FINAL_MIGRATION =
             "apps/sanad-platform/src/main/resources/db/migration/" +
-            "V20260902_1__finalize_hr_backfill_closure.sql";
+            "R__finalize_hr_backfill_closure.sql";
 
     @Test
-    void authoritativeScriptsAreChecksummedByFinalDeploymentMigration() throws Exception {
+    void authoritativeScriptsAreEmbeddedAndChecksummedByFinalDeploymentMigration() throws Exception {
         Path root = findRepositoryRoot();
         Path migrationPath = root.resolve(FINAL_MIGRATION);
 
         assertThat(migrationPath)
-                .as("Task 6 final forward-only closure migration must exist")
+                .as("Task 6 final repeatable Flyway closure migration must exist")
                 .exists();
 
         String migration = Files.readString(migrationPath, StandardCharsets.UTF_8);
@@ -40,11 +42,19 @@ class HrBackfillSourceOfTruthTest {
         for (String relative : scripts) {
             Path script = root.resolve(relative);
             assertThat(script).as("Authoritative Task 6 script must exist: %s", relative).exists();
+            String scriptText = Files.readString(script, StandardCharsets.UTF_8);
             String hash = sha256(script);
             String fileName = script.getFileName().toString();
+
+            assertThat(scriptText)
+                    .as("Authoritative Task 6 business logic must not depend on CURRENT_DATE: %s", fileName)
+                    .doesNotContain("CURRENT_DATE");
+
             assertThat(migration)
                     .as("Final migration must pin SHA-256 of authoritative script %s", fileName)
-                    .contains("-- SOURCE_SHA256 " + fileName + " " + hash);
+                    .contains("-- SOURCE_SHA256 " + fileName + " " + hash)
+                    .as("Final migration must embed the exact authoritative script %s", fileName)
+                    .contains(scriptText);
         }
     }
 
