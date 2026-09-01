@@ -35,3 +35,45 @@ ALTER TABLE workflow_definitions ADD CONSTRAINT ck_wf_def_engine_generation
 ALTER TABLE workflow_definitions DROP CONSTRAINT IF EXISTS ck_wf_def_publication_state;
 ALTER TABLE workflow_definitions ADD CONSTRAINT ck_wf_def_publication_state
     CHECK (publication_state IN ('DRAFT', 'PUBLISHED', 'RETIRED'));
+
+-- ============================================================
+-- Task 5: explicit graph transitions + Y2 step types
+-- ============================================================
+
+-- Runtime routing uses explicit transition rows; sequence_order remains
+-- presentation/backward-compatibility metadata only (design decision H3/R3).
+CREATE TABLE IF NOT EXISTS workflow_step_transitions (
+    id                      UUID            NOT NULL,
+    tenant_id               UUID            NOT NULL REFERENCES tenants(id),
+    workflow_definition_id  UUID            NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+    from_step_id            UUID            NOT NULL REFERENCES workflow_steps(id) ON DELETE CASCADE,
+    to_step_id              UUID            NOT NULL REFERENCES workflow_steps(id),
+    transition_key          VARCHAR(100)    NOT NULL,
+    outcome                 VARCHAR(50),
+    condition_ast           JSONB,
+    priority                INTEGER         NOT NULL DEFAULT 0,
+    metadata                JSONB           NOT NULL DEFAULT '{}'::jsonb,
+    created_at              TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at              TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_workflow_step_transitions PRIMARY KEY (id),
+    CONSTRAINT uk_wf_transitions_def_key UNIQUE (workflow_definition_id, transition_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wf_transitions_def_from
+    ON workflow_step_transitions(workflow_definition_id, from_step_id, priority DESC);
+
+-- Y2 step types join the legacy five; ACTION remains for legacy
+-- compatibility (design decision H3).
+ALTER TABLE workflow_steps DROP CONSTRAINT IF EXISTS ck_wf_step_type;
+ALTER TABLE workflow_steps ADD CONSTRAINT ck_wf_step_type
+    CHECK (step_type IN (
+        'ACTION', 'APPROVAL', 'CONDITION', 'NOTIFICATION', 'END',
+        'START', 'HUMAN_TASK', 'SYSTEM_ACTION',
+        'PARALLEL_FORK', 'PARALLEL_JOIN', 'CALL_WORKFLOW'
+    ));
+
+-- Same strict tenant isolation policy as the other workflow tables.
+ALTER TABLE workflow_step_transitions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON workflow_step_transitions;
+CREATE POLICY tenant_isolation ON workflow_step_transitions
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid);

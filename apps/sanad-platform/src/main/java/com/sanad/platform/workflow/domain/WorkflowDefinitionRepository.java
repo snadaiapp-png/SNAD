@@ -15,4 +15,6 @@ public interface WorkflowDefinitionRepository {
     Optional<WorkflowDefinition> findPublishedByFamily(UUID tenantId, UUID definitionFamilyId);
     List<WorkflowStep> findSteps(UUID workflowDefinitionId);
     WorkflowStep saveStep(WorkflowStep step);
+    List<WorkflowTransition> findTransitions(UUID workflowDefinitionId);
+    WorkflowTransition saveTransition(WorkflowTransition transition);
 }

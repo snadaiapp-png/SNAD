@@ -3,6 +3,7 @@ package com.sanad.platform.workflow.infrastructure;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionRepository;
 import com.sanad.platform.workflow.domain.WorkflowStep;
+import com.sanad.platform.workflow.domain.WorkflowTransition;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -237,6 +238,58 @@ public class JdbcWorkflowDefinitionRepository implements WorkflowDefinitionRepos
                 Timestamp.from(step.createdAt()), Timestamp.from(step.updatedAt())
         );
         return step;
+    }
+
+    // ===== WorkflowTransition =====
+
+    private static final RowMapper<WorkflowTransition> TRANSITION_MAPPER = (rs, rowNum) -> new WorkflowTransition(
+            rs.getObject("id", UUID.class),
+            rs.getObject("tenant_id", UUID.class),
+            rs.getObject("workflow_definition_id", UUID.class),
+            rs.getObject("from_step_id", UUID.class),
+            rs.getObject("to_step_id", UUID.class),
+            rs.getString("transition_key"),
+            rs.getString("outcome"),
+            rs.getString("condition_ast"),
+            rs.getInt("priority"),
+            rs.getString("metadata"),
+            rs.getTimestamp("created_at").toInstant(),
+            rs.getTimestamp("updated_at").toInstant()
+    );
+
+    @Override
+    public List<WorkflowTransition> findTransitions(UUID workflowDefinitionId) {
+        return jdbc.query("""
+                SELECT * FROM workflow_step_transitions
+                WHERE workflow_definition_id = ?
+                ORDER BY priority DESC, created_at ASC
+                """, TRANSITION_MAPPER, workflowDefinitionId);
+    }
+
+    @Override
+    public WorkflowTransition saveTransition(WorkflowTransition transition) {
+        jdbc.update("""
+                INSERT INTO workflow_step_transitions
+                    (id, tenant_id, workflow_definition_id, from_step_id, to_step_id,
+                     transition_key, outcome, condition_ast, priority, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, CAST(? AS jsonb), ?, ?)
+                ON CONFLICT (workflow_definition_id, transition_key) DO UPDATE SET
+                    from_step_id = EXCLUDED.from_step_id,
+                    to_step_id = EXCLUDED.to_step_id,
+                    outcome = EXCLUDED.outcome,
+                    condition_ast = EXCLUDED.condition_ast,
+                    priority = EXCLUDED.priority,
+                    metadata = EXCLUDED.metadata,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                transition.id(), transition.tenantId(), transition.workflowDefinitionId(),
+                transition.fromStepId(), transition.toStepId(),
+                transition.transitionKey(), transition.outcome(), transition.conditionAst(),
+                transition.priority(), transition.metadata() != null ? transition.metadata() : "{}",
+                Timestamp.from(transition.createdAt()), Timestamp.from(transition.updatedAt())
+        );
+        return transition;
     }
 
     private WorkflowStep updateStep(WorkflowStep step) {
