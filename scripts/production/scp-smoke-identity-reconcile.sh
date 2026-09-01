@@ -334,6 +334,7 @@ reconcile() {
   set_render_var "CONTROL_PLANE_ADMIN_PASSWORD" "$CONTROL_PLANE_ADMIN_PASSWORD" "secret"
   set_render_var "CONTROL_PLANE_TENANT_ID" "$CONTROL_PLANE_TENANT_ID" "secret"
   set_render_var "SANAD_CONTROL_PLANE_TENANT_ID" "$CONTROL_PLANE_TENANT_ID" "secret"
+  set_render_var "CONTROL_PLANE_BOOTSTRAP_TOKEN" "$CONTROL_PLANE_BOOTSTRAP_TOKEN" "secret"
   set_render_var "CONTROL_PLANE_BOOTSTRAP_ENABLED" "true"
 
   log "=== Step 2/6: deploy current live image with updated env ==="
