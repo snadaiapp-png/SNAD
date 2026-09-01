@@ -93,6 +93,48 @@ public class JdbcHrEmployeeRepository implements HrEmployeeRepository {
     }
 
     @Override
+    public List<HrEmployee> findActiveByDepartment(UUID tenantId, UUID departmentId) {
+        String sql = """
+                SELECT * FROM hr_employees
+                WHERE tenant_id=:tenantId AND department_id=:departmentId AND status='ACTIVE'
+                ORDER BY display_name ASC
+                """;
+        var params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("departmentId", departmentId);
+        return jdbc.query(sql, params, this::mapEmployee);
+    }
+
+    @Override
+    public List<HrEmployee> findActiveByPosition(UUID tenantId, UUID positionId) {
+        String sql = """
+                SELECT * FROM hr_employees
+                WHERE tenant_id=:tenantId AND position_id=:positionId AND status='ACTIVE'
+                ORDER BY display_name ASC
+                """;
+        var params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("positionId", positionId);
+        return jdbc.query(sql, params, this::mapEmployee);
+    }
+
+    @Override
+    public List<HrEmployee> findActiveByUserIds(UUID tenantId, java.util.Collection<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return List.of();
+        }
+        String sql = """
+                SELECT * FROM hr_employees
+                WHERE tenant_id=:tenantId AND status='ACTIVE' AND user_id IN (:userIds)
+                ORDER BY display_name ASC
+                """;
+        var params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("userIds", userIds);
+        return jdbc.query(sql, params, this::mapEmployee);
+    }
+
+    @Override
     public void delete(UUID tenantId, UUID id) {
         jdbc.update("DELETE FROM hr_employees WHERE id=:id AND tenant_id=:tenantId",
             new MapSqlParameterSource().addValue("id", id).addValue("tenantId", tenantId));
