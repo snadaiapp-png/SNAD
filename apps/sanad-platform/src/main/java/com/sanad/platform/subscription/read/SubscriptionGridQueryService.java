@@ -100,7 +100,11 @@ public class SubscriptionGridQueryService {
                         """ + where
                         + " ORDER BY " + orderColumn + " " + sortDirection
                         + " LIMIT ? OFFSET ?",
-                append(args, List.of(safeSize, safePage * safeSize)));
+                // Spread bind values into discrete scalars — a List passed as a single
+                // vararg becomes one bind parameter and PostgreSQL fails with
+                // "Can't infer the SQL type to use for an instance of java.util.ArrayList"
+                // (BadSqlGrammarException -> HTTP 500 on /api/v1/executive/subscriptions/v2).
+                append(args, List.of(safeSize, safePage * safeSize)).toArray());
 
         List<SubscriptionRow> content = rows.stream().map(r -> new SubscriptionRow(
                 (UUID) r.get("id"),

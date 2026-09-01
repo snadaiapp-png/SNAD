@@ -64,6 +64,10 @@ public class TenantDirectoryQueryService {
         Long total = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM tenants t" + where, Long.class, args.toArray());
 
+        // Bind values must be spread into the varargs as discrete scalars. Passing the
+        // List itself makes it ONE bind parameter, and PostgreSQL fails with
+        // "Can't infer the SQL type to use for an instance of java.util.ArrayList"
+        // (BadSqlGrammarException -> HTTP 500 on /api/v1/executive/tenants/v2).
         List<Map<String, Object>> rows = jdbc.queryForList("""
                         SELECT t.id, t.name, t.subdomain AS code, t.status, t.country_code, t.currency_code,
                                t.created_at,
@@ -74,7 +78,7 @@ public class TenantDirectoryQueryService {
                         """ + where
                         + " ORDER BY t." + sortColumn + " " + sortDirection
                         + " LIMIT ? OFFSET ?",
-                append(args, List.of(safeSize, safePage * safeSize)));
+                append(args, List.of(safeSize, safePage * safeSize)).toArray());
 
         List<TenantRow> content = rows.stream()
                 .map(r -> new TenantRow(

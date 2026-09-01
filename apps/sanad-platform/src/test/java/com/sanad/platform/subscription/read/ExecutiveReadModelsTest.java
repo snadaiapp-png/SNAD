@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,6 +19,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -135,6 +137,69 @@ class ExecutiveReadModelsTest {
         assertThat(page.content().get(0).monthlyPriceMinor()).isEqualTo(29_900L);
         assertThat(page.content().get(0).planVersion()).isEqualTo("v2");
         assertThat(page.content().get(0).itemCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("tenant directory: LIMIT/OFFSET bind as discrete scalars, never as a nested List")
+    void tenantDirectoryBindsLimitOffsetAsScalars() {
+        stubTenantCount();
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        tenantDirectory.search(null, null, null, 0, 20, "name", "ASC");
+
+        // Regression (production 500, correlation 4494a377): the varargs array handed to
+        // JdbcTemplate must be [size, offset] scalars. A java.util.List bound as a single
+        // parameter makes PostgreSQL fail with "Can't infer the SQL type to use for an
+        // instance of java.util.ArrayList" (BadSqlGrammarException -> HTTP 500) because the
+        // List-as-vararg becomes ONE bind value instead of being spread.
+        ArgumentCaptor<Object[]> captor = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).queryForList(anyString(), captor.capture());
+        Object[] bound = captor.getValue();
+        assertThat(bound).hasSize(2);
+        assertThat(bound[0]).isEqualTo(20);
+        assertThat(bound[1]).isEqualTo(0);
+        assertThat(bound).allSatisfy(v -> assertThat(v).isNotInstanceOf(List.class));
+    }
+
+    @Test
+    @DisplayName("tenant directory: search filters + LIMIT/OFFSET all bind as discrete scalars")
+    void tenantDirectoryBindsFiltersAndPaginationAsScalars() {
+        stubTenantCount();
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        tenantDirectory.search("acme", "ACTIVE", "SA", 2, 50, "name", "ASC");
+
+        ArgumentCaptor<Object[]> captor = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).queryForList(anyString(), captor.capture());
+        Object[] bound = captor.getValue();
+        // 3 ILIKE patterns + status + country + LIMIT + OFFSET = 7 discrete scalars
+        assertThat(bound).hasSize(7);
+        assertThat(bound[0]).isEqualTo("%acme%");
+        assertThat(bound[3]).isEqualTo("ACTIVE");
+        assertThat(bound[4]).isEqualTo("SA");
+        assertThat(bound[5]).isEqualTo(50);
+        assertThat(bound[6]).isEqualTo(100);
+        assertThat(bound).allSatisfy(v -> assertThat(v).isNotInstanceOf(List.class));
+    }
+
+    @Test
+    @DisplayName("subscription grid: LIMIT/OFFSET bind as discrete scalars, never as a nested List")
+    void subscriptionGridBindsLimitOffsetAsScalars() {
+        when(jdbc.queryForObject(contains("SELECT COUNT(*) FROM tenant_subscriptions"),
+                eq(Long.class), any(Object[].class))).thenReturn(3L);
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        subscriptionGrid.search(TENANT_ID, null, null, null, false, 0, 20, null, null);
+
+        ArgumentCaptor<Object[]> captor = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).queryForList(anyString(), captor.capture());
+        Object[] bound = captor.getValue();
+        // tenant_id filter + LIMIT + OFFSET
+        assertThat(bound).hasSize(3);
+        assertThat(bound[0]).isEqualTo(TENANT_ID);
+        assertThat(bound[1]).isEqualTo(20);
+        assertThat(bound[2]).isEqualTo(0);
+        assertThat(bound).allSatisfy(v -> assertThat(v).isNotInstanceOf(List.class));
     }
 
     private void stubCounts() {
