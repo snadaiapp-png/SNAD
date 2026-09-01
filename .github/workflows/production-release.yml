@@ -222,6 +222,16 @@ jobs:
       - name: Verify production security boundary
         run: bash scripts/production/verify-auth-contract.sh
 
+      - name: Verify SCP production contract smoke
+        env:
+          SCP_SMOKE_BASE_URL: ${{ env.PRODUCTION_BASE_URL }}
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ env.CONTROL_PLANE_TENANT_ID }}
+          DEPLOYED_COMMIT_SHA: ${{ steps.target.outputs.sha }}
+          SCP_SMOKE_EVIDENCE_FILE: scp-contract-smoke.json
+        run: bash scripts/production/verify-scp-contract-smoke.sh
+
       - name: Verify Vercel Control Plane and BFF
         shell: bash
         run: |
@@ -255,6 +265,7 @@ jobs:
             render-deployment-state.json
             production-release-evidence.json
             render-rollback.json
+            scp-contract-smoke.json
           if-no-files-found: warn
           retention-days: 90
 

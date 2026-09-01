@@ -960,6 +960,8 @@ export const en: TranslationDictionary = {
   "scp.nav.billing": "Billing",
   "scp.nav.provisioning": "Provisioning",
   "scp.nav.audit": "Audit",
+  "scp.nav.degraded": "Capability service is unavailable — navigation is hidden until it recovers",
+  "scp.nav.unauthorized": "You do not have access to the subscription control plane",
   "scp.state.errorGeneric": "An unexpected error occurred",
   "scp.state.retry": "Retry",
   "scp.state.empty": "No data to display",

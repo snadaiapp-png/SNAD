@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { executiveApi, type SaasPlan } from "@/lib/api/executive-api";
 import { scpApi, type PlanVersion } from "@/lib/api/scp-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -19,13 +19,45 @@ import styles from "../scp.module.css";
  * Plans & Pricing — explicit separation of Plan → Version → Price. Creating
  * a new version never mutates existing subscribers (they stay pinned to the
  * version they contracted).
+ *
+ * Architecture note: the initial fetch is owned by PlansPage itself
+ * (useCallback + useEffect, the same pattern as the other Executive pages).
+ * A hidden data-loading component rendered *after* the loading early-return
+ * would never mount, leaving the skeleton on screen forever — that deadlock
+ * is structurally impossible here because the effect that starts the request
+ * lives in the same component that renders the skeleton, and the skeleton is
+ * skipped the moment the request settles (success, empty, or error).
  */
 export default function PlansPage() {
   const { t } = useI18n();
-  const { money } = useScpFormat();
   const [plans, setPlans] = useState<SaasPlan[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  // Guards state updates after unmount (request settling after cleanup).
+  const mountedRef = useRef(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const next = await executiveApi.plans();
+      if (mountedRef.current) setPlans(next);
+    } catch (reason) {
+      if (mountedRef.current) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void load();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [load]);
 
   if (loading) {
     return (
@@ -37,56 +69,28 @@ export default function PlansPage() {
 
   return (
     <ScpPage title={t("scp.plans.title")} subtitle={t("scp.plans.subtitle")}>
-      {error ? <ScpError message={error} /> : null}
-      {plans && plans.length === 0 ? <ScpEmpty message={t("scp.state.empty")} /> : null}
+      {error ? <ScpError message={error} onRetry={() => void load()} /> : null}
+      {!error && plans && plans.length === 0 ? (
+        <ScpEmpty message={t("scp.state.empty")} />
+      ) : null}
       <div className={styles.cards}>
         {(plans ?? []).map((plan) => (
           <PlanCard
             key={plan.id}
             plan={plan}
-            onPlans={(next) => setPlans(next)}
             onError={setError}
           />
         ))}
       </div>
-      <LoadPlans onError={setError} onLoaded={setPlans} setLoading={setLoading} />
     </ScpPage>
   );
 }
 
-function LoadPlans({
-  onLoaded,
-  onError,
-  setLoading,
-}: {
-  onLoaded: (plans: SaasPlan[]) => void;
-  onError: (message: string) => void;
-  setLoading: (loading: boolean) => void;
-}) {
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      onLoaded(await executiveApi.plans());
-    } catch (reason) {
-      onError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, [onLoaded, onError, setLoading]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-  return null;
-}
-
 function PlanCard({
   plan,
-  onPlans,
   onError,
 }: {
   plan: SaasPlan;
-  onPlans: (plans: SaasPlan[]) => void;
   onError: (message: string) => void;
 }) {
   const { t } = useI18n();

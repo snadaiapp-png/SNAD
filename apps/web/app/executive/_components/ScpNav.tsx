@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { scpApi, type AccessCheckV2 } from "@/lib/api/scp-api";
+import { ScpError, ScpNotice } from "./ScpStates";
 import styles from "../scp.module.css";
 
 /**
@@ -13,6 +14,19 @@ import styles from "../scp.module.css";
  * Sections are declarative (code, route, required capability) so new pages
  * appear by editing this list — and new *applications* never require nav
  * changes at all (the catalog drives that surface).
+ *
+ * Capability state machine (explicit, never fail-open):
+ *   checking     — the access-check request is in flight; links render
+ *                  optimistically for this transient window only.
+ *   authorized   — the backend answered with an explicit capability map;
+ *                  a link is visible only when its capability is exactly
+ *                  `true` (fail-closed: missing keys stay hidden).
+ *   unauthorized — the backend answered with authenticated=false; no links.
+ *   degraded     — the access-check failed; links are hidden (fail-closed)
+ *                  and an explicit error with a retry control is shown.
+ *                  A broken capability service is never silently mapped to
+ *                  "full access". Server-side authorization remains
+ *                  authoritative regardless of what this nav renders.
  */
 interface NavSection {
   headingKey: string;
@@ -42,38 +56,72 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
+type NavAccessState =
+  | { phase: "checking" }
+  | { phase: "authorized"; access: AccessCheckV2 }
+  | { phase: "unauthorized" }
+  | { phase: "degraded" };
+
 export function ScpNav() {
   const pathname = usePathname();
   const { t } = useI18n();
-  const [access, setAccess] = useState<AccessCheckV2 | null>(null);
+  const [state, setState] = useState<NavAccessState>({ phase: "checking" });
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    scpApi
-      .accessCheckV2()
-      .then((result) => {
-        if (!cancelled) setAccess(result);
-      })
-      .catch(() => {
-        // nav stays fully visible when capability data is unavailable;
-        // every endpoint still enforces authorization server-side
-        if (!cancelled) setAccess({ authenticated: false, capabilities: {} });
-      });
-    return () => {
-      cancelled = true;
-    };
+  const check = useCallback(async () => {
+    setState({ phase: "checking" });
+    try {
+      const result = await scpApi.accessCheckV2();
+      if (!mountedRef.current) return;
+      if (!result.authenticated) {
+        setState({ phase: "unauthorized" });
+        return;
+      }
+      setState({ phase: "authorized", access: result });
+    } catch {
+      // An unavailable capability service must not read as "all allowed".
+      if (mountedRef.current) setState({ phase: "degraded" });
+    }
   }, []);
 
-  const allowed = (capability: string): boolean => {
-    if (!access) return true; // optimistic render before the check resolves
-    const value = access.capabilities[capability];
-    return value === undefined ? true : value;
+  useEffect(() => {
+    mountedRef.current = true;
+    void check();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [check]);
+
+  const visible = (capability: string): boolean => {
+    if (state.phase === "checking") return true; // transient optimistic render
+    if (state.phase !== "authorized") return false; // fail-closed
+    return state.access.capabilities[capability] === true;
   };
 
+  if (state.phase === "degraded") {
+    return (
+      <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}>
+        <ScpError message={t("scp.nav.degraded")} onRetry={() => void check()} />
+      </nav>
+    );
+  }
+
+  if (state.phase === "unauthorized") {
+    return (
+      <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}>
+        <ScpNotice>{t("scp.nav.unauthorized")}</ScpNotice>
+      </nav>
+    );
+  }
+
   return (
-    <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}>
+    <nav
+      className={styles.nav}
+      aria-label={t("scp.nav.ariaLabel")}
+      aria-busy={state.phase === "checking" ? "true" : undefined}
+    >
       {SECTIONS.map((section) => {
-        const links = section.links.filter((link) => allowed(link.capability));
+        const links = section.links.filter((link) => visible(link.capability));
         if (links.length === 0) return null;
         return (
           <div key={section.headingKey}>
