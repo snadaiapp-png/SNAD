@@ -177,7 +177,11 @@ class CrmPostgresMigrationTest {
     private static final String ASSIGNMENT_TEMPORAL_GUARDS_VERSION = "20260831.2";
     // HRM-G0 WS2 Task 5 — Harden legacy HR RLS fail closed
     private static final String HR_RLS_HARDENING_VERSION = "20260831.3";
-    private static final String LATEST_MIGRATION_VERSION = HR_RLS_HARDENING_VERSION;
+    // HRM-G0 WS2 Task 6 — review items table
+    private static final String HR_MIGRATION_REVIEW_ITEMS_VERSION = "20260831.4";
+    // HRM-G0 WS2 Task 6 — backfill orchestration functions
+    private static final String HR_BACKFILL_ORCHESTRATION_VERSION = "20260831.5";
+    private static final String LATEST_MIGRATION_VERSION = HR_BACKFILL_ORCHESTRATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -398,7 +402,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
                         MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
                         MigrationVersion.fromVersion(ASSIGNMENT_TEMPORAL_GUARDS_VERSION),
-                        MigrationVersion.fromVersion(HR_RLS_HARDENING_VERSION));
+                        MigrationVersion.fromVersion(HR_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(HR_MIGRATION_REVIEW_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_ORCHESTRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -540,7 +546,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
                         MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
                         MigrationVersion.fromVersion(ASSIGNMENT_TEMPORAL_GUARDS_VERSION),
-                        MigrationVersion.fromVersion(HR_RLS_HARDENING_VERSION));
+                        MigrationVersion.fromVersion(HR_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(HR_MIGRATION_REVIEW_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_ORCHESTRATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
