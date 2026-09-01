@@ -157,6 +157,16 @@ login_status="$(request POST "$BASE_URL/api/v1/auth/login" "$WORK_DIR/login.json
   --data "$login_payload")"
 [ "$login_status" = "200" ] || {
   echo "::error::Smoke identity login returned HTTP ${login_status:-000}; expected 200."
+  # Forensic diagnosis (sanitized): surface the ApiErrorResponse discriminator
+  # (status/error/message/path only — the body never contains credentials).
+  if jq -e . "$WORK_DIR/login.json" >/dev/null 2>&1; then
+    echo "Login failure ApiErrorResponse:"
+    jq '{status, error, message, path}' "$WORK_DIR/login.json"
+  else
+    echo "Login response was not JSON (possible gateway/HTML response). First 300 printable bytes:"
+    head -c 300 "$WORK_DIR/login.json" | tr -d '\000-\010\013\014\016-\037' || true
+    echo ""
+  fi
   exit 1
 }
 TOKEN="$(jq -r '.accessToken // empty' "$WORK_DIR/login.json")"

@@ -1,0 +1,91 @@
+name: SCP Smoke Identity Reconcile
+
+# ============================================================
+# Forensic + healing tool for the SCP contract smoke identity.
+#
+# mode=diagnose (default, READ-ONLY):
+#   proves where the smoke identity diverges — GitHub secrets vs
+#   authoritative Render service env (equality booleans only),
+#   production DB user-row state (SELECT only), and the current
+#   live Render image reference.
+#
+# mode=reconcile (confirm-gated, SURGICAL):
+#   syncs the five smoke-identity env vars (GitHub secrets ->
+#   Render env), waits for the Render auto-deploy, calls the
+#   canonical token-gated bootstrap endpoint (idempotent,
+#   server-side credentials only), verifies the smoke login,
+#   then disables bootstrap mode and re-verifies.
+#
+# Deliberately does NOT touch JWT secrets, Flyway settings, or
+# any unrelated env var (unlike the legacy emergency workflows).
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'diagnose (read-only) or reconcile (surgical re-provisioning)'
+        required: false
+        default: 'diagnose'
+        type: choice
+        options:
+          - diagnose
+          - reconcile
+      confirm:
+        description: "Type 'reconcile' to authorize the surgical re-provisioning (required when mode=reconcile)"
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scp-smoke-identity-reconcile
+  cancel-in-progress: false
+
+jobs:
+  scp-smoke-identity:
+    name: Diagnose / reconcile SCP smoke identity
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Guard inputs
+        run: |
+          set -euo pipefail
+          MODE="${{ inputs.mode }}"
+          CONFIRM="${{ inputs.confirm }}"
+          if [ "$MODE" != "diagnose" ] && [ "$MODE" != "reconcile" ]; then
+            echo "::error::mode must be 'diagnose' or 'reconcile'"
+            exit 1
+          fi
+          if [ "$MODE" = "reconcile" ] && [ "$CONFIRM" != "reconcile" ]; then
+            echo "::error::mode=reconcile requires the confirm input to be the literal string 'reconcile'"
+            exit 1
+          fi
+          echo "Mode accepted: ${MODE}"
+
+      - name: Run identity diagnostics / reconcile
+        env:
+          MODE: ${{ inputs.mode }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+          CONTROL_PLANE_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash scripts/production/scp-smoke-identity-reconcile.sh "$MODE"
