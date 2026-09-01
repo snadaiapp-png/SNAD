@@ -40,8 +40,8 @@ AUTH_HEADERS=(-H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: applicati
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-log()  { echo "[identity] $*"; }
-pass() { echo "[identity] PASS: $*"; }
+log()  { echo "[identity] $*" >&2; }
+pass() { echo "[identity] PASS: $*" >&2; }
 fail() { echo "::error::[identity] $*"; exit 1; }
 
 # Mask every secret-bearing value so GitHub Actions redacts them anywhere.

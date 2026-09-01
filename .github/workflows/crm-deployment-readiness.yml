@@ -9,6 +9,7 @@
 # Trigger for migration hardening PR
 # G6 recovery PR trigger: touch own file to satisfy required check
 # Trigger for SCP smoke-identity diagnose completeness PR (#928)
+# Trigger for SCP reconcile log-capture fix PR (#929)
 name: CRM Deployment Readiness
 
 on:
