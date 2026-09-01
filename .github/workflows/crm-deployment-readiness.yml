@@ -12,6 +12,7 @@
 # Trigger for SCP reconcile log-capture fix PR (#929)
 # Trigger for SCP bootstrap token sync PR (#930)
 # Trigger for SCP tenant discovery PR (#931)
+# Trigger for SCP tenant redaction/canonicalization PR (#933)
 name: CRM Deployment Readiness
 
 on:

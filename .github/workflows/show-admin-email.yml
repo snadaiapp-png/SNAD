@@ -1,4 +1,4 @@
-name: Show Admin Email
+name: Validate Admin Identity (redacted)
 
 on:
   workflow_dispatch:
@@ -12,30 +12,45 @@ jobs:
     environment: Production
     timeout-minutes: 3
     steps:
-      - name: Show email
+      - name: Validate configured admin secret without disclosure
         env:
           ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
         run: |
-          echo "Admin email (first 5 chars): ${ADMIN_EMAIL:0:5}..."
-          echo "Admin email length: ${#ADMIN_EMAIL}"
-          echo "Admin email domain: ${ADMIN_EMAIL#*@}"
-      - name: Check DB
+          set -euo pipefail
+          test -n "$ADMIN_EMAIL" || { echo "::error::CONTROL_PLANE_ADMIN_EMAIL is not configured"; exit 1; }
+          echo "ADMIN_EMAIL_CONFIGURED=YES"
+
+      - name: Validate production admin binding without identity disclosure
         env:
           PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
           PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
           PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
-          JDBC_URL="$PROD_JDBC_URL"
-          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1
+
+          CONN_STR="${PROD_JDBC_URL#jdbc:postgresql://}"
           HOST_PORT="${CONN_STR%%/*}"
           HOST="${HOST_PORT%%:*}"
           PORT="${HOST_PORT##*:}"
           DB_PART="${CONN_STR#*/}"
           DB_NAME="${DB_PART%%\?*}"
-          printf '%s\n' \
-            "SET search_path TO public;" \
-            "SELECT email, status, (password_hash IS NOT NULL) AS has_pwd FROM users;" \
-            "SELECT id, name, subdomain FROM tenants;" \
-            > /tmp/q.sql
-          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -f /tmp/q.sql
+
+          echo "::add-mask::$ADMIN_EMAIL"
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$DB_NAME"
+
+          result="$(PGOPTIONS='-c default_transaction_read_only=on' \
+            PGPASSWORD="$PROD_DB_PASSWORD" \
+            psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" \
+              --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+              --set=admin_email="$ADMIN_EMAIL" \
+              --command="SELECT COUNT(*) FROM users WHERE email = lower(:'admin_email') AND status='ACTIVE';")"
+
+          echo "ACTIVE_ADMIN_IDENTITY_MATCH_COUNT=$result"
+          [ "$result" = "1" ] || {
+            echo "::error::Configured control-plane admin does not resolve uniquely to one ACTIVE user"
+            exit 1
+          }
+          echo "ADMIN_IDENTITY_VALIDATION=PASS"
