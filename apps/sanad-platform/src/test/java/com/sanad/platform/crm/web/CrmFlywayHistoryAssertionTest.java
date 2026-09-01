@@ -207,6 +207,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260831.3"   // hrm-g0 ws2 task 5 harden_hr_fail_closed_rls
             , "20260831.4"   // hrm-g0 ws2 task 6 create_hr_migration_review_items
             , "20260831.5"   // hrm-g0 ws2 task 6 install_hr_backfill_orchestration
+            , "20260901.1"   // hrm-g0 ws2 task 6 complete_hr_backfill_plan_conformance
     );
 
 
