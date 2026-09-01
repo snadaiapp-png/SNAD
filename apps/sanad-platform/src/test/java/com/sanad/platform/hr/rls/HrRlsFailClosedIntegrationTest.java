@@ -662,6 +662,17 @@ class HrRlsFailClosedIntegrationTest {
         }
     }
 
+    private void insertHrMigrationReviewItem(UUID tenantId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_migration_review_items " +
+                "(tenant_id, legacy_entity_type, legacy_entity_id, issue_code, severity, review_reason, resolution_state, created_at, updated_at) " +
+                "VALUES (?, 'EMPLOYEE', ?, 'TEST_ISSUE', 'REVIEW', 'Test review reason', 'OPEN', NOW(), NOW())")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, UUID.randomUUID());
+            ps.executeUpdate();
+        }
+    }
+
     private void insertHrLegacyEmployeeMapping(UUID tenantId) throws Exception {
         UUID empId = insertHrEmployee(tenantId, "EMP-LEG");
         try (PreparedStatement ps = conn.prepareStatement(
@@ -699,6 +710,7 @@ class HrRlsFailClosedIntegrationTest {
             case "hr_job_versions" -> insertHrJobVersion(tenantId);
             case "hr_position_versions" -> insertHrPositionVersion(tenantId);
             case "hr_employee_assignments" -> insertHrEmployeeAssignment(tenantId);
+            case "hr_migration_review_items" -> insertHrMigrationReviewItem(tenantId);
             default -> throw new IllegalArgumentException("No seed for table: " + table);
         }
     }
