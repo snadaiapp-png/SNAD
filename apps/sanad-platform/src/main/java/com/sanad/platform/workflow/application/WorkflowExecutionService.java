@@ -57,7 +57,27 @@ public class WorkflowExecutionService {
 
     @Transactional
     public WorkflowInstance startWorkflow(WorkflowInstance instance, UUID actorUserId) {
-        var saved = instanceRepo.save(instance);
+        // Canonical start resolution (Z3/AA3): resolve the concrete definition
+        // in the instance's tenant, enforce start eligibility for its
+        // generation, and pin the definition's engine generation as the
+        // instance's immutable routing authority.
+        WorkflowDefinition definition = defRepo
+                .findById(instance.tenantId(), instance.workflowDefinitionId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "WorkflowDefinition not found in tenant: " + instance.workflowDefinitionId()));
+        boolean startEligible = switch (definition.engineGeneration()) {
+            case LEGACY -> definition.status() == WorkflowDefinition.Status.ACTIVE;
+            case Y2 -> definition.publicationState() == WorkflowDefinition.PublicationState.PUBLISHED;
+        };
+        if (!startEligible) {
+            throw new IllegalStateException("WorkflowDefinition " + definition.id()
+                    + " is not a valid start target (status=" + definition.status()
+                    + ", publicationState=" + definition.publicationState() + ")");
+        }
+        WorkflowInstance resolved = instance.pinnedTo(
+                WorkflowInstance.EngineGeneration.valueOf(definition.engineGeneration().name()),
+                definition.definitionFamilyId(), definition.id());
+        var saved = instanceRepo.save(resolved);
         // Create the first step_instance (PENDING) for the firstStepKey.
         createPendingStepInstance(saved, saved.currentStepKey());
         audit(actorUserId, saved, null, WorkflowTransitionAudit.Action.START,

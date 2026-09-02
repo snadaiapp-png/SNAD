@@ -134,6 +134,21 @@ public record WorkflowInstance(
     }
 
     /**
+     * Canonical start resolution (Z3/AA3): pins the routing authority to the
+     * resolved concrete definition version — engine generation, family, and
+     * version are persisted at creation and never re-derived afterwards.
+     * Pre-persistence: no optimistic bump.
+     */
+    public WorkflowInstance pinnedTo(EngineGeneration generation, UUID familyId, UUID versionId) {
+        return new WorkflowInstance(id, tenantId, workflowDefinitionId, workflowVersion,
+                businessEntityType, businessEntityId, status, currentStepKey,
+                startedBy, startedAt, completedAt, cancelledAt, cancelledBy, cancelReason, correlationId,
+                generation, familyId, versionId, parentInstanceId,
+                triggerType, triggerId, idempotencyKey, causationId, contextJson, contextSchemaVersion,
+                version, createdAt, updatedAt);
+    }
+
+    /**
      * Typed-context write (S3): replaces the whole context payload; namespace
      * discipline is enforced by the context service, not by the instance.
      */
