@@ -133,6 +133,7 @@ class WorkflowParallelExecutionTest {
                 "SELECT id FROM workflow_steps WHERE tenant_id = ? AND workflow_definition_id = ? AND step_key = 'join'",
                 UUID.class, tenantId, definitionId);
         UUID joinInstanceId = UUID.randomUUID();
+        UUID forkInstanceId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("""
                 INSERT INTO workflow_step_instances (
@@ -140,6 +141,12 @@ class WorkflowParallelExecutionTest {
                     status, version, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, 'join', 'PENDING', 0, ?, ?)
                 """, joinInstanceId, tenantId, instanceId, joinStepId, now, now);
+        jdbc.update("""
+                INSERT INTO workflow_step_instances (
+                    id, tenant_id, workflow_instance_id, workflow_step_id, step_key,
+                    status, version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'fork', 'PENDING', 0, ?, ?)
+                """, forkInstanceId, tenantId, instanceId, forkStepId, now, now);
         for (String key : new String[] {"branch_a", "branch_b"}) {
             jdbc.update("""
                     INSERT INTO workflow_branch_tokens (
@@ -147,7 +154,7 @@ class WorkflowParallelExecutionTest {
                         status, join_step_id, version, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, 0, ?, ?)
                     """, UUID.randomUUID(), tenantId, instanceId,
-                    UUID.randomUUID(), key, joinStepId, now, now);
+                    forkInstanceId, key, joinStepId, now, now);
         }
 
         // Two concurrent arrivals race the grant; exactly one must win.

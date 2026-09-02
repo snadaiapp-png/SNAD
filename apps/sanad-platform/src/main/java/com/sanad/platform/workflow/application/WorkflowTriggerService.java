@@ -45,14 +45,17 @@ public class WorkflowTriggerService {
                                                    String firstStepKey,
                                                    UUID startedBy) {
         UUID inboxId = UUID.randomUUID();
-        try {
-            jdbc.update("""
-                    INSERT INTO workflow_event_inbox (
-                        id, tenant_id, event_id, trigger_key, workflow_definition_id,
-                        received_at, status
-                    ) VALUES (?, ?, ?, ?, ?, NOW(), 'RECEIVED')
-                    """, inboxId, event.tenantId(), event.eventId(), triggerKey, definitionId);
-        } catch (DataIntegrityViolationException e) {
+        int inserted = jdbc.update("""
+                INSERT INTO workflow_event_inbox (
+                    id, tenant_id, event_id, trigger_key, workflow_definition_id,
+                    received_at, status
+                ) VALUES (?, ?, ?, ?, ?, NOW(), 'RECEIVED')
+                ON CONFLICT (tenant_id, event_id, trigger_key, workflow_definition_id)
+                DO NOTHING
+                """, inboxId, event.tenantId(), event.eventId(), triggerKey, definitionId);
+        if (inserted == 0) {
+            // Duplicate delivery: the conflict left this transaction healthy,
+            // so the prior result can be read and replayed directly.
             UUID prior = jdbc.queryForObject("""
                     SELECT workflow_instance_id FROM workflow_event_inbox
                     WHERE tenant_id = ? AND event_id = ? AND trigger_key = ?
@@ -71,16 +74,11 @@ public class WorkflowTriggerService {
         try {
             instanceId = instanceRepo.save(instance).id();
         } catch (DataIntegrityViolationException e) {
-            // The instance idempotency index is the second guard.
-            instanceId = instanceRepo.findByIdempotencyKey(event.tenantId(), idempotencyKey)
-                    .map(WorkflowInstance::id)
-                    .orElseThrow(() -> e);
-            jdbc.update("""
-                    UPDATE workflow_event_inbox
-                    SET workflow_instance_id = ?, status = 'PROCESSED', processed_at = NOW()
-                    WHERE id = ? AND tenant_id = ?
-                    """, instanceId, inboxId, event.tenantId());
-            return new TriggerConsumeResult(instanceId, true);
+            // The instance idempotency index is the second guard in a genuine
+            // concurrent race. This transaction is already aborted, so the
+            // caller retries the delivery and lands on the replay path above.
+            throw new IllegalStateException(
+                    "Duplicate trigger delivery raced another consumer: " + idempotencyKey, e);
         }
 
         jdbc.update("""

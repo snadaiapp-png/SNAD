@@ -43,11 +43,13 @@ public record WorkflowIncident(
     }
 
     public WorkflowIncident resolve(UUID actor, String resolution) {
-        if (status == Status.RESOLVED || status == Status.CLOSED) {
-            throw new IllegalStateException("Cannot resolve incident in status " + status);
-        }
+        // Validate the payload before the state machine so a blank note is
+        // rejected as invalid input regardless of the incident's status.
         if (resolution == null || resolution.isBlank()) {
             throw new IllegalArgumentException("Incident resolution note is required");
+        }
+        if (status == Status.RESOLVED || status == Status.CLOSED) {
+            throw new IllegalStateException("Cannot resolve incident in status " + status);
         }
         return copy(Status.RESOLVED, actor, resolution);
     }
