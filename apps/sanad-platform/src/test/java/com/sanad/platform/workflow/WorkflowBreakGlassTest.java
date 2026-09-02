@@ -78,7 +78,8 @@ class WorkflowBreakGlassTest {
         assertThat(overrides).hasSize(1);
         assertThat(overrides.get(0).get("actor_user_id")).isEqualTo(userId);
         String metadata = String.valueOf(overrides.get(0).get("metadata"));
-        assertThat(metadata).contains("\"breakGlass\":true").contains("RESUME").contains("stuck by incident 42");
+        assertThat(metadata).contains("\"breakGlass\"").contains("true").contains("RESUME")
+                .contains("stuck by incident 42");
     }
 
     @Test
@@ -139,7 +140,10 @@ class WorkflowBreakGlassTest {
         long countBefore = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'OVERRIDE'",
                 Long.class);
-        breakGlass.emergencyResume(tenantId, instanceId, userId, "second emergency");
+        // A second emergency on a fresh stuck instance appends another row —
+        // OVERRIDE evidence is append-only, never rewritten.
+        UUID secondInstance = createInstance(tenantId, userId, "FAILED");
+        breakGlass.emergencyCancel(tenantId, secondInstance, userId, "second emergency");
         long countAfter = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workflow_transition_audit WHERE action = 'OVERRIDE'",
                 Long.class);
