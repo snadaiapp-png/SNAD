@@ -65,6 +65,7 @@ class WorkflowY2CutoverTest {
         legacyV1 = createDefinition(familyId, 1, "LEGACY", "ACTIVE", "DRAFT");
         createStep(legacyV1, "start", "START");
         UUID taskV1 = createStep(legacyV1, "task", "ACTION");
+        createStep(legacyV1, "next", "ACTION");
 
         y2V2 = createDefinition(familyId, 2, "Y2", "ACTIVE", "PUBLISHED");
         startStepV2 = createStep(y2V2, "start", "START");
@@ -141,10 +142,11 @@ class WorkflowY2CutoverTest {
     void tenantACannotStartTenantBDefinition() {
         UUID tenantB = UUID.randomUUID();
         UUID userB = createUser(tenantB, "cut-b");
-        UUID defB = createDefinitionIn(tenantB, UUID.randomUUID(), 1, "Y2", "ACTIVE", "PUBLISHED");
+        UUID defB = createDefinitionFor(tenantB, userB, UUID.randomUUID(), 1, "Y2", "ACTIVE", "PUBLISHED");
         WorkflowInstance instance = manualInstanceIn(tenantB, defB, userB);
         assertThatThrownBy(() -> executionService.startWorkflow(instance, userB))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not found in tenant");
     }
 
     // ===== 3 + 9 + 13: pinning and rollback semantics ============
@@ -304,6 +306,11 @@ class WorkflowY2CutoverTest {
 
     private UUID createDefinitionIn(UUID tenant, UUID family, int version, String generation,
                                     String status, String publicationState) {
+        return createDefinitionFor(tenant, userId, family, version, generation, status, publicationState);
+    }
+
+    private UUID createDefinitionFor(UUID tenant, UUID createdBy, UUID family, int version,
+                                     String generation, String status, String publicationState) {
         UUID defId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("""
@@ -314,7 +321,7 @@ class WorkflowY2CutoverTest {
                 ) VALUES (?, ?, ?, ?, 'Cutover', 'GENERAL', ?, ?, 'MANUAL', ?, 0, ?, ?, 1, ?, ?)
                 """, defId, tenant, family,
                 "WF-CUT-" + family.toString().substring(0, 6) + "-v" + version,
-                version, status, userId, generation, publicationState, now, now);
+                version, status, createdBy, generation, publicationState, now, now);
         return defId;
     }
 
