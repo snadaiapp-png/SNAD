@@ -38,8 +38,12 @@ class PlatformApiCountTest {
      *  /api/v1/erp/inventory/reservations (1), /movements (1) = 717.
      *  + 2 Workflow Y2 endpoints (Wave 1 / Task 6):
      *  /api/v1/workflows/definitions/{id}/validate (1),
-     *  /api/v1/workflows/definitions/{id}/simulate (1) = 719. */
-    private static final long EXPECTED_TOTAL_OPS = 719;
+     *  /api/v1/workflows/definitions/{id}/simulate (1) = 719.
+     *  + 11 Workflow Y2 endpoints (Wave 3 / Task 16):
+     *  work-items mine/pool/claim/release/complete/reassign (6),
+     *  definitions publish/next-draft (2), incidents list/ack/resolve (3)
+     *  = 730. */
+    private static final long EXPECTED_TOTAL_OPS = 730;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;

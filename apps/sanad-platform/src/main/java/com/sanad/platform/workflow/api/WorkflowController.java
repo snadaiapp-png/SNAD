@@ -1,12 +1,17 @@
 package com.sanad.platform.workflow.api;
 
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.workflow.application.WorkflowActionabilityService;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
+import com.sanad.platform.workflow.application.WorkflowIncidentService;
+import com.sanad.platform.workflow.application.WorkflowWorkItemService;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
 import com.sanad.platform.workflow.application.WorkflowSimulationService;
 import com.sanad.platform.workflow.application.WorkflowMonitoringService;
 import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
+import com.sanad.platform.workflow.domain.WorkflowIncident;
+import com.sanad.platform.workflow.domain.WorkflowWorkItem;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowInstance;
 import com.sanad.platform.workflow.domain.WorkflowStep;
@@ -44,18 +49,27 @@ public class WorkflowController {
     private final WorkflowApprovalService approvalService;
     private final WorkflowMonitoringService monitoringService;
     private final WorkflowSimulationService simulationService;
+    private final WorkflowWorkItemService workItemService;
+    private final WorkflowIncidentService incidentService;
+    private final WorkflowActionabilityService actionabilityService;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
             WorkflowExecutionService executionService,
             WorkflowApprovalService approvalService,
             WorkflowMonitoringService monitoringService,
-            WorkflowSimulationService simulationService) {
+            WorkflowSimulationService simulationService,
+            WorkflowWorkItemService workItemService,
+            WorkflowIncidentService incidentService,
+            WorkflowActionabilityService actionabilityService) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
         this.monitoringService = monitoringService;
         this.simulationService = simulationService;
+        this.workItemService = workItemService;
+        this.incidentService = incidentService;
+        this.actionabilityService = actionabilityService;
     }
 
     // ===== Exception Handling =====
@@ -160,6 +174,138 @@ public class WorkflowController {
                 "visitedStepIds", result.visitedStepIds().stream().map(UUID::toString).toList(),
                 "notes", result.notes()));
     }
+
+    // ===== WorkItems (C3/L3) =====
+
+    /**
+     * Every work-item command revalidates the acting user's actionability
+     * (ACTIVE linked employee/user) server-side before touching the item —
+     * assignment never grants authorization (D3/N3).
+     */
+    private com.sanad.platform.hr.domain.HrEmployee requireActorEmployee(Authentication auth) {
+        return actionabilityService.requireActionableEmployee(tenantId(auth), userId(auth));
+    }
+
+    @GetMapping("/work-items/mine")
+    @RequireCapability("WORKFLOW.TASK_EXECUTE")
+    public ResponseEntity<List<Map<String, Object>>> myWorkItems(
+            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
+        var employee = requireActorEmployee(auth);
+        return ResponseEntity.ok(workItemService
+                .findMyWork(tenantId(auth), employee.id(), safeLimit(limit))
+                .stream().map(this::toWorkItemMap).toList());
+    }
+
+    @GetMapping("/work-items/pool")
+    @RequireCapability("WORKFLOW.TASK_EXECUTE")
+    public ResponseEntity<List<Map<String, Object>>> poolWorkItems(
+            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
+        var employee = requireActorEmployee(auth);
+        return ResponseEntity.ok(workItemService
+                .findPoolWork(tenantId(auth), employee.id(), safeLimit(limit))
+                .stream().map(this::toWorkItemMap).toList());
+    }
+
+    public record WorkItemCommandRequest(long expectedVersion, String reason) {}
+    public record WorkItemReassignRequest(UUID newAssigneeEmployeeId, long expectedVersion, String reason) {}
+
+    @PostMapping("/work-items/{id}/claim")
+    @RequireCapability("WORKFLOW.TASK_EXECUTE")
+    public ResponseEntity<Map<String, Object>> claimWorkItem(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody WorkItemCommandRequest req) {
+        var employee = requireActorEmployee(auth);
+        return ResponseEntity.ok(toWorkItemMap(workItemService.claim(
+                tenantId(auth), id, employee.id(), req.expectedVersion())));
+    }
+
+    @PostMapping("/work-items/{id}/release")
+    @RequireCapability("WORKFLOW.TASK_EXECUTE")
+    public ResponseEntity<Map<String, Object>> releaseWorkItem(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody WorkItemCommandRequest req) {
+        var employee = requireActorEmployee(auth);
+        return ResponseEntity.ok(toWorkItemMap(workItemService.release(
+                tenantId(auth), id, employee.id(), req.expectedVersion())));
+    }
+
+    @PostMapping("/work-items/{id}/complete")
+    @RequireCapability("WORKFLOW.TASK_EXECUTE")
+    public ResponseEntity<Map<String, Object>> completeWorkItem(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody WorkItemCommandRequest req) {
+        var employee = requireActorEmployee(auth);
+        return ResponseEntity.ok(toWorkItemMap(workItemService.complete(
+                tenantId(auth), id, employee.id(), req.expectedVersion())));
+    }
+
+    @PostMapping("/work-items/{id}/reassign")
+    @RequireCapability("WORKFLOW.REASSIGN")
+    public ResponseEntity<Map<String, Object>> reassignWorkItem(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody WorkItemReassignRequest req) {
+        var employee = requireActorEmployee(auth);
+        return ResponseEntity.ok(toWorkItemMap(workItemService.reassign(
+                tenantId(auth), id, req.newAssigneeEmployeeId(),
+                employee.id(), req.expectedVersion(), req.reason())));
+    }
+
+    // ===== Publishing (I3) =====
+
+    public record PublishDefinitionRequest(long expectedVersion) {}
+
+    @PostMapping("/definitions/{id}/publish")
+    @RequireCapability("WORKFLOW.PUBLISH")
+    public ResponseEntity<Map<String, Object>> publishDefinition(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody PublishDefinitionRequest req) {
+        var def = definitionService.findById(tenantId(auth), id)
+                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
+        if (def.versionLock() != req.expectedVersion()) {
+            throw new org.springframework.dao.OptimisticLockingFailureException(
+                    "WorkflowDefinition " + id + " was modified by another publisher");
+        }
+        return ResponseEntity.ok(toDefinitionMap(
+                definitionService.publish(tenantId(auth), id, userId(auth))));
+    }
+
+    @PostMapping("/definitions/{id}/next-draft")
+    @RequireCapability("WORKFLOW.DESIGN")
+    public ResponseEntity<Map<String, Object>> nextDraft(
+            Authentication auth, @PathVariable UUID id) {
+        return ResponseEntity.ok(toDefinitionMap(
+                definitionService.createNextDraft(tenantId(auth), id, userId(auth))));
+    }
+
+    // ===== Incidents (AF3) =====
+
+    @GetMapping("/incidents")
+    @RequireCapability("WORKFLOW.MONITOR")
+    public ResponseEntity<List<Map<String, Object>>> openIncidents(
+            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(incidentService.findOpen(tenantId(auth), safeLimit(limit))
+                .stream().map(this::toIncidentMap).toList());
+    }
+
+    public record IncidentResolveRequest(String resolution) {}
+
+    @PostMapping("/incidents/{id}/acknowledge")
+    @RequireCapability("WORKFLOW.INCIDENT_MANAGE")
+    public ResponseEntity<Map<String, Object>> acknowledgeIncident(
+            Authentication auth, @PathVariable UUID id) {
+        return ResponseEntity.ok(toIncidentMap(
+                incidentService.acknowledge(tenantId(auth), id, userId(auth))));
+    }
+
+    @PostMapping("/incidents/{id}/resolve")
+    @RequireCapability("WORKFLOW.INCIDENT_MANAGE")
+    public ResponseEntity<Map<String, Object>> resolveIncident(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody IncidentResolveRequest req) {
+        return ResponseEntity.ok(toIncidentMap(
+                incidentService.resolve(tenantId(auth), id, userId(auth), req.resolution())));
+    }
+
 
     @PostMapping("/definitions/{id}/activate")
     @RequireCapability("WORKFLOW.WRITE")
@@ -533,6 +679,36 @@ public class WorkflowController {
                 Map.entry("version", si.version())
         );
     }
+    private Map<String, Object> toWorkItemMap(WorkflowWorkItem w) {
+        Map<String, Object> map = new java.util.HashMap<>();
+        map.put("id", w.id());
+        map.put("workflowInstanceId", w.workflowInstanceId());
+        map.put("workflowStepInstanceId", w.workflowStepInstanceId());
+        map.put("type", w.type().name());
+        map.put("status", w.status().name());
+        map.put("assigneeEmployeeId", w.assigneeEmployeeId() != null ? w.assigneeEmployeeId().toString() : "");
+        map.put("claimedByEmployeeId", w.claimedByEmployeeId() != null ? w.claimedByEmployeeId().toString() : "");
+        map.put("assignmentMode", w.assignmentMode().name());
+        map.put("title", w.title());
+        map.put("priority", w.priority());
+        map.put("dueAt", w.dueAt() != null ? w.dueAt().toString() : "");
+        map.put("version", w.version());
+        return map;
+    }
+
+    private Map<String, Object> toIncidentMap(WorkflowIncident i) {
+        Map<String, Object> map = new java.util.HashMap<>();
+        map.put("id", i.id());
+        map.put("workflowInstanceId", i.workflowInstanceId() != null ? i.workflowInstanceId().toString() : "");
+        map.put("source", i.source());
+        map.put("severity", i.severity().name());
+        map.put("failureCategory", i.failureCategory() != null ? i.failureCategory() : "");
+        map.put("status", i.status().name());
+        map.put("resolution", i.resolution() != null ? i.resolution() : "");
+        map.put("createdAt", i.createdAt().toString());
+        return map;
+    }
+
     /**
      * Clamp the client-supplied list limit. Negative values fall back to the
      * default page size (PostgreSQL rejects a negative LIMIT with
