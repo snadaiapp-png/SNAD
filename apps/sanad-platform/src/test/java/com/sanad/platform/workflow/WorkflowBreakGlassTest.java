@@ -78,7 +78,7 @@ class WorkflowBreakGlassTest {
         assertThat(overrides).hasSize(1);
         assertThat(overrides.get(0).get("actor_user_id")).isEqualTo(userId);
         String metadata = String.valueOf(overrides.get(0).get("metadata"));
-        assertThat(metadata).contains("BREAK-GLASS RESUME").contains("stuck by incident 42");
+        assertThat(metadata).contains("\"breakGlass\":true").contains("RESUME").contains("stuck by incident 42");
     }
 
     @Test

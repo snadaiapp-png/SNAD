@@ -78,6 +78,15 @@ public record WorkflowInstance(
         return withStatus(Status.RUNNING);
     }
 
+    /**
+     * Break-glass unblock (AH3): returns a FAILED instance to RUNNING so the
+     * normal authorized command paths can retry it. Audited by the caller.
+     */
+    public WorkflowInstance resumeFromFailure() {
+        requireStatus(Status.FAILED, "resume from failure");
+        return withStatus(Status.RUNNING);
+    }
+
     public WorkflowInstance complete() {
         requireStatus(Status.RUNNING, "complete");
         var now = Instant.now();

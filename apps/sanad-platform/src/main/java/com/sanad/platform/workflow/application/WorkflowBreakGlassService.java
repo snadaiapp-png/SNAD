@@ -49,7 +49,8 @@ public class WorkflowBreakGlassService {
         WorkflowInstance resumed;
         try {
             resumed = switch (instance.status()) {
-                case FAILED, PAUSED -> instance.resume();
+                case FAILED -> instance.resumeFromFailure();
+                case PAUSED -> instance.resume();
                 default -> throw new IllegalStateException(
                         "Break-glass resume is not defined for status " + instance.status());
             };
@@ -98,10 +99,17 @@ public class WorkflowBreakGlassService {
 
     /** Appends the OVERRIDE audit row — append-only business evidence. */
     private void audit(UUID actorUserId, WorkflowInstance instance, String command, String reason) {
+        String metadata;
+        try {
+            metadata = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                    java.util.Map.of("breakGlass", true, "command", command, "reason", reason));
+        } catch (Exception e) {
+            throw new IllegalStateException("Break-glass audit serialization failed", e);
+        }
         auditRepo.save(WorkflowTransitionAudit.create(
                 instance.tenantId(), instance.id(), null,
                 actorUserId, WorkflowTransitionAudit.Action.OVERRIDE,
                 null, instance.status().name(), null,
-                "BREAK-GLASS " + command + ": " + reason));
+                metadata));
     }
 }
