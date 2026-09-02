@@ -118,23 +118,6 @@ public class ControlPlaneBootstrapService {
             throw new IllegalStateException("Bootstrap returned no user; refusing to report success.");
         }
 
-        // The control-plane credential is a protected server-side secret that is
-        // rotated out-of-band via the environment; it is NOT a human-issued
-        // temporary password. CredentialBootstrapService.forceReset arms forced
-        // rotation (must_change_password=true) because administrator-issued
-        // credentials are meant to be replaced interactively via
-        // /api/v1/auth/change-credential. This server-managed identity has no
-        // interactive rotation path: leaving the flag armed keeps the account
-        // locked out of /api/** (403 from JwtAuthenticationFilter) immediately
-        // after bootstrap — exactly the incident seen in production release
-        // run #39 (SCP smoke: overview returned 403; expected 200).
-        // Clear the flag for THIS protected server-side flow only. The password
-        // hash was still force-rotated above, the session version was still
-        // incremented, and user-facing forced-rotation semantics everywhere
-        // else (CredentialBootstrapConfig startup admin, admin-created users,
-        // password resets) remain unchanged.
-        adminUser.setMustChangePassword(false);
-
         log.info("Control-plane admin bootstrap completed for userId={} tenantId={}",
                 adminUser.getId(), tenantId);
 
