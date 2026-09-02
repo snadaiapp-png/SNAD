@@ -103,7 +103,11 @@ public class WorkflowGraphExecutionService {
         WorkflowInstance updated = instance.advanceToStep(nextStep.stepKey());
 
         if (nextStep.stepType() == WorkflowStep.StepType.END) {
-            var saved = instanceRepo.save(updated.complete());
+            // Two sequential optimistic saves: the pointer move, then the
+            // completion. Stacking both bumps into one record would skip a
+            // version and fail the optimistic lock.
+            var advanced = instanceRepo.save(updated);
+            var saved = instanceRepo.save(advanced.complete());
             log.info("Y2 instance completed: tenant={} instance={} via {}",
                     tenantId, instanceId, selected.transitionKey());
             return saved;
