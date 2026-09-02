@@ -59,6 +59,26 @@ ALLOWLIST_FILE = "scripts/ci/secret-scan-allowlist.json"
 VALID_RULE_IDS = {r[0] for r in RULES}
 REQUIRED_ALLOWLIST_FIELDS = {"ruleId", "path", "fingerprint", "reason", "owner", "approvalReference", "expirationDate"}
 
+# A source-level reference to an external secret is not itself a hardcoded
+# credential. Keep this deliberately narrow and fail-closed: only direct shell
+# environment references, GitHub Secrets expressions, and the repository's
+# exact Render environment accessor are exempt. Defaults, concatenations,
+# arbitrary command substitutions, and literals remain findings.
+SAFE_GENERIC_PASSWORD_INDIRECTION = (
+    re.compile(r'^\$[A-Za-z_][A-Za-z0-9_]*$'),
+    re.compile(r'^\$\{[A-Za-z_][A-Za-z0-9_]*\}$'),
+    re.compile(r'^\$\{\{\s*secrets\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}$'),
+    re.compile(r'^\$\(get_render_var\s+[A-Za-z_][A-Za-z0-9_]*\)$'),
+)
+
+
+def is_safe_source_indirection(rule_id: str, secret_sample: str) -> bool:
+    """Return True only for approved non-literal password source references."""
+    if rule_id != "generic-password":
+        return False
+    candidate = secret_sample.strip()
+    return any(pattern.fullmatch(candidate) for pattern in SAFE_GENERIC_PASSWORD_INDIRECTION)
+
 
 def load_allowlist(repo_root: Path):
     """Load and validate allowlist. Fail-closed on any error."""
@@ -154,6 +174,8 @@ def scan_file(filepath: Path, rules: list, scan_errors: list, repo_root: Path = 
                 for match in matches:
                     secret_value = match.group(0)
                     secret_sample = match.group(1) if match.lastindex else secret_value
+                    if is_safe_source_indirection(rule_id, secret_sample):
+                        continue
                     finding = {
                         "ruleId": rule_id,
                         "severity": severity,
@@ -220,6 +242,8 @@ def scan_repository(repo_root: Path):
                                     for match in re.finditer(pattern, line):
                                         secret_value = match.group(0)
                                         secret_sample = match.group(1) if match.lastindex else secret_value
+                                        if is_safe_source_indirection(rule_id, secret_sample):
+                                            continue
                                         finding = {
                                             "ruleId": rule_id,
                                             "severity": severity,
@@ -257,7 +281,7 @@ def generate_report(findings, files_scanned, scan_errors, skipped_files, repo_ro
         "scanner": "snad-policy-supplement",
         "role": "defense-in-depth-current-tree-policy-check",
         "historyScan": False,
-        "scannerVersion": "2.0.0",
+        "scannerVersion": "2.1.0",
         "commitSha": commit_sha,
         "workflowRunId": workflow_run_id,
         "startedAtUtc": now,

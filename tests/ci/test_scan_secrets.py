@@ -281,5 +281,68 @@ class TestSecretScanner(unittest.TestCase):
         self.assertGreater(len(findings), 0, "Different file should NOT be allowlisted")
 
 
+class TestRepositoryFalsePositiveAllowlist(unittest.TestCase):
+    """Regression: the 10 known repository false positives (variable references and
+    a deliberate redaction-proof test fixture) must remain allowlisted with exact
+    fingerprints, so the Post-Merge secret scan stays PASS (green, not hidden)."""
+
+    REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+    ALLOWLIST = REPO_ROOT / "scripts" / "ci" / "secret-scan-allowlist.json"
+
+    # (ruleId, path, line) — verified false positives: shell variable references
+    # (no literal secret values) plus one synthetic JDBC fixture string used to
+    # prove GlobalDiagnosticExceptionHandler redacts credentials.
+    KNOWN_FPS = [
+        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 72),
+        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 86),
+        ("generic-password", ".github/workflows/snad-release-orchestrator.yml", 104),
+        ("generic-password", ".github/workflows/show-admin-email.yml", 45),
+        ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 42),
+        ("generic-password", "scripts/production/verify-control-plane-tenant.sh", 52),
+        ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 56),
+        ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 61),
+        ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 93),
+        ("database-url-password", "apps/sanad-platform/src/test/java/com/sanad/platform/config/GlobalDiagnosticExceptionHandlerSecurityTest.java", 263),
+    ]
+
+    def _entries(self):
+        with open(self.ALLOWLIST) as f:
+            return json.load(f)
+
+    def test_01_all_known_false_positives_are_allowlisted(self):
+        import hashlib
+        entries = self._entries()
+        indexed = {(e["ruleId"], e["path"], e["fingerprint"]) for e in entries}
+        for rule_id, rel_path, line in self.KNOWN_FPS:
+            lines = (self.REPO_ROOT / rel_path).read_text().splitlines()
+            line_text = lines[line - 1]
+            for rule_tuple in scan_module.RULES:
+                pass
+            # recompute fingerprint exactly as the scanner does
+            pattern = dict(
+                (r[0], r[1]) for r in scan_module.RULES
+            )[rule_id]
+            import re as _re
+            m = _re.search(pattern, line_text)
+            self.assertIsNotNone(
+                m, f"{rel_path}:{line} expected to match rule {rule_id} (line content drift?)"
+            )
+            secret_sample = m.group(1) if m.lastindex else m.group(0)
+            fp = hashlib.sha256(
+                f"{rel_path}:{line}:{rule_id}:{secret_sample[:8]}".encode()
+            ).hexdigest()[:16]
+            self.assertIn(
+                (rule_id, rel_path, fp),
+                indexed,
+                f"{rel_path}:{line} ({rule_id}) must have an exact allowlist entry",
+            )
+
+    def test_02_allowlist_entries_have_documented_reasons(self):
+        for e in self._entries():
+            if e["approvalReference"].startswith("SCP-PMV-FALSEPOSITIVE"):
+                self.assertGreater(len(e["reason"]), 20, "reason must be descriptive")
+                self.assertEqual(e["owner"], "System Owner")
+
+
 if __name__ == "__main__":
     unittest.main()
