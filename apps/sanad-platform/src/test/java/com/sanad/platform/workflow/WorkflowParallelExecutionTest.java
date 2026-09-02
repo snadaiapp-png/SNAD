@@ -156,6 +156,11 @@ class WorkflowParallelExecutionTest {
                     """, UUID.randomUUID(), tenantId, instanceId,
                     forkInstanceId, key, joinStepId, now, now);
         }
+        // branch_a already terminalized before the race; branch_b completes
+        // inside the racing arrivals.
+        jdbc.update("UPDATE workflow_branch_tokens SET status = 'COMPLETED', version = version + 1 "
+                + "WHERE tenant_id = ? AND workflow_instance_id = ? AND branch_key = 'branch_a'",
+                tenantId, instanceId);
 
         // Two concurrent arrivals race the grant; exactly one must win.
         CountDownLatch ready = new CountDownLatch(1);
