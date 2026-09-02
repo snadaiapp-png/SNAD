@@ -42,8 +42,10 @@ class PlatformApiCountTest {
      *  + 11 Workflow Y2 endpoints (Wave 3 / Task 16):
      *  work-items mine/pool/claim/release/complete/reassign (6),
      *  definitions publish/next-draft (2), incidents list/ack/resolve (3),
-     *  definitions/{id}/transitions (1) = 731. */
-    private static final long EXPECTED_TOTAL_OPS = 731;
+     *  definitions/{id}/transitions (1) = 731.
+     *  + 2 Workflow Y2 break-glass endpoints (Wave 3 / Task 20):
+     *  instances/{id}/break-glass/resume (1), /break-glass/cancel (1) = 733. */
+    private static final long EXPECTED_TOTAL_OPS = 733;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;

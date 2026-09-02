@@ -2,6 +2,7 @@ package com.sanad.platform.workflow.api;
 
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.workflow.application.WorkflowActionabilityService;
+import com.sanad.platform.workflow.application.WorkflowBreakGlassService;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
 import com.sanad.platform.workflow.application.WorkflowIncidentService;
@@ -52,6 +53,7 @@ public class WorkflowController {
     private final WorkflowWorkItemService workItemService;
     private final WorkflowIncidentService incidentService;
     private final WorkflowActionabilityService actionabilityService;
+    private final WorkflowBreakGlassService breakGlassService;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
@@ -61,7 +63,8 @@ public class WorkflowController {
             WorkflowSimulationService simulationService,
             WorkflowWorkItemService workItemService,
             WorkflowIncidentService incidentService,
-            WorkflowActionabilityService actionabilityService) {
+            WorkflowActionabilityService actionabilityService,
+            WorkflowBreakGlassService breakGlassService) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
@@ -70,6 +73,7 @@ public class WorkflowController {
         this.workItemService = workItemService;
         this.incidentService = incidentService;
         this.actionabilityService = actionabilityService;
+        this.breakGlassService = breakGlassService;
     }
 
     // ===== Exception Handling =====
@@ -295,6 +299,30 @@ public class WorkflowController {
                     return map;
                 })
                 .toList());
+    }
+
+    // ===== Break glass (AH3) =====
+
+    public record BreakGlassRequest(String reason) {}
+
+    @PostMapping("/instances/{id}/break-glass/resume")
+    @RequireCapability("WORKFLOW.BREAK_GLASS")
+    public ResponseEntity<Map<String, Object>> breakGlassResume(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody BreakGlassRequest req) {
+        var instance = breakGlassService.emergencyResume(
+                tenantId(auth), id, userId(auth), req.reason());
+        return ResponseEntity.ok(toInstanceMap(instance));
+    }
+
+    @PostMapping("/instances/{id}/break-glass/cancel")
+    @RequireCapability("WORKFLOW.BREAK_GLASS")
+    public ResponseEntity<Map<String, Object>> breakGlassCancel(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody BreakGlassRequest req) {
+        var instance = breakGlassService.emergencyCancel(
+                tenantId(auth), id, userId(auth), req.reason());
+        return ResponseEntity.ok(toInstanceMap(instance));
     }
 
     // ===== Incidents (AF3) =====
