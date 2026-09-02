@@ -66,7 +66,8 @@ public class WorkflowSystemActionService {
         while (attemptNumber < maxAttempts) {
             attemptNumber++;
             WorkflowExecutionAttempt attempt = WorkflowExecutionAttempt.start(
-                    tenantId, workflowInstanceId, workflowStepInstanceId, attemptNumber, idempotencyKey);
+                    tenantId, workflowInstanceId, workflowStepInstanceId, attemptNumber, idempotencyKey)
+                    .finish(WorkflowExecutionAttempt.Outcome.IN_PROGRESS, null, null, "{}");
             store.insert(attempt);
             WorkflowSystemActionAdapter.ActionResult result;
             try {
@@ -125,7 +126,8 @@ public class WorkflowSystemActionService {
             return new ExecutionResult(true, 0, null, null, null, Map.of());
         }
         WorkflowExecutionAttempt attempt = WorkflowExecutionAttempt.start(
-                tenantId, workflowInstanceId, workflowStepInstanceId, 1, idempotencyKey);
+                tenantId, workflowInstanceId, workflowStepInstanceId, 1, idempotencyKey)
+                .finish(WorkflowExecutionAttempt.Outcome.IN_PROGRESS, null, null, "{}");
         store.insert(attempt);
         try {
             var result = adapter.compensate(new WorkflowSystemActionAdapter.ActionRequest(

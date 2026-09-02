@@ -22,7 +22,7 @@ public record WorkflowExecutionAttempt(
         Instant startedAt,
         Instant finishedAt
 ) {
-    public enum Outcome { SUCCEEDED, FAILED_TRANSIENT, FAILED_PERMANENT, TIMED_OUT, SKIPPED }
+    public enum Outcome { IN_PROGRESS, SUCCEEDED, FAILED_TRANSIENT, FAILED_PERMANENT, TIMED_OUT, SKIPPED }
 
     public static WorkflowExecutionAttempt start(UUID tenantId, UUID workflowInstanceId,
                                                  UUID stepInstanceId, int attemptNumber,

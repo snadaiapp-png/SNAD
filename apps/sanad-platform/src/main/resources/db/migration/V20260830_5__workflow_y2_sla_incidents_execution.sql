@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS workflow_execution_attempts (
     CONSTRAINT pk_workflow_execution_attempts PRIMARY KEY (id),
     CONSTRAINT uk_wf_attempt_number UNIQUE (step_instance_id, attempt_number),
     CONSTRAINT ck_wf_attempt_outcome CHECK (outcome IN (
-        'SUCCEEDED', 'FAILED_TRANSIENT', 'FAILED_PERMANENT', 'TIMED_OUT', 'SKIPPED'))
+        'IN_PROGRESS', 'SUCCEEDED', 'FAILED_TRANSIENT', 'FAILED_PERMANENT', 'TIMED_OUT', 'SKIPPED'))
 );
 
 CREATE TABLE IF NOT EXISTS workflow_incidents (
