@@ -165,6 +165,12 @@ export const workflowApi = {
   simulateDefinition: (id: string) =>
     apiClient.post<WorkflowSimulationResponse>(`${BASE}/definitions/${id}/simulate`, {}),
 
+  getDefinitionSteps: (id: string) =>
+    apiClient.get<WorkflowStepResponse[]>(`${BASE}/definitions/${id}/steps`),
+
+  getDefinitionTransitions: (id: string) =>
+    apiClient.get<WorkflowTransitionResponse[]>(`${BASE}/definitions/${id}/transitions`),
+
   // ===== Y2 Incidents (Task 16) =====
   listIncidents: (limit = 50) =>
     apiClient.get<WorkflowIncidentResponse[]>(`${BASE}/incidents?limit=${limit}`),
@@ -201,6 +207,29 @@ export interface WorkflowSimulationResponse {
   simulated: boolean;
   visitedStepIds: string[];
   notes: string[];
+}
+
+export interface WorkflowStepResponse {
+  id: string;
+  workflowDefinitionId: string;
+  stepKey: string;
+  name: string;
+  stepType: string;
+  sequenceOrder: number;
+  configuration: string;
+  slaHours: number;
+  requiredCapability: string;
+  requiredRole: string;
+  version: number;
+}
+
+export interface WorkflowTransitionResponse {
+  id: string;
+  fromStepId: string;
+  toStepId: string;
+  transitionKey: string;
+  outcome: string;
+  priority: number;
 }
 
 export interface WorkflowIncidentResponse {
