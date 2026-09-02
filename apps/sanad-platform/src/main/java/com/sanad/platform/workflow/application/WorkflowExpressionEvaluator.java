@@ -71,7 +71,11 @@ public class WorkflowExpressionEvaluator {
                 return actual.asText().contains(c.value().text());
             }
             if (actual.isArray()) {
-                return actual.contains(jsonOf(c.value()));
+                var target = jsonOf(c.value());
+                for (JsonNode element : actual) {
+                    if (element.equals(target)) return true;
+                }
+                return false;
             }
             return false;
         }

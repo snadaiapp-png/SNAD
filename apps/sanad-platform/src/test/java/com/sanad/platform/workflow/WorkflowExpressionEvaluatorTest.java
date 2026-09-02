@@ -75,10 +75,11 @@ class WorkflowExpressionEvaluatorTest {
 
     @Test
     void expressionDepthIsBounded() {
-        WorkflowExpression deep = new WorkflowExpression.Exists("source/amount");
+        WorkflowExpression built = new WorkflowExpression.Exists("source/amount");
         for (int i = 0; i < 40; i++) {
-            deep = new WorkflowExpression.Not(deep);
+            built = new WorkflowExpression.Not(built);
         }
+        final WorkflowExpression deep = built;
         assertThatThrownBy(() -> evaluator.evaluate(deep, context()))
                 .isInstanceOf(WorkflowExpressionEvaluator.WorkflowExpressionLimitException.class);
     }
