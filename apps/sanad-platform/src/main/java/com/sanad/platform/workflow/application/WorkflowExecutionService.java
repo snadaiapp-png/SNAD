@@ -151,6 +151,12 @@ public class WorkflowExecutionService {
     public WorkflowInstance advanceToNextStep(UUID tenantId, UUID instanceId,
                                               String nextStepKey, UUID actorUserId) {
         var i = load(tenantId, instanceId);
+        // No dual execution (AA3): an instance routes by its persisted
+        // generation, never by the current latest definition.
+        if (i.engineGeneration() == WorkflowInstance.EngineGeneration.Y2) {
+            throw new IllegalStateException(
+                    "Y2 graph instances must advance through WorkflowGraphExecutionService");
+        }
         var oldStepKey = i.currentStepKey();
         // 1. Complete the current step_instance.
         completeCurrentStepInstance(tenantId, i, "Advanced to " + nextStepKey);

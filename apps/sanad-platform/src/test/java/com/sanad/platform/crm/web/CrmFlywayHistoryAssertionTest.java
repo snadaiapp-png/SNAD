@@ -205,6 +205,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260830.2"   // definition family/publication metadata + step transitions
             // Workflow Y2 Wave 1 — central work items (same plan)
             , "20260830.3"   // work items + candidate pools + tenant-safe employee FK
+            // Workflow Y2 Wave 2 — runtime context and engine generation (same plan)
+            , "20260830.4"   // instance runtime metadata + branch tokens + idempotent starts
     );
 
 

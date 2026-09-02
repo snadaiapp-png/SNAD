@@ -42,6 +42,16 @@ public class JdbcWorkflowInstanceRepository implements WorkflowInstanceRepositor
             rs.getObject("cancelled_by", UUID.class),
             rs.getString("cancel_reason"),
             rs.getObject("correlation_id", UUID.class),
+            WorkflowInstance.EngineGeneration.valueOf(rs.getString("engine_generation")),
+            rs.getObject("definition_family_id", UUID.class),
+            rs.getObject("definition_version_id", UUID.class),
+            rs.getObject("parent_instance_id", UUID.class),
+            rs.getString("trigger_type"),
+            rs.getObject("trigger_id", UUID.class),
+            rs.getString("idempotency_key"),
+            rs.getObject("causation_id", UUID.class),
+            rs.getString("context_json"),
+            rs.getInt("context_schema_version"),
             rs.getLong("version"),
             rs.getTimestamp("created_at").toInstant(),
             rs.getTimestamp("updated_at").toInstant()
@@ -61,8 +71,11 @@ public class JdbcWorkflowInstanceRepository implements WorkflowInstanceRepositor
                     (id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
                      business_entity_id, status, current_step_key, started_by, started_at,
                      completed_at, cancelled_at, cancelled_by, cancel_reason, correlation_id,
+                     engine_generation, definition_family_id, definition_version_id, parent_instance_id,
+                     trigger_type, trigger_id, idempotency_key, causation_id,
+                     context_json, context_schema_version,
                      version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?)
                 """,
                 i.id(), i.tenantId(), i.workflowDefinitionId(), i.workflowVersion(),
                 i.businessEntityType(), i.businessEntityId(),
@@ -74,6 +87,10 @@ public class JdbcWorkflowInstanceRepository implements WorkflowInstanceRepositor
                 i.cancelledBy(),
                 i.cancelReason(),
                 i.correlationId(),
+                i.engineGeneration().name(),
+                i.definitionFamilyId(), i.definitionVersionId(), i.parentInstanceId(),
+                i.triggerType(), i.triggerId(), i.idempotencyKey(), i.causationId(),
+                i.contextJson() != null ? i.contextJson() : "{}", i.contextSchemaVersion(),
                 i.version(),
                 Timestamp.from(i.createdAt()), Timestamp.from(i.updatedAt())
         );
@@ -84,7 +101,8 @@ public class JdbcWorkflowInstanceRepository implements WorkflowInstanceRepositor
         int affected = jdbc.update("""
                 UPDATE workflow_instances SET
                     status = ?, current_step_key = ?, completed_at = ?, cancelled_at = ?,
-                    cancelled_by = ?, cancel_reason = ?, version = ?, updated_at = ?
+                    cancelled_by = ?, cancel_reason = ?, context_json = CAST(? AS jsonb),
+                    context_schema_version = ?, version = ?, updated_at = ?
                 WHERE id = ? AND tenant_id = ? AND version = ?
                 """,
                 i.status().name(), i.currentStepKey(),
@@ -92,6 +110,7 @@ public class JdbcWorkflowInstanceRepository implements WorkflowInstanceRepositor
                 i.cancelledAt() != null ? Timestamp.from(i.cancelledAt()) : null,
                 i.cancelledBy(),
                 i.cancelReason(),
+                i.contextJson() != null ? i.contextJson() : "{}", i.contextSchemaVersion(),
                 i.version(), Timestamp.from(i.updatedAt()),
                 i.id(), i.tenantId(), i.version() - 1
         );
