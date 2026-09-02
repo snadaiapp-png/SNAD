@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260830_7: Workflow Y2 break-glass override audit
+-- V20260902_7: Workflow Y2 break-glass override audit
 --
 -- Wave 3 — Task 20 (design decision AH3): break-glass emergency commands
 -- append an OVERRIDE business-audit event. Extends the audit action check

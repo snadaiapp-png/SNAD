@@ -200,19 +200,19 @@ class CrmFlywayHistoryAssertionTest {
             , "20260823.2"   // crm participant role exclusivity (C3 — W2 partial unique index + owner↔participant trigger guards)
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
             // Workflow Y2 Wave 0 — identity bridge (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
-            , "20260830.1"   // enforce employee/user identity bridge unique index
+            , "20260902.1"   // enforce employee/user identity bridge unique index
             // Workflow Y2 Wave 1 — definition graph (same plan)
-            , "20260830.2"   // definition family/publication metadata + step transitions
+            , "20260902.2"   // definition family/publication metadata + step transitions
             // Workflow Y2 Wave 1 — central work items (same plan)
-            , "20260830.3"   // work items + candidate pools + tenant-safe employee FK
+            , "20260902.3"   // work items + candidate pools + tenant-safe employee FK
             // Workflow Y2 Wave 2 — runtime context and engine generation (same plan)
-            , "20260830.4"   // instance runtime metadata + branch tokens + idempotent starts
+            , "20260902.4"   // instance runtime metadata + branch tokens + idempotent starts
             // Workflow Y2 Wave 2 — calendars, delegation, incidents, attempts (same plan)
-            , "20260830.5"   // business calendars + delegations + attempts + incidents
+            , "20260902.5"   // business calendars + delegations + attempts + incidents
             // Workflow Y2 Wave 2 — reliable events and notifications (same plan)
-            , "20260830.6"   // inbox/outbox + notification intents
+            , "20260902.6"   // inbox/outbox + notification intents
             // Workflow Y2 Wave 3 — break-glass override audit (same plan)
-            , "20260830.7"   // audit OVERRIDE action for break-glass commands
+            , "20260902.7"   // audit OVERRIDE action for break-glass commands
     );
 
 

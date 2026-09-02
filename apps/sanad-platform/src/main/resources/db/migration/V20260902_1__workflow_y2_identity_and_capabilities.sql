@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260830_1: Workflow Y2 identity bridge and capabilities
+-- V20260902_1: Workflow Y2 identity bridge and capabilities
 --
 -- Task 2 scope:
 --   * Enforce optional one-to-one Employee <-> User linkage per tenant.

@@ -166,20 +166,20 @@ class CrmPostgresMigrationTest {
     private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
     private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
     private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
-    // Workflow Y2 Wave 0 — identity bridge (V20260830_1).
-    private static final String WORKFLOW_Y2_IDENTITY_VERSION = "20260830.1";
-    // Workflow Y2 Wave 1 — definition graph (V20260830_2).
-    private static final String WORKFLOW_Y2_DEFINITION_GRAPH_VERSION = "20260830.2";
-    // Workflow Y2 Wave 1 — central work items (V20260830_3).
-    private static final String WORKFLOW_Y2_WORK_ITEMS_VERSION = "20260830.3";
-    // Workflow Y2 Wave 2 — runtime context (V20260830_4).
-    private static final String WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION = "20260830.4";
-    // Workflow Y2 Wave 2 — calendars/delegation/incidents (V20260830_5).
-    private static final String WORKFLOW_Y2_SLA_INCIDENTS_VERSION = "20260830.5";
-    // Workflow Y2 Wave 2 — reliable events/notifications (V20260830_6).
-    private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260830.6";
-    // Workflow Y2 Wave 3 — break-glass override audit (V20260830_7).
-    private static final String WORKFLOW_Y2_BREAK_GLASS_VERSION = "20260830.7";
+    // Workflow Y2 Wave 0 — identity bridge (V20260902_1).
+    private static final String WORKFLOW_Y2_IDENTITY_VERSION = "20260902.1";
+    // Workflow Y2 Wave 1 — definition graph (V20260902_2).
+    private static final String WORKFLOW_Y2_DEFINITION_GRAPH_VERSION = "20260902.2";
+    // Workflow Y2 Wave 1 — central work items (V20260902_3).
+    private static final String WORKFLOW_Y2_WORK_ITEMS_VERSION = "20260902.3";
+    // Workflow Y2 Wave 2 — runtime context (V20260902_4).
+    private static final String WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION = "20260902.4";
+    // Workflow Y2 Wave 2 — calendars/delegation/incidents (V20260902_5).
+    private static final String WORKFLOW_Y2_SLA_INCIDENTS_VERSION = "20260902.5";
+    // Workflow Y2 Wave 2 — reliable events/notifications (V20260902_6).
+    private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260902.6";
+    // Workflow Y2 Wave 3 — break-glass override audit (V20260902_7).
+    private static final String WORKFLOW_Y2_BREAK_GLASS_VERSION = "20260902.7";
     private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_BREAK_GLASS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(

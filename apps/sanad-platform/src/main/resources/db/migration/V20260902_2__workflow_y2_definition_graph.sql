@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260830_2: Workflow Y2 definition family / publication metadata
+-- V20260902_2: Workflow Y2 definition family / publication metadata
 --
 -- Wave 0 / Wave 1 — Task 4:
 --   * Add immutable publication metadata to workflow_definitions.

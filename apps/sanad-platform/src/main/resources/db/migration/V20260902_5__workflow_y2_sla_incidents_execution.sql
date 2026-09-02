@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260830_5: Workflow Y2 business calendars, delegation, incidents,
+-- V20260902_5: Workflow Y2 business calendars, delegation, incidents,
 --              execution attempts
 --
 -- Wave 2 — Task 12/13 (design decisions V3/G3/O3/AF3/P3):

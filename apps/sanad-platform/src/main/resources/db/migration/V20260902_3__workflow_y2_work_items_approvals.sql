@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260830_3: Workflow Y2 central WorkItems and work pools
+-- V20260902_3: Workflow Y2 central WorkItems and work pools
 --
 -- Wave 1 — Task 7 (design decisions C3/L3/N3):
 --   * Central actionable WorkItems exist only for HUMAN_TASK and APPROVAL.

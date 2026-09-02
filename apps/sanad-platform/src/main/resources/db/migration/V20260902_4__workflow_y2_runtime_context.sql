@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260830_4: Workflow Y2 runtime context and engine generation
+-- V20260902_4: Workflow Y2 runtime context and engine generation
 --
 -- Wave 2 — Task 10 (design decisions Y2/Z3/AA3/S3):
 --   * Persist the resolved engine generation on every instance so each

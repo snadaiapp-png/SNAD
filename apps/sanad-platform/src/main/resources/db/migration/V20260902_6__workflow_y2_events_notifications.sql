@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260830_6: Workflow Y2 reliable events and notification intents
+-- V20260902_6: Workflow Y2 reliable events and notification intents
 --
 -- Wave 2 — Task 15 (design decisions J3/X3/K3):
 --   * Idempotent inbox: duplicate DOMAIN_EVENT delivery can never create a

@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Wave 0 / Task 3 — Y2 fine-grained Workflow capability catalog.
  *
  * <p>Verifies the additive capability seed in
- * {@code V20260830_1__workflow_y2_identity_and_capabilities.sql}:
+ * {@code V20260902_1__workflow_y2_identity_and_capabilities.sql}:
  * the thirteen new WORKFLOW.* capability codes exist after Flyway migration,
  * the legacy coarse capabilities remain, and the ADMIN compatibility mapping
  * grants every new capability to every tenant's ADMIN role.</p>
