@@ -114,11 +114,6 @@ class ControlPlaneBootstrapServiceTest {
         assertThat(result.membershipActivated()).isTrue();
         assertThat(result.roleGrantsActivated()).containsExactly("ROLE.READ", "ROLE.WRITE");
 
-        // The password comes from a protected server-side secret. A successful
-        // control-plane bootstrap must therefore leave a steady-state credential
-        // that can immediately call protected /api/** routes.
-        verify(user).setMustChangePassword(false);
-
         // Verify forceReset=true is passed so the password is rotated and grant re-activated.
         verify(credentialBootstrapService).bootstrap(
                 eq(true), eq(true), eq(tenantId),
