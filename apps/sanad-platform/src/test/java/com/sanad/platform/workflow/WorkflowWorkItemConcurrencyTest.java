@@ -45,6 +45,7 @@ class WorkflowWorkItemConcurrencyTest {
     private UUID userId;
     private UUID instanceId;
     private UUID stepInstanceId;
+    private UUID definitionId;
     private UUID employeeA;
     private UUID employeeB;
 
@@ -63,7 +64,7 @@ class WorkflowWorkItemConcurrencyTest {
         employeeA = createEmployee("E-A");
         employeeB = createEmployee("E-B");
 
-        UUID definitionId = UUID.randomUUID();
+        definitionId = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO workflow_definitions (
                     id, tenant_id, definition_family_id, code, name, module, version, status,
@@ -78,12 +79,19 @@ class WorkflowWorkItemConcurrencyTest {
                     business_entity_id, status, started_by, started_at, version, created_at, updated_at
                 ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, ?, 0, ?, ?)
                 """, instanceId = UUID.randomUUID(), tenantId, definitionId, userId, now, now, now);
+        UUID stepDefId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO workflow_steps (
+                    id, tenant_id, workflow_definition_id, step_key, name, step_type,
+                    sequence_order, configuration, version, created_at, updated_at
+                ) VALUES (?, ?, ?, 'review', 'Review', 'HUMAN_TASK', 1, CAST('{}' AS jsonb), 0, ?, ?)
+                """, stepDefId, tenantId, definitionId, now, now);
         jdbc.update("""
                 INSERT INTO workflow_step_instances (
                     id, tenant_id, workflow_instance_id, workflow_step_id, step_key,
                     status, version, created_at, updated_at
-                ) VALUES (?, ?, ?, gen_random_uuid(), 'step', 'PENDING', 0, ?, ?)
-                """, stepInstanceId = UUID.randomUUID(), tenantId, instanceId, now, now);
+                ) VALUES (?, ?, ?, ?, 'step', 'PENDING', 0, ?, ?)
+                """, stepInstanceId = UUID.randomUUID(), tenantId, instanceId, stepDefId, now, now);
     }
 
     @Test

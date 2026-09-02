@@ -71,7 +71,7 @@ public class JdbcWorkflowApprovalRequestRepository implements WorkflowApprovalRe
                      requested_from_employee_id, approval_policy, self_approval_policy, policy_snapshot,
                      status, requested_at, due_at, acted_by, acted_at, decision, comments,
                      version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 r.id(), r.tenantId(), r.workflowInstanceId(), r.workflowStepInstanceId(),
                 r.requestedFromUserId(), r.requestedFromRole(), r.requestedByUserId(),
