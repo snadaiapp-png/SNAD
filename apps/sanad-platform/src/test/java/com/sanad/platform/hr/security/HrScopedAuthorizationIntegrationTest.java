@@ -135,10 +135,11 @@ class HrScopedAuthorizationIntegrationTest {
     private void seedTenantAndCapability(UUID tenantId, UUID capabilityId) throws Exception {
         resetTenant();
         try (PreparedStatement ps = connection.prepareStatement(
-                "INSERT INTO tenants (id, name, status, created_at, updated_at) " +
-                        "VALUES (?, ?, 'ACTIVE', NOW(), NOW())")) {
+                "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
+                        "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())")) {
             ps.setObject(1, tenantId);
             ps.setString(2, "WS4-" + tenantId);
+            ps.setString(3, "ws4-" + tenantId.toString().substring(0, 8));
             ps.executeUpdate();
         }
         try (PreparedStatement ps = connection.prepareStatement(

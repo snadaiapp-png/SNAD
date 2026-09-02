@@ -111,10 +111,11 @@ class HrComplianceOverrideIntegrationTest {
     private UUID seedTenantUserAndRule(UUID tenantId, UUID userId) throws Exception {
         resetTenant();
         try (PreparedStatement ps = connection.prepareStatement(
-                "INSERT INTO tenants (id, name, status, created_at, updated_at) " +
-                        "VALUES (?, ?, 'ACTIVE', NOW(), NOW())")) {
+                "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
+                        "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())")) {
             ps.setObject(1, tenantId);
             ps.setString(2, "WS3-" + tenantId);
+            ps.setString(3, "ws3-" + tenantId.toString().substring(0, 8));
             ps.executeUpdate();
         }
         try (PreparedStatement ps = connection.prepareStatement(
