@@ -116,7 +116,7 @@ public class WorkflowExpressionEvaluator {
         };
     }
 
-    private com.fasterxml.jackson.databind.node.JsonNode jsonOf(WorkflowExpression.WorkflowValue value) {
+    private com.fasterxml.jackson.databind.JsonNode jsonOf(WorkflowExpression.WorkflowValue value) {
         var factory = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
         return switch (value.kind()) {
             case STRING -> factory.textNode(value.text());
