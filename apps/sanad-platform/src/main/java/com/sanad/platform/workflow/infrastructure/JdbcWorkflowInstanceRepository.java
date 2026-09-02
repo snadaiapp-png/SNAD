@@ -129,6 +129,13 @@ public class JdbcWorkflowInstanceRepository implements WorkflowInstanceRepositor
     }
 
     @Override
+    public Optional<WorkflowInstance> findByIdempotencyKey(UUID tenantId, String idempotencyKey) {
+        return jdbc.query("""
+                SELECT * FROM workflow_instances WHERE tenant_id = ? AND idempotency_key = ?
+                """, MAPPER, tenantId, idempotencyKey).stream().findFirst();
+    }
+
+    @Override
     public List<WorkflowInstance> findByTenant(UUID tenantId, int limit) {
         return jdbc.query("""
                 SELECT * FROM workflow_instances WHERE tenant_id = ?

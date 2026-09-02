@@ -2,6 +2,7 @@ package com.sanad.platform.workflow.application;
 
 import com.sanad.platform.workflow.domain.WorkflowEventEnvelope;
 import com.sanad.platform.workflow.domain.WorkflowInstance;
+import com.sanad.platform.workflow.domain.WorkflowInstanceRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -22,15 +23,9 @@ import java.util.UUID;
 public class WorkflowTriggerService {
 
     private final JdbcTemplate jdbc;
-    private final WorkflowInstanceRepositoryPort instanceRepo;
+    private final WorkflowInstanceRepository instanceRepo;
 
-    /** Narrow write port so the trigger service stays persistence-agnostic. */
-    public interface WorkflowInstanceRepositoryPort {
-        WorkflowInstance save(WorkflowInstance instance);
-        Optional<WorkflowInstance> findByIdempotencyKey(UUID tenantId, String idempotencyKey);
-    }
-
-    public WorkflowTriggerService(JdbcTemplate jdbc, WorkflowInstanceRepositoryPort instanceRepo) {
+    public WorkflowTriggerService(JdbcTemplate jdbc, WorkflowInstanceRepository instanceRepo) {
         this.jdbc = jdbc;
         this.instanceRepo = instanceRepo;
     }

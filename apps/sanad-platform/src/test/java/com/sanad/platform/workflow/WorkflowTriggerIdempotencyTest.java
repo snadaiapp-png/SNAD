@@ -16,8 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,52 +37,14 @@ class WorkflowTriggerIdempotencyTest {
     private JdbcTemplate jdbc;
 
     @Autowired
+    private WorkflowTriggerService triggerService;
+
+    @Autowired
     private WorkflowNotificationService notifications;
 
     private UUID tenantId;
     private UUID definitionId;
     private UUID startUserId;
-
-    private TriggerServiceFacade triggerService;
-
-    /** Local adapter wiring the trigger service to the instance table. */
-    private class TriggerServiceFacade extends WorkflowTriggerService {
-        TriggerServiceFacade(JdbcTemplate jdbcTemplate) {
-            super(jdbcTemplate, new WorkflowInstanceRepositoryPort() {
-                @Override
-                public com.sanad.platform.workflow.domain.WorkflowInstance save(
-                        com.sanad.platform.workflow.domain.WorkflowInstance instance) {
-                    jdbcTemplate.update("""
-                            INSERT INTO workflow_instances (
-                                id, tenant_id, workflow_definition_id, workflow_version,
-                                business_entity_type, business_entity_id, status, current_step_key,
-                                started_by, started_at, engine_generation, definition_family_id,
-                                definition_version_id, trigger_type, trigger_id, idempotency_key,
-                                context_json, context_schema_version, version, created_at, updated_at
-                            ) VALUES (?, ?, ?, 1, ?, ?, 'RUNNING', ?, ?, NOW(), 'Y2', ?, ?, ?,
-                                      'DOMAIN_EVENT', ?, ?, CAST('{}' AS jsonb), 1, 0, NOW(), NOW())
-                            """, instance.id(), instance.tenantId(), instance.workflowDefinitionId(),
-                            instance.businessEntityType(), instance.businessEntityId(),
-                            instance.currentStepKey(), instance.startedBy(),
-                            instance.definitionFamilyId(), instance.definitionVersionId(),
-                            instance.triggerType(), instance.triggerId(), instance.idempotencyKey());
-                    return instance;
-                }
-
-                @Override
-                public java.util.Optional<com.sanad.platform.workflow.domain.WorkflowInstance> findByIdempotencyKey(
-                        UUID tenant, String idempotencyKey) {
-                    List<UUID> ids = jdbcTemplate.queryForList(
-                            "SELECT id FROM workflow_instances WHERE tenant_id = ? AND idempotency_key = ?",
-                            UUID.class, tenant, idempotencyKey);
-                    if (ids.isEmpty()) return java.util.Optional.empty();
-                    return java.util.Optional.of(com.sanad.platform.workflow.domain.WorkflowInstance
-                            .start(tenant, definitionId, 1, "TEST", UUID.randomUUID(),
-                                    "start", startUserId, null));
-                }
-            });
-        }
-    }
 
     @BeforeEach
     void setUp() {
@@ -106,7 +66,6 @@ class WorkflowTriggerIdempotencyTest {
                 ) VALUES (?, ?, ?, 'WF-TRG', 'Triggered', 'GENERAL', 1, 'ACTIVE',
                           'EVENT', ?, 0, 'Y2', 'PUBLISHED', 1, ?, ?)
                 """, definitionId, tenantId, definitionId, startUserId, now, now);
-        triggerService = new TriggerServiceFacade(jdbc);
     }
 
     @Test
