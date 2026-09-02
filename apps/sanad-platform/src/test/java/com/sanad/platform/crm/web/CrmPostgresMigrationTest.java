@@ -186,7 +186,8 @@ class CrmPostgresMigrationTest {
     private static final String HR_BACKFILL_FIX_VERSION = "20260901.2";
     private static final String HR_BACKFILL_IDEMPOTENCY_FIX_VERSION = "20260901.3";
     private static final String HR_BACKFILL_MGR_FIX_VERSION = "20260901.4";
-    private static final String LATEST_MIGRATION_VERSION = HR_BACKFILL_MGR_FIX_VERSION;
+    private static final String WS3_WS4_FOUNDATION_VERSION = "20260902.1";
+    private static final String LATEST_MIGRATION_VERSION = WS3_WS4_FOUNDATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -413,7 +414,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_BACKFILL_PLAN_CONFORMANCE_VERSION),
                         MigrationVersion.fromVersion(HR_BACKFILL_FIX_VERSION),
                         MigrationVersion.fromVersion(HR_BACKFILL_IDEMPOTENCY_FIX_VERSION),
-                        MigrationVersion.fromVersion(HR_BACKFILL_MGR_FIX_VERSION));
+                        MigrationVersion.fromVersion(HR_BACKFILL_MGR_FIX_VERSION),
+                        MigrationVersion.fromVersion(WS3_WS4_FOUNDATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -561,7 +563,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_BACKFILL_PLAN_CONFORMANCE_VERSION),
                         MigrationVersion.fromVersion(HR_BACKFILL_FIX_VERSION),
                         MigrationVersion.fromVersion(HR_BACKFILL_IDEMPOTENCY_FIX_VERSION),
-                        MigrationVersion.fromVersion(HR_BACKFILL_MGR_FIX_VERSION));
+                        MigrationVersion.fromVersion(HR_BACKFILL_MGR_FIX_VERSION),
+                        MigrationVersion.fromVersion(WS3_WS4_FOUNDATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
