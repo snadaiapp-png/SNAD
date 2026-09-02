@@ -11,8 +11,9 @@
 # their real runtime semantics. H2 is no longer used as a backend
 # acceptance runtime.
 #
-# A disposable PostgreSQL 17 instance must be running on
-# localhost:5432 with database `sanad` accessible to role `sanad`.
+# A disposable PostgreSQL 16 instance must be running on
+# localhost:5432 with database `sanad` accessible to role `sanad`
+# (same version and contract as the CI postgres:16-alpine service).
 # ============================================================
 
 spring:

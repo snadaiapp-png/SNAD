@@ -6,7 +6,6 @@
 -- defense-in-depth protected in production. The H2 test profile relies
 -- on application-layer WHERE tenant_id filtering (RLS is PG-only).
 --
--- H2 no-op mirror exists at src/test/resources/db/vendor/h2/V20260815_26__enable_governance_cfg_rls.sql.
 -- ============================================================
 
 ALTER TABLE governance_configurations ENABLE ROW LEVEL SECURITY;

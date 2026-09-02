@@ -527,11 +527,15 @@ class Crm008bFoundationAcceptanceTest {
 
         JdbcTemplate jdbc = jdbc();
 
-        // Terminal migration tracks db/migration — currently V20260820_7
-        // (RBAC exact matrix 9/9). See CRM_LATEST_VERSION above.
+        // Terminal versioned migration tracks db/migration — currently V20260901_4.
+        // See CRM_LATEST_VERSION above. NOTE: version IS NOT NULL is required
+        // because repeatable migrations (R__finalize_hr_backfill_closure) run
+        // AFTER the versioned chain on a clean install and occupy the highest
+        // installed_rank with a NULL version — they must not shadow the
+        // terminal versioned migration this assertion tracks.
         String latest = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
-                "ORDER BY installed_rank DESC LIMIT 1", String.class);
+                "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
         assertThat(latest).isEqualTo(CRM_LATEST_VERSION);
 
         // All 13 new CRM-008B tables exist
@@ -641,6 +645,13 @@ class Crm008bFoundationAcceptanceTest {
         var configuration = Flyway.configure()
                 .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                // V15 is a production JDBC migration registered as a bean by
+                // FlywayJavaMigrationConfig. Resolving it here keeps the
+                // shared test_migration history canonical (identical chain to
+                // the Spring auto-configured Flyway on the sanad database) so
+                // validate() and other tests' validateOnMigrate(true) are
+                // order-independent.
+                .javaMigrations(new com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(false);
         if (target != null) configuration.target(target);

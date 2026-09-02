@@ -961,8 +961,12 @@ class CrmPostgresMigrationTest {
     }
 
     private String latestVersion(JdbcTemplate jdbc) {
+        // version IS NOT NULL: repeatable migrations (R__*) occupy the highest
+        // installed_rank with a NULL version and must not shadow the terminal
+        // versioned migration.
         return jdbc.queryForObject(
-                "SELECT version FROM flyway_schema_history WHERE success=TRUE ORDER BY installed_rank DESC LIMIT 1",
+                "SELECT version FROM flyway_schema_history WHERE success=TRUE "
+                        + "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
     }
 

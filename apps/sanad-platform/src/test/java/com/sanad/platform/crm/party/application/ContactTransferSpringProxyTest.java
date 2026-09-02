@@ -7,9 +7,12 @@ import com.sanad.platform.crm.collaboration.domain.EntityParticipantRepository;
 import com.sanad.platform.crm.collaboration.domain.ParticipantRole;
 import com.sanad.platform.crm.collaboration.domain.RecipientEligibilityPort;
 import com.sanad.platform.crm.collaboration.domain.RecipientEligibilityPort.EligibilityDecision;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.crm.party.domain.ContactRepository;
 import com.sanad.platform.crm.party.domain.ContactRepository.ContactRecord;
 
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,8 +21,7 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
-import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
@@ -48,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>Stubbed {@link CollaborationMembershipService}.</li>
  *   <li>Stubbed {@link RecipientEligibilityPort}.</li>
  *   <li>{@link ContactTransferUseCases} as a Spring bean.</li>
- *   <li>{@link DataSource} (H2 embedded) + {@link PlatformTransactionManager}.</li>
+ *   <li>{@link DataSource} (PostgreSQL Direct) + {@link PlatformTransactionManager}.</li>
  *   <li>{@link EnableTransactionManagement} so Spring weaves the proxy.</li>
  * </ul>
  *
@@ -65,6 +67,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ContactTransferSpringProxyTest {
 
+    private static final String PG_URL = System.getenv().getOrDefault("SPRING_DATASOURCE_URL",
+            "jdbc:postgresql://localhost:5432/sanad");
+    private static final String PG_USER = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
+    private static final String PG_PASS = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
+
+    @BeforeAll
+    static void requirePostgreSql() {
+        Assumptions.assumeTrue(
+                Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("ContactTransferSpringProxyTest"),
+                "PostgreSQL Direct required");
+    }
+
     private static final UUID TENANT_ID = UUID.fromString("c5c50000-0000-4000-8000-000000000001");
     private static final UUID CONTACT_ID = UUID.fromString("c5c50000-0000-4000-8000-000000000002");
     private static final UUID USER_A = UUID.fromString("c5c50000-0000-4000-8000-00000000a001");
@@ -77,12 +91,11 @@ class ContactTransferSpringProxyTest {
     static class TestConfig {
         @Bean
         public DataSource dataSource() {
-            // H2 in PostgreSQL-compatible mode — we only need a DataSource
-            // for the DataSourceTransactionManager to bind a connection.
-            return new EmbeddedDatabaseBuilder()
-                    .setType(EmbeddedDatabaseType.H2)
-                    .setName("c5r1-spring-proxy-test")
-                    .build();
+            // PostgreSQL Direct DataSource — we only need a DataSource for
+            // the DataSourceTransactionManager to bind a real connection.
+            // H2 was removed from the test classpath: PostgreSQL is the only
+            // acceptance database.
+            return new DriverManagerDataSource(PG_URL, PG_USER, PG_PASS);
         }
 
         @Bean

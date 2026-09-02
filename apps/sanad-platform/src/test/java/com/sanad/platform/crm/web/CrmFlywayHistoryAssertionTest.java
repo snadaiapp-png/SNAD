@@ -329,7 +329,8 @@ class CrmFlywayHistoryAssertionTest {
 
         String latestVersion = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history " +
-                        "WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
+                        "WHERE success = TRUE AND version IS NOT NULL " +
+                        "ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
 
         assertThat(latestVersion)
