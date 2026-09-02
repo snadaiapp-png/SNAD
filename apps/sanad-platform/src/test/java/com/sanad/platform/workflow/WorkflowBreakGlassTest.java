@@ -174,9 +174,10 @@ class WorkflowBreakGlassTest {
                     id, tenant_id, definition_family_id, code, name, module, version, status,
                     trigger_type, created_by, version_lock, engine_generation, publication_state,
                     schema_version, created_at, updated_at
-                ) VALUES (?, ?, ?, 'WF-BG', 'Break Glass', 'GENERAL', 1, 'ACTIVE',
+                ) VALUES (?, ?, ?, ?, 'Break Glass', 'GENERAL', 1, 'ACTIVE',
                           'MANUAL', ?, 0, 'LEGACY', 'DRAFT', 1, ?, ?)
-                """, definitionId, tenant, definitionId, startedBy, now, now);
+                """, definitionId, tenant, definitionId,
+                "WF-BG-" + definitionId.toString().substring(0, 8), startedBy, now, now);
         jdbc.update("""
                 INSERT INTO workflow_instances (
                     id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
