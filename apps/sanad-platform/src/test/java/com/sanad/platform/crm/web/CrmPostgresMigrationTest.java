@@ -176,7 +176,9 @@ class CrmPostgresMigrationTest {
     private static final String WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION = "20260830.4";
     // Workflow Y2 Wave 2 — calendars/delegation/incidents (V20260830_5).
     private static final String WORKFLOW_Y2_SLA_INCIDENTS_VERSION = "20260830.5";
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_SLA_INCIDENTS_VERSION;
+    // Workflow Y2 Wave 2 — reliable events/notifications (V20260830_6).
+    private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260830.6";
+    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_EVENTS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -396,7 +398,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_DEFINITION_GRAPH_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_WORK_ITEMS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -537,7 +540,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_DEFINITION_GRAPH_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_WORK_ITEMS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

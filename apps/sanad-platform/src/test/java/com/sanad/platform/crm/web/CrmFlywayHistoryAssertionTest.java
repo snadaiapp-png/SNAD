@@ -209,6 +209,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260830.4"   // instance runtime metadata + branch tokens + idempotent starts
             // Workflow Y2 Wave 2 — calendars, delegation, incidents, attempts (same plan)
             , "20260830.5"   // business calendars + delegations + attempts + incidents
+            // Workflow Y2 Wave 2 — reliable events and notifications (same plan)
+            , "20260830.6"   // inbox/outbox + notification intents
     );
 
 
