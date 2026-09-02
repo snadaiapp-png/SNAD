@@ -52,6 +52,7 @@ public class WorkflowController {
     private final WorkflowWorkItemService workItemService;
     private final WorkflowIncidentService incidentService;
     private final WorkflowActionabilityService actionabilityService;
+    private final com.sanad.platform.workflow.domain.WorkflowDefinitionRepository definitionRepo;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
@@ -61,7 +62,8 @@ public class WorkflowController {
             WorkflowSimulationService simulationService,
             WorkflowWorkItemService workItemService,
             WorkflowIncidentService incidentService,
-            WorkflowActionabilityService actionabilityService) {
+            WorkflowActionabilityService actionabilityService,
+            com.sanad.platform.workflow.domain.WorkflowDefinitionRepository definitionRepo) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
@@ -70,6 +72,7 @@ public class WorkflowController {
         this.workItemService = workItemService;
         this.incidentService = incidentService;
         this.actionabilityService = actionabilityService;
+        this.definitionRepo = definitionRepo;
     }
 
     // ===== Exception Handling =====
@@ -275,6 +278,26 @@ public class WorkflowController {
             Authentication auth, @PathVariable UUID id) {
         return ResponseEntity.ok(toDefinitionMap(
                 definitionService.createNextDraft(tenantId(auth), id, userId(auth))));
+    }
+
+    @GetMapping("/definitions/{id}/transitions")
+    @RequireCapability("WORKFLOW.VIEW")
+    public ResponseEntity<List<Map<String, Object>>> listTransitions(
+            Authentication auth, @PathVariable UUID id) {
+        definitionService.findById(tenantId(auth), id)
+                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
+        return ResponseEntity.ok(definitionRepo.findTransitions(id).stream()
+                .map(t -> {
+                    Map<String, Object> map = new java.util.HashMap<>();
+                    map.put("id", t.id());
+                    map.put("fromStepId", t.fromStepId());
+                    map.put("toStepId", t.toStepId());
+                    map.put("transitionKey", t.transitionKey());
+                    map.put("outcome", t.outcome() != null ? t.outcome() : "");
+                    map.put("priority", t.priority());
+                    return map;
+                })
+                .toList());
     }
 
     // ===== Incidents (AF3) =====
