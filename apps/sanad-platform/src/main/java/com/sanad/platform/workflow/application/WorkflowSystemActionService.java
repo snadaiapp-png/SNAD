@@ -61,9 +61,11 @@ public class WorkflowSystemActionService {
                     (String) prior.get("external_reference"), Map.of());
         }
 
-        int attemptNumber = 0;
+        int attemptNumber = store.nextAttemptNumber(workflowStepInstanceId);
+        int executed = 0;
         UUID incidentId = null;
-        while (attemptNumber < maxAttempts) {
+        while (executed < maxAttempts) {
+            executed++;
             attemptNumber++;
             WorkflowExecutionAttempt attempt = WorkflowExecutionAttempt.start(
                     tenantId, workflowInstanceId, workflowStepInstanceId, attemptNumber, idempotencyKey)
@@ -110,7 +112,7 @@ public class WorkflowSystemActionService {
         }
         incidentId = openIncident(tenantId, workflowInstanceId, workflowStepInstanceId,
                 adapter.type(), "RETRY_EXHAUSTED", idempotencyKey);
-        return new ExecutionResult(false, attemptNumber, "RETRY_EXHAUSTED", incidentId, null, Map.of());
+        return new ExecutionResult(false, executed, "RETRY_EXHAUSTED", incidentId, null, Map.of());
     }
 
     /**
@@ -126,7 +128,8 @@ public class WorkflowSystemActionService {
             return new ExecutionResult(true, 0, null, null, null, Map.of());
         }
         WorkflowExecutionAttempt attempt = WorkflowExecutionAttempt.start(
-                tenantId, workflowInstanceId, workflowStepInstanceId, 1, idempotencyKey)
+                tenantId, workflowInstanceId, workflowStepInstanceId,
+                store.nextAttemptNumber(workflowStepInstanceId) + 1, idempotencyKey)
                 .finish(WorkflowExecutionAttempt.Outcome.IN_PROGRESS, null, null, "{}");
         store.insert(attempt);
         try {
@@ -204,6 +207,15 @@ public class WorkflowSystemActionService {
                     WHERE tenant_id = ? AND idempotency_key = ? AND outcome = 'SUCCEEDED'
                     """, Long.class, tenantId, idempotencyKey);
             return count != null && count > 0;
+        }
+
+        @Override
+        public int nextAttemptNumber(UUID stepInstanceId) {
+            var max = jdbc.queryForObject(
+                    "SELECT COALESCE(MAX(attempt_number), 0) FROM workflow_execution_attempts "
+                            + "WHERE step_instance_id = ?",
+                    Integer.class, stepInstanceId);
+            return max != null ? max : 0;
         }
 
         @Override

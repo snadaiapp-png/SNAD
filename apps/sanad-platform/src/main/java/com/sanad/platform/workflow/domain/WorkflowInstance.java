@@ -57,12 +57,13 @@ public record WorkflowInstance(
             UUID tenantId, UUID definitionFamilyId, UUID definitionVersionId, int workflowVersion,
             String businessEntityType, UUID businessEntityId,
             String firstStepKey, UUID startedBy, UUID correlationId,
-            String triggerType, UUID triggerId, String idempotencyKey, UUID causationId) {
+            String triggerType, UUID triggerId, String idempotencyKey, UUID causationId,
+            UUID parentInstanceId) {
         var now = Instant.now();
         return new WorkflowInstance(UUID.randomUUID(), tenantId, definitionVersionId, workflowVersion,
                 businessEntityType, businessEntityId, Status.RUNNING, firstStepKey,
                 startedBy, now, null, null, null, null, correlationId,
-                EngineGeneration.Y2, definitionFamilyId, definitionVersionId, null,
+                EngineGeneration.Y2, definitionFamilyId, definitionVersionId, parentInstanceId,
                 triggerType, triggerId, idempotencyKey, causationId, "{}", 1,
                 0, now, now);
     }

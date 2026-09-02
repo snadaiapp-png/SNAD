@@ -330,7 +330,8 @@ public class WorkflowGraphExecutionService {
                 childDefinition.definitionFamilyId(), childDefinition.id(), childDefinition.version(),
                 "CALL_WORKFLOW", parent.id(), firstStepKey(childDefinition),
                 parent.startedBy(), parent.correlationId(),
-                "CALL_WORKFLOW", parent.id(), null, parent.id());
+                "CALL_WORKFLOW", parent.id(), null, parent.id(),
+                parent.id());
         child = instanceRepo.save(child);
         WorkflowStep start = definitionRepo.findSteps(childDefinition.id()).stream()
                 .filter(st -> st.stepType() == WorkflowStep.StepType.START)

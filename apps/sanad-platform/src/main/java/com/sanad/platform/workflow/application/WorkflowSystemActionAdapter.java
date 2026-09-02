@@ -64,6 +64,7 @@ public interface WorkflowSystemActionAdapter {
         void insert(WorkflowExecutionAttempt attempt);
         void update(WorkflowExecutionAttempt attempt);
         boolean hasSucceeded(UUID tenantId, String idempotencyKey);
+        int nextAttemptNumber(UUID stepInstanceId);
         void insertIncident(WorkflowIncident incident);
     }
 }

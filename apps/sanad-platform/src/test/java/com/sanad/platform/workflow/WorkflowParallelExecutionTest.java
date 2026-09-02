@@ -130,7 +130,7 @@ class WorkflowParallelExecutionTest {
 
         // Prepare the join step instance and two completed branch tokens.
         UUID joinStepId = jdbc.queryForObject(
-                "SELECT id FROM workflow_steps WHERE tenant_id = ? AND step_key = 'join'",
+                "SELECT id FROM workflow_steps WHERE tenant_id = ? AND workflow_definition_id = ? AND step_key = 'join'",
                 UUID.class, tenantId, definitionId);
         UUID joinInstanceId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
