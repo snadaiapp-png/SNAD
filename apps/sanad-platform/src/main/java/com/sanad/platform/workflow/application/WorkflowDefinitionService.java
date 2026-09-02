@@ -169,6 +169,12 @@ public class WorkflowDefinitionService {
         return validator.validate(tenantId, definitionId);
     }
 
+    @Transactional(readOnly = true)
+    public List<WorkflowTransition> findTransitions(UUID tenantId, UUID definitionId) {
+        load(tenantId, definitionId);
+        return defRepo.findTransitions(definitionId);
+    }
+
     @Transactional
     public WorkflowStep addStep(WorkflowStep step, UUID actorUserId) {
         var saved = defRepo.saveStep(step);

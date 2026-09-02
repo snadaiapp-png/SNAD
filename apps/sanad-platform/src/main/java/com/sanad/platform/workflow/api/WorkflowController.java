@@ -52,7 +52,6 @@ public class WorkflowController {
     private final WorkflowWorkItemService workItemService;
     private final WorkflowIncidentService incidentService;
     private final WorkflowActionabilityService actionabilityService;
-    private final com.sanad.platform.workflow.domain.WorkflowDefinitionRepository definitionRepo;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
@@ -62,8 +61,7 @@ public class WorkflowController {
             WorkflowSimulationService simulationService,
             WorkflowWorkItemService workItemService,
             WorkflowIncidentService incidentService,
-            WorkflowActionabilityService actionabilityService,
-            com.sanad.platform.workflow.domain.WorkflowDefinitionRepository definitionRepo) {
+            WorkflowActionabilityService actionabilityService) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
@@ -72,7 +70,6 @@ public class WorkflowController {
         this.workItemService = workItemService;
         this.incidentService = incidentService;
         this.actionabilityService = actionabilityService;
-        this.definitionRepo = definitionRepo;
     }
 
     // ===== Exception Handling =====
@@ -286,7 +283,7 @@ public class WorkflowController {
             Authentication auth, @PathVariable UUID id) {
         definitionService.findById(tenantId(auth), id)
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
-        return ResponseEntity.ok(definitionRepo.findTransitions(id).stream()
+        return ResponseEntity.ok(definitionService.findTransitions(tenantId(auth), id).stream()
                 .map(t -> {
                     Map<String, Object> map = new java.util.HashMap<>();
                     map.put("id", t.id());

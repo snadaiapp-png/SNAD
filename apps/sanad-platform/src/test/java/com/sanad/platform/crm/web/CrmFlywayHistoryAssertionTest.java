@@ -211,6 +211,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260830.5"   // business calendars + delegations + attempts + incidents
             // Workflow Y2 Wave 2 — reliable events and notifications (same plan)
             , "20260830.6"   // inbox/outbox + notification intents
+            // Workflow Y2 Wave 3 — break-glass override audit (same plan)
+            , "20260830.7"   // audit OVERRIDE action for break-glass commands
     );
 
 
