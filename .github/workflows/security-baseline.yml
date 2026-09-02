@@ -114,6 +114,42 @@ jobs:
 
           echo "Synthetic negative control detected successfully."
 
+  supplemental-secret-policy:
+    name: Supplemental Secret Policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run supplemental scanner regression tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/ci -p 'test_scan_secrets*.py' -v
+
+      - name: Scan full repository with supplemental scanner
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ci/scan_secrets.py
+          python3 scripts/ci/scan_secrets.py \
+            --repository-root . \
+            --report "$RUNNER_TEMP/supplemental-secret-scan-report.json" \
+            --commit-sha "${{ github.sha }}" \
+            --workflow-run-id "${{ github.run_id }}"
+
+      - name: Upload supplemental scanner report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supplemental-secret-scan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/supplemental-secret-scan-report.json
+          if-no-files-found: error
+          retention-days: 7
+
   frontend-production-audit:
     name: Frontend Production Dependency Audit
     runs-on: ubuntu-latest
@@ -190,6 +226,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - secret-scan
+      - supplemental-secret-policy
       - frontend-production-audit
       - backend-container-hardening
       - workflow-security-policy
@@ -200,6 +237,7 @@ jobs:
             echo '## SANAD Security Baseline'
             echo ''
             echo '- Current-tree secret scan: PASSED'
+            echo '- Supplemental secret policy + regression tests: PASSED'
             echo '- Synthetic negative control (AWS AKIA canary): DETECTED'
             echo '- Frontend production dependency audit: PASSED'
             echo '- Backend non-root runtime: PASSED'
