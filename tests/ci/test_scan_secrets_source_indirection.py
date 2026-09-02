@@ -4,6 +4,10 @@
 These tests intentionally exercise the scanner itself. A reference to a secret
 stored outside the repository is not a hardcoded secret; a literal or a shell
 default containing a literal still is.
+
+Negative-control credentials are assembled at runtime so the repository-wide
+scanner does not flag the test source itself. The temporary file written by each
+test still contains the exact concrete syntax being exercised.
 """
 import importlib.util
 import shutil
@@ -19,6 +23,11 @@ SPEC = importlib.util.spec_from_file_location(
 )
 scan_module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(scan_module)
+
+# Keep these source fragments individually non-secret-looking. Tests combine
+# them only at runtime, following the existing scanner-test convention.
+_PASSWORD_KEY = "DB_" + "PASS" + "WORD"
+_SYNTHETIC = "synthetic-" + "hardcoded-" + "password"
 
 
 class TestSecretSourceIndirection(unittest.TestCase):
@@ -52,15 +61,19 @@ class TestSecretSourceIndirection(unittest.TestCase):
         self.assertEqual(findings, [])
 
     def test_literal_password_remains_detected(self):
-        findings = self._scan_line('DB_PASSWORD="synthetic-hardcoded-password"')
+        findings = self._scan_line(f'{_PASSWORD_KEY}="{_SYNTHETIC}"')
         self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
 
     def test_shell_default_with_literal_remains_detected(self):
-        findings = self._scan_line('DB_PASSWORD="${DATABASE_PASSWORD:-synthetic-hardcoded-password}"')
+        findings = self._scan_line(
+            f'{_PASSWORD_KEY}="${{DATABASE_PASSWORD:-{_SYNTHETIC}}}"'
+        )
         self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
 
     def test_arbitrary_command_substitution_remains_detected(self):
-        findings = self._scan_line('DB_PASSWORD="$(printf synthetic-hardcoded-password)"')
+        findings = self._scan_line(
+            f'{_PASSWORD_KEY}="$(printf {_SYNTHETIC})"'
+        )
         self.assertTrue(any(f["ruleId"] == "generic-password" for f in findings))
 
 
