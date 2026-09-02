@@ -1,12 +1,15 @@
 package com.sanad.platform.workflow;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.workflow.application.WorkflowContextService;
 import com.sanad.platform.workflow.application.WorkflowExpressionEvaluator;
 import com.sanad.platform.workflow.domain.WorkflowExpression;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -22,6 +25,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * are write-once.</p>
  */
 @SpringBootTest
+@ActiveProfiles("local")
+@Import(SecurityPermitAllTestConfig.class)
 class WorkflowExpressionEvaluatorTest {
 
     @Autowired
