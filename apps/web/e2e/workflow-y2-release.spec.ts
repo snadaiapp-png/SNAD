@@ -15,10 +15,27 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
 const API = process.env.SANAD_BACKEND_BASE_URL ?? "http://127.0.0.1:8080";
-const TOKEN = process.env.WF_E2E_TOKEN ?? "";
+const E2E_EMAIL = "wf-e2e-admin@snad-e2e.example";
+const E2E_PASSWORD = "password";
 
-const authHeaders = (): Record<string, string> => ({
-  Authorization: `Bearer ${TOKEN}`,
+let cachedToken: string | null = null;
+
+async function getToken(request: APIRequestContext): Promise<string> {
+  if (cachedToken) return cachedToken;
+  const res = await request.post(`${API}/api/v1/auth/login`, {
+    data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+  });
+  if (res.status() !== 200) {
+    throw new Error(`E2E login failed with status ${res.status}. Backend must be running with seeded test user.`);
+  }
+  const body = await res.json();
+  cachedToken = body.accessToken ?? body.token ?? "";
+  if (!cachedToken) throw new Error("No access token in login response");
+  return cachedToken;
+}
+
+const authHeaders = async (request: APIRequestContext): Promise<Record<string, string>> => ({
+  Authorization: `Bearer ${await getToken(request)}`,
   "Content-Type": "application/json",
 });
 
@@ -29,7 +46,7 @@ async function createDefinition(
   name: string,
 ): Promise<{ id: string; version: number }> {
   const res = await request.post(`${API}/api/v1/workflows/definitions`, {
-    headers: authHeaders(),
+    headers: await authHeaders(request),
     data: { code, name, description: "E2E release gate", module: "GENERAL", triggerType: "MANUAL" },
   });
   expect(res.status()).toBe(200);
@@ -46,7 +63,7 @@ async function addStep(
   sequenceOrder: number,
 ): Promise<{ id: string }> {
   const res = await request.post(`${API}/api/v1/workflows/definitions/${defId}/steps`, {
-    headers: authHeaders(),
+    headers: await authHeaders(request),
     data: { stepKey, name: stepKey, stepType, sequenceOrder, configuration: "{}" },
   });
   expect(res.status()).toBe(200);
@@ -61,7 +78,7 @@ async function startInstance(
   firstStepKey: string,
 ): Promise<{ id: string; engineGeneration?: string; definitionVersionId?: string }> {
   const res = await request.post(`${API}/api/v1/workflows/instances`, {
-    headers: authHeaders(),
+    headers: await authHeaders(request),
     data: {
       workflowDefinitionId: defId,
       workflowVersion: version,
@@ -109,7 +126,7 @@ test("workflow Y2 start pins definition version", async ({ request }: { request:
   // Verify pinning through the DB (read-back via instance API).
   const detail = await request.get(
     `${API}/api/v1/workflows/instances/${instance.id}`,
-    { headers: authHeaders() },
+    { headers: await authHeaders(request) },
   );
   expect(detail.status()).toBe(200);
 });
@@ -118,7 +135,7 @@ test("workflow Y2 start pins definition version", async ({ request }: { request:
 
 test("workflow Y2 my work items endpoint returns tenant work", async ({ request }: { request: APIRequestContext }) => {
   const res = await request.get(`${API}/api/v1/workflows/work-items/mine`, {
-    headers: authHeaders(),
+    headers: await authHeaders(request),
   });
   expect(res.status()).toBe(200);
   const items = await res.json();
@@ -129,7 +146,7 @@ test("workflow Y2 my work items endpoint returns tenant work", async ({ request 
 
 test("workflow Y2 pool endpoint returns tenant pool", async ({ request }: { request: APIRequestContext }) => {
   const res = await request.get(`${API}/api/v1/workflows/work-items/pool`, {
-    headers: authHeaders(),
+    headers: await authHeaders(request),
   });
   expect(res.status()).toBe(200);
   const items = await res.json();
@@ -140,7 +157,7 @@ test("workflow Y2 pool endpoint returns tenant pool", async ({ request }: { requ
 
 test("workflow Y2 incidents endpoint returns list", async ({ request }: { request: APIRequestContext }) => {
   const res = await request.get(`${API}/api/v1/workflows/incidents`, {
-    headers: authHeaders(),
+    headers: await authHeaders(request),
   });
   expect(res.status()).toBe(200);
   const items = await res.json();
@@ -153,7 +170,7 @@ test("workflow Y2 cross-tenant instance read denied", async ({ request }: { requ
   // A nonexistent instance ID must return 404 regardless of tenant.
   const res = await request.get(
     `${API}/api/v1/workflows/instances/${crypto.randomUUID()}`,
-    { headers: authHeaders() },
+    { headers: await authHeaders(request) },
   );
   expect([200, 404]).toContain(res.status());
 });
