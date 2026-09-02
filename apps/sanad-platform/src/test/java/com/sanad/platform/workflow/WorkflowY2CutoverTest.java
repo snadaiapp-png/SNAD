@@ -143,10 +143,16 @@ class WorkflowY2CutoverTest {
         UUID tenantB = UUID.randomUUID();
         UUID userB = createUser(tenantB, "cut-b");
         UUID defB = createDefinitionFor(tenantB, userB, UUID.randomUUID(), 1, "Y2", "ACTIVE", "PUBLISHED");
-        WorkflowInstance instance = manualInstanceIn(tenantB, defB, userB);
-        assertThatThrownBy(() -> executionService.startWorkflow(instance, userB))
+        // A tenant-A start request pointing at tenant B's definition must fail
+        // closed on the tenant-scoped definition resolution.
+        WorkflowInstance instance = manualInstanceIn(tenantId, defB, userId);
+        assertThatThrownBy(() -> executionService.startWorkflow(instance, userId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not found in tenant");
+        Integer started = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workflow_instances WHERE tenant_id = ? AND workflow_definition_id = ?",
+                Integer.class, tenantId, defB);
+        assertThat(started).isZero();
     }
 
     // ===== 3 + 9 + 13: pinning and rollback semantics ============
