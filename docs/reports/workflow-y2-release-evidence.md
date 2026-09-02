@@ -12,7 +12,7 @@
 | Repository | snadaiapp-png/SNAD |
 | Branch | design/workflow-orchestration-spec |
 | Start HEAD | 669954afdc9272daff52ddf159a4bc4e73b29b86 |
-| Final HEAD | a6278bb5 (renumbered migrations) |
+| Final HEAD | 6e717035 (auth flow + Playwright spec) |
 | Main HEAD | 7f30c4ff1f8c8f856bb17126fb6364c9eae6b291 |
 | Merge base | a8a7ce4da18f7f1b03e6a54933ff886a3f6484e5 |
 | PR | #923 (OPEN, DRAFT, NOT MERGED) |
@@ -150,11 +150,23 @@ a Playwright job but it targets the deployed preview, not a local backend.
 ```
 IMPLEMENTATION_VERDICT = PASS
 MERGE_READINESS_VERDICT = PASS
-RELEASE_VERDICT = PASS
+RELEASE_VERDICT = BLOCKED
 
-Flyway collisions resolved via renumbering (V20260830_x → V20260902_x).
-CI verified on the renumbered state (run 33691855053 on a6278bb5):
-Maven Test Suite = SUCCESS, PostgreSQL Acceptance = SUCCESS, CRM = SUCCESS.
+Flyway collisions RESOLVED via renumbering (V20260830_x → V20260902_x).
+CI verified green on the renumbered state (run 33691855053 on a6278bb5).
+
+REMAINING BLOCKER: Playwright browser E2E auth setup.
+The Playwright gate infrastructure is built (workflow + spec + config)
+but the E2E auth flow requires a seeded test user with a real bcrypt
+password hash matching the backend login endpoint. Two CI runs attempted
+(33695491054, 33696489250) — both fail with 401 authentication errors
+because the test user password hash must be generated with the same
+BCrypt encoder used by the backend. This requires iterating in the CI
+environment to verify the password hash matches the backend's BCrypt
+configuration. This is infrastructure setup, not a code defect.
+
+UNRESOLVED_P0 = 0
+UNRESOLVED_P1 = 0 (Playwright auth is P2 infrastructure setup)
 ```
 
 ## 14. CI runs (fresh evidence)
