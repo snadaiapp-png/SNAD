@@ -78,7 +78,7 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260830.1 - employee/user identity bridge, then V20260830.2 -
     //   definition family/publication metadata + step transitions is the
     //   current platform terminal.
-    private static final String CRM_LATEST_VERSION = "20260830.4";
+    private static final String CRM_LATEST_VERSION = "20260830.5";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
