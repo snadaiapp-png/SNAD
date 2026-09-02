@@ -204,7 +204,11 @@ jobs:
         run: pip install pyyaml pytest -q
 
       - name: Run workflow security scanner tests
-        run: python3 -m pytest tests/ci/test_workflow_security_policy.py -q
+        run: >-
+          python3 -m pytest
+          tests/ci/test_workflow_security_policy.py
+          tests/ci/test_post_merge_collect_all.py
+          -q
 
       - name: Run workflow security scanner
         shell: bash
