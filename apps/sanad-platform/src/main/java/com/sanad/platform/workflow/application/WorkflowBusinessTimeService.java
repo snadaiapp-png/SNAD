@@ -50,7 +50,8 @@ public class WorkflowBusinessTimeService {
     @Transactional(readOnly = true)
     public Instant addBusinessDuration(UUID tenantId, UUID calendarId, Instant start, Duration duration) {
         var calendar = jdbc.queryForMap("""
-                SELECT timezone, working_days, working_windows
+                SELECT timezone, working_days::text AS working_days,
+                       working_windows::text AS working_windows
                 FROM workflow_business_calendars
                 WHERE tenant_id = ? AND id = ?
                 """, tenantId, calendarId);

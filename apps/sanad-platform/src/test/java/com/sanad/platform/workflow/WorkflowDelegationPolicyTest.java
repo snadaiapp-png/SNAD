@@ -103,7 +103,7 @@ class WorkflowDelegationPolicyTest {
     @Test
     void disabledLinkedUserMarksWorkUnavailable() {
         UUID disabledUserId = createUser("del-disabled");
-        jdbc.update("UPDATE users SET status = 'DISABLED' WHERE tenant_id = ? AND id = ?",
+        jdbc.update("UPDATE users SET status = 'SUSPENDED' WHERE tenant_id = ? AND id = ?",
                 tenantId, disabledUserId);
         UUID assignee = createEmployee("B1-B", disabledUserId, "ACTIVE");
         UUID workItemId = createWorkItem(assignee);
