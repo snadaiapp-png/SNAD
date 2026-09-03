@@ -2,14 +2,12 @@ name: HRM Task 2 Governance Guard Patch
 
 on:
   pull_request:
-    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   patch-and-verify:
-    if: github.head_ref == 'ci/master-task4-task2-governance-patch'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     services:
@@ -43,87 +41,12 @@ jobs:
         with:
           ref: feat/hrm-g0-foundation
           fetch-depth: 0
-      - name: Verify expected canonical head
+      - name: Verify canonical head and apply exact patch
         run: |
           test "$(git rev-parse HEAD)" = "ddc47ecb134eddf81e685a05c8e7d83bd19e83fc"
-      - name: Apply exact governance guard patch
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_exact(path, old, new, expected=1):
-              p = Path(path)
-              text = p.read_text()
-              count = text.count(old)
-              if count != expected:
-                  raise SystemExit(f"{path}: expected {expected} matches, found {count} for {old!r}")
-              p.write_text(text.replace(old, new))
-
-          flyway_history = 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java'
-          replace_exact(
-              flyway_history,
-              '            , "20260902.1"   // hrm-g0 master task 4 ws3+ws4 foundation schema\n    );',
-              '            , "20260902.1"   // hrm-g0 master task 4 ws3+ws4 foundation schema\n'
-              '            , "20260903.1"   // hrm-g0 master task 4 task 2 employment jurisdiction periods\n    );')
-
-          crm_acceptance = 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java'
-          replace_exact(
-              crm_acceptance,
-              'private static final String CRM_LATEST_VERSION = "20260902.1";',
-              'private static final String CRM_LATEST_VERSION = "20260903.1";')
-
-          crm_pg = 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java'
-          replace_exact(
-              crm_pg,
-              '    private static final String WS3_WS4_FOUNDATION_VERSION = "20260902.1";\n'
-              '    private static final String LATEST_MIGRATION_VERSION = WS3_WS4_FOUNDATION_VERSION;',
-              '    private static final String WS3_WS4_FOUNDATION_VERSION = "20260902.1";\n'
-              '    private static final String EMPLOYMENT_JURISDICTION_PERIODS_VERSION = "20260903.1";\n'
-              '    private static final String LATEST_MIGRATION_VERSION = EMPLOYMENT_JURISDICTION_PERIODS_VERSION;')
-          replace_exact(
-              crm_pg,
-              '                        MigrationVersion.fromVersion(WS3_WS4_FOUNDATION_VERSION));',
-              '                        MigrationVersion.fromVersion(WS3_WS4_FOUNDATION_VERSION),\n'
-              '                        MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION));',
-              expected=2)
-
-          hr_rls = 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java'
-          replace_exact(
-              hr_rls,
-              '                "hr_employment_status_periods",\n',
-              '                "hr_employment_status_periods",\n'
-              '                "hr_employment_jurisdiction_periods",\n')
-          replace_exact(
-              hr_rls,
-              '            case "hr_employment_status_periods" -> insertHrEmployee(tenantId);\n',
-              '            case "hr_employment_status_periods" -> insertHrEmployee(tenantId);\n'
-              '            case "hr_employment_jurisdiction_periods" -> insertHrEmploymentJurisdictionPeriod(tenantId);\n')
-          replace_exact(
-              hr_rls,
-              '    private void insertHrMigrationTenantState(UUID tenantId) throws Exception {',
-              '''    private void insertHrEmploymentJurisdictionPeriod(UUID tenantId) throws Exception {
-        UUID employmentId = insertHrEmployee(tenantId, "EMP-JUR");
-        try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO hr_employment_jurisdiction_periods " +
-                "(tenant_id, employment_id, labor_jurisdiction, effective_from, approval_status, approval_reference) " +
-                "VALUES (?, ?, 'SA', DATE '2026-01-01', 'APPROVED', 'RLS-TEST')")) {
-            ps.setObject(1, tenantId);
-            ps.setObject(2, employmentId);
-            ps.executeUpdate();
-        }
-    }
-
-    private void insertHrMigrationTenantState(UUID tenantId) throws Exception {''')
-
-          for path in [flyway_history, crm_acceptance, crm_pg, hr_rls]:
-              print(path)
-          PY
+          python3 .github/scripts/hrm_task2_governance_patch.py
           git diff --check
-          git diff -- apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java
-      - name: Provision least-privilege PostgreSQL Direct databases
+      - name: Provision PostgreSQL Direct
         run: |
           psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
@@ -145,21 +68,16 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-      - name: Verify Task 2 governance guards on PostgreSQL Direct
+          distribution: temurin
+          cache: maven
+      - name: Verify governance guards and Task 2 contracts
         working-directory: apps/sanad-platform
-        run: >-
-          mvn test -B -ntp -Dsurefire.useFile=false
-          -Dtest=CrmFlywayHistoryAssertionTest,CrmPostgresMigrationTest,Crm008bFoundationAcceptanceTest,HrRlsFailClosedIntegrationTest,HrCountryPolicyResolverTest,HrScopedAuthorizationIntegrationTest,HrHistoricalAuthorizationIntegrationTest,HrScopedAuthorizationScopeMatrixIntegrationTest
+        run: mvn test -B -ntp -Dsurefire.useFile=false -Dtest=CrmFlywayHistoryAssertionTest,CrmPostgresMigrationTest,Crm008bFoundationAcceptanceTest,HrRlsFailClosedIntegrationTest,HrCountryPolicyResolverTest,HrScopedAuthorizationIntegrationTest,HrHistoricalAuthorizationIntegrationTest,HrScopedAuthorizationScopeMatrixIntegrationTest
       - name: Commit and fast-forward canonical branch
         run: |
-          git config user.name 'snad'
-          git config user.email 'snad.ai.app@gmail.com'
-          git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java
+          git config user.name sanad
+          git config user.email snad.ai.app@gmail.com
+          git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java
           git diff --cached --check
-          git commit -m 'test(hrm): align Task 2 Flyway and RLS guards'
+          git commit -m "test(hrm): align Task 2 Flyway and RLS guards"
           git push origin HEAD:feat/hrm-g0-foundation
