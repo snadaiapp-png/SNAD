@@ -43,7 +43,9 @@ async function createDefinition(
     data: { code, name, description: "E2E release gate", module: "GENERAL", triggerType: "MANUAL" },
   });
   expect(res.status()).toBe(200);
-  return (await res.json()) as { id: string; version: number };
+  const body = await res.json();
+  console.log(`Created def: id=${body.id} version=${body.version} versionLock=${body.versionLock}`);
+  return { id: body.id, version: body.version, versionLock: body.versionLock };
 }
 
 async function addStep(
@@ -76,7 +78,7 @@ async function createValidWorkflow(
     );
     expect(tr.status()).toBe(200);
   }
-  return { defId: def.id, version: def.version };
+  return { defId: def.id, versionLock: def.versionLock };
 }
 
 test("E2E auth smoke", async ({ request }: { request: APIRequestContext }) => {
@@ -94,7 +96,7 @@ test("create validate publish", async ({ request }: { request: APIRequestContext
   expect((await v.json()).valid).toBe(true);
   const pub = await request.post(
     `${API}/api/v1/workflows/definitions/${wf.defId}/publish`,
-    { headers: await authHeaders(request), data: { expectedVersion: wf.version } },
+    { headers: await authHeaders(request), data: { expectedVersion: wf.versionLock } },
   );
   expect(pub.status()).toBe(200);
   expect((await pub.json()).status).toBe("ACTIVE");
@@ -104,7 +106,7 @@ test("start instance on published definition", async ({ request }: { request: AP
   const wf = await createValidWorkflow(request, `WF-E2E-START-${Date.now()}`);
   const pub = await request.post(
     `${API}/api/v1/workflows/definitions/${wf.defId}/publish`,
-    { headers: await authHeaders(request), data: { expectedVersion: wf.version } },
+    { headers: await authHeaders(request), data: { expectedVersion: wf.versionLock } },
   );
   expect(pub.status()).toBe(200);
   const res = await request.post(`${API}/api/v1/workflows/instances`, {

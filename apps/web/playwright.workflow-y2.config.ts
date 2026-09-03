@@ -10,7 +10,7 @@ export default defineConfig({
   testMatch: ["**/workflow-y2-release.spec.ts"],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   workers: 1,
   reporter: [["html", { outputFolder: "wf-playwright-report" }], ["list"]],
   timeout: 60_000,

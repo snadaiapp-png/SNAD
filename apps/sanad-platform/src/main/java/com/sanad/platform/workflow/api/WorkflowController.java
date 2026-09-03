@@ -84,6 +84,18 @@ public class WorkflowController {
      * instead of HTTP 500. This ensures business-rule rejections are not treated as
      * internal server errors in production error sweeps.
      */
+    @org.springframework.web.bind.annotation.ExceptionHandler(
+            org.springframework.dao.OptimisticLockingFailureException.class)
+    public ResponseEntity<Map<String, Object>> handleOptimisticLock(
+            org.springframework.dao.OptimisticLockingFailureException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "status", 409,
+                "error", "Conflict",
+                "code", "STALE_VERSION",
+                "message", e.getMessage() != null ? e.getMessage() : "Version conflict"
+        ));
+    }
+
     @org.springframework.web.bind.annotation.ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
