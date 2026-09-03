@@ -212,6 +212,12 @@ public class WorkflowDefinitionService {
 
     @Transactional
     public WorkflowStep addStep(WorkflowStep step, UUID actorUserId) {
+        var def = load(step.tenantId(), step.workflowDefinitionId());
+        if (def.publicationState() != WorkflowDefinition.PublicationState.DRAFT) {
+            throw new IllegalStateException(
+                    "Steps can only be added to DRAFT definitions; current state: "
+                            + def.publicationState());
+        }
         var saved = defRepo.saveStep(step);
         log.info("WorkflowStep added: tenant={} definitionId={} stepKey={} actor={}",
                 saved.tenantId(), saved.workflowDefinitionId(), saved.stepKey(), actorUserId);

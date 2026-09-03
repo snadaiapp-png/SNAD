@@ -34,6 +34,12 @@ describe("workflow Y2 operational IA (Task 17)", () => {
 
   it("keeps RTL as a first-class layout direction", () => {
     expect(pageSource).toContain('direction: "rtl"');
+    const rtlDocument = readFileSync(
+      new URL("../components/workflow-rtl-document.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(rtlDocument).toContain('document.documentElement.dir = "rtl"');
+    expect(rtlDocument).toContain('document.documentElement.lang = "ar"');
   });
 
   it("backs My Tasks and Incidents with the real API client", () => {
