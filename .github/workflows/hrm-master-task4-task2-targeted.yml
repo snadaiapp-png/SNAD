@@ -1,5 +1,6 @@
 name: HRM Master Task 4 Task 2 Targeted TDD
 
+# Temporary probe only; never merge.
 on:
   pull_request:
     branches: [main]
