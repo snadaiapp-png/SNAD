@@ -909,6 +909,62 @@ class TrialExpirationRuntimePostgresTest {
     }
 
     // ---------------------------------------------------------------
+    // PG-27 — §28 reconciliation: OVERDUE_TRIAL_NOT_TRANSITIONED (REPORT_ONLY)
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-27: reconciliation classifies OVERDUE_TRIAL_NOT_TRANSITIONED; the scan repairs nothing")
+    void pg27_reconciliationClassifiesOverdueTrialNotTransitioned() {
+        // Historical overdue trial (pre-R0C-8 production shape: trial elapsed
+        // long ago, no driver existed).
+        UUID historical = seedTrialRow(UUID.randomUUID(), tenant, planA, versionA, "TRIALING", "CURRENT");
+        backdate(historical, Instant.now().minus(30, ChronoUnit.DAYS));
+        UUID tenantB = UUID.randomUUID();
+        seedTenant(tenantB, "SA");
+        UUID future = createTrial(tenantB, planA, 14);
+        UUID tenantC = UUID.randomUUID();
+        seedTenant(tenantC, "SA");
+        UUID active = createSubscription(tenantC, planA);
+        Mockito.reset(audit); // the real create paths audit; the scan must not
+
+        // OVERDUE_TRIAL_NOT_TRANSITIONED: a trial whose trial_ends_at has
+        // elapsed while the status is still TRIAL/TRIALING — i.e. rows the
+        // (disabled-by-default) runtime driver has not transitioned yet.
+        Long overdue = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM tenant_subscriptions
+                        WHERE status IN ('TRIAL', 'TRIALING')
+                          AND trial_ends_at IS NOT NULL
+                          AND trial_ends_at <= NOW()
+                        """, Long.class);
+        assertThat(overdue).isEqualTo(1L); // the historical row only
+
+        // REPORT_ONLY: the classification is a pure read — no repair, no
+        // ledger, no audit, no status change. Historical correction stays an
+        // operator-approved decision (enable the driver or repair later).
+        assertThat(subscriptionField(historical, "status")).isEqualTo("TRIALING");
+        assertThat(totalLedgerCount(historical)).isZero();
+        Mockito.verifyNoInteractions(audit);
+
+        // Non-eligible rows are never classified: future trial and the
+        // ACTIVE subscription (even with stale trial metadata) are clean.
+        assertThat(subscriptionField(future, "status")).isEqualTo("TRIALING");
+        assertThat(subscriptionField(active, "status")).isEqualTo("ACTIVE");
+
+        // The driver is the ONLY sanctioned transition path: enabling it
+        // (runTrialExpiryCycleOnce) resolves exactly the classified rows.
+        driver().runTrialExpiryCycleOnce();
+        assertThat(subscriptionField(historical, "status")).isEqualTo("EXPIRED");
+        assertThat(subscriptionField(future, "status")).isEqualTo("TRIALING");
+        Long overdueAfter = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM tenant_subscriptions
+                        WHERE status IN ('TRIAL', 'TRIALING')
+                          AND trial_ends_at IS NOT NULL
+                          AND trial_ends_at <= NOW()
+                        """, Long.class);
+        assertThat(overdueAfter).isZero();
+    }
+
+    // ---------------------------------------------------------------
     // Seeding helpers
     // ---------------------------------------------------------------
 
