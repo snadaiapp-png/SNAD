@@ -45,6 +45,10 @@ export default defineConfig({
     // Vercel/Render/Flyway gate plus protected two-tenant credentials.
     // It is mandatory in playwright.crm008r-production.config.ts only.
     "**/crm-008r-production-closure.spec.ts",
+    // Requires a live Spring Boot Workflow backend + PostgreSQL Direct and
+    // deterministic multi-actor workflow-e2e fixtures. It runs exactly once
+    // in playwright.workflow-y2.config.ts, never in this frontend-only matrix.
+    "**/workflow-y2-release.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
