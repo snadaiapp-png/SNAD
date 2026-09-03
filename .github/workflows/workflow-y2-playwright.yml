@@ -96,7 +96,7 @@ jobs:
         working-directory: apps/sanad-platform
         env:
           SPRING_PROFILES_ACTIVE: local
-        run: mvn --batch-mode --no-transfer-progress -Dtest='com.sanad.platform.workflow.*' test
+        run: mvn --batch-mode --no-transfer-progress -Dtest='Workflow*Test' test
 
       - name: Build Spring Boot JAR
         working-directory: apps/sanad-platform
