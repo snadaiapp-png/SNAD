@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { WorkflowRtlDocument } from "./components/workflow-rtl-document";
 
 export const metadata: Metadata = {
   title: "محرك سير العمل | SNAD",
@@ -6,5 +7,10 @@ export const metadata: Metadata = {
 };
 
 export default function WorkflowLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      <WorkflowRtlDocument />
+      {children}
+    </>
+  );
 }
