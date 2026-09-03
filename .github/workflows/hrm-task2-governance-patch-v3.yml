@@ -1,0 +1,94 @@
+name: HRM Task 2 Governance Guard Patch V3
+
+on:
+  push:
+    branches:
+      - ci/master-task4-task2-governance-patch-v3
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+      PGPASSWORD: postgres_pass
+    steps:
+      - name: Checkout probe runner
+        uses: actions/checkout@v4
+        with:
+          ref: ci/master-task4-task2-governance-patch-v3
+          path: runner
+      - name: Checkout canonical HRM branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/hrm-g0-foundation
+          fetch-depth: 0
+          path: canonical
+      - name: Verify canonical head and apply exact patch
+        working-directory: canonical
+        run: |
+          test "$(git rev-parse HEAD)" = "ddc47ecb134eddf81e685a05c8e7d83bd19e83fc"
+          python3 ../runner/.github/scripts/hrm_task2_governance_patch.py
+          git diff --check
+      - name: Provision PostgreSQL Direct
+        run: |
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+          cache-dependency-path: canonical/apps/sanad-platform/pom.xml
+      - name: Verify governance guards and Task 2 contracts
+        working-directory: canonical/apps/sanad-platform
+        run: mvn test -B -ntp -Dsurefire.useFile=false -Dtest=CrmFlywayHistoryAssertionTest,CrmPostgresMigrationTest,Crm008bFoundationAcceptanceTest,HrRlsFailClosedIntegrationTest,HrCountryPolicyResolverTest,HrScopedAuthorizationIntegrationTest,HrHistoricalAuthorizationIntegrationTest,HrScopedAuthorizationScopeMatrixIntegrationTest
+      - name: Commit and fast-forward canonical branch
+        working-directory: canonical
+        run: |
+          git config user.name sanad
+          git config user.email snad.ai.app@gmail.com
+          git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java
+          git diff --cached --check
+          git commit -m "test(hrm): align Task 2 Flyway and RLS guards"
+          git push origin HEAD:feat/hrm-g0-foundation
