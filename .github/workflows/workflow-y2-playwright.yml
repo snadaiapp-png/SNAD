@@ -145,7 +145,7 @@ jobs:
           SANAD_BACKEND_BASE_URL: http://127.0.0.1:8080
         run: |
           npx playwright install chromium --with-deps
-          npx playwright test --config=playwright.workflow-y2.config.ts --reporter=html,list
+          npx playwright test --config=playwright.workflow-y2.config.ts
 
       - name: Upload Playwright report
         if: always()
@@ -153,6 +153,20 @@ jobs:
         with:
           name: workflow-y2-playwright-report
           path: apps/web/wf-playwright-report/
+
+      - name: Upload Playwright test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-y2-playwright-results
+          path: apps/web/test-results/
+
+      - name: Upload backend log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-y2-backend-log
+          path: /home/runner/work/_temp/workflow-y2-backend.log
 
       - name: Stop services
         if: always()
