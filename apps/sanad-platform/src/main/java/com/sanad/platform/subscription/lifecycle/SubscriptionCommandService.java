@@ -79,14 +79,7 @@ public class SubscriptionCommandService {
     @Transactional
     public CommandResult applyCanonicalTransition(UUID subscriptionId, String command, String reason,
                                                   UUID actorTenantId, UUID actorUserId) {
-        Map<String, Object> row;
-        try {
-            row = jdbc.queryForMap(
-                    "SELECT tenant_id, status FROM tenant_subscriptions WHERE id = ?",
-                    subscriptionId);
-        } catch (EmptyResultDataAccessException e) {
-            throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
-        }
+        Map<String, Object> row = readSubscription(subscriptionId);
         UUID tenantId = (UUID) row.get("tenant_id");
         String fromStatus = (String) row.get("status");
 
@@ -131,51 +124,32 @@ public class SubscriptionCommandService {
     @Transactional
     public CommandResult execute(UUID subscriptionId, String command, String reason,
                                  UUID actorTenantId, UUID actorUserId) {
-        Map<String, Object> row;
+        // R0C-7: the public command path IS the canonical primitive plus the
+        // lifecycle-owned platform audit and entitlement event — the
+        // transition SQL exists exactly once (applyCanonicalTransition).
+        Map<String, Object> row = readSubscription(subscriptionId);
+        UUID tenantId = (UUID) row.get("tenant_id");
+        UUID planId = (UUID) row.get("plan_id");
+        String fromStatus = (String) row.get("status");
+
+        CommandResult result =
+                applyCanonicalTransition(subscriptionId, command, reason, actorTenantId, actorUserId);
+
+        auditService.success(null, tenantId, "SUBSCRIPTION_" + command,
+                "subscription", subscriptionId.toString(), reason, fromStatus, result.toStatus());
+
+        publishEntitlementEventAfterCommit(command, tenantId, subscriptionId, planId);
+        return result;
+    }
+
+    private Map<String, Object> readSubscription(UUID subscriptionId) {
         try {
-            row = jdbc.queryForMap(
+            return jdbc.queryForMap(
                     "SELECT tenant_id, plan_id, status FROM tenant_subscriptions WHERE id = ?",
                     subscriptionId);
         } catch (EmptyResultDataAccessException e) {
             throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
         }
-        UUID tenantId = (UUID) row.get("tenant_id");
-        UUID planId = (UUID) row.get("plan_id");
-        String fromStatus = (String) row.get("status");
-
-        SubscriptionLifecycle.Transition transition =
-                SubscriptionLifecycle.transition(command, fromStatus);
-        String toStatus = transition.toStatus();
-
-        if (!toStatus.equals(fromStatus)) {
-            // toStatus comes from the whitelisted SubscriptionLifecycle table — safe to inline
-            if ("CANCEL".equals(command) || "TERMINATE".equals(command)) {
-                jdbc.update(
-                        "UPDATE tenant_subscriptions SET status = '" + toStatus + "', "
-                                + "cancelled_at = NOW(), updated_at = NOW() WHERE id = ?",
-                        subscriptionId);
-            } else {
-                jdbc.update(
-                        "UPDATE tenant_subscriptions SET status = '" + toStatus + "', "
-                                + "updated_at = NOW() WHERE id = ?",
-                        subscriptionId);
-            }
-        }
-
-        jdbc.update("""
-                        INSERT INTO subscription_commands (
-                            id, subscription_id, tenant_id, command, from_status, to_status,
-                            reason, actor_tenant_id, actor_user_id, correlation_id, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-                        """,
-                UUID.randomUUID(), subscriptionId, tenantId, command, fromStatus, toStatus,
-                reason, actorTenantId, actorUserId, null);
-
-        auditService.success(null, tenantId, "SUBSCRIPTION_" + command,
-                "subscription", subscriptionId.toString(), reason, fromStatus, toStatus);
-
-        publishEntitlementEventAfterCommit(command, tenantId, subscriptionId, planId);
-        return new CommandResult(subscriptionId, command, fromStatus, toStatus);
     }
 
     private void publishEntitlementEventAfterCommit(String command, UUID tenantId,
