@@ -1,5 +1,6 @@
 package com.sanad.platform.workflow.api;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.workflow.application.WorkflowActionabilityService;
 import com.sanad.platform.workflow.application.WorkflowBreakGlassService;
@@ -487,11 +488,17 @@ public class WorkflowController {
         var firstStep = steps.stream()
                 .min(Comparator.comparingInt(WorkflowStep::sequenceOrder))
                 .orElseThrow();
-        var instance = WorkflowInstance.start(
-                tenant, def.id(), def.version(),
-                req.businessEntityType(), req.businessEntityId(),
-                firstStep.stepKey(), actor, req.correlationId()
-        );
+        var instance = switch (def.engineGeneration()) {
+            case LEGACY -> WorkflowInstance.start(
+                    tenant, def.id(), def.version(),
+                    req.businessEntityType(), req.businessEntityId(),
+                    firstStep.stepKey(), actor, req.correlationId());
+            case Y2 -> WorkflowInstance.startY2(
+                    tenant, def.definitionFamilyId(), def.id(), def.version(),
+                    req.businessEntityType(), req.businessEntityId(),
+                    firstStep.stepKey(), actor, req.correlationId(),
+                    null, null, null, null, null);
+        };
         var saved = executionService.startWorkflow(instance, actor);
         return ResponseEntity.ok(toInstanceMap(saved));
     }
@@ -678,6 +685,7 @@ public class WorkflowController {
             String module, String triggerType
     ) {}
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record StartWorkflowRequest(
             UUID workflowDefinitionId,
             String businessEntityType,
