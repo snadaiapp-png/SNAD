@@ -54,12 +54,16 @@ public record WorkflowWorkItem(
             throw new IllegalArgumentException("DIRECT work items require an assignee employee");
         }
         var now = Instant.now();
+        boolean direct = assignmentMode == AssignmentMode.DIRECT;
         return new WorkflowWorkItem(UUID.randomUUID(), tenantId, workflowInstanceId,
                 workflowStepInstanceId, type,
-                assigneeEmployeeId != null ? Status.CLAIMED : Status.AVAILABLE,
-                assigneeEmployeeId, null, assignmentMode,
+                direct ? Status.CLAIMED : Status.AVAILABLE,
+                assigneeEmployeeId,
+                direct ? assigneeEmployeeId : null,
+                assignmentMode,
                 sourceModule, sourceEntityType, sourceEntityId,
                 title, description, priority, dueAt, slaDueAt,
-                null, null, 0, now, now);
+                direct ? now : null,
+                null, 0, now, now);
     }
 }
