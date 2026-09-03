@@ -10,6 +10,7 @@ import { loginThroughUi } from "./crm-auth-session";
 
 const API = process.env.SANAD_BACKEND_BASE_URL ?? "http://127.0.0.1:8080";
 const PASSWORD = process.env.WF_E2E_PASSWORD ?? "WfE2eTest!2026";
+const DIRECT_ASSIGNMENT = JSON.stringify({ assignment: { type: "DIRECT" } });
 
 const ACTORS = {
   admin: process.env.WF_E2E_EMAIL ?? "wf-e2e-admin@snad-e2e.example",
@@ -155,9 +156,15 @@ async function startInstance(req: APIRequestContext, defId: string, email = ACTO
   return await res.json();
 }
 
-async function advance(req: APIRequestContext, instanceId: string, routeKey: string, email = ACTORS.admin) {
+async function advance(req: APIRequestContext, instanceId: string, outcome: string, email = ACTORS.admin) {
+  return req.post(`${API}/api/v1/workflows/y2/instances/${instanceId}/advance`, {
+    headers: await auth(req, email), data: { outcome },
+  });
+}
+
+async function legacyAdvance(req: APIRequestContext, instanceId: string, nextStepKey: string, email = ACTORS.admin) {
   return req.post(`${API}/api/v1/workflows/instances/${instanceId}/advance`, {
-    headers: await auth(req, email), data: { nextStepKey: routeKey },
+    headers: await auth(req, email), data: { nextStepKey },
   });
 }
 
@@ -317,7 +324,13 @@ test("P04 — Y2 instance remains pinned after newer family version publishes", 
 
 /* P05 — DIRECT HUMAN TASK */
 test("P05 — DIRECT human task is generated, completed by assignee and instance progresses", async ({ request }) => {
-  const wf = await createLinearWorkflow(request, `P05-${Date.now()}`, "HUMAN_TASK", {}, ACTORS.execA);
+  const wf = await createLinearWorkflow(
+    request,
+    `P05-${Date.now()}`,
+    "HUMAN_TASK",
+    { configuration: DIRECT_ASSIGNMENT },
+    ACTORS.execA,
+  );
   await publish(request, wf.defId, wf.versionLock, ACTORS.execA);
   const instance = await startInstance(request, wf.defId, ACTORS.execA);
   const toTask = await advance(request, instance.id, "begin", ACTORS.execA);
@@ -386,6 +399,7 @@ test("P07 — ANY_ONE first approval wins, closes sibling and routes approve", a
   const end = await addStep(request, def.id, "end", "END", 3);
   await addTransition(request, def.id, start.id, approval.id, "begin");
   await addTransition(request, def.id, approval.id, end.id, "approve", "APPROVE");
+  await addTransition(request, def.id, approval.id, end.id, "reject", "REJECT");
   await publish(request, def.id, def.versionLock);
   const instance = await startInstance(request, def.id);
   expect((await advance(request, instance.id, "begin")).status()).toBe(200);
@@ -461,7 +475,13 @@ test("P08 — ALL requires everyone for success and first valid rejection closes
 
 /* P09 — DISABLED USER / ACTIVE EMPLOYEE */
 test("P09 — disabled User cannot act, work is preserved, explicit reassignment restores progress", async ({ request }) => {
-  const wf = await createLinearWorkflow(request, `P09-${Date.now()}`, "HUMAN_TASK", {}, ACTORS.execA);
+  const wf = await createLinearWorkflow(
+    request,
+    `P09-${Date.now()}`,
+    "HUMAN_TASK",
+    { configuration: DIRECT_ASSIGNMENT },
+    ACTORS.execA,
+  );
   await publish(request, wf.defId, wf.versionLock, ACTORS.execA);
   const instance = await startInstance(request, wf.defId, ACTORS.execA);
   expect((await advance(request, instance.id, "begin", ACTORS.execA)).status()).toBe(200);
@@ -543,7 +563,7 @@ test("P11 — in-flight LEGACY instance remains LEGACY after definition publishe
   expect(instance.definitionVersionId).toBe(wf.defId);
 
   await publish(request, wf.defId, 1);
-  const next = await advance(request, instance.id, "task");
+  const next = await legacyAdvance(request, instance.id, "task");
   expect(next.status()).toBe(200);
   const nextBody = await next.json();
   expect(nextBody.engineGeneration).toBe("LEGACY");
