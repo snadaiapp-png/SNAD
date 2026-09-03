@@ -89,6 +89,7 @@ class HrRlsFailClosedIntegrationTest {
                 "hr_employee_assignments",
                 "hr_employees",
                 "hr_employment_status_periods",
+                "hr_employment_jurisdiction_periods",
                 "hr_job_versions",
                 "hr_jobs",
                 "hr_compliance_decisions",
@@ -656,6 +657,18 @@ class HrRlsFailClosedIntegrationTest {
         return empId;
     }
 
+    private void insertHrEmploymentJurisdictionPeriod(UUID tenantId) throws Exception {
+        UUID employmentId = insertHrEmployee(tenantId, "EMP-JUR");
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employment_jurisdiction_periods " +
+                "(tenant_id, employment_id, labor_jurisdiction, effective_from, approval_status, approval_reference) " +
+                "VALUES (?, ?, 'SA', DATE '2026-01-01', 'APPROVED', 'RLS-TEST')")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, employmentId);
+            ps.executeUpdate();
+        }
+    }
+
     private void insertHrMigrationTenantState(UUID tenantId) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO hr_migration_tenant_state (tenant_id, state, updated_at) " +
@@ -727,6 +740,7 @@ class HrRlsFailClosedIntegrationTest {
                 insertHrPersonIdentifier(tenantId, personId);
             }
             case "hr_employment_status_periods" -> insertHrEmployee(tenantId);
+            case "hr_employment_jurisdiction_periods" -> insertHrEmploymentJurisdictionPeriod(tenantId);
             case "hr_migration_tenant_state" -> insertHrMigrationTenantState(tenantId);
             case "hr_legacy_employee_mappings" -> insertHrLegacyEmployeeMapping(tenantId);
             case "hr_org_units" -> insertHrOrgUnit(tenantId);

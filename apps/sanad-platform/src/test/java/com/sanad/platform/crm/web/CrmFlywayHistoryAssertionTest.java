@@ -212,6 +212,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260901.3"   // hrm-g0 ws2 task 6 fix_idempotency_and_manager_resolution
             , "20260901.4"   // hrm-g0 ws2 task 6 fix_manager_review_item_creation
             , "20260902.1"   // hrm-g0 master task 4 ws3+ws4 foundation schema
+            , "20260903.1"   // hrm-g0 master task 4 task 2 employment jurisdiction periods
     );
 
 
