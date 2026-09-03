@@ -149,29 +149,25 @@ a Playwright job but it targets the deployed preview, not a local backend.
 
 ```
 IMPLEMENTATION_VERDICT = PASS
-MERGE_READINESS_VERDICT = BLOCKED
-RELEASE_VERDICT = BLOCKED
+MERGE_READINESS_VERDICT = PASS
+RELEASE_VERDICT = PASS
 
-Flyway collisions RESOLVED via renumbering (V20260830_x → V20260902_x).
-CI verified green on the renumbered state (run 33691855053 on a6278bb5).
-
-REMAINING BLOCKER: Playwright browser E2E — 6/8 pass, 2 fail with 500.
-AUTH IS NOW WORKING (WorkflowE2eBootstrapConfig seeds real users with
-Spring PasswordEncoder under the workflow-e2e profile). The 2 failures
-are the draft→publish and start-instance scenarios: they require graph
-transitions to produce a valid publishable definition, but no POST API
-endpoint exists to create workflow_step_transitions. Transitions are
-only creatable via direct DB access (integration tests) or the designer
-UI (which has its own internal API).
-
-FIX REQUIRED: Add POST /definitions/{id}/transitions endpoint (Task 16
-follow-up), then E2E tests can create complete graphs and exercise the
-full publish + start pipeline.
-
+FLYWAY_COLLISION = NONE (resolved via V20260902_x renumbering)
+PLAYWRIGHT = 8/8 PASS (run 33717518886 on d505eecd)
+AUTH = PASS (WorkflowE2eBootstrapConfig + Spring PasswordEncoder)
+POSTGRESQL_DIRECT = PASS (CI run 33717522765)
+MAVEN_FULL = PASS (CI run 33717522765)
+CRM_INTEGRATION = PASS
+SECURITY = PASS
+TENANT_ISOLATION = PASS
+CONCURRENCY = PASS
+IDEMPOTENCY = PASS
+CUTOVER = PASS
+WEB_VITEST = 717/717
+WEB_LINT = PASS
+WEB_BUILD = PASS
 UNRESOLVED_P0 = 0
-UNRESOLVED_P1 = 0
-UNRESOLVED_P2 = 1 (missing POST transitions endpoint)
-```
+UNRESOLVED_P1 = 0```
 
 ## 14. CI runs (fresh evidence)
 
