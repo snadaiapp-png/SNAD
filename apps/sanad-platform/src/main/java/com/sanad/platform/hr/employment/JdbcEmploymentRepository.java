@@ -1,11 +1,20 @@
 package com.sanad.platform.hr.employment;
 
+import com.sanad.platform.hr.audit.HrAuditRecord;
+import com.sanad.platform.hr.audit.HrTransactionalEvidenceWriter;
+import com.sanad.platform.hr.integration.JdbcHrEvidenceWriter;
+import com.sanad.platform.integration.events.DomainEventEnvelope;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import javax.sql.DataSource;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,10 +30,45 @@ import java.util.UUID;
  */
 public final class JdbcEmploymentRepository implements EmploymentRepository {
 
-    private final DataSource dataSource;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    private final DataSource dataSource;
+    private final HrTransactionalEvidenceWriter evidenceWriter;
+
+    /**
+     * Standard construction: evidence-atomic — every lifecycle transition
+     * appends hr_audit_ledger + hr_audit_delivery + hr_domain_event_outbox
+     * in the SAME transaction (WS4 Task 4 contract).
+     */
     public JdbcEmploymentRepository(DataSource dataSource) {
+        this(dataSource, defaultEvidenceWriter(dataSource));
+    }
+
+    /**
+     * Explicit construction: tests may inject a failure-injecting or
+     * observing evidence writer. {@code null} disables evidence append
+     * (legacy behavior; only used by legacy callers).
+     */
+    public JdbcEmploymentRepository(DataSource dataSource, HrTransactionalEvidenceWriter evidenceWriter) {
         this.dataSource = dataSource;
+        this.evidenceWriter = evidenceWriter;
+    }
+
+    private static HrTransactionalEvidenceWriter defaultEvidenceWriter(DataSource dataSource) {
+        return new JdbcHrEvidenceWriter(dataSource);
+    }
+
+    /** Canonical, versioned HRM event names for employment lifecycle transitions. */
+    private static String employmentEventType(EmploymentStatus targetStatus) {
+        return switch (targetStatus) {
+            case DRAFT -> "HRM.EMPLOYEE.DRAFT_CREATED.v1";
+            case PENDING_ONBOARDING -> "HRM.EMPLOYEE.ONBOARDING_SUBMITTED.v1";
+            case ACTIVE -> "HRM.EMPLOYEE.ACTIVATED.v1";
+            case ON_LEAVE -> "HRM.EMPLOYEE.LEAVE_STARTED.v1";
+            case SUSPENDED -> "HRM.EMPLOYEE.SUSPENDED.v1";
+            case TERMINATED -> "HRM.EMPLOYEE.TERMINATED.v1";
+            case VOIDED -> "HRM.EMPLOYEE.VOIDED.v1";
+        };
     }
 
     @Override
@@ -236,6 +280,41 @@ public final class JdbcEmploymentRepository implements EmploymentRepository {
                     throw new IllegalStateException(
                         "Employment not found or version mismatch (expected " + expectedVersion + ")");
                 }
+            }
+
+            // 4. Transactional mutation evidence: audit fact + delivery state +
+            //    outbox event — same transaction, no REQUIRES_NEW. Any append
+            //    failure rolls back the entire transition.
+            if (evidenceWriter != null) {
+                String eventType = employmentEventType(targetStatus);
+                String action = eventType.substring(0, eventType.length() - 3);
+                UUID eventId = JdbcHrEvidenceWriter.deterministicEventId(
+                        tenantId, eventType, employmentId, transitionEventId);
+
+                ObjectNode beforeState = OBJECT_MAPPER.createObjectNode();
+                beforeState.put("status", currentStatus.name());
+                beforeState.put("version", expectedVersion);
+                ObjectNode afterState = OBJECT_MAPPER.createObjectNode();
+                afterState.put("status", targetStatus.name());
+                afterState.put("version", expectedVersion + 1);
+                afterState.put("reasonCode", reasonCode);
+                afterState.put("effectiveDate", effectiveDate.toString());
+
+                ObjectNode payload = OBJECT_MAPPER.createObjectNode();
+                payload.put("employmentId", employmentId.toString());
+                payload.put("fromStatus", currentStatus.name());
+                payload.put("toStatus", targetStatus.name());
+                payload.put("effectiveDate", effectiveDate.toString());
+                payload.put("reasonCode", reasonCode);
+
+                evidenceWriter.writeEvidence(connection,
+                        new HrAuditRecord(tenantId, null, action, "EMPLOYMENT", employmentId,
+                                null, null, "OPERATIONAL", reasonCode,
+                                beforeState, afterState, "SUCCESS", null, transitionEventId, Instant.now()),
+                        new DomainEventEnvelope(eventId, eventType, 1, "EMPLOYMENT", employmentId,
+                                tenantId, null, null, Instant.now(), null, null,
+                                eventType + ":" + employmentId + ":" + transitionEventId,
+                                "OPERATIONAL", payload));
             }
 
             return new EmploymentTransitionResult(

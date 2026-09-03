@@ -3,14 +3,22 @@ package com.sanad.platform.hr.assignment.infrastructure;
 import com.sanad.platform.hr.assignment.domain.HrAssignment;
 import com.sanad.platform.hr.assignment.domain.AssignmentType;
 import com.sanad.platform.hr.assignment.domain.OccupancyMode;
+import com.sanad.platform.hr.audit.HrAuditRecord;
+import com.sanad.platform.hr.audit.HrTransactionalEvidenceWriter;
+import com.sanad.platform.hr.integration.JdbcHrEvidenceWriter;
+import com.sanad.platform.integration.events.DomainEventEnvelope;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,11 +28,54 @@ import java.util.UUID;
 public final class JdbcHrAssignmentRepository {
 
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final DataSource dataSource;
+    private final HrTransactionalEvidenceWriter evidenceWriter;
 
+    /**
+     * Standard construction: evidence-atomic — critical assignment mutations
+     * append hr_audit_ledger + hr_audit_delivery + hr_domain_event_outbox in
+     * the SAME transaction (WS4 Task 4 contract).
+     */
     public JdbcHrAssignmentRepository(DataSource dataSource) {
+        this(dataSource, new JdbcHrEvidenceWriter(dataSource));
+    }
+
+    /** Explicit construction for tests (failure injection / observation). */
+    public JdbcHrAssignmentRepository(DataSource dataSource, HrTransactionalEvidenceWriter evidenceWriter) {
         this.dataSource = dataSource;
+        this.evidenceWriter = evidenceWriter;
+    }
+
+    private void appendEvidence(
+            Connection connection, UUID tenantId, String eventType, HrAssignment assignment,
+            ObjectNode beforeState, ObjectNode afterState, UUID distinguisher) throws SQLException {
+        if (evidenceWriter == null) {
+            return;
+        }
+        String action = eventType.substring(0, eventType.length() - 3);
+        UUID eventId = UUID.nameUUIDFromBytes(
+                (tenantId + "|" + eventType + "|" + assignment.id() + "|" + distinguisher)
+                        .getBytes(StandardCharsets.UTF_8));
+        ObjectNode payload = OBJECT_MAPPER.createObjectNode();
+        payload.put("assignmentId", assignment.id().toString());
+        payload.put("employmentId", assignment.employmentId().toString());
+        if (assignment.organizationId() != null) {
+            payload.put("organizationId", assignment.organizationId().toString());
+        }
+        payload.put("assignmentType", assignment.assignmentType().name());
+        payload.put("occupancyMode", assignment.occupancyMode().name());
+        payload.put("allocationPercent", assignment.allocationPercent() == null ? null : assignment.allocationPercent().toPlainString());
+        payload.put("effectiveFrom", assignment.effectiveFrom() == null ? null : assignment.effectiveFrom().toString());
+        evidenceWriter.writeEvidence(connection,
+                new HrAuditRecord(tenantId, null, action, "ASSIGNMENT", assignment.id(),
+                        assignment.organizationId(), null, "OPERATIONAL", null,
+                        beforeState, afterState, "SUCCESS", null, distinguisher, Instant.now()),
+                new DomainEventEnvelope(eventId, eventType, 1, "ASSIGNMENT", assignment.id(),
+                        tenantId, assignment.organizationId(), null, Instant.now(), null, null,
+                        eventType + ":" + assignment.id() + ":" + distinguisher,
+                        "OPERATIONAL", payload));
     }
 
     public void saveAssignment(HrAssignment a) {
@@ -136,10 +187,22 @@ public final class JdbcHrAssignmentRepository {
                 ps.executeUpdate();
             }
 
-            return new HrAssignment(assignmentId, tenantId, employmentId, organizationId,
+            HrAssignment created = new HrAssignment(assignmentId, tenantId, employmentId, organizationId,
                     orgUnitId, positionId, reportsToAssignmentId, workLocationId,
                     assignmentType, occupancyMode, allocationPercent,
                     effectiveFrom, effectiveTo, "ACTIVE", 0L);
+
+            // Transactional evidence append (audit + delivery + outbox) — same transaction.
+            ObjectNode afterState = OBJECT_MAPPER.createObjectNode();
+            afterState.put("status", "ACTIVE");
+            afterState.put("assignmentType", assignmentType.name());
+            afterState.put("occupancyMode", occupancyMode.name());
+            afterState.put("allocationPercent", allocationPercent == null ? null : allocationPercent.toPlainString());
+            afterState.put("effectiveFrom", effectiveFrom.toString());
+            appendEvidence(connection, tenantId, "HRM.ASSIGNMENT.CREATED.v1", created,
+                    OBJECT_MAPPER.createObjectNode(), afterState, assignmentId);
+
+            return created;
         });
     }
 
@@ -224,10 +287,24 @@ public final class JdbcHrAssignmentRepository {
                 ps.executeUpdate();
             }
 
-            return new HrAssignment(newId, tenantId, existing.employmentId(), existing.organizationId(),
+            HrAssignment revised = new HrAssignment(newId, tenantId, existing.employmentId(), existing.organizationId(),
                     existing.orgUnitId(), candidatePositionId, candidateReportsToId,
                     existing.workLocationId(), existing.assignmentType(), candidateOccupancyMode,
                     candidateAllocation, effectiveFrom, null, "ACTIVE", existing.version() + 1);
+
+            // Transactional evidence append (audit + delivery + outbox) — same transaction.
+            ObjectNode beforeState = OBJECT_MAPPER.createObjectNode();
+            beforeState.put("status", existing.status());
+            beforeState.put("allocationPercent", existing.allocationPercent() == null ? null : existing.allocationPercent().toPlainString());
+            beforeState.put("effectiveFrom", existing.effectiveFrom() == null ? null : existing.effectiveFrom().toString());
+            ObjectNode afterState = OBJECT_MAPPER.createObjectNode();
+            afterState.put("status", "ACTIVE");
+            afterState.put("allocationPercent", candidateAllocation == null ? null : candidateAllocation.toPlainString());
+            afterState.put("effectiveFrom", effectiveFrom.toString());
+            appendEvidence(connection, tenantId, "HRM.ASSIGNMENT.REVISED.v1", revised,
+                    beforeState, afterState, assignmentId);
+
+            return revised;
         });
     }
 

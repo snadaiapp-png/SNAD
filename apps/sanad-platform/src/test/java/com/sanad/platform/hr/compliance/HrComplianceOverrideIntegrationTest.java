@@ -207,11 +207,11 @@ class HrComplianceOverrideIntegrationTest {
         UUID tenantId = seedOverrideTenant();
         UUID requester = seedOverrideUser(tenantId);
         UUID packId = seedActiveOverridePack("SA", "WS3-T4-PACK-B");
-        seedRuleWith(packId, "MANDATORY_HARD", false);
+        UUID ruleId = seedRuleWith(packId, "MANDATORY_HARD", false);
         setTenant(tenantId);
         Object service = newOverrideService(allowAllAuthorizationPort(), noopAuditPort(), noopEventPort());
 
-        assertThatThrownBy(() -> requestOverride(service, tenantId, requester, null))
+        assertThatThrownBy(() -> requestOverride(service, tenantId, requester, ruleId))
                 .as("MANDATORY_HARD rules can never enter the governed override flow")
                 .hasMessageContaining("HRM_COMPLIANCE_BLOCKED");
         assertThat(countOverrideRequests(tenantId)).isZero();
@@ -238,11 +238,11 @@ class HrComplianceOverrideIntegrationTest {
         UUID tenantId = seedOverrideTenant();
         UUID requester = seedOverrideUser(tenantId);
         UUID packId = seedActiveOverridePack("SA", "WS3-T4-PACK-D");
-        seedRuleWith(packId, "MANDATORY_WITH_EXCEPTION", false);
+        UUID ruleId = seedRuleWith(packId, "MANDATORY_WITH_EXCEPTION", false);
         setTenant(tenantId);
         Object service = newOverrideService(allowAllAuthorizationPort(), noopAuditPort(), noopEventPort());
 
-        assertThatThrownBy(() -> requestOverride(service, tenantId, requester, null))
+        assertThatThrownBy(() -> requestOverride(service, tenantId, requester, ruleId))
                 .as("exception_allowed=false must not permit the override path")
                 .hasMessageContaining("HRM_COMPLIANCE_BLOCKED");
         assertThat(countOverrideRequests(tenantId)).isZero();
@@ -477,13 +477,14 @@ class HrComplianceOverrideIntegrationTest {
         setTenant(tenantId);
         Object service = newOverrideService(allowAllAuthorizationPort(), noopAuditPort(), noopEventPort());
 
+        UUID resourceId = UUID.randomUUID();
         UUID requestId = requestOverrideForResource(service, tenantId, requester, ruleId,
-                "EMPLOYMENT", UUID.randomUUID(), LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 20));
+                "EMPLOYMENT", resourceId, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 20));
         approve(service, tenantId, requestId, approver, "windowed");
 
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
                 LocalDate.of(2026, 9, 1))).as("before valid_from must be denied").isFalse();
-        assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
+        assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", resourceId,
                 LocalDate.of(2026, 9, 15))).as("inside window must authorize").isTrue();
     }
 
