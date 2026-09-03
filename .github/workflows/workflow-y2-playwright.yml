@@ -2,13 +2,27 @@ name: Workflow Y2 Playwright Release Gate
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - design/workflow-orchestration-spec
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/workflow/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/web/app/workflow/**'
+      - 'apps/web/e2e/workflow-y2-release.spec.ts'
+      - 'apps/web/e2e/crm-auth-session.ts'
+      - 'apps/web/playwright.workflow-y2.config.ts'
+      - '.github/workflows/workflow-y2-playwright.yml'
   push:
     branches:
       - design/workflow-orchestration-spec
     paths:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/workflow/**'
       - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/web/app/workflow/**'
       - 'apps/web/e2e/workflow-y2-release.spec.ts'
+      - 'apps/web/e2e/crm-auth-session.ts'
       - 'apps/web/playwright.workflow-y2.config.ts'
       - '.github/workflows/workflow-y2-playwright.yml'
 
