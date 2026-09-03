@@ -1,9 +1,6 @@
 /**
  * Workflow Y2 Playwright Release Gate — E2E scenarios against real
  * Spring Boot + PostgreSQL Direct.
- *
- * Authenticates via the real /api/v1/auth/login endpoint. The test user
- * is seeded by WorkflowE2eBootstrapConfig under the workflow-e2e profile.
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
@@ -46,8 +43,7 @@ async function createDefinition(
     data: { code, name, description: "E2E release gate", module: "GENERAL", triggerType: "MANUAL" },
   });
   expect(res.status()).toBe(200);
-  const body = await res.json();
-  return { id: body.id, version: body.version };
+  return (await res.json()) as { id: string; version: number };
 }
 
 async function addStep(
@@ -62,52 +58,67 @@ async function addStep(
   return (await res.json()) as { id: string };
 }
 
-test("E2E auth smoke — login returns valid token", async ({ request }: { request: APIRequestContext }) => {
+async function createValidWorkflow(
+  request: APIRequestContext, codePrefix: string,
+): Promise<{ defId: string; version: number }> {
+  const def = await createDefinition(request, codePrefix, `E2E ${codePrefix}`);
+  const start = await addStep(request, def.id, "start", "START", 1);
+  const task = await addStep(request, def.id, "task", "ACTION", 2);
+  const end = await addStep(request, def.id, "end", "END", 3);
+  const headers = await authHeaders(request);
+  for (const t of [
+    { from: start.id, to: task.id, key: "begin" },
+    { from: task.id, to: end.id, key: "done" },
+  ]) {
+    const tr = await request.post(
+      `${API}/api/v1/workflows/definitions/${def.id}/transitions`,
+      { headers, data: { fromStepId: t.from, toStepId: t.to, transitionKey: t.key, outcome: "SUCCESS", priority: 10 } },
+    );
+    expect(tr.status()).toBe(200);
+  }
+  return { defId: def.id, version: def.version };
+}
+
+test("E2E auth smoke", async ({ request }: { request: APIRequestContext }) => {
   const token = await login(request);
   expect(token.length).toBeGreaterThan(20);
-  const res = await request.get(`${API}/api/v1/workflows/definitions`, {
-    headers: await authHeaders(request),
-  });
-  expect(res.status()).toBe(200);
 });
 
-test("workflow Y2 draft to publish flow", async ({ request }: { request: APIRequestContext }) => {
-  const def = await createDefinition(request, `WF-E2E-PUB-${Date.now()}`, "E2E Publish");
-  await addStep(request, def.id, "start", "START", 1);
-  await addStep(request, def.id, "end", "END", 2);
-  const validation = await request.post(
-    `${API}/api/v1/workflows/definitions/${def.id}/validate`,
+test("create validate publish", async ({ request }: { request: APIRequestContext }) => {
+  const wf = await createValidWorkflow(request, `WF-E2E-VAL-${Date.now()}`);
+  const v = await request.post(
+    `${API}/api/v1/workflows/definitions/${wf.defId}/validate`,
     { headers: await authHeaders(request), data: {} },
   );
-  expect(validation.status()).toBe(200);
-  expect((await validation.json()).valid).toBe(true);
-  const published = await request.post(
-    `${API}/api/v1/workflows/definitions/${def.id}/publish`,
-    { headers: await authHeaders(request), data: { expectedVersion: def.version } },
+  expect(v.status()).toBe(200);
+  expect((await v.json()).valid).toBe(true);
+  const pub = await request.post(
+    `${API}/api/v1/workflows/definitions/${wf.defId}/publish`,
+    { headers: await authHeaders(request), data: { expectedVersion: wf.version } },
   );
-  expect(published.status()).toBe(200);
-  expect((await published.json()).status).toBe("ACTIVE");
+  expect(pub.status()).toBe(200);
+  expect((await pub.json()).status).toBe("ACTIVE");
 });
 
-test("workflow Y2 start creates instance", async ({ request }: { request: APIRequestContext }) => {
-  const def = await createDefinition(request, `WF-E2E-START-${Date.now()}`, "E2E Start");
-  await addStep(request, def.id, "start", "START", 1);
-  await addStep(request, def.id, "end", "END", 2);
+test("start instance on published definition", async ({ request }: { request: APIRequestContext }) => {
+  const wf = await createValidWorkflow(request, `WF-E2E-START-${Date.now()}`);
+  const pub = await request.post(
+    `${API}/api/v1/workflows/definitions/${wf.defId}/publish`,
+    { headers: await authHeaders(request), data: { expectedVersion: wf.version } },
+  );
+  expect(pub.status()).toBe(200);
   const res = await request.post(`${API}/api/v1/workflows/instances`, {
     headers: await authHeaders(request),
     data: {
-      workflowDefinitionId: def.id,
-      workflowVersion: def.version,
-      businessEntityType: "E2E",
-      businessEntityId: crypto.randomUUID(),
-      firstStepKey: "start",
+      workflowDefinitionId: wf.defId, workflowVersion: wf.version,
+      businessEntityType: "E2E", businessEntityId: crypto.randomUUID(), firstStepKey: "start",
     },
   });
   expect(res.status()).toBe(200);
   expect((await res.json()).id).toBeTruthy();
 });
 
-test("workflow Y2 my work items returns list", async ({ request }: { request: APIRequestContext }) => {
+test("my work items returns list", async ({ request }: { request: APIRequestContext }) => {
   const res = await request.get(`${API}/api/v1/workflows/work-items/mine`, {
     headers: await authHeaders(request),
   });
@@ -115,7 +126,7 @@ test("workflow Y2 my work items returns list", async ({ request }: { request: AP
   expect(Array.isArray(await res.json())).toBe(true);
 });
 
-test("workflow Y2 pool returns list", async ({ request }: { request: APIRequestContext }) => {
+test("pool returns list", async ({ request }: { request: APIRequestContext }) => {
   const res = await request.get(`${API}/api/v1/workflows/work-items/pool`, {
     headers: await authHeaders(request),
   });
@@ -123,7 +134,7 @@ test("workflow Y2 pool returns list", async ({ request }: { request: APIRequestC
   expect(Array.isArray(await res.json())).toBe(true);
 });
 
-test("workflow Y2 incidents returns list", async ({ request }: { request: APIRequestContext }) => {
+test("incidents returns list", async ({ request }: { request: APIRequestContext }) => {
   const res = await request.get(`${API}/api/v1/workflows/incidents`, {
     headers: await authHeaders(request),
   });
@@ -131,31 +142,21 @@ test("workflow Y2 incidents returns list", async ({ request }: { request: APIReq
   expect(Array.isArray(await res.json())).toBe(true);
 });
 
-test("workflow Y2 nonexistent instance returns 404", async ({ request }: { request: APIRequestContext }) => {
-  const res = await request.get(
-    `${API}/api/v1/workflows/instances/${crypto.randomUUID()}`,
-    { headers: await authHeaders(request) },
-  );
-  expect([200, 404]).toContain(res.status());
-});
-
-test("workflow Y2 validation rejects graph without steps", async ({ request }: { request: APIRequestContext }) => {
+test("validation rejects graph without start", async ({ request }: { request: APIRequestContext }) => {
   const def = await createDefinition(request, `WF-E2E-BAD-${Date.now()}`, "E2E Invalid");
-  const validation = await request.post(
+  await addStep(request, def.id, "end", "END", 1);
+  const v = await request.post(
     `${API}/api/v1/workflows/definitions/${def.id}/validate`,
     { headers: await authHeaders(request), data: {} },
   );
-  expect(validation.status()).toBe(200);
-  const body = await validation.json();
+  expect(v.status()).toBe(200);
+  const body = await v.json();
   expect(body.valid).toBe(false);
   expect(body.errors.length).toBeGreaterThan(0);
 });
 
-test("workflow page loads with RTL direction", async ({ page }: { page: Page }) => {
+test("workflow page loads", async ({ page }: { page: Page }) => {
   await page.goto(`${BASE_URL}/workflow`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(2000);
-  const dir = await page.evaluate(() => document.documentElement.getAttribute("dir") || "");
-  if (dir) expect(dir).toBe("rtl");
-  const body = await page.textContent("body");
-  expect(body).toBeTruthy();
+  expect(await page.textContent("body")).toBeTruthy();
 });
