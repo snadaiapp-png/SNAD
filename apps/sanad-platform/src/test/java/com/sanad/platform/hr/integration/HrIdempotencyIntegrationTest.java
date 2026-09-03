@@ -93,7 +93,7 @@ class HrIdempotencyIntegrationTest {
             assertThat(queryScalar(
                     "SELECT (relrowsecurity AND relforcerowsecurity)::text FROM pg_class WHERE relname = '" + table + "'"))
                     .as(table + " must have ENABLE + FORCE ROW LEVEL SECURITY")
-                    .isEqualTo("t");
+                    .isEqualTo("true");
         }
     }
 
@@ -152,8 +152,10 @@ class HrIdempotencyIntegrationTest {
         // Same key, different operation → distinct record.
         insertIdempotencyRecord(tenantB, principalId, "HRM.OTHER.OP", "shared-key", repeat('a'), 200, null);
 
-        assertThat(queryScalar("SELECT COUNT(*)::text FROM hr_idempotency_records")).isEqualTo("4");
+        // Under tenant B's context, RLS hides tenant A's record: exactly 3 visible.
+        assertThat(queryScalar("SELECT COUNT(*)::text FROM hr_idempotency_records")).isEqualTo("3");
         setTenant(tenantId);
+        // Under tenant A's context, only tenant A's record is visible.
         assertThat(queryScalar("SELECT COUNT(*)::text FROM hr_idempotency_records")).isEqualTo("1");
     }
 
@@ -164,7 +166,7 @@ class HrIdempotencyIntegrationTest {
         assertThat(queryScalar(
                 "SELECT (expires_at < NOW())::text FROM hr_idempotency_records WHERE idempotency_key = 'key-exp'"))
                 .as("a past expiry must be stored and recognizable as expired")
-                .isEqualTo("t");
+                .isEqualTo("true");
         // Cleanup index for expired records must exist.
         assertThat(Integer.parseInt(queryScalar(
                 "SELECT COUNT(*)::text FROM pg_indexes WHERE tablename = 'hr_idempotency_records' " +
@@ -204,10 +206,10 @@ class HrIdempotencyIntegrationTest {
                     ps.setObject(2, UUID.randomUUID());
                     ps.setObject(3, unmanagedUserId);
                 });
-        assertThat(queryScalar("SELECT access_mode FROM hr_iam_access_bindings WHERE user_id = " + unmanagedUserId))
+        assertThat(queryScalar("SELECT access_mode FROM hr_iam_access_bindings WHERE user_id = '" + unmanagedUserId + "'"))
                 .as("unrelated IAM access is not implicitly HR-managed")
                 .isEqualTo("NON_HR_MANAGED");
-        assertThat(queryScalar("SELECT access_mode FROM hr_iam_access_bindings WHERE user_id = " + userId))
+        assertThat(queryScalar("SELECT access_mode FROM hr_iam_access_bindings WHERE user_id = '" + userId + "'"))
                 .isEqualTo("HR_MANAGED");
 
         // Unknown access modes are rejected.

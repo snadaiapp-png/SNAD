@@ -99,7 +99,7 @@ class HrAuditOutboxAtomicityIntegrationTest {
                 .isInstanceOf(SQLException.class)
                 .hasMessageContaining("HRM_AUDIT_IMMUTABLE");
 
-        assertThat(queryScalar("SELECT action FROM hr_audit_ledger WHERE id = " + auditId))
+        assertThat(queryScalar("SELECT action FROM hr_audit_ledger WHERE id = '" + auditId + "'"))
                 .isEqualTo("TEST.ACTION");
     }
 
@@ -117,10 +117,10 @@ class HrAuditOutboxAtomicityIntegrationTest {
         executeUpdate("UPDATE hr_audit_delivery SET status = 'DELIVERED', delivered_at = NOW(), attempt_count = 1 " +
                         "WHERE audit_id = ?", ps -> ps.setObject(1, auditId));
 
-        assertThat(queryScalar("SELECT status FROM hr_audit_delivery WHERE audit_id = " + auditId))
+        assertThat(queryScalar("SELECT status FROM hr_audit_delivery WHERE audit_id = '" + auditId + "'"))
                 .isEqualTo("DELIVERED");
         // The audit fact itself remains untouched.
-        assertThat(queryScalar("SELECT result FROM hr_audit_ledger WHERE id = " + auditId))
+        assertThat(queryScalar("SELECT result FROM hr_audit_ledger WHERE id = '" + auditId + "'"))
                 .isEqualTo("SUCCESS");
     }
 
@@ -152,15 +152,15 @@ class HrAuditOutboxAtomicityIntegrationTest {
                     ps.setObject(3, UUID.randomUUID());
                 });
 
-        assertThat(queryScalar("SELECT status FROM hr_domain_event_outbox WHERE event_id = " + eventId))
+        assertThat(queryScalar("SELECT status FROM hr_domain_event_outbox WHERE event_id = '" + eventId + "'"))
                 .isEqualTo("READY");
-        assertThat(queryScalar("SELECT attempt_count::text FROM hr_domain_event_outbox WHERE event_id = " + eventId))
+        assertThat(queryScalar("SELECT attempt_count::text FROM hr_domain_event_outbox WHERE event_id = '" + eventId + "'"))
                 .isEqualTo("0");
         // Delivery metadata required by the at-least-once contract is present.
         assertThat(queryScalar(
                 "SELECT ((max_attempts > 0) AND (available_at IS NOT NULL) AND (claim_token IS NULL))::text " +
-                        "FROM hr_domain_event_outbox WHERE event_id = " + eventId))
-                .isEqualTo("t");
+                        "FROM hr_domain_event_outbox WHERE event_id = '" + eventId + "'"))
+                .isEqualTo("true");
         assertThat(Integer.parseInt(queryScalar(
                 "SELECT COUNT(*)::text FROM pg_indexes WHERE tablename = 'hr_domain_event_outbox'")))
                 .isGreaterThanOrEqualTo(2);

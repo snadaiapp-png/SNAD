@@ -86,10 +86,15 @@ class HrRlsFailClosedIntegrationTest {
         // It is verified by catalog_hRTableInventoryMatchesTest below.
         return Stream.of(
                 "hr_departments",
+                "hr_domain_event_outbox",
                 "hr_employee_assignments",
                 "hr_employees",
                 "hr_employment_status_periods",
                 "hr_employment_jurisdiction_periods",
+                "hr_audit_delivery",
+                "hr_audit_ledger",
+                "hr_idempotency_records",
+                "hr_iam_access_bindings",
                 "hr_job_versions",
                 "hr_jobs",
                 "hr_compliance_decisions",
@@ -723,6 +728,81 @@ class HrRlsFailClosedIntegrationTest {
         }
     }
 
+    // --- Master Task 4 / Task 3 table seeds ---
+
+    private void insertHrAuditLedgerRow(UUID tenantId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_audit_ledger " +
+                "(tenant_id, actor_user_id, action, resource_type, resource_id, data_classification, " +
+                "before_state, after_state, result, occurred_at) " +
+                "VALUES (?, ?, 'RLS.TEST.ACTION', 'EMPLOYMENT', ?, 'OPERATIONAL', " +
+                "'{\"before\":\"redacted\"}'::jsonb, '{\"after\":\"redacted\"}'::jsonb, 'SUCCESS', NOW())")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, UUID.randomUUID());
+            ps.setObject(3, UUID.randomUUID());
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertHrAuditDeliveryRow(UUID tenantId) throws Exception {
+        UUID auditId;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_audit_ledger " +
+                "(tenant_id, actor_user_id, action, resource_type, resource_id, data_classification, " +
+                "result, occurred_at) VALUES (?, ?, 'RLS.TEST.ACTION', 'EMPLOYMENT', ?, 'OPERATIONAL', " +
+                "'SUCCESS', NOW()) RETURNING id")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, UUID.randomUUID());
+            ps.setObject(3, UUID.randomUUID());
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                auditId = UUID.fromString(rs.getString(1));
+            }
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_audit_delivery (audit_id, tenant_id, status) VALUES (?, ?, 'PENDING')")) {
+            ps.setObject(1, auditId);
+            ps.setObject(2, tenantId);
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertHrDomainEventOutboxRow(UUID tenantId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_domain_event_outbox " +
+                "(event_id, tenant_id, event_type, event_version, aggregate_type, aggregate_id, payload, occurred_at) " +
+                "VALUES (?, ?, 'HRM.TEST.EVENT.v1', 1, 'EMPLOYMENT', ?, " +
+                "'{\"state\":\"redacted\"}'::jsonb, NOW())")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, UUID.randomUUID());
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertHrIdempotencyRecordRow(UUID tenantId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_idempotency_records " +
+                "(tenant_id, principal_id, operation_code, idempotency_key, request_fingerprint, response_status, expires_at) " +
+                "VALUES (?, ?, 'RLS.TEST.OP', ?, REPEAT('a', 64), 200, NOW() + INTERVAL '24 hours')")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, UUID.randomUUID());
+            ps.setObject(3, UUID.randomUUID().toString());
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertHrIamAccessBindingRow(UUID tenantId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_iam_access_bindings (tenant_id, person_id, user_id, access_mode) " +
+                "VALUES (?, ?, ?, 'HR_MANAGED')")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, UUID.randomUUID());
+            ps.setObject(3, UUID.randomUUID());
+            ps.executeUpdate();
+        }
+    }
+
     // --- Generic seed dispatch ---
 
     private void seedRow(String table, UUID tenantId) throws Exception {
@@ -752,6 +832,11 @@ class HrRlsFailClosedIntegrationTest {
             case "hr_migration_review_items" -> insertHrMigrationReviewItem(tenantId);
             case "hr_compliance_decisions" -> insertHrComplianceDecision(tenantId);
             case "hr_compliance_override_requests" -> insertHrComplianceOverrideRequest(tenantId);
+            case "hr_audit_ledger" -> insertHrAuditLedgerRow(tenantId);
+            case "hr_audit_delivery" -> insertHrAuditDeliveryRow(tenantId);
+            case "hr_domain_event_outbox" -> insertHrDomainEventOutboxRow(tenantId);
+            case "hr_idempotency_records" -> insertHrIdempotencyRecordRow(tenantId);
+            case "hr_iam_access_bindings" -> insertHrIamAccessBindingRow(tenantId);
             default -> throw new IllegalArgumentException("No seed for table: " + table);
         }
     }
