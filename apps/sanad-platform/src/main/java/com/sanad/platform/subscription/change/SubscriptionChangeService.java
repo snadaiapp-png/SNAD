@@ -88,9 +88,12 @@ public class SubscriptionChangeService {
                         i.getQuantity(), i.getUnitAmountMinor(), i.getCurrencyCode()))
                 .toList();
 
-        Optional<SubscriptionItemEntity> planItem = items.stream()
-                .filter(i -> "PLAN".equals(i.getItemType()))
-                .findFirst();
+        // R0C-5 §8: a plan change targets the LEGACY-COMPATIBILITY ANCHORED
+        // plan (tenant_subscriptions.plan_id) — never findFirst() over the
+        // ACTIVE PLAN stream, which an older-created secondary plan would win.
+        Optional<SubscriptionItemEntity> planItem = ctx.planId() != null
+                ? itemRepository.findActiveBySubscriptionIdAndPlanId(subscriptionId, ctx.planId())
+                : Optional.empty();
         long currentMonthly = planItem.map(i -> nvl(i.getUnitAmountMinor())).orElse(0L);
 
         List<String> warnings = new ArrayList<>();
@@ -109,7 +112,8 @@ public class SubscriptionChangeService {
                         + ", interval=" + billingInterval + "); change cannot be priced");
             }
         } else {
-            warnings.add("Subscription has no ACTIVE PLAN item to change");
+            warnings.add("Subscription has no ACTIVE PLAN item matching the compatibility anchor"
+                    + " (plan " + ctx.planId() + "); secondary plans cannot be changed here");
         }
 
         return new ChangePreview(subscriptionId, targetPlanVersionId, ctx.status(),
@@ -134,9 +138,14 @@ public class SubscriptionChangeService {
                     "Change preview has warnings; refusing to execute: " + preview.warnings());
         }
 
+        // R0C-5 §8: the change applies to the ANCHORED plan item only — the
+        // item matching tenant_subscriptions.plan_id. Secondary plans are not
+        // "the current plan" and are preserved by the change.
+        SubscriptionContext ctx = requireSubscription(subscriptionId);
         SubscriptionItemEntity currentPlanItem = itemRepository
-                .findActiveBySubscriptionIdAndType(subscriptionId, "PLAN")
-                .orElseThrow(() -> new IllegalStateException("No ACTIVE PLAN item"));
+                .findActiveBySubscriptionIdAndPlanId(subscriptionId, ctx.planId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No ACTIVE PLAN item matching the compatibility anchor (plan " + ctx.planId() + ")"));
 
         Map<String, Object> versionRow;
         try {
@@ -219,8 +228,26 @@ public class SubscriptionChangeService {
                                                     String reason, UUID actorTenantId, UUID actorUserId) {
         SubscriptionContext ctx = requireSubscription(subscriptionId);
 
-        itemRepository.findActiveBySubscriptionIdAndType(subscriptionId, "PLAN")
-                .ifPresent(current -> itemRepository.updateStatus(current.getId(), "CANCELLED"));
+        // R0C-5 §8: cancel the ANCHORED item only (the one matching the CURRENT
+        // anchor plan) — never an arbitrary ACTIVE PLAN. Distinct secondary
+        // plans stay untouched.
+        Optional<SubscriptionItemEntity> anchoredItem = ctx.planId() != null
+                ? itemRepository.findActiveBySubscriptionIdAndPlanId(subscriptionId, ctx.planId())
+                : Optional.empty();
+        anchoredItem.ifPresent(current -> itemRepository.updateStatus(current.getId(), "CANCELLED"));
+
+        // R0C-5 §8 fail-closed: a target plan that is already ACTIVE as a
+        // SECONDARY item would end up with the same plan twice (the unique
+        // index rejects it); consolidating a secondary into the anchor is a
+        // different, separately-authorized operation.
+        itemRepository.findActiveBySubscriptionIdAndPlanId(subscriptionId, targetPlanId)
+                .filter(existing -> anchoredItem.isEmpty()
+                        || !existing.getId().equals(anchoredItem.get().getId()))
+                .ifPresent(existing -> {
+                    throw new IllegalStateException(
+                            "Target plan " + targetPlanId + " is already ACTIVE as a secondary plan"
+                                    + " item; cancel it first or pick a different plan");
+                });
 
         insertInitialPlanItem(subscriptionId, ctx.tenantId(), targetPlanId, targetPlanVersionId,
                 unitAmountMinor, currencyCode, quantity);

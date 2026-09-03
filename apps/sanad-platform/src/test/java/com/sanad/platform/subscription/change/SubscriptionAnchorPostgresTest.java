@@ -358,16 +358,16 @@ class SubscriptionAnchorPostgresTest {
     }
 
     // ---------------------------------------------------------------
-    // Reconciliation — REPORT_ONLY
+    // Reconciliation — REPORT_ONLY (R0C-5 §11 corrected, multi-plan-safe model)
     // ---------------------------------------------------------------
 
     @Test
-    @DisplayName("reconciliation classifies historical divergence without repairing it; new writes stay clean")
+    @DisplayName("reconciliation classifies anchor defects multi-plan-safely without repair; new writes stay clean")
     void reconciliationIsReportOnlyAndNewWritesAreClean() {
         // A "historical" divergent subscription: anchor plan A but active item
-        // pinned to version B (plan-version mismatch), plus a subscription with
-        // no ACTIVE PLAN item at all (missing). Each needs its own tenant
-        // (uk_tenant_subscriptions_tenant enforces one subscription per tenant).
+        // pinned to version B (anchor-version mismatch), plus a subscription with
+        // no ACTIVE PLAN item at all (missing anchored item). Each needs its own
+        // tenant (uk_tenant_subscriptions_tenant enforces one subscription per tenant).
         UUID tenantHist = UUID.randomUUID();
         UUID tenantMissing = UUID.randomUUID();
         seedTenant(tenantHist, "SA");
@@ -381,42 +381,56 @@ class SubscriptionAnchorPostgresTest {
         // Canonical new write (post-fix: converges anchors + item).
         service.execute(subscriptionA, versionB, "SA", "upgrade to B", null, null);
 
-        // PLAN_VERSION_ID_MISMATCH classification (report).
+        // ANCHOR_PLAN_VERSION_MISMATCH classification (report) — restricted to
+        // the ANCHORED item (matching s.plan_id); R0C-5: distinct secondary
+        // plans carry their own versions and are VALID, never classified here.
         Long versionMismatch = jdbc.queryForObject("""
                         SELECT COUNT(*) FROM tenant_subscriptions s
                         JOIN subscription_items i ON i.subscription_id = s.id
-                            AND i.item_type = 'PLAN' AND i.status = 'ACTIVE'
-                        WHERE s.plan_version_id IS DISTINCT FROM i.plan_version_id
+                            AND i.item_type = 'PLAN' AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id
+                        WHERE i.plan_version_id IS DISTINCT FROM s.plan_version_id
                         """, Long.class);
         assertThat(versionMismatch).isEqualTo(1L); // the historical row only
 
-        // MISSING_ACTIVE_PLAN_ITEM classification (report).
+        // MISSING_ANCHORED_PLAN_ITEM classification (report) — no ACTIVE PLAN
+        // item matching the anchor plan (was MISSING_ACTIVE_PLAN_ITEM; distinct
+        // secondary plans alone are NOT sufficient — the anchored item is
+        // required for compatibility).
         Long missing = jdbc.queryForObject("""
                         SELECT COUNT(*) FROM tenant_subscriptions s
                         WHERE NOT EXISTS (
                             SELECT 1 FROM subscription_items i
-                            WHERE i.subscription_id = s.id AND i.item_type = 'PLAN' AND i.status = 'ACTIVE')
+                            WHERE i.subscription_id = s.id AND i.item_type = 'PLAN'
+                              AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id)
                         """, Long.class);
         assertThat(missing).isEqualTo(1L);
 
-        // MULTIPLE_ACTIVE_PLAN_ITEMS classification (report).
-        Long multiple = jdbc.queryForObject("""
+        // DUPLICATE_ACTIVE_SAME_PLAN classification (report) — the corrected
+        // invariant replaces "MULTIPLE_ACTIVE_PLAN_ITEMS": only same-plan
+        // duplicates are invalid; distinct ACTIVE PLAN items are VALID.
+        Long duplicates = jdbc.queryForObject("""
                         SELECT COUNT(*) FROM (
-                            SELECT i.subscription_id FROM subscription_items i
+                            SELECT i.subscription_id, i.plan_id FROM subscription_items i
                             WHERE i.item_type = 'PLAN' AND i.status = 'ACTIVE'
-                            GROUP BY i.subscription_id HAVING COUNT(*) > 1) m
+                            GROUP BY i.subscription_id, i.plan_id HAVING COUNT(*) > 1) m
                         """, Long.class);
-        assertThat(multiple).isZero();
+        assertThat(duplicates).isZero();
 
-        // PLAN_ID_MISMATCH classification (report).
+        // ANCHOR_PLAN_ID_MISMATCH classification (report) — active PLAN items
+        // exist but none matches the anchor plan.
         Long planMismatch = jdbc.queryForObject("""
                         SELECT COUNT(*) FROM tenant_subscriptions s
-                        JOIN subscription_items i ON i.subscription_id = s.id
-                            AND i.item_type = 'PLAN' AND i.status = 'ACTIVE'
-                        WHERE s.plan_id IS DISTINCT FROM i.plan_id
+                        WHERE EXISTS (
+                            SELECT 1 FROM subscription_items i
+                            WHERE i.subscription_id = s.id AND i.item_type = 'PLAN' AND i.status = 'ACTIVE')
+                          AND NOT EXISTS (
+                            SELECT 1 FROM subscription_items i
+                            WHERE i.subscription_id = s.id AND i.item_type = 'PLAN'
+                              AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id)
                         """, Long.class);
-        // missingSub has no active item (join drops it); historicalSub item plan is A matching anchor A;
-        // the newly-changed subscriptionA is converged. Old cancelled item is excluded by status.
+        // missingSub has no active item at all (EXISTS fails); historicalSub
+        // item plan is A matching anchor A; the newly-changed subscriptionA is
+        // converged. Old cancelled item is excluded by status.
         assertThat(planMismatch).isZero();
 
         // REPORT_ONLY: the historical rows are classified but NOT repaired.
@@ -426,7 +440,7 @@ class SubscriptionAnchorPostgresTest {
         Long newWriteMismatch = jdbc.queryForObject("""
                         SELECT COUNT(*) FROM tenant_subscriptions s
                         JOIN subscription_items i ON i.subscription_id = s.id
-                            AND i.item_type = 'PLAN' AND i.status = 'ACTIVE'
+                            AND i.item_type = 'PLAN' AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id
                         WHERE s.id = ? AND (s.plan_id IS DISTINCT FROM i.plan_id
                             OR s.plan_version_id IS DISTINCT FROM i.plan_version_id)
                         """, Long.class, subscriptionA);

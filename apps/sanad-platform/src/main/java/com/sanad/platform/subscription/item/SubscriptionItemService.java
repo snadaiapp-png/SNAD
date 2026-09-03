@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -105,6 +106,18 @@ public class SubscriptionItemService {
             throw new IllegalArgumentException("currencyCode must be a 3-letter ISO code");
         }
 
+        // R0C-5 §9-B: adding a PLAN is legitimate ONLY when the plan is not
+        // already ACTIVE on the subscription (distinct secondary plans are the
+        // supported multi-plan model; the same plan twice is invalid — the
+        // unique index is the final guard, this is the fail-closed front door).
+        if (TYPE_PLAN.equals(itemType)) {
+            if (repository.findActiveBySubscriptionIdAndPlanId(subscriptionId, planId).isPresent()) {
+                throw new IllegalStateException(
+                        "Subscription already has an ACTIVE PLAN item for plan " + planId
+                                + "; duplicate active same-plan items are invalid");
+            }
+        }
+
         SubscriptionItemEntity item = new SubscriptionItemEntity();
         item.setId(UUID.randomUUID());
         item.setTenantId(ownerTenantId);
@@ -178,6 +191,19 @@ public class SubscriptionItemService {
         if (STATUS_CANCELLED.equals(item.getStatus())) {
             return;
         }
+        // R0C-5 §9-D: the compatibility-ANCHORED plan item (ACTIVE PLAN whose
+        // plan_id equals tenant_subscriptions.plan_id) can only be replaced
+        // through the canonical plan-change authority — the generic item API
+        // must fail closed. Cancelling a SECONDARY distinct plan stays allowed.
+        if (TYPE_PLAN.equals(item.getItemType()) && STATUS_ACTIVE.equals(item.getStatus())) {
+            UUID anchorPlanId = anchorPlanId(item.getSubscriptionId());
+            if (anchorPlanId != null && anchorPlanId.equals(item.getPlanId())) {
+                throw new IllegalStateException(
+                        "Item " + itemId + " is the compatibility-anchored PLAN of subscription "
+                                + item.getSubscriptionId()
+                                + "; anchored plan replacement must use the canonical plan-change authority");
+            }
+        }
         item.setStatus(STATUS_CANCELLED);
         repository.updateStatus(itemId, STATUS_CANCELLED);
     }
@@ -189,6 +215,15 @@ public class SubscriptionItemService {
         }
         SubscriptionItemEntity item = repository.findById(itemId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown subscription item: " + itemId));
+        // R0C-5 §10: PLAN quantity IS the subscription seat count (billing
+        // prices price x seat_quantity; composition changes carry seatQuantity
+        // into the item). Mutating it through the generic item API would desync
+        // the billing mirror — the sanctioned path is the seat-change engine.
+        if (TYPE_PLAN.equals(item.getItemType())) {
+            throw new IllegalStateException(
+                    "PLAN item quantity mirrors the subscription seat count; use the seat-change"
+                            + " path (billing-validated) instead of generic item quantity mutation");
+        }
         item.setQuantity(quantity);
         repository.updateQuantityAndAmount(itemId, quantity, item.getUnitAmountMinor());
     }
@@ -203,23 +238,48 @@ public class SubscriptionItemService {
     }
 
     /**
-     * Dual-compatible read of the plan version a subscription is contracted on:
-     * prefers the ACTIVE PLAN item's pinned version, then the legacy
-     * {@code tenant_subscriptions.plan_version_id} backfill column.
+     * R0C-5 §7 — DETERMINISTIC dual-compatible read of the plan version the
+     * subscription is contracted on:
+     * <ol>
+     *   <li>read the compatibility anchor {@code tenant_subscriptions.plan_id};</li>
+     *   <li>find the ACTIVE PLAN item matching that plan;</li>
+     *   <li>return its pinned {@code plan_version_id} when present;</li>
+     *   <li>fall back to {@code tenant_subscriptions.plan_version_id} only for
+     *       dual compatibility (legacy rows).</li>
+     * </ol>
+     * An arbitrary ACTIVE PLAN must never be chosen — distinct secondary
+     * plans are valid and carry their own versions.
      */
     @Transactional(readOnly = true)
     public Optional<UUID> effectivePlanVersionId(UUID subscriptionId) {
-        Optional<SubscriptionItemEntity> planItem =
-                repository.findActiveBySubscriptionIdAndType(subscriptionId, TYPE_PLAN);
-        if (planItem.isPresent() && planItem.get().getPlanVersionId() != null) {
-            return Optional.of(planItem.get().getPlanVersionId());
-        }
+        UUID anchorPlanId;
+        UUID anchorVersionId;
         try {
-            return Optional.ofNullable(jdbc.queryForObject(
-                    "SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?",
-                    UUID.class, subscriptionId));
+            Map<String, Object> anchorRow = jdbc.queryForMap(
+                    "SELECT plan_id, plan_version_id FROM tenant_subscriptions WHERE id = ?",
+                    subscriptionId);
+            anchorPlanId = (UUID) anchorRow.get("plan_id");
+            anchorVersionId = (UUID) anchorRow.get("plan_version_id");
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
+        }
+        if (anchorPlanId != null) {
+            Optional<SubscriptionItemEntity> anchored = repository
+                    .findActiveBySubscriptionIdAndPlanId(subscriptionId, anchorPlanId);
+            if (anchored.isPresent() && anchored.get().getPlanVersionId() != null) {
+                return Optional.of(anchored.get().getPlanVersionId());
+            }
+        }
+        return Optional.ofNullable(anchorVersionId);
+    }
+
+    private UUID anchorPlanId(UUID subscriptionId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT plan_id FROM tenant_subscriptions WHERE id = ?",
+                    UUID.class, subscriptionId);
+        } catch (EmptyResultDataAccessException e) {
+            return null;
         }
     }
 }

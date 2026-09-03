@@ -56,6 +56,7 @@ class SubscriptionChangeServiceTest {
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID SUBSCRIPTION_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    private static final UUID ANCHOR_PLAN_ID = UUID.fromString("c2000000-0000-0000-0000-000000000001");
     private static final UUID CURRENT_VERSION = UUID.fromString("d1000000-0000-0000-0000-000000000001");
     private static final UUID TARGET_VERSION = UUID.fromString("d1000000-0000-0000-0000-000000000002");
     private static final Instant NOW = Instant.parse("2026-08-29T00:00:00Z");
@@ -97,9 +98,10 @@ class SubscriptionChangeServiceTest {
 
     private void activeSubscriptionRow() {
         // R0C-2R: the fixed service loads the subscription context with a
-        // RowMapper over a tenant_subscriptions JOIN tenants query.
+        // RowMapper over a tenant_subscriptions JOIN tenants query. R0C-5:
+        // plan_id is the compatibility ANCHOR the engine selects by.
         lenient().doReturn(new SubscriptionChangeService.SubscriptionContext(
-                        TENANT_ID, UUID.randomUUID(), "ACTIVE", "MONTHLY", "SA"))
+                        TENANT_ID, ANCHOR_PLAN_ID, "ACTIVE", "MONTHLY", "SA"))
                 .when(jdbc).queryForObject(contains("JOIN tenants"),
                         ArgumentMatchers.<RowMapper<Object>>any(), eq(SUBSCRIPTION_ID));
     }
@@ -107,7 +109,14 @@ class SubscriptionChangeServiceTest {
     private void stubPlanItem(SubscriptionItemEntity planItem) {
         lenient().when(itemRepository.findBySubscriptionId(SUBSCRIPTION_ID))
                 .thenReturn(List.of(planItem));
-        lenient().when(itemRepository.findActiveBySubscriptionIdAndType(SUBSCRIPTION_ID, "PLAN"))
+        // R0C-5 §6: anchored deterministic lookup. Default: no active item for
+        // any OTHER plan (the fail-closed target guard); the anchored plan
+        // resolves to the current item.
+        lenient().when(itemRepository.findActiveBySubscriptionIdAndPlanId(
+                eq(SUBSCRIPTION_ID), any(UUID.class)))
+                .thenReturn(Optional.empty());
+        lenient().when(itemRepository.findActiveBySubscriptionIdAndPlanId(
+                SUBSCRIPTION_ID, ANCHOR_PLAN_ID))
                 .thenReturn(Optional.of(planItem));
     }
 

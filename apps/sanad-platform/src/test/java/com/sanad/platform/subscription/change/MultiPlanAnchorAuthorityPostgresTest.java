@@ -87,9 +87,13 @@ class MultiPlanAnchorAuthorityPostgresTest {
     private UUID planA;
     private UUID planB;
     private UUID planX;
+    private UUID planY;
     private UUID versionA;
     private UUID versionB;
     private UUID versionX;
+    private UUID versionY;
+    private UUID productAddOn;
+    private UUID productMetered;
     private UUID subscription;
 
     private static final Instant NOW = Instant.now();
@@ -148,9 +152,13 @@ class MultiPlanAnchorAuthorityPostgresTest {
         planA = UUID.randomUUID();
         planB = UUID.randomUUID();
         planX = UUID.randomUUID();
+        planY = UUID.randomUUID();
         versionA = UUID.randomUUID();
         versionB = UUID.randomUUID();
         versionX = UUID.randomUUID();
+        versionY = UUID.randomUUID();
+        productAddOn = UUID.randomUUID();
+        productMetered = UUID.randomUUID();
         subscription = UUID.randomUUID();
 
         seedTenant(tenant, "SA");
@@ -159,9 +167,13 @@ class MultiPlanAnchorAuthorityPostgresTest {
         seedPlan(planA, "R0C5-A", 30000L);
         seedPlan(planB, "R0C5-B", 90000L);
         seedPlan(planX, "R0C5-X", 50000L);
+        seedPlan(planY, "R0C5-Y", 60000L);
         seedPlanVersion(versionA, planA, 1, 30000L);
         seedPlanVersion(versionB, planB, 2, 90000L);
         seedPlanVersion(versionX, planX, 1, 50000L);
+        seedPlanVersion(versionY, planY, 1, 60000L);
+        seedProduct(productAddOn, "R0C5-ADDON");
+        seedProduct(productMetered, "R0C5-METERED");
         seedPrice(versionB, "SA", 90000L);
 
         // The compatibility-anchored subscription: anchor = A / version A.
@@ -193,14 +205,18 @@ class MultiPlanAnchorAuthorityPostgresTest {
     }
 
     private void seedPlanVersion(UUID id, UUID planId, int number, long monthlyMinor) {
+        seedPlanVersion(id, planId, number, "ACTIVE", monthlyMinor);
+    }
+
+    private void seedPlanVersion(UUID id, UUID planId, int number, String status, long monthlyMinor) {
         jdbc.update("""
                         INSERT INTO plan_versions (id, plan_id, version_number, status,
                                                    effective_from, currency_code, monthly_price_minor,
                                                    annual_price_minor, trial_days, max_users,
                                                    max_organizations, storage_mb, created_at, updated_at)
-                        VALUES (?, ?, ?, 'ACTIVE', NOW(), 'SAR', ?, ?, 0, 10, 5, 1024, NOW(), NOW())
+                        VALUES (?, ?, ?, ?, NOW(), 'SAR', ?, ?, 0, 10, 5, 1024, NOW(), NOW())
                         """,
-                id, planId, number, monthlyMinor, monthlyMinor * 10);
+                id, planId, number, status, monthlyMinor, monthlyMinor * 10);
     }
 
     private void seedPrice(UUID versionId, String country, long baseMinor) {
@@ -211,6 +227,29 @@ class MultiPlanAnchorAuthorityPostgresTest {
                         VALUES (?, ?, 'FLAT', ?, 'SAR', 'MONTHLY', ?, NOW() - INTERVAL '1 hour', NOW(), NOW())
                         """,
                 UUID.randomUUID(), versionId, country, baseMinor);
+    }
+
+    private void seedProduct(UUID id, String code) {
+        jdbc.update("""
+                        INSERT INTO products (id, code, name, product_type, status, created_at, updated_at)
+                        VALUES (?, ?, ?, 'OTHER', 'ACTIVE', NOW(), NOW())
+                        """,
+                id, code, "Product " + code);
+    }
+
+    private UUID seedTypedItem(UUID subscriptionId, UUID tenantId, String itemType, UUID productId,
+                               int quantity, long unitAmountMinor) {
+        UUID itemId = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO subscription_items (id, tenant_id, subscription_id, item_type,
+                                                        product_id, name_snapshot, quantity,
+                                                        unit_amount_minor, currency_code, status,
+                                                        created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SAR', 'ACTIVE', NOW(), NOW())
+                        """,
+                itemId, tenantId, subscriptionId, itemType, productId,
+                "ITEM " + itemType, quantity, unitAmountMinor);
+        return itemId;
     }
 
     private void seedSubscription(UUID id, UUID tenantId, UUID planId, UUID versionId,
@@ -271,7 +310,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
 
     private Map<String, Object> anchors(UUID subscriptionId) {
         return jdbc.queryForMap(
-                "SELECT plan_id, plan_version_id FROM tenant_subscriptions WHERE id = ?",
+                "SELECT plan_id, plan_version_id, pending_plan_id FROM tenant_subscriptions WHERE id = ?",
                 subscriptionId);
     }
 
@@ -317,24 +356,36 @@ class MultiPlanAnchorAuthorityPostgresTest {
     }
 
     // ---------------------------------------------------------------
-    // §5 RED — the singular PLAN-type lookup breaks with two ACTIVE rows
+    // PG-03 — repository contract: LIST semantics + deterministic anchored
+    // lookup (§6). The singular "give me THE active PLAN" lookup is gone.
     // ---------------------------------------------------------------
 
     @Test
-    @DisplayName("§5 RED: singular PLAN-type lookup fails with two ACTIVE PLAN rows (SINGULAR_PLAN_TYPE_LOOKUP_RED)")
-    void red05_singularPlanTypeLookupFailsWithTwoActiveRows() {
-        seedAnchorPlusSecondary();
+    @DisplayName("PG-03: type lookups are LIST semantics; anchored plan lookups are deterministic")
+    void pg03_anchoredLookupDeterministicAndTypeLookupIsListSemantics() {
+        AnchorSeed seed = seedAnchorPlusSecondary();
         SubscriptionItemRepository repository = new SubscriptionItemRepository(jdbc);
 
-        // The domain allows N distinct ACTIVE PLAN items, so a lookup that
-        // means "give me THE active PLAN" cannot exist. queryForObject with 2
-        // rows throws IncorrectResultSizeDataAccessException — the defect.
-        org.springframework.dao.IncorrectResultSizeDataAccessException thrown =
-                org.assertj.core.api.Assertions.catchThrowableOfType(
-                        () -> repository.findActiveBySubscriptionIdAndType(subscription, "PLAN"),
-                        org.springframework.dao.IncorrectResultSizeDataAccessException.class);
-        assertThat(thrown).isNotNull();
-        assertThat(thrown.getMessage()).contains("expected 1, actual 2");
+        // §6: wherever all PLANs are intended, list semantics. Two rows return.
+        List<SubscriptionItemEntity> activePlans =
+                repository.findActiveBySubscriptionIdAndType(subscription, "PLAN");
+        assertThat(activePlans).hasSize(2);
+
+        // §6: deterministic anchored lookup — the item matching the given plan.
+        Optional<SubscriptionItemEntity> anchored =
+                repository.findActiveBySubscriptionIdAndPlanId(subscription, planA);
+        assertThat(anchored).isPresent();
+        assertThat(anchored.get().getId()).isEqualTo(seed.anchoredItemId());
+        assertThat(anchored.get().getPlanId()).isEqualTo(planA);
+
+        Optional<SubscriptionItemEntity> secondary =
+                repository.findActiveBySubscriptionIdAndPlanId(subscription, planX);
+        assertThat(secondary).isPresent();
+        assertThat(secondary.get().getId()).isEqualTo(seed.secondaryItemId());
+
+        // A plan that is not active on the subscription resolves empty.
+        assertThat(repository.findActiveBySubscriptionIdAndPlanId(subscription, planB)).isEmpty();
+        assertThat(repository.findActiveBySubscriptionIdAndPlanId(subscription, UUID.randomUUID())).isEmpty();
     }
 
     // ---------------------------------------------------------------
@@ -499,5 +550,273 @@ class MultiPlanAnchorAuthorityPostgresTest {
         assertThat(activeItemCountForPlan(createdId, planA)).isZero();
         assertThat(activeItemCountForPlan(createdId, planB)).isEqualTo(1L);
         assertThat(activeItemCountForPlan(createdId, planX)).isEqualTo(1L);
+    }
+
+    // ---------------------------------------------------------------
+    // PG-07 / PG-08 / PG-09 — multi-secondary preservation, anchor move,
+    // byte-identical secondary rows
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-07: change A->B preserves X AND Y; TOTAL_ACTIVE_PLAN_ITEMS = 3, not 1")
+    void pg07_changePreservesXAndY() {
+        // X and Y created EARLIER than the anchored A.
+        seedPlanItem(subscription, tenant, planX, versionX, 50000L, NOW.minusSeconds(10800));
+        seedPlanItem(subscription, tenant, planY, versionY, 60000L, NOW.minusSeconds(7200));
+        seedPlanItem(subscription, tenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+
+        changeService.execute(subscription, versionB, "SA", "upgrade to B", tenant, null);
+
+        assertThat(activePlanItemCount(subscription)).isEqualTo(3L);
+        assertThat(activeItemCountForPlan(subscription, planB)).isEqualTo(1L);
+        assertThat(activeItemCountForPlan(subscription, planX)).isEqualTo(1L);
+        assertThat(activeItemCountForPlan(subscription, planY)).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("PG-08: tenant_subscriptions anchors move to B / version B with the change")
+    void pg08_anchorUpdatesToTargetPlanAndVersion() {
+        seedAnchorPlusSecondary();
+
+        changeService.execute(subscription, versionB, "SA", "upgrade to B", tenant, null);
+
+        Map<String, Object> anchorRow = anchors(subscription);
+        assertThat(anchorRow.get("plan_id")).isEqualTo(planB);
+        assertThat(anchorRow.get("plan_version_id")).isEqualTo(versionB);
+        // The anchored ITEM row follows the same version.
+        Map<String, Object> anchoredItem = jdbc.queryForMap(
+                "SELECT plan_id, plan_version_id FROM subscription_items "
+                        + "WHERE subscription_id = ? AND item_type = 'PLAN' AND status = 'ACTIVE' AND plan_id = ?",
+                subscription, planB);
+        assertThat(anchoredItem.get("plan_id")).isEqualTo(planB);
+        assertThat(anchoredItem.get("plan_version_id")).isEqualTo(versionB);
+    }
+
+    @Test
+    @DisplayName("PG-09: secondary plan rows are untouched (status, version, quantity, amount)")
+    void pg09_secondaryPlanRowsUntouched() {
+        UUID secondaryItemId = seedPlanItem(subscription, tenant, planX, versionX, 50000L, NOW.minusSeconds(7200));
+        seedPlanItem(subscription, tenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+        Map<String, Object> before = jdbc.queryForMap(
+                "SELECT status, plan_id, plan_version_id, quantity, unit_amount_minor FROM subscription_items WHERE id = ?",
+                secondaryItemId);
+
+        changeService.execute(subscription, versionB, "SA", "upgrade to B", tenant, null);
+
+        Map<String, Object> after = jdbc.queryForMap(
+                "SELECT status, plan_id, plan_version_id, quantity, unit_amount_minor FROM subscription_items WHERE id = ?",
+                secondaryItemId);
+        assertThat(after).isEqualTo(before);
+    }
+
+    // ---------------------------------------------------------------
+    // PG-14 / PG-15 — ADD_ON / METERED regressions (non-PLAN item types)
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-14: ADD_ON items survive a plan change; quantity mutation stays allowed")
+    void pg14_addOnRegression() {
+        UUID addOnId = seedTypedItem(subscription, tenant, "ADD_ON", productAddOn, 3, 2500L);
+        seedPlanItem(subscription, tenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+
+        changeService.execute(subscription, versionB, "SA", "upgrade to B", tenant, null);
+        itemService.updateQuantity(addOnId, 4);
+
+        Map<String, Object> addOn = jdbc.queryForMap(
+                "SELECT status, quantity, unit_amount_minor FROM subscription_items WHERE id = ?", addOnId);
+        assertThat(addOn.get("status")).isEqualTo("ACTIVE");
+        assertThat(((Number) addOn.get("quantity")).intValue()).isEqualTo(4);
+        assertThat(((Number) addOn.get("unit_amount_minor")).longValue()).isEqualTo(2500L);
+    }
+
+    @Test
+    @DisplayName("PG-15: METERED items survive a plan change; cancellation stays allowed")
+    void pg15_meteredRegression() {
+        UUID meteredId = seedTypedItem(subscription, tenant, "METERED", productMetered, 1, 0L);
+        seedPlanItem(subscription, tenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+
+        changeService.execute(subscription, versionB, "SA", "upgrade to B", tenant, null);
+        itemService.cancelItem(meteredId);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM subscription_items WHERE id = ?", String.class, meteredId))
+                .isEqualTo("CANCELLED");
+        // The anchored plan was untouched by the METERED cancellation.
+        assertThat(activeItemCountForPlan(subscription, planB)).isEqualTo(1L);
+    }
+
+    // ---------------------------------------------------------------
+    // PG-16 — tenant isolation (service-level guard + cross-tenant
+    // non-interference, on the CI least-privilege PG instance)
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-16: tenant B cannot add items to tenant A's subscription; tenant A ops never touch tenant B rows")
+    void pg16_tenantIsolation() {
+        seedPlanItem(subscription, tenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+
+        // The addItem tenant guard rejects a foreign tenant scope.
+        assertThatThrownBy(() -> itemService.addItem(subscription, "PLAN",
+                null, null, planX, versionX, 1, 50000L, "SAR", otherTenant))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("different tenant");
+
+        // A tenant-B subscription with its own items must stay byte-identical
+        // through any tenant-A operation (add secondary, change plan).
+        UUID tenantBSub = UUID.randomUUID();
+        seedSubscription(tenantBSub, otherTenant, planA, versionA, "ACTIVE", 2);
+        UUID tenantBItem = seedPlanItem(tenantBSub, otherTenant, planA, versionA, 30000L, NOW.minusSeconds(3600));
+        Map<String, Object> before = jdbc.queryForMap(
+                "SELECT plan_id, plan_version_id, status, quantity FROM subscription_items WHERE id = ?",
+                tenantBItem);
+        Map<String, Object> anchorsBefore = anchors(tenantBSub);
+
+        itemService.addItem(subscription, "PLAN", null, null, planX, versionX, 1, 50000L, "SAR");
+        changeService.execute(subscription, versionB, "SA", "upgrade to B", tenant, null);
+
+        Map<String, Object> after = jdbc.queryForMap(
+                "SELECT plan_id, plan_version_id, status, quantity FROM subscription_items WHERE id = ?",
+                tenantBItem);
+        assertThat(after).isEqualTo(before);
+        assertThat(anchors(tenantBSub)).isEqualTo(anchorsBefore);
+    }
+
+    // ---------------------------------------------------------------
+    // PG-18 — NEXT_CYCLE scheduling preserves secondary plans (composition
+    // applies only at renewal — see PG-19)
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-18: NEXT_CYCLE scheduling preserves secondary plans and the current composition")
+    void pg18_nextCycleSchedulingPreservesSecondaryPlans() {
+        legacy.createSubscription(new CreateSubscriptionRequest(legacyTenant, planA, "MONTHLY", 1, 0), null);
+        UUID createdId = jdbc.queryForObject(
+                "SELECT id FROM tenant_subscriptions WHERE tenant_id = ?", UUID.class, legacyTenant);
+        itemService.addItem(createdId, "PLAN", null, null, planX, versionX, 1, 50000L, "SAR");
+
+        legacy.changePlan(createdId, new ChangeSubscriptionPlanRequest(planB, "MONTHLY", "NEXT_CYCLE", "r0c5"), null);
+
+        // Scheduling only marks the pending plan; composition is untouched.
+        Map<String, Object> anchorRow = anchors(createdId);
+        assertThat(anchorRow.get("pending_plan_id")).isEqualTo(planB);
+        assertThat(anchorRow.get("plan_id")).isEqualTo(planA);
+        assertThat(anchorRow.get("plan_version_id")).isEqualTo(versionA);
+        assertThat(activeItemCountForPlan(createdId, planA)).isEqualTo(1L);
+        assertThat(activeItemCountForPlan(createdId, planX)).isEqualTo(1L);
+        assertThat(activeItemCountForPlan(createdId, planB)).isZero();
+    }
+
+    // ---------------------------------------------------------------
+    // PG-23 — multi-plan-safe reconciliation (REPORT_ONLY, corrected model)
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-23: reconciliation classifies anchor defects; distinct secondary PLAN items are VALID")
+    void pg23_multiPlanSafeReconciliation() {
+        // Healthy multi-plan subscription: anchored A + secondary X.
+        seedAnchorPlusSecondary();
+
+        // Historical divergence 1: anchor points to A but ONLY a secondary X
+        // is ACTIVE (anchored item missing).
+        UUID tenantNoAnchor = UUID.randomUUID();
+        UUID subNoAnchor = UUID.randomUUID();
+        seedTenant(tenantNoAnchor, "SA");
+        seedSubscription(subNoAnchor, tenantNoAnchor, planA, versionA, "ACTIVE", 1);
+        seedPlanItem(subNoAnchor, tenantNoAnchor, planX, versionX, 50000L, NOW.minusSeconds(3600));
+
+        // Historical divergence 2: anchored item exists but its pinned version
+        // differs from the anchor version column. (uk_plan_versions_one_active
+        // allows one ACTIVE version per plan, so the divergent pin is RETIRED.)
+        UUID tenantVersion = UUID.randomUUID();
+        UUID subVersion = UUID.randomUUID();
+        seedTenant(tenantVersion, "SA");
+        seedSubscription(subVersion, tenantVersion, planA, versionA, "ACTIVE", 1);
+        UUID versionA2 = UUID.randomUUID();
+        seedPlanVersion(versionA2, planA, 2, "RETIRED", 31000L);
+        seedPlanItem(subVersion, tenantVersion, planA, versionA2, 30000L, NOW.minusSeconds(3600));
+
+        // MISSING_ANCHORED_PLAN_ITEM (was MISSING_ACTIVE_PLAN_ITEM).
+        Long missingAnchored = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM tenant_subscriptions s
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM subscription_items i
+                            WHERE i.subscription_id = s.id AND i.item_type = 'PLAN'
+                              AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id)
+                        """, Long.class);
+        assertThat(missingAnchored).isEqualTo(1L); // subNoAnchor only
+
+        // ANCHOR_PLAN_ID_MISMATCH: active PLAN items exist but none matches
+        // the anchor plan (the anchor points to a plan not active on the sub).
+        Long anchorPlanMismatch = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM tenant_subscriptions s
+                        WHERE EXISTS (
+                            SELECT 1 FROM subscription_items i
+                            WHERE i.subscription_id = s.id AND i.item_type = 'PLAN' AND i.status = 'ACTIVE')
+                          AND NOT EXISTS (
+                            SELECT 1 FROM subscription_items i
+                            WHERE i.subscription_id = s.id AND i.item_type = 'PLAN'
+                              AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id)
+                        """, Long.class);
+        assertThat(anchorPlanMismatch).isEqualTo(1L); // subNoAnchor only
+
+        // ANCHOR_PLAN_VERSION_MISMATCH: the anchored item's pinned version
+        // differs from the anchor version column.
+        Long anchorVersionMismatch = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM tenant_subscriptions s
+                        JOIN subscription_items i ON i.subscription_id = s.id
+                            AND i.item_type = 'PLAN' AND i.status = 'ACTIVE' AND i.plan_id = s.plan_id
+                        WHERE i.plan_version_id IS DISTINCT FROM s.plan_version_id
+                        """, Long.class);
+        assertThat(anchorVersionMismatch).isEqualTo(1L); // subVersion only
+
+        // DUPLICATE_ACTIVE_SAME_PLAN: same-plan duplicates — the unique index
+        // makes this structurally impossible; the classification exists.
+        Long duplicates = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM (
+                            SELECT i.subscription_id, i.plan_id FROM subscription_items i
+                            WHERE i.item_type = 'PLAN' AND i.status = 'ACTIVE'
+                            GROUP BY i.subscription_id, i.plan_id HAVING COUNT(*) > 1) d
+                        """, Long.class);
+        assertThat(duplicates).isZero();
+
+        // PLAN_VERSION_PLAN_MISMATCH: an item pins a version of a DIFFERENT plan.
+        Long versionPlanMismatch = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM subscription_items i
+                        JOIN plan_versions pv ON pv.id = i.plan_version_id
+                        WHERE i.item_type = 'PLAN' AND i.status = 'ACTIVE'
+                          AND i.plan_id IS DISTINCT FROM pv.plan_id
+                        """, Long.class);
+        assertThat(versionPlanMismatch).isZero();
+
+        // ORPHAN_PLAN_VERSION: an item pins a version row that does not exist
+        // (FK-enforced zero; classification kept for completeness).
+        Long orphanVersions = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM subscription_items i
+                        WHERE i.item_type = 'PLAN' AND i.status = 'ACTIVE'
+                          AND i.plan_version_id IS NOT NULL
+                          AND NOT EXISTS (SELECT 1 FROM plan_versions pv WHERE pv.id = i.plan_version_id)
+                        """, Long.class);
+        assertThat(orphanVersions).isZero();
+
+        // MULTIPLE distinct ACTIVE PLAN items are VALID, not an error: the
+        // healthy subscription carries 2 distinct plans and is NOT classified
+        // by any defect category above.
+        Long validSecondarySubs = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM (
+                            SELECT s.id FROM tenant_subscriptions s
+                            JOIN subscription_items i ON i.subscription_id = s.id
+                                AND i.item_type = 'PLAN' AND i.status = 'ACTIVE'
+                            GROUP BY s.id HAVING COUNT(DISTINCT i.plan_id) > 1) m
+                        """, Long.class);
+        // Only the healthy multi-plan subscription (A + X). The divergent
+        // rows carry a single active plan each — their defect is the anchor
+        // relationship, never the item count.
+        assertThat(validSecondarySubs).isEqualTo(1L);
+
+        // REPORT_ONLY: the historical divergent rows are classified, NOT repaired.
+        assertThat(jdbc.queryForObject(
+                "SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?", UUID.class, subVersion))
+                .isEqualTo(versionA); // anchor column untouched
+        assertThat(activeItemCountForPlan(subNoAnchor, planX)).isEqualTo(1L); // no repair attempted
     }
 }
