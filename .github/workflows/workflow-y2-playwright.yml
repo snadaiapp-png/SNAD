@@ -87,7 +87,7 @@ jobs:
           BACKEND_LOG="$RUNNER_TEMP/workflow-y2-backend.log"
           JAR_PATH="$(find apps/sanad-platform/target -name 'sanad-platform-*.jar' ! -name '*-sources.jar' | head -n1)"
           test -n "$JAR_PATH"
-          java -jar "$JAR_PATH" --spring.profiles.active=workflow-e2e > "$BACKEND_LOG" 2>&1 &
+          java -jar "$JAR_PATH" --spring.profiles.active=local,workflow-e2e > "$BACKEND_LOG" 2>&1 &
           BACKEND_PID=$!
           echo "pid=$BACKEND_PID" >> "$GITHUB_OUTPUT"
           echo "log=$BACKEND_LOG" >> "$GITHUB_OUTPUT"
