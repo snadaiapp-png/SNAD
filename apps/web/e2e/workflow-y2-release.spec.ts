@@ -203,7 +203,11 @@ test("P04 — Y2 start pins definition version and newer publish does not repin"
   });
   if (draft.status() === 200) {
     const draftBody = await draft.json();
-    // Publish the newer version
+    const ns = await addStep(request, draftBody.id, "start", "START", 1);
+    const nt = await addStep(request, draftBody.id, "task", "ACTION", 2);
+    const ne = await addStep(request, draftBody.id, "end", "END", 3);
+    await addTransition(request, draftBody.id, ns.id, nt.id, "begin");
+    await addTransition(request, draftBody.id, nt.id, ne.id, "done");
     await publish(request, draftBody.id, 0);
   }
 
@@ -314,11 +318,13 @@ test("P10 — incident endpoints return structured data and enforce contract", a
 test("P11 — legacy/Y2 isolation verified through definition status", async ({ request }: { request: APIRequestContext }) => {
   // Create a definition and start an instance through the legacy path
   const wf = await createValidWorkflow(request, `P11-LEG-${Date.now()}`);
-  // This definition has engine_generation=LEGACY (default from createDefinition)
   const instance = await startInstance(request, wf.defId, 1, "start");
   expect(instance.id).toBeTruthy();
 
-  // The instance detail should show LEGACY generation
+  // Publish a Y2 version in the same family
+  await publish(request, wf.defId, wf.versionLock);
+
+  // Reload the legacy instance — must remain LEGACY
   const detail = await request.get(`${API}/api/v1/workflows/instances/${instance.id}`, {
     headers: await auth(request),
   });
@@ -327,6 +333,7 @@ test("P11 — legacy/Y2 isolation verified through definition status", async ({ 
   if (detailBody.engineGeneration) {
     expect(detailBody.engineGeneration).toBe("LEGACY");
   }
+  expect(detailBody.status).toBe("RUNNING");
 });
 
 /* ══════════════════ P12 — REAL CROSS-TENANT DENIAL ══════════════════ */
