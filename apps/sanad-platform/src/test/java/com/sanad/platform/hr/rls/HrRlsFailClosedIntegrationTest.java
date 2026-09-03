@@ -91,6 +91,8 @@ class HrRlsFailClosedIntegrationTest {
                 "hr_employment_status_periods",
                 "hr_job_versions",
                 "hr_jobs",
+                "hr_compliance_decisions",
+                "hr_compliance_override_requests",
                 "hr_legacy_employee_mappings",
                 "hr_migration_review_items",
                 "hr_migration_tenant_state",
@@ -674,6 +676,28 @@ class HrRlsFailClosedIntegrationTest {
         }
     }
 
+    private void insertHrComplianceDecision(UUID tenantId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_compliance_decisions " +
+                "(tenant_id, resource_type, operation_code, effective_date, operating_mode, decision_type, reason) " +
+                "VALUES (?, 'EMPLOYMENT', 'TEST_OP', DATE '2026-01-01', 'GLOBAL', 'GLOBAL_MODE_ALLOWED', 'Test decision')")) {
+            ps.setObject(1, tenantId);
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertHrComplianceOverrideRequest(UUID tenantId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_compliance_override_requests " +
+                "(tenant_id, compliance_rule_id, resource_type, requester_user_id, justification, valid_from, status) " +
+                "VALUES (?, ?, 'EMPLOYMENT', ?, 'Test override', DATE '2026-01-01', 'PENDING_APPROVAL')")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, UUID.randomUUID());
+            ps.setObject(3, UUID.randomUUID());
+            ps.executeUpdate();
+        }
+    }
+
     private void insertHrLegacyEmployeeMapping(UUID tenantId) throws Exception {
         UUID empId = insertHrEmployee(tenantId, "EMP-LEG");
         try (PreparedStatement ps = conn.prepareStatement(
@@ -712,6 +736,8 @@ class HrRlsFailClosedIntegrationTest {
             case "hr_position_versions" -> insertHrPositionVersion(tenantId);
             case "hr_employee_assignments" -> insertHrEmployeeAssignment(tenantId);
             case "hr_migration_review_items" -> insertHrMigrationReviewItem(tenantId);
+            case "hr_compliance_decisions" -> insertHrComplianceDecision(tenantId);
+            case "hr_compliance_override_requests" -> insertHrComplianceOverrideRequest(tenantId);
             default -> throw new IllegalArgumentException("No seed for table: " + table);
         }
     }
