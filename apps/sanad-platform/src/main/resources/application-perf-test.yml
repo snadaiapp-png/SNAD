@@ -13,18 +13,24 @@
 #     are deterministic across restarts — no ephemeral fallback
 #   • production-like logging (no DEBUG SQL noise)
 #   • PerfTestBootstrapConfig seeds the perf-admin user, RBAC and
-#     CRM fixtures automatically at startup — no manual H2 console
-#     access, no manual SQL, no security bypass.
+#     CRM fixtures automatically at startup — no manual SQL,
+#     no security bypass.
 # ============================================================
 
 spring:
   datasource:
-    # PostgreSQL mode plus lower-case identifiers keeps JDBC column labels
-    # identical to PostgreSQL, so JSON contracts do not vary between gates.
-    url: jdbc:h2:mem:sanad_perf;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=VALUE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
+    # PostgreSQL Direct — the same database engine as production, CI and the
+    # Maven test suite. The performance-baseline workflow overrides these
+    # defaults with SPRING_DATASOURCE_* environment variables pointing at
+    # its postgres:16-alpine service (sanad_perf database); local runs use
+    # this default and must provision a disposable `sanad_perf` database.
+    # H2 was removed from the dependency tree: PostgreSQL is the only
+    # database truth (RLS, JSONB, PL/pgSQL and partial indexes all run
+    # under their real runtime semantics).
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sanad_perf}
+    username: ${SPRING_DATASOURCE_USERNAME:sanad}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
     hikari:
       # Sized for the CRM-033 benchmark: 50 RPS with a per-request DB round-trip
       # (session-version check) plus per-endpoint queries. The default pool of
@@ -38,7 +44,7 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
+        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: false
 
   # Flyway stays enabled so perf runs exercise the complete migration chain,
@@ -61,8 +67,11 @@ sanad:
     # Tests invoke the import worker explicitly to avoid scheduler races.
     import-worker-enabled: false
     custom-field-encryption-key: ${CRM_CUSTOM_FIELD_ENCRYPTION_KEY:}
-  # Row-Level Security is PostgreSQL-specific and not supported by H2's
-  # PostgreSQL compatibility mode (same constraint as the local profile).
+  # RLS is intentionally left disabled for the perf-test profile: the
+  # benchmark exercises throughput, not tenant isolation, and the
+  # sanad_perf role owns the migrated tables (FORCE RLS does not apply to
+  # the table owner). All RLS acceptance lives in the PostgreSQL Direct
+  # Maven test suite and the pg-acceptance profile.
   rls:
     enabled: false
 

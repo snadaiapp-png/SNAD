@@ -54,11 +54,15 @@ class CrmIntegrationOutboxRecoveryTest {
         MigrationTestSchemaSupport.ensureDatabase(baseUrl, user, password);
         String isolatedUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(baseUrl);
 
-        Flyway.configure()
+        Flyway flyway = Flyway.configure()
                 .dataSource(isolatedUrl, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
-                .cleanDisabled(true).validateOnMigrate(false).load().migrate();
+                .cleanDisabled(false).validateOnMigrate(false).load();
+        // Self-sufficiency: always start from a canonical clean state so the
+        // shared test_migration history never depends on prior test order.
+        flyway.clean();
+        flyway.migrate();
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 isolatedUrl, user, password);
