@@ -8,6 +8,7 @@ on:
       - design/workflow-orchestration-spec
     paths:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/workflow/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/workflow/**'
       - 'apps/sanad-platform/src/main/resources/**'
       - 'apps/web/app/workflow/**'
       - 'apps/web/e2e/workflow-y2-release.spec.ts'
@@ -19,6 +20,7 @@ on:
       - design/workflow-orchestration-spec
     paths:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/workflow/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/workflow/**'
       - 'apps/sanad-platform/src/main/resources/**'
       - 'apps/web/app/workflow/**'
       - 'apps/web/e2e/workflow-y2-release.spec.ts'
@@ -37,7 +39,7 @@ jobs:
   workflow-y2-playwright:
     name: Workflow Y2 Playwright Release Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -89,6 +91,12 @@ jobs:
           java-version: '21'
           distribution: temurin
           cache: maven
+
+      - name: Run Workflow backend tests on PostgreSQL Direct
+        working-directory: apps/sanad-platform
+        env:
+          SPRING_PROFILES_ACTIVE: local
+        run: mvn --batch-mode --no-transfer-progress -Dtest='com.sanad.platform.workflow.*' test
 
       - name: Build Spring Boot JAR
         working-directory: apps/sanad-platform
