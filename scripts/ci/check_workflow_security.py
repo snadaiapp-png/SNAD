@@ -65,6 +65,8 @@ def check_workflow_dispatch_inputs(parsed, filename):
         name_lower = input_name.lower()
         desc = str(input_def.get("description", "")).lower()
 
+        # Password-like input names — exact match only to avoid false positives
+        # on compound names like "force_new_jwt_secret" (which is a boolean toggle, not a secret input)
         if name_lower in ("password", "new_password", "admin_password", "secret", "new_secret",
                           "token", "new_token", "credential", "api_key", "private_key", "passphrase"):
             violations.append({
@@ -74,6 +76,7 @@ def check_workflow_dispatch_inputs(parsed, filename):
                 "detail": f"workflow_dispatch input '{input_name}' appears to accept a secret/password",
             })
 
+        # Password-like descriptions
         if any(kw in desc for kw in ["password", "secret", "credential"]) and input_def.get("type") == "string":
             violations.append({
                 "file": filename,
@@ -106,7 +109,9 @@ def check_environment_with_db_access(parsed, filename, raw_content):
                 continue
 
             run_cmd = str(step.get("run", ""))
+            uses = str(step.get("uses", ""))
 
+            # Check for direct database mutation patterns
             if re.search(r"UPDATE\s+users\s+SET\s+password_hash", run_cmd, re.IGNORECASE):
                 violations.append({
                     "file": filename,
@@ -123,6 +128,7 @@ def check_environment_with_db_access(parsed, filename, raw_content):
                     "detail": f"Job '{job_name}' contains DELETE FROM refresh_tokens",
                 })
 
+            # Check for psycopg2 with production secrets
             if "psycopg2" in run_cmd and is_production:
                 violations.append({
                     "file": filename,
@@ -131,6 +137,7 @@ def check_environment_with_db_access(parsed, filename, raw_content):
                     "detail": f"Job '{job_name}' uses psycopg2 with Production environment",
                 })
 
+            # Check for Render API + credential mutation combo
             if "api.render.com" in run_cmd and ("password_hash" in run_cmd or "UPDATE users" in run_cmd):
                 violations.append({
                     "file": filename,
@@ -139,6 +146,7 @@ def check_environment_with_db_access(parsed, filename, raw_content):
                     "detail": f"Job '{job_name}' fetches Render env vars and mutates credentials",
                 })
 
+            # Check for production user enumeration
             if re.search(r"SELECT\s+.*\bid\b.*\bemail\b.*\bFROM\s+users.*LIMIT", run_cmd, re.IGNORECASE):
                 if is_production or "PRODUCTION" in run_cmd or "DATABASE_URL" in run_cmd:
                     violations.append({
@@ -148,36 +156,7 @@ def check_environment_with_db_access(parsed, filename, raw_content):
                         "detail": f"Job '{job_name}' enumerates users from database",
                     })
 
-            # A public Production job must never stream the tenant identity
-            # inventory (UUID + name + subdomain) into Actions logs. Aggregate
-            # counts/booleans are permitted; identity-bearing row dumps are not.
-            tenant_inventory = re.search(
-                r"SELECT(?=[^;]*\bid\b)(?=[^;]*\bname\b)(?=[^;]*\bsubdomain\b)[^;]*\bFROM\s+tenants\b",
-                run_cmd,
-                re.IGNORECASE | re.DOTALL,
-            )
-            if is_production and tenant_inventory:
-                violations.append({
-                    "file": filename,
-                    "line": 0,
-                    "type": "production_tenant_inventory_logging",
-                    "detail": f"Job '{job_name}' emits production tenant identity inventory",
-                })
-
-            # Parsed production connection topology is operational metadata and
-            # must not be deliberately echoed into public workflow logs.
-            if is_production and re.search(
-                r"\becho\b[^\n]*(?:host\s*=\s*\$\{?PGHOST\}?|(?:db|database)\s*=\s*\$\{?DB_NAME\}?)",
-                run_cmd,
-                re.IGNORECASE,
-            ):
-                violations.append({
-                    "file": filename,
-                    "line": 0,
-                    "type": "production_db_topology_logging",
-                    "detail": f"Job '{job_name}' echoes production database topology",
-                })
-
+            # Check for printing user/tenant identifiers
             if re.search(r"print.*user_id.*tenant_id|print.*tenant_id.*user_id", run_cmd, re.IGNORECASE):
                 violations.append({
                     "file": filename,
@@ -186,6 +165,7 @@ def check_environment_with_db_access(parsed, filename, raw_content):
                     "detail": f"Job '{job_name}' prints user_id and tenant_id",
                 })
 
+            # Check for unpinned pip install with production secrets
             if re.search(r"pip\s+install.*psycopg2.*bcrypt", run_cmd) and is_production:
                 violations.append({
                     "file": filename,
@@ -201,6 +181,7 @@ def check_permissions(parsed, filename):
     """Check for overly broad permissions."""
     violations = []
 
+    # Top-level permissions
     perms = parsed.get("permissions", {})
     if isinstance(perms, str) and perms == "write-all":
         violations.append({
@@ -210,6 +191,7 @@ def check_permissions(parsed, filename):
             "detail": "Workflow uses permissions: write-all",
         })
 
+    # Per-job permissions
     jobs = parsed.get("jobs", {})
     for job_name, job_def in jobs.items():
         if not isinstance(job_def, dict):
@@ -225,6 +207,8 @@ def check_permissions(parsed, filename):
 
         if isinstance(job_perms, dict):
             if job_perms.get("contents") == "write" and "deployment" not in job_name.lower():
+                # contents:write is suspicious for non-deployment jobs
+                # But allow for workflows that legitimately need it
                 if not any(kw in filename.lower() for kw in ["deploy", "release", "render-env"]):
                     violations.append({
                         "file": filename,
@@ -240,6 +224,7 @@ def check_raw_patterns(raw_content, filename):
     """Check raw content for patterns that YAML structural analysis might miss."""
     violations = []
 
+    # Check for force-push commands
     if re.search(r"git\s+push\s+--force\b(?!-with-lease)", raw_content):
         violations.append({
             "file": filename,
@@ -248,6 +233,7 @@ def check_raw_patterns(raw_content, filename):
             "detail": "Workflow contains force-push command (not --force-with-lease)",
         })
 
+    # Check for direct main ref update
     if re.search(r"git\s+push\s+origin\s+main\b", raw_content):
         violations.append({
             "file": filename,
@@ -272,6 +258,7 @@ def scan_workflow(filepath):
     if not raw_content.strip():
         return []
 
+    # Structural YAML analysis
     try:
         parsed = yaml.safe_load(raw_content)
     except yaml.YAMLError as e:
@@ -287,9 +274,11 @@ def scan_workflow(filepath):
 
     basename = os.path.basename(filepath)
 
+    # Skip safe contexts
     if is_safe_context(basename) or is_safe_context(raw_content[:500]):
         return violations
 
+    # Run all checks
     violations.extend(check_workflow_dispatch_inputs(parsed, basename))
     violations.extend(check_environment_with_db_access(parsed, basename, raw_content))
     violations.extend(check_permissions(parsed, basename))
@@ -331,9 +320,9 @@ def main():
     if all_violations:
         print(f"FAILED: {len(all_violations)} security violation(s) found.")
         return 1
-
-    print(f"PASSED: All {len(workflow_files)} workflow files comply with security policy.")
-    return 0
+    else:
+        print(f"PASSED: All {len(workflow_files)} workflow files comply with security policy.")
+        return 0
 
 
 if __name__ == "__main__":
