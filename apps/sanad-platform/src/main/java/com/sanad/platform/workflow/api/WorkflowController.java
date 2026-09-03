@@ -466,9 +466,18 @@ public class WorkflowController {
         var def = definitionService.findById(tenant, req.workflowDefinitionId())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowDefinition not found: " + req.workflowDefinitionId()));
-        if (def.status() != WorkflowDefinition.Status.ACTIVE) {
+        // Start eligibility is generation-aware (Z3/AA3):
+        // LEGACY definitions use the legacy ACTIVE lifecycle,
+        // Y2 definitions use the PUBLISHED publication state.
+        boolean startEligible = switch (def.engineGeneration()) {
+            case LEGACY -> def.status() == WorkflowDefinition.Status.ACTIVE;
+            case Y2 -> def.publicationState() == WorkflowDefinition.PublicationState.PUBLISHED;
+        };
+        if (!startEligible) {
             throw new IllegalStateException(
-                    "WorkflowDefinition " + def.id() + " is not ACTIVE (status=" + def.status() + ")");
+                    "WorkflowDefinition " + def.id() + " is not a valid start target "
+                            + "(status=" + def.status()
+                            + ", publicationState=" + def.publicationState() + ")");
         }
         var steps = definitionService.findSteps(def.id());
         if (steps.isEmpty()) {
