@@ -53,7 +53,7 @@ public class JdbcAccessScopeRepository {
                         toInstant(rs.getTimestamp("effective_from")),
                         toInstant(rs.getTimestamp("effective_to"))),
                 tenantId,
-                capabilityCode.trim().toUpperCase(),
+                capabilityCode.trim(),
                 Timestamp.from(authorizationTime),
                 Timestamp.from(authorizationTime),
                 matchedRoleId,

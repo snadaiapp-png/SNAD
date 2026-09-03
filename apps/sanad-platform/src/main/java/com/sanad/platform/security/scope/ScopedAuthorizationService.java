@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Objects;
-import java.util.UUID;
 
 @Service
 public class ScopedAuthorizationService {
@@ -49,7 +48,7 @@ public class ScopedAuthorizationService {
         LocalDate authorizationDate = LocalDate.ofInstant(request.authorizationTime(), ZoneOffset.UTC);
         for (AccessScopeGrant grant : scopeRepository.findEffectiveGrants(
                 request.tenantId(), request.userId(), coarse.matchedRoleId(),
-                request.capabilityCode(), request.authorizationTime())) {
+                coarse.capabilityCode(), request.authorizationTime())) {
             if (!validDirectException(grant, request)) continue;
             if (matches(grant, request, authorizationDate)) {
                 return ScopedAuthorizationDecision.allow(grant.scopeType());
