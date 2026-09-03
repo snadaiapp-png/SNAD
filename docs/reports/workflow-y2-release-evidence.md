@@ -149,32 +149,50 @@ a Playwright job but it targets the deployed preview, not a local backend.
 
 ```
 IMPLEMENTATION_VERDICT = PASS
-MERGE_READINESS_VERDICT = PASS
+MERGE_READINESS_VERDICT = BLOCKED
 RELEASE_VERDICT = BLOCKED
 
 Flyway collisions RESOLVED via renumbering (V20260830_x → V20260902_x).
 CI verified green on the renumbered state (run 33691855053 on a6278bb5).
 
-REMAINING BLOCKER: Playwright browser E2E auth setup.
-The Playwright gate infrastructure is built (workflow + spec + config)
-but the E2E auth flow requires a seeded test user with a real bcrypt
-password hash matching the backend login endpoint. Two CI runs attempted
-(33695491054, 33696489250) — both fail with 401 authentication errors
-because the test user password hash must be generated with the same
-BCrypt encoder used by the backend. This requires iterating in the CI
-environment to verify the password hash matches the backend's BCrypt
-configuration. This is infrastructure setup, not a code defect.
+REMAINING BLOCKER: Playwright browser E2E — 6/8 pass, 2 fail with 500.
+AUTH IS NOW WORKING (WorkflowE2eBootstrapConfig seeds real users with
+Spring PasswordEncoder under the workflow-e2e profile). The 2 failures
+are the draft→publish and start-instance scenarios: they require graph
+transitions to produce a valid publishable definition, but no POST API
+endpoint exists to create workflow_step_transitions. Transitions are
+only creatable via direct DB access (integration tests) or the designer
+UI (which has its own internal API).
+
+FIX REQUIRED: Add POST /definitions/{id}/transitions endpoint (Task 16
+follow-up), then E2E tests can create complete graphs and exercise the
+full publish + start pipeline.
 
 UNRESOLVED_P0 = 0
-UNRESOLVED_P1 = 0 (Playwright auth is P2 infrastructure setup)
+UNRESOLVED_P1 = 0
+UNRESOLVED_P2 = 1 (missing POST transitions endpoint)
 ```
 
 ## 14. CI runs (fresh evidence)
 
 | Run | Commit | Status |
 |-----|--------|--------|
-| 33667103894 | 669954af (cutover fixture fix) | SUCCESS |
-| 33655602753 | 19a532e3 (break-glass fixture fix) | SUCCESS |
-| 33661925313 | b149edc3 (operational read model RED) | FAILURE (expected RED) |
-| 33662650979 | 72df592d (cutover implementation) | FAILURE (fixture issues) |
-| 33664135930 | e4331e13 (cutover fixture fix) | FAILURE (remaining issues) |
+| 33693354742 | d89c2d6c (evidence commit) | SUCCESS |
+| 33691855053 | a6278bb5 (migration renumbering) | SUCCESS |
+| 33696489250 | 6e717035 (Playwright auth fix) | FAILURE (401 — bcrypt mismatch) |
+| 33700600957 | 09b31d34 (profile fix) | FAILURE (backend startup) |
+| 33702176031 | 8d5af516 (remove old seeds) | FAILURE (409 + validation false) |
+| 33703233306 | 44573dd0 (transitions in spec) | FAILURE (2 fail: 500 on transitions) |
+
+### Playwright E2E detail (run 33703233306, commit 44573dd0)
+
+| Test | Status |
+|------|--------|
+| E2E auth smoke | PASS |
+| my work items returns list | PASS |
+| pool returns list | PASS |
+| incidents returns list | PASS |
+| validation rejects graph without start | PASS |
+| workflow page loads | PASS |
+| create validate publish | FAIL (500 — no POST transitions endpoint) |
+| start instance on published | FAIL (500 — no POST transitions endpoint) |
