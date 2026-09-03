@@ -560,7 +560,10 @@ class AnchoredPlanSeatQuantityPostgresTest {
         seedSubscription(sub, tenant, planA, versionA, "ACTIVE", 5);
         seedPlanItem(sub, tenant, planX, versionX, 2, PRICE_X); // secondary only, anchor A absent
 
-        assertThatThrownBy(() -> changeSeats(sub, 8))
+        // The @Transactional production boundary is reproduced explicitly:
+        // the seat write and the fail-closed item resolution share one TX.
+        assertThatThrownBy(() -> transactions.executeWithoutResult(
+                tx -> changeSeats(sub, 8)))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(seatQuantity(sub)).isEqualTo(5);
@@ -585,7 +588,8 @@ class AnchoredPlanSeatQuantityPostgresTest {
         seedPlanVersion(versionA2, planA, 2, "RETIRED", PRICE_A + 1000);
         seedPlanItem(sub, tenant, planA, versionA2, 5, PRICE_A);
 
-        assertThatThrownBy(() -> changeSeats(sub, 8))
+        assertThatThrownBy(() -> transactions.executeWithoutResult(
+                tx -> changeSeats(sub, 8)))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(seatQuantity(sub)).isEqualTo(5);

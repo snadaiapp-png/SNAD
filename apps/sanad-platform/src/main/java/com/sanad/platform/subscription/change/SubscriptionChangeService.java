@@ -209,6 +209,62 @@ public class SubscriptionChangeService {
     }
 
     /**
+     * R0C-6 — canonical seat-quantity mirror sync for the compatibility
+     * anchor. Converges {@code subscription_items.quantity} of the ACTIVE
+     * PLAN item anchored by {@code tenant_subscriptions.plan_id} to the
+     * subscription's seat count, inside the caller's transaction (REQUIRED
+     * propagation joins it — seat write and item mirror write commit or roll
+     * back together; SEAT_COUNT_PARTIAL_STATE = IMPOSSIBLE).
+     *
+     * <p>Fail-closed BEFORE any write when:</p>
+     * <ul>
+     *   <li>the stored anchor plan does not match the caller's expectation
+     *       (stale read / concurrent plan change) — ANCHOR_PLAN_ID_MISMATCH;</li>
+     *   <li>no ACTIVE PLAN item matches the anchor plan —
+     *       MISSING_ANCHORED_PLAN_ITEM;</li>
+     *   <li>the anchor's {@code plan_version_id} is present and differs from
+     *       the item's pinned version — ANCHOR_PLAN_VERSION_MISMATCH.</li>
+     * </ul>
+     *
+     * <p>Composition-only contract (exactly §10): no invoices, no proration,
+     * no billing-state changes, no secondary PLAN mutations, no entitlement
+     * events, no unit-price changes — the quantity mirror only. The same
+     * duplicate-active-same-plan shape is structurally rejected by the
+     * unique index {@code uk_subscription_items_active_plan}.</p>
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void syncAnchoredPlanSeatQuantity(UUID subscriptionId, UUID expectedPlanId, int newSeatQuantity) {
+        if (newSeatQuantity < 1) {
+            throw new IllegalArgumentException(
+                    "Seat quantity must be positive: " + newSeatQuantity);
+        }
+        AnchorRow anchor = requireAnchorRow(subscriptionId);
+        if (anchor.planId() == null || !anchor.planId().equals(expectedPlanId)) {
+            throw new IllegalStateException(
+                    "Compatibility anchor plan " + anchor.planId() + " does not match the expected plan "
+                            + expectedPlanId + " (ANCHOR_PLAN_ID_MISMATCH); refusing seat quantity sync");
+        }
+        SubscriptionItemEntity anchoredItem = itemRepository
+                .findActiveBySubscriptionIdAndPlanId(subscriptionId, anchor.planId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No ACTIVE PLAN item matching the compatibility anchor (plan " + anchor.planId()
+                                + ") on subscription " + subscriptionId
+                                + " (MISSING_ANCHORED_PLAN_ITEM); refusing seat quantity sync"));
+        if (anchor.planVersionId() != null && anchoredItem.getPlanVersionId() != null
+                && !anchor.planVersionId().equals(anchoredItem.getPlanVersionId())) {
+            throw new IllegalStateException(
+                    "Anchored PLAN item version " + anchoredItem.getPlanVersionId()
+                            + " does not match the anchor plan_version_id " + anchor.planVersionId()
+                            + " (ANCHOR_PLAN_VERSION_MISMATCH); refusing seat quantity sync");
+        }
+        // Quantity-only mirror: the per-seat unit price snapshot is preserved
+        // (R0C-6 §15: unit_amount_minor = unit price; billing computes
+        // plan price x seat_quantity independently of this mirror).
+        itemRepository.updateQuantityAndAmount(anchoredItem.getId(), newSeatQuantity,
+                anchoredItem.getUnitAmountMinor());
+    }
+
+    /**
      * R0C-4 (recovery STAGE-3) — THE single canonical authority for effective
      * PLAN composition mutation. Cancels the current ACTIVE PLAN item (if
      * any), inserts the new ACTIVE PLAN item pinned to the target version,
@@ -297,6 +353,28 @@ public class SubscriptionChangeService {
      */
     record SubscriptionContext(UUID tenantId, UUID planId, String status,
                                 String billingCycle, String tenantCountryCode) {
+    }
+
+    /**
+     * R0C-6 — the compatibility anchor columns needed by the seat-quantity
+     * mirror sync. Read with a RowMapper over a single PK-addressed row
+     * (P0-B discipline: never a multi-column scalar queryForObject).
+     */
+    record AnchorRow(UUID tenantId, UUID planId, UUID planVersionId) {
+    }
+
+    private AnchorRow requireAnchorRow(UUID subscriptionId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT tenant_id, plan_id, plan_version_id FROM tenant_subscriptions WHERE id = ?",
+                    (rs, rowNum) -> new AnchorRow(
+                            rs.getObject("tenant_id", UUID.class),
+                            rs.getObject("plan_id", UUID.class),
+                            rs.getObject("plan_version_id", UUID.class)),
+                    subscriptionId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
+        }
     }
 
     private SubscriptionContext requireSubscription(UUID subscriptionId) {

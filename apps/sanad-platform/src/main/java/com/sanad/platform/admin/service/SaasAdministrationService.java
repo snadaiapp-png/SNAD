@@ -413,6 +413,13 @@ public class SaasAdministrationService {
                         "UPDATE tenant_subscriptions SET seat_quantity = ?, updated_at = ? WHERE id = ?",
                         newSeats, Timestamp.from(Instant.now()), subscriptionId);
             }
+            // R0C-6: the compatibility-anchored ACTIVE PLAN item quantity is
+            // the item-model mirror of the seat count and must converge in
+            // the SAME transaction (canonical authority owns the operation;
+            // secondary PLAN items are never touched). Fail-closed — a
+            // missing/anchor-mismatched item aborts the seat change before
+            // any billing side effect.
+            changeService.syncAnchoredPlanSeatQuantity(subscriptionId, before.planId(), newSeats);
             if (adjustment > 0) {
                 issueInvoice(getSubscription(subscriptionId), adjustment,
                         "Prorated seat increase", before.currentPeriodStart(), before.currentPeriodEnd());
