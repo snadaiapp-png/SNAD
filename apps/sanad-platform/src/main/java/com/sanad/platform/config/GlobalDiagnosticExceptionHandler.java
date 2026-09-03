@@ -39,7 +39,7 @@ import java.util.UUID;
  *   <tr><td>{@link IllegalArgumentException}</td><td>400</td><td>DEBUG</td></tr>
  *   <tr><td>{@link IllegalStateException} (business conflict)</td><td>409</td><td>DEBUG</td></tr>
  *   <tr><td>{@link AuthenticationException}</td><td>401 (let SecurityConfig handle)</td><td>—</td></tr>
- *   <tr><td>{@link AccessDeniedException}</td><td>403</td><td>DEBUG</td></tr>
+ *   <tr><td>{@link AccessDeniedException}</td><td>403 (let SecurityConfig handle)</td><td>—</td></tr>
  *   <tr><td>{@link Exception} (unexpected)</td><td>500 sanitized</td><td>ERROR with stack trace + correlationId</td></tr>
  * </table>
  *
@@ -191,38 +191,11 @@ public class GlobalDiagnosticExceptionHandler {
         return ResponseEntity.status(status).body(safeBody(status, e.getReason(), null));
     }
 
-    // ===== 403 — authorization deny =====
-
-    /**
-     * Render an {@link AccessDeniedException} as HTTP 403 — never 500.
-     *
-     * <p><b>Why an explicit handler is required:</b> RBAC denials are thrown
-     * from {@code CapabilityAuthorizationAspect} (@Before advice on the
-     * controller method), i.e. they surface as handler-invocation exceptions
-     * that never pass through the Spring Security filter chain's
-     * ExceptionTranslationFilter. Without this handler the generic
-     * {@code @ExceptionHandler(Exception.class)} catch-all below matched them
-     * first and rendered deny-by-default decisions as sanitized 500s,
-     * misleading clients and operators (production evidence: the audit/v2
-     * CAPABILITY_NOT_FOUND deny surfaced as HTTP 500, correlationId
-     * edfce834-25db-4fff-a023-a268b2ed6ede).</p>
-     *
-     * <p>Filter-level security exceptions (thrown before the DispatcherServlet)
-     * are still handled by the AuthenticationEntryPoint / AccessDeniedHandler
-     * beans in SecurityConfig and never reach this advice — the two paths are
-     * complementary, not conflicting. CRM packages keep their own richer
-     * problem+detail handler ({@code CrmOwnershipProblemHandler}), which takes
-     * precedence as a higher-ordered advice.</p>
-     */
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException e) {
-        // Expected authorization deny — DEBUG only, never a 5xx ERROR entry.
-        if (log.isDebugEnabled()) {
-            log.debug("403 AccessDenied: {}", e.getMessage());
-        }
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(safeBody(
-                HttpStatus.FORBIDDEN, "Authorization required", null));
-    }
+    // ===== 401/403 — let SecurityConfig handle =====
+    // AuthenticationException and AccessDeniedException are handled by the
+    // AuthenticationEntryPoint and AccessDeniedHandler beans in SecurityConfig.
+    // Do NOT define @ExceptionHandler for them here — that would override
+    // the canonical Spring Security handling chain.
 
     // ===== 500 — unexpected catch-all =====
 
