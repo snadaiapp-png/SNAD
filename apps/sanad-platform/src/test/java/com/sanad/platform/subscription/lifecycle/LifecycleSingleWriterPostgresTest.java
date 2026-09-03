@@ -130,8 +130,10 @@ class LifecycleSingleWriterPostgresTest {
         billingAudit = Mockito.mock(PlatformAuditService.class);
         publishedEvents = new ArrayList<>();
         legacy = new SaasAdministrationService(jdbc, audit, publishedEvents::add, null);
-        billing = new BillingStateService(jdbc, billingAudit);
-        provisioning = new ProvisioningJobRunner(jdbc);
+        billing = new BillingStateService(jdbc, billingAudit,
+                new SubscriptionCommandService(jdbc, billingAudit, publishedEvents::add));
+        provisioning = new ProvisioningJobRunner(jdbc,
+                new SubscriptionCommandService(jdbc, audit, publishedEvents::add));
 
         tenant = UUID.randomUUID();
         planA = UUID.randomUUID();
@@ -345,9 +347,14 @@ class LifecycleSingleWriterPostgresTest {
                         """);
         try {
             // The lifecycle status write fails; the billing_state write must
-            // roll back with it — one transaction, no partial state.
-            assertThatThrownBy(() -> billing.evaluateAndTransition(tenant))
-                    .isInstanceOf(Exception.class);
+            // roll back with it — one transaction, no partial state. (The
+            // services are constructed manually, so the caller wraps them in
+            // the same programmatic transaction the Spring proxy would own
+            // in production.)
+            assertThatThrownBy(() -> transactions.execute(status -> {
+                billing.evaluateAndTransition(tenant);
+                return null;
+            })).isInstanceOf(Exception.class);
             assertThat(subscriptionField(sub, "billing_state")).isEqualTo("CURRENT");
             assertThat(subscriptionField(sub, "status")).isEqualTo("ACTIVE");
         } finally {
@@ -447,6 +454,201 @@ class LifecycleSingleWriterPostgresTest {
     }
 
     // ---------------------------------------------------------------
+    // PG-14 — provisioning retry/idempotency preserved
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-14: provisioning retry and re-provision are idempotent — no duplicate ACTIVATE ledger")
+    void pg14_provisioningRetryIdempotencyPreserved() {
+        UUID sub = seedSubscription(UUID.randomUUID(), tenant, planA, versionA, "PENDING_ACTIVATION", "CURRENT");
+        seedPlanItem(sub, tenant, planA, versionA);
+        UUID job = enqueueProvisioningJob(sub);
+
+        ProvisioningJobRunner.JobOutcome first = provisioning.run(job);
+        assertThat(first.status()).isEqualTo("SUCCEEDED");
+        assertThat(subscriptionField(sub, "status")).isEqualTo("ACTIVE");
+        assertThat(ledgerCount(sub, "ACTIVATE")).isEqualTo(1L);
+
+        // Re-running the SUCCEEDED job skips every step — no second transition.
+        ProvisioningJobRunner.JobOutcome retry = provisioning.run(job);
+        assertThat(retry.status()).isEqualTo("SUCCEEDED");
+        assertThat(retry.skippedSteps()).containsExactlyInAnyOrder(
+                "ENABLE_APPLICATIONS", "RESOLVE_ENTITLEMENTS", "VALIDATE");
+
+        // A second job on the now-ACTIVE subscription is an idempotent no-op.
+        UUID secondJob = enqueueProvisioningJob(sub);
+        ProvisioningJobRunner.JobOutcome second = provisioning.run(secondJob);
+        assertThat(second.status()).isEqualTo("SUCCEEDED");
+
+        assertThat(ledgerCount(sub, "ACTIVATE")).isEqualTo(1L);
+        Long stepRows = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provisioning_job_steps WHERE job_id = ? AND step_key = 'VALIDATE' "
+                        + "AND status = 'SUCCEEDED'",
+                Long.class, job);
+        assertThat(stepRows).isEqualTo(1L);
+    }
+
+    // ---------------------------------------------------------------
+    // PG-15/16/17/18 — ledger, audit, entitlement-event and legacy-event
+    // side-effect surface through one converged lifecycle flow
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-15..18: exactly-once ledger, no duplicate audit/events, legacy change events preserved")
+    void pg15to18_sideEffectSurfaceExactlyOnce() {
+        UUID sub = createSubscription(tenant, planA);
+        Mockito.reset(audit);
+        int eventsBefore = publishedEvents.size();
+
+        // Legacy immediate cancel.
+        transactions.executeWithoutResult(status ->
+                legacy.cancelSubscription(sub, new CancelSubscriptionRequest(true, "r0c7 side effects"), null));
+        assertThat(ledgerCount(sub, "CANCEL")).isEqualTo(1L);
+        assertThat(changeEventCount(sub, "SUBSCRIPTION.CANCELLED")).isEqualTo(1L);
+        Mockito.verify(audit, Mockito.times(1)).success(Mockito.any(), Mockito.eq(tenant),
+                Mockito.eq("SUBSCRIPTION.CANCEL"), Mockito.eq("TENANT_SUBSCRIPTION"),
+                Mockito.eq(sub.toString()), Mockito.eq("r0c7 side effects"),
+                Mockito.any(), Mockito.any());
+        assertThat(publishedEvents.stream()
+                .filter(e -> e instanceof SubscriptionEntitlementListener.SubscriptionCancelledEvent)
+                .count()).isEqualTo(1L);
+
+        // Legacy resume of the cancelled subscription.
+        transactions.executeWithoutResult(status -> legacy.resumeSubscription(sub, null));
+        assertThat(ledgerCount(sub, "RESUME")).isEqualTo(1L);
+        assertThat(changeEventCount(sub, "SUBSCRIPTION.RESUMED")).isEqualTo(1L);
+        Mockito.verify(audit, Mockito.times(1)).success(Mockito.any(), Mockito.eq(tenant),
+                Mockito.eq("SUBSCRIPTION.RESUME"), Mockito.eq("TENANT_SUBSCRIPTION"),
+                Mockito.eq(sub.toString()), Mockito.eq("Resumed from control plane"),
+                Mockito.any(), Mockito.any());
+        assertThat(publishedEvents.stream()
+                .filter(e -> e instanceof SubscriptionEntitlementListener.SubscriptionResumedEvent)
+                .count()).isEqualTo(1L);
+
+        // Legacy renew — no entitlement event historically, none added.
+        int eventsAfterResume = publishedEvents.size();
+        transactions.executeWithoutResult(status -> legacy.renewSubscription(sub, null));
+        assertThat(ledgerCount(sub, "RENEW")).isEqualTo(1L);
+        assertThat(changeEventCount(sub, "SUBSCRIPTION.RENEWED")).isEqualTo(1L);
+        Mockito.verify(audit, Mockito.times(1)).success(Mockito.any(), Mockito.eq(tenant),
+                Mockito.eq("SUBSCRIPTION.RENEW"), Mockito.eq("TENANT_SUBSCRIPTION"),
+                Mockito.eq(sub.toString()), Mockito.eq("Renewal processed"),
+                Mockito.any(), Mockito.any());
+        assertThat(publishedEvents.size()).isEqualTo(eventsAfterResume);
+
+        // Billing transitions through the converged pair: one billing audit,
+        // one MARK_PAST_DUE ledger row, and NO entitlement events (the
+        // primitive owns none and the billing wrapper historically fired none).
+        Mockito.reset(billingAudit);
+        insertOverdueInvoice(sub, Instant.now().minus(5, ChronoUnit.DAYS));
+        int eventsBeforeBilling = publishedEvents.size();
+        transactions.execute(status -> billing.evaluateAndTransition(tenant));
+        assertThat(ledgerCount(sub, "MARK_PAST_DUE")).isEqualTo(1L);
+        Mockito.verify(billingAudit, Mockito.times(1)).success(Mockito.isNull(), Mockito.eq(tenant),
+                Mockito.eq("SUBSCRIPTION.BILLING_STATE.CHANGED"), Mockito.eq("TENANT_SUBSCRIPTION"),
+                Mockito.eq(tenant.toString()), Mockito.contains("to=PAST_DUE"),
+                Mockito.eq("CURRENT"), Mockito.eq("PAST_DUE"));
+        assertThat(publishedEvents.size()).isEqualTo(eventsBeforeBilling);
+
+        // Exactly-once ledger: the whole flow wrote exactly 4 command rows
+        // (CANCEL + RESUME + RENEW + MARK_PAST_DUE) — no duplicates anywhere.
+        Long totalLedger = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ?",
+                Long.class, sub);
+        assertThat(totalLedger).isEqualTo(4L);
+        Mockito.verifyNoMoreInteractions(audit);
+        Mockito.verifyNoMoreInteractions(billingAudit);
+    }
+
+    // ---------------------------------------------------------------
+    // PG-20 — period dates unchanged by the convergence
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-20: resume/renew reset periods exactly as the legacy engine did; billing never touches them")
+    void pg20_periodDatesUnchanged() {
+        UUID sub = createSubscription(tenant, planA);
+        Instant periodEndBefore = timestampField(sub, "current_period_end").toInstant();
+        assertThat(periodEndBefore).isAfter(Instant.now()); // seeded full period ahead
+
+        transactions.executeWithoutResult(status ->
+                legacy.cancelSubscription(sub, new CancelSubscriptionRequest(true, "r0c7 periods"), null));
+        transactions.executeWithoutResult(status -> legacy.resumeSubscription(sub, null));
+
+        Instant resumedStart = timestampField(sub, "current_period_start").toInstant();
+        Instant resumedEnd = timestampField(sub, "current_period_end").toInstant();
+        // The resumption opens a fresh full period starting now (legacy
+        // behavior: cancelled-then-resumed subscriptions restart billing).
+        assertThat(resumedStart).isAfter(Instant.now().minusSeconds(300));
+        assertThat(resumedEnd).isAfter(resumedStart);
+        assertThat(java.time.Duration.between(resumedStart, resumedEnd).toDays()).isEqualTo(30);
+
+        // A billing dunning transition never touches the period columns.
+        insertOverdueInvoice(sub, Instant.now().minus(5, ChronoUnit.DAYS));
+        java.sql.Timestamp startBeforeDunning = timestampField(sub, "current_period_start");
+        java.sql.Timestamp endBeforeDunning = timestampField(sub, "current_period_end");
+        transactions.execute(status -> billing.evaluateAndTransition(tenant));
+        assertThat(timestampField(sub, "current_period_start")).isEqualTo(startBeforeDunning);
+        assertThat(timestampField(sub, "current_period_end")).isEqualTo(endBeforeDunning);
+
+        // Renewal rolls the period forward and clears trial metadata.
+        transactions.executeWithoutResult(status -> legacy.renewSubscription(sub, null));
+        Instant renewedStart = timestampField(sub, "current_period_start").toInstant();
+        assertThat(renewedStart).isAfter(resumedStart);
+        assertThat(subscriptionField(sub, "trial_ends_at")).isNull();
+    }
+
+    // ---------------------------------------------------------------
+    // PG-24 — tenant isolation
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("PG-24: tenant A lifecycle operations never touch tenant B's subscription")
+    void pg24_tenantIsolation() {
+        UUID other = UUID.randomUUID();
+        seedTenant(other);
+        UUID third = UUID.randomUUID();
+        seedTenant(third);
+        UUID subA = createSubscription(tenant, planA);
+        UUID subB = createSubscription(other, planA);
+
+        // Dunning actually transitions tenant A's subscription first.
+        insertOverdueInvoice(subA, Instant.now().minus(5, ChronoUnit.DAYS));
+        transactions.execute(status -> billing.evaluateAndTransition(tenant));
+        assertThat(ledgerCount(subA, "MARK_PAST_DUE")).isEqualTo(1L);
+        // Then cancel tenant A's subscription.
+        transactions.executeWithoutResult(status ->
+                legacy.cancelSubscription(subA, new CancelSubscriptionRequest(true, "r0c7 isolation"), null));
+        // Provision a third tenant's subscription through the canonical path.
+        UUID subC = seedSubscription(UUID.randomUUID(), third, planA, versionA, "PENDING_ACTIVATION", "CURRENT");
+        seedPlanItem(subC, third, planA, versionA);
+        provisioning.run(enqueueProvisioningJobFor(subC, third));
+        assertThat(ledgerCount(subC, "ACTIVATE")).isEqualTo(1L);
+
+        // Tenant B: untouched status, zero command ledger, zero events.
+        assertThat(subscriptionField(subB, "status")).isEqualTo("ACTIVE");
+        assertThat(ledgerCount(subB, "CANCEL")).isZero();
+        assertThat(ledgerCount(subB, "MARK_PAST_DUE")).isZero();
+        assertThat(ledgerCount(subB, "ACTIVATE")).isZero();
+        Long bCommands = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ?",
+                Long.class, subB);
+        assertThat(bCommands).isZero();
+        // Tenant B's only change event is its own creation — no lifecycle
+        // event ever leaked across the tenant boundary.
+        Long bChangeEvents = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
+                        + "AND action <> 'SUBSCRIPTION.CREATED'",
+                Long.class, subB);
+        assertThat(bChangeEvents).isZero();
+        // No cross-tenant ledger row was ever written under tenant B's id.
+        Long bLedgerByTenant = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM subscription_commands WHERE tenant_id = ?",
+                Long.class, other);
+        assertThat(bLedgerByTenant).isZero();
+    }
+
+    // ---------------------------------------------------------------
     // Seeding helpers
     // ---------------------------------------------------------------
 
@@ -507,13 +709,17 @@ class LifecycleSingleWriterPostgresTest {
     }
 
     private UUID enqueueProvisioningJob(UUID subscriptionId) {
+        return enqueueProvisioningJobFor(subscriptionId, tenant);
+    }
+
+    private UUID enqueueProvisioningJobFor(UUID subscriptionId, UUID tenantId) {
         UUID jobId = UUID.randomUUID();
         jdbc.update("""
                         INSERT INTO provisioning_jobs (id, tenant_id, subscription_id, action, status,
                                                        attempts, created_at, updated_at)
                         VALUES (?, ?, ?, 'PROVISION_SUBSCRIPTION', 'PENDING', 0, NOW(), NOW())
                         """,
-                jobId, tenant, subscriptionId);
+                jobId, tenantId, subscriptionId);
         return jobId;
     }
 
@@ -547,10 +753,23 @@ class LifecycleSingleWriterPostgresTest {
                 Object.class, subscriptionId);
     }
 
+    private java.sql.Timestamp timestampField(UUID subscriptionId, String column) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM tenant_subscriptions WHERE id = ?",
+                java.sql.Timestamp.class, subscriptionId);
+    }
+
     private long ledgerCount(UUID subscriptionId, String command) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = ? AND command = ?",
                 Long.class, subscriptionId, command);
+        return count == null ? 0L : count;
+    }
+
+    private long changeEventCount(UUID subscriptionId, String action) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? AND action = ?",
+                Long.class, subscriptionId, action);
         return count == null ? 0L : count;
     }
 

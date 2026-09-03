@@ -28,6 +28,14 @@ import java.util.UUID;
  *
  * <p>The status is never set directly by callers — the frontend invokes
  * commands only.
+ *
+ * <p>R0C-7 — single-writer convergence: this service is the ONLY authority
+ * that may transition {@code tenant_subscriptions.status}. The legacy admin
+ * engine, the billing state machine, and provisioning converge through the
+ * internal {@link #applyCanonicalTransition} primitive (status + validation +
+ * domain command ledger — no audit, no entitlement events, which remain owned
+ * by each caller). The public {@link #execute} keeps the full lifecycle side
+ * effects (platform audit + entitlement events).
  */
 @Service
 public class SubscriptionCommandService {
@@ -46,6 +54,73 @@ public class SubscriptionCommandService {
 
     public record CommandResult(UUID subscriptionId, String command,
                                 String fromStatus, String toStatus) {
+    }
+
+    /**
+     * R0C-7 canonical lifecycle transition primitive — the single writer of
+     * {@code tenant_subscriptions.status} transitions.
+     *
+     * <p>Responsibilities (and nothing else):</p>
+     * <ul>
+     *   <li>read the current status (fail-closed on unknown subscription)</li>
+     *   <li>validate the transition via {@link SubscriptionLifecycle}</li>
+     *   <li>write the new status plus domain-owned transition metadata
+     *       ({@code cancelled_at} is set on CANCEL/TERMINATE and cleared on
+     *       RESUME, mirroring the legacy revival contract)</li>
+     *   <li>write the {@code subscription_commands} domain ledger row</li>
+     *   <li>join the caller's transaction (REQUIRED propagation)</li>
+     * </ul>
+     *
+     * <p>No platform audit, no entitlement events, no caller-specific
+     * metadata — those remain with each converged caller (legacy engine,
+     * billing state machine, provisioning) so no side effect is ever
+     * duplicated.</p>
+     */
+    @Transactional
+    public CommandResult applyCanonicalTransition(UUID subscriptionId, String command, String reason,
+                                                  UUID actorTenantId, UUID actorUserId) {
+        Map<String, Object> row;
+        try {
+            row = jdbc.queryForMap(
+                    "SELECT tenant_id, status FROM tenant_subscriptions WHERE id = ?",
+                    subscriptionId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
+        }
+        UUID tenantId = (UUID) row.get("tenant_id");
+        String fromStatus = (String) row.get("status");
+
+        SubscriptionLifecycle.Transition transition =
+                SubscriptionLifecycle.transition(command, fromStatus);
+        String toStatus = transition.toStatus();
+
+        if (!toStatus.equals(fromStatus)) {
+            // toStatus comes from the whitelisted SubscriptionLifecycle table — safe to inline
+            switch (command) {
+                case "CANCEL", "TERMINATE" -> jdbc.update(
+                        "UPDATE tenant_subscriptions SET status = '" + toStatus + "', "
+                                + "cancelled_at = NOW(), updated_at = NOW() WHERE id = ?",
+                        subscriptionId);
+                case "RESUME" -> jdbc.update(
+                        "UPDATE tenant_subscriptions SET status = '" + toStatus + "', "
+                                + "cancelled_at = NULL, updated_at = NOW() WHERE id = ?",
+                        subscriptionId);
+                default -> jdbc.update(
+                        "UPDATE tenant_subscriptions SET status = '" + toStatus + "', "
+                                + "updated_at = NOW() WHERE id = ?",
+                        subscriptionId);
+            }
+        }
+
+        jdbc.update("""
+                        INSERT INTO subscription_commands (
+                            id, subscription_id, tenant_id, command, from_status, to_status,
+                            reason, actor_tenant_id, actor_user_id, correlation_id, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                        """,
+                UUID.randomUUID(), subscriptionId, tenantId, command, fromStatus, toStatus,
+                reason, actorTenantId, actorUserId, null);
+        return new CommandResult(subscriptionId, command, fromStatus, toStatus);
     }
 
     @Transactional

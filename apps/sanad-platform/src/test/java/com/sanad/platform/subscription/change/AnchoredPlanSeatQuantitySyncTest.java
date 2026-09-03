@@ -6,6 +6,7 @@ import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionResponse;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.SaasAdministrationService;
 import com.sanad.platform.subscription.item.SubscriptionItemEntity;
+import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
 import com.sanad.platform.subscription.item.SubscriptionItemService;
 import com.sanad.platform.subscription.plan.PlanVersionRepository;
@@ -260,7 +261,8 @@ class AnchoredPlanSeatQuantitySyncTest {
     void unit07_changeSeatsInvokesCanonicalSync() {
         SubscriptionChangeService authority = mock(SubscriptionChangeService.class);
         SaasAdministrationService legacy = new SaasAdministrationService(
-                jdbc, mock(PlatformAuditService.class), event -> { }, null, authority);
+                jdbc, mock(PlatformAuditService.class), event -> { }, null, authority,
+                mock(SubscriptionCommandService.class));
         stubLegacyReads(5);
 
         legacy.changeSeats(SUBSCRIPTION_ID, new ChangeSeatsRequest(8, "R0C-6 unit"), null);
@@ -277,7 +279,8 @@ class AnchoredPlanSeatQuantitySyncTest {
     void unit08_billingMathUnchanged() {
         SubscriptionChangeService authority = mock(SubscriptionChangeService.class);
         SaasAdministrationService legacy = new SaasAdministrationService(
-                jdbc, mock(PlatformAuditService.class), event -> { }, null, authority);
+                jdbc, mock(PlatformAuditService.class), event -> { }, null, authority,
+                mock(SubscriptionCommandService.class));
         stubLegacyReads(5);
 
         legacy.changeSeats(SUBSCRIPTION_ID, new ChangeSeatsRequest(8, "R0C-6 unit"), null);
@@ -316,7 +319,8 @@ class AnchoredPlanSeatQuantitySyncTest {
     void unit08b_noOpWritesNothing() {
         SubscriptionChangeService authority = mock(SubscriptionChangeService.class);
         SaasAdministrationService legacy = new SaasAdministrationService(
-                jdbc, mock(PlatformAuditService.class), event -> { }, null, authority);
+                jdbc, mock(PlatformAuditService.class), event -> { }, null, authority,
+                mock(SubscriptionCommandService.class));
         stubLegacyReads(5);
 
         legacy.changeSeats(SUBSCRIPTION_ID, new ChangeSeatsRequest(5, "R0C-6 unit"), null);
