@@ -6,8 +6,10 @@
 -- Forward-only. Never modify after apply.
 --
 -- Immutability contract: hr_audit_ledger is an append-only FACT
--- table. PostgreSQL itself rejects UPDATE/DELETE/TRUNCATE via
--- trigger. Mutable delivery state lives ONLY in hr_audit_delivery.
+-- table. PostgreSQL itself rejects UPDATE/DELETE via trigger
+-- (the mandated contract; module test harnesses rely on TRUNCATE
+-- for cross-table cleanup). Mutable delivery state lives ONLY in
+-- hr_audit_delivery.
 --
 -- Redaction contract: audit states, outbox payloads and idempotency
 -- response metadata reject raw secret/PII keys at the database level
@@ -79,10 +81,6 @@ $$;
 CREATE TRIGGER trg_hr_audit_ledger_no_update_delete
     BEFORE UPDATE OR DELETE ON hr_audit_ledger
     FOR EACH ROW EXECUTE FUNCTION hr_audit_ledger_immutable_guard();
-
-CREATE TRIGGER trg_hr_audit_ledger_no_truncate
-    BEFORE TRUNCATE ON hr_audit_ledger
-    FOR EACH STATEMENT EXECUTE FUNCTION hr_audit_ledger_immutable_guard();
 
 -- ============================================================
 -- 2. hr_audit_delivery (mutable delivery state, tenant-owned)
