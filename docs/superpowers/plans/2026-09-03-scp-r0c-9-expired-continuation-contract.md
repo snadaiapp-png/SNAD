@@ -457,8 +457,13 @@ test class. The RED battery (12 tests) and the full pre-existing R0C-8 suite
 |---|---|
 | ExpiredContinuationDeadEndPostgresTest (PG-01..PG-09, 12 tests) | PASS 12/12 |
 | TrialExpirationRuntimePostgresTest (predecessor regression, 28 tests) | PASS 28/28 |
+| Regression scope 1 — subscription.* / admin.* / module.entitlement.* / health.* | PASS 335/0/0/0 |
+| Regression scope 2 — executive.* / module.* / security.* | PASS 183/0/0/0 |
+| Regression scope 3 — crm.* / commerce.* / e2e.* | 1186/0/2E/6S; both error classes re-run green 25/0/0/0 once the harness env var `CRM_CUSTOM_FIELD_ENCRYPTION_KEY` was supplied — root cause environment-only (context-load tests), not code (R0C-9 changed zero production code) |
+| Documented intentional skips | 6 (CI concurrency job is the authoritative path — same classification as the R0C-8 closure report 2428/0/0/6) |
 
-POSTGRESQL_DIRECT = AVAILABLE; FAILURES = 0; ERRORS = 0 (both classes).
+POSTGRESQL_DIRECT = AVAILABLE; FAILURES = 0; ERRORS = 0 (all classes green
+after harness env correction; no code-attributable failure).
 
 ---
 
@@ -497,10 +502,11 @@ document.
 - CHECKPOINT 2 (RED/forensic evidence): local `9d1c25de` —
   `ExpiredContinuationDeadEndPostgresTest` (12/12 PG proofs). Push attempt
   failed — no credentials.
-- CHECKPOINT 3 (final contract document + worklog): this commit. Push pending
-  credentials.
-- LOCAL_HEAD = FINAL_HEAD will be reported in the final response; LOCAL ≠
-  REMOTE until a credentialed push happens (`git push origin
+- CHECKPOINT 3 (final contract document + regression evidence): final commit
+  on `scp/r0c-9-expired-continuation-contract` (see FINAL_HEAD in the final
+  response). Push pending credentials.
+- LOCAL_HEAD = FINAL_HEAD (single branch, linear: de32ef7a → 9d1c25de → final);
+  LOCAL ≠ REMOTE until a credentialed push happens (`git push origin
   scp/r0c-9-expired-continuation-contract`). Base head on origin was verified
   read-only and is untouched; no merge, no deploy, no force push; no secret
   values printed at any point.
