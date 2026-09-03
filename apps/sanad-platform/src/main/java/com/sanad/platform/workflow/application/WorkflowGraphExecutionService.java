@@ -1,5 +1,9 @@
 package com.sanad.platform.workflow.application;
 
+import com.sanad.platform.hr.domain.HrEmployeeRepository;
+import com.sanad.platform.workflow.domain.WorkflowApprovalPolicy;
+import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
+import com.sanad.platform.workflow.domain.WorkflowApprovalRequestRepository;
 import com.sanad.platform.workflow.domain.WorkflowAssignmentRule;
 import com.sanad.platform.workflow.domain.WorkflowBranchToken;
 import com.sanad.platform.workflow.domain.WorkflowBranchTokenRepository;
@@ -45,6 +49,10 @@ public class WorkflowGraphExecutionService {
     private final WorkflowWorkItemService workItemService;
     private final WorkflowAssignmentResolver assignmentResolver;
     private final WorkflowBranchTokenRepository branchTokenRepo;
+    private final WorkflowApprovalRequestRepository approvalRepo;
+    private final WorkflowSystemActionService systemActionService;
+    private final WorkflowSystemActionAdapterRegistry adapterRegistry;
+    private final HrEmployeeRepository employeeRepo;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
@@ -55,6 +63,10 @@ public class WorkflowGraphExecutionService {
             WorkflowWorkItemService workItemService,
             WorkflowAssignmentResolver assignmentResolver,
             WorkflowBranchTokenRepository branchTokenRepo,
+            WorkflowApprovalRequestRepository approvalRepo,
+            WorkflowSystemActionService systemActionService,
+            WorkflowSystemActionAdapterRegistry adapterRegistry,
+            HrEmployeeRepository employeeRepo,
             org.springframework.jdbc.core.JdbcTemplate jdbc,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.instanceRepo = instanceRepo;
@@ -63,9 +75,16 @@ public class WorkflowGraphExecutionService {
         this.workItemService = workItemService;
         this.assignmentResolver = assignmentResolver;
         this.branchTokenRepo = branchTokenRepo;
+        this.approvalRepo = approvalRepo;
+        this.systemActionService = systemActionService;
+        this.adapterRegistry = adapterRegistry;
+        this.employeeRepo = employeeRepo;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
     }
+
+    /** Outcome of an explicit SYSTEM_ACTION step execution command. */
+    public record SystemActionOutcome(WorkflowInstance instance, UUID incidentId, String failureCategory) {}
 
     @Transactional
     public WorkflowInstance advance(UUID tenantId, UUID instanceId, String outcome, UUID actorUserId) {
@@ -149,13 +168,82 @@ public class WorkflowGraphExecutionService {
 
         if (nextStep.stepType() == WorkflowStep.StepType.HUMAN_TASK
                 || nextStep.stepType() == WorkflowStep.StepType.APPROVAL) {
-            activateWorkItem(tenantId, updated, nextStepInstance, nextStep);
+            activateWorkItem(tenantId, updated, nextStepInstance, nextStep, actorUserId);
         }
 
         var saved = instanceRepo.save(updated);
         log.info("Y2 instance advanced: tenant={} instance={} step={} outcome={}",
                 tenantId, instanceId, nextStep.stepKey(), outcome);
         return saved;
+    }
+
+    // ===== Explicit SYSTEM_ACTION execution command (P10 release contract) =====
+
+    /**
+     * Executes the instance's current step when it is a pending SYSTEM_ACTION
+     * step. Success completes the step and advances the graph; a failed
+     * action marks the step FAILED and leaves the instance RUNNING at that
+     * step with the incident already persisted by the system-action service
+     * — callers surface the incident id as a controlled 409, never a 500.
+     * Idempotent per (instance, step) via the system-action attempt key.
+     */
+    @Transactional
+    public SystemActionOutcome runCurrentSystemAction(UUID tenantId, UUID instanceId, UUID actorUserId) {
+        var instance = instanceRepo.findById(tenantId, instanceId)
+                .orElseThrow(() -> new IllegalArgumentException("WorkflowInstance not found: " + instanceId));
+        if (instance.status() != WorkflowInstance.Status.RUNNING) {
+            return new SystemActionOutcome(instance, null, null);
+        }
+        var current = stepInstanceRepo.findByInstance(instanceId).stream()
+                .filter(si -> si.stepKey().equals(instance.currentStepKey()))
+                .findFirst().orElse(null);
+        if (current == null || current.status() != WorkflowStepInstance.Status.PENDING) {
+            return new SystemActionOutcome(instance, null, null);
+        }
+        var step = definitionRepo.findSteps(instance.definitionVersionId()).stream()
+                .filter(s -> s.id().equals(current.workflowStepId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Current step definition missing: " + current.workflowStepId()));
+        if (step.stepType() != WorkflowStep.StepType.SYSTEM_ACTION) {
+            return new SystemActionOutcome(instance, null, null);
+        }
+
+        var config = readConfiguration(step);
+        var adapter = adapterRegistry.require(config.path("adapter").asText(null));
+        var input = new java.util.HashMap<String, Object>();
+        var inputNode = config.path("input");
+        if (inputNode.isObject()) {
+            inputNode.fields().forEachRemaining(e -> input.put(e.getKey(), e.getValue().isTextual()
+                    ? e.getValue().asText() : objectMapper.convertValue(e.getValue(), Object.class)));
+        }
+
+        stepInstanceRepo.save(current.start());
+        String idempotencyKey = "instance:" + instanceId + ":step:" + current.id();
+        var result = systemActionService.execute(tenantId, instanceId, current.id(), adapter,
+                input, instance.correlationId(), null, idempotencyKey, null);
+        if (result.success()) {
+            var finished = reloadStepInstance(instanceId, current.id()).complete(
+                    "System action executed: " + result.externalReference());
+            stepInstanceRepo.save(finished);
+            var advanced = advance(tenantId, instanceId, null, actorUserId);
+            return new SystemActionOutcome(advanced, null, null);
+        }
+        var failed = reloadStepInstance(instanceId, current.id())
+                .fail("System action failed: " + result.failureCategory());
+        stepInstanceRepo.save(failed);
+        log.warn("Y2 system action failed: tenant={} instance={} step={} category={} incident={}",
+                tenantId, instanceId, step.stepKey(), result.failureCategory(), result.incidentId());
+        var reloaded = instanceRepo.findById(tenantId, instanceId).orElse(instance);
+        return new SystemActionOutcome(reloaded, result.incidentId(), result.failureCategory());
+    }
+
+    private WorkflowStepInstance reloadStepInstance(UUID instanceId, UUID stepInstanceId) {
+        return stepInstanceRepo.findByInstance(instanceId).stream()
+                .filter(si -> si.id().equals(stepInstanceId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Step instance disappeared: " + stepInstanceId));
     }
 
     // ===== Controlled parallelism (R3) =====
@@ -400,7 +488,8 @@ public class WorkflowGraphExecutionService {
     }
 
     private void activateWorkItem(UUID tenantId, WorkflowInstance instance,
-                                  WorkflowStepInstance stepInstance, WorkflowStep step) {
+                                  WorkflowStepInstance stepInstance, WorkflowStep step,
+                                  UUID actorUserId) {
         boolean hasCapability = step.requiredCapability() != null && !step.requiredCapability().isBlank();
         boolean hasRole = step.requiredRole() != null && !step.requiredRole().isBlank();
         WorkflowWorkItem.AssignmentMode mode =
@@ -409,6 +498,7 @@ public class WorkflowGraphExecutionService {
                         : WorkflowWorkItem.AssignmentMode.DIRECT;
 
         List<WorkflowWorkItemCandidate> candidates = List.of();
+        List<UUID> approvalCandidateEmployees = List.of();
         UUID assignee = null;
         if (mode == WorkflowWorkItem.AssignmentMode.WORK_POOL) {
             WorkflowAssignmentRule rule = hasCapability
@@ -420,6 +510,13 @@ public class WorkflowGraphExecutionService {
                     .map(employeeId -> WorkflowWorkItemCandidate.create(
                             tenantId, null, employeeId, resolved.resolutionSource()))
                     .toList();
+            approvalCandidateEmployees = resolved.employeeIds();
+        } else {
+            // DIRECT assignment is explicit: the definition pins the assignee
+            // through configuration.assigneeEmployeeId (or assignment.employeeId).
+            // Unresolvable DIRECT assignment fails closed (ISE -> 409).
+            assignee = resolveDirectAssignee(tenantId, step);
+            approvalCandidateEmployees = List.of(assignee);
         }
 
         var item = WorkflowWorkItem.create(tenantId, instance.id(), stepInstance.id(),
@@ -432,5 +529,74 @@ public class WorkflowGraphExecutionService {
                 .map(c -> new WorkflowWorkItemCandidate(c.tenantId(), item.id(), c.employeeId(),
                         c.resolutionSource(), c.resolvedAt(), c.snapshotMetadata()))
                 .toList());
+
+        if (step.stepType() == WorkflowStep.StepType.APPROVAL) {
+            createApprovalRequests(tenantId, instance, stepInstance, step, actorUserId,
+                    approvalCandidateEmployees);
+        }
+    }
+
+    /**
+     * Resolves the pinned DIRECT assignee employee from the step's
+     * configuration ({@code assigneeEmployeeId} or {@code assignment.employeeId})
+     * through the canonical assignment resolver — fail-closed on missing,
+     * malformed, or non-ACTIVE assignees.
+     */
+    private UUID resolveDirectAssignee(UUID tenantId, WorkflowStep step) {
+        var config = readConfiguration(step);
+        String raw = config.hasNonNull("assigneeEmployeeId")
+                ? config.get("assigneeEmployeeId").asText()
+                : config.path("assignment").path("employeeId").asText(null);
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException("DIRECT step '" + step.stepKey()
+                    + "' requires configuration.assigneeEmployeeId");
+        }
+        UUID employeeId;
+        try {
+            employeeId = UUID.fromString(raw);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("DIRECT step '" + step.stepKey()
+                    + "' has a malformed assigneeEmployeeId");
+        }
+        ResolvedAssignment resolved = assignmentResolver.resolve(tenantId,
+                new WorkflowAssignmentRule.Employee(employeeId),
+                new WorkflowAssignmentContext(null));
+        return resolved.employeeIds().get(0);
+    }
+
+    /**
+     * Creates one approval request per candidate approver user for an
+     * activated APPROVAL step. Policy comes from the step configuration
+     * ({@code approvalPolicy}: ANY_ONE default, ALL supported); self-approval
+     * stays DENY by default. Requests are addressed to users (approvals act
+     * on users) with the employee evidence preserved.
+     */
+    private void createApprovalRequests(UUID tenantId, WorkflowInstance instance,
+                                        WorkflowStepInstance stepInstance, WorkflowStep step,
+                                        UUID actorUserId, List<UUID> candidateEmployeeIds) {
+        var config = readConfiguration(step);
+        var aggregation = "ALL".equalsIgnoreCase(config.path("approvalPolicy").asText("ANY_ONE"))
+                ? WorkflowApprovalPolicy.Aggregation.ALL
+                : WorkflowApprovalPolicy.Aggregation.ANY_ONE;
+        var policy = new WorkflowApprovalPolicy(aggregation, WorkflowApprovalPolicy.SelfApproval.DENY);
+        for (UUID employeeId : candidateEmployeeIds.stream().distinct().toList()) {
+            var employee = employeeRepo.findById(tenantId, employeeId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Approval candidate employee missing: " + employeeId));
+            if (employee.userId() == null) {
+                continue;
+            }
+            var request = WorkflowApprovalRequest.create(tenantId, instance.id(), stepInstance.id(),
+                    employee.userId(), null, null, actorUserId, employeeId, policy);
+            approvalRepo.save(request);
+        }
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode readConfiguration(WorkflowStep step) {
+        try {
+            return objectMapper.readTree(step.configuration() == null ? "{}" : step.configuration());
+        } catch (Exception e) {
+            throw new IllegalStateException("Step '" + step.stepKey() + "' configuration is not valid JSON", e);
+        }
     }
 }

@@ -212,6 +212,17 @@ public class WorkflowDefinitionService {
 
     @Transactional
     public WorkflowStep addStep(WorkflowStep step, UUID actorUserId) {
+        // Published/retired definition versions are immutable (P03 release
+        // contract): graph structure changes require an explicit next-draft.
+        // Fail-closed with the same conflict semantics as addTransition.
+        var def = defRepo.findById(step.tenantId(), step.workflowDefinitionId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "WorkflowDefinition not found: " + step.workflowDefinitionId()));
+        if (def.publicationState() != WorkflowDefinition.PublicationState.DRAFT) {
+            throw new IllegalStateException(
+                    "Steps can only be added to DRAFT definitions; current state: "
+                            + def.publicationState());
+        }
         var saved = defRepo.saveStep(step);
         log.info("WorkflowStep added: tenant={} definitionId={} stepKey={} actor={}",
                 saved.tenantId(), saved.workflowDefinitionId(), saved.stepKey(), actorUserId);

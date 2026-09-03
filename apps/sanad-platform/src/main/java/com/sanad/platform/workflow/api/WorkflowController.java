@@ -6,6 +6,7 @@ import com.sanad.platform.workflow.application.WorkflowActionabilityService;
 import com.sanad.platform.workflow.application.WorkflowBreakGlassService;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
+import com.sanad.platform.workflow.application.WorkflowGraphExecutionService;
 import com.sanad.platform.workflow.application.WorkflowIncidentService;
 import com.sanad.platform.workflow.application.WorkflowWorkItemService;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
@@ -56,6 +57,7 @@ public class WorkflowController {
     private final WorkflowIncidentService incidentService;
     private final WorkflowActionabilityService actionabilityService;
     private final WorkflowBreakGlassService breakGlassService;
+    private final WorkflowGraphExecutionService graphExecutionService;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
@@ -66,7 +68,8 @@ public class WorkflowController {
             WorkflowWorkItemService workItemService,
             WorkflowIncidentService incidentService,
             WorkflowActionabilityService actionabilityService,
-            WorkflowBreakGlassService breakGlassService) {
+            WorkflowBreakGlassService breakGlassService,
+            WorkflowGraphExecutionService graphExecutionService) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
@@ -76,6 +79,7 @@ public class WorkflowController {
         this.incidentService = incidentService;
         this.actionabilityService = actionabilityService;
         this.breakGlassService = breakGlassService;
+        this.graphExecutionService = graphExecutionService;
     }
 
     // ===== Exception Handling =====
@@ -253,8 +257,27 @@ public class WorkflowController {
             Authentication auth, @PathVariable UUID id,
             @RequestBody WorkItemCommandRequest req) {
         var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(toWorkItemMap(workItemService.complete(
-                tenantId(auth), id, employee.id(), req.expectedVersion())));
+        var tenant = tenantId(auth);
+        var completed = workItemService.complete(tenant, id, employee.id(), req.expectedVersion());
+        // Y2 graph contract (P05 release semantics): completing a work item
+        // advances the instance through the graph — creating the next step's
+        // WorkItems or completing the instance at END. A pending SYSTEM_ACTION
+        // step runs immediately; its failure is a controlled 409.
+        var advanced = graphExecutionService.advance(
+                tenant, completed.workflowInstanceId(), null, userId(auth));
+        var outcome = graphExecutionService.runCurrentSystemAction(
+                tenant, advanced.id(), userId(auth));
+        if (outcome.incidentId() != null) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "status", 409,
+                    "error", "Conflict",
+                    "code", "WORKFLOW_SYSTEM_ACTION_FAILED",
+                    "failureCategory", String.valueOf(outcome.failureCategory()),
+                    "incidentId", String.valueOf(outcome.incidentId()),
+                    "workflowInstanceId", String.valueOf(outcome.instance().id()),
+                    "completedWorkItemId", String.valueOf(completed.id())));
+        }
+        return ResponseEntity.ok(toWorkItemMap(completed));
     }
 
     @PostMapping("/work-items/{id}/reassign")
@@ -500,6 +523,25 @@ public class WorkflowController {
                     null, null, null, null, null);
         };
         var saved = executionService.startWorkflow(instance, actor);
+        if (def.engineGeneration() == WorkflowDefinition.EngineGeneration.Y2) {
+            // Y2 graph contract (P04/P05 release semantics): starting the
+            // instance activates the first real step — creating WorkItems and
+            // approval requests — then executes an initial SYSTEM_ACTION step
+            // when present. A failed action is a controlled 409 with the
+            // incident id, never a silent skip and never a 500.
+            var advanced = graphExecutionService.advance(tenant, saved.id(), null, actor);
+            var outcome = graphExecutionService.runCurrentSystemAction(tenant, advanced.id(), actor);
+            if (outcome.incidentId() != null) {
+                return ResponseEntity.status(409).body(Map.of(
+                        "status", 409,
+                        "error", "Conflict",
+                        "code", "WORKFLOW_SYSTEM_ACTION_FAILED",
+                        "failureCategory", String.valueOf(outcome.failureCategory()),
+                        "incidentId", String.valueOf(outcome.incidentId()),
+                        "workflowInstanceId", String.valueOf(outcome.instance().id())));
+            }
+            return ResponseEntity.ok(toInstanceMap(outcome.instance()));
+        }
         return ResponseEntity.ok(toInstanceMap(saved));
     }
 
