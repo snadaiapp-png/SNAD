@@ -66,7 +66,14 @@ public class SubscriptionCommandService {
      *   <li>validate the transition via {@link SubscriptionLifecycle}</li>
      *   <li>write the new status plus domain-owned transition metadata
      *       ({@code cancelled_at} is set on CANCEL/TERMINATE and cleared on
-     *       RESUME, mirroring the legacy revival contract)</li>
+     *       RESUME, mirroring the legacy revival contract) — as a GUARDED
+     *       update ({@code WHERE status = <validated fromStatus>}) so the
+     *       write can never blindly overwrite a state another writer
+     *       committed concurrently: a zero-affected-rows outcome re-reads
+     *       the row and fails closed (R0C-8 — discovered by the
+     *       activate-vs-expiry race proof; the read-validate-write window
+     *       previously allowed a lost update to resurrect a terminal
+     *       state, e.g. ACTIVE over a committed EXPIRED)</li>
      *   <li>write the {@code subscription_commands} domain ledger row</li>
      *   <li>join the caller's transaction (REQUIRED propagation)</li>
      * </ul>
@@ -88,20 +95,33 @@ public class SubscriptionCommandService {
         String toStatus = transition.toStatus();
 
         if (!toStatus.equals(fromStatus)) {
-            // toStatus comes from the whitelisted SubscriptionLifecycle table — safe to inline
-            switch (command) {
+            // toStatus comes from the whitelisted SubscriptionLifecycle table — safe to inline.
+            // R0C-8: the update is guarded by the validated fromStatus — the
+            // single writer never performs a blind status overwrite. If a
+            // concurrent writer committed a different status in the
+            // read-validate-write window, zero rows are affected here and
+            // the transition fails closed (no partial ledger, no
+            // resurrection); the caller surfaces the rejection.
+            int updated = switch (command) {
                 case "CANCEL", "TERMINATE" -> jdbc.update(
                         "UPDATE tenant_subscriptions SET status = '" + toStatus + "', "
-                                + "cancelled_at = NOW(), updated_at = NOW() WHERE id = ?",
-                        subscriptionId);
+                                + "cancelled_at = NOW(), updated_at = NOW() WHERE id = ? AND status = ?",
+                        subscriptionId, fromStatus);
                 case "RESUME" -> jdbc.update(
                         "UPDATE tenant_subscriptions SET status = '" + toStatus + "', "
-                                + "cancelled_at = NULL, updated_at = NOW() WHERE id = ?",
-                        subscriptionId);
+                                + "cancelled_at = NULL, updated_at = NOW() WHERE id = ? AND status = ?",
+                        subscriptionId, fromStatus);
                 default -> jdbc.update(
                         "UPDATE tenant_subscriptions SET status = '" + toStatus + "', "
-                                + "updated_at = NOW() WHERE id = ?",
-                        subscriptionId);
+                                + "updated_at = NOW() WHERE id = ? AND status = ?",
+                        subscriptionId, fromStatus);
+            };
+            if (updated == 0) {
+                String current = (String) readSubscription(subscriptionId).get("status");
+                throw new IllegalStateException(
+                        "Concurrent subscription transition: " + command + " validated from "
+                                + fromStatus + " but the row is now " + current
+                                + " — refusing the blind overwrite");
             }
         }
 

@@ -31,7 +31,15 @@ import java.util.UUID;
  *
  * <p>State transitions:
  * <pre>
- *   TRIALING   → CURRENT     (when trial_ends_at elapses; handled elsewhere)
+ *   TRIALING   → (none)      (R0C-8 resolved: no automatic billing
+ *                            transition out of TRIALING — the trial's
+ *                            LIFECYCLE expiration TRIAL/TRIALING → EXPIRED
+ *                            is owned by TrialExpirationService through the
+ *                            canonical EXPIRE command; billing_state is NOT
+ *                            written at trial end. The pre-R0C-8 javadoc
+ *                            claimed "TRIALING → CURRENT when trial_ends_at
+ *                            elapses, handled elsewhere" — that "elsewhere"
+ *                            never existed and the claim is withdrawn.)
  *   CURRENT    → PAST_DUE   (when ≥1 invoice is past due_at + grace)
  *   PAST_DUE   → SUSPENDED   (after a configurable secondary grace)
  *   SUSPENDED  → CURRENT    (when all overdue invoices are paid)
