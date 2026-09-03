@@ -14,6 +14,11 @@ import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionEventResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.UpdatePlanRequest;
 import com.sanad.platform.module.entitlement.SubscriptionEntitlementListener;
+import com.sanad.platform.subscription.change.SubscriptionChangeService;
+import com.sanad.platform.subscription.item.SubscriptionItemRepository;
+import com.sanad.platform.subscription.pricing.PriceRepository;
+import com.sanad.platform.subscription.pricing.PriceResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -56,14 +61,33 @@ public class SaasAdministrationService {
     private final PlatformAuditService auditService;
     private final ApplicationEventPublisher eventPublisher;
     private final BillingStateService billingStateService;
+    private final SubscriptionChangeService changeService;
 
+    @Autowired
     public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
                                      ApplicationEventPublisher eventPublisher,
-                                     BillingStateService billingStateService) {
+                                     BillingStateService billingStateService,
+                                     SubscriptionChangeService changeService) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.eventPublisher = eventPublisher;
         this.billingStateService = billingStateService;
+        this.changeService = changeService;
+    }
+
+    /**
+     * Backward-compatible constructor for direct instantiation (tests):
+     * self-wires the canonical change authority from the same JdbcTemplate.
+     * R0C-4 (recovery STAGE-3): every effective PLAN composition change in
+     * this engine is delegated to that authority.
+     */
+    public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
+                                     ApplicationEventPublisher eventPublisher,
+                                     BillingStateService billingStateService) {
+        this(jdbcTemplate, auditService, eventPublisher, billingStateService,
+                new SubscriptionChangeService(jdbcTemplate,
+                        new SubscriptionItemRepository(jdbcTemplate),
+                        new PriceResolver(new PriceRepository(jdbcTemplate))));
     }
 
     /**
@@ -264,6 +288,9 @@ public class SaasAdministrationService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
         }
         PlanResponse plan = activePlan(request.planId());
+        // R0C-4: canonical target version resolution — fail closed BEFORE any
+        // row is written when the plan has no ACTIVE version.
+        UUID planVersionId = changeService.resolveActivePlanVersion(request.planId());
         String billingCycle = normalizeCycle(request.billingCycle());
         validateUsageAgainstPlan(request.tenantId(), request.seatQuantity(), plan);
 
@@ -275,12 +302,17 @@ public class SaasAdministrationService {
         UUID id = UUID.randomUUID();
         jdbcTemplate.update(
                 "INSERT INTO tenant_subscriptions "
-                        + "(id, tenant_id, plan_id, pending_plan_id, status, billing_cycle, pending_billing_cycle, "
+                        + "(id, tenant_id, plan_id, plan_version_id, pending_plan_id, status, billing_cycle, pending_billing_cycle, "
                         + "seat_quantity, credit_balance_minor, started_at, trial_ends_at, current_period_start, "
                         + "current_period_end, cancel_at_period_end, cancelled_at, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, NULL, ?, ?, NULL, ?, 0, ?, ?, ?, ?, FALSE, NULL, ?, ?)",
-                id, request.tenantId(), request.planId(), status, billingCycle, request.seatQuantity(),
-                Timestamp.from(now), Timestamp.from(trialEndsAt), Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), Timestamp.from(now));
+                        + "VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, 0, ?, ?, ?, ?, FALSE, NULL, ?, ?)",
+                id, request.tenantId(), request.planId(), planVersionId, status, billingCycle, request.seatQuantity(),
+                Timestamp.from(now), trialEndsAt == null ? null : Timestamp.from(trialEndsAt),
+                Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), Timestamp.from(now));
+        // R0C-4: canonical birth of the initial ACTIVE PLAN item — every
+        // subscription is born inside the canonical composition model.
+        changeService.insertInitialPlanItem(id, request.tenantId(), request.planId(), planVersionId,
+                price(plan, billingCycle), plan.currencyCode(), request.seatQuantity());
         recordEvent(id, request.tenantId(), "SUBSCRIPTION.CREATED", null, request.planId(), "IMMEDIATE", 0,
                 "Subscription created", now, authentication);
         SubscriptionResponse created = getSubscription(id);
@@ -317,19 +349,29 @@ public class SaasAdministrationService {
                     mode, 0, request.reason(), before.currentPeriodEnd(), authentication);
         } else {
             PlanResponse oldPlan = getPlan(before.planId());
+            // R0C-4: canonical target version resolution — fail closed before
+            // any mutation when the target plan has no ACTIVE version.
+            UUID targetVersionId = changeService.resolveActivePlanVersion(targetPlan.id());
             long adjustment = proratedAdjustment(before, oldPlan, targetPlan, targetCycle);
             if (adjustment < 0) {
                 jdbcTemplate.update(
                         "UPDATE tenant_subscriptions SET credit_balance_minor = credit_balance_minor + ?, "
-                                + "plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, pending_billing_cycle = NULL, updated_at = ? "
+                                + "billing_cycle = ?, pending_plan_id = NULL, pending_billing_cycle = NULL, updated_at = ? "
                                 + "WHERE id = ?",
-                        Math.abs(adjustment), targetPlan.id(), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
+                        Math.abs(adjustment), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
             } else {
                 jdbcTemplate.update(
-                        "UPDATE tenant_subscriptions SET plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, "
+                        "UPDATE tenant_subscriptions SET billing_cycle = ?, pending_plan_id = NULL, "
                                 + "pending_billing_cycle = NULL, updated_at = ? WHERE id = ?",
-                        targetPlan.id(), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
+                        targetCycle, Timestamp.from(Instant.now()), subscriptionId);
             }
+            // R0C-4: plan composition (item swap + anchors + command ledger)
+            // flows through the canonical authority — this engine no longer
+            // writes plan_id directly. Billing, proration, invoices, events,
+            // audit and entitlement publishing stay exactly as before.
+            changeService.applyCanonicalPlanCompositionChange(subscriptionId, targetPlan.id(), targetVersionId,
+                    price(targetPlan, targetCycle), targetPlan.currencyCode(), before.seatQuantity(),
+                    request.reason(), before.tenantId(), null);
             if (adjustment > 0) {
                 issueInvoice(getSubscription(subscriptionId), adjustment,
                         "Prorated immediate plan upgrade", before.currentPeriodStart(), before.currentPeriodEnd());
@@ -464,11 +506,26 @@ public class SaasAdministrationService {
         PlanResponse plan = activePlan(planId);
         validateUsageAgainstPlan(before.tenantId(), before.seatQuantity(), plan);
         Instant periodEnd = nextPeriod(now, billingCycle);
-        jdbcTemplate.update(
-                "UPDATE tenant_subscriptions SET plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, "
-                        + "pending_billing_cycle = NULL, status = 'ACTIVE', trial_ends_at = NULL, "
-                        + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
-                planId, billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
+        if (before.pendingPlanId() != null) {
+            // R0C-4: a scheduled plan change is applied through the canonical
+            // authority. The legacy engine keeps ownership of billing_cycle,
+            // status, periods, the renewal invoice, events and audit.
+            UUID pendingVersionId = changeService.resolveActivePlanVersion(planId);
+            jdbcTemplate.update(
+                    "UPDATE tenant_subscriptions SET billing_cycle = ?, pending_plan_id = NULL, "
+                            + "pending_billing_cycle = NULL, status = 'ACTIVE', trial_ends_at = NULL, "
+                            + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
+                    billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
+            changeService.applyCanonicalPlanCompositionChange(subscriptionId, planId, pendingVersionId,
+                    price(plan, billingCycle), plan.currencyCode(), before.seatQuantity(),
+                    "Scheduled plan change applied at renewal", before.tenantId(), null);
+        } else {
+            jdbcTemplate.update(
+                    "UPDATE tenant_subscriptions SET plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, "
+                            + "pending_billing_cycle = NULL, status = 'ACTIVE', trial_ends_at = NULL, "
+                            + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
+                    planId, billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
+        }
         SubscriptionResponse renewed = getSubscription(subscriptionId);
         issueRecurringInvoice(renewed, plan, "Subscription renewal");
         recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.RENEWED", before.planId(), planId,

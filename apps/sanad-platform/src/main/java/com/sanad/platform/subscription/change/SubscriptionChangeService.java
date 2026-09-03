@@ -8,9 +8,12 @@ import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.subscription.pricing.PriceTier;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -134,7 +137,6 @@ public class SubscriptionChangeService {
         SubscriptionItemEntity currentPlanItem = itemRepository
                 .findActiveBySubscriptionIdAndType(subscriptionId, "PLAN")
                 .orElseThrow(() -> new IllegalStateException("No ACTIVE PLAN item"));
-        itemRepository.updateStatus(currentPlanItem.getId(), "CANCELLED");
 
         Map<String, Object> versionRow;
         try {
@@ -144,41 +146,100 @@ public class SubscriptionChangeService {
         } catch (EmptyResultDataAccessException e) {
             throw new IllegalArgumentException("Unknown plan version: " + targetPlanVersionId);
         }
-        UUID planId = (UUID) versionRow.get("plan_id");
-        String currency = (String) versionRow.get("currency_code");
 
-        SubscriptionItemEntity newItem = new SubscriptionItemEntity();
-        newItem.setId(UUID.randomUUID());
-        newItem.setTenantId(currentPlanItem.getTenantId());
-        newItem.setSubscriptionId(subscriptionId);
-        newItem.setItemType("PLAN");
-        newItem.setPlanId(planId);
-        newItem.setPlanVersionId(targetPlanVersionId);
-        newItem.setQuantity(currentPlanItem.getQuantity());
-        newItem.setUnitAmountMinor(preview.targetMonthlyMinor());
-        newItem.setCurrencyCode(currency);
-        newItem.setStatus("ACTIVE");
-        newItem.setCreatedAt(Instant.now());
-        newItem.setUpdatedAt(Instant.now());
-        itemRepository.insert(newItem);
+        applyCanonicalPlanCompositionChange(subscriptionId,
+                (UUID) versionRow.get("plan_id"), targetPlanVersionId,
+                preview.targetMonthlyMinor(), (String) versionRow.get("currency_code"),
+                currentPlanItem.getQuantity(), reason, actorTenantId, actorUserId);
+
+        return new ChangeResult(subscriptionId, "EXECUTED", reason);
+    }
+
+    /**
+     * R0C-4 (recovery STAGE-3) — deterministic target version resolution.
+     * Returns the latest ACTIVE plan_version of the plan (ordered by
+     * version_number). Fails closed when the plan has no ACTIVE version —
+     * never silently falls back to an arbitrary or stale version.
+     */
+    @Transactional(readOnly = true)
+    public UUID resolveActivePlanVersion(UUID planId) {
+        List<UUID> versions = jdbc.queryForList(
+                "SELECT id FROM plan_versions WHERE plan_id = ? AND status = 'ACTIVE' "
+                        + "ORDER BY version_number DESC",
+                UUID.class, planId);
+        if (versions.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Plan has no ACTIVE version; refusing plan composition change");
+        }
+        return versions.get(0);
+    }
+
+    /**
+     * R0C-4 (recovery STAGE-3) — canonical birth of the initial ACTIVE PLAN
+     * item for a newly created subscription. Composition-only: billing,
+     * audit, and entitlement events remain the caller's responsibility.
+     * Joins the caller's transaction (REQUIRED propagation).
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void insertInitialPlanItem(UUID subscriptionId, UUID tenantId, UUID planId, UUID planVersionId,
+                                      long unitAmountMinor, String currencyCode, int quantity) {
+        SubscriptionItemEntity item = new SubscriptionItemEntity();
+        item.setId(UUID.randomUUID());
+        item.setTenantId(tenantId);
+        item.setSubscriptionId(subscriptionId);
+        item.setItemType("PLAN");
+        item.setPlanId(planId);
+        item.setPlanVersionId(planVersionId);
+        item.setQuantity(Math.max(1, quantity));
+        item.setUnitAmountMinor(unitAmountMinor);
+        item.setCurrencyCode(currencyCode);
+        item.setStatus("ACTIVE");
+        item.setCreatedAt(Instant.now());
+        item.setUpdatedAt(Instant.now());
+        itemRepository.insert(item);
+    }
+
+    /**
+     * R0C-4 (recovery STAGE-3) — THE single canonical authority for effective
+     * PLAN composition mutation. Cancels the current ACTIVE PLAN item (if
+     * any), inserts the new ACTIVE PLAN item pinned to the target version,
+     * converges both compatibility anchors, and writes the command ledger —
+     * all inside the caller's transaction (REQUIRED propagation joins it).
+     *
+     * <p>Composition-only contract: this method must NOT price, prorate,
+     * issue invoices, change payment status, or publish entitlement events —
+     * those remain with the caller (SCP execute path or the legacy engine).
+     * Both {@link #execute} and the converged legacy paths route through
+     * here, so there is exactly one writer of effective plan composition.</p>
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void applyCanonicalPlanCompositionChange(UUID subscriptionId, UUID targetPlanId,
+                                                    UUID targetPlanVersionId, long unitAmountMinor,
+                                                    String currencyCode, int quantity,
+                                                    String reason, UUID actorTenantId, UUID actorUserId) {
+        SubscriptionContext ctx = requireSubscription(subscriptionId);
+
+        itemRepository.findActiveBySubscriptionIdAndType(subscriptionId, "PLAN")
+                .ifPresent(current -> itemRepository.updateStatus(current.getId(), "CANCELLED"));
+
+        insertInitialPlanItem(subscriptionId, ctx.tenantId(), targetPlanId, targetPlanVersionId,
+                unitAmountMinor, currencyCode, quantity);
 
         // R0C-3 (recovery STAGE-2): the compatibility mirrors must never
-        // diverge from the effective ACTIVE PLAN item. Cancel old item,
-        // insert new item, update BOTH anchors and write the ledger all
-        // happen inside this single @Transactional method.
+        // diverge from the effective ACTIVE PLAN item.
         jdbc.update("""
                         UPDATE tenant_subscriptions
                         SET plan_id = ?, plan_version_id = ?, updated_at = NOW()
                         WHERE id = ?
                         """,
-                planId, targetPlanVersionId, subscriptionId);
+                targetPlanId, targetPlanVersionId, subscriptionId);
 
         // P0-C: subscription_commands.from_status/to_status are VARCHAR(24) and
         // carry lifecycle statuses. A plan change does not transition the
         // subscription status, so from == to == the subscription's actual
         // status (max vocabulary length 17). The target-version detail is
         // preserved in the VARCHAR(500) reason column — never in to_status.
-        String status = preview.fromStatus();
+        String status = ctx.status();
         String ledgerReason = "TARGET_VERSION=" + targetPlanVersionId
                 + (reason != null && !reason.isBlank() ? "; " + reason : "");
         jdbc.update("""
@@ -187,11 +248,9 @@ public class SubscriptionChangeService {
                             reason, actor_tenant_id, actor_user_id, correlation_id, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
                         """,
-                UUID.randomUUID(), subscriptionId, currentPlanItem.getTenantId(), "PLAN_CHANGE",
+                UUID.randomUUID(), subscriptionId, ctx.tenantId(), "PLAN_CHANGE",
                 status, status, ledgerReason,
                 actorTenantId, actorUserId, null);
-
-        return new ChangeResult(subscriptionId, "EXECUTED", reason);
     }
 
     private long compute(PriceEntity price, int quantity) {
