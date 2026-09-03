@@ -162,6 +162,17 @@ public class SubscriptionChangeService {
         newItem.setUpdatedAt(Instant.now());
         itemRepository.insert(newItem);
 
+        // R0C-3 (recovery STAGE-2): the compatibility mirrors must never
+        // diverge from the effective ACTIVE PLAN item. Cancel old item,
+        // insert new item, update BOTH anchors and write the ledger all
+        // happen inside this single @Transactional method.
+        jdbc.update("""
+                        UPDATE tenant_subscriptions
+                        SET plan_id = ?, plan_version_id = ?, updated_at = NOW()
+                        WHERE id = ?
+                        """,
+                planId, targetPlanVersionId, subscriptionId);
+
         // P0-C: subscription_commands.from_status/to_status are VARCHAR(24) and
         // carry lifecycle statuses. A plan change does not transition the
         // subscription status, so from == to == the subscription's actual
