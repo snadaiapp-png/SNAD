@@ -65,6 +65,12 @@ class CrmIntegrationOutboxWorkerTest {
 
     @BeforeEach
     void seedRequest() {
+        // R0C-RECOVERY-CHAIN §17 harness fix (test-only, reproduced on pristine
+        // 7f30c4ff): earlier suites leave PENDING rows in crm_integration_outbox
+        // on the shared database; the claim CTE picks the oldest PENDING event,
+        // so claim-order/version assertions were order-dependent. Clear the
+        // queue before seeding so each test claims exactly its own event.
+        jdbc.update("DELETE FROM crm_integration_outbox");
         tenantId = UUID.randomUUID();
         requestId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
