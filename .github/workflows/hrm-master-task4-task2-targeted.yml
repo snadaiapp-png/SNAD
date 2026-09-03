@@ -1,0 +1,82 @@
+name: HRM Master Task 4 Task 2 Targeted TDD
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/**'
+      - '.github/workflows/hrm-master-task4-task2-targeted.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  targeted:
+    name: WS3 WS4 Task 2 Targeted PostgreSQL Direct
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_DB: sanad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+      PGPASSWORD: postgres_pass
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Provision least-privilege application role and test database
+        run: |
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Run WS3 WS4 Task 2 contracts (PostgreSQL Direct)
+        run: mvn test -B -ntp -Dsurefire.useFile=false -Dtest=HrCountryPolicyResolverTest,HrScopedAuthorizationIntegrationTest,HrHistoricalAuthorizationIntegrationTest
+      - name: Upload targeted reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hrm-task4-task2-targeted-surefire
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 7
