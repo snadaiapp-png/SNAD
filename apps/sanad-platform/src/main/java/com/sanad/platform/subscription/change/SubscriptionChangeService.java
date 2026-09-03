@@ -24,6 +24,13 @@ import java.util.UUID;
  * → Audit (mission §11). Extends the existing
  * {@code SubscriptionImpactService} concepts from plan-vs-plan to the
  * multi-item world.
+ *
+ * <p>R0C-2R country authority: the pricing country is ALWAYS resolved
+ * server-side from the authoritative {@code tenants.country_code} —
+ * CLIENT_COUNTRY_AUTHORITY = NONE. Any client-supplied country parameter is
+ * deliberately ignored (retained on the wire for backward compatibility
+ * only). When the tenant carries no country the resolver's GLOBAL fallback
+ * applies.</p>
  */
 @Service
 public class SubscriptionChangeService {
@@ -61,9 +68,13 @@ public class SubscriptionChangeService {
 
     @Transactional(readOnly = true)
     public ChangePreview preview(UUID subscriptionId, UUID targetPlanVersionId,
-                                 String countryCode, Instant at) {
-        requireSubscription(subscriptionId);
-        String billingInterval = billingInterval(subscriptionId);
+                                 String clientCountryCode, Instant at) {
+        SubscriptionContext ctx = requireSubscription(subscriptionId);
+        String billingInterval = ctx.billingCycle() != null ? ctx.billingCycle() : "MONTHLY";
+        // P0-A: tenant's authoritative country wins; the client-supplied value
+        // is intentionally NOT used for pricing (authority NONE).
+        String pricingCountry = ctx.tenantCountryCode() != null
+                ? ctx.tenantCountryCode() : PriceResolver.GLOBAL;
         List<SubscriptionItemEntity> items = itemRepository
                 .findBySubscriptionId(subscriptionId).stream()
                 .filter(i -> "ACTIVE".equals(i.getStatus()))
@@ -86,19 +97,19 @@ public class SubscriptionChangeService {
             UUID versionId = planItem.get().getPlanVersionId() != null
                     ? planItem.get().getPlanVersionId() : targetPlanVersionId;
             Optional<PriceEntity> price = priceResolver.resolveForPlanVersion(
-                    targetPlanVersionId, countryCode, billingInterval, at);
+                    targetPlanVersionId, pricingCountry, billingInterval, at);
             if (price.isPresent()) {
                 targetMonthly = compute(price.get(), planItem.get().getQuantity());
                 delta = targetMonthly - currentMonthly;
             } else {
-                warnings.add("No effective price found for target version (country=" + countryCode
+                warnings.add("No effective price found for target version (country=" + pricingCountry
                         + ", interval=" + billingInterval + "); change cannot be priced");
             }
         } else {
             warnings.add("Subscription has no ACTIVE PLAN item to change");
         }
 
-        return new ChangePreview(subscriptionId, targetPlanVersionId, "CURRENT",
+        return new ChangePreview(subscriptionId, targetPlanVersionId, ctx.status(),
                 lines, currentMonthly, targetMonthly, delta,
                 planItem.map(SubscriptionItemEntity::getCurrencyCode).orElse(null),
                 warnings);
@@ -111,9 +122,10 @@ public class SubscriptionChangeService {
      */
     @Transactional
     public ChangeResult execute(UUID subscriptionId, UUID targetPlanVersionId,
-                                String countryCode, String reason,
+                                String clientCountryCode, String reason,
                                 UUID actorTenantId, UUID actorUserId) {
-        ChangePreview preview = preview(subscriptionId, targetPlanVersionId, countryCode, Instant.now());
+        ChangePreview preview = preview(subscriptionId, targetPlanVersionId,
+                clientCountryCode, Instant.now());
         if (!preview.warnings().isEmpty()) {
             throw new IllegalStateException(
                     "Change preview has warnings; refusing to execute: " + preview.warnings());
@@ -150,6 +162,14 @@ public class SubscriptionChangeService {
         newItem.setUpdatedAt(Instant.now());
         itemRepository.insert(newItem);
 
+        // P0-C: subscription_commands.from_status/to_status are VARCHAR(24) and
+        // carry lifecycle statuses. A plan change does not transition the
+        // subscription status, so from == to == the subscription's actual
+        // status (max vocabulary length 17). The target-version detail is
+        // preserved in the VARCHAR(500) reason column — never in to_status.
+        String status = preview.fromStatus();
+        String ledgerReason = "TARGET_VERSION=" + targetPlanVersionId
+                + (reason != null && !reason.isBlank() ? "; " + reason : "");
         jdbc.update("""
                         INSERT INTO subscription_commands (
                             id, subscription_id, tenant_id, command, from_status, to_status,
@@ -157,7 +177,7 @@ public class SubscriptionChangeService {
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
                         """,
                 UUID.randomUUID(), subscriptionId, currentPlanItem.getTenantId(), "PLAN_CHANGE",
-                "CURRENT", "TARGET_VERSION=" + targetPlanVersionId, reason,
+                status, status, ledgerReason,
                 actorTenantId, actorUserId, null);
 
         return new ChangeResult(subscriptionId, "EXECUTED", reason);
@@ -171,24 +191,34 @@ public class SubscriptionChangeService {
                 price.getMinAmountMinor(), price.getMaxAmountMinor());
     }
 
-    private void requireSubscription(UUID subscriptionId) {
-        try {
-            jdbc.queryForObject(
-                    "SELECT tenant_id, plan_id FROM tenant_subscriptions WHERE id = ?",
-                    UUID.class, subscriptionId);
-        } catch (EmptyResultDataAccessException e) {
-            throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
-        }
+    /**
+     * Server-side subscription context. P0-B: fetched with a RowMapper over a
+     * single joined query (never a multi-column scalar queryForObject).
+     * P0-A: the pricing country comes from the authoritative
+     * {@code tenants.country_code} via the join — tenant_subscriptions has no
+     * country column.
+     */
+    record SubscriptionContext(UUID tenantId, UUID planId, String status,
+                                String billingCycle, String tenantCountryCode) {
     }
 
-    private String billingInterval(UUID subscriptionId) {
+    private SubscriptionContext requireSubscription(UUID subscriptionId) {
         try {
-            String cycle = jdbc.queryForObject(
-                    "SELECT billing_cycle, country_code FROM tenant_subscriptions WHERE id = ?",
-                    String.class, subscriptionId);
-            return cycle != null ? cycle : "MONTHLY";
+            return jdbc.queryForObject("""
+                            SELECT s.tenant_id, s.plan_id, s.status, s.billing_cycle, t.country_code
+                            FROM tenant_subscriptions s
+                            JOIN tenants t ON t.id = s.tenant_id
+                            WHERE s.id = ?
+                            """,
+                    (rs, rowNum) -> new SubscriptionContext(
+                            rs.getObject("tenant_id", UUID.class),
+                            rs.getObject("plan_id", UUID.class),
+                            rs.getString("status"),
+                            rs.getString("billing_cycle"),
+                            rs.getString("country_code")),
+                    subscriptionId);
         } catch (EmptyResultDataAccessException e) {
-            return "MONTHLY";
+            throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
         }
     }
 

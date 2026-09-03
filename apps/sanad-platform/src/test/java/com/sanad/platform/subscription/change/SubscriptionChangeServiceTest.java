@@ -10,9 +10,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +27,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,6 +36,10 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link SubscriptionChangeService} — the Preview → Validate →
  * Confirm → Execute change pipeline (mission §11).
+ *
+ * <p>R0C-2R: stubs the joined subscription-context query (tenant country via
+ * JOIN on tenants) — never the historical broken scalar SQL that masked the
+ * multi-column queryForObject defect.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SubscriptionChangeService — preview/execute change pipeline")
@@ -88,12 +96,12 @@ class SubscriptionChangeServiceTest {
     }
 
     private void activeSubscriptionRow() {
-        lenient().when(jdbc.<UUID>queryForObject(
-                contains("SELECT tenant_id, plan_id FROM tenant_subscriptions"),
-                eq(UUID.class), eq(SUBSCRIPTION_ID))).thenReturn(TENANT_ID);
-        lenient().when(jdbc.<String>queryForObject(
-                contains("SELECT billing_cycle, country_code FROM tenant_subscriptions"),
-                eq(String.class), eq(SUBSCRIPTION_ID))).thenReturn("MONTHLY");
+        // R0C-2R: the fixed service loads the subscription context with a
+        // RowMapper over a tenant_subscriptions JOIN tenants query.
+        lenient().doReturn(new SubscriptionChangeService.SubscriptionContext(
+                        TENANT_ID, UUID.randomUUID(), "ACTIVE", "MONTHLY", "SA"))
+                .when(jdbc).queryForObject(contains("JOIN tenants"),
+                        ArgumentMatchers.<RowMapper<Object>>any(), eq(SUBSCRIPTION_ID));
     }
 
     private void stubPlanItem(SubscriptionItemEntity planItem) {
@@ -108,13 +116,13 @@ class SubscriptionChangeServiceTest {
     void previewComputesDelta() {
         activeSubscriptionRow();
         stubPlanItem(planItem(CURRENT_VERSION, 29900L));
-        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), any(), eq("MONTHLY"), any()))
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
                 .thenReturn(Optional.of(price(TARGET_VERSION, 39900L)));
 
         SubscriptionChangeService.ChangePreview preview =
                 service.preview(SUBSCRIPTION_ID, TARGET_VERSION, "SA", NOW);
 
-        assertThat(preview.fromStatus()).isEqualTo("CURRENT");
+        assertThat(preview.fromStatus()).isEqualTo("ACTIVE");
         assertThat(preview.currentItems()).hasSize(1);
         assertThat(preview.currentMonthlyMinor()).isEqualTo(29900L);
         assertThat(preview.targetMonthlyMinor()).isEqualTo(39900L);
@@ -123,11 +131,27 @@ class SubscriptionChangeServiceTest {
     }
 
     @Test
+    @DisplayName("R0C-2R P0-A: a client-supplied country is ignored — pricing always uses the tenant's country")
+    void previewIgnoresClientCountryForPricing() {
+        activeSubscriptionRow();
+        stubPlanItem(planItem(CURRENT_VERSION, 29900L));
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
+                .thenReturn(Optional.of(price(TARGET_VERSION, 39900L)));
+
+        // Rogue client country "AE" — must never reach the resolver.
+        service.preview(SUBSCRIPTION_ID, TARGET_VERSION, "AE", NOW);
+
+        verify(priceResolver).resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any());
+        verify(priceResolver, org.mockito.Mockito.never())
+                .resolveForPlanVersion(eq(TARGET_VERSION), eq("AE"), any(), any());
+    }
+
+    @Test
     @DisplayName("preview: warns when no target price exists for country/interval")
     void previewWarnsOnMissingPrice() {
         activeSubscriptionRow();
         stubPlanItem(planItem(CURRENT_VERSION, 29900L));
-        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), any(), eq("MONTHLY"), any()))
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
                 .thenReturn(Optional.empty());
 
         SubscriptionChangeService.ChangePreview preview =
@@ -143,7 +167,7 @@ class SubscriptionChangeServiceTest {
     void previewDowngradeNegativeDelta() {
         activeSubscriptionRow();
         stubPlanItem(planItem(CURRENT_VERSION, 29900L));
-        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), any(), eq("MONTHLY"), any()))
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
                 .thenReturn(Optional.of(price(TARGET_VERSION, 9900L)));
 
         SubscriptionChangeService.ChangePreview preview =
@@ -157,7 +181,7 @@ class SubscriptionChangeServiceTest {
     void executeRejectsWarningPreview() {
         activeSubscriptionRow();
         stubPlanItem(planItem(CURRENT_VERSION, 29900L));
-        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), any(), eq("MONTHLY"), any()))
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.execute(SUBSCRIPTION_ID, TARGET_VERSION, "SA", "upgrade",
@@ -172,7 +196,7 @@ class SubscriptionChangeServiceTest {
         activeSubscriptionRow();
         SubscriptionItemEntity current = planItem(CURRENT_VERSION, 29900L);
         stubPlanItem(current);
-        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), any(), eq("MONTHLY"), any()))
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
                 .thenReturn(Optional.of(price(TARGET_VERSION, 39900L)));
         when(jdbc.queryForMap(contains("SELECT pv.plan_id, pv.currency_code FROM plan_versions"),
                 eq(TARGET_VERSION)))
@@ -184,9 +208,13 @@ class SubscriptionChangeServiceTest {
         assertThat(result.status()).isEqualTo("EXECUTED");
         verify(itemRepository).updateStatus(current.getId(), "CANCELLED");
         verify(itemRepository).insert(any(SubscriptionItemEntity.class));
+        // R0C-2R P0-C: from/to status are real lifecycle statuses (fit
+        // VARCHAR(24)); TARGET_VERSION detail lives in reason, not to_status.
         verify(jdbc).update(contains("INSERT INTO subscription_commands"),
                 any(), eq(SUBSCRIPTION_ID), eq(TENANT_ID), eq("PLAN_CHANGE"),
-                any(), any(), any(), any(), any(), any());
+                eq("ACTIVE"), eq("ACTIVE"),
+                contains("TARGET_VERSION=" + TARGET_VERSION),
+                isNull(), isNull(), isNull());
     }
 
     @Test
@@ -199,7 +227,7 @@ class SubscriptionChangeServiceTest {
         PriceEntity tiered = price(TARGET_VERSION, 0L);
         tiered.setPriceModel("TIERED");
         tiered.setTiersJson("[{\"upTo\":100,\"unitAmountMinor\":100},{\"upTo\":null,\"unitAmountMinor\":60}]");
-        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), any(), eq("MONTHLY"), any()))
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
                 .thenReturn(Optional.of(tiered));
 
         SubscriptionChangeService.ChangePreview preview =
