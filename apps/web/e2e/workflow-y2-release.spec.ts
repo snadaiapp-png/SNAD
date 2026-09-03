@@ -99,7 +99,7 @@ test("create validate publish", async ({ request }: { request: APIRequestContext
     { headers: await authHeaders(request), data: { expectedVersion: wf.versionLock } },
   );
   expect(pub.status()).toBe(200);
-  expect((await pub.json()).status).toBe("ACTIVE");
+  const pubBody = await pub.json(); expect(pubBody.publicationState).toBe("PUBLISHED"); expect(pubBody.engineGeneration).toBe("Y2");
 });
 
 test("start instance on published definition", async ({ request }: { request: APIRequestContext }) => {

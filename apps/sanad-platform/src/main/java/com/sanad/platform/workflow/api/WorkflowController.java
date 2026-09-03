@@ -694,31 +694,37 @@ public class WorkflowController {
     // ===== Response helpers =====
 
     private Map<String, Object> toDefinitionMap(WorkflowDefinition d) {
-        return Map.of(
-                "id", d.id(),
-                "code", d.code(),
-                "name", d.name(),
-                "status", d.status().name(),
-                "triggerType", d.triggerType().name(),
-                "module", d.module() != null ? d.module() : "",
-                "version", d.version(),
-                "versionLock", d.versionLock(),
-                "createdBy", d.createdBy()
-        );
+        Map<String, Object> map = new java.util.HashMap<>();
+        map.put("id", d.id());
+        map.put("code", d.code());
+        map.put("name", d.name());
+        map.put("status", d.status().name());
+        map.put("triggerType", d.triggerType().name());
+        map.put("module", d.module() != null ? d.module() : "");
+        map.put("version", d.version());
+        map.put("versionLock", d.versionLock());
+        map.put("createdBy", d.createdBy());
+        map.put("definitionFamilyId", d.definitionFamilyId() != null ? d.definitionFamilyId().toString() : "");
+        map.put("engineGeneration", d.engineGeneration() != null ? d.engineGeneration().name() : "");
+        map.put("publicationState", d.publicationState() != null ? d.publicationState().name() : "");
+        return map;
     }
 
     private Map<String, Object> toInstanceMap(WorkflowInstance i) {
-        return Map.of(
-                "id", i.id(),
-                "workflowDefinitionId", i.workflowDefinitionId(),
-                "workflowVersion", i.workflowVersion(),
-                "businessEntityType", i.businessEntityType(),
-                "businessEntityId", i.businessEntityId(),
-                "status", i.status().name(),
-                "currentStepKey", i.currentStepKey() != null ? i.currentStepKey() : "",
-                "startedBy", i.startedBy(),
-                "version", i.version()
-        );
+        Map<String, Object> map = new java.util.HashMap<>();
+        map.put("id", i.id());
+        map.put("workflowDefinitionId", i.workflowDefinitionId());
+        map.put("workflowVersion", i.workflowVersion());
+        map.put("businessEntityType", i.businessEntityType());
+        map.put("businessEntityId", i.businessEntityId());
+        map.put("status", i.status().name());
+        map.put("currentStepKey", i.currentStepKey() != null ? i.currentStepKey() : "");
+        map.put("startedBy", i.startedBy());
+        map.put("version", i.version());
+        map.put("engineGeneration", i.engineGeneration() != null ? i.engineGeneration().name() : "");
+        map.put("definitionFamilyId", i.definitionFamilyId() != null ? i.definitionFamilyId().toString() : "");
+        map.put("definitionVersionId", i.definitionVersionId() != null ? i.definitionVersionId().toString() : "");
+        return map;
     }
 
     private Map<String, Object> toApprovalMap(WorkflowApprovalRequest a) {
