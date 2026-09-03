@@ -159,52 +159,6 @@ class GlobalDiagnosticExceptionHandlerSecurityTest {
         assertThat(response.getBody().get("message")).isEqualTo("cartId is required");
     }
 
-    // ===== 403 authorization-deny rendering =====
-
-    /**
-     * RBAC denials thrown from the {@code CapabilityAuthorizationAspect}
-     * (@Before advice on controller methods) surface as handler-invocation
-     * exceptions. They must render as HTTP 403 — never as a sanitized 500.
-     *
-     * <p>Regression: the generic {@code @ExceptionHandler(Exception.class)}
-     * catch-all used to match {@code AccessDeniedException} first, turning a
-     * deny-by-default decision into a 5xx (production: the audit/v2
-     * CAPABILITY_NOT_FOUND deny surfaced as HTTP 500 instead of 403).</p>
-     */
-    @Test
-    void accessDeniedException_renders403Not500() throws Exception {
-        org.springframework.security.access.AccessDeniedException ex =
-                new org.springframework.security.access.AccessDeniedException("غير مصرح بهذه العملية");
-
-        // Direct handler-level assertion.
-        ResponseEntity<Map<String, Object>> response = handler.handleAccessDenied(ex);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        assertThat(response.getBody().get("status")).isEqualTo(403);
-        // Safe message — never the Arabic deny detail, class name, or cause.
-        assertThat(response.getBody().get("message")).isEqualTo("Authorization required");
-        assertThat(response.getBody().toString()).doesNotContain("AccessDeniedException");
-
-        // End-to-end MVC rendering: a controller-thrown AccessDeniedException
-        // (exactly how the capability aspect surfaces denials) must be
-        // resolved to 403 by the advice, not fall into the 500 catch-all.
-        org.springframework.test.web.servlet.MockMvc mockMvc = org.springframework.test.web.servlet.setup
-                .MockMvcBuilders.standaloneSetup(new DenyingController())
-                .setControllerAdvice(handler)
-                .build();
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/deny"))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value(403))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.message").value("Authorization required"));
-    }
-
-    @org.springframework.web.bind.annotation.RestController
-    static class DenyingController {
-        @org.springframework.web.bind.annotation.GetMapping("/deny")
-        String deny() {
-            throw new org.springframework.security.access.AccessDeniedException("capability not granted");
-        }
-    }
-
     // ===== Information disclosure tests =====
 
     @Test

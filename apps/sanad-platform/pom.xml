@@ -25,16 +25,27 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
+        <!-- ============================================================ -->
+        <!-- Java / compiler contract                                    -->
+        <!-- ============================================================ -->
+        <!-- Bytecode target: Java 17. Single source of truth is          -->
+        <!-- <java.version>, which spring-boot-starter-parent maps to      -->
+        <!-- <maven.compiler.release> (javac release 17 semantics with    -->
+        <!-- full ct.sym API cross-compilation checks). No source/target  -->
+        <!-- overrides and no empty release element: builds run on a FULL  -->
+        <!-- JDK (CI uses actions/setup-java temurin 21), so the release  -->
+        <!-- flag is always supported. Producing Java 17 bytecode on JDK  -->
+        <!-- 21 is the supported javac cross-compilation path.            -->
+        <!-- ============================================================ -->
         <java.version>17</java.version>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
-        <!-- Override Spring Boot parent maven.compiler.release=17.
-             The CI runtime is JRE only and lacks the ct.sym file
-             required by the release flag. Using source/target
-             instead produces equivalent Java 17 bytecode. -->
-        <maven.compiler.release></maven.compiler.release>
 
-        <springdoc-openapi-starter-webmvc-ui.version>2.6.0</springdoc-openapi-starter-webmvc-ui.version>
+        <!-- springdoc-openapi effective version. Kept as an explicit     -->
+        <!-- property because the artifact is not managed by the Spring    -->
+        <!-- Boot BOM. 2.8.17 is the version actually used by CI (it was    -->
+        <!-- previously forced through .mvn/maven.config, which silently    -->
+        <!-- overrode this property; the override has been removed and the -->
+        <!-- value inlined here so the POM is the single source of truth).  -->
+        <springdoc-openapi-starter-webmvc-ui.version>2.8.17</springdoc-openapi-starter-webmvc-ui.version>
         <!-- OWASP Dependency-Check version (used by -Powasp-offline-gate) -->
         <dependency-check.version>12.1.0</dependency-check.version>
 
@@ -163,13 +174,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Database: H2 for local profile validation (runtime) -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
         <!-- Database migrations: Flyway -->
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -213,19 +217,10 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
-                    <!-- Explicitly unset release. The runtime image in CI
-                         is JRE only and lacks the ct.sym file required by
-                         the release flag. source/target produce the same
-                         Java 17 bytecode without that dependency. -->
-                    <release></release>
-                </configuration>
-            </plugin>
+            <!-- maven-compiler-plugin: intentionally NOT declared here. -->
+            <!-- spring-boot-starter-parent binds version 3.14.0,        -->
+            <!-- parameters=true, and release=${java.version} (Java 17),  -->
+            <!-- which is the single, explicit compiler contract.         -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

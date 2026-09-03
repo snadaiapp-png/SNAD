@@ -53,10 +53,10 @@ export function resolvePostLoginDestination(input: {
   const requested = safeReturnUrl(input.returnUrl, available);
   if (requested) return requested;
 
-  // The authenticated workspace is the application hub and therefore the
-  // canonical landing page after a normal login. Backend module defaults must
-  // not bypass this hub; only an explicit authorized returnUrl may do so.
-  return FALLBACK_DESTINATION;
+  const defaultDestination = safeReturnUrl(input.defaultDestination, available);
+  if (defaultDestination) return defaultDestination;
+
+  return available.includes(FALLBACK_DESTINATION) ? FALLBACK_DESTINATION : available[0] ?? FALLBACK_DESTINATION;
 }
 
 export function readReturnUrl(search = typeof window === "undefined" ? "" : window.location.search): string | null {
