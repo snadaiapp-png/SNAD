@@ -16,6 +16,7 @@ import com.sanad.platform.workflow.domain.WorkflowWorkItem;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowInstance;
 import com.sanad.platform.workflow.domain.WorkflowStep;
+import com.sanad.platform.workflow.domain.WorkflowTransition;
 import com.sanad.platform.workflow.domain.WorkflowStepInstance;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -299,6 +300,33 @@ public class WorkflowController {
                     return map;
                 })
                 .toList());
+    }
+
+    // ===== Transitions (H3/R3) =====
+
+    public record CreateTransitionRequest(
+            UUID fromStepId, UUID toStepId, String transitionKey,
+            String outcome, String conditionAst, int priority, String metadata) {}
+
+    @PostMapping("/definitions/{id}/transitions")
+    @RequireCapability("WORKFLOW.DESIGN")
+    public ResponseEntity<Map<String, Object>> createTransition(
+            Authentication auth, @PathVariable UUID id,
+            @RequestBody CreateTransitionRequest req) {
+        var saved = definitionService.addTransition(
+                tenantId(auth), id,
+                req.fromStepId(), req.toStepId(),
+                req.transitionKey(), req.outcome(),
+                req.conditionAst(), req.priority(), req.metadata(),
+                userId(auth));
+        Map<String, Object> map = new java.util.HashMap<>();
+        map.put("id", saved.id());
+        map.put("fromStepId", saved.fromStepId());
+        map.put("toStepId", saved.toStepId());
+        map.put("transitionKey", saved.transitionKey());
+        map.put("outcome", saved.outcome() != null ? saved.outcome() : "");
+        map.put("priority", saved.priority());
+        return ResponseEntity.ok(map);
     }
 
     // ===== Break glass (AH3) =====

@@ -175,6 +175,41 @@ public class WorkflowDefinitionService {
         return defRepo.findTransitions(definitionId);
     }
 
+    /**
+     * Creates a graph transition between two steps of a DRAFT definition
+     * (H3/R3). Both steps must belong to the same concrete definition version.
+     */
+    @Transactional
+    public WorkflowTransition addTransition(
+            UUID tenantId, UUID definitionId,
+            UUID fromStepId, UUID toStepId,
+            String transitionKey, String outcome,
+            String conditionAst, int priority, String metadata,
+            UUID actorUserId) {
+        var def = load(tenantId, definitionId);
+        if (def.publicationState() != WorkflowDefinition.PublicationState.DRAFT) {
+            throw new IllegalStateException(
+                    "Transitions can only be added to DRAFT definitions; current state: "
+                            + def.publicationState());
+        }
+        // Validate steps belong to this definition version.
+        var stepIds = defRepo.findSteps(definitionId).stream()
+                .map(WorkflowStep::id).collect(java.util.stream.Collectors.toSet());
+        if (!stepIds.contains(fromStepId)) {
+            throw new IllegalArgumentException("fromStepId does not belong to this definition");
+        }
+        if (!stepIds.contains(toStepId)) {
+            throw new IllegalArgumentException("toStepId does not belong to this definition");
+        }
+        var transition = WorkflowTransition.create(
+                tenantId, definitionId, fromStepId, toStepId,
+                transitionKey, outcome, conditionAst, priority, metadata);
+        var saved = defRepo.saveTransition(transition);
+        log.info("Transition added: tenant={} definition={} key={} from={} to={} actor={}",
+                tenantId, definitionId, transitionKey, fromStepId, toStepId, actorUserId);
+        return saved;
+    }
+
     @Transactional
     public WorkflowStep addStep(WorkflowStep step, UUID actorUserId) {
         var saved = defRepo.saveStep(step);
