@@ -418,7 +418,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_BACKFILL_IDEMPOTENCY_FIX_VERSION),
                         MigrationVersion.fromVersion(HR_BACKFILL_MGR_FIX_VERSION),
                         MigrationVersion.fromVersion(WS3_WS4_FOUNDATION_VERSION),
-                        MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION));
+                        MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION),
+                        MigrationVersion.fromVersion(HR_AUDIT_OUTBOX_IDEMPOTENCY_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -568,7 +569,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_BACKFILL_IDEMPOTENCY_FIX_VERSION),
                         MigrationVersion.fromVersion(HR_BACKFILL_MGR_FIX_VERSION),
                         MigrationVersion.fromVersion(WS3_WS4_FOUNDATION_VERSION),
-                        MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION));
+                        MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION),
+                        MigrationVersion.fromVersion(HR_AUDIT_OUTBOX_IDEMPOTENCY_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
