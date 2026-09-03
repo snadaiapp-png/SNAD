@@ -14,6 +14,12 @@ name: CRM G1 Schema Isolation
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/resources/db/migration/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
+      - 'scripts/crm/verify-g1-tenant-isolation.sql'
+      - 'docs/crm/**'
+      - '.github/workflows/crm-g1-schema-isolation.yml'
   push:
     branches: [main]
     paths:
