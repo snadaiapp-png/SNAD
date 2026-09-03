@@ -99,6 +99,16 @@ async function publish(
   return { publicationState: body.publicationState, engineGeneration: body.engineGeneration };
 }
 
+async function activateDefinition(
+  req: APIRequestContext, defId: string,
+): Promise<void> {
+  const res = await req.post(`${API}/api/v1/workflows/definitions/${defId}/activate`, {
+    headers: await auth(req),
+    data: {},
+  });
+  expect(res.status()).toBe(200);
+}
+
 async function startInstance(
   req: APIRequestContext, defId: string, version: number, firstStepKey: string,
 ): Promise<{ id: string; engineGeneration?: string; definitionVersionId?: string; definitionFamilyId?: string }> {
@@ -318,6 +328,7 @@ test("P10 — incident endpoints return structured data and enforce contract", a
 test("P11 — legacy/Y2 isolation verified through definition status", async ({ request }: { request: APIRequestContext }) => {
   // Create a definition and start an instance through the legacy path
   const wf = await createValidWorkflow(request, `P11-LEG-${Date.now()}`);
+  await activateDefinition(request, wf.defId);
   const instance = await startInstance(request, wf.defId, 1, "start");
   expect(instance.id).toBeTruthy();
 
