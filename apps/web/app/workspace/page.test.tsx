@@ -120,15 +120,14 @@ describe("WorkspacePage", () => {
     expect(authApiMock.refresh).not.toHaveBeenCalled();
   });
 
-  it("renders one executive launcher instead of duplicating the legacy control-plane route", async () => {
+  it("renders an operational launcher with the authenticated identity and authorized apps", async () => {
     setSessionHint();
     authApiMock.refresh.mockResolvedValue(bootstrap());
-    const { container } = renderPage();
+    renderPage();
     await waitFor(() => expect(screen.getByRole("heading", { name: /Admin User/ })).toBeInTheDocument());
     expect(screen.getByText(defaultUser.tenantId)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /CRM/ }).length).toBeGreaterThan(0);
-    expect(container.querySelector('a[href="/executive"]')).toBeInTheDocument();
-    expect(container.querySelector('a[href="/control-plane"]')).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /لوحة التحكم/ })).toHaveAttribute("href", "/control-plane");
     expect(authApiMock.me).not.toHaveBeenCalled();
   });
 
