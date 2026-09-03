@@ -44,7 +44,24 @@ class SubscriptionLifecycleTest {
             "MARK_PAST_DUE, ACTIVE, PAST_DUE",
             "ENTER_GRACE, PAST_DUE, GRACE_PERIOD",
             "ACTIVATE, TRIAL, ACTIVE",
-            "ACTIVATE, TRIALING, ACTIVE"
+            "ACTIVATE, TRIALING, ACTIVE",
+            // R0C-7 contract reconciliation — canonical representations of
+            // proven legacy semantics (see the R0C-7 plan document):
+            // RESUME from CANCELLED: legacy revival is authoritative (original
+            // paired semantics: renew refuses CANCELLED with "must be resumed
+            // first" while resume revives CANCELLED -> ACTIVE; design doc keeps
+            // legacy commands as backward-compatible aliases).
+            "RESUME, CANCELLED, ACTIVE",
+            // PAYMENT_RECEIVED from SUSPENDED: proven billing recovery
+            // (BillingStateServiceIntegrationTest: SUSPENDED -> CURRENT when
+            // all overdue invoices are paid, mirroring status to ACTIVE).
+            "PAYMENT_RECEIVED, SUSPENDED, ACTIVE",
+            // CANCEL from SUSPENDED: the legacy mutable domain includes
+            // SUSPENDED — a suspended subscription must remain cancellable.
+            "CANCEL, SUSPENDED, CANCELLED",
+            // SCHEDULE_CANCELLATION from SUSPENDED: legacy no-op scheduling on
+            // the full legacy mutable domain.
+            "SCHEDULE_CANCELLATION, SUSPENDED, SUSPENDED"
     })
     @DisplayName("legal transitions are accepted")
     void legalTransitions(String command, String from, String to) {
