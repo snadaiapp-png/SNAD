@@ -23,6 +23,15 @@ public enum HrApiErrorCode {
     /** Canonical assignment does not exist in the requesting tenant. */
     HRM_ASSIGNMENT_NOT_FOUND(404),
 
+    /** Canonical org unit does not exist in the requesting tenant. */
+    HRM_ORG_UNIT_NOT_FOUND(404),
+
+    /** Canonical job does not exist in the requesting tenant. */
+    HRM_JOB_NOT_FOUND(404),
+
+    /** Canonical position does not exist in the requesting tenant. */
+    HRM_POSITION_NOT_FOUND(404),
+
     /** Requested lifecycle transition is illegal for the current state. */
     HRM_INVALID_STATE_TRANSITION(409),
 
