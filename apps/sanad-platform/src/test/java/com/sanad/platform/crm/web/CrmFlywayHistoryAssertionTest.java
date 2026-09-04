@@ -1,6 +1,5 @@
 package com.sanad.platform.crm.web;
 
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
@@ -365,7 +364,9 @@ class CrmFlywayHistoryAssertionTest {
 
     /**
      * Asserts that the total number of migrations includes all expected CRM
-     * versions plus at least the baseline and V15 Java migration.
+     * versions plus at least the baseline. The V15 Java migration was removed
+     * from the repository (its production history row carries a DELETE
+     * marker), so the applied chain is SQL-only.
      */
     @Test
     void flywayHistoryTotalMigrationCountIncludesAllCrmVersions() {
@@ -379,11 +380,13 @@ class CrmFlywayHistoryAssertionTest {
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE",
                 Long.class);
 
-        // Total must be at least: CRM versions + baseline (1) + V15 Java migration (1)
-        long minimumExpected = EXPECTED_CRM_VERSIONS.size() + 2;
+        // Total must be at least: CRM versions + baseline (1). The V15 Java
+        // migration was removed from the repository (production chain decision),
+        // so fresh databases apply one migration fewer than the legacy pin.
+        long minimumExpected = EXPECTED_CRM_VERSIONS.size() + 1;
 
         assertThat(actualCount)
-                .as("Total successful migrations must be >= %d (at least %d CRM + baseline + V15)",
+                .as("Total successful migrations must be >= %d (at least %d CRM + baseline)",
                         minimumExpected, EXPECTED_CRM_VERSIONS.size())
                 .isGreaterThanOrEqualTo(minimumExpected);
     }
@@ -396,7 +399,6 @@ class CrmFlywayHistoryAssertionTest {
         var configuration = Flyway.configure()
                 .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true);
         if (target != null) configuration.target(target);

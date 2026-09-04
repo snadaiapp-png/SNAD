@@ -1,6 +1,5 @@
 package com.sanad.platform.crm.web;
 
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
@@ -283,7 +282,6 @@ class CrmPostgresMigrationTest {
         JdbcTemplate jdbc = jdbc();
         assertThat(latestVersion(jdbc)).isEqualTo(MAIN_SCHEMA_VERSION);
         assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(allCrmTables());
-        assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
 
         Flyway upgrade = flyway(null);
         assertThat(Arrays.stream(upgrade.info().pending()).map(MigrationInfo::getVersion))
@@ -650,7 +648,6 @@ class CrmPostgresMigrationTest {
     }
 
     private void assertCompletedSchema(JdbcTemplate jdbc) {
-        assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
         assertMigration(jdbc, CRM_CORE_VERSION, "SQL", "create unified crm core");
         assertMigration(jdbc, RECONCILER_VERSION, "SQL", "reconcile admin role and capabilities");
         assertMigration(jdbc, CRM_COMPLETION_VERSION, "SQL", "complete crm imports custom fields");
@@ -943,7 +940,6 @@ class CrmPostgresMigrationTest {
         var configuration = Flyway.configure()
                 .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true);
         if (target != null) configuration.target(target);
