@@ -24,6 +24,12 @@ public interface EmploymentRepository {
     Optional<Employment> findEmploymentById(UUID tenantId, UUID employmentId);
 
     /**
+     * List employments within a tenant scope, newest first (WS5 Task 3 v2
+     * directory read). RLS tenant isolation applies on the same connection.
+     */
+    List<Employment> listEmployments(UUID tenantId);
+
+    /**
      * Count non-terminal Employments for a Person within a Legal Entity.
      * Used to enforce the "max one non-terminal Employment" invariant.
      */

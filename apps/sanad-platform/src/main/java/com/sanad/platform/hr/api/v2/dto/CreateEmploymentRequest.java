@@ -9,8 +9,8 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * HRM-G0 / WS5 Task 2 — canonical typed creation request for the
- * POST /api/v2/hr/employments operation (Task 3 wires the controller).
+ * HRM-G0 / WS5 Task 2/3 — canonical typed creation request for the
+ * POST /api/v2/hr/employments operation.
  *
  * <p>Typed DTO only — never a {@code Map<String,Object>} request body.
  * Labor jurisdiction is an ISO-3166 alpha-2 code; ambiguity about legal
@@ -22,6 +22,7 @@ public record CreateEmploymentRequest(
         @NotNull UUID legalEntityId,
         @NotBlank @Size(max = 80) String employeeNumber,
         @NotNull LocalDate employmentStartDate,
-        @NotBlank @Pattern(regexp = "[A-Z]{2}") String laborJurisdictionCode
+        @NotBlank @Pattern(regexp = "[A-Z]{2}") String laborJurisdictionCode,
+        @NotBlank @Size(max = 60) String workerClassificationCode
 ) {
 }

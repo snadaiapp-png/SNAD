@@ -3,7 +3,10 @@ package com.sanad.platform.hr.api.v2;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -49,6 +52,32 @@ public class HrApiExceptionHandler {
     ResponseEntity<HrApiErrorResponse> onDomainException(HrDomainException ex) {
         return ResponseEntity.status(ex.code().httpStatus())
                 .body(HrApiErrorResponse.of(ex.code(), ex.getMessage(), ex.violations()));
+    }
+
+    /**
+     * Capability/scope denial raised by the platform authorization aspect for
+     * v2 controllers — canonical 403 HRM_SCOPE_DENIED envelope.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<HrApiErrorResponse> onAccessDenied(AccessDeniedException ex) {
+        return ResponseEntity.status(HrApiErrorCode.HRM_SCOPE_DENIED.httpStatus())
+                .body(HrApiErrorResponse.of(HrApiErrorCode.HRM_SCOPE_DENIED,
+                        "Scope or capability denied"));
+    }
+
+    /** Missing required Idempotency-Key (or other required header). */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<HrApiErrorResponse> onMissingHeader(MissingRequestHeaderException ex) {
+        return ResponseEntity.badRequest()
+                .body(HrApiErrorResponse.of(HrApiErrorCode.HRM_VALIDATION_FAILED,
+                        "Missing required header: " + ex.getHeaderName()));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    ResponseEntity<HrApiErrorResponse> onMissingParameter(MissingServletRequestParameterException ex) {
+        return ResponseEntity.badRequest()
+                .body(HrApiErrorResponse.of(HrApiErrorCode.HRM_VALIDATION_FAILED,
+                        "Missing required parameter: " + ex.getParameterName()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

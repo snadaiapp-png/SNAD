@@ -126,6 +126,26 @@ public final class JdbcEmploymentRepository implements EmploymentRepository {
     }
 
     @Override
+    public List<Employment> listEmployments(UUID tenantId) {
+        return inTenantTransaction(tenantId, connection -> {
+            List<Employment> result = new java.util.ArrayList<>();
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "SELECT id, tenant_id, person_id, legal_entity_id, employee_number, " +
+                    "worker_classification_code, status, hire_date, termination_date, " +
+                    "rehire_of_employee_id, version " +
+                    "FROM hr_employees WHERE tenant_id = ? ORDER BY created_at DESC, id")) {
+                ps.setObject(1, tenantId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        result.add(mapEmployment(rs));
+                    }
+                }
+            }
+            return result;
+        });
+    }
+
+    @Override
     public int countNonTerminalEmploymentsForPersonInLegalEntity(UUID tenantId, UUID personId, UUID legalEntityId) {
         return inTenantTransaction(tenantId, connection -> {
             try (PreparedStatement ps = connection.prepareStatement(

@@ -12,6 +12,9 @@ package com.sanad.platform.hr.api.v2;
 public enum HrApiErrorCode {
 
     /** Canonical resource does not exist in the requesting tenant. */
+    HRM_PERSON_NOT_FOUND(404),
+
+    /** Canonical resource does not exist in the requesting tenant. */
     HRM_EMPLOYMENT_NOT_FOUND(404),
 
     /** Requested lifecycle transition is illegal for the current state. */

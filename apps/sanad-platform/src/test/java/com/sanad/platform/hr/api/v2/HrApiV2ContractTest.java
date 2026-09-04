@@ -179,7 +179,8 @@ class HrApiV2ContractTest {
                                  "legalEntityId":"22222222-2222-2222-2222-222222222222",
                                  "employeeNumber":"EMP-0001",
                                  "employmentStartDate":"2026-09-04",
-                                 "laborJurisdictionCode":"SA"}"""))
+                                 "laborJurisdictionCode":"SA",
+                                 "workerClassificationCode":"FULL_TIME"}"""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("BOUND"));
     }
