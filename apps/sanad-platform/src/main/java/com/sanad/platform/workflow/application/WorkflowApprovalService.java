@@ -274,7 +274,9 @@ public class WorkflowApprovalService {
                     .filter(r -> r.status() == WorkflowApprovalRequest.Status.PENDING)
                     .ifPresent(r -> approvalRepo.save(r.cancel(actorId)));
         }
-        String outcome = "APPROVE".equals(resolution.outcome()) ? null : "REJECTED";
+        // Outcome tokens match the validator-mandated transition vocabulary
+        // for approval steps: both APPROVE and REJECT transitions must exist.
+        String outcome = "APPROVE".equals(resolution.outcome()) ? "APPROVE" : "REJECT";
         graphExecutionService.advance(tenantId, updated.workflowInstanceId(), outcome, actorId);
     }
 

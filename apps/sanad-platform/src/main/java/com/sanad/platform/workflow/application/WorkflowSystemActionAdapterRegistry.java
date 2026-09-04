@@ -53,7 +53,13 @@ public class WorkflowSystemActionAdapterRegistry {
 
         @Override
         public ActionResult execute(ActionRequest request) {
-            return ActionResult.permanentFailure("E2E_DETERMINISTIC_FAILURE");
+            // TRANSIENT failure on purpose: the system-action service then
+            // exhausts its retry budget and opens the incident WITHOUT
+            // throwing through the transaction boundary — the caller receives
+            // a controlled failed ExecutionResult and surfaces a real, fully
+            // persisted incident (P10 contract). A permanentFailure here would
+            // throw and roll back the incident row with it.
+            return ActionResult.transientFailure("E2E_DETERMINISTIC_FAILURE");
         }
 
         @Override

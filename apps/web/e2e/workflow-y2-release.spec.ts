@@ -132,6 +132,12 @@ interface StepSpec {
   outcome?: string;
 }
 
+interface TransitionSpec {
+  from: string;
+  to: string;
+  outcome: string;
+}
+
 interface BuiltDefinition {
   defId: string;
   version: number;
@@ -146,6 +152,7 @@ let codeCounter = 0;
 
 async function buildDraft(
   request: APIRequestContext, email: string, prefix: string, steps: StepSpec[],
+  explicitTransitions?: TransitionSpec[],
 ): Promise<BuiltDefinition> {
   codeCounter += 1;
   const code = `${prefix}-${Date.now()}-${codeCounter}`;
@@ -174,16 +181,19 @@ async function buildDraft(
     expect(stepRes.status(), `step ${s.key} add must be 200 while DRAFT`).toBe(200);
     built.steps[s.key] = (await stepRes.json()) as { id: string };
   }
-  for (let i = 0; i < steps.length - 1; i++) {
+  const transitions = explicitTransitions ?? steps.slice(1).map((s, i) => ({
+    from: steps[i].key, to: s.key, outcome: s.outcome ?? "SUCCESS",
+  }));
+  for (const t of transitions) {
     const transitionRes = await postAs(request, email,
       `/api/v1/workflows/definitions/${built.defId}/transitions`, {
-        fromStepId: built.steps[steps[i].key].id,
-        toStepId: built.steps[steps[i + 1].key].id,
-        transitionKey: steps[i + 1].key,
-        outcome: steps[i + 1].outcome ?? "SUCCESS",
+        fromStepId: built.steps[t.from].id,
+        toStepId: built.steps[t.to].id,
+        transitionKey: t.to,
+        outcome: t.outcome,
         priority: 10,
       });
-    expect(transitionRes.status(), `transition into ${steps[i + 1].key} must be 200 while DRAFT`).toBe(200);
+    expect(transitionRes.status(), `transition ${t.from}→${t.to}[${t.outcome}] must be 200 while DRAFT`).toBe(200);
   }
   return built;
 }
@@ -408,7 +418,8 @@ test("P05 — DIRECT HUMAN_TASK is generated, assigned, completed, and advances 
   const emp1EmployeeId = await employeeIdFor(request, ACTORS.EMPLOYEE_1);
   const wf = await buildDraft(request, ACTORS.DESIGNER, "P05", [
     { key: "start", type: "START" },
-    { key: "human-task", type: "HUMAN_TASK", config: { assigneeEmployeeId: emp1EmployeeId } },
+    { key: "human-task", type: "HUMAN_TASK",
+      config: { assignment: { type: "USER", employeeId: emp1EmployeeId } } },
     { key: "end", type: "END" },
   ]);
   await publishDefinition(request, wf);
@@ -509,10 +520,18 @@ test("P06 — concurrent WORK_POOL claims: exactly one wins, one loses with 409,
 /* ════════════════ P07 — REAL ANY_ONE APPROVAL ════════════════ */
 
 test("P07 — ANY_ONE approval: first approval closes the step, siblings cancelled, no second approval", async ({ request }) => {
+  // Approval steps must declare BOTH APPROVE and REJECT transitions
+  // (validator contract APPROVAL_OUTCOME_MISSING) — approve routes to the
+  // approved END, reject would route to the rejected END.
   const wf = await buildDraft(request, ACTORS.DESIGNER, "P07", [
     { key: "start", type: "START" },
     { key: "signoff", type: "APPROVAL", role: "E2E_APPROVER", config: { approvalPolicy: "ANY_ONE" } },
-    { key: "end", type: "END" },
+    { key: "approved-end", type: "END" },
+    { key: "rejected-end", type: "END" },
+  ], [
+    { from: "start", to: "signoff", outcome: "SUCCESS" },
+    { from: "signoff", to: "approved-end", outcome: "APPROVE" },
+    { from: "signoff", to: "rejected-end", outcome: "REJECT" },
   ]);
   await publishDefinition(request, wf);
 
@@ -558,15 +577,22 @@ test("P07 — ANY_ONE approval: first approval closes the step, siblings cancell
 
 /* ════════════════ P08 — REAL ALL APPROVAL (success + rejection) ════════════════ */
 
-test("P08 — ALL approval: advance only after unanimity; reject-with-reason routes the REJECTED path", async ({ request }) => {
-  // SUCCESS PATH: every approver must approve before the workflow advances.
-  const successWf = await buildDraft(request, ACTORS.DESIGNER, "P08-ALL", [
+test("P08 — ALL approval: advance only after unanimity; reject-with-reason routes the REJECT path", async ({ request }) => {
+  // ONE ALL-policy graph serving both paths: APPROVE→approved-end, REJECT→rejected-end.
+  const wf = await buildDraft(request, ACTORS.DESIGNER, "P08-ALL", [
     { key: "start", type: "START" },
     { key: "signoff", type: "APPROVAL", role: "E2E_APPROVER", config: { approvalPolicy: "ALL" } },
-    { key: "end", type: "END" },
+    { key: "approved-end", type: "END" },
+    { key: "rejected-end", type: "END" },
+  ], [
+    { from: "start", to: "signoff", outcome: "SUCCESS" },
+    { from: "signoff", to: "approved-end", outcome: "APPROVE" },
+    { from: "signoff", to: "rejected-end", outcome: "REJECT" },
   ]);
-  await publishDefinition(request, successWf);
-  const startRes = await startY2Instance(request, ACTORS.DESIGNER, successWf.defId);
+  await publishDefinition(request, wf);
+
+  // SUCCESS PATH: unanimity required before the workflow advances.
+  const startRes = await startY2Instance(request, ACTORS.DESIGNER, wf.defId);
   expect(startRes.status()).toBe(200);
   const successInstance = (await startRes.json()) as InstanceMap;
 
@@ -599,15 +625,10 @@ test("P08 — ALL approval: advance only after unanimity; reject-with-reason rou
   expect(doneRes.status()).toBe(200);
   expect(((await doneRes.json()) as InstanceMap).status).toBe("COMPLETED");
 
-  // REJECTION PATH: reject without reason is rejected (400); a reasoned
-  // reject follows the definition's REJECTED outcome transition to END.
-  const rejectWf = await buildDraft(request, ACTORS.DESIGNER, "P08-REJ", [
-    { key: "start", type: "START" },
-    { key: "signoff", type: "APPROVAL", role: "E2E_APPROVER", config: { approvalPolicy: "ALL" } },
-    { key: "rejected-end", type: "END", outcome: "REJECTED" },
-  ]);
-  await publishDefinition(request, rejectWf);
-  const rejStartRes = await startY2Instance(request, ACTORS.DESIGNER, rejectWf.defId);
+  // REJECTION PATH: a fresh ALL instance. Reject without reason is rejected
+  // (400); a reasoned reject follows the REJECT outcome transition to the
+  // rejected END and closes the workflow.
+  const rejStartRes = await startY2Instance(request, ACTORS.DESIGNER, wf.defId);
   expect(rejStartRes.status()).toBe(200);
   const rejectInstance = (await rejStartRes.json()) as InstanceMap;
 
@@ -640,7 +661,8 @@ test("P09 — disabled user cannot act; work preserved without auto-transfer; ex
 
   const wf = await buildDraft(request, ACTORS.DESIGNER, "P09", [
     { key: "start", type: "START" },
-    { key: "human-task", type: "HUMAN_TASK", config: { assigneeEmployeeId: emp1EmployeeId } },
+    { key: "human-task", type: "HUMAN_TASK",
+      config: { assignment: { type: "USER", employeeId: emp1EmployeeId } } },
     { key: "end", type: "END" },
   ]);
   await publishDefinition(request, wf);
@@ -791,8 +813,14 @@ test("P11 — LEGACY instance keeps its generation across Y2 cutover; new instan
   expect(legacyInstance.engineGeneration).toBe("LEGACY");
   expect(legacyInstance.status).toBe("RUNNING");
 
-  // Publish the Y2 version in the same family (cutover).
-  const published = await publishDefinition(request, wf);
+  // Publish the Y2 version in the same family (cutover). Activation bumped
+  // the optimistic versionLock — refresh from the authoritative definition
+  // before publishing, then assert the Y2 cutover.
+  const refreshedDefRes = await getAs(request, ACTORS.DESIGNER,
+    `/api/v1/workflows/definitions/${wf.defId}`);
+  expect(refreshedDefRes.status()).toBe(200);
+  const refreshedDef = (await refreshedDefRes.json()) as { versionLock: number };
+  const published = await publishDefinition(request, wf, refreshedDef.versionLock);
   expect(published.engineGeneration).toBe("Y2");
 
   // The pre-cutover instance remains LEGACY with its definition pin intact.
