@@ -134,6 +134,33 @@ public class JdbcEmploymentContractRepository implements EmploymentContractRepos
         });
     }
 
+    /** Tenant-scoped contract listing (root rows), newest first (WS5 Task 5). */
+    public List<EmploymentContract> listContracts(UUID tenantId, int limit) {
+        return inTenantTransaction(tenantId, connection -> {
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "SELECT id, tenant_id, employment_id, contract_number, is_primary, " +
+                    "predecessor_contract_id, created_at " +
+                    "FROM hr_employment_contracts WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ?")) {
+                ps.setObject(1, tenantId);
+                ps.setInt(2, Math.min(Math.max(limit, 1), 200));
+                try (ResultSet rs = ps.executeQuery()) {
+                    List<EmploymentContract> result = new ArrayList<>();
+                    while (rs.next()) {
+                        result.add(new EmploymentContract(
+                                rs.getObject("id", UUID.class),
+                                rs.getObject("tenant_id", UUID.class),
+                                rs.getObject("employment_id", UUID.class),
+                                rs.getString("contract_number"),
+                                rs.getBoolean("is_primary"),
+                                rs.getObject("predecessor_contract_id", UUID.class),
+                                rs.getTimestamp("created_at") == null ? null : rs.getTimestamp("created_at").toInstant()));
+                    }
+                    return result;
+                }
+            }
+        });
+    }
+
     @Override
     public Optional<EmploymentContract> findContract(UUID tenantId, UUID contractId) {
         return inTenantTransaction(tenantId, connection -> {

@@ -153,6 +153,39 @@ public class CompensationService {
         }
     }
 
+    /**
+     * Sensitive read: returns a single package WITH amounts only after the
+     * fail-closed sensitive-read audit succeeds (WS5 Task 5 GET /{id}).
+     */
+    public CompensationPackage readPackageWithAudit(HrCommandContext ctx, UUID packageId) {
+        Objects.requireNonNull(ctx, "ctx");
+        Objects.requireNonNull(packageId, "packageId");
+        CompensationPackage pkg = repository.findPackage(ctx.tenantId(), packageId)
+                .orElseThrow(() -> new IllegalStateException("HRM_COMPENSATION_NOT_FOUND: " + packageId));
+        authorizationPort.requireView(ctx, pkg.employmentId());
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = connection.prepareStatement("SELECT set_config('app.tenant_id', ?, true)")) {
+                    ps.setString(1, ctx.tenantId().toString());
+                    ps.execute();
+                }
+                sensitiveReadAuditService.recordOrThrow(connection,
+                        new com.sanad.platform.hr.audit.HrAuthenticatedContext(ctx.tenantId(), ctx.actorUserId(),
+                                ctx.correlationId(), null),
+                        SENSITIVE_READ_ACTION, "HR_COMPENSATION_PACKAGE", packageId,
+                        "COMPENSATION", "WS5.COMPENSATION.PACKAGE_READ");
+                connection.commit();
+                return pkg;
+            } catch (SQLException e) {
+                connection.rollback();
+                throw new IllegalStateException("HRM_COMPENSATION_SENSITIVE_READ_FAILED: " + e.getMessage(), e);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_COMPENSATION_SENSITIVE_READ_FAILED: " + e.getMessage(), e);
+        }
+    }
+
     /** History WITHOUT component amounts — safe for directory/projection views. */
     public List<CompensationPackage> readHistoryWithoutAmounts(HrCommandContext ctx, UUID employmentId) {
         Objects.requireNonNull(ctx, "ctx");

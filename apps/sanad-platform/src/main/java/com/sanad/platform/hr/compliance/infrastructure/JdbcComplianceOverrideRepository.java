@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
+import java.util.List;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -59,6 +60,14 @@ public class JdbcComplianceOverrideRepository {
                         "WHERE r.id = ?",
                 (ResultSet rs) -> rs.next() ? Optional.of(mapRuleState(rs)) : Optional.<OverrideRuleState>empty(),
                 Objects.requireNonNull(ruleId, "ruleId"));
+    }
+
+    /** Tenant-scoped listing of override requests, newest first (WS5 Task 5). */
+    public List<ComplianceOverrideRequest> listByTenant(UUID tenantId, int limit) {
+        return jdbc.query(
+                "SELECT * FROM hr_compliance_override_requests WHERE tenant_id = ? " +
+                        "ORDER BY requested_at DESC LIMIT ?",
+                (rs, rowNum) -> mapRequest(rs), tenantId, limit);
     }
 
     public Optional<ComplianceOverrideRequest> findById(UUID tenantId, UUID requestId) {

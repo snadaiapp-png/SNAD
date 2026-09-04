@@ -32,6 +32,12 @@ public enum HrApiErrorCode {
     /** Canonical position does not exist in the requesting tenant. */
     HRM_POSITION_NOT_FOUND(404),
 
+    /** Canonical contract does not exist in the requesting tenant. */
+    HRM_CONTRACT_NOT_FOUND(404),
+
+    /** Canonical compensation package does not exist in the requesting tenant. */
+    HRM_COMPENSATION_NOT_FOUND(404),
+
     /** Requested lifecycle transition is illegal for the current state. */
     HRM_INVALID_STATE_TRANSITION(409),
 
