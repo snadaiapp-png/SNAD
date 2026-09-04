@@ -1,3 +1,5 @@
+# Trigger for SPRING_FLYWAY_USER recovery PR (post-958 follow-up)
+# Trigger for render env recovery PR (#957)
 # Trigger for cleanup PR
 # Trigger for validate fix PR
 # Trigger for repair PR
@@ -8,6 +10,17 @@
 # Trigger for expression fix PR
 # Trigger for migration hardening PR
 # G6 recovery PR trigger: touch own file to satisfy required check
+# Trigger for SCP smoke-identity diagnose completeness PR (#928)
+# Trigger for SCP reconcile log-capture fix PR (#929)
+# Trigger for SCP bootstrap token sync PR (#930)
+# Trigger for SCP tenant discovery PR (#931)
+# Trigger for SCP tenant redaction/canonicalization PR (#933)
+# SCP-PRODUCTION-RECOVERY-933: trigger required readiness for the one-time recovery arm PR.
+# Trigger for SCP reconcile exact-image dependency-ordering PR (#936)
+# Trigger for flyway verify repair-marker fix PR (#937)
+# Trigger for capability-code canonicalization + RBAC deny 403 contract PR (#938)
+# Trigger for SCP smoke UUID-shape contract PR (#939)
+# Trigger for PMV secret-scan false-positive allowlist PR (#941)
 name: CRM Deployment Readiness
 
 on:
@@ -16,6 +29,7 @@ on:
     paths:
       - 'apps/web/**'
       - 'apps/sanad-platform/**'
+      - 'scripts/ci/secret-scan-allowlist.json'
       - '.github/workflows/crm-deployment-readiness.yml'
   push:
     branches: [main]

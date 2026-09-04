@@ -1,7 +1,6 @@
 package com.sanad.platform.crm.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
@@ -57,7 +56,6 @@ class CrmIntegrationOutboxRecoveryTest {
         Flyway flyway = Flyway.configure()
                 .dataSource(isolatedUrl, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false).validateOnMigrate(false).load();
         // Self-sufficiency: always start from a canonical clean state so the
         // shared test_migration history never depends on prior test order.

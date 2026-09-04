@@ -2,7 +2,6 @@ package com.sanad.platform.crm.mobile.sync.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.crm.mobile.conflict.service.ConflictService;
 import com.sanad.platform.crm.mobile.sync.model.PushSyncRequest;
@@ -75,7 +74,6 @@ class G7PushSyncFailureIsolationPostgresTest {
         Flyway flyway = Flyway.configure()
                 .dataSource(rawDataSource)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(true)
                 .validateOnMigrate(true)
                 .load();

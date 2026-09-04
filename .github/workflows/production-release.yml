@@ -121,7 +121,10 @@ jobs:
           test "$(jq -r '.[] | select(.key == "BOOTSTRAP_ENABLED") | .value' /tmp/render-env-normalized.json)" = "false"
           control_tenant_id=$(jq -r '.[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value' /tmp/render-env-normalized.json)
           database_username=$(jq -r '.[] | select(.key == "DATABASE_USERNAME") | .value' /tmp/render-env-normalized.json)
-          [[ "$control_tenant_id" =~ ^[0-9a-fA-F-]{36}$ ]]
+          # Canonical UUID shape (8-4-4-4-12): accepts the deterministic
+          # control-plane sentinel tenant and every RFC version, while still
+          # rejecting structurally invalid ids.
+          [[ "$control_tenant_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
           echo "::add-mask::$control_tenant_id"
           echo "::add-mask::$database_username"
           echo "CONTROL_PLANE_TENANT_ID=$control_tenant_id" >> "$GITHUB_ENV"
@@ -216,11 +219,53 @@ jobs:
           echo "::error::Production readiness did not become UP"
           exit 1
 
+      - name: Verify Flyway runtime invariants on the live service
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Y2 incident regression guard (2026-09-04): the release pipeline used
+          # to trust the render.yaml blueprint while the LIVE service env had
+          # runtime Flyway effectively disabled, and migrations were expected
+          # to arrive only through the canonical dispatch workflow. The normal
+          # release path must now prove the runtime invariants explicitly:
+          # migrations are enabled and strictly ordered on the live service.
+          echo "Fetching live env vars from the Render service..."
+          curl --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > /tmp/render-live-env.json
+          live_env() {
+            jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == $k) | .value // empty' --arg k "$1" /tmp/render-live-env.json
+          }
+          FLYWAY_ENABLED_LIVE="$(live_env FLYWAY_ENABLED)"
+          FLYWAY_OUT_OF_ORDER_LIVE="$(live_env FLYWAY_OUT_OF_ORDER)"
+          if [ "$FLYWAY_ENABLED_LIVE" != "true" ]; then
+            echo "::error::FLYWAY_ENABLED must be explicitly 'true' on the production service in the normal release path (live value: '$FLYWAY_ENABLED_LIVE' — empty means unset). Set it on the Render service and re-run the release."
+            exit 1
+          fi
+          if [ -n "$FLYWAY_OUT_OF_ORDER_LIVE" ] && [ "$FLYWAY_OUT_OF_ORDER_LIVE" != "false" ]; then
+            echo "::error::FLYWAY_OUT_OF_ORDER must be 'false' (or unset) on the production service in the normal release path (live value: '$FLYWAY_OUT_OF_ORDER_LIVE'). Out-of-order application is reserved for documented one-shot recovery."
+            exit 1
+          fi
+          echo "FLYWAY_ENABLED=true: PASS"
+          echo "FLYWAY_OUT_OF_ORDER=false: PASS"
+
       - name: Verify Flyway production compatibility
         run: bash scripts/production/verify-flyway.sh
 
       - name: Verify production security boundary
         run: bash scripts/production/verify-auth-contract.sh
+
+      - name: Verify SCP production contract smoke
+        env:
+          SCP_SMOKE_BASE_URL: ${{ env.PRODUCTION_BASE_URL }}
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ env.CONTROL_PLANE_TENANT_ID }}
+          DEPLOYED_COMMIT_SHA: ${{ steps.target.outputs.sha }}
+          SCP_SMOKE_EVIDENCE_FILE: scp-contract-smoke.json
+        run: bash scripts/production/verify-scp-contract-smoke.sh
 
       - name: Verify Vercel Control Plane and BFF
         shell: bash
@@ -255,6 +300,7 @@ jobs:
             render-deployment-state.json
             production-release-evidence.json
             render-rollback.json
+            scp-contract-smoke.json
           if-no-files-found: warn
           retention-days: 90
 

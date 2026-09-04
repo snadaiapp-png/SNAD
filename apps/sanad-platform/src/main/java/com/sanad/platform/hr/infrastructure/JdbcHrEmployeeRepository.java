@@ -68,16 +68,16 @@ public class JdbcHrEmployeeRepository implements HrEmployeeRepository {
     public Optional<HrEmployee> findById(UUID tenantId, UUID id) {
         String sql = "SELECT * FROM hr_employees WHERE id=:id AND tenant_id=:tenantId";
         var params = new MapSqlParameterSource().addValue("id", id).addValue("tenantId", tenantId);
-        return jdbc.query(sql, params, (rs, rowNum) -> new HrEmployee(
-            rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),
-            rs.getObject("user_id", UUID.class), rs.getString("employee_number"),
-            rs.getString("first_name"), rs.getString("last_name"), rs.getString("display_name"),
-            rs.getString("email"), rs.getString("phone"),
-            rs.getObject("department_id", UUID.class), rs.getObject("position_id", UUID.class),
-            rs.getObject("manager_id", UUID.class), rs.getString("employment_type"),
-            rs.getString("status"), rs.getDate("hire_date") != null ? rs.getDate("hire_date").toLocalDate() : null,
-            rs.getDate("termination_date") != null ? rs.getDate("termination_date").toLocalDate() : null
-        )).stream().findFirst();
+        return jdbc.query(sql, params, this::mapEmployee).stream().findFirst();
+    }
+
+    @Override
+    public Optional<HrEmployee> findByUserId(UUID tenantId, UUID userId) {
+        String sql = "SELECT * FROM hr_employees WHERE tenant_id=:tenantId AND user_id=:userId";
+        var params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("userId", userId);
+        return jdbc.query(sql, params, this::mapEmployee).stream().findFirst();
     }
 
     @Override
@@ -89,7 +89,60 @@ public class JdbcHrEmployeeRepository implements HrEmployeeRepository {
             params.addValue("search", "%" + search + "%");
         }
         sql += " ORDER BY created_at DESC LIMIT :limit";
-        return jdbc.query(sql, params, (rs, rowNum) -> new HrEmployee(
+        return jdbc.query(sql, params, this::mapEmployee);
+    }
+
+    @Override
+    public List<HrEmployee> findActiveByDepartment(UUID tenantId, UUID departmentId) {
+        String sql = """
+                SELECT * FROM hr_employees
+                WHERE tenant_id=:tenantId AND department_id=:departmentId AND status='ACTIVE'
+                ORDER BY display_name ASC
+                """;
+        var params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("departmentId", departmentId);
+        return jdbc.query(sql, params, this::mapEmployee);
+    }
+
+    @Override
+    public List<HrEmployee> findActiveByPosition(UUID tenantId, UUID positionId) {
+        String sql = """
+                SELECT * FROM hr_employees
+                WHERE tenant_id=:tenantId AND position_id=:positionId AND status='ACTIVE'
+                ORDER BY display_name ASC
+                """;
+        var params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("positionId", positionId);
+        return jdbc.query(sql, params, this::mapEmployee);
+    }
+
+    @Override
+    public List<HrEmployee> findActiveByUserIds(UUID tenantId, java.util.Collection<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return List.of();
+        }
+        String sql = """
+                SELECT * FROM hr_employees
+                WHERE tenant_id=:tenantId AND status='ACTIVE' AND user_id IN (:userIds)
+                ORDER BY display_name ASC
+                """;
+        var params = new MapSqlParameterSource()
+                .addValue("tenantId", tenantId)
+                .addValue("userIds", userIds);
+        return jdbc.query(sql, params, this::mapEmployee);
+    }
+
+
+    @Override
+    public long count(UUID tenantId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM hr_employees WHERE tenant_id=:tenantId",
+            new MapSqlParameterSource().addValue("tenantId", tenantId), Long.class);
+    }
+
+    private HrEmployee mapEmployee(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return new HrEmployee(
             rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),
             rs.getObject("user_id", UUID.class), rs.getString("employee_number"),
             rs.getString("first_name"), rs.getString("last_name"), rs.getString("display_name"),
@@ -98,13 +151,6 @@ public class JdbcHrEmployeeRepository implements HrEmployeeRepository {
             rs.getObject("manager_id", UUID.class), rs.getString("employment_type"),
             rs.getString("status"), rs.getDate("hire_date") != null ? rs.getDate("hire_date").toLocalDate() : null,
             rs.getDate("termination_date") != null ? rs.getDate("termination_date").toLocalDate() : null
-        ));
-    }
-
-
-    @Override
-    public long count(UUID tenantId) {
-        return jdbc.queryForObject("SELECT COUNT(*) FROM hr_employees WHERE tenant_id=:tenantId",
-            new MapSqlParameterSource().addValue("tenantId", tenantId), Long.class);
+        );
     }
 }

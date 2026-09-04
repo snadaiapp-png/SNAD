@@ -131,4 +131,114 @@ export const workflowApi = {
 
   triggerSlaCheck: () =>
     apiClient.post<WorkflowMonitoringHealthResponse>(`${BASE}/monitoring/check-sla`),
+
+  // ===== Y2 WorkItems (Task 16) =====
+  listMyWorkItems: (limit = 50) =>
+    apiClient.get<WorkflowWorkItemResponse[]>(`${BASE}/work-items/mine?limit=${limit}`),
+
+  listPoolWorkItems: (limit = 50) =>
+    apiClient.get<WorkflowWorkItemResponse[]>(`${BASE}/work-items/pool?limit=${limit}`),
+
+  claimWorkItem: (id: string, expectedVersion: number) =>
+    apiClient.post<WorkflowWorkItemResponse>(`${BASE}/work-items/${id}/claim`, { expectedVersion }),
+
+  releaseWorkItem: (id: string, expectedVersion: number) =>
+    apiClient.post<WorkflowWorkItemResponse>(`${BASE}/work-items/${id}/release`, { expectedVersion }),
+
+  completeWorkItem: (id: string, expectedVersion: number) =>
+    apiClient.post<WorkflowWorkItemResponse>(`${BASE}/work-items/${id}/complete`, { expectedVersion }),
+
+  reassignWorkItem: (id: string, newAssigneeEmployeeId: string, expectedVersion: number, reason: string) =>
+    apiClient.post<WorkflowWorkItemResponse>(`${BASE}/work-items/${id}/reassign`,
+      { newAssigneeEmployeeId, expectedVersion, reason }),
+
+  // ===== Y2 Publishing (Task 16) =====
+  publishDefinition: (id: string, expectedVersion: number) =>
+    apiClient.post<WorkflowDefinitionResponse>(`${BASE}/definitions/${id}/publish`, { expectedVersion }),
+
+  createNextDraft: (id: string) =>
+    apiClient.post<WorkflowDefinitionResponse>(`${BASE}/definitions/${id}/next-draft`, {}),
+
+  validateDefinition: (id: string) =>
+    apiClient.post<WorkflowValidationResponse>(`${BASE}/definitions/${id}/validate`, {}),
+
+  simulateDefinition: (id: string) =>
+    apiClient.post<WorkflowSimulationResponse>(`${BASE}/definitions/${id}/simulate`, {}),
+
+  getDefinitionSteps: (id: string) =>
+    apiClient.get<WorkflowStepResponse[]>(`${BASE}/definitions/${id}/steps`),
+
+  getDefinitionTransitions: (id: string) =>
+    apiClient.get<WorkflowTransitionResponse[]>(`${BASE}/definitions/${id}/transitions`),
+
+  // ===== Y2 Incidents (Task 16) =====
+  listIncidents: (limit = 50) =>
+    apiClient.get<WorkflowIncidentResponse[]>(`${BASE}/incidents?limit=${limit}`),
+
+  acknowledgeIncident: (id: string) =>
+    apiClient.post<WorkflowIncidentResponse>(`${BASE}/incidents/${id}/acknowledge`, {}),
+
+  resolveIncident: (id: string, resolution: string) =>
+    apiClient.post<WorkflowIncidentResponse>(`${BASE}/incidents/${id}/resolve`, { resolution }),
 };
+
+export interface WorkflowWorkItemResponse {
+  id: string;
+  workflowInstanceId: string;
+  workflowStepInstanceId: string;
+  type: "HUMAN_TASK" | "APPROVAL";
+  status: string;
+  assigneeEmployeeId: string | "";
+  claimedByEmployeeId: string | "";
+  assignmentMode: "DIRECT" | "WORK_POOL";
+  title: string;
+  priority: number;
+  dueAt: string | "";
+  version: number;
+}
+
+export interface WorkflowValidationResponse {
+  valid: boolean;
+  errors: { code: string; message: string; stepId: string }[];
+}
+
+export interface WorkflowSimulationResponse {
+  valid: boolean;
+  simulated: boolean;
+  visitedStepIds: string[];
+  notes: string[];
+}
+
+export interface WorkflowStepResponse {
+  id: string;
+  workflowDefinitionId: string;
+  stepKey: string;
+  name: string;
+  stepType: string;
+  sequenceOrder: number;
+  configuration: string;
+  slaHours: number;
+  requiredCapability: string;
+  requiredRole: string;
+  version: number;
+}
+
+export interface WorkflowTransitionResponse {
+  id: string;
+  fromStepId: string;
+  toStepId: string;
+  transitionKey: string;
+  outcome: string;
+  priority: number;
+}
+
+export interface WorkflowIncidentResponse {
+  id: string;
+  workflowInstanceId: string;
+  source: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  failureCategory: string;
+  status: string;
+  resolution: string;
+  createdAt: string;
+}

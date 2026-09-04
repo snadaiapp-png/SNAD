@@ -86,7 +86,6 @@ class HrContractCountryPolicyIntegrationTest {
         Flyway flyway = Flyway.configure()
                 .dataSource(ds)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities())
                 .baselineOnMigrate(true)
                 .cleanDisabled(false)
                 .validateOnMigrate(false)

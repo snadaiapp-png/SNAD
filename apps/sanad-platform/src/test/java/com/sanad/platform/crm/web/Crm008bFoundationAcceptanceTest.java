@@ -651,7 +651,6 @@ class Crm008bFoundationAcceptanceTest {
                 // the Spring auto-configured Flyway on the sanad database) so
                 // validate() and other tests' validateOnMigrate(true) are
                 // order-independent.
-                .javaMigrations(new com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(false);
         if (target != null) configuration.target(target);

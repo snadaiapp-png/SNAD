@@ -22,19 +22,24 @@ describe("post-login destination security", () => {
     expect(safeReturnUrl("/control-plane", ["/workspace", "/crm"])).toBeNull();
   });
 
-  it("prefers safe returnUrl, then default destination, then workspace", () => {
+  it("preserves an explicitly requested authorized returnUrl", () => {
     expect(resolvePostLoginDestination({
       returnUrl: "/crm/leads",
       defaultDestination: "/control-plane",
       availableDestinations: available,
     })).toBe("/crm/leads");
+  });
 
+  it("uses workspace as the default landing page after login", () => {
     expect(resolvePostLoginDestination({
       returnUrl: "https://evil.example",
       defaultDestination: "/control-plane",
       availableDestinations: available,
-    })).toBe("/control-plane");
+    })).toBe("/workspace");
 
-    expect(resolvePostLoginDestination({ availableDestinations: ["/workspace"] })).toBe("/workspace");
+    expect(resolvePostLoginDestination({
+      defaultDestination: "/crm",
+      availableDestinations: ["/crm", "/control-plane"],
+    })).toBe("/workspace");
   });
 });

@@ -1,7 +1,6 @@
 package com.sanad.platform.crm.ownership.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.collaboration.application.CollaborationMembershipService;
 import com.sanad.platform.crm.collaboration.domain.CollaborationEntityType;
 import com.sanad.platform.crm.collaboration.domain.EntityParticipant;
@@ -179,7 +178,6 @@ class ContactOwnershipCanonicalizationSpringPostgresTest {
                         System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                         System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false).validateOnMigrate(true).load();
                 // Self-sufficiency: always start from a canonical clean state so the
                 // shared test_migration history never depends on prior test order.
