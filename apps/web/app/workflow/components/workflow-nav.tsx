@@ -52,7 +52,7 @@ export function WorkflowNav({
               borderRadius: 8,
               border: "1px solid " + (active ? "var(--snad-color-primary)" : "transparent"),
               background: active ? "var(--snad-color-primary)" : "transparent",
-              color: active ? "#fff" : "var(--snad-color-text-secondary)",
+              color: active ? "var(--snad-color-text-inverse)" : "var(--snad-color-text-secondary)",
               cursor: user ? "pointer" : "not-allowed",
               fontWeight: active ? 700 : 500,
             }}

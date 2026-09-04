@@ -20,10 +20,10 @@ export function WorkflowSettings() {
         <tbody>
           {policies.map((policy) => (
             <tr key={policy.name}>
-              <td style={{ border: "1px solid var(--snad-color-border, #ddd)", padding: 8, fontWeight: 600, width: 220 }}>
+              <td style={{ border: "1px solid var(--snad-color-border-default)", padding: 8, fontWeight: 600, width: 220 }}>
                 {policy.name}
               </td>
-              <td style={{ border: "1px solid var(--snad-color-border, #ddd)", padding: 8 }}>{policy.value}</td>
+              <td style={{ border: "1px solid var(--snad-color-border-default)", padding: 8 }}>{policy.value}</td>
             </tr>
           ))}
         </tbody>

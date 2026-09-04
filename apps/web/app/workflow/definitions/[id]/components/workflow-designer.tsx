@@ -166,7 +166,7 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
       )}
 
       {view === "canvas" ? (
-        <div style={{ position: "relative", height: 320, border: "1px solid var(--snad-color-border, #ddd)", borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ position: "relative", height: 320, border: "1px solid var(--snad-color-border-default)", borderRadius: 8, overflow: "hidden" }}>
           <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} aria-hidden>
             {transitions.map((t) => {
               const from = positions.get(t.fromStepId);
@@ -190,7 +190,7 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
               <div key={step.id} style={{
                 position: "absolute", left: pos.x, top: pos.y, width: 90,
                 padding: "8px 6px", borderRadius: 8, textAlign: "center", fontSize: 12,
-                border: "2px solid var(--snad-color-primary)", background: "#fff",
+                border: "2px solid var(--snad-color-primary)", background: "var(--snad-color-background-default)",
                 opacity: published || publicationState === "PUBLISHED" ? 0.85 : 1,
                 pointerEvents: published || publicationState === "PUBLISHED" ? "none" : "auto",
                 cursor: published || publicationState === "PUBLISHED" ? "default" : "move",
@@ -235,7 +235,7 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
 }
 
 const cell: React.CSSProperties = {
-  border: "1px solid var(--snad-color-border, #ddd)", padding: 8, textAlign: "right",
+  border: "1px solid var(--snad-color-border-default)", padding: 8, textAlign: "right",
 };
 
 /** Deterministic two-column layout keyed off sequence order. */

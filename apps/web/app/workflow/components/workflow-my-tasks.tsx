@@ -82,7 +82,7 @@ export function WorkflowMyTasks() {
       <h3>مهامي المباشرة</h3>
       {mine.length === 0 && <p>لا توجد مهام مباشرة.</p>}
       {mine.map((item) => (
-        <div key={item.id} style={{ border: "1px solid var(--snad-color-border, #ddd)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+        <div key={item.id} style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
           <strong>{item.title}</strong>{" "}
           <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
             {item.status} · إصدار {item.version}
@@ -106,7 +106,7 @@ export function WorkflowMyTasks() {
       <h3 style={{ marginTop: 24 }}>تجمع المهام (Work Pool)</h3>
       {pool.length === 0 && <p>لا توجد مهام متاحة في التجمع.</p>}
       {pool.map((item) => (
-        <div key={item.id} style={{ border: "1px dashed var(--snad-color-border, #ddd)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+        <div key={item.id} style={{ border: "1px dashed var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
           <strong>{item.title}</strong>{" "}
           <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>متاحة · إصدار {item.version}</span>
           <div style={{ marginTop: 8 }}>

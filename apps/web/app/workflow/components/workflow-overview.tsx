@@ -46,7 +46,7 @@ export function WorkflowOverview() {
       </div>
       <h3>أحدث المثيلات</h3>
       {instances.map((instance) => (
-        <div key={instance.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--snad-color-border, #eee)" }}>
+        <div key={instance.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--snad-color-border-subtle)" }}>
           {instance.id.slice(0, 8)}… · {instance.status} · {instance.currentStepKey || "—"}
         </div>
       ))}
@@ -57,7 +57,7 @@ export function WorkflowOverview() {
 function Card({ label, value }: { label: string; value: string | number }) {
   return (
     <div style={{
-      border: "1px solid var(--snad-color-border, #ddd)", borderRadius: 10,
+      border: "1px solid var(--snad-color-border-default)", borderRadius: 10,
       padding: "12px 18px", minWidth: 140,
     }}>
       <div style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>{label}</div>

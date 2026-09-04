@@ -67,7 +67,7 @@ export function WorkflowIncidents() {
       {error && <p role="alert" style={{ color: "var(--snad-color-error)" }}>{error}</p>}
       {incidents.length === 0 && <p>لا توجد حوادث مفتوحة.</p>}
       {incidents.map((incident) => (
-        <div key={incident.id} style={{ border: "1px solid var(--snad-color-border, #ddd)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+        <div key={incident.id} style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
           <strong>{incident.source}</strong>{" "}
           <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
             {incident.severity} · {incident.status} · {incident.failureCategory}
