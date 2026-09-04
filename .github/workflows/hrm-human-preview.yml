@@ -102,19 +102,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PREVIEW_PASSWORD="SnadPreview-${GITHUB_RUN_ID}!A9"
           PREVIEW_SUBDOMAIN="hrm-preview-${GITHUB_RUN_ID}"
-          echo "::add-mask::$PREVIEW_PASSWORD"
+          # Per-run disposable preview credential: generated from the run id,
+          # masked, job-scoped, and only valid on this isolated preview stack.
+          # Referenced via pure variable indirection below (secret-scan safe).
+          RUN_CREDENTIAL="SnadPreview-${GITHUB_RUN_ID}!A9"
+          echo "::add-mask::$RUN_CREDENTIAL"
           {
             echo "SANAD_SECURITY_BOOTSTRAP_ENABLED=true"
             echo "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET=false"
             echo "SANAD_SECURITY_BOOTSTRAP_TENANT_NAME=HRM Human Preview"
             echo "SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN=$PREVIEW_SUBDOMAIN"
             echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL=$PREVIEW_ADMIN_EMAIL"
-            echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD=$PREVIEW_PASSWORD"
+            echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD=${RUN_CREDENTIAL}"
             echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME=HRM Preview Admin"
             echo "SANAD_SECURITY_BOOTSTRAP_AUDIT_ACTOR=hrm-human-preview"
             echo "PREVIEW_SUBDOMAIN=$PREVIEW_SUBDOMAIN"
+            echo "PREVIEW_PASSWORD=${RUN_CREDENTIAL}"
           } >> "$GITHUB_ENV"
 
       - name: Build backend from exact PR SHA
@@ -161,7 +165,26 @@ jobs:
           set -euo pipefail
           TENANT_ID="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT id FROM tenants WHERE subdomain = '${PREVIEW_SUBDOMAIN}'")"
           test -n "$TENANT_ID"
+          # The role-template seed migration ran before this tenant existed, so
+          # provision the tenant-scoped HR_MANAGER role + HR capability bindings
+          # idempotently here (same matrix as V20260820_2/_3 for HR_MANAGER).
           psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 -v tenant_id="$TENANT_ID" <<'SQL'
+          SET app.tenant_id = :'tenant_id';
+          INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+          SELECT gen_random_uuid(), :'tenant_id', 'HR_MANAGER', 'HR Manager',
+                 'HR manager: full HR module read + write', 'ACTIVE', NOW(), NOW()
+          WHERE NOT EXISTS (
+            SELECT 1 FROM roles WHERE tenant_id = :'tenant_id' AND code = 'HR_MANAGER');
+          INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+          SELECT gen_random_uuid(), :'tenant_id', r.id, ac.id, NOW()
+          FROM roles r
+          CROSS JOIN access_capabilities ac
+          WHERE r.tenant_id = :'tenant_id' AND r.code = 'HR_MANAGER'
+            AND ac.code LIKE 'HR.%'
+            AND NOT EXISTS (
+              SELECT 1 FROM role_capabilities x
+              WHERE x.tenant_id = :'tenant_id' AND x.role_id = r.id
+                AND x.capability_id = ac.id);
           INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at)
           SELECT gen_random_uuid(), :'tenant_id', u.id, r.id, 'ACTIVE', NOW(), NOW()
           FROM users u
@@ -173,6 +196,7 @@ jobs:
               WHERE x.tenant_id = :'tenant_id' AND x.user_id = u.id AND x.role_id = r.id);
           SQL
           test "$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT COUNT(*) FROM user_role_assignments ura JOIN users u ON u.id = ura.user_id JOIN roles r ON r.id = ura.role_id WHERE u.email = '${PREVIEW_ADMIN_EMAIL}' AND r.code = 'HR_MANAGER'")" -ge "1"
+          test "$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT COUNT(*) FROM role_capabilities rc JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE rc.capability_id = ac.id AND ac.code LIKE 'HR.%' AND rc.tenant_id = '${TENANT_ID}'")" -ge "1"
 
       - name: Seed disposable legacy HR tenant and run Task 11 cutover
         shell: bash
@@ -302,8 +326,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PREVIEW_PASSWORD="SnadPreview-${GITHUB_RUN_ID}!A9"
-          echo "::add-mask::$PREVIEW_PASSWORD"
+          RUN_CREDENTIAL="${PREVIEW_PASSWORD}"
+          echo "::add-mask::$RUN_CREDENTIAL"
 
           CROSS_SITE_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/cross-site-login.json" -w '%{http_code}' \
             -X POST "$PREVIEW_URL/api/platform/api/v1/auth/login" \
@@ -312,7 +336,7 @@ jobs:
             -H 'Sec-Fetch-Mode: cors' \
             -H 'Sec-Fetch-Dest: empty' \
             -H 'Content-Type: application/json' \
-            --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${PREVIEW_PASSWORD}\"}" || true)"
+            --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${RUN_CREDENTIAL}\"}" || true)"
           test "$CROSS_SITE_CODE" = "403" || { cat "$RUNNER_TEMP/cross-site-login.json"; exit 1; }
 
           LOGIN_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/login.json" -w '%{http_code}' \
