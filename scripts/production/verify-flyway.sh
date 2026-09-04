@@ -99,7 +99,13 @@ REPO_MAX_VERSION=$(
   } | while read -r f; do basename "$f" | sed -e 's/^V//' -e 's/__.*//' -e 's/_/./'; done | sort -V | tail -1
 )
 REPO_MAX_VERSION="${REPO_MAX_VERSION:-0}"
-DB_MAX_VERSION=$(run_sql "SELECT COALESCE(max(version), '0') FROM flyway_schema_history WHERE success = TRUE AND type != 'DELETE';")
+# Version-aware DB head: max() over the varchar version column is LEXICOGRAPHIC
+# ('9' > '20260904.1' since '9' > '2' in ASCII), which permanently reports the
+# DB head as '9' whenever plain-digit V1..V9 rows exist, falsely arming the
+# pending-migrations gate. Sort the applied versions with sort -V instead
+# (matches the REPO_MAX_VERSION comparison semantics below).
+DB_MAX_VERSION=$(run_sql "SELECT version FROM flyway_schema_history WHERE success = TRUE AND type != 'DELETE';" | sed '/^[[:space:]]*$/d' | sort -V | tail -1)
+DB_MAX_VERSION="${DB_MAX_VERSION:-0}"
 HIGHEST_VERSION=$(printf '%s\n%s\n' "$DB_MAX_VERSION" "$REPO_MAX_VERSION" | sort -V | tail -1)
 
 if [ "$DB_MAX_VERSION" != "$REPO_MAX_VERSION" ]; then
