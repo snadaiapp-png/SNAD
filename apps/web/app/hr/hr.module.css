@@ -511,6 +511,135 @@
   font-size: 0.875rem;
 }
 
+/* ============================== Task 10 workspaces ====================== */
+
+.inlineField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.inlineField input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--snad-border);
+  border-radius: 0.375rem;
+  background: var(--snad-surface);
+  color: var(--snad-text);
+  font: inherit;
+}
+
+.inlineField input:focus-visible {
+  outline: 2px solid var(--snad-primary);
+  outline-offset: 1px;
+}
+
+.linkButton {
+  background: transparent;
+  border: none;
+  color: var(--snad-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+.linkButton:focus-visible {
+  outline: 2px solid var(--snad-primary);
+  outline-offset: 1px;
+}
+
+.occupiedBadge,
+.vacantBadge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.occupiedBadge {
+  color: var(--snad-primary);
+  background: color-mix(in srgb, var(--snad-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-primary) 25%, transparent);
+}
+
+.vacantBadge {
+  color: var(--snad-text-muted);
+  background: color-mix(in srgb, var(--snad-text-muted) 8%, transparent);
+  border: 1px solid var(--snad-border);
+}
+
+.orgTree,
+.orgChildren {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.orgChildren {
+  padding-inline-start: 1.5rem;
+  border-inline-start: 1px dashed var(--snad-border);
+  margin-block: 0.25rem;
+}
+
+.orgNode {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--snad-border);
+  border-radius: 0.375rem;
+  background: var(--snad-surface);
+  margin-block: 0.25rem;
+}
+
+.orgName {
+  font-weight: 600;
+}
+
+.orgMeta {
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+}
+
+.dashboardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.75rem;
+  margin-block-end: 1rem;
+}
+
+.statCard {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--snad-border);
+  border-radius: 0.5rem;
+  background: var(--snad-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.statAlert {
+  border-color: color-mix(in srgb, var(--snad-warning, #b9770e) 40%, transparent);
+  background: color-mix(in srgb, var(--snad-warning, #b9770e) 8%, transparent);
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.statLabel {
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+}
+
 /* ============================== Responsive ============================== */
 
 @media (max-width: 640px) {
