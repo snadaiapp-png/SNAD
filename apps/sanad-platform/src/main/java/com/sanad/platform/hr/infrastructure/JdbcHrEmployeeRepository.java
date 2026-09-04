@@ -101,11 +101,6 @@ public class JdbcHrEmployeeRepository implements HrEmployeeRepository {
         ));
     }
 
-    @Override
-    public void delete(UUID tenantId, UUID id) {
-        jdbc.update("DELETE FROM hr_employees WHERE id=:id AND tenant_id=:tenantId",
-            new MapSqlParameterSource().addValue("id", id).addValue("tenantId", tenantId));
-    }
 
     @Override
     public long count(UUID tenantId) {

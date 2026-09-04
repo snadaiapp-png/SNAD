@@ -8,6 +8,5 @@ public interface HrEmployeeRepository {
     HrEmployee save(HrEmployee employee);
     Optional<HrEmployee> findById(UUID tenantId, UUID id);
     List<HrEmployee> findAll(UUID tenantId, int limit, String search);
-    void delete(UUID tenantId, UUID id);
     long count(UUID tenantId);
 }
