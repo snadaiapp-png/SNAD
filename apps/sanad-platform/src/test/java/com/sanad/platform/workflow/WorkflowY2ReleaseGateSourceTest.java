@@ -75,7 +75,16 @@ class WorkflowY2ReleaseGateSourceTest {
         assertThat(script)
                 .as("verify-flyway.sh must compare the production schema version "
                         + "against the newest migration shipped in the repository")
-                .contains("max(version)");
+                .contains("sort -V | tail -1");
+        // The DB head must be computed version-aware: SQL max() over the varchar
+        // version column is LEXICOGRAPHIC ('9' > '20260904.1' in ASCII), which
+        // permanently reports the production head as 9 whenever plain-digit
+        // V1..V9 rows exist and falsely arms the pending-migrations gate
+        // (release run 33911292036 failed on exactly that false positive).
+        assertThat(script)
+                .as("verify-flyway.sh must not use lexicographic max(version) "
+                        + "as the production schema head")
+                .doesNotContain("max(version)");
     }
 
     @Test
