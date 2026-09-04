@@ -397,7 +397,7 @@ jobs:
             -H 'Sec-Fetch-Dest: empty' \
             -H "Authorization: Bearer $TOKEN")"
           test "$HRM_V2_CODE" = "200" || { cat "$RUNNER_TEMP/hrm-v2-people.json"; exit 1; }
-          jq -e '.content | length >= 1' "$RUNNER_TEMP/hrm-v2-people.json" >/dev/null
+          jq -e 'length >= 1' "$RUNNER_TEMP/hrm-v2-people.json" >/dev/null
           echo "HRM v2 canonical people surface reachable through the public BFF."
 
       - name: Publish human-test coordinates
