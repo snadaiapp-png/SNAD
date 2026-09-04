@@ -215,6 +215,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260902.5"   // business calendars + delegations + attempts + incidents
             , "20260902.6"   // inbox/outbox + notification intents
             , "20260902.7"   // audit OVERRIDE action for break-glass commands
+            , "20260904.1"   // forward-only idempotent production reconciliation of the Y2 wave
     );
 
 

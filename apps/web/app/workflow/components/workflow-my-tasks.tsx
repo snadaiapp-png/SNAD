@@ -5,6 +5,7 @@ import {
   workflowApi,
   type WorkflowWorkItemResponse,
 } from "@/lib/api/workflow-api";
+import { describeWorkflowError } from "@/lib/workflow/error-messages";
 
 /**
  * My Tasks (design decisions C3/L3/T3): direct and pool work are shown
@@ -30,8 +31,9 @@ export function WorkflowMyTasks() {
       setMine(myItems);
       setPool(poolItems);
     } catch (e: unknown) {
-      const err = e as { status?: number; message?: string };
-      setError(err?.message ?? "تعذر تحميل المهام");
+      // User-facing message is always the mapped Arabic guidance — raw
+      // transport details stay in the console (Y2 hotfix contract).
+      setError(describeWorkflowError(e, "تعذر تحميل المهام"));
     } finally {
       setLoading(false);
     }
@@ -55,10 +57,8 @@ export function WorkflowMyTasks() {
       if (err?.status === 409) {
         setConflict(`تعارض إصدار في المهمة ${itemId}: تم تحديثها من قبل مستخدم آخر — أعيد التحميل.`);
         await load();
-      } else if (err?.status === 403) {
-        setError("لا تملك صلاحية تنفيذ هذا الإجراء");
       } else {
-        setError(err?.message ?? "فشل تنفيذ الإجراء");
+        setError(describeWorkflowError(e, "فشل تنفيذ الإجراء"));
       }
     }
   };
@@ -77,10 +77,15 @@ export function WorkflowMyTasks() {
       {conflict && (
         <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>
       )}
-      {error && <p role="alert" style={{ color: "var(--snad-color-error)" }}>{error}</p>}
+      {error && (
+        <div role="alert" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <p style={{ color: "var(--snad-color-error)", margin: 0 }}>{error}</p>
+          <button onClick={() => void load()}>إعادة المحاولة</button>
+        </div>
+      )}
 
       <h3>مهامي المباشرة</h3>
-      {mine.length === 0 && <p>لا توجد مهام مباشرة.</p>}
+      {!error && mine.length === 0 && <p>لا توجد مهام مباشرة.</p>}
       {mine.map((item) => (
         <div key={item.id} style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
           <strong>{item.title}</strong>{" "}
@@ -104,7 +109,7 @@ export function WorkflowMyTasks() {
       ))}
 
       <h3 style={{ marginTop: 24 }}>تجمع المهام (Work Pool)</h3>
-      {pool.length === 0 && <p>لا توجد مهام متاحة في التجمع.</p>}
+      {!error && pool.length === 0 && <p>لا توجد مهام متاحة في التجمع.</p>}
       {pool.map((item) => (
         <div key={item.id} style={{ border: "1px dashed var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
           <strong>{item.title}</strong>{" "}

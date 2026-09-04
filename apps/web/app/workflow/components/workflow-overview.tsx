@@ -6,6 +6,7 @@ import {
   type WorkflowInstanceResponse,
   type WorkflowMonitoringHealthResponse,
 } from "@/lib/api/workflow-api";
+import { describeWorkflowError } from "@/lib/workflow/error-messages";
 
 /**
  * Overview (design decision AP3): operational snapshot from the monitoring
@@ -27,7 +28,7 @@ export function WorkflowOverview() {
       setHealth(h);
       setInstances(i);
     } catch (e: unknown) {
-      setError((e as { message?: string })?.message ?? "تعذر تحميل النظرة العامة");
+      setError(describeWorkflowError(e, "تعذر تحميل النظرة العامة"));
     }
   }, []);
 
@@ -37,7 +38,12 @@ export function WorkflowOverview() {
 
   return (
     <div dir="rtl">
-      {error && <p role="alert" style={{ color: "var(--snad-color-error)" }}>{error}</p>}
+      {error && (
+        <div role="alert" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+          <p style={{ color: "var(--snad-color-error)", margin: 0 }}>{error}</p>
+          <button onClick={() => void load()}>إعادة المحاولة</button>
+        </div>
+      )}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24 }}>
         <Card label="الحالة العامة" value={health?.status ?? "—"} />
         <Card label="خطوات متأخرة" value={health?.overdueSteps ?? "—"} />
@@ -45,6 +51,7 @@ export function WorkflowOverview() {
         <Card label="انتهاكات SLA" value={health?.totalBreaches ?? "—"} />
       </div>
       <h3>أحدث المثيلات</h3>
+      {!error && instances.length === 0 && <p>لا توجد مثيلات حديثة.</p>}
       {instances.map((instance) => (
         <div key={instance.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--snad-color-border-subtle)" }}>
           {instance.id.slice(0, 8)}… · {instance.status} · {instance.currentStepKey || "—"}

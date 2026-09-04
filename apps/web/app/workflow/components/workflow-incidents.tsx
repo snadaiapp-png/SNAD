@@ -5,6 +5,7 @@ import {
   workflowApi,
   type WorkflowIncidentResponse,
 } from "@/lib/api/workflow-api";
+import { describeWorkflowError } from "@/lib/workflow/error-messages";
 
 /**
  * Incidents view (design decision AF3): OPEN/ACKNOWLEDGED incidents with
@@ -23,8 +24,7 @@ export function WorkflowIncidents() {
     try {
       setIncidents(await workflowApi.listIncidents(50));
     } catch (e: unknown) {
-      const err = e as { status?: number; message?: string };
-      setError(err?.message ?? "تعذر تحميل الحوادث");
+      setError(describeWorkflowError(e, "تعذر تحميل الحوادث"));
     } finally {
       setLoading(false);
     }
@@ -40,7 +40,7 @@ export function WorkflowIncidents() {
       await workflowApi.acknowledgeIncident(incident.id);
       await load();
     } catch (e: unknown) {
-      setError((e as { message?: string })?.message ?? "فشل الإقرار");
+      setError(describeWorkflowError(e, "فشل الإقرار"));
     }
   };
 
@@ -55,8 +55,7 @@ export function WorkflowIncidents() {
       await workflowApi.resolveIncident(incident.id, note);
       await load();
     } catch (e: unknown) {
-      const err = e as { status?: number; message?: string };
-      setError(err?.status === 409 ? "تعارض: تم تحديث الحادث للتو" : err?.message ?? "فشل الحل");
+      setError(describeWorkflowError(e, "فشل الحل"));
     }
   };
 
@@ -64,8 +63,13 @@ export function WorkflowIncidents() {
 
   return (
     <div dir="rtl">
-      {error && <p role="alert" style={{ color: "var(--snad-color-error)" }}>{error}</p>}
-      {incidents.length === 0 && <p>لا توجد حوادث مفتوحة.</p>}
+      {error && (
+        <div role="alert" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <p style={{ color: "var(--snad-color-error)", margin: 0 }}>{error}</p>
+          <button onClick={() => void load()}>إعادة المحاولة</button>
+        </div>
+      )}
+      {!error && incidents.length === 0 && <p>لا توجد حوادث مفتوحة.</p>}
       {incidents.map((incident) => (
         <div key={incident.id} style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
           <strong>{incident.source}</strong>{" "}

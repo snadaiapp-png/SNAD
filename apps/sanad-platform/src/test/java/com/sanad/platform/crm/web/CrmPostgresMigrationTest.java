@@ -186,7 +186,11 @@ class CrmPostgresMigrationTest {
     private static final String WORKFLOW_Y2_SLA_INCIDENTS_VERSION = "20260902.5";
     private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260902.6";
     private static final String WORKFLOW_Y2_BREAK_GLASS_VERSION = "20260902.7";
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_BREAK_GLASS_VERSION;
+    // Production reconciliation of the Y2 wave (forward-only, idempotent):
+    // completes every Y2 schema element + capability/ADMIN seeds and fails
+    // closed if any Y2 sentinel stays missing.
+    private static final String WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION = "20260904.1";
+    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -415,7 +419,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -565,7 +570,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
