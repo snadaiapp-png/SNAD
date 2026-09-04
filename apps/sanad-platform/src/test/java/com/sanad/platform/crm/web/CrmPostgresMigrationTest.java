@@ -178,7 +178,15 @@ class CrmPostgresMigrationTest {
     private static final String SCP_LIFECYCLE_PROVISIONING_VERSION = "20260830.1";
     private static final String SCP_USAGE_METERING_RBAC_VERSION = "20260830.2";
     private static final String CAPABILITY_CODE_CANONICALIZATION_VERSION = "20260901.1";
-    private static final String LATEST_MIGRATION_VERSION = CAPABILITY_CODE_CANONICALIZATION_VERSION;
+    // Workflow Y2 (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
+    private static final String WORKFLOW_Y2_IDENTITY_VERSION = "20260902.1";
+    private static final String WORKFLOW_Y2_DEFINITION_GRAPH_VERSION = "20260902.2";
+    private static final String WORKFLOW_Y2_WORK_ITEMS_VERSION = "20260902.3";
+    private static final String WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION = "20260902.4";
+    private static final String WORKFLOW_Y2_SLA_INCIDENTS_VERSION = "20260902.5";
+    private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260902.6";
+    private static final String WORKFLOW_Y2_BREAK_GLASS_VERSION = "20260902.7";
+    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_BREAK_GLASS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -400,7 +408,14 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
                         MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
                         MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION),
-                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION));
+                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_IDENTITY_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_DEFINITION_GRAPH_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_WORK_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -543,7 +558,14 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
                         MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
                         MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION),
-                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION));
+                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_IDENTITY_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_DEFINITION_GRAPH_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_WORK_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

@@ -1,5 +1,6 @@
 package com.sanad.platform.workflow.infrastructure;
 
+import com.sanad.platform.workflow.domain.WorkflowApprovalPolicy;
 import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
 import com.sanad.platform.workflow.domain.WorkflowApprovalRequestRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -38,6 +39,10 @@ public class JdbcWorkflowApprovalRequestRepository implements WorkflowApprovalRe
             rs.getObject("requested_from_user_id", UUID.class),
             rs.getString("requested_from_role"),
             rs.getObject("requested_by_user_id", UUID.class),
+            rs.getObject("requested_from_employee_id", UUID.class),
+            WorkflowApprovalPolicy.Aggregation.valueOf(rs.getString("approval_policy")),
+            WorkflowApprovalPolicy.SelfApproval.valueOf(rs.getString("self_approval_policy")),
+            rs.getString("policy_snapshot"),
             WorkflowApprovalRequest.Status.valueOf(rs.getString("status")),
             rs.getTimestamp("requested_at").toInstant(),
             rs.getTimestamp("due_at") != null ? rs.getTimestamp("due_at").toInstant() : null,
@@ -63,12 +68,15 @@ public class JdbcWorkflowApprovalRequestRepository implements WorkflowApprovalRe
                 INSERT INTO workflow_approval_requests
                     (id, tenant_id, workflow_instance_id, workflow_step_instance_id,
                      requested_from_user_id, requested_from_role, requested_by_user_id,
+                     requested_from_employee_id, approval_policy, self_approval_policy, policy_snapshot,
                      status, requested_at, due_at, acted_by, acted_at, decision, comments,
                      version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 r.id(), r.tenantId(), r.workflowInstanceId(), r.workflowStepInstanceId(),
                 r.requestedFromUserId(), r.requestedFromRole(), r.requestedByUserId(),
+                r.requestedFromEmployeeId(), r.approvalPolicy().name(), r.selfApprovalPolicy().name(),
+                r.policySnapshot() != null ? r.policySnapshot() : "{}",
                 r.status().name(),
                 Timestamp.from(r.requestedAt()),
                 r.dueAt() != null ? Timestamp.from(r.dueAt()) : null,

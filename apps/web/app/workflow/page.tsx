@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { ExecutiveShell } from "@/components/shell";
+import { WorkflowOverview } from "./components/workflow-overview";
+import { WorkflowMyTasks } from "./components/workflow-my-tasks";
+import { WorkflowIncidents } from "./components/workflow-incidents";
+import { WorkflowSettings } from "./components/workflow-settings";
 import {
   workflowApi,
   type WorkflowDefinitionResponse,
@@ -13,7 +17,15 @@ import {
   type WorkflowMonitoringHealthResponse,
 } from "@/lib/api/workflow-api";
 
-type Tab = "definitions" | "instances" | "approvals" | "monitoring";
+type Tab =
+  | "overview"
+  | "definitions"
+  | "my-tasks"
+  | "approvals"
+  | "instances"
+  | "incidents"
+  | "monitoring"
+  | "settings";
 
 // ── Status Badge ─────────────────────────────────────────────────────
 
@@ -454,7 +466,7 @@ const cardStyle: React.CSSProperties = {
 export default function WorkflowPage() {
   const router = useRouter();
   const { state, user } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>("definitions");
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
 
   useEffect(() => {
     if (state !== "INITIALIZING" && state !== "CHECKING_SESSION" && !user) {
@@ -466,10 +478,14 @@ export default function WorkflowPage() {
   if (isLoading || !user) return <AuthLoadingState />;
 
   const tabs: { id: Tab; labelAr: string }[] = [
+    { id: "overview", labelAr: "نظرة عامة" },
     { id: "definitions", labelAr: "التعريفات" },
-    { id: "instances", labelAr: "المثيلات" },
+    { id: "my-tasks", labelAr: "مهامي" },
     { id: "approvals", labelAr: "الموافقات" },
+    { id: "instances", labelAr: "المثيلات" },
+    { id: "incidents", labelAr: "الحوادث" },
     { id: "monitoring", labelAr: "المراقبة" },
+    { id: "settings", labelAr: "الإعدادات" },
   ];
 
   return (
@@ -510,10 +526,14 @@ export default function WorkflowPage() {
           ))}
         </nav>
 
+        {activeTab === "overview" && <WorkflowOverview />}
         {activeTab === "definitions" && <DefinitionsTab />}
-        {activeTab === "instances" && <InstancesTab />}
+        {activeTab === "my-tasks" && <WorkflowMyTasks />}
         {activeTab === "approvals" && <ApprovalsTab />}
+        {activeTab === "instances" && <InstancesTab />}
+        {activeTab === "incidents" && <WorkflowIncidents />}
         {activeTab === "monitoring" && <MonitoringTab />}
+        {activeTab === "settings" && <WorkflowSettings />}
       </div>
     </ExecutiveShell>
   );

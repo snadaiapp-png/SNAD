@@ -200,19 +200,21 @@ class CrmFlywayHistoryAssertionTest {
             , "20260823.2"   // crm participant role exclusivity (C3 — W2 partial unique index + owner↔participant trigger guards)
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
             // Subscription Control Plane (SCP closure — closure/scp-final-verification):
-            //   V20260829.1–V20260830.2 are the six intentional SCP migrations, and
-            //   V20260901.1 is the SCP closure capability-code fix. They are
-            //   part of the platform migration inventory applied after the last CRM
-            //   migration, so they must appear in flyway_schema_history in order.
             , "20260829.1"   // scp applications catalog
             , "20260829.2"   // scp products and plan versions
             , "20260829.3"   // scp subscription items
             , "20260829.4"   // scp prices, country currencies and product entitlements
             , "20260830.1"   // scp lifecycle and provisioning
             , "20260830.2"   // scp usage metering and rbac
-            // SCP closure fix: capability-code canonicalization (loadByCode()
-            // UPPERCASE normalization vs. lowercase V20260830_2 seeds).
-            , "20260901.1"   // canonicalize capability codes to uppercase
+            , "20260901.1"   // scp closure: canonicalize capability codes to uppercase
+            // Workflow Y2 (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
+            , "20260902.1"   // enforce employee/user identity bridge unique index
+            , "20260902.2"   // definition family/publication metadata + step transitions
+            , "20260902.3"   // work items + candidate pools + tenant-safe employee FK
+            , "20260902.4"   // instance runtime metadata + branch tokens + idempotent starts
+            , "20260902.5"   // business calendars + delegations + attempts + incidents
+            , "20260902.6"   // inbox/outbox + notification intents
+            , "20260902.7"   // audit OVERRIDE action for break-glass commands
     );
 
 

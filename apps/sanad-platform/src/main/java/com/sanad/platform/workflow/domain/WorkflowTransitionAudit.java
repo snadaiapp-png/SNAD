@@ -18,7 +18,9 @@ public record WorkflowTransitionAudit(
 ) {
     public enum Action {
         CREATE, UPDATE, ACTIVATE, DEACTIVATE, START, PAUSE, RESUME,
-        CANCEL, ADVANCE, APPROVE, REJECT, EXPIRE, FAIL, COMPLETE, ARCHIVE, ASSIGN
+        CANCEL, ADVANCE, APPROVE, REJECT, EXPIRE, FAIL, COMPLETE, ARCHIVE, ASSIGN,
+        /** Break-glass override event (AH3): audited emergency command. */
+        OVERRIDE
     }
 
     public static WorkflowTransitionAudit create(
