@@ -2,7 +2,6 @@ package com.sanad.platform.crm.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.activity.application.ActivityUseCases;
 import com.sanad.platform.crm.activity.infrastructure.JdbcActivityRepository;
 import com.sanad.platform.crm.integration.application.AfterCommandCommitFaultInjector;
@@ -63,7 +62,6 @@ class CrashAfterCommitRecoveryPostgresTest {
         Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false).validateOnMigrate(true).load().migrate();
 
         DriverManagerDataSource ds = new DriverManagerDataSource(

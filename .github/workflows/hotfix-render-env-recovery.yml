@@ -131,13 +131,13 @@ jobs:
           test "$COUNT" -lt 100 || { echo "::error::pagination not exhausted"; exit 1; }
           jq -r '[.[]? | (.envVar // .)] | sort_by(.key) | .[].key' /tmp/env-full.json | tee /tmp/keys.txt
           echo "TOTAL_KEYS=$COUNT"
-          # Baseline: 40 contract keys restored by this workflow + 3 legitimate
+          # Baseline: 40 contract keys restored by this workflow + 1 boot-critical
+          # addition (SPRING_FLYWAY_USER, see restore step) + 3 legitimate
           # post-Sep1 CONTROL_PLANE_* survivors (CONTROL_PLANE_BOOTSTRAP_ENABLED,
-          # CONTROL_PLANE_BOOTSTRAP_TOKEN, CONTROL_PLANE_TENANT_ID) that are
-          # intentionally part of the service env but outside the restore set.
+          # CONTROL_PLANE_BOOTSTRAP_TOKEN, CONTROL_PLANE_TENANT_ID).
           # Calibrated against verified 2026-09-04 evidence (run 33893684752:
-          # TOTAL_KEYS=43, all 40 contract keys present).
-          EXPECTED=43
+          # TOTAL_KEYS=43 with all 40 contract keys present).
+          EXPECTED=44
           test "$COUNT" -eq "$EXPECTED" || { echo "::error::expected $EXPECTED keys, got $COUNT"; exit 1; }
           for k in APPLICATION_BASE_URL BOOTSTRAP_ENABLED CRM_CUSTOM_FIELD_ENCRYPTION_KEY \
                    DATABASE_DRIVER DATABASE_PASSWORD DATABASE_URL DATABASE_USERNAME \
