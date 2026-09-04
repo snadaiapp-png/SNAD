@@ -295,5 +295,34 @@ SECURITY_REVIEW = PASS
         PostgreSQL Acceptance SUCCESS)
 #3222  run 33908914116  sha fc6a56f8  (Tasks 8-11 chain)
 #3223  run —            sha 52932531  (Tasks 8-12 chain; superseded by merge)
-FINAL  to be dispatched on the merged release-candidate SHA (b4cd5e65 lineage)
+FINAL  run 33916805000s family on 8301bbed (RC lineage)
+       CI #3229 (full backend suite), Web CI #4212, Security Baseline #2734,
+       HRM Human Preview #3, Performance Baseline #1685, + governance set
 ```
+
+## Post-merge CI hardening record
+
+First full PR-workflow family run exposed three environment-gate defects,
+each root-caused and fixed (no test weakened, no gate skipped):
+
+1. SDS Design System gate (Web CI): 23 hardcoded hex colors in
+   `app/hr/hr.module.css` replaced with SDS tokens
+   (`--snad-color-error/warning/success/text-inverse`); compliance check now
+   reports 0 violations.
+2. Supplemental secret scanner: the preview workflow's per-run generated
+   credential was restructured to the scanner's documented pure-variable
+   indirection (`RUN_CREDENTIAL` generated once, masked, referenced via
+   `${PREVIEW_PASSWORD}` / pure `${VAR}` captures). No allowlist entry was
+   added or modified.
+3. Preview harness bootstrap gap: role templates are seeded at migration time
+   for then-existing tenants; the preview tenant is created after bootstrap.
+   The grant step now provisions the tenant-scoped HR_MANAGER role and binds
+   all `HR.*` capabilities idempotently (verified locally: 8 capabilities
+   bound on a synthetic tenant).
+4. Flyway role-name portability: `GRANT EXECUTE ... TO sanad` hardcoded the
+   migration admin role and failed on environments whose Flyway role differs
+   (Performance Baseline's `sanad_perf`). Grants now target `CURRENT_USER`
+   (same privileges as the owner role, portable everywhere). Verified: fresh
+   DB booted as `sanad_perf` applies all 169 migrations to v20260905.17 and
+   reaches health UP; dev DB converged and validates clean after Flyway
+   repair.
