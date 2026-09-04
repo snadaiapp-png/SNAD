@@ -1,0 +1,156 @@
+{
+  "generatedFrom" : "runtime /v3/api-docs",
+  "hrmV2Operations" : 58,
+  "paths" : {
+    "/api/v2/hr/assignments" : {
+      "get" : "list_4",
+      "post" : "create_4"
+    },
+    "/api/v2/hr/assignments/{assignmentId}" : {
+      "get" : "get_6"
+    },
+    "/api/v2/hr/assignments/{assignmentId}/change-manager" : {
+      "post" : "changeManager"
+    },
+    "/api/v2/hr/assignments/{assignmentId}/end" : {
+      "post" : "end_1"
+    },
+    "/api/v2/hr/assignments/{assignmentId}/transfer" : {
+      "post" : "transfer"
+    },
+    "/api/v2/hr/audit" : {
+      "get" : "audit"
+    },
+    "/api/v2/hr/compensation-packages" : {
+      "get" : "list_3",
+      "post" : "create_3"
+    },
+    "/api/v2/hr/compensation-packages/{packageId}" : {
+      "get" : "get_5"
+    },
+    "/api/v2/hr/compensation-packages/{packageId}/end" : {
+      "post" : "end"
+    },
+    "/api/v2/hr/compensation-packages/{packageId}/revise" : {
+      "post" : "revise"
+    },
+    "/api/v2/hr/compliance/context" : {
+      "get" : "context"
+    },
+    "/api/v2/hr/compliance/overrides" : {
+      "get" : "listOverrides",
+      "post" : "requestOverride"
+    },
+    "/api/v2/hr/compliance/overrides/{overrideId}/approve" : {
+      "post" : "approve"
+    },
+    "/api/v2/hr/compliance/overrides/{overrideId}/reject" : {
+      "post" : "reject"
+    },
+    "/api/v2/hr/compliance/overrides/{overrideId}/revoke" : {
+      "post" : "revoke"
+    },
+    "/api/v2/hr/contracts" : {
+      "get" : "list_2",
+      "post" : "create_2"
+    },
+    "/api/v2/hr/contracts/{contractId}" : {
+      "get" : "get_4"
+    },
+    "/api/v2/hr/contracts/{contractId}/activate" : {
+      "post" : "activate_1"
+    },
+    "/api/v2/hr/contracts/{contractId}/amend" : {
+      "post" : "amend"
+    },
+    "/api/v2/hr/contracts/{contractId}/terminate" : {
+      "post" : "terminate_1"
+    },
+    "/api/v2/hr/employments" : {
+      "get" : "list_1",
+      "post" : "create_1"
+    },
+    "/api/v2/hr/employments/{employmentId}" : {
+      "get" : "get_3"
+    },
+    "/api/v2/hr/employments/{employmentId}/activate" : {
+      "post" : "activate"
+    },
+    "/api/v2/hr/employments/{employmentId}/reinstate" : {
+      "post" : "reinstate"
+    },
+    "/api/v2/hr/employments/{employmentId}/return-from-leave" : {
+      "post" : "returnFromLeave"
+    },
+    "/api/v2/hr/employments/{employmentId}/start-leave" : {
+      "post" : "startLeave"
+    },
+    "/api/v2/hr/employments/{employmentId}/submit-onboarding" : {
+      "post" : "submitOnboarding"
+    },
+    "/api/v2/hr/employments/{employmentId}/suspend" : {
+      "post" : "suspend"
+    },
+    "/api/v2/hr/employments/{employmentId}/terminate" : {
+      "post" : "terminate"
+    },
+    "/api/v2/hr/employments/{employmentId}/void" : {
+      "post" : "voidEmployment"
+    },
+    "/api/v2/hr/jobs" : {
+      "get" : "listJobs",
+      "post" : "createJob"
+    },
+    "/api/v2/hr/jobs/{jobId}" : {
+      "get" : "getJob"
+    },
+    "/api/v2/hr/jobs/{jobId}/revise" : {
+      "post" : "reviseJob"
+    },
+    "/api/v2/hr/org-units" : {
+      "get" : "listOrgUnits",
+      "post" : "createOrgUnit"
+    },
+    "/api/v2/hr/org-units/{orgUnitId}" : {
+      "get" : "getOrgUnit"
+    },
+    "/api/v2/hr/org-units/{orgUnitId}/revise" : {
+      "post" : "reviseOrgUnit"
+    },
+    "/api/v2/hr/people" : {
+      "get" : "list",
+      "post" : "create"
+    },
+    "/api/v2/hr/people/{personId}" : {
+      "get" : "get_2",
+      "patch" : "patch"
+    },
+    "/api/v2/hr/people/{personId}/identifiers" : {
+      "post" : "addIdentifier"
+    },
+    "/api/v2/hr/people/{personId}/private" : {
+      "get" : "getPrivate",
+      "patch" : "patchPrivate"
+    },
+    "/api/v2/hr/people/{personId}/user-link" : {
+      "delete" : "unlinkUser",
+      "post" : "linkUser"
+    },
+    "/api/v2/hr/positions" : {
+      "get" : "listPositions",
+      "post" : "createPosition"
+    },
+    "/api/v2/hr/positions/{positionId}" : {
+      "get" : "getPosition"
+    },
+    "/api/v2/hr/positions/{positionId}/close" : {
+      "post" : "closePosition"
+    },
+    "/api/v2/hr/positions/{positionId}/freeze" : {
+      "post" : "freezePosition"
+    },
+    "/api/v2/hr/positions/{positionId}/revise" : {
+      "post" : "revisePosition"
+    }
+  }
+}
