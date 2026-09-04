@@ -99,8 +99,8 @@ class WorkflowY2ReleaseGateSourceTest {
     @Test
     void reconciliationMigrationIsForwardOnlyAboveProductionHead() throws IOException {
         // The reconciliation migration must be forward-only: never edit a
-        // historical migration; add one above both the production head
-        // (20260901.1) and the repository head (20260902.7).
+        // historical migration; add one above both the pre-incident
+        // production head (20260901.1) and the Y2 wave head (20260902.7).
         String reconciliation = readRepoFile(
                 "apps/sanad-platform/src/main/resources/db/migration/"
                         + "V20260904_1__workflow_y2_production_reconciliation.sql");
