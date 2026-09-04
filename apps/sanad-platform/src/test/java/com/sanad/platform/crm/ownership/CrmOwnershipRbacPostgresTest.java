@@ -33,6 +33,7 @@ class CrmOwnershipRbacPostgresTest {
         Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct required for acceptance");
 
         // Step 1: Run V14 baseline (creates tenants + roles + capabilities tables).
+        // (V15 was removed from the chain 2026-09-01; target stops at V14.)
         // Seed test tenants BEFORE V20260722.8 so SALES_MANAGER/SALES_REPRESENTATIVE
         // roles are auto-seeded for these tenants.
         Flyway.configure()
@@ -41,7 +42,7 @@ class CrmOwnershipRbacPostgresTest {
                 .cleanDisabled(false)
                 .outOfOrder(true)
                 .validateOnMigrate(true)
-                .target("15")
+                .target("14")
                 .load()
                 .migrate();
 
