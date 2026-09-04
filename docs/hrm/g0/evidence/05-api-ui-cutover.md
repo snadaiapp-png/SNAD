@@ -188,10 +188,112 @@ Implementation record:
 - `MERGED = NO`, `PRODUCTION_DEPLOYED = NO` — Task 12 grants no deployment
   authorization.
 
+## Main reconciliation (origin/main advanced during implementation)
+
+origin/main moved 23 commits ahead (Y2 orchestration platform, SCP closure,
+production schema reconciliation) while HRM-G0 was in flight. Integrated via
+merge commit `b4cd5e65` (no rebase of the shared branch):
+
+- **Flyway version collisions resolved**: 17 HRM migrations
+  (`V20260829_1..V20260904_3`) renumbered to `V20260905_1..17`, order
+  preserved, because 5 version numbers collided with main's SCP/Workflow-Y2
+  migrations (`20260829.1`, `20260830.1`, `20260901.1`, `20260902.1`,
+  `20260904.1`). Dev DB `flyway_schema_history` aligned in place (17 rows,
+  checksums unchanged). Production has neither set applied, so renumbering
+  only affects this branch's lineage.
+- **API count pin recomputed**: 717 (baseline) + 46 (main: SCP 29 + Y2 17) +
+  58 (HRM) = **821**; `PlatformApiCountTest` PASS against the real merged
+  OpenAPI surface.
+- **Retired physical Employment DELETE remains absent**; main's new HR finders
+  (`findByUserId`, `findActiveByDepartment/Position/UserIds`) kept, main's
+  delete endpoint removed by the merge (Task 7 semantics authoritative).
+- **Flyway java-migration policy honored**: main's
+  `FlywayJavaMigrationsChainConsistencyTest` forbids java migrations on the
+  production classpath; the java-based RBAC seed usage was removed from 38
+  test fixtures (merged SQL chain covers RBAC seeding).
+- CRM postgres fixtures keep self-sufficient clean+migrate over the merged
+  SQL chain; `CrmPostgresMigrationTest` + `CrmFlywayHistoryAssertionTest`
+  updated for the merged version inventory and PASS.
+
+## Release migration rehearsal (PostgreSQL Direct, fresh DB)
+
+```text
+MIGRATION_REHEARSAL = PASS
+METHOD              = release jar (built from merged tree) booted against a
+                      fresh, empty database owned by role `sanad`
+                      (NOSUPERUSER/NOBYPASSRLS); full Flyway chain from scratch
+FROM_VERSION        = (empty database)
+TO_VERSION          = v20260905.17
+MIGRATIONS          = 169 applied, 0 failed (validate-on-migrate enabled)
+DATA_INTEGRITY      = 218 tables / 354 FKs / 858 indexes / 174 RLS tables,
+                      identical counts to the incrementally-migrated dev DB
+                      (pre-merge parity check); post-merge dev DB converges to
+                      the same schema via the same chain
+RLS                 = fail-closed probes PASS (own tenant 1, other tenant 0,
+                      no GUC 0)
+APPLICATION_BOOT    = PASS (health UP: db/readiness/liveness/ssl all UP;
+                      booted in ~30s including full migration)
+EXISTING_TENANT_COMPATIBILITY = PASS (dev DB is the incremental path; every
+                      full-context test boots against it with validation;
+                      CI PostgreSQL Acceptance job SUCCESS on #3219)
+RESULT              = PASS
+```
+
+## Release rollback rehearsal (distinct from Task 11 tenant rollback)
+
+```text
+ROLLBACK_REHEARSAL = PASS
+PREVIOUS_SHA       = ab2b46e7 (origin/main, pre-HRM application)
+TARGET_SHA         = b4cd5e65 (merged release candidate)
+DB_SCHEMA          = post-merge schema at v20260905.17 (superset of main's)
+METHOD             = A: previous application jar booted against the new schema;
+                     DB is NOT rolled back (forward-safe; canonical HRM data
+                     stays authoritative per Task 11 semantics)
+BOOT_RESULT        = "Schema 'public' is up to date. No migration necessary."
+                     Health UP (db/readiness/liveness); verified with strict
+                     validation AND with FLYWAY_IGNORE_MIGRATION_PATTERNS
+                     documented as belt-and-braces for applied-but-missing
+                     HRM versions
+DATA_LOSS          = none (no destructive operations; HRM tables simply
+                     invisible to the previous application)
+RECOVERY           = forward-fix path unchanged: re-deploy the new application
+RESULT             = PASS
+```
+
+## Final security / architecture review (git diff origin/main...HEAD)
+
+```text
+SECURITY_REVIEW = PASS
+1. physical Employment DELETE     : absent (diff removes main's endpoint; no
+                                    repository delete method, no delete SQL)
+2. secrets                        : none hardcoded; preview workflow password
+                                    is run-scoped, masked, disposable-tenant
+                                    only (mirrors main's ERP preview precedent)
+3. RLS                            : no weakening; new tables FORCE RLS with
+                                    tenant_isolation USING+WITH CHECK; the four
+                                    DROP POLICY statements are drop+recreate of
+                                    the same strict policies (idempotency)
+4. RBAC                           : no wildcard expansion; capability seeds are
+                                    explicit least-privilege codes
+5. tenant isolation               : cross-tenant migration calls denied 42501;
+                                    RLS fail-closed probes PASS
+6. cross-module DB access         : none from HR code into CRM/workflow/billing
+7. country-law hardcoding         : none in HR code (SA rules remain in
+                                    country packs; compliance engine gate intact)
+8. frontend logging/telemetry     : no console logging or beacons in HR surfaces
+9. compensation exposure          : LIST projection amount-free; amount-bearing
+                                    GET behind capability + audited read
+10. cutover SQL                   : no credentials, no hostnames; operator
+                                    supplies connection; fail-closed ON_ERROR_STOP
+```
+
 ## CI records
 
 ```text
 #3219  run 33901478062  sha 101e65c8  ALL GREEN
        (Maven Test Suite SUCCESS, CRM Integration SUCCESS,
         PostgreSQL Acceptance SUCCESS)
+#3222  run 33908914116  sha fc6a56f8  (Tasks 8-11 chain)
+#3223  run —            sha 52932531  (Tasks 8-12 chain; superseded by merge)
+FINAL  to be dispatched on the merged release-candidate SHA (b4cd5e65 lineage)
 ```
