@@ -27,11 +27,22 @@ jobs:
           bash -n scripts/production/verify-auth-contract.sh
       - name: Validate Blueprint contract
         run: |
-          grep -q 'repo: https://github.com/snadaiapp-png/SNAD' render.yaml
-          grep -q 'branch: main' render.yaml
-          grep -q 'autoDeployTrigger: "off"' render.yaml
+          # Image-based contract (since 2026-07-20 "Finalize Render as the
+          # SANAD production backend"): GitHub Actions builds immutable GHCR
+          # images and the release workflow deploys an exact image ref. The
+          # blueprint must declare the image-backed service and must NOT
+          # reconnect a git repo — a repo/branch pair would re-arm git
+          # auto-deploy, bypassing the exact-SHA release gate (the original
+          # incident path). The old repo-connected assertions
+          # (repo:/branch:/autoDeployTrigger: "off") predate this design and
+          # could never pass against the current blueprint.
+          grep -q 'name: sanad-backend' render.yaml
+          grep -q 'runtime: image' render.yaml
+          grep -q 'url: ghcr.io/snadaiapp-png/snad-backend' render.yaml
+          grep -q 'healthCheckPath: /actuator/health' render.yaml
           grep -q 'generateValue: true' render.yaml
           grep -A1 'key: BOOTSTRAP_ENABLED' render.yaml | grep -q 'value: "false"'
+          ! grep -Eq '^\s*(repo|branch):' render.yaml
           ! grep -Eq 'BOOTSTRAP_(TENANT_ID|ADMIN_EMAIL|ADMIN_CREDENTIAL|ADMIN_DISPLAY_NAME|AUDIT_ACTOR)' render.yaml
       - name: Validate workflow YAML
         run: |

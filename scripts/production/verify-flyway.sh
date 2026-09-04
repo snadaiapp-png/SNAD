@@ -99,7 +99,21 @@ REPO_MAX_VERSION=$(
   } | while read -r f; do basename "$f" | sed -e 's/^V//' -e 's/__.*//' -e 's/_/./'; done | sort -V | tail -1
 )
 REPO_MAX_VERSION="${REPO_MAX_VERSION:-0}"
-DB_MAX_VERSION=$(run_sql "SELECT COALESCE(max(version), '0') FROM flyway_schema_history WHERE success = TRUE AND type != 'DELETE';")
+# Compare versions NUMERICALLY, not lexically. max(version) on a varchar column
+# returns the collation maximum, and this production history contains legacy
+# single-digit versions (V1..V9, e.g. '9' = V9__create_user_role_assignments).
+# Lexicographically '9' > '20260904.1', so max(version) permanently reported
+# '9' and armed the pending-migration gate with a false positive, blocking
+# every release (observed verbatim on runs 33911292036 and 33917544733 on
+# 2026-09-04). Ordering by dotted numeric segments instead: '20260904.1' >
+# '9' > '15' > ... exactly like Flyway's own version precedence.
+DB_MAX_VERSION=$(run_sql "SELECT COALESCE((
+  SELECT version FROM flyway_schema_history
+  WHERE success = TRUE AND type != 'DELETE' AND version IS NOT NULL
+  ORDER BY (string_to_array(version, '.'))[1]::bigint DESC,
+           COALESCE((string_to_array(version, '.'))[2]::bigint, -1) DESC,
+           COALESCE((string_to_array(version, '.'))[3]::bigint, -1) DESC
+  LIMIT 1), '0');")
 HIGHEST_VERSION=$(printf '%s\n%s\n' "$DB_MAX_VERSION" "$REPO_MAX_VERSION" | sort -V | tail -1)
 
 if [ "$DB_MAX_VERSION" != "$REPO_MAX_VERSION" ]; then
