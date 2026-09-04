@@ -212,18 +212,50 @@ jobs:
           echo "HRM preview tenant: $TENANT_ID"
           psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 -v tenant_id="$TENANT_ID" <<'SQL'
           SET app.tenant_id = :'tenant_id';
-          -- Single effective employer context (org + legal entity pair),
-          -- deterministic per-tenant IDs derived from the tenant UUID tail.
-          INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at)
-          SELECT gen_random_uuid(), :'tenant_id', 'HRM Preview Org', 'ACTIVE', NOW(), NOW()
-          WHERE NOT EXISTS (SELECT 1 FROM organizations WHERE tenant_id = :'tenant_id' AND status = 'ACTIVE');
-          INSERT INTO legal_entities (id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at)
-          VALUES (gen_random_uuid(), :'tenant_id', 'LE-HRM-PREVIEW', 'HRM Preview LE', 'AE', 'AE', 'ACTIVE', NOW(), NOW());
-          INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, effective_from, status, created_at)
-          SELECT gen_random_uuid(), :'tenant_id', o.id, le.id, DATE '2024-01-01', 'ACTIVE', NOW()
-          FROM organizations o
-          JOIN legal_entities le ON le.tenant_id = :'tenant_id' AND le.code = 'LE-HRM-PREVIEW'
-          WHERE o.tenant_id = :'tenant_id' AND o.name = 'HRM Preview Org';
+          -- Single effective employer context (org + legal entity pair) at the
+          -- migration as-of date. The bootstrap tenant may already own an org
+          -- and/or legal entity: reuse them, create only what is missing, and
+          -- guarantee ONE org<->LE link effective from 2024-01-01.
+          DROP TABLE IF EXISTS _g0_preview_ctx;
+          CREATE TEMP TABLE _g0_preview_ctx AS SELECT :'tenant_id'::uuid AS tenant_id;
+          DO $seed$
+          DECLARE
+              v_tenant UUID;
+              v_org UUID;
+              v_le UUID;
+              v_effective INT;
+          BEGIN
+              SELECT tenant_id INTO v_tenant FROM _g0_preview_ctx;
+              SELECT id INTO v_org FROM organizations
+               WHERE tenant_id = v_tenant AND status = 'ACTIVE'
+               ORDER BY created_at LIMIT 1;
+              IF v_org IS NULL THEN
+                  INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at)
+                  VALUES (gen_random_uuid(), v_tenant, 'HRM Preview Org', 'ACTIVE', NOW(), NOW())
+                  RETURNING id INTO v_org;
+              END IF;
+              SELECT id INTO v_le FROM legal_entities
+               WHERE tenant_id = v_tenant AND status = 'ACTIVE'
+               ORDER BY created_at LIMIT 1;
+              IF v_le IS NULL THEN
+                  INSERT INTO legal_entities (id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at)
+                  VALUES (gen_random_uuid(), v_tenant, 'LE-HRM-PREVIEW', 'HRM Preview LE', 'AE', 'AE', 'ACTIVE', NOW(), NOW())
+                  RETURNING id INTO v_le;
+              END IF;
+              SELECT COUNT(*) INTO v_effective
+                FROM organization_legal_entities
+               WHERE tenant_id = v_tenant
+                 AND organization_id = v_org
+                 AND legal_entity_id = v_le
+                 AND status = 'ACTIVE'
+                 AND effective_from <= DATE '2024-01-01'
+                 AND (effective_to IS NULL OR effective_to >= DATE '2024-01-01');
+              IF v_effective = 0 THEN
+                  INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, effective_from, status, created_at)
+                  VALUES (gen_random_uuid(), v_tenant, v_org, v_le, DATE '2024-01-01', 'ACTIVE', NOW());
+              END IF;
+          END
+          $seed$;
           INSERT INTO hr_departments (id, tenant_id, name, code, status, created_at, updated_at)
           VALUES (gen_random_uuid(), :'tenant_id', 'Engineering', 'ENG', 'ACTIVE', NOW(), NOW());
           INSERT INTO hr_positions (id, tenant_id, title, code, department_id, status, created_at, updated_at)
