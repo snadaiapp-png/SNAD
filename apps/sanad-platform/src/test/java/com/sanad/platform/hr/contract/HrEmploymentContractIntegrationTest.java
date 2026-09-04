@@ -96,7 +96,7 @@ class HrEmploymentContractIntegrationTest {
         UUID contractB = UUID.randomUUID();
         insertContract(contractA, "CONTRACT-A");
         insertContract(contractB, "CONTRACT-B");
-        insertContractVersion(UUID.randomUUID(), contractA, employmentId, 1, "ACTIVE", "2026-01-01", null, true);
+        insertContractVersion(UUID.randomUUID(), contractA, employmentId, 1, "ACTIVE", "2026-01-01", "2029-12-31", true);
         assertThat(queryScalar("SELECT COUNT(*) FROM hr_employment_contracts")).isEqualTo("2");
 
         // Overlapping ACTIVE primary window for the same employment must be
@@ -106,7 +106,7 @@ class HrEmploymentContractIntegrationTest {
                 .as("two overlapping ACTIVE primary contracts for one employment must be impossible")
                 .isInstanceOf(SQLException.class);
 
-        // Non-overlapping successor window is allowed.
+        // Non-overlapping successor window (after the first contract ends) is allowed.
         insertContractVersion(UUID.randomUUID(), contractB, employmentId, 1, "ACTIVE", "2030-01-01", null, true);
         assertThat(queryScalar("SELECT COUNT(*) FROM hr_employment_contract_versions")).isEqualTo("2");
     }
@@ -154,7 +154,7 @@ class HrEmploymentContractIntegrationTest {
                 "hr_compensation_packages", "hr_compensation_components"}) {
             assertThat(queryScalar("SELECT (relrowsecurity AND relforcerowsecurity)::text FROM pg_class WHERE relname = '" + table + "'"))
                     .as(table + " must be ENABLE + FORCE row level security")
-                    .isEqualTo("t");
+                    .isEqualTo("true");
         }
     }
 

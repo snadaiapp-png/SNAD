@@ -93,14 +93,14 @@ class HrCompensationIntegrationTest {
     void employmentCannotHaveOverlappingActiveCompensationPackages() throws Exception {
         UUID packageA = UUID.randomUUID();
         UUID packageB = UUID.randomUUID();
-        insertPackage(packageA, "SAR", "MONTHLY", "2026-01-01", null, "ACTIVE");
+        insertPackage(packageA, "SAR", "MONTHLY", "2026-01-01", "2029-12-31", "ACTIVE");
         assertThat(queryScalar("SELECT COUNT(*) FROM hr_compensation_packages")).isEqualTo("1");
 
         assertThatThrownBy(() -> insertPackage(packageB, "SAR", "MONTHLY", "2026-06-01", null, "ACTIVE"))
                 .as("two overlapping ACTIVE compensation packages for one employment must be impossible")
                 .isInstanceOf(SQLException.class);
 
-        // Successor window is allowed.
+        // Successor window (after the first package ends) is allowed.
         insertPackage(packageB, "SAR", "MONTHLY", "2030-01-01", null, "ACTIVE");
         assertThat(queryScalar("SELECT COUNT(*) FROM hr_compensation_packages")).isEqualTo("2");
     }
@@ -159,7 +159,7 @@ class HrCompensationIntegrationTest {
     void compensationTablesHaveForcedRls() throws Exception {
         for (String table : new String[]{"hr_compensation_packages", "hr_compensation_components"}) {
             assertThat(queryScalar("SELECT (relrowsecurity AND relforcerowsecurity)::text FROM pg_class WHERE relname = '" + table + "'"))
-                    .isEqualTo("t");
+                    .isEqualTo("true");
         }
     }
 
