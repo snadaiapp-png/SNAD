@@ -79,4 +79,65 @@ echo "DUPLICATE VERSIONS: 0"
 CHECKSUM_ISSUES=$(run_sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE AND checksum IS NULL AND type != 'SCHEMA_BASELINE';")
 echo "CHECKSUM VALIDATION: PASS"
 
-echo "Flyway verified: V15 JDBC, V20260702.1, V20260702.2, V20260702.3, 0 failures, 0 duplicates."
+# ---------------------------------------------------------------------------
+# Y2 incident regression guard (2026-09-04):
+# production shipped Workflow Y2 code while the whole V20260902_1..7 wave was
+# still Pending and this script reported "Flyway PASS" because it only knew
+# July-era sentinels. From now on the gate also proves that (a) the applied
+# schema history reached the newest migration shipped in this checkout and
+# (b) every Workflow Y2 sentinel object exists in the live database.
+# ---------------------------------------------------------------------------
+
+# (a) Pending / head check: the newest migration version in this repository
+# (both portable db/migration and PostgreSQL vendor locations) MUST equal the
+# highest successfully applied version in the production history. Any gap
+# means a pending migration wave would silently miss production again.
+REPO_MAX_VERSION=$(
+  {
+    ls apps/sanad-platform/src/main/resources/db/migration/V*.sql 2>/dev/null
+    ls apps/sanad-platform/src/main/resources/db/vendor/postgresql/V*.sql 2>/dev/null
+  } | while read -r f; do basename "$f" | sed -e 's/^V//' -e 's/__.*//' -e 's/_/./'; done | sort -V | tail -1
+)
+REPO_MAX_VERSION="${REPO_MAX_VERSION:-0}"
+DB_MAX_VERSION=$(run_sql "SELECT COALESCE(max(version), '0') FROM flyway_schema_history WHERE success = TRUE AND type != 'DELETE';")
+HIGHEST_VERSION=$(printf '%s\n%s\n' "$DB_MAX_VERSION" "$REPO_MAX_VERSION" | sort -V | tail -1)
+
+if [ "$DB_MAX_VERSION" != "$REPO_MAX_VERSION" ]; then
+  if [ "$HIGHEST_VERSION" = "$REPO_MAX_VERSION" ]; then
+    echo "::error::Pending migrations detected: production schema version $DB_MAX_VERSION is older than repository head $REPO_MAX_VERSION. Run the canonical Flyway production migrate workflow before releasing."
+    exit 1
+  fi
+  echo "::error::Schema drift: production schema version $DB_MAX_VERSION is newer than repository head $REPO_MAX_VERSION (applied-but-removed migrations?). Reconcile before releasing."
+  exit 1
+fi
+echo "PENDING MIGRATIONS: 0 (production schema version $DB_MAX_VERSION == repository head $REPO_MAX_VERSION)"
+
+# (b) Workflow Y2 sentinels — table presence.
+require_y2_table() {
+  TABLE_PRESENT=$(run_sql "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = '$1';")
+  [ "${TABLE_PRESENT// /}" = "1" ] || { echo "::error::Y2 sentinel table absent: $1 (Workflow Y2 migration wave not applied)"; exit 1; }
+  echo "Y2 SENTINEL TABLE $1: PASS"
+}
+
+require_y2_table "workflow_work_items"
+require_y2_table "workflow_incidents"
+require_y2_table "workflow_event_outbox"
+require_y2_table "workflow_event_inbox"
+
+# (c) Workflow Y2 sentinels — definition graph metadata column.
+DEF_FAMILY=$(run_sql "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workflow_definitions' AND column_name = 'definition_family_id';")
+[ "${DEF_FAMILY// /}" = "1" ] || { echo "::error::Y2 sentinel column absent: workflow_definitions.definition_family_id"; exit 1; }
+echo "Y2 SENTINEL COLUMN workflow_definitions.definition_family_id: PASS"
+
+# (d) Workflow Y2 sentinels — active capability catalog rows.
+require_y2_capability() {
+  CAP_PRESENT=$(run_sql "SELECT COUNT(*) FROM access_capabilities WHERE code = '$1' AND status = 'ACTIVE';")
+  [ "${CAP_PRESENT// /}" = "1" ] || { echo "::error::Y2 sentinel capability absent/inactive: $1"; exit 1; }
+  echo "Y2 SENTINEL CAPABILITY $1: PASS"
+}
+
+require_y2_capability "WORKFLOW.TASK_EXECUTE"
+require_y2_capability "WORKFLOW.MONITOR"
+require_y2_capability "WORKFLOW.INCIDENT_MANAGE"
+
+echo "Flyway verified: V15 JDBC, V20260702.1, V20260702.2, V20260702.3, 0 failures, 0 duplicates, 0 pending (head $DB_MAX_VERSION), Y2 sentinels (workflow_definitions.definition_family_id, WORKFLOW.TASK_EXECUTE, WORKFLOW.MONITOR, WORKFLOW.INCIDENT_MANAGE, workflow_work_items, workflow_incidents, workflow_event_outbox, workflow_event_inbox) present."
