@@ -807,6 +807,74 @@ class HrRlsFailClosedIntegrationTest {
         }
     }
 
+    private void insertHrEmploymentContractRow(UUID tenantId) throws Exception {
+        UUID employmentId = insertHrEmployee(tenantId);
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employment_contracts (tenant_id, employment_id, contract_number, is_primary) " +
+                "VALUES (?, ?, ?, TRUE)")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, employmentId);
+            ps.setString(3, "RLS-" + UUID.randomUUID().toString().substring(0, 8));
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertHrEmploymentContractVersionRow(UUID tenantId) throws Exception {
+        UUID employmentId = insertHrEmployee(tenantId);
+        UUID contractId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employment_contracts (id, tenant_id, employment_id, contract_number, is_primary) " +
+                "VALUES (?, ?, ?, ?, TRUE)")) {
+            ps.setObject(1, contractId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, employmentId);
+            ps.setString(4, "RLS-" + UUID.randomUUID().toString().substring(0, 8));
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employment_contract_versions (tenant_id, contract_id, employment_id, version_number, " +
+                "status, is_primary, contract_term_type, contract_start_date, effective_from) " +
+                "VALUES (?, ?, ?, 1, 'DRAFT', TRUE, 'FIXED_TERM', CURRENT_DATE, CURRENT_DATE)")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, contractId);
+            ps.setObject(3, employmentId);
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertHrCompensationPackageRow(UUID tenantId) throws Exception {
+        UUID employmentId = insertHrEmployee(tenantId);
+        UUID packageId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_compensation_packages (id, tenant_id, employment_id, currency_code, pay_frequency, " +
+                "effective_from, status) VALUES (?, ?, ?, 'SAR', 'MONTHLY', CURRENT_DATE, 'DRAFT')")) {
+            ps.setObject(1, packageId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, employmentId);
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertHrCompensationComponentRow(UUID tenantId) throws Exception {
+        UUID employmentId = insertHrEmployee(tenantId);
+        UUID packageId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_compensation_packages (id, tenant_id, employment_id, currency_code, pay_frequency, " +
+                "effective_from, status) VALUES (?, ?, ?, 'SAR', 'MONTHLY', CURRENT_DATE, 'DRAFT')")) {
+            ps.setObject(1, packageId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, employmentId);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_compensation_components (tenant_id, package_id, component_type, code, amount) " +
+                "VALUES (?, ?, 'BASE_SALARY', 'BASE', 1000.0000)")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, packageId);
+            ps.executeUpdate();
+        }
+    }
+
     // --- Generic seed dispatch ---
 
     private void seedRow(String table, UUID tenantId) throws Exception {
@@ -841,6 +909,10 @@ class HrRlsFailClosedIntegrationTest {
             case "hr_domain_event_outbox" -> insertHrDomainEventOutboxRow(tenantId);
             case "hr_idempotency_records" -> insertHrIdempotencyRecordRow(tenantId);
             case "hr_iam_access_bindings" -> insertHrIamAccessBindingRow(tenantId);
+            case "hr_employment_contracts" -> insertHrEmploymentContractRow(tenantId);
+            case "hr_employment_contract_versions" -> insertHrEmploymentContractVersionRow(tenantId);
+            case "hr_compensation_packages" -> insertHrCompensationPackageRow(tenantId);
+            case "hr_compensation_components" -> insertHrCompensationComponentRow(tenantId);
             default -> throw new IllegalArgumentException("No seed for table: " + table);
         }
     }
