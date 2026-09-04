@@ -182,3 +182,26 @@ CREATE POLICY tenant_isolation ON hr_compensation_components FOR ALL
 
 CREATE INDEX IF NOT EXISTS idx_hr_compensation_components_package
     ON hr_compensation_components (tenant_id, package_id);
+
+-- ------------------------------------------------------------
+-- 5. Immutable terms guard (WS6 Task 2)
+--    Lifecycle fields (status, effective windows) may transition;
+--    TERM columns are immutable — an amendment creates a NEW version.
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION hr_contract_versions_immutable_terms() RETURNS trigger AS $$
+BEGIN
+    IF NEW.contract_term_type IS DISTINCT FROM OLD.contract_term_type
+       OR NEW.contract_start_date IS DISTINCT FROM OLD.contract_start_date
+       OR NEW.contract_end_date IS DISTINCT FROM OLD.contract_end_date
+       OR NEW.document_reference IS DISTINCT FROM OLD.document_reference
+       OR NEW.country_terms IS DISTINCT FROM OLD.country_terms
+       OR NEW.employment_id IS DISTINCT FROM OLD.employment_id
+       OR NEW.is_primary IS DISTINCT FROM OLD.is_primary THEN
+        RAISE EXCEPTION 'HRM_CONTRACT_VERSION_IMMUTABLE: effective contract terms are immutable (amendment creates a new version)';
+    END IF;
+    RETURN NEW;
+END $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_hr_contract_versions_immutable
+BEFORE UPDATE ON hr_employment_contract_versions
+FOR EACH ROW EXECUTE FUNCTION hr_contract_versions_immutable_terms();
