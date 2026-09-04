@@ -14,6 +14,9 @@ public enum HrApiErrorCode {
     /** Canonical resource does not exist in the requesting tenant. */
     HRM_PERSON_NOT_FOUND(404),
 
+    /** Person-level conflict: duplicate ACTIVE identity value or user already linked. */
+    HRM_PERSON_CONFLICT(409),
+
     /** Canonical resource does not exist in the requesting tenant. */
     HRM_EMPLOYMENT_NOT_FOUND(404),
 
