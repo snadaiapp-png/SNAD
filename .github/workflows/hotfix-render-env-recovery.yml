@@ -1,0 +1,171 @@
+name: HOTFIX Render env recovery (surgical, no deploy)
+
+# Recovery for the 2026-09-04 env wipe caused by a paginated PUT.
+# Contract:
+#   - Individual per-key PUTs ONLY (never a full-list replace).
+#   - Every write is verified by read-back.
+#   - NO deploy, NO suspend, NO restart in this workflow.
+#   - Secret values are masked and never printed.
+#   - Final full pagination-safe key listing proves restoration.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    name: Restore missing Render env vars (per-key, verified)
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 12
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+      DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+      DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+    steps:
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          for name in RENDER_API_KEY RENDER_SERVICE_ID DB_URL DB_USER DB_PASS; do
+            test -n "${!name:-}" || { echo "::error::$name is empty"; exit 1; }
+          done
+          [[ "$RENDER_SERVICE_ID" == srv-* ]]
+          echo "SECRETS_PRESENT=YES"
+
+      - name: Capture surviving control-plane tenant id
+        id: tenant
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          CODE=$(curl -sS -o /tmp/tenant.json -w '%{http_code}' --max-time 45 \
+            -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/CONTROL_PLANE_TENANT_ID")
+          test "$CODE" = "200" || { echo "::error::survivor key CONTROL_PLANE_TENANT_ID not found (HTTP $CODE)"; exit 1; }
+          VAL="$(jq -r '(.envVar // .).value // empty' /tmp/tenant.json)"
+          [[ "$VAL" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
+            echo "::error::survivor value is not a UUID"; exit 1; }
+          echo "::add-mask::$VAL"
+          echo "value=$VAL" >> "$GITHUB_OUTPUT"
+          echo "TENANT_ID_CAPTURED=YES (masked)"
+
+      - name: Generate fresh secrets (masked)
+        id: fresh
+        run: |
+          set -euo pipefail
+          JWT="$(openssl rand -hex 32)"
+          SVC="$(openssl rand -hex 32)"
+          ENC="$(openssl rand -base64 32)"
+          test "$(printf '%s' "$ENC" | base64 -d | wc -c)" -eq 32 || { echo "::error::enc key not 32 bytes"; exit 1; }
+          for v in "$JWT" "$SVC" "$ENC"; do echo "::add-mask::$v"; done
+          echo "jwt=$JWT"   >> "$GITHUB_OUTPUT"
+          echo "svc=$SVC"   >> "$GITHUB_OUTPUT"
+          echo "enc=$ENC"   >> "$GITHUB_OUTPUT"
+          echo "FRESH_SECRETS_GENERATED=YES (masked)"
+
+      - name: Restore missing env vars (per-key PUT + read-back)
+        env:
+          TENANT_ID: ${{ steps.tenant.outputs.value }}
+          JWT: ${{ steps.fresh.outputs.jwt }}
+          SVC: ${{ steps.fresh.outputs.svc }}
+          ENC: ${{ steps.fresh.outputs.enc }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+
+          set_and_verify() {
+            local key="$1" val="$2"
+            jq -n --arg value "$val" '{value:$value}' > /tmp/body.json
+            local code
+            code=$(curl -sS -o /tmp/put.json -w '%{http_code}' --max-time 45 -X PUT \
+              -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+              --data @/tmp/body.json "$BASE/env-vars/$key")
+            case "$code" in 200|201) ;; *) echo "::error::PUT $key failed HTTP $code"; cat /tmp/put.json; exit 1;; esac
+            local back
+            back=$(curl -sS --max-time 45 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/$key" \
+              | jq -r '(.envVar // .).value // empty')
+            test "$back" = "$val" || { echo "::error::read-back mismatch for $key"; exit 1; }
+            echo "  OK $key (len=${#val}, read-back verified)"
+          }
+
+          echo "=== Restoring missing keys ==="
+          # --- static values (render.yaml / ops contract) ---
+          set_and_verify "APPLICATION_BASE_URL"          "https://snad-app.vercel.app"
+          set_and_verify "BOOTSTRAP_ENABLED"             "false"
+          set_and_verify "DATABASE_DRIVER"               "org.postgresql.Driver"
+          set_and_verify "FLYWAY_LOCATIONS"              "classpath:db/migration,classpath:db/vendor/{vendor}"
+          set_and_verify "FLYWAY_OUT_OF_ORDER"           "false"
+          set_and_verify "SANAD_CORS_ALLOWED_ORIGINS"    "https://snad-app.vercel.app"
+          set_and_verify "SECURITY_NOTIFICATION_PROVIDER" "resend"
+          set_and_verify "SERVER_PORT"                   "8080"
+          set_and_verify "SPRING_FLYWAY_OUT_OF_ORDER"    "false"
+          set_and_verify "SPRING_PROFILES_ACTIVE"        "prod"
+          # --- DB credentials (proven Candidate-B combination) ---
+          set_and_verify "SPRING_DATASOURCE_PASSWORD"    "$DB_PASS"
+          set_and_verify "SPRING_DATASOURCE_USERNAME"    "$DB_USER"
+          set_and_verify "SPRING_FLYWAY_URL"             "$DB_URL"
+          set_and_verify "SPRING_FLYWAY_PASSWORD"        "$DB_PASS"
+          # --- copy from surviving alias key ---
+          set_and_verify "SANAD_CONTROL_PLANE_TENANT_ID" "$TENANT_ID"
+          # --- corrective (undo weakened value from the incident PUT) ---
+          set_and_verify "FLYWAY_BASELINE_ON_MIGRATE"    "false"
+          # --- fresh rotations (originals unrecoverable; documented) ---
+          set_and_verify "JWT_SECRET"                    "$JWT"
+          set_and_verify "SANAD_SERVICE_AUTH_JWT_SECRET" "$SVC"
+          set_and_verify "CRM_CUSTOM_FIELD_ENCRYPTION_KEY" "$ENC"
+          echo "ALL_PUTS_VERIFIED=YES"
+
+      - name: Prove complete environment (pagination-safe, keys only)
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "$AUTH" -H 'Accept: application/json' \
+            "$BASE/env-vars?limit=100" > /tmp/env-full.json
+          COUNT=$(jq 'length' /tmp/env-full.json)
+          test "$COUNT" -lt 100 || { echo "::error::pagination not exhausted"; exit 1; }
+          jq -r '[.[]? | (.envVar // .)] | sort_by(.key) | .[].key' /tmp/env-full.json | tee /tmp/keys.txt
+          echo "TOTAL_KEYS=$COUNT"
+          EXPECTED=40
+          test "$COUNT" -eq "$EXPECTED" || { echo "::error::expected $EXPECTED keys, got $COUNT"; exit 1; }
+          for k in APPLICATION_BASE_URL BOOTSTRAP_ENABLED CRM_CUSTOM_FIELD_ENCRYPTION_KEY \
+                   DATABASE_DRIVER DATABASE_PASSWORD DATABASE_URL DATABASE_USERNAME \
+                   FLYWAY_ENABLED FLYWAY_LOCATIONS FLYWAY_OUT_OF_ORDER \
+                   FLYWAY_VALIDATE_ON_MIGRATE FLYWAY_BASELINE_ON_MIGRATE JPA_DDL_AUTO JWT_SECRET \
+                   LAZY_INIT LOG_LEVEL_ROOT LOG_LEVEL_SANAD MANAGEMENT_ENDPOINTS \
+                   SANAD_AI_GATEWAY_BASE_URL SANAD_CONTROL_PLANE_TENANT_ID SANAD_CORS_ALLOWED_ORIGINS \
+                   SANAD_SERVICE_AUTH_JWT_SECRET SANAD_WORKFLOW_ENGINE_BASE_URL \
+                   SECURITY_NOTIFICATION_ENDPOINT SECURITY_NOTIFICATION_FROM \
+                   SECURITY_NOTIFICATION_PROVIDER SECURITY_NOTIFICATION_RESEND_API_KEY \
+                   SERVER_PORT SHUTDOWN_TIMEOUT SPRING_DATASOURCE_PASSWORD \
+                   SPRING_DATASOURCE_USERNAME SPRING_FLYWAY_OUT_OF_ORDER SPRING_FLYWAY_PASSWORD \
+                   SPRING_FLYWAY_URL SPRING_PROFILES_ACTIVE \
+                   DATABASE_POOL_MAX DATABASE_POOL_MIN DATABASE_POOL_TIMEOUT \
+                   CONTROL_PLANE_ADMIN_EMAIL CONTROL_PLANE_ADMIN_PASSWORD; do
+            grep -qx "$k" /tmp/keys.txt || { echo "::error::key still missing: $k"; exit 1; }
+          done
+          echo "ENV_RESTORE_COMPLETE=YES"
+
+      - name: Read-only DB probes (impact quantification)
+        run: |
+          set -euo pipefail
+          PG_URL="${DB_URL#jdbc:}"
+          export PGPASSWORD="$DB_PASS"
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          echo "=== DB identity (migration-channel creds) ==="
+          psql "$PG_URL" -U "$DB_USER" -X -v ON_ERROR_STOP=1 -Atc "SELECT current_user;"
+          echo "=== Flyway head ==="
+          psql "$PG_URL" -U "$DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;"
+          echo "=== Failed migration rows ==="
+          psql "$PG_URL" -U "$DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM flyway_schema_history WHERE success=false;"
+          echo "=== CRM custom-field encrypted rows (enc:v1:) ==="
+          psql "$PG_URL" -U "$DB_USER" -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT count(*) FROM crm_custom_field_values WHERE text_value LIKE 'enc:v1:%';" || \
+            echo "(crm_custom_field_values not reachable read-only — informational only)"
