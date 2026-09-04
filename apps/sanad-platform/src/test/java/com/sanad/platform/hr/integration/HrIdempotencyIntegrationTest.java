@@ -1,5 +1,7 @@
 package com.sanad.platform.hr.integration;
 
+import com.sanad.platform.idempotency.IdempotencyBeginResult;
+import com.sanad.platform.idempotency.RequestIdempotencyService;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
@@ -12,6 +14,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -70,6 +74,7 @@ class HrIdempotencyIntegrationTest {
         flyway.migrate();
         connection = ds.getConnection();
         connection.setAutoCommit(true);
+        serviceDataSource = ds;
 
         tenantId = UUID.randomUUID();
         principalId = UUID.randomUUID();
@@ -275,6 +280,109 @@ class HrIdempotencyIntegrationTest {
             ps.setInt(6, responseStatus);
             return ps.executeUpdate();
         }
+    }
+
+    // ==================== WS4 TASK 8: DURABLE SERVICE CONTRACT ====================
+
+    private static final String IDEMPOTENCY_SERVICE = "com.sanad.platform.hr.idempotency.JdbcHrRequestIdempotencyService";
+    private DriverManagerDataSource serviceDataSource;
+
+    private RequestIdempotencyService newService() throws Exception {
+        Class<?> svc = Class.forName(IDEMPOTENCY_SERVICE);
+        return (RequestIdempotencyService) svc.getDeclaredConstructor(javax.sql.DataSource.class)
+                .newInstance(serviceDataSource);
+    }
+
+    @Test
+    void durableServiceSameKeySameFingerprintCompletedReplaysStoredResult() throws Exception {
+        RequestIdempotencyService service = newService();
+        String fingerprint = "a".repeat(64);
+        IdempotencyBeginResult begin = service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-replay", fingerprint);
+        assertThat(begin.alreadyExists()).as("first begin must start a new operation").isFalse();
+        service.complete(begin.operationId(), 201, "{\"status\":\"created\"}");
+
+        IdempotencyBeginResult replay = service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-replay", fingerprint);
+        assertThat(replay.alreadyExists()).isTrue();
+        assertThat(replay.priorStatus()).isEqualTo(201);
+        assertThat(replay.priorResponse()).isEqualTo("{\"status\":\"created\"}");
+        assertThat(replay.operationId()).isEqualTo(begin.operationId());
+    }
+
+    @Test
+    void durableServiceSameKeyDifferentFingerprintConflicts() throws Exception {
+        RequestIdempotencyService service = newService();
+        IdempotencyBeginResult begin = service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-conflict", "b".repeat(64));
+        service.complete(begin.operationId(), 200, "{}");
+
+        assertThatThrownBy(() -> service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-conflict", "c".repeat(64)))
+                .as("same key with a different fingerprint must surface HRM_IDEMPOTENCY_CONFLICT")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HRM_IDEMPOTENCY_CONFLICT");
+    }
+
+    @Test
+    void durableServiceSameKeyInFlightIsDeterministicRetryLater() throws Exception {
+        RequestIdempotencyService service = newService();
+        service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-inflight", "d".repeat(64));
+
+        IdempotencyBeginResult second = service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-inflight", "d".repeat(64));
+        assertThat(second.alreadyExists()).as("in-flight key must be reported as already existing").isTrue();
+        assertThat(second.priorStatus()).as("in-flight key has no completed result yet (deterministic retry-later)").isNull();
+        assertThat(second.priorResponse()).isNull();
+    }
+
+    @Test
+    void durableServiceExpiredCompletedRecordAllowsNewOperation() throws Exception {
+        RequestIdempotencyService service = newService();
+        IdempotencyBeginResult begin = service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-expired", "e".repeat(64));
+        service.complete(begin.operationId(), 200, "{}");
+        executeUpdate("UPDATE hr_idempotency_records SET expires_at = NOW() - INTERVAL '1 second' WHERE id = ?",
+                ps -> ps.setObject(1, begin.operationId()));
+
+        IdempotencyBeginResult fresh = service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-expired", "f".repeat(64));
+        assertThat(fresh.alreadyExists()).as("expired completed record must allow a new operation").isFalse();
+    }
+
+    @Test
+    void durableServiceConcurrentBeginOnlyOneOperationWins() throws Exception {
+        RequestIdempotencyService serviceA = newService();
+        RequestIdempotencyService serviceB = newService();
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<IdempotencyBeginResult> resultA = new AtomicReference<>();
+        AtomicReference<IdempotencyBeginResult> resultB = new AtomicReference<>();
+        AtomicReference<Throwable> errorA = new AtomicReference<>();
+        AtomicReference<Throwable> errorB = new AtomicReference<>();
+
+        Thread a = new Thread(() -> {
+            try {
+                start.await();
+                resultA.set(serviceA.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-race", "1".repeat(64)));
+            } catch (Throwable t) {
+                errorA.set(t);
+            }
+        });
+        Thread b = new Thread(() -> {
+            try {
+                start.await();
+                resultB.set(serviceB.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-race", "1".repeat(64)));
+            } catch (Throwable t) {
+                errorB.set(t);
+            }
+        });
+        a.start();
+        b.start();
+        start.countDown();
+        a.join(20000);
+        b.join(20000);
+
+        assertThat(errorA.get()).as("winner must not fail").isNull();
+        boolean aWon = !resultA.get().alreadyExists();
+        boolean bWon = resultB.get() != null && !resultB.get().alreadyExists();
+        assertThat(aWon ^ bWon)
+                .as("exactly one concurrent begin() may start the logical operation (a=" + resultA.get() + ", b=" + resultB.get() + ")")
+                .isTrue();
+        assertThat(queryScalar("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'key-race'"))
+                .isEqualTo("1");
     }
 
     private String repeat(char c) {
