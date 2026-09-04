@@ -163,8 +163,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TENANT_ID="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT id FROM tenants WHERE subdomain = '${PREVIEW_SUBDOMAIN}'")"
-          test -n "$TENANT_ID"
+          # Derive the tenant from the bootstrap admin user itself (the user is
+          # created by the backend's bootstrap runner during startup). This is
+          # authoritative even if tenant lookup by subdomain ever diverges.
+          TENANT_ID="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT tenant_id FROM users WHERE email = '${PREVIEW_ADMIN_EMAIL}' ORDER BY created_at LIMIT 1")"
+          test -n "$TENANT_ID" || { echo "::error::preview admin user not found — bootstrap did not run"; exit 1; }
+          SUBDOMAIN_TENANT="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT id FROM tenants WHERE subdomain = '${PREVIEW_SUBDOMAIN}'" || true)"
+          echo "grant tenant=${TENANT_ID} (subdomain lookup: ${SUBDOMAIN_TENANT:-<none>})"
           # The role-template seed migration ran before this tenant existed, so
           # provision the tenant-scoped HR_MANAGER role + HR capability bindings
           # idempotently here (same matrix as V20260820_2/_3 for HR_MANAGER).
@@ -202,7 +207,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TENANT_ID="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT id FROM tenants WHERE subdomain = '${PREVIEW_SUBDOMAIN}'")"
+          TENANT_ID="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT tenant_id FROM users WHERE email = '${PREVIEW_ADMIN_EMAIL}' ORDER BY created_at LIMIT 1")"
           test -n "$TENANT_ID"
           echo "HRM preview tenant: $TENANT_ID"
           psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 -v tenant_id="$TENANT_ID" <<'SQL'

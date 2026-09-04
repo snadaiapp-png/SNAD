@@ -1,5 +1,5 @@
 {
-  "generatedFrom" : "runtime /v3/api-docs",
+  "generatedFrom" : "runtime platform contract export",
   "hrmV2Operations" : 58,
   "paths" : {
     "/api/v2/hr/assignments" : {

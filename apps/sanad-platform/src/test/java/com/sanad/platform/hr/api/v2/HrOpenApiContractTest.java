@@ -49,7 +49,7 @@ class HrOpenApiContractTest {
 
         if (Boolean.getBoolean("hrm.openapi.generate")) {
             ObjectNode out = objectMapper.createObjectNode();
-            out.put("generatedFrom", "runtime /v3/api-docs");
+            out.put("generatedFrom", "runtime platform contract export");
             out.put("hrmV2Operations", runtime.values().stream().mapToInt(Map::size).sum());
             ObjectNode paths = out.putObject("paths");
             runtime.forEach((path, ops) -> {
