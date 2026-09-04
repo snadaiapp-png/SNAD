@@ -539,7 +539,7 @@ REVOKE ALL ON FUNCTION hr_reconcile_tenant(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION hr_reconcile_tenant_report(UUID) FROM PUBLIC;
 
 -- Grant EXECUTE only to the table owner (sanad) — migration admin role
-GRANT EXECUTE ON FUNCTION hr_precheck_tenant(UUID) TO sanad;
-GRANT EXECUTE ON FUNCTION hr_backfill_tenant(UUID) TO sanad;
-GRANT EXECUTE ON FUNCTION hr_reconcile_tenant(UUID) TO sanad;
-GRANT EXECUTE ON FUNCTION hr_reconcile_tenant_report(UUID) TO sanad;
+GRANT EXECUTE ON FUNCTION hr_precheck_tenant(UUID) TO CURRENT_USER;
+GRANT EXECUTE ON FUNCTION hr_backfill_tenant(UUID) TO CURRENT_USER;
+GRANT EXECUTE ON FUNCTION hr_reconcile_tenant(UUID) TO CURRENT_USER;
+GRANT EXECUTE ON FUNCTION hr_reconcile_tenant_report(UUID) TO CURRENT_USER;
