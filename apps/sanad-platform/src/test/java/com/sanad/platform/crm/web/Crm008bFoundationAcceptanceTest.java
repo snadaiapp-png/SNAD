@@ -73,7 +73,7 @@ class Crm008bFoundationAcceptanceTest {
     // CRM Contacts Collaboration Integration (impl/crm-contacts-collaboration-20260823):
     //   V20260823.2 - crm participant role exclusivity is the new terminal migration.
     //   Earlier V20260823.1 (crm contacts force rls) precedes it.
-    private static final String CRM_LATEST_VERSION = "20260903.2"; // Updated for HRM-G0 Master Task 4 Task 3 (V20260903_2 hr audit/outbox/idempotency/iam bindings)
+    private static final String CRM_LATEST_VERSION = "20260904.1"; // Updated for HRM-G0 Master Task 4 WS4 Task 6 (V20260904_1 hr audit delivery claim columns)
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

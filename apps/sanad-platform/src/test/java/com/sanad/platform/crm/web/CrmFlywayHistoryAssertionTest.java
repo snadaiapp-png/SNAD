@@ -214,6 +214,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260902.1"   // hrm-g0 master task 4 ws3+ws4 foundation schema
             , "20260903.1"   // hrm-g0 master task 4 task 2 employment jurisdiction periods
             , "20260903.2"   // hrm-g0 master task 4 task 3 immutable hr audit + outbox + idempotency + iam bindings
+            , "20260904.1"   // hrm-g0 master task 4 ws4 task 6 add_hr_audit_delivery_claim_columns
     );
 
 
