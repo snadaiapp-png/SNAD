@@ -308,6 +308,214 @@ public final class JdbcHrAssignmentRepository {
         });
     }
 
+    // ==================== WS5 Task 4 (Assignment v2) ====================
+
+    /** Tenant-scoped assignment listing — every period row, oldest first. */
+    public java.util.List<HrAssignment> listAssignments(UUID tenantId) {
+        if (tenantId == null) throw new IllegalArgumentException("tenantId must not be null");
+        return inTenantTransaction(tenantId, connection -> {
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "SELECT * FROM hr_employee_assignments WHERE tenant_id = ? ORDER BY effective_from, id")) {
+                ps.setObject(1, tenantId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    java.util.List<HrAssignment> result = new ArrayList<>();
+                    while (rs.next()) result.add(mapAssignment(rs));
+                    return result;
+                }
+            }
+        });
+    }
+
+    /**
+     * Terminal close of the open assignment period, guarded by the expected
+     * version. History is preserved: the row remains with an ENDED status and
+     * a closed effective_to. Idempotency of the HTTP layer is handled above
+     * this persistence boundary.
+     */
+    public HrAssignment endAssignmentAtomically(UUID tenantId, UUID assignmentId,
+                                                LocalDate effectiveTo, long expectedVersion) {
+        if (tenantId == null) throw new IllegalArgumentException("tenantId must not be null");
+        return inTenantTransaction(tenantId, connection -> {
+            HrAssignment existing = loadAssignmentForUpdate(connection, assignmentId);
+            if (existing.version() != expectedVersion) {
+                throw new IllegalStateException("HRM_CONCURRENCY_CONFLICT: assignment version "
+                        + existing.version() + " does not match expected " + expectedVersion);
+            }
+            if (existing.effectiveTo() != null || !"ACTIVE".equals(existing.status())) {
+                throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: assignment "
+                        + assignmentId + " is not an open ACTIVE period");
+            }
+            if (effectiveTo.isBefore(existing.effectiveFrom())) {
+                throw new IllegalArgumentException("HRM_VALIDATION_FAILED: effectiveTo "
+                        + effectiveTo + " precedes effectiveFrom " + existing.effectiveFrom());
+            }
+
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "UPDATE hr_employee_assignments SET effective_to = ?, status = 'ENDED', " +
+                    "version = version + 1, updated_at = NOW() " +
+                    "WHERE id = ? AND effective_to IS NULL")) {
+                ps.setObject(1, java.sql.Date.valueOf(effectiveTo));
+                ps.setObject(2, assignmentId);
+                int updated = ps.executeUpdate();
+                if (updated != 1) {
+                    throw new IllegalStateException(
+                            "Assignment is not open for end: " + assignmentId);
+                }
+            }
+
+            HrAssignment ended = new HrAssignment(existing.id(), existing.tenantId(), existing.employmentId(),
+                    existing.organizationId(), existing.orgUnitId(), existing.positionId(),
+                    existing.reportsToAssignmentId(), existing.workLocationId(), existing.assignmentType(),
+                    existing.occupancyMode(), existing.allocationPercent(), existing.effectiveFrom(),
+                    effectiveTo, "ENDED", existing.version() + 1);
+
+            ObjectNode beforeState = OBJECT_MAPPER.createObjectNode();
+            beforeState.put("status", existing.status());
+            ObjectNode afterState = OBJECT_MAPPER.createObjectNode();
+            afterState.put("status", "ENDED");
+            afterState.put("effectiveTo", effectiveTo.toString());
+            appendEvidence(connection, tenantId, "HRM.ASSIGNMENT.ENDED.v1", ended,
+                    beforeState, afterState, assignmentId);
+
+            return ended;
+        });
+    }
+
+    /**
+     * Supersedes the open period with a new period carrying the new manager
+     * link, guarded by the expected version. The superseded row keeps its
+     * identity and gains a closed effective_to — history is never overwritten.
+     */
+    public HrAssignment changeManagerAtomically(UUID tenantId, UUID assignmentId,
+                                                UUID newReportsToAssignmentId,
+                                                LocalDate effectiveFrom, long expectedVersion) {
+        if (tenantId == null) throw new IllegalArgumentException("tenantId must not be null");
+        return inTenantTransaction(tenantId, connection -> {
+            HrAssignment existing = loadAssignmentForUpdate(connection, assignmentId);
+            if (existing.version() != expectedVersion) {
+                throw new IllegalStateException("HRM_CONCURRENCY_CONFLICT: assignment version "
+                        + existing.version() + " does not match expected " + expectedVersion);
+            }
+            if (existing.effectiveTo() != null || !"ACTIVE".equals(existing.status())) {
+                throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: assignment "
+                        + assignmentId + " is not an open ACTIVE period");
+            }
+            validateReporting(connection, tenantId, assignmentId, newReportsToAssignmentId, effectiveFrom, null);
+            return supersedeAtomically(connection, tenantId, existing,
+                    existing.orgUnitId(), existing.positionId(), newReportsToAssignmentId,
+                    existing.occupancyMode(), existing.allocationPercent(), effectiveFrom);
+        });
+    }
+
+    /**
+     * Supersedes the open period with a new placement period (org unit and
+     * optionally position/manager), guarded by the expected version. The full
+     * WS2 validation chain runs before any mutation; the superseded row keeps
+     * its identity and gains a closed effective_to — transfer never overwrites
+     * historical placement.
+     */
+    public HrAssignment transferAssignmentAtomically(UUID tenantId, UUID assignmentId,
+                                                     UUID newOrgUnitId, UUID newPositionId,
+                                                     UUID newReportsToAssignmentId,
+                                                     LocalDate effectiveFrom, long expectedVersion) {
+        if (tenantId == null) throw new IllegalArgumentException("tenantId must not be null");
+        return inTenantTransaction(tenantId, connection -> {
+            HrAssignment existing = loadAssignmentForUpdate(connection, assignmentId);
+            if (existing.version() != expectedVersion) {
+                throw new IllegalStateException("HRM_CONCURRENCY_CONFLICT: assignment version "
+                        + existing.version() + " does not match expected " + expectedVersion);
+            }
+            if (existing.effectiveTo() != null || !"ACTIVE".equals(existing.status())) {
+                throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: assignment "
+                        + assignmentId + " is not an open ACTIVE period");
+            }
+
+            UUID candidatePositionId = newPositionId != null ? newPositionId : existing.positionId();
+            UUID candidateReportsToId = newReportsToAssignmentId != null
+                    ? newReportsToAssignmentId : existing.reportsToAssignmentId();
+
+            UUID legalEntityId = loadEmploymentLegalEntity(connection, tenantId, existing.employmentId());
+            validateOrganizationEligibility(connection, tenantId, existing.organizationId(),
+                    legalEntityId, effectiveFrom);
+            validateOrgUnitEffectiveness(connection, tenantId, newOrgUnitId, effectiveFrom);
+            validatePositionEffectiveness(connection, tenantId, candidatePositionId, effectiveFrom);
+            validateEffectiveAllocation(connection, tenantId, existing.employmentId(),
+                    existing.allocationPercent(), effectiveFrom, null, assignmentId);
+            validatePrimaryOverlap(connection, tenantId, existing.employmentId(),
+                    existing.assignmentType(), effectiveFrom, null, assignmentId);
+            validatePositionOccupancy(connection, tenantId, candidatePositionId,
+                    existing.occupancyMode(), effectiveFrom, null, assignmentId);
+            validateReporting(connection, tenantId, assignmentId, candidateReportsToId, effectiveFrom, null);
+
+            return supersedeAtomically(connection, tenantId, existing,
+                    newOrgUnitId, candidatePositionId, candidateReportsToId,
+                    existing.occupancyMode(), existing.allocationPercent(), effectiveFrom);
+        });
+    }
+
+    /** Shared supersede core: close the open period, insert the successor period atomically. */
+    private HrAssignment supersedeAtomically(Connection connection, UUID tenantId, HrAssignment existing,
+                                             UUID candidateOrgUnitId, UUID candidatePositionId,
+                                             UUID candidateReportsToId, OccupancyMode candidateOccupancyMode,
+                                             BigDecimal candidateAllocation, LocalDate effectiveFrom)
+            throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "UPDATE hr_employee_assignments SET effective_to = ?, updated_at = NOW() " +
+                "WHERE id = ? AND effective_to IS NULL")) {
+            ps.setObject(1, java.sql.Date.valueOf(effectiveFrom.minusDays(1)));
+            ps.setObject(2, existing.id());
+            int updated = ps.executeUpdate();
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "Assignment is not open for revision: " + existing.id());
+            }
+        }
+
+        UUID newId = UUID.randomUUID();
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO hr_employee_assignments " +
+                "(id, tenant_id, employment_id, organization_id, org_unit_id, position_id, " +
+                "reports_to_assignment_id, work_location_id, cost_center_id, " +
+                "assignment_type, occupancy_mode, allocation_percent, " +
+                "effective_from, effective_to, status, version, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NOW(), NOW())")) {
+            ps.setObject(1, newId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, existing.employmentId());
+            ps.setObject(4, existing.organizationId());
+            ps.setObject(5, candidateOrgUnitId);
+            ps.setObject(6, candidatePositionId);
+            ps.setObject(7, candidateReportsToId);
+            ps.setObject(8, existing.workLocationId());
+            ps.setObject(9, null);
+            ps.setString(10, existing.assignmentType().name());
+            ps.setString(11, candidateOccupancyMode.name());
+            ps.setBigDecimal(12, candidateAllocation);
+            ps.setObject(13, java.sql.Date.valueOf(effectiveFrom));
+            ps.setString(14, "ACTIVE");
+            ps.setLong(15, existing.version() + 1);
+            ps.executeUpdate();
+        }
+
+        HrAssignment revised = new HrAssignment(newId, tenantId, existing.employmentId(), existing.organizationId(),
+                candidateOrgUnitId, candidatePositionId, candidateReportsToId,
+                existing.workLocationId(), existing.assignmentType(), candidateOccupancyMode,
+                candidateAllocation, effectiveFrom, null, "ACTIVE", existing.version() + 1);
+
+        ObjectNode beforeState = OBJECT_MAPPER.createObjectNode();
+        beforeState.put("status", existing.status());
+        beforeState.put("allocationPercent", existing.allocationPercent() == null ? null : existing.allocationPercent().toPlainString());
+        beforeState.put("effectiveFrom", existing.effectiveFrom() == null ? null : existing.effectiveFrom().toString());
+        ObjectNode afterState = OBJECT_MAPPER.createObjectNode();
+        afterState.put("status", "ACTIVE");
+        afterState.put("allocationPercent", candidateAllocation == null ? null : candidateAllocation.toPlainString());
+        afterState.put("effectiveFrom", effectiveFrom.toString());
+        appendEvidence(connection, tenantId, "HRM.ASSIGNMENT.REVISED.v1", revised,
+                beforeState, afterState, existing.id());
+
+        return revised;
+    }
+
     private HrAssignment loadAssignmentForUpdate(Connection connection, UUID assignmentId) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement(
                 "SELECT * FROM hr_employee_assignments WHERE id = ? FOR UPDATE")) {
