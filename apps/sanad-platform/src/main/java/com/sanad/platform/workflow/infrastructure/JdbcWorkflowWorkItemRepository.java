@@ -119,8 +119,9 @@ public class JdbcWorkflowWorkItemRepository implements WorkflowWorkItemRepositor
                 SET status = 'COMPLETED', completed_at = NOW(),
                     version = version + 1, updated_at = NOW()
                 WHERE tenant_id = ? AND id = ? AND version = ? AND status = 'CLAIMED'
-                  AND claimed_by_employee_id = ?
-                """, tenantId, workItemId, expectedVersion, employeeId);
+                  AND (claimed_by_employee_id = ?
+                       OR (claimed_by_employee_id IS NULL AND assignee_employee_id = ?))
+                """, tenantId, workItemId, expectedVersion, employeeId, employeeId);
     }
 
     @Override

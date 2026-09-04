@@ -85,6 +85,23 @@ public class WorkflowController {
     // ===== Exception Handling =====
 
     /**
+     * Map controller-thrown AccessDeniedException (actionability denials,
+     * capability denials surfacing inside handler bodies) to HTTP 403.
+     * Without this handler Spring Boot surfaces them as 500, which violates
+     * the fail-closed release contract (P09: a disabled user's stale token
+     * must be DENIED, not errored).
+     */
+    @org.springframework.web.bind.annotation.ExceptionHandler(
+            org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex) {
+        return ResponseEntity.status(403).body(Map.of(
+                "status", 403,
+                "error", "Forbidden",
+                "message", ex.getMessage() == null ? "Access denied" : ex.getMessage()));
+    }
+
+    /**
      * Map IllegalStateException (SOD violations, state machine violations) to HTTP 409 CONFLICT
      * instead of HTTP 500. This ensures business-rule rejections are not treated as
      * internal server errors in production error sweeps.

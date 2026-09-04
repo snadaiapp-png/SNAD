@@ -731,6 +731,14 @@ test("P09 — disabled user cannot act; work preserved without auto-transfer; ex
     `/api/v1/workflows/instances/${instance.id}`);
   expect(finalRes.status()).toBe(200);
   expect(((await finalRes.json()) as InstanceMap).status).toBe("COMPLETED");
+
+  // Restore the fixture for later scenarios (P12 authenticates employee-1):
+  // the B1 semantics proof is complete, so the user returns to ACTIVE.
+  const reactivateRes = await request.patch(
+    `${API}/api/v1/users/${emp1UserId}/activate?tenantId=${tenantA}`,
+    { headers: await headersFor(request, ACTORS.ADMIN) });
+  expect(reactivateRes.status(), "fixture restoration: user reactivated").toBe(200);
+  tokenCache.delete(ACTORS.EMPLOYEE_1);
 });
 
 /* ════════════════ P10 — REAL INCIDENT LIFECYCLE ════════════════ */
