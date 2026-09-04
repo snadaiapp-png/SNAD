@@ -191,7 +191,8 @@ class CrmPostgresMigrationTest {
     private static final String HR_AUDIT_OUTBOX_IDEMPOTENCY_VERSION = "20260903.2";
     private static final String HR_AUDIT_DELIVERY_CLAIM_VERSION = "20260904.1";
     private static final String HR_CONTRACT_COMPENSATION_VERSION = "20260904.2";
-    private static final String LATEST_MIGRATION_VERSION = HR_CONTRACT_COMPENSATION_VERSION;
+    private static final String HRM_V2_CAPABILITIES_VERSION = "20260904.3";
+    private static final String LATEST_MIGRATION_VERSION = HRM_V2_CAPABILITIES_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -423,7 +424,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION),
                         MigrationVersion.fromVersion(HR_AUDIT_OUTBOX_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(HR_AUDIT_DELIVERY_CLAIM_VERSION),
-                        MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION));
+                        MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
+                        MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -576,7 +578,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION),
                         MigrationVersion.fromVersion(HR_AUDIT_OUTBOX_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(HR_AUDIT_DELIVERY_CLAIM_VERSION),
-                        MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION));
+                        MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
+                        MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
