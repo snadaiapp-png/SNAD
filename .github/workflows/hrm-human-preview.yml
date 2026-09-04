@@ -7,18 +7,19 @@ on:
     paths:
       - "apps/web/**"
       - "apps/sanad-platform/**"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: hrm-human-preview-pr-${{ github.event.pull_request.number }}
+  group: hrm-human-preview-pr-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   preview:
     name: Full-stack HRM human preview
-    if: github.event.pull_request.number == 914
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 914
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -50,16 +51,21 @@ jobs:
       - name: Checkout exact PR head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
 
       - name: Verify isolated preview contract
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
-          test "${{ github.event.pull_request.head.repo.full_name }}" = "$GITHUB_REPOSITORY"
-          test "${{ github.event.pull_request.number }}" = "914"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+            test "${{ github.event.pull_request.head.repo.full_name }}" = "$GITHUB_REPOSITORY"
+            test "${{ github.event.pull_request.number }}" = "914"
+          else
+            test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+            test "${{ github.ref_name }}" = "feat/hrm-g0-foundation"
+          fi
 
       - name: Provision least-privilege PostgreSQL application role
         shell: bash
@@ -342,7 +348,7 @@ jobs:
           printf '%s\n' "${PREVIEW_URL}/hr" > "$RUNNER_TEMP/hrm-human-preview-url.txt"
           {
             echo '## HRM Full-Stack Human Preview READY'
-            echo "- Exact source SHA: \`${{ github.event.pull_request.head.sha }}\`"
+            echo "- Exact source SHA: \`${{ github.event.pull_request.head.sha || github.sha }}\`"
             echo "- HRM URL: ${PREVIEW_URL}/hr"
             echo "- Login email: \`${PREVIEW_ADMIN_EMAIL}\`"
             echo '- Disposable tenant was backfilled and cut over to CANONICAL via the Task 11 cutover script.'
