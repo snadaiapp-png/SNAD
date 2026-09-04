@@ -1,3 +1,4 @@
+# SCP-PRODUCTION-RECOVERY-933: re-arm exact immutable backend image publication after the protected recovery merge.
 name: Publish Render Backend Image
 
 on:

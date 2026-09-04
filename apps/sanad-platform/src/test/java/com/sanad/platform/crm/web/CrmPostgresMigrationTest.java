@@ -166,19 +166,25 @@ class CrmPostgresMigrationTest {
     private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
     private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
     private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
-    // Workflow Y2 Wave 0 — identity bridge (V20260902_1).
+    // Subscription Control Plane (SCP closure — closure/scp-final-verification):
+    //   six intentional SCP migrations extend the inventory beyond the last CRM migration.
+    //   V20260901_1 (SCP closure fix: capability-code canonicalization) extends the
+    //   inventory further so loadByCode()'s UPPERCASE normalization resolves the
+    //   granular capability codes seeded by V20260830_2.
+    private static final String SCP_APPLICATIONS_CATALOG_VERSION = "20260829.1";
+    private static final String SCP_PRODUCTS_PLAN_VERSIONS_VERSION = "20260829.2";
+    private static final String SCP_SUBSCRIPTION_ITEMS_VERSION = "20260829.3";
+    private static final String SCP_PRICES_COUNTRY_CURRENCIES_VERSION = "20260829.4";
+    private static final String SCP_LIFECYCLE_PROVISIONING_VERSION = "20260830.1";
+    private static final String SCP_USAGE_METERING_RBAC_VERSION = "20260830.2";
+    private static final String CAPABILITY_CODE_CANONICALIZATION_VERSION = "20260901.1";
+    // Workflow Y2 (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
     private static final String WORKFLOW_Y2_IDENTITY_VERSION = "20260902.1";
-    // Workflow Y2 Wave 1 — definition graph (V20260902_2).
     private static final String WORKFLOW_Y2_DEFINITION_GRAPH_VERSION = "20260902.2";
-    // Workflow Y2 Wave 1 — central work items (V20260902_3).
     private static final String WORKFLOW_Y2_WORK_ITEMS_VERSION = "20260902.3";
-    // Workflow Y2 Wave 2 — runtime context (V20260902_4).
     private static final String WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION = "20260902.4";
-    // Workflow Y2 Wave 2 — calendars/delegation/incidents (V20260902_5).
     private static final String WORKFLOW_Y2_SLA_INCIDENTS_VERSION = "20260902.5";
-    // Workflow Y2 Wave 2 — reliable events/notifications (V20260902_6).
     private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260902.6";
-    // Workflow Y2 Wave 3 — break-glass override audit (V20260902_7).
     private static final String WORKFLOW_Y2_BREAK_GLASS_VERSION = "20260902.7";
     private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_BREAK_GLASS_VERSION;
 
@@ -396,6 +402,13 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
+                        MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
+                        MigrationVersion.fromVersion(SCP_SUBSCRIPTION_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
+                        MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
+                        MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_IDENTITY_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_DEFINITION_GRAPH_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_WORK_ITEMS_VERSION),
@@ -539,6 +552,13 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
+                        MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
+                        MigrationVersion.fromVersion(SCP_SUBSCRIPTION_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
+                        MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
+                        MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION),
+                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_IDENTITY_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_DEFINITION_GRAPH_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_WORK_ITEMS_VERSION),

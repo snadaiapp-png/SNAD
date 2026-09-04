@@ -1,0 +1,129 @@
+name: SCP Tenant Discovery (read-only)
+
+# Read-only, minimum-disclosure production validation for the SCP control-plane
+# tenant. This workflow never prints tenant UUIDs, names, subdomains, user
+# identities, login timestamps, or database topology. It returns only aggregate
+# counts and a PASS/FAIL decision.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scp-tenant-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Validate canonical control-plane tenant (read-only)
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Validate canonical tenant without identity disclosure
+        env:
+          JDBC_URL_A: ${{ secrets.PROD_JDBC_URL }}
+          DB_USER_A: ${{ secrets.PROD_DB_USER }}
+          DB_PW_A: ${{ secrets.PROD_DB_PASSWORD }}
+          JDBC_URL_B: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          DB_USER_B: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DB_PW_B: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          parse_jdbc() {
+            local raw="${1#jdbc:}"
+            raw="${raw#postgresql://}"
+            raw="${raw#postgres://}"
+            local host_port="${raw%%/*}"
+            local rest="${raw#*/}"
+            DB_NAME="${rest%%\?*}"
+            PGHOST="${host_port%%:*}"
+            PGPORT="${host_port#*:}"
+            if [ "$PGPORT" = "$host_port" ]; then PGPORT=5432; fi
+          }
+
+          psql_ro() {
+            PGOPTIONS='-c default_transaction_read_only=on' PGPASSWORD="$DB_PW" psql \
+              -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -d "$DB_NAME" \
+              --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align "$@"
+          }
+
+          run_validation() {
+            [ -n "$JDBC_URL" ] && [ -n "$DB_USER" ] && [ -n "$DB_PW" ] || return 1
+            parse_jdbc "$JDBC_URL"
+
+            if ! psql_ro --command='SELECT 1;' >/dev/null 2>&1; then
+              return 1
+            fi
+
+            platform_admin_user_count="$(psql_ro --command="
+              SELECT COUNT(*)
+              FROM users
+              WHERE status='ACTIVE' AND platform_admin=TRUE;
+            ")"
+
+            candidate_count="$(psql_ro --command="
+              SELECT COUNT(*)
+              FROM (
+                SELECT DISTINCT u.tenant_id
+                FROM users u
+                JOIN tenants t ON t.id=u.tenant_id
+                WHERE u.status='ACTIVE'
+                  AND u.platform_admin=TRUE
+                  AND t.status='ACTIVE'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM user_role_assignments ura
+                    JOIN roles r
+                      ON r.id=ura.role_id
+                     AND r.tenant_id=ura.tenant_id
+                    WHERE ura.user_id=u.id
+                      AND ura.tenant_id=u.tenant_id
+                      AND ura.status='ACTIVE'
+                      AND r.code='ADMIN'
+                      AND r.status='ACTIVE'
+                  )
+              ) candidates;
+            ")"
+
+            echo "PLATFORM_ADMIN_USER_COUNT=${platform_admin_user_count}"
+            echo "VALID_CONTROL_PLANE_CANDIDATE_COUNT=${candidate_count}"
+
+            [ "$candidate_count" = "1" ] || {
+              echo "::error::Canonical control-plane tenant is not uniquely resolvable"
+              return 2
+            }
+
+            echo "CONTROL_PLANE_TENANT_UNIQUE=YES"
+            echo "TENANT_DISCOVERY_RESULT=PASS"
+          }
+
+          JDBC_URL="$JDBC_URL_A"; DB_USER="$DB_USER_A"; DB_PW="$DB_PW_A"
+          if run_validation; then
+            echo "CONNECTION_SET=A"
+            exit 0
+          else
+            first_rc=$?
+          fi
+          [ "$first_rc" -ne 2 ] || exit 1
+
+          JDBC_URL="$JDBC_URL_B"; DB_USER="$DB_USER_B"; DB_PW="$DB_PW_B"
+          if run_validation; then
+            echo "CONNECTION_SET=B"
+            exit 0
+          else
+            second_rc=$?
+          fi
+          [ "$second_rc" -ne 2 ] || exit 1
+
+          echo "::error::No configured production credential set could perform the read-only validation"
+          exit 1

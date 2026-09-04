@@ -30,24 +30,26 @@ class PlatformApiCountTest {
     private static final Set<String> OWNERSHIP_PREFIXES = Set.of("/teams", "/queues", "/territories", "/assignment-rules", "/assignments", "/ownership-history", "/transfers", "/my-work");
     private static final long EXPECTED_CRM_V1_OPS = 125;
     private static final long EXPECTED_CRM_V2_OPS = 198;
-    /** 710 baseline (ERP v20260816.9, commit dc8a4caf, +14 endpoints) + 5 G8 caller
+    /** 717 baseline (ERP v20260816.9, commit dc8a4caf, +14 endpoints) + 5 G8 caller
      *  identification / call-event endpoints (G8 EXECUTION 04 clean reintegration):
      *  /api/v2/crm/caller-identification/lookup (1), /caller-identification/delta (1),
      *  /api/v2/crm/calls (1), /calls/events (1), /calls/{callId} (1) = 715.
      *  + 2 ERP inventory endpoints (PR #912):
      *  /api/v1/erp/inventory/reservations (1), /movements (1) = 717.
-     *  + 2 Workflow Y2 endpoints (Wave 1 / Task 6):
-     *  /api/v1/workflows/definitions/{id}/validate (1),
-     *  /api/v1/workflows/definitions/{id}/simulate (1) = 719.
-     *  + 11 Workflow Y2 endpoints (Wave 3 / Task 16):
-     *  work-items mine/pool/claim/release/complete/reassign (6),
-     *  definitions publish/next-draft (2), incidents list/ack/resolve (3),
-     *  definitions/{id}/transitions (1) = 731.
+     *  + 29 Subscription Control Plane (SCP closure) endpoints — catalog (4),
+     *  plan versions (3), subscription items (3), prices (5), lifecycle/provisioning (6),
+     *  governance (2), executive read models (4), usage metering (2),
+     *  all under /api/v1/executive = 746.
+     *  + 2 Workflow Y2 endpoints (Wave 1 / Task 6): validate, simulate = 748.
+     *  + 12 Workflow Y2 endpoints (Wave 3 / Task 16+22): work-items
+     *  mine/pool/claim/release/complete/reassign (6), definitions
+     *  publish/next-draft (2), incidents list/ack/resolve (3),
+     *  definitions/{id}/transitions POST (1) = 760.
      *  + 2 Workflow Y2 break-glass endpoints (Wave 3 / Task 20):
-     *  instances/{id}/break-glass/resume (1), /break-glass/cancel (1) = 733.
-     *  + 1 Workflow Y2 transition creation endpoint (Wave 3 / Task 22):
-     *  /definitions/{id}/transitions (POST) = 734. */
-    private static final long EXPECTED_TOTAL_OPS = 734;
+     *  instances/{id}/break-glass/resume (1), /break-glass/cancel (1) = 762.
+     *  + 1 Workflow Y2 transition creation endpoint (Wave 3 / Task 22
+     *  accounting reconciliation) = 763. */
+    private static final long EXPECTED_TOTAL_OPS = 763;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;
@@ -63,7 +65,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(46);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(75);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
