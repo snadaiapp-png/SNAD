@@ -144,7 +144,49 @@ RESULT                     = PASS
 
 ## WS5 Task 12 — Preview / production rehearsal
 
-(Appended when Task 12 evidence is produced.)
+Authoritative definition (recovered from the plan, not from memory):
+
+```text
+TASK12_TITLE        = Preview, production rehearsal and final WS5 gate
+TASK12_OBJECTIVE    = Run the full backend suite, the full web suite/build,
+                      deploy a preview exercising the HR surfaces under the
+                      production-equivalent BFF/reverse-proxy security model
+                      with a disposable/backfilled HR tenant, and publish the
+                      human acceptance checklist. Grants NO production
+                      authorization.
+TASK12_REQUIRED_FILES = .github/workflows/hrm-human-preview.yml (path-filtered
+                      HRM preview workflow — required because the existing
+                      erp-human-preview.yml harness is pinned to PR #912 and
+                      cannot run PR #914); docs/hrm/g0/evidence/05-api-ui-cutover.md
+TASK12_ACCEPTANCE   = full backend suite PASS (failures=0, errors=0);
+                      full web suite + lint + build PASS; preview deployed from
+                      the exact PR head with same-origin/cross-site verification;
+                      human checklist published
+TASK12_HUMAN_GATES  = /hr dashboard, /hr/employees directory, Employee 360,
+                      Arabic/RTL, org chart as-of, jobs/positions vacancy
+                      derivation, assignment transfer/change-manager,
+                      PII hidden without capability, compensation hidden
+                      without capability, Global Mode warning, hard compliance
+                      block with no override path
+```
+
+Implementation record:
+
+- `.github/workflows/hrm-human-preview.yml` created: path-filtered
+  (`apps/web/**`, `apps/sanad-platform/**`), pinned to PR #914, exact-PR-head
+  checkout + contract verification, least-privilege `sanad` role
+  (NOSUPERUSER/NOBYPASSRLS), isolated PostgreSQL 16 service, bootstrap tenant,
+  HR_MANAGER role grant to the preview admin, disposable legacy HR tenant seed
+  + authoritative Task 11 cutover script (asserts CANONICAL and canonical row
+  counts before the preview is published), same-origin login 200,
+  cross-site login 403, HRM v2 `/api/v2/hr/people` reachable through the public
+  BFF with the session token (200, non-empty), human checklist in the step
+  summary, 90-minute keep-alive.
+- The preview's seed+cutover SQL was validated locally against PostgreSQL Direct
+  on a fresh bootstrap-shaped tenant: `STATE=CANONICAL, PEOPLE=3` (simulation
+  tenant removed afterwards).
+- `MERGED = NO`, `PRODUCTION_DEPLOYED = NO` — Task 12 grants no deployment
+  authorization.
 
 ## CI records
 
