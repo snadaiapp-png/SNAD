@@ -289,8 +289,24 @@ class HrIdempotencyIntegrationTest {
 
     private RequestIdempotencyService newService() throws Exception {
         Class<?> svc = Class.forName(IDEMPOTENCY_SERVICE);
+        // Production wires the RLS-wrapped platform DataSource (tenant GUC is
+        // applied automatically); the test mirrors that contract with an
+        // explicit tenant-scoped DataSource proxy.
+        javax.sql.DataSource scoped = (javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
+                javax.sql.DataSource.class.getClassLoader(), new Class[]{javax.sql.DataSource.class},
+                (proxy, method, args) -> {
+                    if ("getConnection".equals(method.getName())) {
+                        Connection c = (Connection) method.invoke(serviceDataSource, args);
+                        try (PreparedStatement ps = c.prepareStatement("SELECT set_config('app.tenant_id', ?, false)")) {
+                            ps.setString(1, tenantId.toString());
+                            ps.execute();
+                        }
+                        return c;
+                    }
+                    return method.invoke(serviceDataSource, args);
+                });
         return (RequestIdempotencyService) svc.getDeclaredConstructor(javax.sql.DataSource.class)
-                .newInstance(serviceDataSource);
+                .newInstance(scoped);
     }
 
     @Test
@@ -304,7 +320,9 @@ class HrIdempotencyIntegrationTest {
         IdempotencyBeginResult replay = service.begin(tenantId, principalId, "HRM.EMPLOYEE.HIRE", "key-replay", fingerprint);
         assertThat(replay.alreadyExists()).isTrue();
         assertThat(replay.priorStatus()).isEqualTo(201);
-        assertThat(replay.priorResponse()).isEqualTo("{\"status\":\"created\"}");
+        // response_body is JSONB — PostgreSQL re-serializes it, so compare semantically.
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().readTree(replay.priorResponse()))
+                .isEqualTo(new com.fasterxml.jackson.databind.ObjectMapper().readTree("{\"status\":\"created\"}"));
         assertThat(replay.operationId()).isEqualTo(begin.operationId());
     }
 
