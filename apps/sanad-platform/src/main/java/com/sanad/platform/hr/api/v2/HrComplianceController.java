@@ -69,6 +69,7 @@ public class HrComplianceController {
 
     // ==================== COMPLIANCE CONTEXT ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrComplianceContext")
     @GetMapping("/compliance/context")
     @RequireCapability("HRM.EMPLOYEE.VIEW")
     public ComplianceContextResponse context(
@@ -84,6 +85,7 @@ public class HrComplianceController {
 
     // ==================== OVERRIDE WORKFLOW ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrComplianceListOverrides")
     @GetMapping("/compliance/overrides")
     @RequireCapability("HRM.COMPLIANCE_OVERRIDE.REQUEST")
     public List<OverrideRequestResponse> listOverrides(Authentication authentication) {
@@ -92,6 +94,7 @@ public class HrComplianceController {
                 .toList();
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrComplianceRequestOverride")
     @PostMapping("/compliance/overrides")
     @RequireCapability("HRM.COMPLIANCE_OVERRIDE.REQUEST")
     public ResponseEntity<OverrideRequestResponse> requestOverride(
@@ -118,6 +121,7 @@ public class HrComplianceController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrComplianceApprove")
     @PostMapping("/compliance/overrides/{overrideId}/approve")
     @RequireCapability("HRM.COMPLIANCE_OVERRIDE.APPROVE")
     public OverrideRequestResponse approve(
@@ -135,6 +139,7 @@ public class HrComplianceController {
                         overrideService.approve(tenantId, overrideId, principalId, request.comment())));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrComplianceReject")
     @PostMapping("/compliance/overrides/{overrideId}/reject")
     @RequireCapability("HRM.COMPLIANCE_OVERRIDE.APPROVE")
     public OverrideRequestResponse reject(
@@ -152,6 +157,7 @@ public class HrComplianceController {
                         overrideService.reject(tenantId, overrideId, principalId, request.comment())));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrComplianceRevoke")
     @PostMapping("/compliance/overrides/{overrideId}/revoke")
     @RequireCapability("HRM.COMPLIANCE_OVERRIDE.APPROVE")
     public OverrideRequestResponse revoke(
@@ -171,6 +177,7 @@ public class HrComplianceController {
 
     // ==================== AUDIT ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrComplianceAudit")
     @GetMapping("/audit")
     @RequireCapability("HRM.AUDIT.VIEW")
     public List<AuditEntryResponse> audit(

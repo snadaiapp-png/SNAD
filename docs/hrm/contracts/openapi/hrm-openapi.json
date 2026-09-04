@@ -3,154 +3,154 @@
   "hrmV2Operations" : 58,
   "paths" : {
     "/api/v2/hr/assignments" : {
-      "get" : "list_4",
-      "post" : "create_4"
+      "get" : "hrAssignmentsList",
+      "post" : "hrAssignmentsCreate"
     },
     "/api/v2/hr/assignments/{assignmentId}" : {
-      "get" : "get_6"
+      "get" : "hrAssignmentsGet"
     },
     "/api/v2/hr/assignments/{assignmentId}/change-manager" : {
-      "post" : "changeManager"
+      "post" : "hrAssignmentsChangeManager"
     },
     "/api/v2/hr/assignments/{assignmentId}/end" : {
-      "post" : "end_1"
+      "post" : "hrAssignmentsEnd"
     },
     "/api/v2/hr/assignments/{assignmentId}/transfer" : {
-      "post" : "transfer"
+      "post" : "hrAssignmentsTransfer"
     },
     "/api/v2/hr/audit" : {
-      "get" : "audit"
+      "get" : "hrComplianceAudit"
     },
     "/api/v2/hr/compensation-packages" : {
-      "get" : "list_3",
-      "post" : "create_3"
+      "get" : "hrCompensationList",
+      "post" : "hrCompensationCreate"
     },
     "/api/v2/hr/compensation-packages/{packageId}" : {
-      "get" : "get_5"
+      "get" : "hrCompensationGet"
     },
     "/api/v2/hr/compensation-packages/{packageId}/end" : {
-      "post" : "end"
+      "post" : "hrCompensationEnd"
     },
     "/api/v2/hr/compensation-packages/{packageId}/revise" : {
-      "post" : "revise"
+      "post" : "hrCompensationRevise"
     },
     "/api/v2/hr/compliance/context" : {
-      "get" : "context"
+      "get" : "hrComplianceContext"
     },
     "/api/v2/hr/compliance/overrides" : {
-      "get" : "listOverrides",
-      "post" : "requestOverride"
+      "get" : "hrComplianceListOverrides",
+      "post" : "hrComplianceRequestOverride"
     },
     "/api/v2/hr/compliance/overrides/{overrideId}/approve" : {
-      "post" : "approve"
+      "post" : "hrComplianceApprove"
     },
     "/api/v2/hr/compliance/overrides/{overrideId}/reject" : {
-      "post" : "reject"
+      "post" : "hrComplianceReject"
     },
     "/api/v2/hr/compliance/overrides/{overrideId}/revoke" : {
-      "post" : "revoke"
+      "post" : "hrComplianceRevoke"
     },
     "/api/v2/hr/contracts" : {
-      "get" : "list_2",
-      "post" : "create_2"
+      "get" : "hrContractsList",
+      "post" : "hrContractsCreate"
     },
     "/api/v2/hr/contracts/{contractId}" : {
-      "get" : "get_4"
+      "get" : "hrContractsGet"
     },
     "/api/v2/hr/contracts/{contractId}/activate" : {
-      "post" : "activate_1"
+      "post" : "hrContractsActivate"
     },
     "/api/v2/hr/contracts/{contractId}/amend" : {
-      "post" : "amend"
+      "post" : "hrContractsAmend"
     },
     "/api/v2/hr/contracts/{contractId}/terminate" : {
-      "post" : "terminate_1"
+      "post" : "hrContractsTerminate"
     },
     "/api/v2/hr/employments" : {
-      "get" : "list_1",
-      "post" : "create_1"
+      "get" : "hrEmploymentsList",
+      "post" : "hrEmploymentsCreate"
     },
     "/api/v2/hr/employments/{employmentId}" : {
-      "get" : "get_3"
+      "get" : "hrEmploymentsGet"
     },
     "/api/v2/hr/employments/{employmentId}/activate" : {
-      "post" : "activate"
+      "post" : "hrEmploymentsActivate"
     },
     "/api/v2/hr/employments/{employmentId}/reinstate" : {
-      "post" : "reinstate"
+      "post" : "hrEmploymentsReinstate"
     },
     "/api/v2/hr/employments/{employmentId}/return-from-leave" : {
-      "post" : "returnFromLeave"
+      "post" : "hrEmploymentsReturnFromLeave"
     },
     "/api/v2/hr/employments/{employmentId}/start-leave" : {
-      "post" : "startLeave"
+      "post" : "hrEmploymentsStartLeave"
     },
     "/api/v2/hr/employments/{employmentId}/submit-onboarding" : {
-      "post" : "submitOnboarding"
+      "post" : "hrEmploymentsSubmitOnboarding"
     },
     "/api/v2/hr/employments/{employmentId}/suspend" : {
-      "post" : "suspend"
+      "post" : "hrEmploymentsSuspend"
     },
     "/api/v2/hr/employments/{employmentId}/terminate" : {
-      "post" : "terminate"
+      "post" : "hrEmploymentsTerminate"
     },
     "/api/v2/hr/employments/{employmentId}/void" : {
-      "post" : "voidEmployment"
+      "post" : "hrEmploymentsVoidEmployment"
     },
     "/api/v2/hr/jobs" : {
-      "get" : "listJobs",
-      "post" : "createJob"
+      "get" : "hrStructureListJobs",
+      "post" : "hrStructureCreateJob"
     },
     "/api/v2/hr/jobs/{jobId}" : {
-      "get" : "getJob"
+      "get" : "hrStructureGetJob"
     },
     "/api/v2/hr/jobs/{jobId}/revise" : {
-      "post" : "reviseJob"
+      "post" : "hrStructureReviseJob"
     },
     "/api/v2/hr/org-units" : {
-      "get" : "listOrgUnits",
-      "post" : "createOrgUnit"
+      "get" : "hrStructureListOrgUnits",
+      "post" : "hrStructureCreateOrgUnit"
     },
     "/api/v2/hr/org-units/{orgUnitId}" : {
-      "get" : "getOrgUnit"
+      "get" : "hrStructureGetOrgUnit"
     },
     "/api/v2/hr/org-units/{orgUnitId}/revise" : {
-      "post" : "reviseOrgUnit"
+      "post" : "hrStructureReviseOrgUnit"
     },
     "/api/v2/hr/people" : {
-      "get" : "list",
-      "post" : "create"
+      "get" : "hrPeopleList",
+      "post" : "hrPeopleCreate"
     },
     "/api/v2/hr/people/{personId}" : {
-      "get" : "get_2",
-      "patch" : "patch"
+      "get" : "hrPeopleGet",
+      "patch" : "hrPeoplePatch"
     },
     "/api/v2/hr/people/{personId}/identifiers" : {
-      "post" : "addIdentifier"
+      "post" : "hrPeopleAddIdentifier"
     },
     "/api/v2/hr/people/{personId}/private" : {
-      "get" : "getPrivate",
-      "patch" : "patchPrivate"
+      "get" : "hrPeopleGetPrivate",
+      "patch" : "hrPeoplePatchPrivate"
     },
     "/api/v2/hr/people/{personId}/user-link" : {
-      "delete" : "unlinkUser",
-      "post" : "linkUser"
+      "delete" : "hrPeopleUnlinkUser",
+      "post" : "hrPeopleLinkUser"
     },
     "/api/v2/hr/positions" : {
-      "get" : "listPositions",
-      "post" : "createPosition"
+      "get" : "hrStructureListPositions",
+      "post" : "hrStructureCreatePosition"
     },
     "/api/v2/hr/positions/{positionId}" : {
-      "get" : "getPosition"
+      "get" : "hrStructureGetPosition"
     },
     "/api/v2/hr/positions/{positionId}/close" : {
-      "post" : "closePosition"
+      "post" : "hrStructureClosePosition"
     },
     "/api/v2/hr/positions/{positionId}/freeze" : {
-      "post" : "freezePosition"
+      "post" : "hrStructureFreezePosition"
     },
     "/api/v2/hr/positions/{positionId}/revise" : {
-      "post" : "revisePosition"
+      "post" : "hrStructureRevisePosition"
     }
   }
 }

@@ -53,6 +53,7 @@ public class HrAssignmentsController {
         this.idempotentCommands = idempotentCommands;
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrAssignmentsList")
     @GetMapping("/assignments")
     @RequireCapability("HRM.ASSIGNMENT.VIEW")
     public List<AssignmentResponse> list(Authentication authentication) {
@@ -61,6 +62,7 @@ public class HrAssignmentsController {
                 .toList();
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrAssignmentsGet")
     @GetMapping("/assignments/{assignmentId}")
     @RequireCapability("HRM.ASSIGNMENT.VIEW")
     public AssignmentResponse get(Authentication authentication, @PathVariable UUID assignmentId) {
@@ -68,6 +70,7 @@ public class HrAssignmentsController {
                 service.get(SecurityContextUtils.tenantId(authentication), assignmentId));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrAssignmentsCreate")
     @PostMapping("/assignments")
     @RequireCapability("HRM.ASSIGNMENT.MANAGE")
     public ResponseEntity<AssignmentResponse> create(
@@ -84,6 +87,7 @@ public class HrAssignmentsController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrAssignmentsEnd")
     @PostMapping("/assignments/{assignmentId}/end")
     @RequireCapability("HRM.ASSIGNMENT.MANAGE")
     public AssignmentResponse end(
@@ -101,6 +105,7 @@ public class HrAssignmentsController {
                         request.effectiveDate(), request.expectedVersion())));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrAssignmentsChangeManager")
     @PostMapping("/assignments/{assignmentId}/change-manager")
     @RequireCapability("HRM.ASSIGNMENT.MANAGE")
     public AssignmentResponse changeManager(
@@ -118,6 +123,7 @@ public class HrAssignmentsController {
                         request.reportsToAssignmentId(), request.effectiveDate(), request.expectedVersion())));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrAssignmentsTransfer")
     @PostMapping("/assignments/{assignmentId}/transfer")
     @RequireCapability("HRM.ASSIGNMENT.MANAGE")
     public AssignmentResponse transfer(

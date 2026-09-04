@@ -46,18 +46,21 @@ public class HrEmploymentsController {
         this.idempotentCommands = idempotentCommands;
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsList")
     @GetMapping("/employments")
     @RequireCapability("HRM.EMPLOYEE.VIEW")
     public List<EmploymentResponse> list(Authentication authentication) {
         return service.list(SecurityContextUtils.tenantId(authentication));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsGet")
     @GetMapping("/employments/{employmentId}")
     @RequireCapability("HRM.EMPLOYEE.VIEW")
     public EmploymentResponse get(Authentication authentication, @PathVariable UUID employmentId) {
         return service.get(SecurityContextUtils.tenantId(authentication), employmentId);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsCreate")
     @PostMapping("/employments")
     @RequireCapability("HRM.EMPLOYEE.CREATE")
     public ResponseEntity<EmploymentResponse> create(
@@ -74,6 +77,7 @@ public class HrEmploymentsController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsSubmitOnboarding")
     @PostMapping("/employments/{employmentId}/submit-onboarding")
     @RequireCapability("HRM.EMPLOYEE.UPDATE")
     public LifecycleCommandResponse submitOnboarding(
@@ -84,6 +88,7 @@ public class HrEmploymentsController {
                 (t, id, v, eff, reason) -> service.submitOnboarding(t, id, v, eff, reason));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsActivate")
     @PostMapping("/employments/{employmentId}/activate")
     @RequireCapability("HRM.EMPLOYEE.UPDATE")
     public LifecycleCommandResponse activate(
@@ -94,6 +99,7 @@ public class HrEmploymentsController {
                 (t, id, v, eff, reason) -> service.activate(t, id, v, eff, reason));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsStartLeave")
     @PostMapping("/employments/{employmentId}/start-leave")
     @RequireCapability("HRM.EMPLOYEE.UPDATE")
     public LifecycleCommandResponse startLeave(
@@ -104,6 +110,7 @@ public class HrEmploymentsController {
                 (t, id, v, eff, reason) -> service.startLeave(t, id, v, eff, reason));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsReturnFromLeave")
     @PostMapping("/employments/{employmentId}/return-from-leave")
     @RequireCapability("HRM.EMPLOYEE.UPDATE")
     public LifecycleCommandResponse returnFromLeave(
@@ -114,6 +121,7 @@ public class HrEmploymentsController {
                 (t, id, v, eff, reason) -> service.returnFromLeave(t, id, v, eff, reason));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsSuspend")
     @PostMapping("/employments/{employmentId}/suspend")
     @RequireCapability("HRM.EMPLOYEE.UPDATE")
     public LifecycleCommandResponse suspend(
@@ -124,6 +132,7 @@ public class HrEmploymentsController {
                 (t, id, v, eff, reason) -> service.suspend(t, id, v, eff, reason));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsReinstate")
     @PostMapping("/employments/{employmentId}/reinstate")
     @RequireCapability("HRM.EMPLOYEE.UPDATE")
     public LifecycleCommandResponse reinstate(
@@ -134,6 +143,7 @@ public class HrEmploymentsController {
                 (t, id, v, eff, reason) -> service.reinstate(t, id, v, eff, reason));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsTerminate")
     @PostMapping("/employments/{employmentId}/terminate")
     @RequireCapability("HRM.EMPLOYEE.TERMINATE")
     public LifecycleCommandResponse terminate(
@@ -144,6 +154,7 @@ public class HrEmploymentsController {
                 (t, id, v, eff, reason) -> service.terminate(t, id, v, eff, reason));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrEmploymentsVoidEmployment")
     @PostMapping("/employments/{employmentId}/void")
     @RequireCapability("HRM.EMPLOYEE.TERMINATE")
     public LifecycleCommandResponse voidEmployment(

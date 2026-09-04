@@ -1,5 +1,6 @@
 package com.sanad.platform.hr.api.v2.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
@@ -14,6 +15,7 @@ import java.util.UUID;
  * placement. {@code positionId} and {@code reportsToAssignmentId} are
  * optional carried-over fields; {@code orgUnitId} is the placement change.
  */
+@Schema(name = "HrTransferRequest", description = "HR assignment transfer request (namespaced to avoid CRM schema collision)")
 public record TransferRequest(
         @NotNull UUID orgUnitId,
         UUID positionId,

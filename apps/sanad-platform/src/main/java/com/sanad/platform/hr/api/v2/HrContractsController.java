@@ -56,6 +56,7 @@ public class HrContractsController {
         this.idempotentCommands = idempotentCommands;
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrContractsList")
     @GetMapping("/contracts")
     @RequireCapability("HRM.CONTRACT.VIEW")
     public List<ContractResponse> list(Authentication authentication) {
@@ -65,6 +66,7 @@ public class HrContractsController {
                 .toList();
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrContractsGet")
     @GetMapping("/contracts/{contractId}")
     @RequireCapability("HRM.CONTRACT.VIEW")
     public ContractResponse get(Authentication authentication, @PathVariable UUID contractId) {
@@ -81,6 +83,7 @@ public class HrContractsController {
         return version.status() == null ? null : version.status().name();
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrContractsCreate")
     @PostMapping("/contracts")
     @RequireCapability("HRM.CONTRACT.MANAGE")
     public ResponseEntity<ContractResponse> create(
@@ -108,6 +111,7 @@ public class HrContractsController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrContractsAmend")
     @PostMapping("/contracts/{contractId}/amend")
     @RequireCapability("HRM.CONTRACT.MANAGE")
     public ContractResponse amend(
@@ -133,6 +137,7 @@ public class HrContractsController {
                 });
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrContractsActivate")
     @PostMapping("/contracts/{contractId}/activate")
     @RequireCapability("HRM.CONTRACT.MANAGE")
     public ContractResponse activate(
@@ -155,6 +160,7 @@ public class HrContractsController {
                 });
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrContractsTerminate")
     @PostMapping("/contracts/{contractId}/terminate")
     @RequireCapability("HRM.CONTRACT.MANAGE")
     public ContractResponse terminate(

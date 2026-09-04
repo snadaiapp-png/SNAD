@@ -55,18 +55,21 @@ public class HrStructureController {
 
     // ==================== ORG UNITS (4) ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureListOrgUnits")
     @GetMapping("/org-units")
     @RequireCapability("HRM.ORG_STRUCTURE.VIEW")
     public List<OrgUnitResponse> listOrgUnits(Authentication authentication) {
         return service.listOrgUnits(SecurityContextUtils.tenantId(authentication));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureGetOrgUnit")
     @GetMapping("/org-units/{orgUnitId}")
     @RequireCapability("HRM.ORG_STRUCTURE.VIEW")
     public OrgUnitResponse getOrgUnit(Authentication authentication, @PathVariable UUID orgUnitId) {
         return service.getOrgUnit(SecurityContextUtils.tenantId(authentication), orgUnitId);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureCreateOrgUnit")
     @PostMapping("/org-units")
     @RequireCapability("HRM.ORG_STRUCTURE.MANAGE")
     public ResponseEntity<OrgUnitResponse> createOrgUnit(
@@ -83,6 +86,7 @@ public class HrStructureController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureReviseOrgUnit")
     @PostMapping("/org-units/{orgUnitId}/revise")
     @RequireCapability("HRM.ORG_STRUCTURE.MANAGE")
     public ResponseEntity<OrgUnitResponse> reviseOrgUnit(
@@ -103,18 +107,21 @@ public class HrStructureController {
 
     // ==================== JOBS (4) ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureListJobs")
     @GetMapping("/jobs")
     @RequireCapability("HRM.ORG_STRUCTURE.VIEW")
     public List<JobResponse> listJobs(Authentication authentication) {
         return service.listJobs(SecurityContextUtils.tenantId(authentication));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureGetJob")
     @GetMapping("/jobs/{jobId}")
     @RequireCapability("HRM.ORG_STRUCTURE.VIEW")
     public JobResponse getJob(Authentication authentication, @PathVariable UUID jobId) {
         return service.getJob(SecurityContextUtils.tenantId(authentication), jobId);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureCreateJob")
     @PostMapping("/jobs")
     @RequireCapability("HRM.ORG_STRUCTURE.MANAGE")
     public ResponseEntity<JobResponse> createJob(
@@ -131,6 +138,7 @@ public class HrStructureController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureReviseJob")
     @PostMapping("/jobs/{jobId}/revise")
     @RequireCapability("HRM.ORG_STRUCTURE.MANAGE")
     public ResponseEntity<JobResponse> reviseJob(
@@ -151,18 +159,21 @@ public class HrStructureController {
 
     // ==================== POSITIONS (6) ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureListPositions")
     @GetMapping("/positions")
     @RequireCapability("HRM.ORG_STRUCTURE.VIEW")
     public List<PositionResponse> listPositions(Authentication authentication) {
         return service.listPositions(SecurityContextUtils.tenantId(authentication));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureGetPosition")
     @GetMapping("/positions/{positionId}")
     @RequireCapability("HRM.ORG_STRUCTURE.VIEW")
     public PositionResponse getPosition(Authentication authentication, @PathVariable UUID positionId) {
         return service.getPosition(SecurityContextUtils.tenantId(authentication), positionId);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureCreatePosition")
     @PostMapping("/positions")
     @RequireCapability("HRM.ORG_STRUCTURE.MANAGE")
     public ResponseEntity<PositionResponse> createPosition(
@@ -179,6 +190,7 @@ public class HrStructureController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureRevisePosition")
     @PostMapping("/positions/{positionId}/revise")
     @RequireCapability("HRM.ORG_STRUCTURE.MANAGE")
     public ResponseEntity<PositionResponse> revisePosition(
@@ -197,6 +209,7 @@ public class HrStructureController {
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureFreezePosition")
     @PostMapping("/positions/{positionId}/freeze")
     @RequireCapability("HRM.ORG_STRUCTURE.MANAGE")
     public ResponseEntity<StaffabilityResponse> freezePosition(
@@ -212,6 +225,7 @@ public class HrStructureController {
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrStructureClosePosition")
     @PostMapping("/positions/{positionId}/close")
     @RequireCapability("HRM.ORG_STRUCTURE.MANAGE")
     public ResponseEntity<StaffabilityResponse> closePosition(

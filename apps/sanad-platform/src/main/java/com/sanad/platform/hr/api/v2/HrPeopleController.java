@@ -65,6 +65,7 @@ public class HrPeopleController {
 
     // ==================== DIRECTORY (safe surface) ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeopleList")
     @GetMapping("/people")
     @RequireCapability("HRM.EMPLOYEE.VIEW")
     public List<PersonSummaryResponse> list(Authentication authentication) {
@@ -73,6 +74,7 @@ public class HrPeopleController {
                 .toList();
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeopleCreate")
     @PostMapping("/people")
     @RequireCapability("HRM.EMPLOYEE.CREATE")
     public ResponseEntity<PersonSummaryResponse> create(
@@ -90,6 +92,7 @@ public class HrPeopleController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeopleGet")
     @GetMapping("/people/{personId}")
     @RequireCapability("HRM.EMPLOYEE.VIEW")
     public PersonSummaryResponse get(Authentication authentication, @PathVariable UUID personId) {
@@ -97,6 +100,7 @@ public class HrPeopleController {
                 service.getPerson(SecurityContextUtils.tenantId(authentication), personId));
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeoplePatch")
     @PatchMapping("/people/{personId}")
     @RequireCapability("HRM.EMPLOYEE.UPDATE")
     public PersonSummaryResponse patch(Authentication authentication, @PathVariable UUID personId,
@@ -109,6 +113,7 @@ public class HrPeopleController {
 
     // ==================== PRIVATE PII (restricted, audited) ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeopleGetPrivate")
     @GetMapping("/people/{personId}/private")
     @RequireCapability("HRM.PII.VIEW")
     public PersonPrivateResponse getPrivate(Authentication authentication, @PathVariable UUID personId) {
@@ -119,6 +124,7 @@ public class HrPeopleController {
         return profile == null ? PersonPrivateResponse.empty(personId) : PersonPrivateResponse.from(profile);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeoplePatchPrivate")
     @PatchMapping("/people/{personId}/private")
     @RequireCapability("HRM.PII.MANAGE")
     public PersonPrivateMutationResponse patchPrivate(Authentication authentication,
@@ -133,6 +139,7 @@ public class HrPeopleController {
 
     // ==================== IDENTITY DOCUMENTS (write-only values) ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeopleAddIdentifier")
     @PostMapping("/people/{personId}/identifiers")
     @RequireCapability("HRM.PII.MANAGE")
     public ResponseEntity<IdentifierMetadataResponse> addIdentifier(
@@ -153,6 +160,7 @@ public class HrPeopleController {
 
     // ==================== USER LINK ====================
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeopleLinkUser")
     @PostMapping("/people/{personId}/user-link")
     @RequireCapability("HRM.USER_LINK.MANAGE")
     public ResponseEntity<PersonLinkResponse> linkUser(
@@ -173,6 +181,7 @@ public class HrPeopleController {
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrPeopleUnlinkUser")
     @DeleteMapping("/people/{personId}/user-link")
     @RequireCapability("HRM.USER_LINK.MANAGE")
     public ResponseEntity<PersonLinkResponse> unlinkUser(Authentication authentication,

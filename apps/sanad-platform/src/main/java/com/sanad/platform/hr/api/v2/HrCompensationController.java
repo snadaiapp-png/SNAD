@@ -50,6 +50,7 @@ public class HrCompensationController {
         this.idempotentCommands = idempotentCommands;
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrCompensationList")
     @GetMapping("/compensation-packages")
     @RequireCapability("HRM.COMPENSATION.VIEW")
     public List<CompensationPackageResponse> list(
@@ -63,6 +64,7 @@ public class HrCompensationController {
                 .toList();
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrCompensationGet")
     @GetMapping("/compensation-packages/{packageId}")
     @RequireCapability("HRM.COMPENSATION.VIEW")
     public CompensationPackageResponse get(Authentication authentication, @PathVariable UUID packageId) {
@@ -72,6 +74,7 @@ public class HrCompensationController {
         return CompensationPackageResponse.withAmounts(pkg);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrCompensationCreate")
     @PostMapping("/compensation-packages")
     @RequireCapability("HRM.COMPENSATION.MANAGE")
     public ResponseEntity<CompensationPackageResponse> create(
@@ -98,6 +101,7 @@ public class HrCompensationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrCompensationRevise")
     @PostMapping("/compensation-packages/{packageId}/revise")
     @RequireCapability("HRM.COMPENSATION.MANAGE")
     public CompensationPackageResponse revise(
@@ -122,6 +126,7 @@ public class HrCompensationController {
                 });
     }
 
+    @io.swagger.v3.oas.annotations.Operation(operationId = "hrCompensationEnd")
     @PostMapping("/compensation-packages/{packageId}/end")
     @RequireCapability("HRM.COMPENSATION.MANAGE")
     public CompensationPackageResponse end(
