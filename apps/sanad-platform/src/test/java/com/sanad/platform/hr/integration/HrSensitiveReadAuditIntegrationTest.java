@@ -183,7 +183,7 @@ class HrSensitiveReadAuditIntegrationTest {
         assertThatThrownBy(() -> connectionOverload.invoke(service, connection, foreignActor,
                         "HR.SENSITIVE_READ.PERSON_PII", "HR_PERSON", UUID.randomUUID(), "PII", "SHOULD_NOT_RETURN"))
                 .as("recordOrThrow must throw when the audit append fails — restricted data must not be returned")
-                .hasCauseInstanceOf(SQLException.class);
+                .hasRootCauseInstanceOf(SQLException.class);
 
         assertThat(queryScalar("SELECT COUNT(*) FROM hr_audit_ledger WHERE tenant_id = '" + foreignTenant + "'"))
                 .as("a failed audit append must never leave partial evidence behind")
@@ -198,8 +198,8 @@ class HrSensitiveReadAuditIntegrationTest {
                         "HR.SENSITIVE_READ.PERSON_PII", "HR_PERSON", UUID.randomUUID(), "PII", "NO_TX"))
                 .as("the Spring-tx variant must fail closed when no transaction is active "
                         + "(no REQUIRES_NEW bypass that survives read failure semantics)")
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("HRM_SENSITIVE_READ_AUDIT_NOT_TRANSACTIONAL");
+                .hasRootCauseInstanceOf(IllegalStateException.class)
+                .hasStackTraceContaining("HRM_SENSITIVE_READ_AUDIT_NOT_TRANSACTIONAL");
     }
 
     // ==================== evidence minimality ====================
