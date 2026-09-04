@@ -173,7 +173,7 @@ jobs:
           # The role-template seed migration ran before this tenant existed, so
           # provision the tenant-scoped HR_MANAGER role + HR capability bindings
           # idempotently here (same matrix as V20260820_2/_3 for HR_MANAGER).
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 -v tenant_id="$TENANT_ID" <<'SQL'
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 -v tenant_id="$TENANT_ID" -v admin_email="$PREVIEW_ADMIN_EMAIL" <<'SQL'
           SET app.tenant_id = :'tenant_id';
           INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
           SELECT gen_random_uuid(), :'tenant_id', 'HR_MANAGER', 'HR Manager',
@@ -195,7 +195,7 @@ jobs:
           FROM users u
           JOIN roles r ON r.tenant_id = :'tenant_id' AND r.code = 'HR_MANAGER'
           WHERE u.tenant_id = :'tenant_id'
-            AND u.email = '${PREVIEW_ADMIN_EMAIL}'
+            AND u.email = :'admin_email'
             AND NOT EXISTS (
               SELECT 1 FROM user_role_assignments x
               WHERE x.tenant_id = :'tenant_id' AND x.user_id = u.id AND x.role_id = r.id);
