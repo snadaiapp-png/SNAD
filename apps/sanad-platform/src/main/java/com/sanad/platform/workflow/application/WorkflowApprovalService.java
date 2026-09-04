@@ -274,6 +274,13 @@ public class WorkflowApprovalService {
                     .filter(r -> r.status() == WorkflowApprovalRequest.Status.PENDING)
                     .ifPresent(r -> approvalRepo.save(r.cancel(actorId)));
         }
+        // Only Y2 graph instances route through the graph runtime; LEGACY
+        // approvals keep their legacy semantics (no graph advance).
+        var parentInstance = instanceRepo.findById(tenantId, updated.workflowInstanceId());
+        if (parentInstance.isEmpty()
+                || parentInstance.get().engineGeneration() != WorkflowInstance.EngineGeneration.Y2) {
+            return;
+        }
         // Outcome tokens match the validator-mandated transition vocabulary
         // for approval steps: both APPROVE and REJECT transitions must exist.
         String outcome = "APPROVE".equals(resolution.outcome()) ? "APPROVE" : "REJECT";
