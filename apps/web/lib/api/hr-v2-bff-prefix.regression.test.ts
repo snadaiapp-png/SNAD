@@ -1,27 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }));
+import { buildUrl } from "./config";
 
-vi.mock("@/lib/api/client", () => ({
-  apiClient: {
-    request: requestMock,
-  },
-}));
-
-import { hrmV2Api } from "./hr-v2-api";
-
-describe("HRM v2 BFF path regression", () => {
-  beforeEach(() => {
-    requestMock.mockReset();
-    requestMock.mockResolvedValue([]);
+describe("same-origin BFF URL composition regression", () => {
+  it("does not duplicate /api/platform when a typed client already supplies the BFF-prefixed path", () => {
+    expect(buildUrl("/api/platform", "/api/platform/api/v2/hr/people")).toBe(
+      "/api/platform/api/v2/hr/people",
+    );
   });
 
-  it("passes a backend-relative /api/v2/hr path to apiClient instead of duplicating the /api/platform BFF prefix", async () => {
-    await hrmV2Api.listPeople();
-
-    const request = requestMock.mock.calls[0]?.[0] as { path?: string } | undefined;
-    expect(request?.path).toBe("/api/v2/hr/people");
-    expect(request?.path).not.toContain("/api/platform/api/platform/");
-    expect(request?.path?.startsWith("/api/platform")).toBe(false);
+  it("still prefixes backend-relative API paths exactly once", () => {
+    expect(buildUrl("/api/platform", "/api/v2/hr/people")).toBe(
+      "/api/platform/api/v2/hr/people",
+    );
   });
 });
