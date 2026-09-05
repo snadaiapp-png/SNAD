@@ -21,6 +21,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Run control-plane validator regression tests
+        run: python3 scripts/production/test_control_plane_validation.py
       - name: Validate shell scripts
         run: |
           bash -n scripts/production/verify-flyway.sh
