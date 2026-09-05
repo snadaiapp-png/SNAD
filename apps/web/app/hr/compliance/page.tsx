@@ -31,11 +31,12 @@ import { formatArabicDate } from "../hr-labels";
 import styles from "../hr.module.css";
 
 const OVERRIDE_STATUS_AR: Record<string, string> = {
-  PENDING: "قيد المراجعة",
+  PENDING_APPROVAL: "قيد المراجعة",
   APPROVED: "معتمد",
   REJECTED: "مرفوض",
   REVOKED: "ملغى",
   EXECUTED: "منفّذ",
+  EXPIRED: "منتهي",
 };
 
 function todayIso(): string {
@@ -182,7 +183,7 @@ export default function CompliancePage() {
                   <td>{OVERRIDE_STATUS_AR[o.status] ?? o.status}</td>
                   {canApprove ? (
                     <td>
-                      {o.status === "PENDING" ? (
+                      {o.status === "PENDING_APPROVAL" ? (
                         <span className={styles.actionRow}>
                           <button type="button" className={styles.linkButton}
                                   onClick={() => { setDecision({ id: o.requestId, kind: "approve" }); setDecisionComment(""); setDialogError(null); }}>
