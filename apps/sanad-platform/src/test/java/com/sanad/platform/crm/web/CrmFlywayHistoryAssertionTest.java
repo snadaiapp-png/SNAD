@@ -235,6 +235,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260905.15"  // hrm-g0 master task 4 ws4 task 6 add_hr_audit_delivery_claim_columns
             , "20260905.16"  // hrm-g0 master task 5 ws6 task 1 contract compensation foundation
             , "20260905.17"  // hrm-g0 master task 6 ws5 task 1 seed hrm v2 capabilities
+            , "20260905.18"  // hrm-g0 reconcile y2 employee/user identity uniqueness with g0 cutover lifecycle
     );
 
 
