@@ -132,6 +132,17 @@ describe("WorkspacePage", () => {
     expect(authApiMock.me).not.toHaveBeenCalled();
   });
 
+  it("renders the HR workspace launcher when the authenticated user has an HRM capability", async () => {
+    setSessionHint();
+    authApiMock.refresh.mockResolvedValue({
+      ...bootstrap(),
+      capabilities: ["HRM.EMPLOYEE.VIEW"],
+    });
+    const { container } = renderPage();
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Admin User/ })).toBeInTheDocument());
+    expect(container.querySelector('a[href="/hr"]')).toBeInTheDocument();
+  });
+
   it("performs logout and redirects to the login page", async () => {
     setSessionHint();
     authApiMock.refresh.mockResolvedValue(bootstrap());
