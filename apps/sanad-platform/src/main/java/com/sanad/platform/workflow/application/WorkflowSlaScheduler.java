@@ -15,8 +15,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import io.micrometer.core.instrument.MeterRegistry;
-
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -56,27 +54,14 @@ public class WorkflowSlaScheduler {
     private final JdbcTemplate jdbc;
     private final boolean schedulerEnabled;
 
-    // Observability (AG3): bounded counters/gauges only — no tenant, user,
-    // instance, or free-text labels. Metric failure never fails a tick.
-    private final io.micrometer.core.instrument.Counter tickCounter;
-    private final io.micrometer.core.instrument.Counter tickFailureCounter;
-    private final io.micrometer.core.instrument.Counter slaBreachCounter;
-    private final java.util.concurrent.atomic.AtomicLong lastSuccessfulTickEpoch =
-            new java.util.concurrent.atomic.AtomicLong(0);
-
     @Autowired
     public WorkflowSlaScheduler(
             WorkflowMonitoringService monitoringService,
             JdbcTemplate jdbc,
-            @Value("${scheduling.enabled:false}") boolean schedulerEnabled,
-            MeterRegistry meterRegistry) {
+            @Value("${scheduling.enabled:false}") boolean schedulerEnabled) {
         this.monitoringService = monitoringService;
         this.jdbc = jdbc;
         this.schedulerEnabled = schedulerEnabled;
-        this.tickCounter = meterRegistry.counter("workflow_scheduler_ticks_total");
-        this.tickFailureCounter = meterRegistry.counter("workflow_scheduler_tick_failures_total");
-        this.slaBreachCounter = meterRegistry.counter("workflow_sla_breach_total");
-        meterRegistry.gauge("workflow_scheduler_last_success_epoch_seconds", lastSuccessfulTickEpoch);
     }
 
     /**
@@ -135,12 +120,6 @@ public class WorkflowSlaScheduler {
         long durationMs = System.currentTimeMillis() - startedAt;
         log.info("WorkflowSlaScheduler: processed={} failed={} totalBreaches={} durationMs={}",
                 tenantsProcessed, tenantsFailed, totalBreaches, durationMs);
-        tickCounter.increment();
-        slaBreachCounter.increment(totalBreaches);
-        if (tenantsFailed > 0) {
-            tickFailureCounter.increment(tenantsFailed);
-        }
-        lastSuccessfulTickEpoch.set(Instant.now().getEpochSecond());
         return new SlaCheckResult(tenantsProcessed, tenantsFailed, totalBreaches,
                 tenantIds.size(), durationMs);
     }

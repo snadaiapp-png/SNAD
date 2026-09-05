@@ -1,5 +1,6 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
@@ -199,22 +200,19 @@ class CrmFlywayHistoryAssertionTest {
             , "20260823.2"   // crm participant role exclusivity (C3 — W2 partial unique index + owner↔participant trigger guards)
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
             // Subscription Control Plane (SCP closure — closure/scp-final-verification):
+            //   V20260829.1–V20260830.2 are the six intentional SCP migrations, and
+            //   V20260901.1 is the SCP closure capability-code fix. They are
+            //   part of the platform migration inventory applied after the last CRM
+            //   migration, so they must appear in flyway_schema_history in order.
             , "20260829.1"   // scp applications catalog
             , "20260829.2"   // scp products and plan versions
             , "20260829.3"   // scp subscription items
             , "20260829.4"   // scp prices, country currencies and product entitlements
             , "20260830.1"   // scp lifecycle and provisioning
             , "20260830.2"   // scp usage metering and rbac
-            , "20260901.1"   // scp closure: canonicalize capability codes to uppercase
-            // Workflow Y2 (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
-            , "20260902.1"   // enforce employee/user identity bridge unique index
-            , "20260902.2"   // definition family/publication metadata + step transitions
-            , "20260902.3"   // work items + candidate pools + tenant-safe employee FK
-            , "20260902.4"   // instance runtime metadata + branch tokens + idempotent starts
-            , "20260902.5"   // business calendars + delegations + attempts + incidents
-            , "20260902.6"   // inbox/outbox + notification intents
-            , "20260902.7"   // audit OVERRIDE action for break-glass commands
-            , "20260904.1"   // forward-only idempotent production reconciliation of the Y2 wave
+            // SCP closure fix: capability-code canonicalization (loadByCode()
+            // UPPERCASE normalization vs. lowercase V20260830_2 seeds).
+            , "20260901.1"   // canonicalize capability codes to uppercase
     );
 
 
@@ -364,9 +362,7 @@ class CrmFlywayHistoryAssertionTest {
 
     /**
      * Asserts that the total number of migrations includes all expected CRM
-     * versions plus at least the baseline. The V15 Java migration was removed
-     * from the repository (its production history row carries a DELETE
-     * marker), so the applied chain is SQL-only.
+     * versions plus at least the baseline and V15 Java migration.
      */
     @Test
     void flywayHistoryTotalMigrationCountIncludesAllCrmVersions() {
@@ -380,13 +376,11 @@ class CrmFlywayHistoryAssertionTest {
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE",
                 Long.class);
 
-        // Total must be at least: CRM versions + baseline (1). The V15 Java
-        // migration was removed from the repository (production chain decision),
-        // so fresh databases apply one migration fewer than the legacy pin.
-        long minimumExpected = EXPECTED_CRM_VERSIONS.size() + 1;
+        // Total must be at least: CRM versions + baseline (1) + V15 Java migration (1)
+        long minimumExpected = EXPECTED_CRM_VERSIONS.size() + 2;
 
         assertThat(actualCount)
-                .as("Total successful migrations must be >= %d (at least %d CRM + baseline)",
+                .as("Total successful migrations must be >= %d (at least %d CRM + baseline + V15)",
                         minimumExpected, EXPECTED_CRM_VERSIONS.size())
                 .isGreaterThanOrEqualTo(minimumExpected);
     }
@@ -399,6 +393,7 @@ class CrmFlywayHistoryAssertionTest {
         var configuration = Flyway.configure()
                 .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true);
         if (target != null) configuration.target(target);

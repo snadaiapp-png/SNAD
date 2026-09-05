@@ -1,5 +1,6 @@
 package com.sanad.platform.crm.ownership;
 
+import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,16 +34,16 @@ class CrmOwnershipRbacPostgresTest {
         Assumptions.assumeTrue(postgresAvailable, "PostgreSQL Direct required for acceptance");
 
         // Step 1: Run V14 baseline (creates tenants + roles + capabilities tables).
-        // (V15 was removed from the chain 2026-09-01; target stops at V14.)
         // Seed test tenants BEFORE V20260722.8 so SALES_MANAGER/SALES_REPRESENTATIVE
         // roles are auto-seeded for these tenants.
         Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .outOfOrder(true)
                 .validateOnMigrate(true)
-                .target("14")
+                .target("15")
                 .load()
                 .migrate();
 
@@ -58,6 +59,7 @@ class CrmOwnershipRbacPostgresTest {
         Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .outOfOrder(true)
                 .validateOnMigrate(true)
@@ -68,6 +70,7 @@ class CrmOwnershipRbacPostgresTest {
         Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .outOfOrder(true)
                 .validateOnMigrate(true)

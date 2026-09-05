@@ -177,8 +177,6 @@ class WorkflowIdempotencyTest {
                 saved.id(), tenantId, def.id(), def.version(),
                 "ENTITY", UUID.randomUUID(), WorkflowInstance.Status.RUNNING,
                 firstStep.stepKey(), userId, saved.startedAt(), null, null, null, null, null,
-                WorkflowInstance.EngineGeneration.LEGACY, null, null, null, null, null,
-                null, null, "{}", 1,
                 0, saved.createdAt(), saved.updatedAt());
         assertThatThrownBy(() -> execService.startWorkflow(withSameId, userId))
                 .isInstanceOf(DataIntegrityViolationException.class);
@@ -213,8 +211,6 @@ class WorkflowIdempotencyTest {
         var duplicate = new WorkflowApprovalRequest(
                 savedApproval.id(), tenantId, savedInstance.id(), null,
                 approverId, "APPROVER", userId,
-                null, WorkflowApprovalPolicy.Aggregation.ANY_ONE,
-                WorkflowApprovalPolicy.SelfApproval.DENY, "{}",
                 WorkflowApprovalRequest.Status.PENDING,
                 savedApproval.requestedAt(), savedApproval.dueAt(),
                 null, null, null, null,
@@ -483,8 +479,6 @@ class WorkflowIdempotencyTest {
                 fixedInstanceId, tenantId, def.id(), def.version(),
                 "ENTITY", UUID.randomUUID(), WorkflowInstance.Status.RUNNING,
                 firstStep.stepKey(), userId, Instant.now(), null, null, null, null, null,
-                WorkflowInstance.EngineGeneration.LEGACY, null, null, null, null, null,
-                null, null, "{}", 1,
                 0, Instant.now(), Instant.now());
 
         int threads = 4;

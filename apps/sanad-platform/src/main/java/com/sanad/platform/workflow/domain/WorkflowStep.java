@@ -19,10 +19,7 @@ public record WorkflowStep(
         Instant createdAt,
         Instant updatedAt
 ) {
-    public enum StepType {
-        ACTION, APPROVAL, CONDITION, NOTIFICATION, END,
-        START, HUMAN_TASK, SYSTEM_ACTION, PARALLEL_FORK, PARALLEL_JOIN, CALL_WORKFLOW
-    }
+    public enum StepType { ACTION, APPROVAL, CONDITION, NOTIFICATION, END }
 
     public static WorkflowStep create(
             UUID tenantId, UUID workflowDefinitionId, String stepKey, String name,

@@ -86,13 +86,19 @@ public class SubscriptionDetailService {
                                 FROM subscription_change_events WHERE subscription_id = ?
                                 ORDER BY created_at DESC LIMIT 100
                                 """,
-                        (rs, n) -> Map.<String, Object>of(
-                                "source", rs.getString("source"),
-                                "action", rs.getString("action"),
-                                "fromStatus", rs.getObject("from_status"),
-                                "toStatus", rs.getObject("to_status"),
-                                "reason", rs.getString("reason"),
-                                "createdAt", rs.getObject("created_at")),
+                        (rs, n) -> {
+                            // R0C-4 defect B: legacy EVENT rows carry literal NULL
+                            // from/to statuses (and reason is nullable); Map.of
+                            // rejects null values and NPEd the whole timeline.
+                            Map<String, Object> row = new java.util.LinkedHashMap<>();
+                            row.put("source", rs.getString("source"));
+                            row.put("action", rs.getString("action"));
+                            row.put("fromStatus", rs.getObject("from_status"));
+                            row.put("toStatus", rs.getObject("to_status"));
+                            row.put("reason", rs.getString("reason"));
+                            row.put("createdAt", rs.getObject("created_at"));
+                            return row;
+                        },
                         subscriptionId, subscriptionId),
                 jdbc.queryForList("""
                                 SELECT id, action, status, attempts, started_at AS "startedAt", completed_at AS "completedAt",

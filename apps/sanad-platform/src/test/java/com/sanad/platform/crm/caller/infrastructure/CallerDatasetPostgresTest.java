@@ -1,5 +1,6 @@
 package com.sanad.platform.crm.caller.infrastructure;
 
+import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.caller.application.CallerDatasetService;
 import com.sanad.platform.crm.caller.application.CallerDatasetTokenProvider;
 import com.sanad.platform.crm.caller.CallerPhoneVectorsParityTest;
@@ -65,6 +66,7 @@ class CallerDatasetPostgresTest {
                         System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                         System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();
