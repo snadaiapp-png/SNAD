@@ -21,7 +21,7 @@
   font-size: 1.5rem;
   font-weight: 700;
   margin: 0;
-  color: var(--snad-text);
+  color: var(--snad-color-text-primary);
 }
 
 .workspaceSubtitle {
@@ -51,27 +51,27 @@
   display: inline-block;
   padding: 0.4rem 0.9rem;
   border-radius: 999px;
-  border: 1px solid var(--snad-border);
-  background: var(--snad-surface);
-  color: var(--snad-text);
+  border: 1px solid var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
   text-decoration: none;
   font-size: 0.875rem;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .workspaceNavLink:hover {
-  border-color: var(--snad-primary);
+  border-color: var(--snad-color-action-primary);
 }
 
 .workspaceNavLink:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: 2px;
 }
 
 .workspaceNavLinkActive {
-  background: color-mix(in srgb, var(--snad-primary) 12%, transparent);
-  border-color: var(--snad-primary);
-  color: var(--snad-primary);
+  background: color-mix(in srgb, var(--snad-color-action-primary) 12%, transparent);
+  border-color: var(--snad-color-action-primary);
+  color: var(--snad-color-action-primary);
   font-weight: 600;
 }
 
@@ -92,8 +92,8 @@
 .feedbackSpinner {
   inline-size: 1rem;
   block-size: 1rem;
-  border: 2px solid var(--snad-border);
-  border-block-start-color: var(--snad-primary);
+  border: 2px solid var(--snad-color-border-default);
+  border-block-start-color: var(--snad-color-action-primary);
   border-radius: 50%;
   animation: hrm-spin 0.8s linear infinite;
 }
@@ -111,15 +111,15 @@
 .feedbackEmpty {
   padding: 2rem 1.25rem;
   text-align: center;
-  border: 1px dashed var(--snad-border);
+  border: 1px dashed var(--snad-color-border-default);
   border-radius: 0.5rem;
-  background: var(--snad-surface);
+  background: var(--snad-color-surface-primary);
 }
 
 .feedbackEmptyTitle {
   font-weight: 600;
   margin: 0;
-  color: var(--snad-text);
+  color: var(--snad-color-text-primary);
 }
 
 .feedbackEmptyDescription {
@@ -138,7 +138,7 @@
   border-radius: 0.5rem;
   border: 1px solid color-mix(in srgb, var(--snad-danger, var(--snad-color-error)) 30%, transparent);
   background: color-mix(in srgb, var(--snad-danger, var(--snad-color-error)) 6%, transparent);
-  color: var(--snad-text);
+  color: var(--snad-color-text-primary);
 }
 
 .feedbackError[data-kind="conflict"],
@@ -149,8 +149,8 @@
 }
 
 .feedbackForbidden {
-  border-color: var(--snad-border);
-  background: var(--snad-surface);
+  border-color: var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
 }
 
 .feedbackTitle {
@@ -169,15 +169,15 @@
   margin-block-start: 0.75rem;
   padding: 0.4rem 1rem;
   border-radius: 0.375rem;
-  border: 1px solid var(--snad-border);
-  background: var(--snad-surface);
-  color: var(--snad-text);
+  border: 1px solid var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
   cursor: pointer;
   font: inherit;
 }
 
 .feedbackRetry:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: 2px;
 }
 
@@ -230,7 +230,7 @@
 .badgeUnknown {
   color: var(--snad-text-muted);
   background: color-mix(in srgb, var(--snad-text-muted) 8%, transparent);
-  border-color: var(--snad-border);
+  border-color: var(--snad-color-border-default);
 }
 
 .badgePack {
@@ -251,30 +251,30 @@
 .searchInput {
   flex: 1 1 14rem;
   padding: 0.45rem 0.75rem;
-  border: 1px solid var(--snad-border);
+  border: 1px solid var(--snad-color-border-default);
   border-radius: 0.375rem;
-  background: var(--snad-surface);
-  color: var(--snad-text);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
   font: inherit;
 }
 
 .searchInput:focus-visible,
 .filterSelect:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: 1px;
 }
 
 .filterSelect {
   padding: 0.45rem 0.6rem;
-  border: 1px solid var(--snad-border);
+  border: 1px solid var(--snad-color-border-default);
   border-radius: 0.375rem;
-  background: var(--snad-surface);
-  color: var(--snad-text);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
   font: inherit;
 }
 
 .tableLink {
-  color: var(--snad-primary);
+  color: var(--snad-color-action-primary);
   text-decoration: none;
   font-weight: 600;
 }
@@ -300,7 +300,7 @@
 .hrTable td {
   text-align: start;
   padding: 0.55rem 0.75rem;
-  border-block-end: 1px solid var(--snad-border);
+  border-block-end: 1px solid var(--snad-color-border-default);
   vertical-align: middle;
 }
 
@@ -311,12 +311,12 @@
 }
 
 .hrTable tbody tr:hover {
-  background: color-mix(in srgb, var(--snad-primary) 4%, transparent);
+  background: color-mix(in srgb, var(--snad-color-action-primary) 4%, transparent);
 }
 
 .hrTable a:focus-visible,
 .hrTable button:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: 2px;
 }
 
@@ -360,7 +360,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;
-  border-block-end: 1px solid var(--snad-border);
+  border-block-end: 1px solid var(--snad-color-border-default);
   margin-block-end: 1rem;
 }
 
@@ -375,14 +375,14 @@
 }
 
 .tab:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: -2px;
   border-radius: 0.25rem;
 }
 
 .tabActive {
-  color: var(--snad-primary);
-  border-block-end-color: var(--snad-primary);
+  color: var(--snad-color-action-primary);
+  border-block-end-color: var(--snad-color-action-primary);
   font-weight: 600;
 }
 
@@ -417,8 +417,8 @@
 .actionButton {
   padding: 0.45rem 1.1rem;
   border-radius: 0.375rem;
-  border: 1px solid var(--snad-primary);
-  background: var(--snad-primary);
+  border: 1px solid var(--snad-color-action-primary);
+  background: var(--snad-color-action-primary);
   color: var(--snad-color-text-inverse);
   font: inherit;
   cursor: pointer;
@@ -431,16 +431,16 @@
 
 .actionButton:focus-visible,
 .cancelButton:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: 2px;
 }
 
 .cancelButton {
   padding: 0.45rem 1.1rem;
   border-radius: 0.375rem;
-  border: 1px solid var(--snad-border);
-  background: var(--snad-surface);
-  color: var(--snad-text);
+  border: 1px solid var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
   font: inherit;
   cursor: pointer;
 }
@@ -466,8 +466,8 @@
 }
 
 .dialog {
-  background: var(--snad-surface);
-  color: var(--snad-text);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
   border-radius: 0.5rem;
   padding: 1.25rem 1.5rem;
   max-width: 26rem;
@@ -491,15 +491,15 @@
   width: 100%;
   box-sizing: border-box;
   padding: 0.4rem 0.6rem;
-  border: 1px solid var(--snad-border);
+  border: 1px solid var(--snad-color-border-default);
   border-radius: 0.375rem;
-  background: var(--snad-surface);
-  color: var(--snad-text);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
   font: inherit;
 }
 
 .dialogField input:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: 1px;
 }
 
@@ -522,22 +522,22 @@
 
 .inlineField input {
   padding: 0.4rem 0.6rem;
-  border: 1px solid var(--snad-border);
+  border: 1px solid var(--snad-color-border-default);
   border-radius: 0.375rem;
-  background: var(--snad-surface);
-  color: var(--snad-text);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
   font: inherit;
 }
 
 .inlineField input:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: 1px;
 }
 
 .linkButton {
   background: transparent;
   border: none;
-  color: var(--snad-primary);
+  color: var(--snad-color-action-primary);
   font: inherit;
   font-size: 0.8125rem;
   cursor: pointer;
@@ -550,7 +550,7 @@
 }
 
 .linkButton:focus-visible {
-  outline: 2px solid var(--snad-primary);
+  outline: 2px solid var(--snad-color-action-primary);
   outline-offset: 1px;
 }
 
@@ -564,15 +564,15 @@
 }
 
 .occupiedBadge {
-  color: var(--snad-primary);
-  background: color-mix(in srgb, var(--snad-primary) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--snad-primary) 25%, transparent);
+  color: var(--snad-color-action-primary);
+  background: color-mix(in srgb, var(--snad-color-action-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-color-action-primary) 25%, transparent);
 }
 
 .vacantBadge {
   color: var(--snad-text-muted);
   background: color-mix(in srgb, var(--snad-text-muted) 8%, transparent);
-  border: 1px solid var(--snad-border);
+  border: 1px solid var(--snad-color-border-default);
 }
 
 .orgTree,
@@ -583,7 +583,7 @@
 
 .orgChildren {
   padding-inline-start: 1.5rem;
-  border-inline-start: 1px dashed var(--snad-border);
+  border-inline-start: 1px dashed var(--snad-color-border-default);
   margin-block: 0.25rem;
 }
 
@@ -593,9 +593,9 @@
   gap: 0.6rem;
   flex-wrap: wrap;
   padding: 0.45rem 0.75rem;
-  border: 1px solid var(--snad-border);
+  border: 1px solid var(--snad-color-border-default);
   border-radius: 0.375rem;
-  background: var(--snad-surface);
+  background: var(--snad-color-surface-primary);
   margin-block: 0.25rem;
 }
 
@@ -617,9 +617,9 @@
 
 .statCard {
   padding: 0.9rem 1rem;
-  border: 1px solid var(--snad-border);
+  border: 1px solid var(--snad-color-border-default);
   border-radius: 0.5rem;
-  background: var(--snad-surface);
+  background: var(--snad-color-surface-primary);
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
