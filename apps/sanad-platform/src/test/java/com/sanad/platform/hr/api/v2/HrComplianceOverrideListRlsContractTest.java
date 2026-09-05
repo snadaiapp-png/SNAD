@@ -79,7 +79,7 @@ class HrComplianceOverrideListRlsContractTest {
         mockMvc.perform(get("/api/v2/hr/compliance/overrides")
                         .with(authentication(principal())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(requestId.toString()))
+                .andExpect(jsonPath("$[0].requestId").value(requestId.toString()))
                 .andExpect(jsonPath("$[0].status").value("PENDING_APPROVAL"));
     }
 
