@@ -57,7 +57,7 @@ const OVERRIDES = [
     approvalComment: null,
     validFrom: "2026-09-01",
     validUntil: null,
-    status: "PENDING",
+    status: "PENDING_APPROVAL",
     executedAt: null,
   },
 ];
