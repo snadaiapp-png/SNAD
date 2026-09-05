@@ -1,0 +1,30 @@
+name: Workflow Y2 Production Evidence Validation
+
+on:
+  push:
+    branches:
+      - fix/workflow-y2-production-evidence-probe
+  pull_request:
+    paths:
+      - "scripts/production/workflow_y2_evidence.py"
+      - "scripts/production/verify-workflow-y2-production-evidence.sh"
+      - "scripts/production/tests/test_workflow_y2*.py"
+      - ".github/workflows/workflow-y2-production-evidence.yml"
+      - ".github/workflows/workflow-y2-production-evidence-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate read-only Workflow Y2 evidence probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run behavioral evidence tests
+        run: python3 -m unittest discover -s scripts/production/tests -p 'test_workflow_y2*.py' -v
+
+      - name: Validate shell syntax
+        run: bash -n scripts/production/verify-workflow-y2-production-evidence.sh

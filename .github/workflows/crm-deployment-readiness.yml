@@ -21,16 +21,12 @@
 # Trigger for capability-code canonicalization + RBAC deny 403 contract PR (#938)
 # Trigger for SCP smoke UUID-shape contract PR (#939)
 # Trigger for PMV secret-scan false-positive allowlist PR (#941)
+# Required branch-protection check: must run for every PR targeting main.
 name: CRM Deployment Readiness
 
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'apps/sanad-platform/**'
-      - 'scripts/ci/secret-scan-allowlist.json'
-      - '.github/workflows/crm-deployment-readiness.yml'
   push:
     branches: [main]
   workflow_dispatch:

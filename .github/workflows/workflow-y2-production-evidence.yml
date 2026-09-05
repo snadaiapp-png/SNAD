@@ -1,0 +1,106 @@
+name: Workflow Y2 Production Evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: Prove Workflow Y2 production state read-only
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      WORKFLOW_Y2_EVIDENCE_OUTPUT: workflow-y2-production-evidence.json
+
+    steps:
+      - name: Checkout exact dispatched main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Verify exact main identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "::error::Evidence probe may only run from main."
+            exit 1
+          }
+          git fetch origin main --depth=1
+          HEAD_SHA="$(git rev-parse HEAD)"
+          REMOTE_MAIN_SHA="$(git rev-parse origin/main)"
+          test "$HEAD_SHA" = "$GITHUB_SHA" || {
+            echo "::error::Checkout SHA does not equal GITHUB_SHA."
+            exit 1
+          }
+          test "$HEAD_SHA" = "$REMOTE_MAIN_SHA" || {
+            echo "::error::Evidence probe is not running on current origin/main."
+            exit 1
+          }
+          echo "MAIN_SHA=$HEAD_SHA"
+
+      - name: Validate read-only probe behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/production/tests -p 'test_workflow_y2*.py' -v
+          bash -n scripts/production/verify-workflow-y2-production-evidence.sh
+
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Collect production evidence read-only
+        shell: bash
+        run: bash scripts/production/verify-workflow-y2-production-evidence.sh
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-y2-production-evidence-${{ github.run_id }}
+          path: workflow-y2-production-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Write sanitized summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f workflow-y2-production-evidence.json ]; then
+            {
+              echo "## Workflow Y2 Production Evidence"
+              echo
+              echo '```json'
+              jq '{
+                result,
+                mainSha,
+                renderEnvironment,
+                database: {
+                  status: .database.status,
+                  readOnly: .database.readOnly,
+                  failedMigrations: .database.failedMigrations,
+                  repositoryDuplicateVersions: .database.repositoryDuplicateVersions,
+                  duplicateVersions: .database.duplicateVersions,
+                  repoMissingInDb: .database.repoMissingInDb,
+                  dbSuccessNotInRepo: .database.dbSuccessNotInRepo,
+                  deleteMarkers: .database.deleteMarkers,
+                  nullChecksums: .database.nullChecksums,
+                  latestVersion: .database.latestVersion
+                },
+                workflowY2
+              }' workflow-y2-production-evidence.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Workflow Y2 evidence file was not produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
