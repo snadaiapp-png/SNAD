@@ -66,7 +66,7 @@ public class JdbcComplianceOverrideRepository {
     public List<ComplianceOverrideRequest> listByTenant(UUID tenantId, int limit) {
         return jdbc.query(
                 "SELECT * FROM hr_compliance_override_requests WHERE tenant_id = ? " +
-                        "ORDER BY requested_at DESC LIMIT ?",
+                        "ORDER BY created_at DESC LIMIT ?",
                 (rs, rowNum) -> mapRequest(rs), tenantId, limit);
     }
 
