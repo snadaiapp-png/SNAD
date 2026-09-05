@@ -744,6 +744,20 @@ class HrCanonicalBackfillIntegrationTest {
             ps.setString(2, "t-" + tenantId.toString().substring(0, 8));
             ps.executeUpdate();
         }
+        // Register the tenant in the G0 cutover domain (LEGACY) — production-faithful:
+        // a tenant prepared for HRM-G0 cutover is registered as LEGACY before any
+        // legacy seeding/backfill runs (g0-cutover-tenant.sql treats an absent row
+        // as LEGACY at freeze time). Within the cutover domain the Y2 Employee<->User
+        // identity enforcement (V20260905_18) defers to the fail-closed
+        // DUPLICATE_USER_ID precheck asserted by these tests; outside it
+        // (no state row / CANONICAL) the one-to-one invariant is enforced.
+        setTenant(tenantId);
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_migration_tenant_state (tenant_id, state, updated_at) " +
+                "VALUES (?, 'LEGACY', NOW()) ON CONFLICT (tenant_id) DO NOTHING")) {
+            ps.setObject(1, tenantId);
+            ps.executeUpdate();
+        }
     }
 
     private void seedUser(UUID tenantId, UUID userId) throws Exception {
