@@ -31,7 +31,13 @@ public final class SubscriptionLifecycle {
                     "TRIAL", "PAUSED",
                     "TRIALING", "PAUSED")),
             Map.entry("RESUME", Map.of(
-                    "PAUSED", "ACTIVE")),
+                    "PAUSED", "ACTIVE",
+                    // R0C-7: canonical representation of the proven legacy revival
+                    // semantics — renew refuses CANCELLED with "must be resumed
+                    // first" (original paired behavior, #201) and the design doc
+                    // keeps legacy commands as backward-compatible aliases over
+                    // this state machine.
+                    "CANCELLED", "ACTIVE")),
             Map.entry("SUSPEND", Map.of(
                     "ACTIVE", "SUSPENDED",
                     "PAST_DUE", "SUSPENDED",
@@ -47,7 +53,10 @@ public final class SubscriptionLifecycle {
                     "ACTIVE", "CANCELLED",
                     "PAST_DUE", "CANCELLED",
                     "GRACE_PERIOD", "CANCELLED",
-                    "PAUSED", "CANCELLED")),
+                    "PAUSED", "CANCELLED",
+                    // R0C-7: the legacy mutable domain includes SUSPENDED — a
+                    // suspended subscription must remain cancellable.
+                    "SUSPENDED", "CANCELLED")),
             Map.entry("RENEW", Map.of(
                     "ACTIVE", "ACTIVE",
                     "TRIAL", "ACTIVE",
@@ -78,14 +87,23 @@ public final class SubscriptionLifecycle {
                     "ACTIVE", "ACTIVE",
                     "TRIAL", "TRIAL",
                     "TRIALING", "TRIALING",
-                    "PAST_DUE", "PAST_DUE")),
+                    "PAST_DUE", "PAST_DUE",
+                    // R0C-7: legacy no-op scheduling covers the full legacy
+                    // mutable domain (suspended subscriptions may schedule
+                    // their cancellation; application happens after recovery).
+                    "SUSPENDED", "SUSPENDED")),
             Map.entry("REQUEST_ACTIVATION", Map.of(
                     "DRAFT", "PENDING_ACTIVATION",
                     "PENDING_PAYMENT", "PENDING_PAYMENT")),
             Map.entry("PAYMENT_RECEIVED", Map.of(
                     "PENDING_PAYMENT", "PENDING_ACTIVATION",
                     "PAST_DUE", "ACTIVE",
-                    "GRACE_PERIOD", "ACTIVE"))
+                    "GRACE_PERIOD", "ACTIVE",
+                    // R0C-7: canonical representation of the proven billing
+                    // recovery semantics (SUSPENDED billing state recovers to
+                    // CURRENT when all overdue invoices are paid — the legacy
+                    // mirror reactivated the subscription to ACTIVE).
+                    "SUSPENDED", "ACTIVE"))
     );
 
     public static final Set<String> STATUSES = Set.of(

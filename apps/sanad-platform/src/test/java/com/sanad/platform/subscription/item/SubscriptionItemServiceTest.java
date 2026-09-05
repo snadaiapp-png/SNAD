@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -158,6 +160,49 @@ class SubscriptionItemServiceTest {
     }
 
     @Test
+    @DisplayName("addItem (R0C-5 §9-B): rejects an ACTIVE duplicate of the SAME plan")
+    void addItem_rejectsDuplicateActiveSamePlan() {
+        when(jdbc.<UUID>queryForObject(
+                eq("SELECT tenant_id FROM tenant_subscriptions WHERE id = ?"), eq(UUID.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(TENANT_ID);
+        when(jdbc.queryForObject(
+                eq("SELECT COUNT(*) FROM saas_plans WHERE id = ?"), eq(Long.class), eq(HRM_PLAN_ID)))
+                .thenReturn(1L);
+        when(repository.findActiveBySubscriptionIdAndPlanId(SUBSCRIPTION_ID, HRM_PLAN_ID))
+                .thenReturn(Optional.of(item("PLAN", HRM_PLAN_ID, VERSION_ID)));
+
+        assertThatThrownBy(() -> service.addItem(SUBSCRIPTION_ID, "PLAN",
+                null, null, HRM_PLAN_ID, VERSION_ID, 1, null, "SAR"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already has an ACTIVE PLAN item");
+    }
+
+    @Test
+    @DisplayName("cancelItem (R0C-5 §9-D): rejects cancelling the compatibility-ANCHORED plan")
+    void cancelItem_rejectsAnchoredPlan() {
+        SubscriptionItemEntity anchored = item("PLAN", ERP_PLAN_ID, VERSION_ID);
+        when(repository.findById(ITEM_ID)).thenReturn(Optional.of(anchored));
+        when(jdbc.<UUID>queryForObject(
+                eq("SELECT plan_id FROM tenant_subscriptions WHERE id = ?"), eq(UUID.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(ERP_PLAN_ID);
+
+        assertThatThrownBy(() -> service.cancelItem(ITEM_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("anchored");
+        verify(repository, org.mockito.Mockito.never()).updateStatus(ITEM_ID, "CANCELLED");
+    }
+
+    @Test
+    @DisplayName("updateQuantity (R0C-5 §10): rejects PLAN quantity mutation (seats authority)")
+    void updateQuantity_rejectsPlanQuantityMutation() {
+        when(repository.findById(ITEM_ID)).thenReturn(Optional.of(item("PLAN", ERP_PLAN_ID, VERSION_ID)));
+
+        assertThatThrownBy(() -> service.updateQuantity(ITEM_ID, 5))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("seat");
+    }
+
+    @Test
     @DisplayName("cancelItem: marks item CANCELLED, never deletes")
     void cancelItem_marksCancelled() {
         SubscriptionItemEntity existing = item("ADD_ON", null, null);
@@ -171,10 +216,15 @@ class SubscriptionItemServiceTest {
     }
 
     @Test
-    @DisplayName("effectivePlanVersionId: prefers the PLAN item's pinned version")
-    void effectivePlanVersion_prefersItemPin() {
+    @DisplayName("effectivePlanVersionId: prefers the ANCHORED item's pinned version")
+    void effectivePlanVersion_prefersAnchoredItemPin() {
+        // R0C-5 §7: the anchor (plan_id) selects the item; its pinned version wins.
+        when(jdbc.queryForMap(
+                eq("SELECT plan_id, plan_version_id FROM tenant_subscriptions WHERE id = ?"),
+                eq(SUBSCRIPTION_ID)))
+                .thenReturn(Map.of("plan_id", ERP_PLAN_ID, "plan_version_id", UUID.randomUUID()));
         SubscriptionItemEntity planItem = item("PLAN", ERP_PLAN_ID, VERSION_ID);
-        when(repository.findActiveBySubscriptionIdAndType(SUBSCRIPTION_ID, "PLAN"))
+        when(repository.findActiveBySubscriptionIdAndPlanId(SUBSCRIPTION_ID, ERP_PLAN_ID))
                 .thenReturn(Optional.of(planItem));
 
         Optional<UUID> versionId = service.effectivePlanVersionId(SUBSCRIPTION_ID);
@@ -183,13 +233,38 @@ class SubscriptionItemServiceTest {
     }
 
     @Test
-    @DisplayName("effectivePlanVersionId: legacy backfill — falls back to subscription plan version")
-    void effectivePlanVersion_fallsBackToSubscriptionPin() {
-        when(repository.findActiveBySubscriptionIdAndType(SUBSCRIPTION_ID, "PLAN"))
+    @DisplayName("effectivePlanVersionId: anchored selection — an unmatched anchor falls back, secondaries never win")
+    void effectivePlanVersion_ignoresSecondaryPlans() {
+        // The subscription anchors on ERP, but only a SECONDARY HRM item is
+        // ACTIVE. The anchored lookup consults ERP only — the secondary's
+        // version is never read; the dual-compatibility anchor version wins.
+        UUID secondaryVersion = UUID.randomUUID();
+        lenient().when(repository.findActiveBySubscriptionIdAndPlanId(SUBSCRIPTION_ID, HRM_PLAN_ID))
+                .thenReturn(Optional.of(item("PLAN", HRM_PLAN_ID, secondaryVersion)));
+        UUID anchorVersion = UUID.randomUUID();
+        when(jdbc.queryForMap(
+                eq("SELECT plan_id, plan_version_id FROM tenant_subscriptions WHERE id = ?"),
+                eq(SUBSCRIPTION_ID)))
+                .thenReturn(Map.of("plan_id", ERP_PLAN_ID, "plan_version_id", anchorVersion));
+        when(repository.findActiveBySubscriptionIdAndPlanId(SUBSCRIPTION_ID, ERP_PLAN_ID))
                 .thenReturn(Optional.empty());
-        when(jdbc.<UUID>queryForObject(
-                eq("SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?"), eq(UUID.class),
-                eq(SUBSCRIPTION_ID))).thenReturn(VERSION_ID);
+
+        Optional<UUID> versionId = service.effectivePlanVersionId(SUBSCRIPTION_ID);
+
+        // The secondary's version must never be chosen: the anchored pick
+        // resolves the anchor version exactly.
+        assertThat(versionId).contains(anchorVersion);
+    }
+
+    @Test
+    @DisplayName("effectivePlanVersionId: legacy backfill — falls back to the subscription anchor version")
+    void effectivePlanVersion_fallsBackToSubscriptionPin() {
+        when(jdbc.queryForMap(
+                eq("SELECT plan_id, plan_version_id FROM tenant_subscriptions WHERE id = ?"),
+                eq(SUBSCRIPTION_ID)))
+                .thenReturn(Map.of("plan_id", ERP_PLAN_ID, "plan_version_id", VERSION_ID));
+        when(repository.findActiveBySubscriptionIdAndPlanId(SUBSCRIPTION_ID, ERP_PLAN_ID))
+                .thenReturn(Optional.empty());
 
         Optional<UUID> versionId = service.effectivePlanVersionId(SUBSCRIPTION_ID);
 

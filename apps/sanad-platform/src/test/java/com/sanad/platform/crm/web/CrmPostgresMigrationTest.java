@@ -1,5 +1,6 @@
 package com.sanad.platform.crm.web;
 
+import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
@@ -177,19 +178,7 @@ class CrmPostgresMigrationTest {
     private static final String SCP_LIFECYCLE_PROVISIONING_VERSION = "20260830.1";
     private static final String SCP_USAGE_METERING_RBAC_VERSION = "20260830.2";
     private static final String CAPABILITY_CODE_CANONICALIZATION_VERSION = "20260901.1";
-    // Workflow Y2 (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
-    private static final String WORKFLOW_Y2_IDENTITY_VERSION = "20260902.1";
-    private static final String WORKFLOW_Y2_DEFINITION_GRAPH_VERSION = "20260902.2";
-    private static final String WORKFLOW_Y2_WORK_ITEMS_VERSION = "20260902.3";
-    private static final String WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION = "20260902.4";
-    private static final String WORKFLOW_Y2_SLA_INCIDENTS_VERSION = "20260902.5";
-    private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260902.6";
-    private static final String WORKFLOW_Y2_BREAK_GLASS_VERSION = "20260902.7";
-    // Production reconciliation of the Y2 wave (forward-only, idempotent):
-    // completes every Y2 schema element + capability/ADMIN seeds and fails
-    // closed if any Y2 sentinel stays missing.
-    private static final String WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION = "20260904.1";
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = CAPABILITY_CODE_CANONICALIZATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -282,6 +271,7 @@ class CrmPostgresMigrationTest {
         JdbcTemplate jdbc = jdbc();
         assertThat(latestVersion(jdbc)).isEqualTo(MAIN_SCHEMA_VERSION);
         assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(allCrmTables());
+        assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
 
         Flyway upgrade = flyway(null);
         assertThat(Arrays.stream(upgrade.info().pending()).map(MigrationInfo::getVersion))
@@ -410,15 +400,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
                         MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
                         MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION),
-                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_IDENTITY_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_DEFINITION_GRAPH_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_WORK_ITEMS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION));
+                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -561,15 +543,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
                         MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
                         MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION),
-                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_IDENTITY_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_DEFINITION_GRAPH_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_WORK_ITEMS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_RUNTIME_CONTEXT_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION));
+                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -648,6 +622,7 @@ class CrmPostgresMigrationTest {
     }
 
     private void assertCompletedSchema(JdbcTemplate jdbc) {
+        assertMigration(jdbc, "15", "JDBC", "seed rbac roles and capabilities");
         assertMigration(jdbc, CRM_CORE_VERSION, "SQL", "create unified crm core");
         assertMigration(jdbc, RECONCILER_VERSION, "SQL", "reconcile admin role and capabilities");
         assertMigration(jdbc, CRM_COMPLETION_VERSION, "SQL", "complete crm imports custom fields");
@@ -940,6 +915,7 @@ class CrmPostgresMigrationTest {
         var configuration = Flyway.configure()
                 .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true);
         if (target != null) configuration.target(target);

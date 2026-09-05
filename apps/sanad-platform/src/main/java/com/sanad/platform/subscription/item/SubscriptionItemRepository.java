@@ -64,11 +64,29 @@ public class SubscriptionItemRepository {
     }
 
     @Transactional(readOnly = true)
-    public Optional<SubscriptionItemEntity> findActiveBySubscriptionIdAndType(UUID subscriptionId, String itemType) {
+    public List<SubscriptionItemEntity> findActiveBySubscriptionIdAndType(UUID subscriptionId, String itemType) {
+        return jdbc.query(
+                "SELECT * FROM subscription_items WHERE subscription_id = ? AND item_type = ? AND status = 'ACTIVE' "
+                        + "ORDER BY created_at, id",
+                ROW_MAPPER, subscriptionId, itemType);
+    }
+
+    /**
+     * R0C-5 §6 — deterministic ANCHORED lookup. The domain allows N distinct
+     * ACTIVE PLAN items per subscription (ERP + HRM + CRM), so a lookup that
+     * means "give me THE active PLAN" cannot exist. This method instead
+     * resolves the item matching a specific plan — the compatibility anchor
+     * ({@code tenant_subscriptions.plan_id}) is the only legitimate caller
+     * use. Backed by {@code uk_subscription_items_active_plan}, so at most
+     * one ACTIVE row can match.
+     */
+    @Transactional(readOnly = true)
+    public Optional<SubscriptionItemEntity> findActiveBySubscriptionIdAndPlanId(UUID subscriptionId, UUID planId) {
         try {
             return Optional.ofNullable(jdbc.queryForObject(
-                    "SELECT * FROM subscription_items WHERE subscription_id = ? AND item_type = ? AND status = 'ACTIVE'",
-                    ROW_MAPPER, subscriptionId, itemType));
+                    "SELECT * FROM subscription_items WHERE subscription_id = ? AND plan_id = ? "
+                            + "AND item_type = 'PLAN' AND status = 'ACTIVE'",
+                    ROW_MAPPER, subscriptionId, planId));
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
         }

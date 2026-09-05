@@ -8,9 +8,12 @@ import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.subscription.pricing.PriceTier;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,6 +27,13 @@ import java.util.UUID;
  * → Audit (mission §11). Extends the existing
  * {@code SubscriptionImpactService} concepts from plan-vs-plan to the
  * multi-item world.
+ *
+ * <p>R0C-2R country authority: the pricing country is ALWAYS resolved
+ * server-side from the authoritative {@code tenants.country_code} —
+ * CLIENT_COUNTRY_AUTHORITY = NONE. Any client-supplied country parameter is
+ * deliberately ignored (retained on the wire for backward compatibility
+ * only). When the tenant carries no country the resolver's GLOBAL fallback
+ * applies.</p>
  */
 @Service
 public class SubscriptionChangeService {
@@ -61,9 +71,13 @@ public class SubscriptionChangeService {
 
     @Transactional(readOnly = true)
     public ChangePreview preview(UUID subscriptionId, UUID targetPlanVersionId,
-                                 String countryCode, Instant at) {
-        requireSubscription(subscriptionId);
-        String billingInterval = billingInterval(subscriptionId);
+                                 String clientCountryCode, Instant at) {
+        SubscriptionContext ctx = requireSubscription(subscriptionId);
+        String billingInterval = ctx.billingCycle() != null ? ctx.billingCycle() : "MONTHLY";
+        // P0-A: tenant's authoritative country wins; the client-supplied value
+        // is intentionally NOT used for pricing (authority NONE).
+        String pricingCountry = ctx.tenantCountryCode() != null
+                ? ctx.tenantCountryCode() : PriceResolver.GLOBAL;
         List<SubscriptionItemEntity> items = itemRepository
                 .findBySubscriptionId(subscriptionId).stream()
                 .filter(i -> "ACTIVE".equals(i.getStatus()))
@@ -74,9 +88,12 @@ public class SubscriptionChangeService {
                         i.getQuantity(), i.getUnitAmountMinor(), i.getCurrencyCode()))
                 .toList();
 
-        Optional<SubscriptionItemEntity> planItem = items.stream()
-                .filter(i -> "PLAN".equals(i.getItemType()))
-                .findFirst();
+        // R0C-5 §8: a plan change targets the LEGACY-COMPATIBILITY ANCHORED
+        // plan (tenant_subscriptions.plan_id) — never findFirst() over the
+        // ACTIVE PLAN stream, which an older-created secondary plan would win.
+        Optional<SubscriptionItemEntity> planItem = ctx.planId() != null
+                ? itemRepository.findActiveBySubscriptionIdAndPlanId(subscriptionId, ctx.planId())
+                : Optional.empty();
         long currentMonthly = planItem.map(i -> nvl(i.getUnitAmountMinor())).orElse(0L);
 
         List<String> warnings = new ArrayList<>();
@@ -86,19 +103,20 @@ public class SubscriptionChangeService {
             UUID versionId = planItem.get().getPlanVersionId() != null
                     ? planItem.get().getPlanVersionId() : targetPlanVersionId;
             Optional<PriceEntity> price = priceResolver.resolveForPlanVersion(
-                    targetPlanVersionId, countryCode, billingInterval, at);
+                    targetPlanVersionId, pricingCountry, billingInterval, at);
             if (price.isPresent()) {
                 targetMonthly = compute(price.get(), planItem.get().getQuantity());
                 delta = targetMonthly - currentMonthly;
             } else {
-                warnings.add("No effective price found for target version (country=" + countryCode
+                warnings.add("No effective price found for target version (country=" + pricingCountry
                         + ", interval=" + billingInterval + "); change cannot be priced");
             }
         } else {
-            warnings.add("Subscription has no ACTIVE PLAN item to change");
+            warnings.add("Subscription has no ACTIVE PLAN item matching the compatibility anchor"
+                    + " (plan " + ctx.planId() + "); secondary plans cannot be changed here");
         }
 
-        return new ChangePreview(subscriptionId, targetPlanVersionId, "CURRENT",
+        return new ChangePreview(subscriptionId, targetPlanVersionId, ctx.status(),
                 lines, currentMonthly, targetMonthly, delta,
                 planItem.map(SubscriptionItemEntity::getCurrencyCode).orElse(null),
                 warnings);
@@ -111,18 +129,23 @@ public class SubscriptionChangeService {
      */
     @Transactional
     public ChangeResult execute(UUID subscriptionId, UUID targetPlanVersionId,
-                                String countryCode, String reason,
+                                String clientCountryCode, String reason,
                                 UUID actorTenantId, UUID actorUserId) {
-        ChangePreview preview = preview(subscriptionId, targetPlanVersionId, countryCode, Instant.now());
+        ChangePreview preview = preview(subscriptionId, targetPlanVersionId,
+                clientCountryCode, Instant.now());
         if (!preview.warnings().isEmpty()) {
             throw new IllegalStateException(
                     "Change preview has warnings; refusing to execute: " + preview.warnings());
         }
 
+        // R0C-5 §8: the change applies to the ANCHORED plan item only — the
+        // item matching tenant_subscriptions.plan_id. Secondary plans are not
+        // "the current plan" and are preserved by the change.
+        SubscriptionContext ctx = requireSubscription(subscriptionId);
         SubscriptionItemEntity currentPlanItem = itemRepository
-                .findActiveBySubscriptionIdAndType(subscriptionId, "PLAN")
-                .orElseThrow(() -> new IllegalStateException("No ACTIVE PLAN item"));
-        itemRepository.updateStatus(currentPlanItem.getId(), "CANCELLED");
+                .findActiveBySubscriptionIdAndPlanId(subscriptionId, ctx.planId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No ACTIVE PLAN item matching the compatibility anchor (plan " + ctx.planId() + ")"));
 
         Map<String, Object> versionRow;
         try {
@@ -132,35 +155,185 @@ public class SubscriptionChangeService {
         } catch (EmptyResultDataAccessException e) {
             throw new IllegalArgumentException("Unknown plan version: " + targetPlanVersionId);
         }
-        UUID planId = (UUID) versionRow.get("plan_id");
-        String currency = (String) versionRow.get("currency_code");
 
-        SubscriptionItemEntity newItem = new SubscriptionItemEntity();
-        newItem.setId(UUID.randomUUID());
-        newItem.setTenantId(currentPlanItem.getTenantId());
-        newItem.setSubscriptionId(subscriptionId);
-        newItem.setItemType("PLAN");
-        newItem.setPlanId(planId);
-        newItem.setPlanVersionId(targetPlanVersionId);
-        newItem.setQuantity(currentPlanItem.getQuantity());
-        newItem.setUnitAmountMinor(preview.targetMonthlyMinor());
-        newItem.setCurrencyCode(currency);
-        newItem.setStatus("ACTIVE");
-        newItem.setCreatedAt(Instant.now());
-        newItem.setUpdatedAt(Instant.now());
-        itemRepository.insert(newItem);
+        applyCanonicalPlanCompositionChange(subscriptionId,
+                (UUID) versionRow.get("plan_id"), targetPlanVersionId,
+                preview.targetMonthlyMinor(), (String) versionRow.get("currency_code"),
+                currentPlanItem.getQuantity(), reason, actorTenantId, actorUserId);
 
+        return new ChangeResult(subscriptionId, "EXECUTED", reason);
+    }
+
+    /**
+     * R0C-4 (recovery STAGE-3) — deterministic target version resolution.
+     * Returns the latest ACTIVE plan_version of the plan (ordered by
+     * version_number). Fails closed when the plan has no ACTIVE version —
+     * never silently falls back to an arbitrary or stale version.
+     */
+    @Transactional(readOnly = true)
+    public UUID resolveActivePlanVersion(UUID planId) {
+        List<UUID> versions = jdbc.queryForList(
+                "SELECT id FROM plan_versions WHERE plan_id = ? AND status = 'ACTIVE' "
+                        + "ORDER BY version_number DESC",
+                UUID.class, planId);
+        if (versions.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Plan has no ACTIVE version; refusing plan composition change");
+        }
+        return versions.get(0);
+    }
+
+    /**
+     * R0C-4 (recovery STAGE-3) — canonical birth of the initial ACTIVE PLAN
+     * item for a newly created subscription. Composition-only: billing,
+     * audit, and entitlement events remain the caller's responsibility.
+     * Joins the caller's transaction (REQUIRED propagation).
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void insertInitialPlanItem(UUID subscriptionId, UUID tenantId, UUID planId, UUID planVersionId,
+                                      long unitAmountMinor, String currencyCode, int quantity) {
+        SubscriptionItemEntity item = new SubscriptionItemEntity();
+        item.setId(UUID.randomUUID());
+        item.setTenantId(tenantId);
+        item.setSubscriptionId(subscriptionId);
+        item.setItemType("PLAN");
+        item.setPlanId(planId);
+        item.setPlanVersionId(planVersionId);
+        item.setQuantity(Math.max(1, quantity));
+        item.setUnitAmountMinor(unitAmountMinor);
+        item.setCurrencyCode(currencyCode);
+        item.setStatus("ACTIVE");
+        item.setCreatedAt(Instant.now());
+        item.setUpdatedAt(Instant.now());
+        itemRepository.insert(item);
+    }
+
+    /**
+     * R0C-6 — canonical seat-quantity mirror sync for the compatibility
+     * anchor. Converges {@code subscription_items.quantity} of the ACTIVE
+     * PLAN item anchored by {@code tenant_subscriptions.plan_id} to the
+     * subscription's seat count, inside the caller's transaction (REQUIRED
+     * propagation joins it — seat write and item mirror write commit or roll
+     * back together; SEAT_COUNT_PARTIAL_STATE = IMPOSSIBLE).
+     *
+     * <p>Fail-closed BEFORE any write when:</p>
+     * <ul>
+     *   <li>the stored anchor plan does not match the caller's expectation
+     *       (stale read / concurrent plan change) — ANCHOR_PLAN_ID_MISMATCH;</li>
+     *   <li>no ACTIVE PLAN item matches the anchor plan —
+     *       MISSING_ANCHORED_PLAN_ITEM;</li>
+     *   <li>the anchor's {@code plan_version_id} is present and differs from
+     *       the item's pinned version — ANCHOR_PLAN_VERSION_MISMATCH.</li>
+     * </ul>
+     *
+     * <p>Composition-only contract (exactly §10): no invoices, no proration,
+     * no billing-state changes, no secondary PLAN mutations, no entitlement
+     * events, no unit-price changes — the quantity mirror only. The same
+     * duplicate-active-same-plan shape is structurally rejected by the
+     * unique index {@code uk_subscription_items_active_plan}.</p>
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void syncAnchoredPlanSeatQuantity(UUID subscriptionId, UUID expectedPlanId, int newSeatQuantity) {
+        if (newSeatQuantity < 1) {
+            throw new IllegalArgumentException(
+                    "Seat quantity must be positive: " + newSeatQuantity);
+        }
+        AnchorRow anchor = requireAnchorRow(subscriptionId);
+        if (anchor.planId() == null || !anchor.planId().equals(expectedPlanId)) {
+            throw new IllegalStateException(
+                    "Compatibility anchor plan " + anchor.planId() + " does not match the expected plan "
+                            + expectedPlanId + " (ANCHOR_PLAN_ID_MISMATCH); refusing seat quantity sync");
+        }
+        SubscriptionItemEntity anchoredItem = itemRepository
+                .findActiveBySubscriptionIdAndPlanId(subscriptionId, anchor.planId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No ACTIVE PLAN item matching the compatibility anchor (plan " + anchor.planId()
+                                + ") on subscription " + subscriptionId
+                                + " (MISSING_ANCHORED_PLAN_ITEM); refusing seat quantity sync"));
+        if (anchor.planVersionId() != null && anchoredItem.getPlanVersionId() != null
+                && !anchor.planVersionId().equals(anchoredItem.getPlanVersionId())) {
+            throw new IllegalStateException(
+                    "Anchored PLAN item version " + anchoredItem.getPlanVersionId()
+                            + " does not match the anchor plan_version_id " + anchor.planVersionId()
+                            + " (ANCHOR_PLAN_VERSION_MISMATCH); refusing seat quantity sync");
+        }
+        // Quantity-only mirror: the per-seat unit price snapshot is preserved
+        // (R0C-6 §15: unit_amount_minor = unit price; billing computes
+        // plan price x seat_quantity independently of this mirror).
+        itemRepository.updateQuantityAndAmount(anchoredItem.getId(), newSeatQuantity,
+                anchoredItem.getUnitAmountMinor());
+    }
+
+    /**
+     * R0C-4 (recovery STAGE-3) — THE single canonical authority for effective
+     * PLAN composition mutation. Cancels the current ACTIVE PLAN item (if
+     * any), inserts the new ACTIVE PLAN item pinned to the target version,
+     * converges both compatibility anchors, and writes the command ledger —
+     * all inside the caller's transaction (REQUIRED propagation joins it).
+     *
+     * <p>Composition-only contract: this method must NOT price, prorate,
+     * issue invoices, change payment status, or publish entitlement events —
+     * those remain with the caller (SCP execute path or the legacy engine).
+     * Both {@link #execute} and the converged legacy paths route through
+     * here, so there is exactly one writer of effective plan composition.</p>
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void applyCanonicalPlanCompositionChange(UUID subscriptionId, UUID targetPlanId,
+                                                    UUID targetPlanVersionId, long unitAmountMinor,
+                                                    String currencyCode, int quantity,
+                                                    String reason, UUID actorTenantId, UUID actorUserId) {
+        SubscriptionContext ctx = requireSubscription(subscriptionId);
+
+        // R0C-5 §8: cancel the ANCHORED item only (the one matching the CURRENT
+        // anchor plan) — never an arbitrary ACTIVE PLAN. Distinct secondary
+        // plans stay untouched.
+        Optional<SubscriptionItemEntity> anchoredItem = ctx.planId() != null
+                ? itemRepository.findActiveBySubscriptionIdAndPlanId(subscriptionId, ctx.planId())
+                : Optional.empty();
+        anchoredItem.ifPresent(current -> itemRepository.updateStatus(current.getId(), "CANCELLED"));
+
+        // R0C-5 §8 fail-closed: a target plan that is already ACTIVE as a
+        // SECONDARY item would end up with the same plan twice (the unique
+        // index rejects it); consolidating a secondary into the anchor is a
+        // different, separately-authorized operation.
+        itemRepository.findActiveBySubscriptionIdAndPlanId(subscriptionId, targetPlanId)
+                .filter(existing -> anchoredItem.isEmpty()
+                        || !existing.getId().equals(anchoredItem.get().getId()))
+                .ifPresent(existing -> {
+                    throw new IllegalStateException(
+                            "Target plan " + targetPlanId + " is already ACTIVE as a secondary plan"
+                                    + " item; cancel it first or pick a different plan");
+                });
+
+        insertInitialPlanItem(subscriptionId, ctx.tenantId(), targetPlanId, targetPlanVersionId,
+                unitAmountMinor, currencyCode, quantity);
+
+        // R0C-3 (recovery STAGE-2): the compatibility mirrors must never
+        // diverge from the effective ACTIVE PLAN item.
+        jdbc.update("""
+                        UPDATE tenant_subscriptions
+                        SET plan_id = ?, plan_version_id = ?, updated_at = NOW()
+                        WHERE id = ?
+                        """,
+                targetPlanId, targetPlanVersionId, subscriptionId);
+
+        // P0-C: subscription_commands.from_status/to_status are VARCHAR(24) and
+        // carry lifecycle statuses. A plan change does not transition the
+        // subscription status, so from == to == the subscription's actual
+        // status (max vocabulary length 17). The target-version detail is
+        // preserved in the VARCHAR(500) reason column — never in to_status.
+        String status = ctx.status();
+        String ledgerReason = "TARGET_VERSION=" + targetPlanVersionId
+                + (reason != null && !reason.isBlank() ? "; " + reason : "");
         jdbc.update("""
                         INSERT INTO subscription_commands (
                             id, subscription_id, tenant_id, command, from_status, to_status,
                             reason, actor_tenant_id, actor_user_id, correlation_id, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
                         """,
-                UUID.randomUUID(), subscriptionId, currentPlanItem.getTenantId(), "PLAN_CHANGE",
-                "CURRENT", "TARGET_VERSION=" + targetPlanVersionId, reason,
+                UUID.randomUUID(), subscriptionId, ctx.tenantId(), "PLAN_CHANGE",
+                status, status, ledgerReason,
                 actorTenantId, actorUserId, null);
-
-        return new ChangeResult(subscriptionId, "EXECUTED", reason);
     }
 
     private long compute(PriceEntity price, int quantity) {
@@ -171,24 +344,56 @@ public class SubscriptionChangeService {
                 price.getMinAmountMinor(), price.getMaxAmountMinor());
     }
 
-    private void requireSubscription(UUID subscriptionId) {
+    /**
+     * Server-side subscription context. P0-B: fetched with a RowMapper over a
+     * single joined query (never a multi-column scalar queryForObject).
+     * P0-A: the pricing country comes from the authoritative
+     * {@code tenants.country_code} via the join — tenant_subscriptions has no
+     * country column.
+     */
+    record SubscriptionContext(UUID tenantId, UUID planId, String status,
+                                String billingCycle, String tenantCountryCode) {
+    }
+
+    /**
+     * R0C-6 — the compatibility anchor columns needed by the seat-quantity
+     * mirror sync. Read with a RowMapper over a single PK-addressed row
+     * (P0-B discipline: never a multi-column scalar queryForObject).
+     */
+    record AnchorRow(UUID tenantId, UUID planId, UUID planVersionId) {
+    }
+
+    private AnchorRow requireAnchorRow(UUID subscriptionId) {
         try {
-            jdbc.queryForObject(
-                    "SELECT tenant_id, plan_id FROM tenant_subscriptions WHERE id = ?",
-                    UUID.class, subscriptionId);
+            return jdbc.queryForObject(
+                    "SELECT tenant_id, plan_id, plan_version_id FROM tenant_subscriptions WHERE id = ?",
+                    (rs, rowNum) -> new AnchorRow(
+                            rs.getObject("tenant_id", UUID.class),
+                            rs.getObject("plan_id", UUID.class),
+                            rs.getObject("plan_version_id", UUID.class)),
+                    subscriptionId);
         } catch (EmptyResultDataAccessException e) {
             throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
         }
     }
 
-    private String billingInterval(UUID subscriptionId) {
+    private SubscriptionContext requireSubscription(UUID subscriptionId) {
         try {
-            String cycle = jdbc.queryForObject(
-                    "SELECT billing_cycle, country_code FROM tenant_subscriptions WHERE id = ?",
-                    String.class, subscriptionId);
-            return cycle != null ? cycle : "MONTHLY";
+            return jdbc.queryForObject("""
+                            SELECT s.tenant_id, s.plan_id, s.status, s.billing_cycle, t.country_code
+                            FROM tenant_subscriptions s
+                            JOIN tenants t ON t.id = s.tenant_id
+                            WHERE s.id = ?
+                            """,
+                    (rs, rowNum) -> new SubscriptionContext(
+                            rs.getObject("tenant_id", UUID.class),
+                            rs.getObject("plan_id", UUID.class),
+                            rs.getString("status"),
+                            rs.getString("billing_cycle"),
+                            rs.getString("country_code")),
+                    subscriptionId);
         } catch (EmptyResultDataAccessException e) {
-            return "MONTHLY";
+            throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
         }
     }
 

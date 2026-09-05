@@ -2,6 +2,7 @@ package com.sanad.platform.crm.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.crm.integration.orchestration.IntegrationException;
 import org.flywaydb.core.Flyway;
@@ -52,6 +53,7 @@ class CrmIntegrationOutboxWorkerTest {
         Flyway.configure()
                 .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false).validateOnMigrate(true).load().migrate();
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
@@ -63,6 +65,12 @@ class CrmIntegrationOutboxWorkerTest {
 
     @BeforeEach
     void seedRequest() {
+        // R0C-RECOVERY-CHAIN §17 harness fix (test-only, reproduced on pristine
+        // 7f30c4ff): earlier suites leave PENDING rows in crm_integration_outbox
+        // on the shared database; the claim CTE picks the oldest PENDING event,
+        // so claim-order/version assertions were order-dependent. Clear the
+        // queue before seeding so each test claims exactly its own event.
+        jdbc.update("DELETE FROM crm_integration_outbox");
         tenantId = UUID.randomUUID();
         requestId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);

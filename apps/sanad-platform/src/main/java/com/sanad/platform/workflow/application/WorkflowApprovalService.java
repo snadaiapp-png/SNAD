@@ -1,6 +1,5 @@
 package com.sanad.platform.workflow.application;
 
-import com.sanad.platform.workflow.domain.WorkflowApprovalPolicy;
 import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
 import com.sanad.platform.workflow.domain.WorkflowApprovalRequestRepository;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionRepository;
@@ -71,24 +70,18 @@ public class WorkflowApprovalService {
     private final WorkflowStepInstanceRepository stepInstanceRepo;
     private final WorkflowDefinitionRepository defRepo;
     private final WorkflowTransitionAuditRepository auditRepo;
-    private final WorkflowApprovalPolicyEngine approvalPolicyEngine;
-    private final WorkflowGraphExecutionService graphExecutionService;
 
     public WorkflowApprovalService(
             WorkflowApprovalRequestRepository approvalRepo,
             WorkflowInstanceRepository instanceRepo,
             WorkflowStepInstanceRepository stepInstanceRepo,
             WorkflowDefinitionRepository defRepo,
-            WorkflowTransitionAuditRepository auditRepo,
-            WorkflowApprovalPolicyEngine approvalPolicyEngine,
-            WorkflowGraphExecutionService graphExecutionService) {
+            WorkflowTransitionAuditRepository auditRepo) {
         this.approvalRepo = approvalRepo;
         this.instanceRepo = instanceRepo;
         this.stepInstanceRepo = stepInstanceRepo;
         this.defRepo = defRepo;
         this.auditRepo = auditRepo;
-        this.approvalPolicyEngine = approvalPolicyEngine;
-        this.graphExecutionService = graphExecutionService;
     }
 
     @Transactional
@@ -226,7 +219,6 @@ public class WorkflowApprovalService {
         var updated = approvalRepo.save(req.approve(approverId, comments));
         auditWorkflow(approverId, updated, WorkflowTransitionAudit.Action.APPROVE,
                 oldStatus, updated.status().name());
-        resolvePolicyAndAdvance(tenantId, updated, approverId);
         return updated;
     }
 
@@ -244,47 +236,7 @@ public class WorkflowApprovalService {
         var updated = approvalRepo.save(req.reject(rejecterId, comments));
         auditWorkflow(rejecterId, updated, WorkflowTransitionAudit.Action.REJECT,
                 oldStatus, updated.status().name());
-        resolvePolicyAndAdvance(tenantId, updated, rejecterId);
         return updated;
-    }
-
-    /**
-     * Aggregates the sibling approval requests of the acted-on step through
-     * the approval policy engine and, when the policy closes the step
-     * (ANY_ONE first approval, ALL unanimity, or impossibility), cancels the
-     * remaining pending requests and advances the Y2 graph:
-     * APPROVE follows the default outgoing transition; REJECT follows the
-     * graph's REJECTED outcome transition (fail-closed graph-resolution
-     * incident when the definition lacks one).
-     */
-    private void resolvePolicyAndAdvance(UUID tenantId, WorkflowApprovalRequest updated, UUID actorId) {
-        if (updated.workflowStepInstanceId() == null || updated.workflowInstanceId() == null) {
-            return;
-        }
-        var siblings = approvalRepo.findByInstance(tenantId, updated.workflowInstanceId()).stream()
-                .filter(r -> updated.workflowStepInstanceId().equals(r.workflowStepInstanceId()))
-                .toList();
-        var policy = new WorkflowApprovalPolicy(updated.approvalPolicy(), updated.selfApprovalPolicy());
-        var resolution = approvalPolicyEngine.resolve(policy, siblings);
-        if (!resolution.stepComplete()) {
-            return;
-        }
-        for (UUID cancelId : resolution.requestsToCancel()) {
-            approvalRepo.findById(tenantId, cancelId)
-                    .filter(r -> r.status() == WorkflowApprovalRequest.Status.PENDING)
-                    .ifPresent(r -> approvalRepo.save(r.cancel(actorId)));
-        }
-        // Only Y2 graph instances route through the graph runtime; LEGACY
-        // approvals keep their legacy semantics (no graph advance).
-        var parentInstance = instanceRepo.findById(tenantId, updated.workflowInstanceId());
-        if (parentInstance.isEmpty()
-                || parentInstance.get().engineGeneration() != WorkflowInstance.EngineGeneration.Y2) {
-            return;
-        }
-        // Outcome tokens match the validator-mandated transition vocabulary
-        // for approval steps: both APPROVE and REJECT transitions must exist.
-        String outcome = "APPROVE".equals(resolution.outcome()) ? "APPROVE" : "REJECT";
-        graphExecutionService.advance(tenantId, updated.workflowInstanceId(), outcome, actorId);
     }
 
     @Transactional

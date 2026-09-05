@@ -11,10 +11,6 @@ public interface WorkflowDefinitionRepository {
     Optional<WorkflowDefinition> findActiveByCode(UUID tenantId, String code);
     List<WorkflowDefinition> findByTenant(UUID tenantId, int limit);
     List<WorkflowDefinition> findByTenantAndStatus(UUID tenantId, WorkflowDefinition.Status status, int limit);
-    List<WorkflowDefinition> findVersions(UUID tenantId, UUID definitionFamilyId);
-    Optional<WorkflowDefinition> findPublishedByFamily(UUID tenantId, UUID definitionFamilyId);
     List<WorkflowStep> findSteps(UUID workflowDefinitionId);
     WorkflowStep saveStep(WorkflowStep step);
-    List<WorkflowTransition> findTransitions(UUID workflowDefinitionId);
-    WorkflowTransition saveTransition(WorkflowTransition transition);
 }

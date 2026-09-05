@@ -1,6 +1,7 @@
 package com.sanad.platform.crm.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.orchestration.CrmIntegrationStore;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
@@ -53,10 +54,20 @@ class CrmIntegrationOutboxRecoveryTest {
         MigrationTestSchemaSupport.ensureDatabase(baseUrl, user, password);
         String isolatedUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(baseUrl);
 
-        Flyway.configure()
+        // R0C-RECOVERY-CHAIN §17 harness fix (test-only, reproduced on pristine
+        // 7f30c4ff): earlier classes — notably Crm008bFoundationAcceptanceTest —
+        // intentionally leave test_migration at an intermediate Flyway history
+        // state with later-version tables present, which makes a plain
+        // migrate() here fail the V20260722.1 precondition depending on
+        // execution order. Clean first so this class is order-independent and
+        // starts from the same deterministic schema every run.
+        Flyway flyway = Flyway.configure()
                 .dataSource(isolatedUrl, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .cleanDisabled(true).validateOnMigrate(false).load().migrate();
+                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
+                .cleanDisabled(false).validateOnMigrate(true).load();
+        flyway.clean();
+        flyway.migrate();
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 isolatedUrl, user, password);

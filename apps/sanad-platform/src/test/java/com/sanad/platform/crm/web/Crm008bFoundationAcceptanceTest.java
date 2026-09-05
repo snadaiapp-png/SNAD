@@ -74,12 +74,9 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260823.2 - crm participant role exclusivity is the new terminal migration.
     //   Earlier V20260823.1 (crm contacts force rls) precedes it.
     //
-    // Platform migration terminal (merged main + Workflow Y2 + production reconciliation):
-    //   SCP closure V20260901_1 (canonicalize capability codes to uppercase)
-    //   precedes the Workflow Y2 wave, whose V20260902.7 break-glass audit
-    //   migration precedes V20260904_1, the forward-only idempotent production
-    //   reconciliation of the Y2 wave (current platform terminal).
-    private static final String CRM_LATEST_VERSION = "20260904.1";
+    // SCP closure: V20260901_1 (canonicalize capability codes to uppercase)
+    //   is the current terminal migration.
+    private static final String CRM_LATEST_VERSION = "20260901.1";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

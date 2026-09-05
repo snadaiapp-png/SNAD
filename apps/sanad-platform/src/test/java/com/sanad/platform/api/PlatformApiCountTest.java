@@ -39,17 +39,8 @@ class PlatformApiCountTest {
      *  + 29 Subscription Control Plane (SCP closure) endpoints — catalog (4),
      *  plan versions (3), subscription items (3), prices (5), lifecycle/provisioning (6),
      *  governance (2), executive read models (4), usage metering (2),
-     *  all under /api/v1/executive = 746.
-     *  + 2 Workflow Y2 endpoints (Wave 1 / Task 6): validate, simulate = 748.
-     *  + 12 Workflow Y2 endpoints (Wave 3 / Task 16+22): work-items
-     *  mine/pool/claim/release/complete/reassign (6), definitions
-     *  publish/next-draft (2), incidents list/ack/resolve (3),
-     *  definitions/{id}/transitions POST (1) = 760.
-     *  + 2 Workflow Y2 break-glass endpoints (Wave 3 / Task 20):
-     *  instances/{id}/break-glass/resume (1), /break-glass/cancel (1) = 762.
-     *  + 1 Workflow Y2 transition creation endpoint (Wave 3 / Task 22
-     *  accounting reconciliation) = 763. */
-    private static final long EXPECTED_TOTAL_OPS = 763;
+     *  all under /api/v1/executive = 746. */
+    private static final long EXPECTED_TOTAL_OPS = 746;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;

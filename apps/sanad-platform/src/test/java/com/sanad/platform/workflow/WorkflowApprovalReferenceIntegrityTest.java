@@ -1,7 +1,6 @@
 package com.sanad.platform.workflow;
 
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
-import com.sanad.platform.workflow.application.WorkflowApprovalPolicyEngine;
 import com.sanad.platform.workflow.domain.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,8 +65,7 @@ class WorkflowApprovalReferenceIntegrityTest {
         defRepo = mock(WorkflowDefinitionRepository.class);
         auditRepo = mock(WorkflowTransitionAuditRepository.class);
         service = new WorkflowApprovalService(approvalRepo, instanceRepo,
-                stepInstanceRepo, defRepo, auditRepo,
-                new WorkflowApprovalPolicyEngine(), null);
+                stepInstanceRepo, defRepo, auditRepo);
 
         tenantA = UUID.randomUUID();
         tenantB = UUID.randomUUID();

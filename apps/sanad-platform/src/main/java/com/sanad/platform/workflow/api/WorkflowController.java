@@ -1,24 +1,14 @@
 package com.sanad.platform.workflow.api;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.sanad.platform.security.authorization.RequireCapability;
-import com.sanad.platform.workflow.application.WorkflowActionabilityService;
-import com.sanad.platform.workflow.application.WorkflowBreakGlassService;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
-import com.sanad.platform.workflow.application.WorkflowGraphExecutionService;
-import com.sanad.platform.workflow.application.WorkflowIncidentService;
-import com.sanad.platform.workflow.application.WorkflowWorkItemService;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
-import com.sanad.platform.workflow.application.WorkflowSimulationService;
 import com.sanad.platform.workflow.application.WorkflowMonitoringService;
 import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
-import com.sanad.platform.workflow.domain.WorkflowIncident;
-import com.sanad.platform.workflow.domain.WorkflowWorkItem;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowInstance;
 import com.sanad.platform.workflow.domain.WorkflowStep;
-import com.sanad.platform.workflow.domain.WorkflowTransition;
 import com.sanad.platform.workflow.domain.WorkflowStepInstance;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -52,72 +42,25 @@ public class WorkflowController {
     private final WorkflowExecutionService executionService;
     private final WorkflowApprovalService approvalService;
     private final WorkflowMonitoringService monitoringService;
-    private final WorkflowSimulationService simulationService;
-    private final WorkflowWorkItemService workItemService;
-    private final WorkflowIncidentService incidentService;
-    private final WorkflowActionabilityService actionabilityService;
-    private final WorkflowBreakGlassService breakGlassService;
-    private final WorkflowGraphExecutionService graphExecutionService;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
             WorkflowExecutionService executionService,
             WorkflowApprovalService approvalService,
-            WorkflowMonitoringService monitoringService,
-            WorkflowSimulationService simulationService,
-            WorkflowWorkItemService workItemService,
-            WorkflowIncidentService incidentService,
-            WorkflowActionabilityService actionabilityService,
-            WorkflowBreakGlassService breakGlassService,
-            WorkflowGraphExecutionService graphExecutionService) {
+            WorkflowMonitoringService monitoringService) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
         this.monitoringService = monitoringService;
-        this.simulationService = simulationService;
-        this.workItemService = workItemService;
-        this.incidentService = incidentService;
-        this.actionabilityService = actionabilityService;
-        this.breakGlassService = breakGlassService;
-        this.graphExecutionService = graphExecutionService;
     }
 
     // ===== Exception Handling =====
-
-    /**
-     * Map controller-thrown AccessDeniedException (actionability denials,
-     * capability denials surfacing inside handler bodies) to HTTP 403.
-     * Without this handler Spring Boot surfaces them as 500, which violates
-     * the fail-closed release contract (P09: a disabled user's stale token
-     * must be DENIED, not errored).
-     */
-    @org.springframework.web.bind.annotation.ExceptionHandler(
-            org.springframework.security.access.AccessDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleAccessDenied(
-            org.springframework.security.access.AccessDeniedException ex) {
-        return ResponseEntity.status(403).body(Map.of(
-                "status", 403,
-                "error", "Forbidden",
-                "message", ex.getMessage() == null ? "Access denied" : ex.getMessage()));
-    }
 
     /**
      * Map IllegalStateException (SOD violations, state machine violations) to HTTP 409 CONFLICT
      * instead of HTTP 500. This ensures business-rule rejections are not treated as
      * internal server errors in production error sweeps.
      */
-    @org.springframework.web.bind.annotation.ExceptionHandler(
-            org.springframework.dao.OptimisticLockingFailureException.class)
-    public ResponseEntity<Map<String, Object>> handleOptimisticLock(
-            org.springframework.dao.OptimisticLockingFailureException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                "status", 409,
-                "error", "Conflict",
-                "code", "STALE_VERSION",
-                "message", e.getMessage() != null ? e.getMessage() : "Version conflict"
-        ));
-    }
-
     @org.springframework.web.bind.annotation.ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
@@ -175,266 +118,6 @@ public class WorkflowController {
                 .map(d -> ResponseEntity.ok(toDefinitionMap(d)))
                 .orElse(ResponseEntity.notFound().build());
     }
-
-    /**
-     * AN3 publish-gate preview: runs the structural validator against the
-     * draft and reports stable, language-neutral error codes.
-     */
-    @PostMapping("/definitions/{id}/validate")
-    @RequireCapability("WORKFLOW.VALIDATE")
-    public ResponseEntity<Map<String, Object>> validateDefinition(
-            Authentication auth, @PathVariable UUID id) {
-        var validation = definitionService.validate(tenantId(auth), id);
-        return ResponseEntity.ok(Map.of(
-                "valid", validation.valid(),
-                "errors", validation.errors().stream()
-                        .map(e -> Map.of(
-                                "code", (Object) e.code(),
-                                "message", e.message() != null ? e.message() : "",
-                                "stepId", e.stepId() != null ? e.stepId().toString() : ""))
-                        .toList()));
-    }
-
-    /**
-     * Side-effect-free simulation (AN3). System actions, notifications, and
-     * sub-workflows are stubbed; the response is explicitly marked
-     * non-production.
-     */
-    @PostMapping("/definitions/{id}/simulate")
-    @RequireCapability("WORKFLOW.VALIDATE")
-    public ResponseEntity<Map<String, Object>> simulateDefinition(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody(required = false) Map<String, Object> context) {
-        var result = simulationService.simulate(tenantId(auth), id,
-                context != null ? context : Map.of());
-        return ResponseEntity.ok(Map.of(
-                "valid", result.valid(),
-                "simulated", result.simulated(),
-                "visitedStepIds", result.visitedStepIds().stream().map(UUID::toString).toList(),
-                "notes", result.notes()));
-    }
-
-    // ===== WorkItems (C3/L3) =====
-
-    /**
-     * Every work-item command revalidates the acting user's actionability
-     * (ACTIVE linked employee/user) server-side before touching the item —
-     * assignment never grants authorization (D3/N3).
-     */
-    private com.sanad.platform.hr.domain.HrEmployee requireActorEmployee(Authentication auth) {
-        return actionabilityService.requireActionableEmployee(tenantId(auth), userId(auth));
-    }
-
-    @GetMapping("/work-items/mine")
-    @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<List<Map<String, Object>>> myWorkItems(
-            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
-        var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(workItemService
-                .findMyWork(tenantId(auth), employee.id(), safeLimit(limit))
-                .stream().map(this::toWorkItemMap).toList());
-    }
-
-    @GetMapping("/work-items/pool")
-    @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<List<Map<String, Object>>> poolWorkItems(
-            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
-        var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(workItemService
-                .findPoolWork(tenantId(auth), employee.id(), safeLimit(limit))
-                .stream().map(this::toWorkItemMap).toList());
-    }
-
-    public record WorkItemCommandRequest(long expectedVersion, String reason) {}
-    public record WorkItemReassignRequest(UUID newAssigneeEmployeeId, long expectedVersion, String reason) {}
-
-    @PostMapping("/work-items/{id}/claim")
-    @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<Map<String, Object>> claimWorkItem(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody WorkItemCommandRequest req) {
-        var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(toWorkItemMap(workItemService.claim(
-                tenantId(auth), id, employee.id(), req.expectedVersion())));
-    }
-
-    @PostMapping("/work-items/{id}/release")
-    @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<Map<String, Object>> releaseWorkItem(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody WorkItemCommandRequest req) {
-        var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(toWorkItemMap(workItemService.release(
-                tenantId(auth), id, employee.id(), req.expectedVersion())));
-    }
-
-    @PostMapping("/work-items/{id}/complete")
-    @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<Map<String, Object>> completeWorkItem(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody WorkItemCommandRequest req) {
-        var employee = requireActorEmployee(auth);
-        var tenant = tenantId(auth);
-        var completed = workItemService.complete(tenant, id, employee.id(), req.expectedVersion());
-        // Y2 graph contract (P05 release semantics): completing a work item
-        // advances the instance through the graph — creating the next step's
-        // WorkItems or completing the instance at END. A pending SYSTEM_ACTION
-        // step runs immediately; its failure is a controlled 409.
-        var advanced = graphExecutionService.advance(
-                tenant, completed.workflowInstanceId(), null, userId(auth));
-        var outcome = graphExecutionService.runCurrentSystemAction(
-                tenant, advanced.id(), userId(auth));
-        if (outcome.incidentId() != null) {
-            return ResponseEntity.status(409).body(Map.of(
-                    "status", 409,
-                    "error", "Conflict",
-                    "code", "WORKFLOW_SYSTEM_ACTION_FAILED",
-                    "failureCategory", String.valueOf(outcome.failureCategory()),
-                    "incidentId", String.valueOf(outcome.incidentId()),
-                    "workflowInstanceId", String.valueOf(outcome.instance().id()),
-                    "completedWorkItemId", String.valueOf(completed.id())));
-        }
-        return ResponseEntity.ok(toWorkItemMap(completed));
-    }
-
-    @PostMapping("/work-items/{id}/reassign")
-    @RequireCapability("WORKFLOW.REASSIGN")
-    public ResponseEntity<Map<String, Object>> reassignWorkItem(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody WorkItemReassignRequest req) {
-        var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(toWorkItemMap(workItemService.reassign(
-                tenantId(auth), id, req.newAssigneeEmployeeId(),
-                employee.id(), req.expectedVersion(), req.reason())));
-    }
-
-    // ===== Publishing (I3) =====
-
-    public record PublishDefinitionRequest(long expectedVersion) {}
-
-    @PostMapping("/definitions/{id}/publish")
-    @RequireCapability("WORKFLOW.PUBLISH")
-    public ResponseEntity<Map<String, Object>> publishDefinition(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody PublishDefinitionRequest req) {
-        var def = definitionService.findById(tenantId(auth), id)
-                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
-        if (def.versionLock() != req.expectedVersion()) {
-            throw new org.springframework.dao.OptimisticLockingFailureException(
-                    "WorkflowDefinition " + id + " was modified by another publisher");
-        }
-        return ResponseEntity.ok(toDefinitionMap(
-                definitionService.publish(tenantId(auth), id, userId(auth))));
-    }
-
-    @PostMapping("/definitions/{id}/next-draft")
-    @RequireCapability("WORKFLOW.DESIGN")
-    public ResponseEntity<Map<String, Object>> nextDraft(
-            Authentication auth, @PathVariable UUID id) {
-        return ResponseEntity.ok(toDefinitionMap(
-                definitionService.createNextDraft(tenantId(auth), id, userId(auth))));
-    }
-
-    @GetMapping("/definitions/{id}/transitions")
-    @RequireCapability("WORKFLOW.VIEW")
-    public ResponseEntity<List<Map<String, Object>>> listTransitions(
-            Authentication auth, @PathVariable UUID id) {
-        definitionService.findById(tenantId(auth), id)
-                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
-        return ResponseEntity.ok(definitionService.findTransitions(tenantId(auth), id).stream()
-                .map(t -> {
-                    Map<String, Object> map = new java.util.HashMap<>();
-                    map.put("id", t.id());
-                    map.put("fromStepId", t.fromStepId());
-                    map.put("toStepId", t.toStepId());
-                    map.put("transitionKey", t.transitionKey());
-                    map.put("outcome", t.outcome() != null ? t.outcome() : "");
-                    map.put("priority", t.priority());
-                    return map;
-                })
-                .toList());
-    }
-
-    // ===== Transitions (H3/R3) =====
-
-    public record CreateTransitionRequest(
-            UUID fromStepId, UUID toStepId, String transitionKey,
-            String outcome, String conditionAst, int priority, String metadata) {}
-
-    @PostMapping("/definitions/{id}/transitions")
-    @RequireCapability("WORKFLOW.DESIGN")
-    public ResponseEntity<Map<String, Object>> createTransition(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody CreateTransitionRequest req) {
-        var saved = definitionService.addTransition(
-                tenantId(auth), id,
-                req.fromStepId(), req.toStepId(),
-                req.transitionKey(), req.outcome(),
-                req.conditionAst(), req.priority(), req.metadata(),
-                userId(auth));
-        Map<String, Object> map = new java.util.HashMap<>();
-        map.put("id", saved.id());
-        map.put("fromStepId", saved.fromStepId());
-        map.put("toStepId", saved.toStepId());
-        map.put("transitionKey", saved.transitionKey());
-        map.put("outcome", saved.outcome() != null ? saved.outcome() : "");
-        map.put("priority", saved.priority());
-        return ResponseEntity.ok(map);
-    }
-
-    // ===== Break glass (AH3) =====
-
-    public record BreakGlassRequest(String reason) {}
-
-    @PostMapping("/instances/{id}/break-glass/resume")
-    @RequireCapability("WORKFLOW.BREAK_GLASS")
-    public ResponseEntity<Map<String, Object>> breakGlassResume(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody BreakGlassRequest req) {
-        var instance = breakGlassService.emergencyResume(
-                tenantId(auth), id, userId(auth), req.reason());
-        return ResponseEntity.ok(toInstanceMap(instance));
-    }
-
-    @PostMapping("/instances/{id}/break-glass/cancel")
-    @RequireCapability("WORKFLOW.BREAK_GLASS")
-    public ResponseEntity<Map<String, Object>> breakGlassCancel(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody BreakGlassRequest req) {
-        var instance = breakGlassService.emergencyCancel(
-                tenantId(auth), id, userId(auth), req.reason());
-        return ResponseEntity.ok(toInstanceMap(instance));
-    }
-
-    // ===== Incidents (AF3) =====
-
-    @GetMapping("/incidents")
-    @RequireCapability("WORKFLOW.MONITOR")
-    public ResponseEntity<List<Map<String, Object>>> openIncidents(
-            Authentication auth, @RequestParam(defaultValue = "50") int limit) {
-        return ResponseEntity.ok(incidentService.findOpen(tenantId(auth), safeLimit(limit))
-                .stream().map(this::toIncidentMap).toList());
-    }
-
-    public record IncidentResolveRequest(String resolution) {}
-
-    @PostMapping("/incidents/{id}/acknowledge")
-    @RequireCapability("WORKFLOW.INCIDENT_MANAGE")
-    public ResponseEntity<Map<String, Object>> acknowledgeIncident(
-            Authentication auth, @PathVariable UUID id) {
-        return ResponseEntity.ok(toIncidentMap(
-                incidentService.acknowledge(tenantId(auth), id, userId(auth))));
-    }
-
-    @PostMapping("/incidents/{id}/resolve")
-    @RequireCapability("WORKFLOW.INCIDENT_MANAGE")
-    public ResponseEntity<Map<String, Object>> resolveIncident(
-            Authentication auth, @PathVariable UUID id,
-            @RequestBody IncidentResolveRequest req) {
-        return ResponseEntity.ok(toIncidentMap(
-                incidentService.resolve(tenantId(auth), id, userId(auth), req.resolution())));
-    }
-
 
     @PostMapping("/definitions/{id}/activate")
     @RequireCapability("WORKFLOW.WRITE")
@@ -507,18 +190,9 @@ public class WorkflowController {
         var def = definitionService.findById(tenant, req.workflowDefinitionId())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowDefinition not found: " + req.workflowDefinitionId()));
-        // Start eligibility is generation-aware (Z3/AA3):
-        // LEGACY definitions use the legacy ACTIVE lifecycle,
-        // Y2 definitions use the PUBLISHED publication state.
-        boolean startEligible = switch (def.engineGeneration()) {
-            case LEGACY -> def.status() == WorkflowDefinition.Status.ACTIVE;
-            case Y2 -> def.publicationState() == WorkflowDefinition.PublicationState.PUBLISHED;
-        };
-        if (!startEligible) {
+        if (def.status() != WorkflowDefinition.Status.ACTIVE) {
             throw new IllegalStateException(
-                    "WorkflowDefinition " + def.id() + " is not a valid start target "
-                            + "(status=" + def.status()
-                            + ", publicationState=" + def.publicationState() + ")");
+                    "WorkflowDefinition " + def.id() + " is not ACTIVE (status=" + def.status() + ")");
         }
         var steps = definitionService.findSteps(def.id());
         if (steps.isEmpty()) {
@@ -528,37 +202,12 @@ public class WorkflowController {
         var firstStep = steps.stream()
                 .min(Comparator.comparingInt(WorkflowStep::sequenceOrder))
                 .orElseThrow();
-        var instance = switch (def.engineGeneration()) {
-            case LEGACY -> WorkflowInstance.start(
-                    tenant, def.id(), def.version(),
-                    req.businessEntityType(), req.businessEntityId(),
-                    firstStep.stepKey(), actor, req.correlationId());
-            case Y2 -> WorkflowInstance.startY2(
-                    tenant, def.definitionFamilyId(), def.id(), def.version(),
-                    req.businessEntityType(), req.businessEntityId(),
-                    firstStep.stepKey(), actor, req.correlationId(),
-                    null, null, null, null, null);
-        };
+        var instance = WorkflowInstance.start(
+                tenant, def.id(), def.version(),
+                req.businessEntityType(), req.businessEntityId(),
+                firstStep.stepKey(), actor, req.correlationId()
+        );
         var saved = executionService.startWorkflow(instance, actor);
-        if (def.engineGeneration() == WorkflowDefinition.EngineGeneration.Y2) {
-            // Y2 graph contract (P04/P05 release semantics): starting the
-            // instance activates the first real step — creating WorkItems and
-            // approval requests — then executes an initial SYSTEM_ACTION step
-            // when present. A failed action is a controlled 409 with the
-            // incident id, never a silent skip and never a 500.
-            var advanced = graphExecutionService.advance(tenant, saved.id(), null, actor);
-            var outcome = graphExecutionService.runCurrentSystemAction(tenant, advanced.id(), actor);
-            if (outcome.incidentId() != null) {
-                return ResponseEntity.status(409).body(Map.of(
-                        "status", 409,
-                        "error", "Conflict",
-                        "code", "WORKFLOW_SYSTEM_ACTION_FAILED",
-                        "failureCategory", String.valueOf(outcome.failureCategory()),
-                        "incidentId", String.valueOf(outcome.incidentId()),
-                        "workflowInstanceId", String.valueOf(outcome.instance().id())));
-            }
-            return ResponseEntity.ok(toInstanceMap(outcome.instance()));
-        }
         return ResponseEntity.ok(toInstanceMap(saved));
     }
 
@@ -744,7 +393,6 @@ public class WorkflowController {
             String module, String triggerType
     ) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record StartWorkflowRequest(
             UUID workflowDefinitionId,
             String businessEntityType,
@@ -770,37 +418,31 @@ public class WorkflowController {
     // ===== Response helpers =====
 
     private Map<String, Object> toDefinitionMap(WorkflowDefinition d) {
-        Map<String, Object> map = new java.util.HashMap<>();
-        map.put("id", d.id());
-        map.put("code", d.code());
-        map.put("name", d.name());
-        map.put("status", d.status().name());
-        map.put("triggerType", d.triggerType().name());
-        map.put("module", d.module() != null ? d.module() : "");
-        map.put("version", d.version());
-        map.put("versionLock", d.versionLock());
-        map.put("createdBy", d.createdBy());
-        map.put("definitionFamilyId", d.definitionFamilyId() != null ? d.definitionFamilyId().toString() : "");
-        map.put("engineGeneration", d.engineGeneration() != null ? d.engineGeneration().name() : "");
-        map.put("publicationState", d.publicationState() != null ? d.publicationState().name() : "");
-        return map;
+        return Map.of(
+                "id", d.id(),
+                "code", d.code(),
+                "name", d.name(),
+                "status", d.status().name(),
+                "triggerType", d.triggerType().name(),
+                "module", d.module() != null ? d.module() : "",
+                "version", d.version(),
+                "versionLock", d.versionLock(),
+                "createdBy", d.createdBy()
+        );
     }
 
     private Map<String, Object> toInstanceMap(WorkflowInstance i) {
-        Map<String, Object> map = new java.util.HashMap<>();
-        map.put("id", i.id());
-        map.put("workflowDefinitionId", i.workflowDefinitionId());
-        map.put("workflowVersion", i.workflowVersion());
-        map.put("businessEntityType", i.businessEntityType());
-        map.put("businessEntityId", i.businessEntityId());
-        map.put("status", i.status().name());
-        map.put("currentStepKey", i.currentStepKey() != null ? i.currentStepKey() : "");
-        map.put("startedBy", i.startedBy());
-        map.put("version", i.version());
-        map.put("engineGeneration", i.engineGeneration() != null ? i.engineGeneration().name() : "");
-        map.put("definitionFamilyId", i.definitionFamilyId() != null ? i.definitionFamilyId().toString() : "");
-        map.put("definitionVersionId", i.definitionVersionId() != null ? i.definitionVersionId().toString() : "");
-        return map;
+        return Map.of(
+                "id", i.id(),
+                "workflowDefinitionId", i.workflowDefinitionId(),
+                "workflowVersion", i.workflowVersion(),
+                "businessEntityType", i.businessEntityType(),
+                "businessEntityId", i.businessEntityId(),
+                "status", i.status().name(),
+                "currentStepKey", i.currentStepKey() != null ? i.currentStepKey() : "",
+                "startedBy", i.startedBy(),
+                "version", i.version()
+        );
     }
 
     private Map<String, Object> toApprovalMap(WorkflowApprovalRequest a) {
@@ -849,36 +491,6 @@ public class WorkflowController {
                 Map.entry("version", si.version())
         );
     }
-    private Map<String, Object> toWorkItemMap(WorkflowWorkItem w) {
-        Map<String, Object> map = new java.util.HashMap<>();
-        map.put("id", w.id());
-        map.put("workflowInstanceId", w.workflowInstanceId());
-        map.put("workflowStepInstanceId", w.workflowStepInstanceId());
-        map.put("type", w.type().name());
-        map.put("status", w.status().name());
-        map.put("assigneeEmployeeId", w.assigneeEmployeeId() != null ? w.assigneeEmployeeId().toString() : "");
-        map.put("claimedByEmployeeId", w.claimedByEmployeeId() != null ? w.claimedByEmployeeId().toString() : "");
-        map.put("assignmentMode", w.assignmentMode().name());
-        map.put("title", w.title());
-        map.put("priority", w.priority());
-        map.put("dueAt", w.dueAt() != null ? w.dueAt().toString() : "");
-        map.put("version", w.version());
-        return map;
-    }
-
-    private Map<String, Object> toIncidentMap(WorkflowIncident i) {
-        Map<String, Object> map = new java.util.HashMap<>();
-        map.put("id", i.id());
-        map.put("workflowInstanceId", i.workflowInstanceId() != null ? i.workflowInstanceId().toString() : "");
-        map.put("source", i.source());
-        map.put("severity", i.severity().name());
-        map.put("failureCategory", i.failureCategory() != null ? i.failureCategory() : "");
-        map.put("status", i.status().name());
-        map.put("resolution", i.resolution() != null ? i.resolution() : "");
-        map.put("createdAt", i.createdAt().toString());
-        return map;
-    }
-
     /**
      * Clamp the client-supplied list limit. Negative values fall back to the
      * default page size (PostgreSQL rejects a negative LIMIT with

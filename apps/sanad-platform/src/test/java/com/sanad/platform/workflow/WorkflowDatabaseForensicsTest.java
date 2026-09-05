@@ -132,12 +132,11 @@ class WorkflowDatabaseForensicsTest {
         // Inserting a row with an invalid tenant_id should fail
         try {
             jdbc.update("INSERT INTO workflow_definitions "
-                    + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
+                    + "(id, tenant_id, code, name, description, module, version, status, trigger_type, "
                     + "created_by, version_lock, created_at, updated_at) "
-                    + "VALUES (?, ?, ?, 'TEST-FK', 'Test', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', "
+                    + "VALUES (?, ?, 'TEST-FK', 'Test', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', "
                     + "?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                     java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), // fake tenant_id
-                    java.util.UUID.randomUUID(), // fake definition_family_id
                     java.util.UUID.randomUUID() // fake user_id
             );
             // If the insert succeeded, FK is not enforced — that's a bug
@@ -170,11 +169,11 @@ class WorkflowDatabaseForensicsTest {
                 userId, tenantId, "rls-" + userId.toString().substring(0, 8) + "@test", now, now);
 
         jdbc.update("INSERT INTO workflow_definitions "
-                + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
+                + "(id, tenant_id, code, name, description, module, version, status, trigger_type, "
                 + "created_by, version_lock, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'RLS-TEST-1', 'Test', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', "
+                + "VALUES (?, ?, 'RLS-TEST-1', 'Test', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', "
                 + "?, 0, ?, ?)",
-                java.util.UUID.randomUUID(), tenantId, java.util.UUID.randomUUID(), userId, now, now);
+                java.util.UUID.randomUUID(), tenantId, userId, now, now);
 
         // In H2 (local profile), RLS policies are NOT enforced because H2 doesn't support
         // CREATE POLICY. The application-level tenant scoping handles isolation.
@@ -215,15 +214,15 @@ class WorkflowDatabaseForensicsTest {
 
         // Insert 1 row in tenantA, 1 row in tenantB
         jdbc.update("INSERT INTO workflow_definitions "
-                + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
+                + "(id, tenant_id, code, name, description, module, version, status, trigger_type, "
                 + "created_by, version_lock, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'RLS-A-1', 'A', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
-                java.util.UUID.randomUUID(), tenantA, java.util.UUID.randomUUID(), userIdA, now, now);
+                + "VALUES (?, ?, 'RLS-A-1', 'A', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
+                java.util.UUID.randomUUID(), tenantA, userIdA, now, now);
         jdbc.update("INSERT INTO workflow_definitions "
-                + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
+                + "(id, tenant_id, code, name, description, module, version, status, trigger_type, "
                 + "created_by, version_lock, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'RLS-B-1', 'B', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
-                java.util.UUID.randomUUID(), tenantB, java.util.UUID.randomUUID(), userIdB, now, now);
+                + "VALUES (?, ?, 'RLS-B-1', 'B', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
+                java.util.UUID.randomUUID(), tenantB, userIdB, now, now);
 
         // Tenant-scoped query (WHERE tenant_id = ?) should return 1 row each
         var aCount = jdbc.queryForObject(
@@ -279,10 +278,10 @@ class WorkflowDatabaseForensicsTest {
                 + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "fk-" + userId.toString().substring(0, 8) + "@test", now, now);
         jdbc.update("INSERT INTO workflow_definitions "
-                + "(id, tenant_id, definition_family_id, code, name, description, module, version, status, trigger_type, "
+                + "(id, tenant_id, code, name, description, module, version, status, trigger_type, "
                 + "created_by, version_lock, created_at, updated_at) "
-                + "VALUES (?, ?, ?, 'FK-TEST', 'Test', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
-                defId, tenantId, defId, userId, now, now);
+                + "VALUES (?, ?, 'FK-TEST', 'Test', null, 'GENERAL', 1, 'DRAFT', 'MANUAL', ?, 0, ?, ?)",
+                defId, tenantId, userId, now, now);
         jdbc.update("INSERT INTO workflow_instances "
                 + "(id, tenant_id, workflow_definition_id, workflow_version, business_entity_type, "
                 + "business_entity_id, status, current_step_key, started_by, started_at, version, "

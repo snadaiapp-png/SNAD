@@ -1,5 +1,7 @@
 package com.sanad.platform.admin.service;
 
+import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
+import com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -29,12 +31,32 @@ import java.util.UUID;
  *
  * <p>State transitions:
  * <pre>
- *   TRIALING   → CURRENT     (when trial_ends_at elapses; handled elsewhere)
+ *   TRIALING   → (none)      (R0C-8 resolved: no automatic billing
+ *                            transition out of TRIALING — the trial's
+ *                            LIFECYCLE expiration TRIAL/TRIALING → EXPIRED
+ *                            is owned by TrialExpirationService through the
+ *                            canonical EXPIRE command; billing_state is NOT
+ *                            written at trial end. The pre-R0C-8 javadoc
+ *                            claimed "TRIALING → CURRENT when trial_ends_at
+ *                            elapses, handled elsewhere" — that "elsewhere"
+ *                            never existed and the claim is withdrawn.)
  *   CURRENT    → PAST_DUE   (when ≥1 invoice is past due_at + grace)
  *   PAST_DUE   → SUSPENDED   (after a configurable secondary grace)
  *   SUSPENDED  → CURRENT    (when all overdue invoices are paid)
  *   ANY        → CANCELLED   (set by SaasAdministrationService.cancelSubscription)
  * </pre>
+ *
+ * <p>R0C-7 — lifecycle convergence: this service remains the sole authority
+ * for {@code billing_state}, but every billing transition that must be
+ * reflected in {@code tenant_subscriptions.status} now flows through the
+ * canonical lifecycle command authority
+ * ({@link SubscriptionCommandService#applyCanonicalTransition}) inside the
+ * SAME transaction: MARK_PAST_DUE, SUSPEND, PAYMENT_RECEIVED. When the
+ * lifecycle authority rejects the transition for the current status (e.g. a
+ * CANCELLED subscription can never be resurrected by a payment), the whole
+ * transition is skipped atomically — {@code billing_state} and
+ * {@code status} can never diverge (BILLING_LIFECYCLE_PARTIAL_STATE is
+ * impossible; the legacy best-effort swallowed mirror is gone).
  *
  * <p>The dunning scheduler is enabled via the {@code sanad.tenancy.billing.dunning-enabled}
  * property (default {@code false}). Production deployments enable it
@@ -52,10 +74,13 @@ public class BillingStateService {
 
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
+    private final SubscriptionCommandService commandService;
 
-    public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService) {
+    public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
+                               SubscriptionCommandService commandService) {
         this.jdbc = jdbc;
         this.auditService = auditService;
+        this.commandService = commandService;
     }
 
     /**
@@ -162,25 +187,60 @@ public class BillingStateService {
 
     private void applyTransition(UUID tenantId, String fromState, String toState) {
         if (fromState.equals(toState)) return;
-        jdbc.update(
-                "UPDATE tenant_subscriptions SET billing_state = ?, updated_at = ? WHERE tenant_id = ?",
-                toState, Timestamp.from(Instant.now()), tenantId);
-        try {
-            // Update tenant_subscriptions.status for backward compatibility with the
-            // legacy lifecycle column. The billing_state is now the source of truth.
-            String legacyStatus = switch (toState) {
-                case "CURRENT", "TRIALING" -> "ACTIVE";
-                case "PAST_DUE" -> "PAST_DUE";
-                case "SUSPENDED" -> "SUSPENDED";
-                case "CANCELLED" -> "CANCELLED";
-                default -> "ACTIVE";
-            };
-            jdbc.update(
-                    "UPDATE tenant_subscriptions SET status = ? WHERE tenant_id = ? AND billing_state = ?",
-                    legacyStatus, tenantId, toState);
-        } catch (Exception ignored) {
-            // best-effort; the billing_state is already updated
+
+        // R0C-7: resolve the subscription and map the billing target state to
+        // the canonical lifecycle command that owns the status transition.
+        Map<String, Object> sub = jdbc.queryForList(
+                "SELECT id, status FROM tenant_subscriptions WHERE tenant_id = ?", tenantId)
+                .stream().findFirst().orElse(null);
+        if (sub == null) return;
+
+        UUID subscriptionId = (UUID) sub.get("id");
+        String status = (String) sub.get("status");
+
+        String command = switch (toState) {
+            case "PAST_DUE" -> "MARK_PAST_DUE";
+            case "SUSPENDED" -> "SUSPEND";
+            case "CURRENT" -> "PAYMENT_RECEIVED";
+            default -> null; // never a production dunning target (CANCELLED/TRIALING are early-returned)
+        };
+        String targetStatus = switch (toState) {
+            case "CURRENT" -> "ACTIVE";
+            case "PAST_DUE" -> "PAST_DUE";
+            case "SUSPENDED" -> "SUSPENDED";
+            default -> null;
+        };
+
+        if (command == null || targetStatus == null) {
+            // Unsupported dunning target: nothing to converge on — report and
+            // leave both columns untouched (no partial state).
+            return;
         }
+
+        if (status.equals(targetStatus)) {
+            // The lifecycle status already reflects the target — update the
+            // billing state alone; the pair stays consistent.
+            jdbc.update(
+                    "UPDATE tenant_subscriptions SET billing_state = ?, updated_at = ? WHERE tenant_id = ?",
+                    toState, Timestamp.from(Instant.now()), tenantId);
+        } else if (SubscriptionLifecycle.isLegal(command, status)) {
+            // billing_state + canonical lifecycle transition commit (or roll
+            // back) as ONE unit — a failure in the status write rolls the
+            // billing_state write back with it.
+            jdbc.update(
+                    "UPDATE tenant_subscriptions SET billing_state = ?, updated_at = ? WHERE tenant_id = ?",
+                    toState, Timestamp.from(Instant.now()), tenantId);
+            commandService.applyCanonicalTransition(subscriptionId, command,
+                    "Billing state " + fromState + " -> " + toState, null, null);
+        } else {
+            // The lifecycle authority rejects the transition for the current
+            // status (e.g. a CANCELLED subscription must never be resurrected
+            // by a payment, and a PAUSED one must not be force-dunned). Skip
+            // the transition atomically — billing_state and status stay as
+            // they are; no partial state, no swallowed exception.
+            return;
+        }
+
         try {
             auditService.success(null, tenantId,
                     "SUBSCRIPTION.BILLING_STATE.CHANGED", "TENANT_SUBSCRIPTION",

@@ -45,11 +45,6 @@ export default defineConfig({
     // Vercel/Render/Flyway gate plus protected two-tenant credentials.
     // It is mandatory in playwright.crm008r-production.config.ts only.
     "**/crm-008r-production-closure.spec.ts",
-    // The Workflow Y2 release matrix requires the workflow-e2e Spring profile
-    // (deterministic multi-actor fixture seed) on top of its own real stack.
-    // It runs exclusively through playwright.workflow-y2.config.ts in the
-    // Workflow Y2 Playwright Release Gate workflow.
-    "**/workflow-y2-release.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
