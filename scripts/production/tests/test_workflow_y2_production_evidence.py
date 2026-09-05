@@ -10,6 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENGINE_PATH = REPO_ROOT / "scripts/production/workflow_y2_evidence.py"
 SHELL_PATH = REPO_ROOT / "scripts/production/verify-workflow-y2-production-evidence.sh"
+WORKFLOW_PATH = REPO_ROOT / ".github/workflows/workflow-y2-production-evidence.yml"
 
 EXPECTED_ENV_KEYS = [
     "APPLICATION_BASE_URL",
@@ -347,6 +348,30 @@ class WorkflowY2EvidenceBehaviorTest(unittest.TestCase):
             "curl -X POST", "curl -X PUT", "curl -X PATCH", "curl -X DELETE",
             "flyway migrate", "flyway repair", "flyway clean",
             "gh issue", "gh pr",
+        ]
+        for needle in forbidden:
+            with self.subTest(needle=needle):
+                self.assertNotIn(needle, source)
+
+    def test_16_workflow_contract_is_read_only_and_has_no_governance_writes(self):
+        self.assertTrue(
+            WORKFLOW_PATH.exists(),
+            f"production evidence workflow must exist at {WORKFLOW_PATH}",
+        )
+        source = WORKFLOW_PATH.read_text()
+        self.assertIn("permissions:\n  contents: read", source)
+        forbidden = [
+            "issues: write",
+            "pull-requests: write",
+            "deployments: write",
+            "gh issue",
+            "gh pr",
+            "flyway migrate",
+            "flyway repair",
+            "curl -X POST",
+            "curl -X PUT",
+            "curl -X PATCH",
+            "curl -X DELETE",
         ]
         for needle in forbidden:
             with self.subTest(needle=needle):
