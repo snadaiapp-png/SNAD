@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 RENDER_BLUEPRINT = ROOT / "render.yaml"
 CONTROL_PLANE_WORKFLOW = ROOT / ".github" / "workflows" / "control-plane-validation.yml"
+CRM_READINESS_WORKFLOW = ROOT / ".github" / "workflows" / "crm-deployment-readiness.yml"
 
 
 class ControlPlaneValidationRegressionTest(unittest.TestCase):
@@ -46,6 +47,17 @@ class ControlPlaneValidationRegressionTest(unittest.TestCase):
         for assertion in stale_git_backed_assertions:
             with self.subTest(assertion=assertion):
                 self.assertNotIn(assertion, workflow)
+
+    def test_required_crm_readiness_runs_for_every_main_pull_request(self) -> None:
+        workflow = CRM_READINESS_WORKFLOW.read_text(encoding="utf-8")
+        pull_request_block = workflow.split("  pull_request:\n", 1)[1].split("  push:\n", 1)[0]
+
+        self.assertIn("    branches: [main]", pull_request_block)
+        self.assertNotIn(
+            "    paths:",
+            pull_request_block,
+            "A required status check must not be path-filtered or GitHub can leave it forever in 'expected'.",
+        )
 
 
 if __name__ == "__main__":
