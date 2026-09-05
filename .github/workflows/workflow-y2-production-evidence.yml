@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/production/tests/test_workflow_y2_production_evidence.py
+          python3 -m unittest discover -s scripts/production/tests -p 'test_workflow_y2*.py' -v
           bash -n scripts/production/verify-workflow-y2-production-evidence.sh
 
       - name: Install PostgreSQL client
@@ -63,11 +63,12 @@ jobs:
         run: bash scripts/production/verify-workflow-y2-production-evidence.sh
 
       - name: Upload sanitized evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: workflow-y2-production-evidence-${{ github.run_id }}
           path: workflow-y2-production-evidence.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Write sanitized summary

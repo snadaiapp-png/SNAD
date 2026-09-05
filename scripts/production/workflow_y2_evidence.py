@@ -141,14 +141,24 @@ def assert_http_method(method: str) -> None:
 
 def assert_read_only_sql(sql: str) -> None:
     cleaned = re.sub(r"(?m)^\s*--.*$", "", sql).strip()
-    first = cleaned.split(None, 1)[0].upper() if cleaned else ""
     forbidden = re.compile(
         r"\b(INSERT|UPDATE|DELETE|MERGE|ALTER|CREATE|DROP|TRUNCATE|GRANT|REVOKE|CALL|DO|COPY)\b",
         re.IGNORECASE,
     )
+    if forbidden.search(cleaned):
+        raise ValueError("production evidence probe SQL contains a mutating statement")
+
+    # Permit one read-only statement only. A trailing semicolon is harmless,
+    # but `SELECT ...; UPDATE ...` must never pass merely because SELECT came first.
+    statements = [statement.strip() for statement in cleaned.split(";") if statement.strip()]
+    if len(statements) != 1:
+        raise ValueError("production evidence probe permits exactly one read-only SQL statement")
+
+    statement = statements[0]
+    first = statement.split(None, 1)[0].upper() if statement else ""
     if first in {"SELECT", "SHOW"}:
         return
-    if first == "WITH" and not forbidden.search(cleaned) and re.search(r"\bSELECT\b", cleaned, re.IGNORECASE):
+    if first == "WITH" and re.search(r"\bSELECT\b", statement, re.IGNORECASE):
         return
     raise ValueError(
         f"production evidence probe only permits read-only SELECT/SHOW/CTE SQL, got {first or 'EMPTY'}"
