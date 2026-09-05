@@ -53,6 +53,10 @@ class WorkflowActionabilityServiceIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
                 tenantId, "Workflow Actionability Test", "wf-act-" + tenantId.toString().substring(0, 8), now, now);
 
+        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
+        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+
         insertUser(activeUserId, "ACTIVE", "active");
         insertUser(inactiveUserId, "INACTIVE", "inactive");
         insertUser(suspendedEmployeeUserId, "ACTIVE", "suspended-employee");

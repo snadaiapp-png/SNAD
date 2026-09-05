@@ -53,19 +53,29 @@ class WorkflowOperationalReadModelTest {
     void setUp() {
         tenantA = UUID.randomUUID();
         tenantB = UUID.randomUUID();
+        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
+        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors
+        // that contract, switching tenants exactly where the fixture seeds each one.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         userA = createUser(tenantA, "op-user-a");
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         UUID userB = createUser(tenantB, "op-user-b");
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         employeeA = createEmployee(tenantA, "OP-A", userA);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         employeeB = createEmployee(tenantB, "OP-B", userB);
 
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         instanceA = createInstance(tenantA, userA);
         stepInstanceA = createStepInstance(tenantA, instanceA);
 
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         UUID instanceB = createInstance(tenantB, userB);
         UUID stepInstanceB = createStepInstance(tenantB, instanceB);
 
         // Tenant A work: direct item for A, pool item where A is candidate,
         // a claimed pool item, and a completed item that must be excluded.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         createWorkItem(tenantA, stepInstanceA, "DIRECT", "CLAIMED", employeeA, null, "Direct task A");
         createWorkItem(tenantA, stepInstanceA, "WORK_POOL", "AVAILABLE", null, null, "Pool task A");
         addCandidate(tenantA, null, employeeA);
@@ -74,12 +84,16 @@ class WorkflowOperationalReadModelTest {
         UUID done = createWorkItem(tenantA, stepInstanceA, "DIRECT", "COMPLETED", employeeA, null, "Completed A");
 
         // Tenant B work that must never leak into tenant A queries.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         createWorkItem(tenantB, stepInstanceB, "DIRECT", "CLAIMED", employeeB, null, "Direct task B");
         createWorkItem(tenantB, stepInstanceB, "WORK_POOL", "AVAILABLE", null, null, "Pool task B");
 
         // Open incident on tenant A only.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         createIncident(tenantA, instanceA, "OPEN", "TEST_FAILURE");
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         createIncident(tenantB, instanceB, "OPEN", "OTHER_FAILURE");
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
     }
 
     @Test
@@ -118,10 +132,14 @@ class WorkflowOperationalReadModelTest {
         assertThat(incidentsA).hasSize(1);
         assertThat(incidentsA.get(0).get("source")).isEqualTo("TEST_FAILURE");
 
+        // Cross-tenant parameterised reads act as each tenant (production: one
+        // request session per tenant via TenantRlsConnectionHandler).
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         List<java.util.Map<String, Object>> incidentsB =
                 operationalQueries.openIncidents(tenantB, 50);
         assertThat(incidentsB).hasSize(1);
         assertThat(incidentsB.get(0).get("source")).isEqualTo("OTHER_FAILURE");
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
     }
 
     @Test
@@ -148,9 +166,11 @@ class WorkflowOperationalReadModelTest {
         assertThat(snapshot.overdueSteps()).isZero();
         assertThat(snapshot.overdueApprovals()).isZero();
 
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         MonitoringSnapshot otherTenant = operationalQueries.monitoringSnapshot(tenantB);
         assertThat(otherTenant.availableWorkItems()).isEqualTo(1);
         assertThat(otherTenant.openIncidents()).isEqualTo(1);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
     }
 
     // ===== fixture helpers =====
