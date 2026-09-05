@@ -1,0 +1,156 @@
+{
+  "generatedFrom" : "runtime platform contract export",
+  "hrmV2Operations" : 58,
+  "paths" : {
+    "/api/v2/hr/assignments" : {
+      "get" : "hrAssignmentsList",
+      "post" : "hrAssignmentsCreate"
+    },
+    "/api/v2/hr/assignments/{assignmentId}" : {
+      "get" : "hrAssignmentsGet"
+    },
+    "/api/v2/hr/assignments/{assignmentId}/change-manager" : {
+      "post" : "hrAssignmentsChangeManager"
+    },
+    "/api/v2/hr/assignments/{assignmentId}/end" : {
+      "post" : "hrAssignmentsEnd"
+    },
+    "/api/v2/hr/assignments/{assignmentId}/transfer" : {
+      "post" : "hrAssignmentsTransfer"
+    },
+    "/api/v2/hr/audit" : {
+      "get" : "hrComplianceAudit"
+    },
+    "/api/v2/hr/compensation-packages" : {
+      "get" : "hrCompensationList",
+      "post" : "hrCompensationCreate"
+    },
+    "/api/v2/hr/compensation-packages/{packageId}" : {
+      "get" : "hrCompensationGet"
+    },
+    "/api/v2/hr/compensation-packages/{packageId}/end" : {
+      "post" : "hrCompensationEnd"
+    },
+    "/api/v2/hr/compensation-packages/{packageId}/revise" : {
+      "post" : "hrCompensationRevise"
+    },
+    "/api/v2/hr/compliance/context" : {
+      "get" : "hrComplianceContext"
+    },
+    "/api/v2/hr/compliance/overrides" : {
+      "get" : "hrComplianceListOverrides",
+      "post" : "hrComplianceRequestOverride"
+    },
+    "/api/v2/hr/compliance/overrides/{overrideId}/approve" : {
+      "post" : "hrComplianceApprove"
+    },
+    "/api/v2/hr/compliance/overrides/{overrideId}/reject" : {
+      "post" : "hrComplianceReject"
+    },
+    "/api/v2/hr/compliance/overrides/{overrideId}/revoke" : {
+      "post" : "hrComplianceRevoke"
+    },
+    "/api/v2/hr/contracts" : {
+      "get" : "hrContractsList",
+      "post" : "hrContractsCreate"
+    },
+    "/api/v2/hr/contracts/{contractId}" : {
+      "get" : "hrContractsGet"
+    },
+    "/api/v2/hr/contracts/{contractId}/activate" : {
+      "post" : "hrContractsActivate"
+    },
+    "/api/v2/hr/contracts/{contractId}/amend" : {
+      "post" : "hrContractsAmend"
+    },
+    "/api/v2/hr/contracts/{contractId}/terminate" : {
+      "post" : "hrContractsTerminate"
+    },
+    "/api/v2/hr/employments" : {
+      "get" : "hrEmploymentsList",
+      "post" : "hrEmploymentsCreate"
+    },
+    "/api/v2/hr/employments/{employmentId}" : {
+      "get" : "hrEmploymentsGet"
+    },
+    "/api/v2/hr/employments/{employmentId}/activate" : {
+      "post" : "hrEmploymentsActivate"
+    },
+    "/api/v2/hr/employments/{employmentId}/reinstate" : {
+      "post" : "hrEmploymentsReinstate"
+    },
+    "/api/v2/hr/employments/{employmentId}/return-from-leave" : {
+      "post" : "hrEmploymentsReturnFromLeave"
+    },
+    "/api/v2/hr/employments/{employmentId}/start-leave" : {
+      "post" : "hrEmploymentsStartLeave"
+    },
+    "/api/v2/hr/employments/{employmentId}/submit-onboarding" : {
+      "post" : "hrEmploymentsSubmitOnboarding"
+    },
+    "/api/v2/hr/employments/{employmentId}/suspend" : {
+      "post" : "hrEmploymentsSuspend"
+    },
+    "/api/v2/hr/employments/{employmentId}/terminate" : {
+      "post" : "hrEmploymentsTerminate"
+    },
+    "/api/v2/hr/employments/{employmentId}/void" : {
+      "post" : "hrEmploymentsVoidEmployment"
+    },
+    "/api/v2/hr/jobs" : {
+      "get" : "hrStructureListJobs",
+      "post" : "hrStructureCreateJob"
+    },
+    "/api/v2/hr/jobs/{jobId}" : {
+      "get" : "hrStructureGetJob"
+    },
+    "/api/v2/hr/jobs/{jobId}/revise" : {
+      "post" : "hrStructureReviseJob"
+    },
+    "/api/v2/hr/org-units" : {
+      "get" : "hrStructureListOrgUnits",
+      "post" : "hrStructureCreateOrgUnit"
+    },
+    "/api/v2/hr/org-units/{orgUnitId}" : {
+      "get" : "hrStructureGetOrgUnit"
+    },
+    "/api/v2/hr/org-units/{orgUnitId}/revise" : {
+      "post" : "hrStructureReviseOrgUnit"
+    },
+    "/api/v2/hr/people" : {
+      "get" : "hrPeopleList",
+      "post" : "hrPeopleCreate"
+    },
+    "/api/v2/hr/people/{personId}" : {
+      "get" : "hrPeopleGet",
+      "patch" : "hrPeoplePatch"
+    },
+    "/api/v2/hr/people/{personId}/identifiers" : {
+      "post" : "hrPeopleAddIdentifier"
+    },
+    "/api/v2/hr/people/{personId}/private" : {
+      "get" : "hrPeopleGetPrivate",
+      "patch" : "hrPeoplePatchPrivate"
+    },
+    "/api/v2/hr/people/{personId}/user-link" : {
+      "delete" : "hrPeopleUnlinkUser",
+      "post" : "hrPeopleLinkUser"
+    },
+    "/api/v2/hr/positions" : {
+      "get" : "hrStructureListPositions",
+      "post" : "hrStructureCreatePosition"
+    },
+    "/api/v2/hr/positions/{positionId}" : {
+      "get" : "hrStructureGetPosition"
+    },
+    "/api/v2/hr/positions/{positionId}/close" : {
+      "post" : "hrStructureClosePosition"
+    },
+    "/api/v2/hr/positions/{positionId}/freeze" : {
+      "post" : "hrStructureFreezePosition"
+    },
+    "/api/v2/hr/positions/{positionId}/revise" : {
+      "post" : "hrStructureRevisePosition"
+    }
+  }
+}

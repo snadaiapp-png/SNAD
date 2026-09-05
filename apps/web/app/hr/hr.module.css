@@ -1,0 +1,654 @@
+/* HR workspace styles — WS5 Task 8.
+   Arabic-first / RTL-safe: logical CSS properties only (inline-start/end,
+   block-start/end). No left/right physical assumptions. Layout adapts via
+   the existing document-level dir="rtl" root. */
+
+/* ============================== Workspace shell ========================= */
+
+.workspace {
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin-inline: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.workspaceHeader {
+  margin-block-end: 1.25rem;
+}
+
+.workspaceTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--snad-color-text-primary);
+}
+
+.workspaceSubtitle {
+  color: var(--snad-text-muted);
+  margin-block-start: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.workspaceNav {
+  margin-block-end: 1.5rem;
+}
+
+.workspaceNavList {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0;
+}
+
+.workspaceNavItem {
+  margin: 0;
+}
+
+.workspaceNavLink {
+  display: inline-block;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.workspaceNavLink:hover {
+  border-color: var(--snad-color-action-primary);
+}
+
+.workspaceNavLink:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 2px;
+}
+
+.workspaceNavLinkActive {
+  background: color-mix(in srgb, var(--snad-color-action-primary) 12%, transparent);
+  border-color: var(--snad-color-action-primary);
+  color: var(--snad-color-action-primary);
+  font-weight: 600;
+}
+
+.workspaceMain {
+  min-height: 40vh;
+}
+
+/* ============================== Feedback states ========================= */
+
+.feedbackLoading {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.25rem;
+  color: var(--snad-text-muted);
+}
+
+.feedbackSpinner {
+  inline-size: 1rem;
+  block-size: 1rem;
+  border: 2px solid var(--snad-color-border-default);
+  border-block-start-color: var(--snad-color-action-primary);
+  border-radius: 50%;
+  animation: hrm-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedbackSpinner {
+    animation: none;
+  }
+}
+
+@keyframes hrm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.feedbackEmpty {
+  padding: 2rem 1.25rem;
+  text-align: center;
+  border: 1px dashed var(--snad-color-border-default);
+  border-radius: 0.5rem;
+  background: var(--snad-color-surface-primary);
+}
+
+.feedbackEmptyTitle {
+  font-weight: 600;
+  margin: 0;
+  color: var(--snad-color-text-primary);
+}
+
+.feedbackEmptyDescription {
+  color: var(--snad-text-muted);
+  margin-block-start: 0.35rem;
+  font-size: 0.875rem;
+}
+
+.feedbackEmptyAction {
+  margin-block-start: 0.75rem;
+}
+
+.feedbackForbidden,
+.feedbackError {
+  padding: 1rem 1.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--snad-danger, var(--snad-color-error)) 30%, transparent);
+  background: color-mix(in srgb, var(--snad-danger, var(--snad-color-error)) 6%, transparent);
+  color: var(--snad-color-text-primary);
+}
+
+.feedbackError[data-kind="conflict"],
+.feedbackError[data-kind="compliance"],
+.feedbackError[data-kind="validation"] {
+  border-color: color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 40%, transparent);
+  background: color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 8%, transparent);
+}
+
+.feedbackForbidden {
+  border-color: var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
+}
+
+.feedbackTitle {
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+
+.feedbackViolations {
+  margin-block-start: 0.5rem;
+  padding-inline-start: 1.25rem;
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+}
+
+.feedbackRetry {
+  margin-block-start: 0.75rem;
+  padding: 0.4rem 1rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.feedbackRetry:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 2px;
+}
+
+/* ============================== Compliance badge ======================== */
+
+.complianceBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.badgeDot {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badgeLocalized {
+  color: var(--snad-success, var(--snad-color-success));
+  background: color-mix(in srgb, var(--snad-success, var(--snad-color-success)) 10%, transparent);
+  border-color: color-mix(in srgb, var(--snad-success, var(--snad-color-success)) 30%, transparent);
+}
+
+/* Global Mode is a warning, never green: local statutory compliance is
+   NOT certified in this mode. */
+.badgeGlobalMode {
+  color: var(--snad-warning, var(--snad-color-warning));
+  background: color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 10%, transparent);
+  border-color: color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 30%, transparent);
+}
+
+.badgeException {
+  color: var(--snad-warning, var(--snad-color-warning));
+  background: color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 35%, transparent);
+}
+
+.badgeBlocked {
+  color: var(--snad-danger, var(--snad-color-error));
+  background: color-mix(in srgb, var(--snad-danger, var(--snad-color-error)) 10%, transparent);
+  border-color: color-mix(in srgb, var(--snad-danger, var(--snad-color-error)) 30%, transparent);
+}
+
+.badgeUnknown {
+  color: var(--snad-text-muted);
+  background: color-mix(in srgb, var(--snad-text-muted) 8%, transparent);
+  border-color: var(--snad-color-border-default);
+}
+
+.badgePack {
+  font-weight: 400;
+  opacity: 0.85;
+  font-size: 0.6875rem;
+}
+
+/* ============================== Shared data table ======================= */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-end: 1rem;
+}
+
+.searchInput {
+  flex: 1 1 14rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.375rem;
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  font: inherit;
+}
+
+.searchInput:focus-visible,
+.filterSelect:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 1px;
+}
+
+.filterSelect {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.375rem;
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  font: inherit;
+}
+
+.tableLink {
+  color: var(--snad-color-action-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.tableLink:hover {
+  text-decoration: underline;
+}
+
+.hrTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.hrTable caption {
+  text-align: start;
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+  padding-block-end: 0.5rem;
+}
+
+.hrTable th,
+.hrTable td {
+  text-align: start;
+  padding: 0.55rem 0.75rem;
+  border-block-end: 1px solid var(--snad-color-border-default);
+  vertical-align: middle;
+}
+
+.hrTable th {
+  font-weight: 600;
+  color: var(--snad-text-muted);
+  background: color-mix(in srgb, var(--snad-text-muted) 5%, transparent);
+}
+
+.hrTable tbody tr:hover {
+  background: color-mix(in srgb, var(--snad-color-action-primary) 4%, transparent);
+}
+
+.hrTable a:focus-visible,
+.hrTable button:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 2px;
+}
+
+/* ============================== Employee 360 ============================ */
+
+.breadcrumb {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.profileHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-block-end: 1rem;
+}
+
+.profileName {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.profileMeta {
+  color: var(--snad-text-muted);
+  margin-block-start: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.notice {
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--snad-success, var(--snad-color-success)) 35%, transparent);
+  background: color-mix(in srgb, var(--snad-success, var(--snad-color-success)) 8%, transparent);
+  margin-block-end: 0.75rem;
+}
+
+.tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-block-end: 1px solid var(--snad-color-border-default);
+  margin-block-end: 1rem;
+}
+
+.tab {
+  padding: 0.5rem 0.9rem;
+  background: transparent;
+  border: none;
+  border-block-end: 2px solid transparent;
+  color: var(--snad-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: -2px;
+  border-radius: 0.25rem;
+}
+
+.tabActive {
+  color: var(--snad-color-action-primary);
+  border-block-end-color: var(--snad-color-action-primary);
+  font-weight: 600;
+}
+
+.tabpanel {
+  padding-block-start: 0.25rem;
+}
+
+.detailList {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: 0.4rem 1.25rem;
+  margin: 0;
+}
+
+.detailList dt {
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+}
+
+.detailList dd {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-start: 1rem;
+}
+
+.actionButton {
+  padding: 0.45rem 1.1rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--snad-color-action-primary);
+  background: var(--snad-color-action-primary);
+  color: var(--snad-color-text-inverse);
+  font: inherit;
+  cursor: pointer;
+}
+
+.actionButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.actionButton:focus-visible,
+.cancelButton:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 2px;
+}
+
+.cancelButton {
+  padding: 0.45rem 1.1rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mutedNote {
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+}
+
+.timeline {
+  padding-inline-start: 1.25rem;
+  line-height: 2;
+}
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.4);
+  z-index: 50;
+}
+
+.dialog {
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  max-width: 26rem;
+  width: calc(100% - 2rem);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.2);
+}
+
+.dialog h3 {
+  margin: 0 0 0.5rem;
+}
+
+.dialogField {
+  display: block;
+  margin-block: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.dialogField input {
+  display: block;
+  margin-block-start: 0.25rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.375rem;
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  font: inherit;
+}
+
+.dialogField input:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 1px;
+}
+
+.dialogError {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--snad-danger, var(--snad-color-error)) 35%, transparent);
+  background: color-mix(in srgb, var(--snad-danger, var(--snad-color-error)) 8%, transparent);
+  font-size: 0.875rem;
+}
+
+/* ============================== Task 10 workspaces ====================== */
+
+.inlineField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.inlineField input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.375rem;
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  font: inherit;
+}
+
+.inlineField input:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 1px;
+}
+
+.linkButton {
+  background: transparent;
+  border: none;
+  color: var(--snad-color-action-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+.linkButton:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 1px;
+}
+
+.occupiedBadge,
+.vacantBadge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.occupiedBadge {
+  color: var(--snad-color-action-primary);
+  background: color-mix(in srgb, var(--snad-color-action-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-color-action-primary) 25%, transparent);
+}
+
+.vacantBadge {
+  color: var(--snad-text-muted);
+  background: color-mix(in srgb, var(--snad-text-muted) 8%, transparent);
+  border: 1px solid var(--snad-color-border-default);
+}
+
+.orgTree,
+.orgChildren {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.orgChildren {
+  padding-inline-start: 1.5rem;
+  border-inline-start: 1px dashed var(--snad-color-border-default);
+  margin-block: 0.25rem;
+}
+
+.orgNode {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.375rem;
+  background: var(--snad-color-surface-primary);
+  margin-block: 0.25rem;
+}
+
+.orgName {
+  font-weight: 600;
+}
+
+.orgMeta {
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+}
+
+.dashboardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.75rem;
+  margin-block-end: 1rem;
+}
+
+.statCard {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.5rem;
+  background: var(--snad-color-surface-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.statAlert {
+  border-color: color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 40%, transparent);
+  background: color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 8%, transparent);
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.statLabel {
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+}
+
+/* ============================== Responsive ============================== */
+
+@media (max-width: 640px) {
+  .workspace {
+    padding: 1rem;
+  }
+
+  /* Table cards fallback: keep semantic tables but allow inline scroll. */
+  .hrTableWrap {
+    overflow-x: auto;
+  }
+}

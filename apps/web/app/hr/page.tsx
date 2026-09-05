@@ -1,166 +1,166 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+/**
+ * HR operational dashboard — WS5 Task 10 Step 5.
+ *
+ * Summaries derive exclusively from the canonical v2 API (no mock data):
+ * - Employment status counts (active / onboarding / on-leave / suspended)
+ *   from the safe Employment directory;
+ * - Position occupancy (occupied / vacant) derived from effective occupying
+ *   assignments — the same documented projection as the Positions page;
+ * - Pending compliance override requests (capability-gated fetch).
+ *
+ * Compliance mode is per-employment in the canonical model, so no
+ * tenant-wide mode badge is synthesized here. Authorization remains
+ * backend-authoritative; capability checks are UX-only.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { ExecutiveShell } from "@/components/shell";
-import { HrExecutionProvider } from "./hr-execution-provider";
-import type { ExecutionProgram, ExecutionProgress } from "@/lib/execution";
+import { hrmV2Api, type AssignmentResponse, type EmploymentResponse, type OverrideRequestResponse, type PositionResponse } from "@/lib/api/hr-v2-api";
+import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
+import { HrWorkspace } from "./components/hr-workspace";
+import { HrErrorState, HrLoading } from "./components/hr-feedback";
+import styles from "./hr.module.css";
 
-/**
- * HR Module — Foundation Recovery Page
- *
- * Status: FOUNDATION_RECOVERED_READY_FOR_DEVELOPMENT
- *
- * The HR module has:
- * - Execution data (hr-execution-data.ts) with 8 groups and 32+ tasks
- * - Execution provider (hr-execution-provider.ts) implementing the shared framework
- * - NO backend implementation yet (no Java controllers, services, or DB tables)
- *
- * This page shows the execution plan and current status (all NOT_STARTED).
- * It is NOT a placeholder — it provides real value by showing the planned scope
- * and tracking implementation progress.
- */
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function HrPage() {
-  const { state } = useAuth();
-  const router = useRouter();
+  const { state, me } = useAuth();
+
+  const capabilities = me?.capabilities ?? [];
+  const canSeeHr = capabilities.includes(HRM_CAPABILITIES.EMPLOYEE_VIEW)
+    || capabilities.includes(HRM_CAPABILITIES.ORG_STRUCTURE_VIEW)
+    || capabilities.includes(HRM_CAPABILITIES.ASSIGNMENT_VIEW);
+
   const [loading, setLoading] = useState(true);
-  const [program, setProgram] = useState<ExecutionProgram | null>(null);
-  const [progress, setProgress] = useState<ExecutionProgress | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [employments, setEmployments] = useState<EmploymentResponse[] | null>(null);
+  const [positions, setPositions] = useState<PositionResponse[] | null>(null);
+  const [assignments, setAssignments] = useState<AssignmentResponse[] | null>(null);
+  const [overrides, setOverrides] = useState<OverrideRequestResponse[] | null>(null);
+
+  const load = useCallback(async () => {
+    const caps = capabilities;
+    const canEmployee = caps.includes(HRM_CAPABILITIES.EMPLOYEE_VIEW);
+    const canStructure = caps.includes(HRM_CAPABILITIES.ORG_STRUCTURE_VIEW);
+    const canAssignment = caps.includes(HRM_CAPABILITIES.ASSIGNMENT_VIEW);
+    const canOverride = caps.includes(HRM_CAPABILITIES.COMPLIANCE_OVERRIDE_REQUEST);
+    try {
+      // Each fetch is independent: a 403 on one surface must not blank the
+      // whole dashboard (backend authorization is authoritative).
+      const [emps, pos, asg, ovr] = await Promise.allSettled([
+        canEmployee ? hrmV2Api.listEmployments() : Promise.resolve(null),
+        canStructure ? hrmV2Api.listPositions() : Promise.resolve(null),
+        canAssignment ? hrmV2Api.listAssignments() : Promise.resolve(null),
+        canOverride ? hrmV2Api.listComplianceOverrides() : Promise.resolve(null),
+      ]);
+      setEmployments(emps.status === "fulfilled" ? emps.value : null);
+      setPositions(pos.status === "fulfilled" ? pos.value : null);
+      setAssignments(asg.status === "fulfilled" ? asg.value : null);
+      setOverrides(ovr.status === "fulfilled" ? ovr.value : null);
+      if (emps.status === "rejected" && pos.status === "rejected" && asg.status === "rejected" && ovr.status === "rejected") {
+        throw emps.reason;
+      }
+      setError(null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+    // `capabilities` is read from the auth snapshot at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const provider = new HrExecutionProvider();
-        const programs = await provider.getPrograms();
-        if (programs.length > 0 && !cancelled) {
-          setProgram(programs[0]);
-          const prog = await provider.getProgramProgress(programs[0].id);
-          if (!cancelled) setProgress(prog);
-        }
-      } catch (e) {
-        console.error("Failed to load HR execution data:", e);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [state]);
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [state, load]);
+
+  const statusCounts = useMemo(() => {
+    const c = { ACTIVE: 0, ONBOARDING: 0, ON_LEAVE: 0, SUSPENDED: 0 };
+    for (const e of employments ?? []) {
+      if (e.currentStatus in c) c[e.currentStatus as keyof typeof c] += 1;
+    }
+    return c;
+  }, [employments]);
+
+  const occupancy = useMemo(() => {
+    if (!positions || !assignments) return null;
+    const today = todayIso();
+    const occupied = new Set<string>();
+    for (const a of assignments) {
+      if (!a.positionId) continue;
+      const effective = a.effectiveFrom <= today && (a.effectiveTo === null || a.effectiveTo >= today);
+      if (a.status === "ACTIVE" && effective) occupied.add(a.positionId);
+    }
+    return { occupied: occupied.size, vacant: positions.length - occupied.size };
+  }, [positions, assignments]);
+
+  const pendingOverrides = (overrides ?? []).filter((o) => o.status === "PENDING").length;
 
   if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state))
     return <AuthLoadingState phase="session" />;
-  if (state !== "AUTHENTICATED") {
-    router.replace("/?returnUrl=%2Fhr");
-    return <AuthLoadingState phase="workspace" />;
-  }
-  if (loading) return <AuthLoadingState />;
 
   return (
-    <ExecutiveShell>
-      <div style={{ padding: "1.5rem", maxWidth: "1200px", margin: "0 auto" }}>
-        {/* Header */}
-        <header style={{ marginBottom: "2rem" }}>
-          <h1 style={{ fontSize: "1.75rem", fontWeight: 700, margin: 0 }}>
-            الموارد البشرية
-          </h1>
-          <p style={{ color: "var(--snad-text-muted)", marginTop: "0.5rem" }}>
-            إدارة الموظفين والهيكل التنظيمي والحضور والإجازات والرواتب
-          </p>
-          <div style={{
-            marginTop: "0.75rem", padding: "6px 12px", borderRadius: "4px",
-            display: "inline-block", fontSize: "0.75rem",
-            background: "color-mix(in srgb, var(--snad-warning) 10%, transparent)", color: "var(--snad-warning)",
-            border: "1px solid color-mix(in srgb, var(--snad-warning) 20%, transparent)",
-          }}>
-            FOUNDATION_RECOVERED_READY_FOR_DEVELOPMENT
-          </div>
-        </header>
-
-        {/* Progress Overview */}
-        {progress && (
-          <div style={{
-            padding: "1rem 1.25rem", marginBottom: "2rem", borderRadius: "0.5rem",
-            border: "1px solid var(--snad-border)",
-            background: "var(--snad-surface)",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: "0.875rem", color: "var(--snad-text-muted)" }}>
-                نسبة التنفيذ الإجمالية
-              </span>
-              <span style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--snad-warning)" }}>
-                {progress.percentage}%
-              </span>
+    <HrWorkspace capabilities={capabilities} activeHref="/hr">
+      {!canSeeHr ? (
+        <HrErrorState
+          error={{ details: { status: 403, body: { code: "HRM_SCOPE_DENIED", message: null } } }}
+        />
+      ) : loading ? (
+        <HrLoading />
+      ) : error ? (
+        <HrErrorState error={error} onRetry={load} />
+      ) : (
+        <section aria-label="ملخص الموارد البشرية">
+          <div className={styles.dashboardGrid}>
+            <div className={styles.statCard}>
+              <span className={styles.statValue}>{statusCounts.ACTIVE}</span>
+              <span className={styles.statLabel}>توظيف نشِط</span>
             </div>
-            <div style={{
-              marginTop: "0.5rem", height: "8px", borderRadius: "4px",
-              background: "var(--snad-border)", overflow: "hidden",
-            }}>
-              <div style={{
-                height: "100%", width: `${progress.percentage}%`,
-                background: "var(--snad-warning)", borderRadius: "4px",
-                transition: "width 0.3s ease",
-              }} />
+            <div className={styles.statCard}>
+              <span className={styles.statValue}>{statusCounts.ONBOARDING}</span>
+              <span className={styles.statLabel}>قيد التأهيل</span>
             </div>
-            <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--snad-text-dim)" }}>
-              المهام: {progress.total} | مكتمل: {progress.done} | قيد التنفيذ: {progress.inProgress} | لم يبدأ: {progress.notStarted}
+            <div className={styles.statCard}>
+              <span className={styles.statValue}>{statusCounts.ON_LEAVE + statusCounts.SUSPENDED}</span>
+              <span className={styles.statLabel}>في إجازة / موقوف</span>
             </div>
-          </div>
-        )}
-
-        {/* Execution Groups */}
-        {program && (
-          <section>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "1rem" }}>
-              مجموعات التنفيذ
-            </h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1rem" }}>
-              {program.groups.map((group) => (
-                <div key={group.code} style={{
-                  padding: "1rem 1.25rem", borderRadius: "0.5rem",
-                  border: "1px solid var(--snad-border)",
-                  background: "var(--snad-surface)",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-                    <div>
-                      <span style={{
-                        fontSize: "0.75rem", color: "var(--snad-text-dim)",
-                        fontFamily: "monospace",
-                      }}>{group.code}</span>
-                      <h3 style={{ fontSize: "1rem", fontWeight: 600, margin: "4px 0 0 0" }}>
-                        {group.titleAr}
-                      </h3>
-                    </div>
-                    <span style={{
-                      padding: "2px 8px", borderRadius: "4px", fontSize: "0.6875rem",
-                      background: group.status === "DONE" ? "color-mix(in srgb, var(--snad-success) 10%, transparent)"
-                        : group.status === "IN_PROGRESS" ? "color-mix(in srgb, var(--snad-primary) 10%, transparent)"
-                        : "color-mix(in srgb, var(--snad-text-muted) 10%, transparent)",
-                      color: group.status === "DONE" ? "var(--snad-success)"
-                        : group.status === "IN_PROGRESS" ? "var(--snad-primary)"
-                        : "var(--snad-text-muted)",
-                    }}>
-                      {group.status.replace(/_/g, " ")}
-                    </span>
-                  </div>
-                  <p style={{
-                    fontSize: "0.8125rem", color: "var(--snad-text-muted)",
-                    marginTop: "0.5rem", lineHeight: 1.5,
-                  }}>
-                    {group.purposeAr}
-                  </p>
-                  <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--snad-text-dim)" }}>
-                    المهام: {group.tasks.length}
-                  </div>
+            {occupancy ? (
+              <>
+                <div className={styles.statCard}>
+                  <span className={styles.statValue}>{occupancy.occupied}</span>
+                  <span className={styles.statLabel}>منصب مشغول</span>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
-      </div>
-    </ExecutiveShell>
+                <div className={styles.statCard}>
+                  <span className={styles.statValue}>{occupancy.vacant}</span>
+                  <span className={styles.statLabel}>منصب شاغر</span>
+                </div>
+              </>
+            ) : null}
+            {overrides !== null ? (
+              <div className={pendingOverrides > 0 ? `${styles.statCard} ${styles.statAlert}` : styles.statCard}>
+                <span className={styles.statValue}>{pendingOverrides}</span>
+                <span className={styles.statLabel}>تجاوزات قيد المراجعة</span>
+              </div>
+            ) : null}
+          </div>
+
+          <p className={styles.mutedNote}>
+            <Link href="/hr/employees" className={styles.tableLink}>سجل الموظفين</Link>
+            {" · "}
+            <Link href="/hr/org-structure" className={styles.tableLink}>الهيكل التنظيمي</Link>
+            {" · "}
+            <Link href="/hr/compliance" className={styles.tableLink}>الالتزام</Link>
+          </p>
+        </section>
+      )}
+    </HrWorkspace>
   );
 }

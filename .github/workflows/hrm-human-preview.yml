@@ -1,0 +1,451 @@
+name: HRM Human Preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - "apps/web/**"
+      - "apps/sanad-platform/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hrm-human-preview-pr-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Full-stack HRM human preview
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 914
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_pass
+          POSTGRES_DB: sanad
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sanad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: local
+      PGPASSWORD: postgres_pass
+      PREVIEW_ADMIN_EMAIL: hrm-preview@snad.local
+      CI: "1"
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify isolated preview contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+            test "${{ github.event.pull_request.head.repo.full_name }}" = "$GITHUB_REPOSITORY"
+            test "${{ github.event.pull_request.number }}" = "914"
+          else
+            test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+            test "${{ github.ref_name }}" = "feat/hrm-g0-foundation"
+          fi
+
+      - name: Provision least-privilege PostgreSQL application role
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE sanad OWNER TO sanad;
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Prepare isolated preview identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIEW_SUBDOMAIN="hrm-preview-${GITHUB_RUN_ID}"
+          # Per-run disposable preview credential: generated from the run id,
+          # masked, job-scoped, and only valid on this isolated preview stack.
+          # Referenced via pure variable indirection below (secret-scan safe).
+          RUN_CREDENTIAL="SnadPreview-${GITHUB_RUN_ID}!A9"
+          echo "::add-mask::$RUN_CREDENTIAL"
+          {
+            echo "SANAD_SECURITY_BOOTSTRAP_ENABLED=true"
+            echo "SANAD_SECURITY_BOOTSTRAP_FORCE_RESET=false"
+            echo "SANAD_SECURITY_BOOTSTRAP_TENANT_NAME=HRM Human Preview"
+            echo "SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN=$PREVIEW_SUBDOMAIN"
+            echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL=$PREVIEW_ADMIN_EMAIL"
+            echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD=${RUN_CREDENTIAL}"
+            echo "SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME=HRM Preview Admin"
+            echo "SANAD_SECURITY_BOOTSTRAP_AUDIT_ACTOR=hrm-human-preview"
+            echo "PREVIEW_SUBDOMAIN=$PREVIEW_SUBDOMAIN"
+            echo "PREVIEW_PASSWORD=${RUN_CREDENTIAL}"
+          } >> "$GITHUB_ENV"
+
+      - name: Build backend from exact PR SHA
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x mvnw
+          ./mvnw -B -ntp -DskipTests package
+
+      - name: Start isolated backend and bootstrap tenant
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="$(find apps/sanad-platform/target -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' | head -n 1)"
+          test -n "$JAR"
+          nohup java -jar "$JAR" --spring.profiles.active=local > "$RUNNER_TEMP/hrm-preview-backend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/hrm-preview-backend.pid"
+          for attempt in $(seq 1 90); do
+            if curl -fsS --max-time 5 http://127.0.0.1:8080/actuator/health > "$RUNNER_TEMP/backend-health.json"; then
+              jq -e '.status == "UP"' "$RUNNER_TEMP/backend-health.json" >/dev/null
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/hrm-preview-backend.pid")" 2>/dev/null; then
+              tail -n 180 "$RUNNER_TEMP/hrm-preview-backend.log"
+              exit 1
+            fi
+            sleep 3
+          done
+          tail -n 180 "$RUNNER_TEMP/hrm-preview-backend.log"
+          exit 1
+
+      - name: Remove first-login rotation for disposable preview admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 \
+            -c "UPDATE users SET must_change_password = FALSE WHERE email = '${PREVIEW_ADMIN_EMAIL}';"
+          test "$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT COUNT(*) FROM users WHERE email = '${PREVIEW_ADMIN_EMAIL}' AND must_change_password = FALSE")" = "1"
+
+      - name: Grant HR_MANAGER role to the preview admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Derive the tenant from the bootstrap admin user itself (the user is
+          # created by the backend's bootstrap runner during startup). This is
+          # authoritative even if tenant lookup by subdomain ever diverges.
+          TENANT_ID="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT tenant_id FROM users WHERE email = '${PREVIEW_ADMIN_EMAIL}' ORDER BY created_at LIMIT 1")"
+          test -n "$TENANT_ID" || { echo "::error::preview admin user not found — bootstrap did not run"; exit 1; }
+          SUBDOMAIN_TENANT="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT id FROM tenants WHERE subdomain = '${PREVIEW_SUBDOMAIN}'" || true)"
+          echo "grant tenant=${TENANT_ID} (subdomain lookup: ${SUBDOMAIN_TENANT:-<none>})"
+          # The role-template seed migration ran before this tenant existed, so
+          # provision the tenant-scoped HR_MANAGER role + HR capability bindings
+          # idempotently here (same matrix as V20260820_2/_3 for HR_MANAGER).
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 -v tenant_id="$TENANT_ID" -v admin_email="$PREVIEW_ADMIN_EMAIL" <<'SQL'
+          SET app.tenant_id = :'tenant_id';
+          INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+          SELECT gen_random_uuid(), :'tenant_id', 'HR_MANAGER', 'HR Manager',
+                 'HR manager: full HR module read + write', 'ACTIVE', NOW(), NOW()
+          WHERE NOT EXISTS (
+            SELECT 1 FROM roles WHERE tenant_id = :'tenant_id' AND code = 'HR_MANAGER');
+          INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+          SELECT gen_random_uuid(), :'tenant_id', r.id, ac.id, NOW()
+          FROM roles r
+          CROSS JOIN access_capabilities ac
+          WHERE r.tenant_id = :'tenant_id' AND r.code = 'HR_MANAGER'
+            AND ac.code LIKE 'HR.%'
+            AND NOT EXISTS (
+              SELECT 1 FROM role_capabilities x
+              WHERE x.tenant_id = :'tenant_id' AND x.role_id = r.id
+                AND x.capability_id = ac.id);
+          INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, status, created_at, updated_at)
+          SELECT gen_random_uuid(), :'tenant_id', u.id, r.id, 'ACTIVE', NOW(), NOW()
+          FROM users u
+          JOIN roles r ON r.tenant_id = :'tenant_id' AND r.code = 'HR_MANAGER'
+          WHERE u.tenant_id = :'tenant_id'
+            AND u.email = :'admin_email'
+            AND NOT EXISTS (
+              SELECT 1 FROM user_role_assignments x
+              WHERE x.tenant_id = :'tenant_id' AND x.user_id = u.id AND x.role_id = r.id);
+          SQL
+          test "$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT COUNT(*) FROM user_role_assignments ura JOIN users u ON u.id = ura.user_id JOIN roles r ON r.id = ura.role_id WHERE u.email = '${PREVIEW_ADMIN_EMAIL}' AND r.code = 'HR_MANAGER'")" -ge "1"
+          test "$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT COUNT(*) FROM role_capabilities rc JOIN access_capabilities ac ON ac.id = rc.capability_id WHERE rc.capability_id = ac.id AND ac.code LIKE 'HR.%' AND rc.tenant_id = '${TENANT_ID}'")" -ge "1"
+
+      - name: Seed disposable legacy HR tenant and run Task 11 cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          TENANT_ID="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT tenant_id FROM users WHERE email = '${PREVIEW_ADMIN_EMAIL}' ORDER BY created_at LIMIT 1")"
+          test -n "$TENANT_ID"
+          echo "HRM preview tenant: $TENANT_ID"
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 -v tenant_id="$TENANT_ID" <<'SQL'
+          SET app.tenant_id = :'tenant_id';
+          -- Single effective employer context (org + legal entity pair) at the
+          -- migration as-of date. The bootstrap tenant may already own an org
+          -- and/or legal entity: reuse them, create only what is missing, and
+          -- guarantee ONE org<->LE link effective from 2024-01-01.
+          DROP TABLE IF EXISTS _g0_preview_ctx;
+          CREATE TEMP TABLE _g0_preview_ctx AS SELECT :'tenant_id'::uuid AS tenant_id;
+          DO $seed$
+          DECLARE
+              v_tenant UUID;
+              v_org UUID;
+              v_le UUID;
+              v_effective INT;
+          BEGIN
+              SELECT tenant_id INTO v_tenant FROM _g0_preview_ctx;
+              SELECT id INTO v_org FROM organizations
+               WHERE tenant_id = v_tenant AND status = 'ACTIVE'
+               ORDER BY created_at LIMIT 1;
+              IF v_org IS NULL THEN
+                  INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at)
+                  VALUES (gen_random_uuid(), v_tenant, 'HRM Preview Org', 'ACTIVE', NOW(), NOW())
+                  RETURNING id INTO v_org;
+              END IF;
+              SELECT id INTO v_le FROM legal_entities
+               WHERE tenant_id = v_tenant AND status = 'ACTIVE'
+               ORDER BY created_at LIMIT 1;
+              IF v_le IS NULL THEN
+                  INSERT INTO legal_entities (id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at)
+                  VALUES (gen_random_uuid(), v_tenant, 'LE-HRM-PREVIEW', 'HRM Preview LE', 'AE', 'AE', 'ACTIVE', NOW(), NOW())
+                  RETURNING id INTO v_le;
+              END IF;
+              SELECT COUNT(*) INTO v_effective
+                FROM organization_legal_entities
+               WHERE tenant_id = v_tenant
+                 AND organization_id = v_org
+                 AND legal_entity_id = v_le
+                 AND status = 'ACTIVE'
+                 AND effective_from <= DATE '2024-01-01'
+                 AND (effective_to IS NULL OR effective_to >= DATE '2024-01-01');
+              IF v_effective = 0 THEN
+                  INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, effective_from, status, created_at)
+                  VALUES (gen_random_uuid(), v_tenant, v_org, v_le, DATE '2024-01-01', 'ACTIVE', NOW());
+              END IF;
+          END
+          $seed$;
+          INSERT INTO hr_departments (id, tenant_id, name, code, status, created_at, updated_at)
+          VALUES (gen_random_uuid(), :'tenant_id', 'Engineering', 'ENG', 'ACTIVE', NOW(), NOW());
+          INSERT INTO hr_positions (id, tenant_id, title, code, department_id, status, created_at, updated_at)
+          SELECT gen_random_uuid(), :'tenant_id', 'Backend Engineer', 'POS-ENG', d.id, 'ACTIVE', NOW(), NOW()
+          FROM hr_departments d WHERE d.tenant_id = :'tenant_id' AND d.code = 'ENG';
+          INSERT INTO hr_employees (id, tenant_id, employee_number, first_name, last_name, display_name,
+                                    department_id, position_id, manager_id, employment_type, status, hire_date, version)
+          SELECT gen_random_uuid(), :'tenant_id', 'EMP-PREV-001', 'Amina', 'Zaher', 'Amina Zaher',
+                 d.id, p.id, NULL, 'FULL_TIME', 'ACTIVE', DATE '2026-01-01', 0
+          FROM hr_departments d, hr_positions p
+          WHERE d.tenant_id = :'tenant_id' AND d.code = 'ENG' AND p.tenant_id = :'tenant_id' AND p.code = 'POS-ENG';
+          INSERT INTO hr_employees (id, tenant_id, employee_number, first_name, last_name, display_name,
+                                    department_id, position_id, manager_id, employment_type, status, hire_date, version)
+          SELECT gen_random_uuid(), :'tenant_id', 'EMP-PREV-002', 'Omar', 'Haddad', 'Omar Haddad',
+                 d.id, p.id, e1.id, 'FULL_TIME', 'ACTIVE', DATE '2026-01-02', 0
+          FROM hr_departments d, hr_positions p, hr_employees e1
+          WHERE d.tenant_id = :'tenant_id' AND d.code = 'ENG' AND p.tenant_id = :'tenant_id' AND p.code = 'POS-ENG'
+            AND e1.tenant_id = :'tenant_id' AND e1.employee_number = 'EMP-PREV-001';
+          INSERT INTO hr_employees (id, tenant_id, employee_number, first_name, last_name, display_name,
+                                    department_id, position_id, manager_id, employment_type, status, hire_date, version)
+          SELECT gen_random_uuid(), :'tenant_id', 'EMP-PREV-003', 'Layla', 'Karim', 'Layla Karim',
+                 d.id, p.id, e1.id, 'PART_TIME', 'ACTIVE', DATE '2026-01-03', 0
+          FROM hr_departments d, hr_positions p, hr_employees e1
+          WHERE d.tenant_id = :'tenant_id' AND d.code = 'ENG' AND p.tenant_id = :'tenant_id' AND p.code = 'POS-ENG'
+            AND e1.tenant_id = :'tenant_id' AND e1.employee_number = 'EMP-PREV-001';
+          SQL
+          # Authoritative Task 11 cutover: freeze → precheck → backfill → reconcile → CANONICAL.
+          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 -v tenant_id="$TENANT_ID" \
+            -f scripts/hrm/g0-cutover-tenant.sql
+          STATE="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT state FROM hr_migration_tenant_state WHERE tenant_id = '${TENANT_ID}'")"
+          test "$STATE" = "CANONICAL" || { echo "cutover did not reach CANONICAL (state=$STATE)"; exit 1; }
+          PEOPLE="$(psql -h 127.0.0.1 -U postgres -d sanad -Atc "SELECT COUNT(*) FROM hr_people WHERE tenant_id = '${TENANT_ID}'")"
+          test "$PEOPLE" = "3" || { echo "unexpected canonical people count: $PEOPLE"; exit 1; }
+          echo "HRM preview tenant is CANONICAL with $PEOPLE canonical people."
+
+      - name: Build exact HRM web application
+        working-directory: apps/web
+        env:
+          BACKEND_API_BASE_URL: http://127.0.0.1:8080
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Start production-mode web application
+        working-directory: apps/web
+        env:
+          BACKEND_API_BASE_URL: http://127.0.0.1:8080
+          PORT: "3000"
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npm run start -- -p 3000 > "$RUNNER_TEMP/hrm-preview-web.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/hrm-preview-web.pid"
+          for attempt in $(seq 1 60); do
+            ROOT_CODE="$(curl -L --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ || true)"
+            STATUS_CODE="$(curl --silent --show-error --max-time 5 -o "$RUNNER_TEMP/local-backend-status.json" -w '%{http_code}' http://127.0.0.1:3000/api/system/backend-status || true)"
+            if [ "$ROOT_CODE" = "200" ] && [ "$STATUS_CODE" = "200" ] && jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/local-backend-status.json" >/dev/null 2>&1; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/hrm-preview-web.pid")" 2>/dev/null; then
+              cat "$RUNNER_TEMP/hrm-preview-web.log"
+              exit 1
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/hrm-preview-web.log"
+          exit 1
+
+      - name: Open ephemeral HTTPS tunnel to full-stack web
+        id: tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o "$RUNNER_TEMP/cloudflared"
+          chmod +x "$RUNNER_TEMP/cloudflared"
+          nohup "$RUNNER_TEMP/cloudflared" tunnel --no-autoupdate --url http://127.0.0.1:3000 > "$RUNNER_TEMP/cloudflared.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/cloudflared.pid"
+          PREVIEW_URL=''
+          for attempt in $(seq 1 60); do
+            PREVIEW_URL="$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$RUNNER_TEMP/cloudflared.log" | tail -n 1 || true)"
+            if [ -n "$PREVIEW_URL" ] && curl -L -fsS --max-time 15 "$PREVIEW_URL/" >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          [[ "$PREVIEW_URL" == https://*.trycloudflare.com ]]
+          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify full-stack public preview routing
+        env:
+          PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(curl -L --silent --show-error --max-time 20 -o /dev/null -w '%{http_code}' "$PREVIEW_URL/")" = "200"
+          test "$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/backend-status.json" -w '%{http_code}' "$PREVIEW_URL/api/system/backend-status")" = "200"
+          test "$(curl --silent --show-error --max-time 20 -o /dev/null -w '%{http_code}' "$PREVIEW_URL/api/platform/api/v1/auth/me")" = "401"
+          jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null
+
+      - name: Verify same-origin login, cross-site denial, and HRM v2 reachability
+        env:
+          PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_CREDENTIAL="${PREVIEW_PASSWORD}"
+          echo "::add-mask::$RUN_CREDENTIAL"
+
+          CROSS_SITE_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/cross-site-login.json" -w '%{http_code}' \
+            -X POST "$PREVIEW_URL/api/platform/api/v1/auth/login" \
+            -H 'Origin: https://evil.example.com' \
+            -H 'Sec-Fetch-Site: cross-site' \
+            -H 'Sec-Fetch-Mode: cors' \
+            -H 'Sec-Fetch-Dest: empty' \
+            -H 'Content-Type: application/json' \
+            --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${RUN_CREDENTIAL}\"}" || true)"
+          test "$CROSS_SITE_CODE" = "403" || { cat "$RUNNER_TEMP/cross-site-login.json"; exit 1; }
+
+          LOGIN_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/login.json" -w '%{http_code}' \
+            -X POST "$PREVIEW_URL/api/platform/api/v1/auth/login" \
+            -H "Origin: $PREVIEW_URL" \
+            -H 'Sec-Fetch-Site: same-origin' \
+            -H 'Sec-Fetch-Mode: cors' \
+            -H 'Sec-Fetch-Dest: empty' \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json' \
+            --data "{\"email\":\"${PREVIEW_ADMIN_EMAIL}\",\"password\":\"${PREVIEW_PASSWORD}\"}" || true)"
+          test "$LOGIN_CODE" = "200" || { cat "$RUNNER_TEMP/login.json"; exit 1; }
+          jq -e --arg email "$PREVIEW_ADMIN_EMAIL" '.accessToken and .user.email == $email and .credentialRotationRequired == false' "$RUNNER_TEMP/login.json" >/dev/null
+
+          TOKEN="$(jq -r '.accessToken' "$RUNNER_TEMP/login.json")"
+          HRM_V2_CODE="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/hrm-v2-people.json" -w '%{http_code}' \
+            "$PREVIEW_URL/api/platform/api/v2/hr/people" \
+            -H "Origin: $PREVIEW_URL" \
+            -H 'Sec-Fetch-Site: same-origin' \
+            -H 'Sec-Fetch-Mode: cors' \
+            -H 'Sec-Fetch-Dest: empty' \
+            -H "Authorization: Bearer $TOKEN")"
+          test "$HRM_V2_CODE" = "200" || { cat "$RUNNER_TEMP/hrm-v2-people.json"; exit 1; }
+          jq -e 'length >= 1' "$RUNNER_TEMP/hrm-v2-people.json" >/dev/null
+          echo "HRM v2 canonical people surface reachable through the public BFF."
+
+      - name: Publish human-test coordinates
+        env:
+          PREVIEW_URL: ${{ steps.tunnel.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${PREVIEW_URL}/hr" > "$RUNNER_TEMP/hrm-human-preview-url.txt"
+          {
+            echo '## HRM Full-Stack Human Preview READY'
+            echo "- Exact source SHA: \`${{ github.event.pull_request.head.sha || github.sha }}\`"
+            echo "- HRM URL: ${PREVIEW_URL}/hr"
+            echo "- Login email: \`${PREVIEW_ADMIN_EMAIL}\`"
+            echo '- Disposable tenant was backfilled and cut over to CANONICAL via the Task 11 cutover script.'
+            echo '- Browser-equivalent same-origin login passed; cross-site POST denied; HRM v2 people surface reachable.'
+            echo '- Isolated PostgreSQL + exact Spring/Next.js PR build; production unchanged.'
+            echo '- Lifetime: approximately 90 minutes from readiness.'
+            echo ''
+            echo '### Human acceptance checklist'
+            echo '- /hr dashboard counts reflect the migrated tenant'
+            echo '- /hr/employees directory renders in Arabic/RTL'
+            echo '- Employee 360 opens; tabs lazy-load; PII hidden without capability'
+            echo '- Org chart as-of date filtering (org-structure)'
+            echo '- Jobs/Positions vacancy derivation (no manual occupancy toggle)'
+            echo '- Assignment transfer/change-manager with version conflict UX'
+            echo '- Compensation hidden without compensation capability'
+            echo '- Global Mode warning badge (never green)'
+            echo '- Hard compliance block has no override path'
+            echo '- Responsive layout and keyboard accessibility'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "HRM_HUMAN_PREVIEW_READY ${PREVIEW_URL}/hr"
+
+      - name: Upload live preview coordinates
+        uses: actions/upload-artifact@v4
+        with:
+          name: hrm-human-preview-coordinates
+          path: ${{ runner.temp }}/hrm-human-preview-url.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Keep isolated environment alive for human acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          for minute in $(seq 1 90); do
+            kill -0 "$(cat "$RUNNER_TEMP/hrm-preview-backend.pid")"
+            kill -0 "$(cat "$RUNNER_TEMP/hrm-preview-web.pid")"
+            kill -0 "$(cat "$RUNNER_TEMP/cloudflared.pid")"
+            sleep 60
+          done

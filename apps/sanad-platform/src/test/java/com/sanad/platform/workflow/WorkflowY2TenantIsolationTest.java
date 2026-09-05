@@ -74,11 +74,19 @@ class WorkflowY2TenantIsolationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
                 tenantB, "Isolation B", "wf-iso-b-" + tenantB.toString().substring(0, 8), now, now);
+        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
+        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors
+        // that contract, switching tenants exactly where the fixture seeds each one.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         UUID userA = createUser(tenantA, "iso-a");
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         UUID userB = createUser(tenantB, "iso-b");
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         employeeA = createEmployee(tenantA, "ISO-A", userA);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantB + "', true)");
         employeeB = createEmployee(tenantB, "ISO-B", userB);
 
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantA + "', true)");
         UUID instanceA = createInstance(tenantA, userA);
         stepInstanceA = createStepInstance(tenantA, instanceA);
         workItemA = createWorkItem(tenantA, instanceA, stepInstanceA, employeeA);

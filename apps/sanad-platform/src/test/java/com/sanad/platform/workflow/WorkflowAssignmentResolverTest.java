@@ -58,6 +58,10 @@ class WorkflowAssignmentResolverTest {
                         + "VALUES (?, 'Assignment Resolver', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-asg-" + tenantId.toString().substring(0, 8), now, now);
 
+        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
+        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+
         UUID managerUserId = createUser("asg-mgr");
         UUID linkedUserId = createUser("asg-link");
 

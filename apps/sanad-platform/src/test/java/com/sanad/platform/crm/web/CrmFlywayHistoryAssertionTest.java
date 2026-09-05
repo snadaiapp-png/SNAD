@@ -197,8 +197,9 @@ class CrmFlywayHistoryAssertionTest {
             , "20260822.4"   // crm event outbox contract alignment (aggregate_type/id + claim_due index)
             , "20260823.1"   // crm contacts force rls (C2 — FORCE RLS on crm_contacts + fail-closed tenant_isolation policy)
             , "20260823.2"   // crm participant role exclusivity (C3 — W2 partial unique index + owner↔participant trigger guards)
+            , "20260827.1"   // hrm-g0 ws1 platform country and employer prerequisites
             , "20260828.1"   // canonicalize control plane owner email (auth fix)
-            // Subscription Control Plane (SCP closure — closure/scp-final-verification):
+            // Subscription Control Plane (SCP closure — merged from main at ab2b46e7):
             , "20260829.1"   // scp applications catalog
             , "20260829.2"   // scp products and plan versions
             , "20260829.3"   // scp subscription items
@@ -206,7 +207,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260830.1"   // scp lifecycle and provisioning
             , "20260830.2"   // scp usage metering and rbac
             , "20260901.1"   // scp closure: canonicalize capability codes to uppercase
-            // Workflow Y2 (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
+            // Workflow Y2 (merged from main at ab2b46e7)
             , "20260902.1"   // enforce employee/user identity bridge unique index
             , "20260902.2"   // definition family/publication metadata + step transitions
             , "20260902.3"   // work items + candidate pools + tenant-safe employee FK
@@ -215,6 +216,26 @@ class CrmFlywayHistoryAssertionTest {
             , "20260902.6"   // inbox/outbox + notification intents
             , "20260902.7"   // audit OVERRIDE action for break-glass commands
             , "20260904.1"   // forward-only idempotent production reconciliation of the Y2 wave
+            // HRM-G0 WS2..WS5 — renumbered to V20260905_* (order preserved) after
+            // version collisions with main's SCP/Workflow-Y2 migrations.
+            , "20260905.1"   // hrm-g0 ws2 task 1a create hr_people + private + identifiers
+            , "20260905.2"   // hrm-g0 ws2 task 2 expand hr_employment and history
+            , "20260905.3"   // hrm-g0 ws2 task 3 create hr structure versions
+            , "20260905.4"   // hrm-g0 ws2 task 4 create_hr_assignments_and_temporal_guards
+            , "20260905.5"   // hrm-g0 ws2 task 5 harden_hr_fail_closed_rls
+            , "20260905.6"   // hrm-g0 ws2 task 6 create_hr_migration_review_items
+            , "20260905.7"   // hrm-g0 ws2 task 6 install_hr_backfill_orchestration
+            , "20260905.8"   // hrm-g0 ws2 task 6 complete_hr_backfill_plan_conformance
+            , "20260905.9"   // hrm-g0 ws2 task 6 fix_hr_backfill_reconcile_and_review
+            , "20260905.10"  // hrm-g0 ws2 task 6 fix_idempotency_and_manager_resolution
+            , "20260905.11"  // hrm-g0 ws2 task 6 fix_manager_review_item_creation
+            , "20260905.12"  // hrm-g0 master task 4 ws3+ws4 foundation schema
+            , "20260905.13"  // hrm-g0 master task 4 task 2 employment jurisdiction periods
+            , "20260905.14"  // hrm-g0 master task 4 task 3 immutable hr audit + outbox + idempotency + iam bindings
+            , "20260905.15"  // hrm-g0 master task 4 ws4 task 6 add_hr_audit_delivery_claim_columns
+            , "20260905.16"  // hrm-g0 master task 5 ws6 task 1 contract compensation foundation
+            , "20260905.17"  // hrm-g0 master task 6 ws5 task 1 seed hrm v2 capabilities
+            , "20260905.18"  // hrm-g0 reconcile y2 employee/user identity uniqueness with g0 cutover lifecycle
     );
 
 
@@ -333,7 +354,8 @@ class CrmFlywayHistoryAssertionTest {
 
         String latestVersion = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history " +
-                        "WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
+                        "WHERE success = TRUE AND version IS NOT NULL " +
+                        "ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
 
         assertThat(latestVersion)
