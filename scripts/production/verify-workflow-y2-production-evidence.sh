@@ -39,16 +39,16 @@ jq '[.[]? | (.envVar // .) | {
       present: (((.value // "") | tostring | length) > 0)
     }]' "$RENDER_RAW" > "$RENDER_SANITIZED"
 
-extract_env() {
+get_render_var() {
   local key="$1"
   jq -r --arg key "$key" \
     '[.[]? | (.envVar // .)] | .[] | select(.key == $key) | .value // empty' \
     "$RENDER_RAW" | head -n 1
 }
 
-DATABASE_URL="$(extract_env DATABASE_URL)"
-DATABASE_USERNAME="$(extract_env DATABASE_USERNAME)"
-DATABASE_PASSWORD="$(extract_env DATABASE_PASSWORD)"
+DATABASE_URL="$(get_render_var DATABASE_URL)"
+DATABASE_USERNAME="$(get_render_var DATABASE_USERNAME)"
+DATABASE_PASSWORD="$(get_render_var DATABASE_PASSWORD)"
 
 for name in DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD; do
   test -n "${!name:-}" || { echo "::error::$name is missing from Render"; exit 1; }
