@@ -28,6 +28,9 @@ export default function WorkspacePage() {
   const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
   // CRM: show if user has CRM capabilities OR control-plane access (admin)
   const canOpenCrm = availableDestinations.includes("/crm") || availableDestinations.includes("/control-plane");
+  // HRM is capability-driven today; the auth destination catalog predates the
+  // HRM-G0 route. Never show the launcher to an identity with no HRM grant.
+  const canOpenHr = me?.capabilities?.some((capability) => capability.startsWith("HRM.")) ?? false;
   // /control-plane is a legacy compatibility route that redirects to /executive.
   // Render only the canonical Executive launcher to avoid duplicate destinations.
   const canOpenExecutive = true;
@@ -57,6 +60,15 @@ export default function WorkspacePage() {
                   <p className={styles.appDescription}>{t("crm.shell.subtitle")}</p>
                 </div>
                 <span className={styles.appAction}>{t("workspace.openCrm")}</span>
+              </Link>
+            )}
+            {canOpenHr && (
+              <Link className={styles.appCard} href="/hr" prefetch>
+                <div>
+                  <div className={styles.appName}>{t("workspace.openHr")}</div>
+                  <p className={styles.appDescription}>{t("workspace.hrDescription")}</p>
+                </div>
+                <span className={styles.appAction}>{t("workspace.openHr")}</span>
               </Link>
             )}
             {canOpenExecutive && (
