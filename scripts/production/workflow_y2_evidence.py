@@ -298,6 +298,7 @@ def _evaluate_database(snapshot: dict[str, Any]) -> dict[str, Any]:
         or history["failed"] > 0
         or duplicates
         or repo_missing
+        or db_not_repo
         or null_checksums
     ):
         status = "FAIL"
