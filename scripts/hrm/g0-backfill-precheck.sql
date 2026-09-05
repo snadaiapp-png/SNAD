@@ -278,7 +278,7 @@ REVOKE ALL ON FUNCTION hr_default_migration_as_of_date(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION hr_precheck_tenant(UUID, DATE) FROM PUBLIC;
 REVOKE ALL ON FUNCTION hr_precheck_tenant(UUID) FROM PUBLIC;
 
-GRANT EXECUTE ON FUNCTION hr_assert_migration_tenant_scope(UUID) TO sanad;
-GRANT EXECUTE ON FUNCTION hr_default_migration_as_of_date(UUID) TO sanad;
-GRANT EXECUTE ON FUNCTION hr_precheck_tenant(UUID, DATE) TO sanad;
-GRANT EXECUTE ON FUNCTION hr_precheck_tenant(UUID) TO sanad;
+GRANT EXECUTE ON FUNCTION hr_assert_migration_tenant_scope(UUID) TO CURRENT_USER;
+GRANT EXECUTE ON FUNCTION hr_default_migration_as_of_date(UUID) TO CURRENT_USER;
+GRANT EXECUTE ON FUNCTION hr_precheck_tenant(UUID, DATE) TO CURRENT_USER;
+GRANT EXECUTE ON FUNCTION hr_precheck_tenant(UUID) TO CURRENT_USER;

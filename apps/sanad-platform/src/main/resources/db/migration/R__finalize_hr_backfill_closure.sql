@@ -4,9 +4,9 @@
 -- Old versioned migrations remain immutable; this repeatable unit keeps function
 -- deployment synchronized with the source scripts and re-applies on checksum change.
 -- ============================================================
--- SOURCE_SHA256 g0-backfill-precheck.sql 85ea6abef25031d1ac06be7ca4b96a94d498d6dc368ea62653e700b29d477ee2
--- SOURCE_SHA256 g0-reconcile.sql 98246b7874677cb00a3911253480bce0fb355f0e7c7737ffc4142ca3f48bb35a
--- SOURCE_SHA256 g0-backfill.sql 628fd7375f48227387f4d8d7192d231b7095cb55929538804e09699342557e33
+-- SOURCE_SHA256 g0-backfill-precheck.sql 6bfcb05e5dea8fe140ebf9719d42f8c821f2891a5e60956f1dbbc91094851c19
+-- SOURCE_SHA256 g0-reconcile.sql 03d0aedf4335228b9e46dccf4ac5ba11dbdcefd6cb76a3eb104957d1ed5e7e1c
+-- SOURCE_SHA256 g0-backfill.sql 6ed522b153208679d060c2b7a3d7d6f9474b0ea34c923518d55092bd79d6ecbb
 
 -- ============================================================
 -- HRM-G0 / WS2 / Task 6 — Final Backfill Precheck
