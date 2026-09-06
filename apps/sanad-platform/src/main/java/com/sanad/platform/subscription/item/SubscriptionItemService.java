@@ -1,5 +1,7 @@
 package com.sanad.platform.subscription.item;
 
+import com.sanad.platform.subscription.catalog.ProductEntity;
+import com.sanad.platform.subscription.catalog.ProductRepository;
 import com.sanad.platform.subscription.plan.PlanVersionEntity;
 import com.sanad.platform.subscription.plan.PlanVersionRepository;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -40,13 +42,16 @@ public class SubscriptionItemService {
     private final JdbcTemplate jdbc;
     private final SubscriptionItemRepository repository;
     private final PlanVersionRepository planVersionRepository;
+    private final ProductRepository productRepository;
 
     public SubscriptionItemService(JdbcTemplate jdbc,
                                    SubscriptionItemRepository repository,
-                                   PlanVersionRepository planVersionRepository) {
+                                   PlanVersionRepository planVersionRepository,
+                                   ProductRepository productRepository) {
         this.jdbc = jdbc;
         this.repository = repository;
         this.planVersionRepository = planVersionRepository;
+        this.productRepository = productRepository;
     }
 
     @Transactional
@@ -106,6 +111,14 @@ public class SubscriptionItemService {
             throw new IllegalArgumentException("currencyCode must be a 3-letter ISO code");
         }
 
+        // R0C-11: NEW product-backed items must reference an existing product,
+        // type-compatible and ACTIVE where the contract requires it.
+        // PLAN items are plan-anchored and never reference products; historical
+        // items are untouched by this validation (it only fires on creation).
+        if (productId != null && !TYPE_PLAN.equals(itemType)) {
+            validateProductBackedItem(itemType, productId);
+        }
+
         // R0C-5 §9-B: adding a PLAN is legitimate ONLY when the plan is not
         // already ACTIVE on the subscription (distinct secondary plans are the
         // supported multi-plan model; the same plan twice is invalid — the
@@ -136,6 +149,45 @@ public class SubscriptionItemService {
         item.setUpdatedAt(Instant.now());
         repository.insert(item);
         return item;
+    }
+
+    /**
+     * R0C-11 §6 — product-backed item integrity:
+     * <ul>
+     *   <li>the product must exist (fail-closed deterministic error);</li>
+     *   <li>ADD_ON items require an active ADD_ON product;</li>
+     *   <li>METERED items require an active METERED product;</li>
+     *   <li>OTHER items require an existing product (no type constraint).</li>
+     * </ul>
+     * Historical references remain valid after the product later becomes
+     * INACTIVE/ARCHIVED — this validation only gates NEW items.
+     */
+    private void validateProductBackedItem(String itemType, UUID productId) {
+        ProductEntity product = productRepository.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown product: " + productId));
+        if (TYPE_ADD_ON.equals(itemType)) {
+            if (!"ADD_ON".equals(product.getProductType())) {
+                throw new IllegalArgumentException(
+                        "ADD_ON items require an ADD_ON product; product " + product.getCode()
+                                + " has type " + product.getProductType());
+            }
+            requireActiveProduct(product);
+        } else if (TYPE_METERED.equals(itemType)) {
+            if (!"METERED".equals(product.getProductType())) {
+                throw new IllegalArgumentException(
+                        "METERED items require a METERED product; product " + product.getCode()
+                                + " has type " + product.getProductType());
+            }
+            requireActiveProduct(product);
+        }
+    }
+
+    private void requireActiveProduct(ProductEntity product) {
+        if (!STATUS_ACTIVE.equals(product.getStatus())) {
+            throw new IllegalStateException(
+                    "Product " + product.getCode() + " is " + product.getStatus()
+                            + "; new items require an ACTIVE product");
+        }
     }
 
     private UUID resolvePlanVersion(UUID planId, UUID requestedVersionId) {
