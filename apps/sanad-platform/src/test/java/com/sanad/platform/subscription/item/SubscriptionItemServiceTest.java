@@ -1,5 +1,6 @@
 package com.sanad.platform.subscription.item;
 
+import com.sanad.platform.subscription.catalog.ProductRepository;
 import com.sanad.platform.subscription.plan.PlanVersionEntity;
 import com.sanad.platform.subscription.plan.PlanVersionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,6 +49,8 @@ class SubscriptionItemServiceTest {
     private SubscriptionItemRepository repository;
     @Mock
     private PlanVersionRepository planVersionRepository;
+    @Mock
+    private ProductRepository productRepository;
 
     private SubscriptionItemService service;
 
@@ -60,7 +63,8 @@ class SubscriptionItemServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SubscriptionItemService(jdbc, repository, planVersionRepository);
+        service = new SubscriptionItemService(jdbc, repository, planVersionRepository,
+                productRepository);
     }
 
     private SubscriptionItemEntity item(String type, UUID planId, UUID planVersionId) {

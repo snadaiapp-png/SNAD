@@ -5,6 +5,7 @@ import com.sanad.platform.admin.api.SaasAdminDtos.PlanResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionResponse;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.SaasAdministrationService;
+import com.sanad.platform.subscription.catalog.ProductRepository;
 import com.sanad.platform.subscription.item.SubscriptionItemEntity;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
@@ -216,7 +217,7 @@ class AnchoredPlanSeatQuantitySyncTest {
     void unit05_planGenericQuantityStillRejected() {
         SubscriptionItemRepository repo = mock(SubscriptionItemRepository.class);
         SubscriptionItemService itemService = new SubscriptionItemService(jdbc, repo,
-                mock(PlanVersionRepository.class));
+                mock(PlanVersionRepository.class), mock(ProductRepository.class));
         SubscriptionItemEntity anchored = planItem(ANCHOR_PLAN_ID, ANCHOR_VERSION_ID, 5);
         when(repo.findById(anchored.getId())).thenReturn(Optional.of(anchored));
 

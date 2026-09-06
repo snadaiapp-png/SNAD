@@ -8,6 +8,7 @@ import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.subscription.item.SubscriptionItemEntity;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
+import com.sanad.platform.subscription.catalog.ProductRepository;
 import com.sanad.platform.subscription.item.SubscriptionItemService;
 import com.sanad.platform.subscription.plan.PlanVersionRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
@@ -141,7 +142,7 @@ class MultiPlanAnchorAuthorityPostgresTest {
         changeService = new SubscriptionChangeService(jdbc, itemRepository,
                 new PriceResolver(new PriceRepository(jdbc)));
         itemService = new SubscriptionItemService(jdbc, itemRepository,
-                new PlanVersionRepository(jdbc));
+                new PlanVersionRepository(jdbc), new ProductRepository(jdbc));
         publishedEvents = new ArrayList<>();
         legacy = new SaasAdministrationService(jdbc, Mockito.mock(PlatformAuditService.class),
                 publishedEvents::add, null);
