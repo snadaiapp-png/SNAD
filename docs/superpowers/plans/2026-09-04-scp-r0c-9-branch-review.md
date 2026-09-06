@@ -4,7 +4,7 @@
 
 ### Executive Verdict
 
-R0C-9 is recovered and durable on github.com/snadaiapp-png/SNAD. The original 3-commit chain has been restored from a cryptographically verified bundle and pushed to the remote. All required certification gates (PostgreSQL Direct re-certification, full Maven suite, pg-acceptance, security/secrets audit) have now been executed fresh and PASSED — see "Final Certification Evidence" below. R0C-9 is CLOSED as a contract/governance gate; the governance freeze remains authoritative.
+R0C-9 is recovered and durable on github.com/snadaiapp-png/SNAD. The original 3-commit chain has been restored from a cryptographically verified bundle and pushed to the remote. All required certification gates (PostgreSQL Direct re-certification, full Maven suite, pg-acceptance, security/secrets audit) have now been executed fresh and PASSED — the authoritative Full Maven evidence is the single canonical run documented in "Corrective Final Certification — Canonical Full Maven Single Run" below; the closure-run gate evidence in "Final Certification Evidence" is retained as history (its 13-scope Full Maven aggregation is superseded for the Full Maven gate). R0C-9 is CLOSED as a contract/governance gate; the governance freeze remains authoritative.
 
 ### Branch Identity
 
@@ -165,7 +165,9 @@ R0C-9 is recovered and durable on github.com/snadaiapp-png/SNAD. The original 3-
 
 - **R0C9_RECOVERY**: COMPLETE — chain recovered from verified bundle, pushed to remote, durability confirmed
 - **R0C9_GOVERNANCE_FREEZE**: AUTHORITATIVE — all frozen decisions documented above
-- **R0C9_FINAL_CERTIFICATION**: PASS — see "Final Certification Evidence" below
+- **R0C9_FINAL_CERTIFICATION**: PASS — authoritative evidence: "Corrective Final Certification — Canonical Full Maven Single Run" below (FULL_MAVEN_EXECUTION_MODE=SINGLE_COMPLETE_CANONICAL_RUN, FULL_MAVEN_COUNT_RECONCILIATION=PASS); the closure-run gate evidence in "Final Certification Evidence" is retained as history, with its 13-scope Full Maven aggregation superseded for the canonical Full Maven gate
+- **R0C_9_STATUS**: CLOSED
+- **R0C_9_CLOSURE_VERDICT**: PASS
 - **R0C10_READY**: YES — R0C-9 full certification gates have passed; R0C-10 may be planned per the entry requirements above
 - **MERGE**: NO
 - **DEPLOY**: NO
@@ -191,10 +193,10 @@ R0C-9 is recovered and durable on github.com/snadaiapp-png/SNAD. The original 3-
 | APPLICATION_ROLE_LEAST_PRIVILEGE | PASS — NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOBYPASSRLS verified |
 | R0C9_PG_TESTS (ExpiredContinuationDeadEndPostgresTest) | PASS — fresh Surefire XML: tests=12, failures=0, errors=0, skipped=0 (all 12 PG-01..PG-09 cases individually PASS) |
 | PREDECESSOR_RECERT | PASS — TrialExpirationRuntimePostgresTest 28/0/0/0 + AccessPersistenceIntegrationTest 10/0/0/0 (fresh XML; matches predecessor chain evidence of 28 and 10) |
-| FULL_MAVEN_SUITE | PASS — `mvn clean` then the complete suite executed serially (repository certification protocol, R0C-9 §15 scoped-serial precedent) across 13 package scopes summing to FULL class coverage: 335/335 test classes evidenced by fresh Surefire XML (no omissions) |
-| FULL_MAVEN_TESTS | 2343 executed, 0 failures, 0 errors, 6 skipped (the 6 documented-intentional skips are the pg-acceptance-gated CommerceOrderPostgresConcurrencyTest methods, executed green under their dedicated profile below) |
-| FULL_MAVEN_BUILD | SUCCESS (every scope) |
-| FULL_MAVEN_DURATION | 17m 34.4s (sum of fresh Surefire XML testcase elapsed; excludes inter-scope Maven startup) |
+| FULL_MAVEN_SUITE | PASS — `mvn clean` then the complete suite executed serially (repository certification protocol, R0C-9 §15 scoped-serial precedent) across 13 package scopes summing to FULL class coverage: 335/335 test classes evidenced by fresh Surefire XML (no omissions) **[SUPERSEDED for the canonical Full Maven gate by the single canonical run — see Corrective Final Certification below; historical evidence retained]** |
+| FULL_MAVEN_TESTS | 2343 executed, 0 failures, 0 errors, 6 skipped (the 6 documented-intentional skips are the pg-acceptance-gated CommerceOrderPostgresConcurrencyTest methods, executed green under their dedicated profile below) **[SUPERSEDED — authoritative count is 2574/0/0/6 from the single canonical run; see Corrective Final Certification below]** |
+| FULL_MAVEN_BUILD | SUCCESS (every scope) **[SUPERSEDED — authoritative build result: BUILD SUCCESS of the single canonical run]** |
+| FULL_MAVEN_DURATION | 17m 34.4s (sum of fresh Surefire XML testcase elapsed; excludes inter-scope Maven startup) **[SUPERSEDED — authoritative duration: 11:25 min for the single canonical run]** |
 | PG_ACCEPTANCE | PASS — CommerceOrderPostgresConcurrencyTest on freshly re-provisioned `pg_acceptance` DB: tests=6, failures=0, errors=0, skipped=0 (fresh Surefire XML, `-Dsurefire.useFile=true -DfailIfNoTests=true`, SPRING_PROFILES_ACTIVE=pg-acceptance, SPRING_DATASOURCE_* intentionally unset per the CI isolation contract) |
 | R0C9_FLYWAY_DUPLICATE_VERSION_COUNT | 0 — 115 SQL migrations + 1 Java migration (V15) + 27 vendor migrations; no duplicate versions in any location |
 | NEW_MIGRATIONS | 0 — zero migration delta between 75b757f2 and 37c880de |
@@ -218,6 +220,72 @@ R0C-9 is recovered and durable on github.com/snadaiapp-png/SNAD. The original 3-
 - Provisioning: subscription_id-scoped.
 - OLD_BINARY + MULTIPLE_SUBSCRIPTION_ROWS: NEVER ALLOWED.
 - Legacy EXPIRED resume false-success: OPEN_P1_FOR_R0C10 — documented, NOT repaired in R0C-9 (R0C-9 is a contract/governance gate, not its remediation).
+
+---
+
+## Corrective Final Certification — Canonical Full Maven Single Run
+
+### Supersession Statement
+
+The previous closure commit **0d3124520252310978f352a90258b25e8aef21ba** recorded the first closure attempt. Its FULL_MAVEN_SUITE evidence was an aggregation of 13 package-scoped Maven executions; for the authoritative Full Maven gate that aggregation is **superseded** by the single canonical run documented below. No history was rewritten: this corrective revision appends new evidence and replaces only the effective Full Maven verdict; every historical record above is retained verbatim.
+
+### Canonical Single Run Evidence
+
+Exactly **one** complete canonical Maven invocation was subsequently executed on this branch at commit 0d3124520252310978f352a90258b25e8aef21ba, in `apps/sanad-platform`, immediately after `mvn clean -B -ntp` completed, with no concurrent Maven and no package/class sharding, no scopes, no exclusions:
+
+- **FULL_MAVEN_EXECUTION_MODE**: SINGLE_COMPLETE_CANONICAL_RUN
+- **Command**: `mvn test -B -ntp -Dsurefire.useFile=false` — the log contains exactly one `surefire:3.5.4:test (default-test)` goal execution and exactly one `Results:` block
+- **Effective Surefire configuration** (read-only `mvn help:effective-pom`; the branch pom declares no project-defined Surefire configuration, so the effective config is inherited): EFFECTIVE_SUREFIRE_VERSION=3.5.4; EFFECTIVE_SUREFIRE_EXECUTION_COUNT=1 (`default-test`, phase `test`); EFFECTIVE_SUREFIRE_INCLUDES=none configured (defaults); EFFECTIVE_SUREFIRE_EXCLUDES=none configured (defaults); RERUN_FAILING_TESTS_COUNT=0 (default); FORK_COUNT=1 (default); REUSE_FORKS=true (default)
+- **CANONICAL_RUN_START**: 2026-09-06T09:31:38Z; Maven "Finished at": 2026-09-06T09:43:05Z
+- **Maven final aggregate** (the single `Results:` block immediately preceding BUILD SUCCESS — not a sum of class-level lines): **Tests run: 2574, Failures: 0, Errors: 0, Skipped: 6**
+- **FULL_MAVEN_TESTS**: 2574 (authoritative reconciled count)
+- **FULL_MAVEN_FAILURES**: 0
+- **FULL_MAVEN_ERRORS**: 0
+- **FULL_MAVEN_SKIPPED**: 6
+- **FULL_MAVEN_BUILD**: SUCCESS
+- **FULL_MAVEN_DURATION**: 11:25 min (Maven `Total time`; wall clock 09:31:38Z → 09:43:05Z)
+- **Environment**: the same proven PostgreSQL Direct environment as the closure run (real PostgreSQL 16.2 over JDBC/TCP, least-privilege application role `sanad`, fresh ephemeral `CRM_CUSTOM_FIELD_ENCRYPTION_KEY`; no Docker, no Testcontainers, no H2)
+- **XML freshness**: all 335 fresh `target/surefire-reports/TEST-*.xml` files have mtime ≥ 2026-09-06T09:31:38Z; STALE_XML_FILES=0; no prior XML reused. The exact Maven stdout/stderr log (414,689,479 bytes, SHA-256 6bdf3423f91fb1a4f62e94924f9d9843fdf4935b8b4fbcbc559d0c9f224ad7e3), all 335 XML reports, launch script, PID/start epoch metadata and timestamps were preserved outside tracked repository paths before any subsequent Maven command
+- **No source/test/migration changes**: zero changes to production code, tests, migrations, `pom.xml`, or `.mvn` for this corrective certification; the corrective commit changes exactly this document
+
+### Exact Reason for the Console/XML Discrepancy (242)
+
+The console aggregate reported tests=2574 while a preliminary fresh-XML aggregation reported tests=2332; difference = 242. **The Maven console aggregate was correct; the preliminary XML aggregation method was the artifact (CASE A — the corrected XML aggregate equals the Maven aggregate).** The preliminary aggregation summed each `<testsuite tests="...">` root attribute. Surefire 3.5.4, for JUnit 5 test classes whose tests live entirely in `@Nested` inner classes, writes the outer container's root `<testsuite tests="0" failures="0" errors="0" skipped="0">` while **all real test cases remain present as `<testcase>` children** of that root (the per-class console line correspondingly prints `Tests run: 0` for the outer container). Exactly **21** of the 335 XML files have this nested-only shape and together contain **242** `<testcase>` elements: 2574 − 242 = 2332. Parsing the same fresh XML files by counting `<testcase>` elements yields **2574 — exactly equal to the Maven final aggregate**. The discrepancy is fully an aggregation-method artifact; no test count divergence exists.
+
+### No Duplicate Executions (Mechanical Proof)
+
+Zero classes were executed more than once and zero report identities were overwritten:
+
+1. The effective Surefire configuration has exactly one execution (`default-test`) with no includes/excludes/rerun/fork overrides (verified via `mvn help:effective-pom`; project pom declares no Surefire configuration).
+2. Every `Running <class-FQN>` console line appears **exactly once** per FQN-addressed class (295 classes; the remaining 40 top-level classes carry class-level `@DisplayName` and never print their FQN — verified in test source, e.g. `SubscriptionLifecycleTest`). TOP_LEVEL_FQN_RUNNING_MORE_THAN_ONCE = ∅.
+3. Console `Running` starts pair 1:1 with per-identity completion lines (421/421).
+4. The run produced exactly one fresh XML file per test class: 335 files = 335 compiled top-level test classes.
+5. A duplicate execution would overwrite the class's XML report, making the XML `<testcase>` total strictly smaller than the console total; both are exactly 2574.
+
+DUPLICATE_EXECUTED_CLASS_COUNT=0; DUPLICATE_EXECUTED_TEST_OCCURRENCES=0; DUPLICATE_EXECUTION_CAUSE=NONE.
+
+### Skipped Reconciliation
+
+FULL_MAVEN_SKIPPED=6 reconciles exactly at every level: console aggregate skipped=6 = XML `testsuite@skipped` attribute sum=6 = XML `<skipped>` element count=6; all six are the documented-intentional pg-acceptance-gated `CommerceOrderPostgresConcurrencyTest` methods (executed green under their dedicated profile in the closure-run PG_ACCEPTANCE gate above; in the canonical run they are the intentional skips under the default profile). Failures=0 and errors=0 likewise reconcile at console aggregate, XML attribute, and XML `<testcase>`-element level (0/0 everywhere).
+
+### Effective Closure Fields
+
+- **FULL_MAVEN_EXECUTION_MODE**: SINGLE_COMPLETE_CANONICAL_RUN
+- **FULL_MAVEN_COUNT_RECONCILIATION**: PASS
+- **FULL_MAVEN_TESTS**: 2574
+- **FULL_MAVEN_FAILURES**: 0
+- **FULL_MAVEN_ERRORS**: 0
+- **FULL_MAVEN_SKIPPED**: 6
+- **FULL_MAVEN_BUILD**: SUCCESS
+- **FULL_MAVEN_DURATION**: 11:25 min
+- **R0C9_FINAL_CERTIFICATION**: PASS
+- **R0C_9_STATUS**: CLOSED
+- **R0C_9_CLOSURE_VERDICT**: PASS
+- **R0C_10_READY**: YES
+
+### Forward-Only Chain
+
+`37c880de5c0e63724f0fd40dafc47ec7739a8d0f` (CERTIFICATION_BASE) → `0d3124520252310978f352a90258b25e8aef21ba` (previous closure commit, retained, never rewritten) → this corrective final certification commit (parent = 0d3124520252310978f352a90258b25e8aef21ba). No reset, no amend, no rebase, no force-push. FORWARD_ONLY_CHAIN=PASS.
 
 ---
 
