@@ -33,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 @ActiveProfiles("local")
 @Import(SecurityPermitAllTestConfig.class)
+@Transactional
 class WorkflowWorkItemConcurrencyTest {
 
     @Autowired
@@ -61,6 +62,10 @@ class WorkflowWorkItemConcurrencyTest {
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Concurrency User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "wi-conc-" + userId.toString().substring(0, 8) + "@test", now, now);
+
+        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
+        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
         employeeA = createEmployee("E-A");
         employeeB = createEmployee("E-B");
 

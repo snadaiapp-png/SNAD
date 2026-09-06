@@ -45,9 +45,6 @@ spring:
     validate-on-migrate: true
     out-of-order: false
 
-  h2:
-    console:
-      enabled: false
 
 # RLS is ENABLED for the pg-acceptance profile so that
 # TenantRlsDataSourcePostProcessor wraps the DataSource and

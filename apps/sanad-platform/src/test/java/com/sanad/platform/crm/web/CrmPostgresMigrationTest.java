@@ -165,11 +165,9 @@ class CrmPostgresMigrationTest {
     private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
     private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
     private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
-    // Subscription Control Plane (SCP closure — closure/scp-final-verification):
-    //   six intentional SCP migrations extend the inventory beyond the last CRM migration.
-    //   V20260901_1 (SCP closure fix: capability-code canonicalization) extends the
-    //   inventory further so loadByCode()'s UPPERCASE normalization resolves the
-    //   granular capability codes seeded by V20260830_2.
+    // HRM-G0 WS1 — Platform Country and Employer Prerequisites
+    private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260827.1";
+    // Subscription Control Plane (SCP closure — merged from main at ab2b46e7):
     private static final String SCP_APPLICATIONS_CATALOG_VERSION = "20260829.1";
     private static final String SCP_PRODUCTS_PLAN_VERSIONS_VERSION = "20260829.2";
     private static final String SCP_SUBSCRIPTION_ITEMS_VERSION = "20260829.3";
@@ -177,7 +175,7 @@ class CrmPostgresMigrationTest {
     private static final String SCP_LIFECYCLE_PROVISIONING_VERSION = "20260830.1";
     private static final String SCP_USAGE_METERING_RBAC_VERSION = "20260830.2";
     private static final String CAPABILITY_CODE_CANONICALIZATION_VERSION = "20260901.1";
-    // Workflow Y2 (docs/superpowers/plans/2026-08-30-workflow-orchestration-y2-implementation.md)
+    // Workflow Y2 (merged from main at ab2b46e7):
     private static final String WORKFLOW_Y2_IDENTITY_VERSION = "20260902.1";
     private static final String WORKFLOW_Y2_DEFINITION_GRAPH_VERSION = "20260902.2";
     private static final String WORKFLOW_Y2_WORK_ITEMS_VERSION = "20260902.3";
@@ -185,12 +183,29 @@ class CrmPostgresMigrationTest {
     private static final String WORKFLOW_Y2_SLA_INCIDENTS_VERSION = "20260902.5";
     private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260902.6";
     private static final String WORKFLOW_Y2_BREAK_GLASS_VERSION = "20260902.7";
-    // Production reconciliation of the Y2 wave (forward-only, idempotent):
-    // completes every Y2 schema element + capability/ADMIN seeds and fails
-    // closed if any Y2 sentinel stays missing.
     private static final String WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION = "20260904.1";
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION;
-
+    // HRM-G0 WS2..WS5 — renumbered to V20260905_* (order preserved) because the
+    // original V20260829_1/V20260830_1/V20260901_1/V20260902_1/V20260904_1
+    // versions collided with main's SCP/Workflow-Y2 migrations after merge.
+    private static final String HR_PERSON_IDENTITY_SCHEMA_VERSION = "20260905.1";
+    private static final String EMPLOYMENT_EXPANSION_VERSION = "20260905.2";
+    private static final String STRUCTURE_VERSIONING_VERSION = "20260905.3";
+    private static final String ASSIGNMENT_TEMPORAL_GUARDS_VERSION = "20260905.4";
+    private static final String HR_RLS_HARDENING_VERSION = "20260905.5";
+    private static final String HR_MIGRATION_REVIEW_ITEMS_VERSION = "20260905.6";
+    private static final String HR_BACKFILL_ORCHESTRATION_VERSION = "20260905.7";
+    private static final String HR_BACKFILL_PLAN_CONFORMANCE_VERSION = "20260905.8";
+    private static final String HR_BACKFILL_FIX_VERSION = "20260905.9";
+    private static final String HR_BACKFILL_IDEMPOTENCY_FIX_VERSION = "20260905.10";
+    private static final String HR_BACKFILL_MGR_FIX_VERSION = "20260905.11";
+    private static final String WS3_WS4_FOUNDATION_VERSION = "20260905.12";
+    private static final String EMPLOYMENT_JURISDICTION_PERIODS_VERSION = "20260905.13";
+    private static final String HR_AUDIT_OUTBOX_IDEMPOTENCY_VERSION = "20260905.14";
+    private static final String HR_AUDIT_DELIVERY_CLAIM_VERSION = "20260905.15";
+    private static final String HR_CONTRACT_COMPENSATION_VERSION = "20260905.16";
+    private static final String HRM_V2_CAPABILITIES_VERSION = "20260905.17";
+    private static final String Y2_G0_IDENTITY_RECONCILIATION_VERSION = "20260905.18";
+    private static final String LATEST_MIGRATION_VERSION = Y2_G0_IDENTITY_RECONCILIATION_VERSION;
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
             "crm_pipeline_stages", "crm_opportunities", "crm_opportunity_stage_history",
@@ -403,6 +418,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
+                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
                         MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
@@ -418,8 +434,25 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION));
-        upgrade.migrate();
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
+                        MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
+                        MigrationVersion.fromVersion(ASSIGNMENT_TEMPORAL_GUARDS_VERSION),
+                        MigrationVersion.fromVersion(HR_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(HR_MIGRATION_REVIEW_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_ORCHESTRATION_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_PLAN_CONFORMANCE_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_FIX_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_IDEMPOTENCY_FIX_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_MGR_FIX_VERSION),
+                        MigrationVersion.fromVersion(WS3_WS4_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION),
+                        MigrationVersion.fromVersion(HR_AUDIT_OUTBOX_IDEMPOTENCY_VERSION),
+                        MigrationVersion.fromVersion(HR_AUDIT_DELIVERY_CLAIM_VERSION),
+                        MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
+                        MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION));        upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
     }
@@ -554,6 +587,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
+                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
                         MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
@@ -569,8 +603,25 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_INCIDENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION));
-        completion.migrate();
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
+                        MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
+                        MigrationVersion.fromVersion(ASSIGNMENT_TEMPORAL_GUARDS_VERSION),
+                        MigrationVersion.fromVersion(HR_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(HR_MIGRATION_REVIEW_ITEMS_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_ORCHESTRATION_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_PLAN_CONFORMANCE_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_FIX_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_IDEMPOTENCY_FIX_VERSION),
+                        MigrationVersion.fromVersion(HR_BACKFILL_MGR_FIX_VERSION),
+                        MigrationVersion.fromVersion(WS3_WS4_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(EMPLOYMENT_JURISDICTION_PERIODS_VERSION),
+                        MigrationVersion.fromVersion(HR_AUDIT_OUTBOX_IDEMPOTENCY_VERSION),
+                        MigrationVersion.fromVersion(HR_AUDIT_DELIVERY_CLAIM_VERSION),
+                        MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
+                        MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION));        completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
     }
@@ -967,8 +1018,12 @@ class CrmPostgresMigrationTest {
     }
 
     private String latestVersion(JdbcTemplate jdbc) {
+        // version IS NOT NULL: repeatable migrations (R__*) occupy the highest
+        // installed_rank with a NULL version and must not shadow the terminal
+        // versioned migration.
         return jdbc.queryForObject(
-                "SELECT version FROM flyway_schema_history WHERE success=TRUE ORDER BY installed_rank DESC LIMIT 1",
+                "SELECT version FROM flyway_schema_history WHERE success=TRUE "
+                        + "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
     }
 

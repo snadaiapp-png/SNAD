@@ -62,8 +62,18 @@ export function buildSearchParams(params: Record<string, unknown>): URLSearchPar
 
 export function buildUrl(baseUrl: string, path: string, query?: Record<string, unknown>): string {
   validateBaseUrl(baseUrl);
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const joined = `${baseUrl.replace(/\/+$/, "")}${normalizedPath}`;
+
+  // Most typed clients pass backend-relative paths such as `/api/v2/...`, but
+  // some established clients already carry the same-origin BFF prefix. Keep
+  // relative BFF composition idempotent so `/api/platform` can never become
+  // `/api/platform/api/platform/...`. Absolute backend base URLs continue to
+  // use normal base + path composition.
+  const alreadyPrefixed = normalizedBase.startsWith("/")
+    && (normalizedPath === normalizedBase || normalizedPath.startsWith(`${normalizedBase}/`));
+  const joined = alreadyPrefixed ? normalizedPath : `${normalizedBase}${normalizedPath}`;
+
   if (!query) return joined;
   const params = buildSearchParams(query).toString();
   return params ? `${joined}?${params}` : joined;

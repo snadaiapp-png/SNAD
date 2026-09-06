@@ -71,6 +71,10 @@ class WorkflowY2GraphExecutionTest {
                         + "VALUES (?, ?, ?, 'Y2 Graph User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "y2-graph-" + userId.toString().substring(0, 8) + "@test", now, now);
 
+        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
+        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+
         // Employee with an ACTIVE linked user holding ADMIN (grants WORKFLOW.TASK_EXECUTE)
         UUID linkedUserId = UUID.randomUUID();
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "

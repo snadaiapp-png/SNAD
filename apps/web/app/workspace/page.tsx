@@ -12,7 +12,7 @@ import styles from "./workspace.module.css";
 export default function WorkspacePage() {
   const { state, user, me, logout, availableDestinations } = useAuth();
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   useEffect(() => {
     if (["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state)) {
@@ -28,6 +28,13 @@ export default function WorkspacePage() {
   const displayName = me?.displayName || user?.email || t("workspace.defaultUser");
   // CRM: show if user has CRM capabilities OR control-plane access (admin)
   const canOpenCrm = availableDestinations.includes("/crm") || availableDestinations.includes("/control-plane");
+  // HRM is capability-driven today; the auth destination catalog predates the
+  // HRM-G0 route. Never show the launcher to an identity with no HRM grant.
+  const canOpenHr = me?.capabilities?.some((capability) => capability.startsWith("HRM.")) ?? false;
+  const hrName = locale === "ar" ? "الموارد البشرية" : "Human Resources";
+  const hrDescription = locale === "ar"
+    ? "إدارة الموظفين والهيكل التنظيمي والإسنادات والالتزام."
+    : "Employees, organization structure, assignments, and compliance.";
   // /control-plane is a legacy compatibility route that redirects to /executive.
   // Render only the canonical Executive launcher to avoid duplicate destinations.
   const canOpenExecutive = true;
@@ -57,6 +64,15 @@ export default function WorkspacePage() {
                   <p className={styles.appDescription}>{t("crm.shell.subtitle")}</p>
                 </div>
                 <span className={styles.appAction}>{t("workspace.openCrm")}</span>
+              </Link>
+            )}
+            {canOpenHr && (
+              <Link className={styles.appCard} href="/hr" prefetch>
+                <div>
+                  <div className={styles.appName}>{hrName}</div>
+                  <p className={styles.appDescription}>{hrDescription}</p>
+                </div>
+                <span className={styles.appAction}>{hrName}</span>
               </Link>
             )}
             {canOpenExecutive && (

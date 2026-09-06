@@ -51,6 +51,10 @@ class WorkflowDelegationPolicyTest {
                         + "VALUES (?, 'Delegation Policy', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-del-" + tenantId.toString().substring(0, 8), now, now);
 
+        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
+        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+
         UUID startUserId = createUser("del-starter");
         definitionId = UUID.randomUUID();
         jdbc.update("""

@@ -53,6 +53,9 @@ class WorkflowBreakGlassTest {
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
+        // G0 fail-closed RLS (V20260905_5): production applies the JWT tenant via
+        // TenantRlsConnectionHandler (SET LOCAL per transaction); the fixture mirrors that contract.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
         userId = createUser(tenantId, "bg-actor");
         instanceId = createInstance(tenantId, userId, "FAILED");
     }

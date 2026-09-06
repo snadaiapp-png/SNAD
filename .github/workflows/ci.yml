@@ -43,6 +43,11 @@
 #   Since `sanad` owns the tables it creates, FORCE RLS applies to it
 #   as the table owner — proving the security model instead of bypassing it.
 #
+# v20260905.1: Maven Test Suite job timeout raised 60→120 minutes.
+#   The full suite measured 59.9 min at the last green run (WS5 growth)
+#   and run #3215 was killed by the 60-minute ceiling (60m39s) with
+#   zero test failures — an infrastructure cancellation, not a regression.
+#
 # NOTE on heredoc bodies: SQL heredocs inside run: blocks must use
 #   `--` for comments. Bash-style `#` comments are sent to psql as SQL
 #   and break the script.
@@ -74,7 +79,7 @@ jobs:
   test:
     name: Maven Test Suite
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
 
     services:
       postgres:

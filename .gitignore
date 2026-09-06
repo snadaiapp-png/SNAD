@@ -178,4 +178,5 @@ performance/results/crm-perf-raw*.json
 # CRM-033 diagnostic output (temporary performance diagnostic files)
 performance/results/diag/
 performance/k6/crm-perf-diagnostic.js
+scripts/test-env.sh
 wf-playwright-report/
