@@ -104,7 +104,14 @@ public class WorkflowSystemActionService {
                                 + result.failureCategory(), incidentId);
             }
             try {
-                Thread.sleep(BASE_BACKOFF_MS * (1L << (attemptNumber - 1)));
+                // attempt numbers accumulate per step instance, so the 2^(n-1)
+                // backoff must be clamped: an unclamped long shift overflows at
+                // high cumulative attempt numbers (negative delay -> uncontrolled
+                // IllegalArgumentException from Thread.sleep) and grows without
+                // bound before that. Capping the shift keeps the delay <= 640ms
+                // for every persisted attempt number.
+                long backoffShift = Math.min(attemptNumber - 1, 6);
+                Thread.sleep(BASE_BACKOFF_MS * (1L << backoffShift));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
