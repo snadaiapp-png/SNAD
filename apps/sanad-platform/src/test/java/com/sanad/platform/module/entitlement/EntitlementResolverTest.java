@@ -47,6 +47,8 @@ class EntitlementResolverTest {
     private ModuleCapabilityRepository moduleCapabilityRepository;
     @Mock
     private PlanModuleEntitlementRepository planModuleEntitlementRepository;
+    @Mock
+    private com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService resolution;
 
     private EntitlementResolver resolver;
 
@@ -57,7 +59,7 @@ class EntitlementResolverTest {
 
     @BeforeEach
     void setUp() {
-        resolver = new EntitlementResolver(jdbc, moduleRepository, moduleCapabilityRepository, planModuleEntitlementRepository);
+        resolver = new EntitlementResolver(jdbc, moduleRepository, moduleCapabilityRepository, planModuleEntitlementRepository, resolution);
     }
 
     @Test
@@ -88,8 +90,10 @@ class EntitlementResolverTest {
     @DisplayName("isModuleEnabled: returns false when no active subscription")
     void isModuleEnabled_returnsFalseWhenNoSubscription() {
         setupCrmModule(true);
-        when(jdbc.<Map<String, Object>>queryForStream(any(String.class), any(), eq(TENANT_ID)))
-                .thenReturn(Collections.<Map<String, Object>>emptyList().stream());
+        // R0C-10: the resolver resolves through the effective-subscription
+        // authority; an empty resolution means no active subscription.
+        when(resolution.findEffectiveSubscription(TENANT_ID))
+                .thenReturn(java.util.Optional.empty());
 
         boolean enabled = resolver.isModuleEnabled(TENANT_ID, "CRM");
 
@@ -295,8 +299,8 @@ class EntitlementResolverTest {
         setupPlanEntitlements(true);
 
         // Tenant B has NO active subscription
-        when(jdbc.<Map<String, Object>>queryForStream(any(String.class), any(), eq(tenantB)))
-                .thenReturn(Collections.<Map<String, Object>>emptyList().stream());
+        when(resolution.findEffectiveSubscription(tenantB))
+                .thenReturn(java.util.Optional.empty());
 
         boolean tenantAEnabled = resolver.isModuleEnabled(TENANT_ID, "CRM");
         boolean tenantBEnabled = resolver.isModuleEnabled(tenantB, "CRM");
@@ -350,11 +354,12 @@ class EntitlementResolverTest {
     }
 
     private void setupActiveSubscription() {
-        Map<String, Object> subInfo = new HashMap<>();
-        subInfo.put("subscriptionId", SUBSCRIPTION_ID);
-        subInfo.put("planId", PLAN_ID);
-        when(jdbc.<Map<String, Object>>queryForStream(any(String.class), any(), eq(TENANT_ID)))
-                .thenReturn(List.of(subInfo).stream());
+        // R0C-10: stub the effective-resolution authority (the resolver no
+        // longer issues an arbitrary LIMIT 1 tenant query itself).
+        when(resolution.findEffectiveSubscription(TENANT_ID))
+                .thenReturn(java.util.Optional.of(
+                        new com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService.EffectiveSubscription(
+                                SUBSCRIPTION_ID, TENANT_ID, PLAN_ID, "ACTIVE", "CURRENT", java.time.Instant.now())));
     }
 
     private void setupPlanEntitlements(boolean moduleEnabled) {

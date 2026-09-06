@@ -42,6 +42,8 @@ class DowngradeSafetyTest {
     private ModuleCapabilityRepository moduleCapabilityRepository;
     @Mock
     private PlanModuleEntitlementRepository planModuleEntitlementRepository;
+    @Mock
+    private com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService resolution;
 
     private EntitlementResolver resolver;
 
@@ -53,7 +55,7 @@ class DowngradeSafetyTest {
 
     @BeforeEach
     void setUp() {
-        resolver = new EntitlementResolver(jdbc, moduleRepository, moduleCapabilityRepository, planModuleEntitlementRepository);
+        resolver = new EntitlementResolver(jdbc, moduleRepository, moduleCapabilityRepository, planModuleEntitlementRepository, resolution);
     }
 
     @Test
@@ -262,10 +264,11 @@ class DowngradeSafetyTest {
     }
 
     private void setupActiveSubscription(UUID planId) {
-        Map<String, Object> subInfo = new HashMap<>();
-        subInfo.put("subscriptionId", SUBSCRIPTION_ID);
-        subInfo.put("planId", planId);
-        when(jdbc.<Map<String, Object>>queryForStream(any(String.class), any(), eq(TENANT_ID)))
-                .thenReturn(List.of(subInfo).stream());
+        // R0C-10: stub the effective-resolution authority (the resolver no
+        // longer issues an arbitrary LIMIT 1 tenant query itself).
+        when(resolution.findEffectiveSubscription(TENANT_ID))
+                .thenReturn(java.util.Optional.of(
+                        new com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService.EffectiveSubscription(
+                                SUBSCRIPTION_ID, TENANT_ID, planId, "ACTIVE", "CURRENT", java.time.Instant.now())));
     }
 }

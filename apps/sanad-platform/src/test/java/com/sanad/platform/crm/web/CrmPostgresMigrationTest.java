@@ -178,7 +178,9 @@ class CrmPostgresMigrationTest {
     private static final String SCP_LIFECYCLE_PROVISIONING_VERSION = "20260830.1";
     private static final String SCP_USAGE_METERING_RBAC_VERSION = "20260830.2";
     private static final String CAPABILITY_CODE_CANONICALIZATION_VERSION = "20260901.1";
-    private static final String LATEST_MIGRATION_VERSION = CAPABILITY_CODE_CANONICALIZATION_VERSION;
+    // R0C-10: subscription multiplicity MODEL_B migration is the current latest.
+    private static final String SCP_MULTIPLICITY_MODEL_B_VERSION = "20260906.1";
+    private static final String LATEST_MIGRATION_VERSION = SCP_MULTIPLICITY_MODEL_B_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -400,7 +402,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
                         MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
                         MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION),
-                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION));
+                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -543,7 +546,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SCP_PRICES_COUNTRY_CURRENCIES_VERSION),
                         MigrationVersion.fromVersion(SCP_LIFECYCLE_PROVISIONING_VERSION),
                         MigrationVersion.fromVersion(SCP_USAGE_METERING_RBAC_VERSION),
-                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION));
+                        MigrationVersion.fromVersion(CAPABILITY_CODE_CANONICALIZATION_VERSION),
+                        MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

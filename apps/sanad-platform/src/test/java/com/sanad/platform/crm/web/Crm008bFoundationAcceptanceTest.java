@@ -76,7 +76,8 @@ class Crm008bFoundationAcceptanceTest {
     //
     // SCP closure: V20260901_1 (canonicalize capability codes to uppercase)
     //   is the current terminal migration.
-    private static final String CRM_LATEST_VERSION = "20260901.1";
+    // R0C-10: subscription multiplicity MODEL_B migration is the current latest.
+    private static final String CRM_LATEST_VERSION = "20260906.1";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

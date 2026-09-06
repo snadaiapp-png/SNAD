@@ -213,6 +213,9 @@ class CrmFlywayHistoryAssertionTest {
             // SCP closure fix: capability-code canonicalization (loadByCode()
             // UPPERCASE normalization vs. lowercase V20260830_2 seeds).
             , "20260901.1"   // canonicalize capability codes to uppercase
+            // R0C-10: subscription multiplicity MODEL_B (legacy UNIQUE(tenant_id)
+            // replaced by the partial effective-unique invariant).
+            , "20260906.1"   // scp subscription multiplicity model b
     );
 
 
