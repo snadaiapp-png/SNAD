@@ -222,26 +222,37 @@ class ExpiredContinuationDeadEndPostgresTest {
         assertThat(ledgerCount(sub, "RESUME")).isZero();
     }
 
+    /**
+     * R0C-10 SUPERSESSION (documented, not hidden):
+     *
+     * The original PG-03b (preserved verbatim in git history at
+     * 13c144e2a23bbdb34325b13f664489fb9440bc0c) captured the P1 DEFECT as
+     * forensic evidence: resume(EXPIRED) was a silent no-op that still
+     * recorded a misleading SUBSCRIPTION.RESUMED change event. R0C-10 Task G
+     * fixes exactly that defect — resume(EXPIRED) now FAILS CLOSED with zero
+     * side effects. This assertion pins the fixed contract; the full
+     * fail-closed battery (status/event/audit/entitlement/billing/
+     * provisioning zero-effect proofs) lives in
+     * {@code ExpiredResumeFailClosedPostgresTest}.
+     */
     @Test
-    @DisplayName("PG-03b: legacy resume endpoint from EXPIRED is a silent no-op — status stays EXPIRED but a misleading RESUMED event is recorded")
+    @DisplayName("PG-03b (R0C-10 supersession): legacy resume endpoint from EXPIRED fails closed — no misleading RESUMED artifact")
     void pg03b_legacyResumeSilentNoOp() {
         UUID sub = expiredSubscription();
-        Long eventsBefore = changeEventCount(sub);
 
-        // The legacy resume endpoint does NOT reject EXPIRED (its guard only
-        // special-cases CANCELLED): the non-CANCELLED branch clears
-        // cancel_at_period_end and returns — the status transition is skipped.
-        transactions.executeWithoutResult(status -> legacy.resumeSubscription(sub, null));
+        // The R0C-10 resume contract rejects the terminal row outright.
+        assertThatThrownBy(() -> transactions.executeWithoutResult(status ->
+                legacy.resumeSubscription(sub, null)))
+                .isInstanceOfSatisfying(ResponseStatusException.class, ex ->
+                        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
 
-        // The subscription is NOT revived — the dead end stands.
+        // The subscription is NOT revived — and no misleading artifact exists.
         assertThat(subscriptionField(sub, "status")).isEqualTo("EXPIRED");
-        // But a SUBSCRIPTION.RESUMED change event was recorded anyway — a
-        // misleading audit artifact claiming a resume that never happened.
-        assertThat(changeEventCount(sub)).isEqualTo(eventsBefore + 1);
+        assertThat(changeEventCount(sub)).isEqualTo(1L); // only the seeded SUBSCRIPTION.CREATED event
         Long resumedEvents = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = ? "
                         + "AND action = 'SUBSCRIPTION.RESUMED'", Long.class, sub);
-        assertThat(resumedEvents).isEqualTo(1L);
+        assertThat(resumedEvents).isZero();
         // No lifecycle RESUME ledger row exists — the canonical authority
         // was never invoked (the revival never happened).
         assertThat(ledgerCount(sub, "RESUME")).isZero();
