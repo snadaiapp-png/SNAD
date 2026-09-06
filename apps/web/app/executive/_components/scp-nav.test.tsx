@@ -142,6 +142,8 @@ describe("ScpNav — capability state machine", () => {
     expect(screen.queryByText("scp.nav.applications")).not.toBeInTheDocument();
     expect(screen.queryByText("scp.nav.billing")).not.toBeInTheDocument();
     expect(screen.getByText("scp.nav.audit")).toBeInTheDocument();
+    // At least one capability granted — NOT the no-access state.
+    expect(screen.queryByText("scp.nav.noAccess")).not.toBeInTheDocument();
   });
 
   it("authorized — fail-closed: a capability missing from the map stays hidden", async () => {
@@ -201,6 +203,47 @@ describe("ScpNav — capability state machine", () => {
     await settle();
 
     expect(screen.getByText("scp.nav.unauthorized")).toBeInTheDocument();
+    for (const label of ALL_LINK_LABELS) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+  });
+
+  it("authenticated-no-access — authenticated=true with all capabilities false renders the explicit no-access state", async () => {
+    accessCheckMock.mockResolvedValueOnce({
+      authenticated: true,
+      capabilities: {},
+    });
+
+    render(<ScpNav />);
+    await settle();
+
+    // AUTHENTICATED_BUT_NO_CAPABILITIES — NOT an authentication failure.
+    expect(screen.getByText("scp.nav.noAccess")).toBeInTheDocument();
+    expect(screen.queryByText("scp.nav.unauthorized")).not.toBeInTheDocument();
+    for (const label of ALL_LINK_LABELS) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+  });
+
+  it("authenticated-no-access — all capabilities explicitly false (never mapped to authentication failure)", async () => {
+    // Every distinct capability the nav gates a link on, explicitly false.
+    const allFalse: Record<string, boolean> = {
+      "subscription.read": false,
+      "catalog.read": false,
+      "plan.read": false,
+      "entitlement.read": false,
+      "usage.read": false,
+      "billing.read": false,
+      "provisioning.read": false,
+      "audit.read": false,
+    };
+    accessCheckMock.mockResolvedValueOnce({ authenticated: true, capabilities: allFalse });
+
+    render(<ScpNav />);
+    await settle();
+
+    expect(screen.getByText("scp.nav.noAccess")).toBeInTheDocument();
+    expect(screen.queryByText("scp.nav.unauthorized")).not.toBeInTheDocument();
     for (const label of ALL_LINK_LABELS) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }

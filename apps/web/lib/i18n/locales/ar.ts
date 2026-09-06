@@ -966,6 +966,7 @@ export const ar: TranslationDictionary = {
   "scp.nav.audit": "سجل التدقيق",
   "scp.nav.degraded": "خدمة الصلاحيات غير متاحة — تم إخفاء التنقل حتى تتعافى",
   "scp.nav.unauthorized": "لا تملك صلاحية الوصول إلى منظومة التحكم بالاشتراكات",
+  "scp.nav.noAccess": "أنت مسجل الدخول، لكن لا توجد أي صلاحيات لمنظومة التحكم بالاشتراكات ممنوحة لدورك",
   "scp.state.errorGeneric": "حدث خطأ غير متوقع",
   "scp.state.retry": "إعادة المحاولة",
   "scp.state.empty": "لا توجد بيانات لعرضها",
