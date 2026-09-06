@@ -11,6 +11,7 @@ import {
   ScpSkeleton,
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
+import { UsagePeriodLabel } from "./UsagePeriodLabel";
 import styles from "../scp.module.css";
 
 /**
@@ -129,9 +130,15 @@ export default function UsagePage() {
                     </div>
                   </>
                 ) : null}
+                {snapshot.periodStart ? (
+                  <span className={styles.appCardMeta}>
+                    <UsagePeriodLabel periodStart={snapshot.periodStart} />
+                  </span>
+                ) : null}
                 <span className={styles.appCardMeta}>
                   {t("scp.usage.limitKind")}: {snapshot.limitKind}
                   {snapshot.warning ? ` · ${t("scp.usage.warning")}` : ""}
+                  {snapshot.critical ? ` · ${t("scp.usage.critical")}` : ""}
                 </span>
               </div>
             ))}

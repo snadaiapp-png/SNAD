@@ -1,14 +1,11 @@
 import type { ReactNode } from "react";
-import { ExecutiveShell } from "@/components/shell";
+import { ScpExecutiveShell } from "./_components/ScpExecutiveShell";
 import { ScpLayout } from "./_components/ScpLayout";
 
 export default function ExecutiveLayout({ children }: { children: ReactNode }) {
   return (
-    <ExecutiveShell
-      logoHref="/executive"
-      logoAriaLabel="الذهاب إلى لوحة الإدارة التنفيذية"
-    >
+    <ScpExecutiveShell>
       <ScpLayout>{children}</ScpLayout>
-    </ExecutiveShell>
+    </ScpExecutiveShell>
   );
 }
