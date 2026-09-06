@@ -56,16 +56,16 @@ class UsageMeteringServiceTest {
 
         assertThat(result.duplicate()).isFalse();
         verify(jdbc).update(contains("INSERT INTO usage_events"), any(), eq(TENANT_ID),
-                eq("ai_tokens"), eq(1500L), eq("workflow-runner"), eq("job-42"), any(), any());
+                eq("ai_tokens"), eq(1500L), eq("workflow-runner"), eq("job-42"), any());
         verify(jdbc).update(contains("INSERT INTO usage_aggregates"), any(), eq(TENANT_ID),
-                eq("ai_tokens"), any(), any(), any());
+                eq("ai_tokens"), any(), any());
     }
 
     @Test
     @DisplayName("ingest: duplicate idempotency key is a no-op (tenant-scoped)")
     void ingestIsIdempotent() {
         when(jdbc.update(contains("INSERT INTO usage_events"), any(), any(), any(), any(),
-                any(), any(), any(), any()))
+                any(), any(), any()))
                 .thenThrow(new org.springframework.dao.DuplicateKeyException("dup"));
 
         UsageMeteringService.IngestResult result = service.ingest(

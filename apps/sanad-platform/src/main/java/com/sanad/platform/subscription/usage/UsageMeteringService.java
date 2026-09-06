@@ -66,7 +66,7 @@ public class UsageMeteringService {
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
                             """,
                     eventId, tenantId, metricCode, quantity, source, idempotencyKey,
-                    Timestamp.from(occurredAt), Timestamp.from(Instant.now()));
+                    Timestamp.from(occurredAt));
         } catch (DuplicateKeyException e) {
             // idempotent replay: the same (tenant, metric, key) event already landed
             return new IngestResult(eventId, true);
@@ -89,7 +89,7 @@ public class UsageMeteringService {
                         DO UPDATE SET total = usage_aggregates.total + EXCLUDED.total, updated_at = NOW()
                         """,
                 UUID.randomUUID(), tenantId, metricCode,
-                Timestamp.from(periodStart), quantity, Timestamp.from(Instant.now()));
+                Timestamp.from(periodStart), quantity);
     }
 
     @Transactional(readOnly = true)
