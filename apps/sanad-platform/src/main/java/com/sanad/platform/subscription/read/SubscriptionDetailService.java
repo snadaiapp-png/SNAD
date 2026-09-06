@@ -30,6 +30,7 @@ public class SubscriptionDetailService {
             UUID id,
             Map<String, Object> overview,
             List<Map<String, Object>> items,
+            List<Map<String, Object>> entitlements,
             List<Map<String, Object>> invoices,
             List<Map<String, Object>> changes,
             List<Map<String, Object>> provisioningJobs,
@@ -69,6 +70,36 @@ public class SubscriptionDetailService {
                                 FROM subscription_items WHERE subscription_id = ?
                                 ORDER BY created_at, id
                                 """, subscriptionId),
+                // R0C-12 G5-R2: design §8/§9 detail contract — entitlements
+                // section (plan-derived ∪ item-derived), bounded + parameterized
+                jdbc.queryForList("""
+                                SELECT e.source, e.module_code AS "moduleCode", e.module_name AS "moduleName",
+                                       e.capability_code AS "capabilityCode", e.module_enabled AS "moduleEnabled",
+                                       e.boolean_value AS "booleanValue", e.capability_value AS "capabilityValue",
+                                       e.limit_value AS "limitValue", e.quota_value AS "quotaValue",
+                                       e.quota_period AS "quotaPeriod"
+                                FROM (
+                                    SELECT 'PLAN' AS source, m.code AS module_code, m.name AS module_name,
+                                           pme.capability_code, pme.module_enabled,
+                                           NULL::boolean AS boolean_value, pme.capability_value,
+                                           pme.limit_value, pme.quota_value, pme.quota_period
+                                    FROM tenant_subscriptions ts
+                                    JOIN plan_module_entitlements pme ON pme.plan_id = ts.plan_id
+                                    LEFT JOIN modules m ON m.id = pme.module_id
+                                    WHERE ts.id = ?
+                                    UNION ALL
+                                    SELECT 'PRODUCT', m.code, m.name,
+                                           pel.capability_code, pel.module_enabled,
+                                           pel.boolean_value, NULL::varchar,
+                                           pel.limit_value, pel.quota_value, pel.quota_period
+                                    FROM subscription_items si
+                                    JOIN product_entitlements pel ON pel.product_id = si.product_id
+                                    LEFT JOIN modules m ON m.id = pel.module_id
+                                    WHERE si.subscription_id = ? AND si.status = 'ACTIVE'
+                                ) e
+                                ORDER BY e.source, e.module_name, e.capability_code
+                                LIMIT 100
+                                """, subscriptionId, subscriptionId),
                 jdbc.queryForList("""
                                 SELECT id, invoice_number AS "invoiceNumber", status, currency_code AS "currencyCode",
                                        subtotal_minor AS "subtotalMinor",
