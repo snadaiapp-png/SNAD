@@ -481,6 +481,18 @@ public class SaasAdministrationService {
     @Transactional
     public SubscriptionResponse resumeSubscription(UUID subscriptionId, Authentication authentication) {
         SubscriptionResponse before = getSubscription(subscriptionId);
+        // R0C-10 Task G (P1 defect fix): resume(EXPIRED) was a false success —
+        // the status stayed EXPIRED while a misleading SUBSCRIPTION.RESUMED
+        // change event, a SUBSCRIPTION.RESUME audit row and an entitlement
+        // recalculation were emitted. TERMINATED is equally terminal. Both now
+        // FAIL CLOSED before ANY side effect: no status mutation, no RESUMED
+        // change event, no misleading audit, no entitlement recalculation, no
+        // billing side effect, no provisioning side effect. resume() never
+        // creates a successor (the gated continuation path is createSubscription).
+        if ("EXPIRED".equals(before.status()) || "TERMINATED".equals(before.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Subscription is terminal (" + before.status() + ") and cannot be resumed");
+        }
         Instant now = Instant.now();
         if (!"CANCELLED".equals(before.status())) {
             jdbcTemplate.update(
