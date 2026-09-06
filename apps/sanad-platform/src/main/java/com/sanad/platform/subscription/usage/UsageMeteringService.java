@@ -44,7 +44,8 @@ public class UsageMeteringService {
     }
 
     public record UsageSnapshot(String metricCode, long current, Long limit,
-                                Integer percent, String limitKind, boolean warning) {
+                                Integer percent, String limitKind, Instant periodStart,
+                                boolean warning, boolean critical) {
     }
 
     @Transactional
@@ -95,7 +96,7 @@ public class UsageMeteringService {
     public Optional<UsageSnapshot> usageSnapshot(UUID tenantId, String metricCode) {
         tenantRlsContext.applyForCurrentTransaction(tenantId);
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT total FROM usage_aggregates "
+                "SELECT total, period_start FROM usage_aggregates "
                         + "WHERE tenant_id = ? AND metric_code = ? AND period_type = 'MONTHLY' "
                         + "ORDER BY period_start DESC LIMIT 1",
                 tenantId, metricCode);
@@ -103,6 +104,7 @@ public class UsageMeteringService {
             return Optional.empty();
         }
         long current = ((Number) rows.get(0).get("total")).longValue();
+        Instant periodStart = ((java.sql.Timestamp) rows.get(0).get("period_start")).toInstant();
 
         Long limit = jdbc.queryForObject(
                 """
@@ -131,13 +133,15 @@ public class UsageMeteringService {
 
         Integer percent = null;
         boolean warning = false;
+        boolean critical = false;
+        boolean thresholdKind = "HARD_LIMIT".equals(limitKind) || "SOFT_LIMIT".equals(limitKind);
         if (limit != null && limit > 0) {
             percent = (int) Math.round((double) current * 100.0 / limit);
-            warning = ("HARD_LIMIT".equals(limitKind) || "SOFT_LIMIT".equals(limitKind))
-                    && (percent >= WARNING_THRESHOLD_75);
+            warning = thresholdKind && (percent >= WARNING_THRESHOLD_75);
+            critical = thresholdKind && (percent >= WARNING_THRESHOLD_90);
         }
         return Optional.of(new UsageSnapshot(metricCode, current, limit, percent,
-                limitKind == null ? "HARD_LIMIT" : limitKind, warning));
+                limitKind == null ? "HARD_LIMIT" : limitKind, periodStart, warning, critical));
     }
 
     private static String capabilityCode(String metricCode) {

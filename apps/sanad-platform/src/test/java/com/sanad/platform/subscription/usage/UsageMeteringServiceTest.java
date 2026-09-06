@@ -97,7 +97,9 @@ class UsageMeteringServiceTest {
     void usageReadModelWarns() {
         when(jdbc.queryForList(
                 contains("FROM usage_aggregates"), eq(TENANT_ID), eq("ai_tokens")))
-                .thenReturn(List.of(Map.of("total", 3_800_000L)));
+                .thenReturn(List.of(Map.of(
+                        "total", 3_800_000L,
+                        "period_start", java.sql.Timestamp.from(Instant.parse("2026-09-01T00:00:00Z")))));
         when(jdbc.<Long>queryForObject(
                 contains("COALESCE(pe.limit_value"), eq(Long.class),
                 eq(TENANT_ID), eq("USAGE.AI_TOKENS"), eq(TENANT_ID), eq("USAGE.AI_TOKENS")))
@@ -122,7 +124,9 @@ class UsageMeteringServiceTest {
     void unlimitedNeverWarns() {
         when(jdbc.queryForList(
                 contains("FROM usage_aggregates"), eq(TENANT_ID), eq("users")))
-                .thenReturn(List.of(Map.of("total", 42L)));
+                .thenReturn(List.of(Map.of(
+                        "total", 42L,
+                        "period_start", java.sql.Timestamp.from(Instant.parse("2026-09-01T00:00:00Z")))));
         when(jdbc.<Long>queryForObject(
                 contains("COALESCE(pe.limit_value"), eq(Long.class),
                 eq(TENANT_ID), eq("USAGE.USERS"), eq(TENANT_ID), eq("USAGE.USERS")))
@@ -146,5 +150,107 @@ class UsageMeteringServiceTest {
                 .thenReturn(List.of());
 
         assertThat(service.usageSnapshot(TENANT_ID, "storage_gb")).isEmpty();
+    }
+
+    // ------------------------------------------------------------------
+    // R0C-12 G4-R1 / G6-R6: all five limit kinds proven; 0.9 critical
+    // threshold wired; monthly period exposed for the usage read model.
+    // ------------------------------------------------------------------
+
+    private void stubAggregate(long total) {
+        when(jdbc.queryForList(contains("FROM usage_aggregates"), eq(TENANT_ID), eq("ai_tokens")))
+                .thenReturn(List.of(Map.of(
+                        "total", total,
+                        "period_start", java.sql.Timestamp.from(Instant.parse("2026-09-01T00:00:00Z")))));
+    }
+
+    private void stubLimit(Long limit) {
+        when(jdbc.<Long>queryForObject(
+                contains("COALESCE(pe.limit_value"), eq(Long.class),
+                eq(TENANT_ID), eq("USAGE.AI_TOKENS"), eq(TENANT_ID), eq("USAGE.AI_TOKENS")))
+                .thenReturn(limit);
+    }
+
+    private void stubKind(String kind) {
+        when(jdbc.<String>queryForObject(
+                contains("FROM usage_metrics"), eq(String.class), eq("ai_tokens")))
+                .thenReturn(kind);
+    }
+
+    @Test
+    @DisplayName("usage read model: snapshot carries the MONTHLY period of the aggregate")
+    void snapshotCarriesMonthlyPeriod() {
+        stubAggregate(1_000L);
+        stubLimit(5_000_000L);
+        stubKind("HARD_LIMIT");
+
+        Optional<UsageMeteringService.UsageSnapshot> snapshot =
+                service.usageSnapshot(TENANT_ID, "ai_tokens");
+
+        assertThat(snapshot).isPresent();
+        assertThat(snapshot.get().periodStart())
+                .isEqualTo(Instant.parse("2026-09-01T00:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("usage read model: 90%+ HARD_LIMIT crosses the critical threshold")
+    void criticalAtNinetyPercent() {
+        stubAggregate(4_600_000L);
+        stubLimit(5_000_000L);
+        stubKind("HARD_LIMIT");
+
+        UsageMeteringService.UsageSnapshot snapshot =
+                service.usageSnapshot(TENANT_ID, "ai_tokens").orElseThrow();
+
+        assertThat(snapshot.percent()).isEqualTo(92);
+        assertThat(snapshot.warning()).isTrue();
+        assertThat(snapshot.critical()).isTrue();
+    }
+
+    @Test
+    @DisplayName("usage read model: warning band (75–89%) is not critical")
+    void warningBandIsNotCritical() {
+        stubAggregate(3_800_000L);
+        stubLimit(5_000_000L);
+        stubKind("HARD_LIMIT");
+
+        UsageMeteringService.UsageSnapshot snapshot =
+                service.usageSnapshot(TENANT_ID, "ai_tokens").orElseThrow();
+
+        assertThat(snapshot.percent()).isEqualTo(76);
+        assertThat(snapshot.warning()).isTrue();
+        assertThat(snapshot.critical()).isFalse();
+    }
+
+    @Test
+    @DisplayName("usage read model: SOFT_LIMIT warns on the same thresholds")
+    void softLimitWarns() {
+        stubAggregate(4_000_000L);
+        stubLimit(5_000_000L);
+        stubKind("SOFT_LIMIT");
+
+        UsageMeteringService.UsageSnapshot snapshot =
+                service.usageSnapshot(TENANT_ID, "ai_tokens").orElseThrow();
+
+        assertThat(snapshot.limitKind()).isEqualTo("SOFT_LIMIT");
+        assertThat(snapshot.warning()).isTrue();
+        assertThat(snapshot.critical()).isFalse();
+    }
+
+    @Test
+    @DisplayName("usage read model: OVERAGE and PAY_AS_YOU_GO are billed kinds — never threshold-warn")
+    void billedKindsNeverThresholdWarn() {
+        for (String kind : List.of("OVERAGE", "PAY_AS_YOU_GO")) {
+            stubAggregate(4_900_000L);
+            stubLimit(5_000_000L);
+            stubKind(kind);
+
+            UsageMeteringService.UsageSnapshot snapshot =
+                    service.usageSnapshot(TENANT_ID, "ai_tokens").orElseThrow();
+
+            assertThat(snapshot.limitKind()).isEqualTo(kind);
+            assertThat(snapshot.warning()).as("warning for " + kind).isFalse();
+            assertThat(snapshot.critical()).as("critical for " + kind).isFalse();
+        }
     }
 }
