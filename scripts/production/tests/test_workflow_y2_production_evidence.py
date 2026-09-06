@@ -354,6 +354,16 @@ class WorkflowY2EvidenceBehaviorTest(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertNotIn(needle, source)
 
+    def test_collector_requires_transaction_scoped_read_only_proof(self):
+        source = SHELL_PATH.read_text()
+        self.assertIn("DEFENSE_IN_DEPTH_ONLY", source)
+        self.assertIn("verify_read_only_transaction()", source)
+        self.assertIn("BEGIN TRANSACTION READ ONLY;", source)
+        self.assertIn("SHOW transaction_read_only;", source)
+        self.assertIn("ROLLBACK;", source)
+        self.assertNotIn("SHOW default_transaction_read_only", source)
+        self.assertIn("assert_read_only_sql", source)
+
     def test_16_workflow_contract_is_read_only_and_has_no_governance_writes(self):
         self.assertTrue(
             WORKFLOW_PATH.exists(),
