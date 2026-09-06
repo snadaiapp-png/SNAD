@@ -94,43 +94,50 @@ public class UsageMeteringService {
 
     @Transactional(readOnly = true)
     public Optional<UsageSnapshot> usageSnapshot(UUID tenantId, String metricCode) {
+        return usageSnapshots(tenantId).stream()
+                .filter(s -> s.metricCode().equals(metricCode))
+                .findFirst();
+    }
+
+    /**
+     * Batched tenant usage read model — exactly three statements regardless of
+     * metric count (latest MONTHLY aggregates, metric catalog, batched
+     * entitlement limits). Never 1 + 3N per metric.
+     */
+    @Transactional(readOnly = true)
+    public List<UsageSnapshot> usageSnapshots(UUID tenantId) {
         tenantRlsContext.applyForCurrentTransaction(tenantId);
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT total, period_start FROM usage_aggregates "
-                        + "WHERE tenant_id = ? AND metric_code = ? AND period_type = 'MONTHLY' "
-                        + "ORDER BY period_start DESC LIMIT 1",
-                tenantId, metricCode);
-        if (rows.isEmpty()) {
-            return Optional.empty();
+        List<Map<String, Object>> aggRows = jdbc.queryForList("""
+                        SELECT u.metric_code, u.total, u.period_start
+                        FROM usage_aggregates u
+                        WHERE u.tenant_id = ? AND u.period_type = 'MONTHLY'
+                          AND u.period_start = (
+                              SELECT MAX(i.period_start) FROM usage_aggregates i
+                              WHERE i.tenant_id = u.tenant_id AND i.metric_code = u.metric_code
+                                AND i.period_type = 'MONTHLY')
+                        ORDER BY u.metric_code
+                        """, tenantId);
+        if (aggRows.isEmpty()) {
+            return List.of();
         }
-        long current = ((Number) rows.get(0).get("total")).longValue();
-        Instant periodStart = ((java.sql.Timestamp) rows.get(0).get("period_start")).toInstant();
+        List<String> metricCodes = aggRows.stream()
+                .map(row -> (String) row.get("metric_code"))
+                .toList();
+        Map<String, Long> limits = loadEntitlementLimits(tenantId, metricCodes);
+        Map<String, String> kinds = loadMetricKinds();
+        List<UsageSnapshot> snapshots = new java.util.ArrayList<>(aggRows.size());
+        for (Map<String, Object> row : aggRows) {
+            String metricCode = (String) row.get("metric_code");
+            long current = ((Number) row.get("total")).longValue();
+            Instant periodStart = ((java.sql.Timestamp) row.get("period_start")).toInstant();
+            snapshots.add(buildSnapshot(metricCode, current, periodStart,
+                    limits.get(capabilityCode(metricCode)), kinds.get(metricCode)));
+        }
+        return List.copyOf(snapshots);
+    }
 
-        Long limit = jdbc.queryForObject(
-                """
-                        SELECT COALESCE(pe.limit_value, NULL) FROM (
-                            SELECT pme.limit_value
-                            FROM tenant_subscriptions ts
-                            JOIN plan_module_entitlements pme ON pme.plan_id = ts.plan_id
-                            WHERE ts.tenant_id = ? AND ts.status IN ('ACTIVE', 'TRIALING', 'TRIAL')
-                              AND pme.capability_code = ?
-                            UNION ALL
-                            SELECT pel.limit_value
-                            FROM tenant_subscriptions ts
-                            JOIN subscription_items si ON si.subscription_id = ts.id AND si.status = 'ACTIVE'
-                            JOIN product_entitlements pel ON pel.product_id = si.product_id
-                            WHERE ts.tenant_id = ? AND pel.capability_code = ?
-                        ) pe
-                        WHERE pe.limit_value IS NOT NULL
-                        ORDER BY pe.limit_value DESC
-                        LIMIT 1
-                        """,
-                Long.class, tenantId, capabilityCode(metricCode), tenantId, capabilityCode(metricCode));
-
-        String limitKind = jdbc.queryForObject(
-                "SELECT limit_kind FROM usage_metrics WHERE code = ?",
-                String.class, metricCode);
-
+    private UsageSnapshot buildSnapshot(String metricCode, long current, Instant periodStart,
+                                        Long limit, String limitKind) {
         Integer percent = null;
         boolean warning = false;
         boolean critical = false;
@@ -140,8 +147,58 @@ public class UsageMeteringService {
             warning = thresholdKind && (percent >= WARNING_THRESHOLD_75);
             critical = thresholdKind && (percent >= WARNING_THRESHOLD_90);
         }
-        return Optional.of(new UsageSnapshot(metricCode, current, limit, percent,
-                limitKind == null ? "HARD_LIMIT" : limitKind, periodStart, warning, critical));
+        return new UsageSnapshot(metricCode, current, limit, percent,
+                limitKind == null ? "HARD_LIMIT" : limitKind, periodStart, warning, critical);
+    }
+
+    /**
+     * Batched effective-limit resolution: max non-null limit per capability
+     * code across plan-derived (plan_module_entitlements) and item-derived
+     * (product_entitlements via ACTIVE items) sources — the same union the
+     * per-metric path resolves.
+     */
+    private Map<String, Long> loadEntitlementLimits(UUID tenantId, List<String> metricCodes) {
+        List<String> capabilityCodes = metricCodes.stream()
+                .map(UsageMeteringService::capabilityCode)
+                .toList();
+        String placeholders = String.join(", ", java.util.Collections.nCopies(capabilityCodes.size(), "?"));
+        String sql = """
+                SELECT pe.capability_code, MAX(pe.limit_value) AS "max_limit"
+                FROM (
+                    SELECT pme.capability_code, pme.limit_value
+                    FROM tenant_subscriptions ts
+                    JOIN plan_module_entitlements pme ON pme.plan_id = ts.plan_id
+                    WHERE ts.tenant_id = ? AND ts.status IN ('ACTIVE', 'TRIALING', 'TRIAL')
+                      AND pme.capability_code IN (%s)
+                    UNION ALL
+                    SELECT pel.capability_code, pel.limit_value
+                    FROM tenant_subscriptions ts
+                    JOIN subscription_items si ON si.subscription_id = ts.id AND si.status = 'ACTIVE'
+                    JOIN product_entitlements pel ON pel.product_id = si.product_id
+                    WHERE ts.tenant_id = ? AND pel.capability_code IN (%s)
+                ) pe
+                WHERE pe.limit_value IS NOT NULL
+                GROUP BY pe.capability_code
+                """.formatted(placeholders, placeholders);
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(tenantId);
+        args.addAll(capabilityCodes);
+        args.add(tenantId);
+        args.addAll(capabilityCodes);
+        Map<String, Long> limits = new java.util.HashMap<>();
+        for (Map<String, Object> row : jdbc.queryForList(sql, args.toArray())) {
+            limits.put((String) row.get("capability_code"),
+                    ((Number) row.get("max_limit")).longValue());
+        }
+        return limits;
+    }
+
+    private Map<String, String> loadMetricKinds() {
+        Map<String, String> kinds = new java.util.HashMap<>();
+        for (Map<String, Object> row : jdbc.queryForList("SELECT code, limit_kind FROM usage_metrics")) {
+            kinds.put((String) row.get("code"), (String) row.get("limit_kind"));
+        }
+        return kinds;
     }
 
     private static String capabilityCode(String metricCode) {
