@@ -272,6 +272,7 @@ def _effective_db_history(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _evaluate_database(snapshot: dict[str, Any]) -> dict[str, Any]:
+    read_only = snapshot.get("databaseReadOnly") is True
     repo_versions = [str(v) for v in snapshot.get("repositoryVersions", [])]
     for version in repo_versions:
         version_key(version)
@@ -294,7 +295,8 @@ def _evaluate_database(snapshot: dict[str, Any]) -> dict[str, Any]:
 
     status = "PASS"
     if (
-        repo_duplicates
+        not read_only
+        or repo_duplicates
         or history["failed"] > 0
         or duplicates
         or repo_missing
@@ -305,7 +307,7 @@ def _evaluate_database(snapshot: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "status": status,
-        "readOnly": bool(snapshot.get("databaseReadOnly", True)),
+        "readOnly": read_only,
         "failedMigrations": history["failed"],
         "repositoryDuplicateVersions": repo_duplicates,
         "duplicateVersions": duplicates,

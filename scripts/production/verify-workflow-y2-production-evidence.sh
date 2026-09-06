@@ -80,17 +80,26 @@ PGDATABASE="${DB_PARTS[2]}"
 for value in "$PGHOST" "$PGDATABASE"; do echo "::add-mask::$value"; done
 
 export PGPASSWORD="$DATABASE_PASSWORD"
+# DEFENSE_IN_DEPTH_ONLY: transaction-scoped proof below is the authoritative gate.
 export PGOPTIONS='-c default_transaction_read_only=on'
 
-READ_ONLY_STATE="$(
-  psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
-    --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --quiet \
-    --command="SHOW default_transaction_read_only;"
-)"
-test "$READ_ONLY_STATE" = "on" || {
-  echo "::error::PostgreSQL session is not read-only."
-  exit 1
+verify_read_only_transaction() {
+  local read_only_state
+  read_only_state="$(
+    psql -h "$PGHOST" -p "$PGPORT" -U "$DATABASE_USERNAME" -d "$PGDATABASE" \
+      --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --quiet <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SHOW transaction_read_only;
+ROLLBACK;
+SQL
+  )"
+  test "$read_only_state" = "on" || {
+    echo "::error::PostgreSQL transaction is not read-only."
+    exit 1
+  }
 }
+
+verify_read_only_transaction
 
 run_read_only_sql() {
   local sql="$1"
@@ -102,7 +111,7 @@ run_read_only_sql() {
     --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --quiet <<SQL
 BEGIN TRANSACTION READ ONLY;
 $sql
-COMMIT;
+ROLLBACK;
 SQL
 }
 
