@@ -247,10 +247,14 @@ public class TenantDirectoryAdministrationService {
     }
 
     private LimitSnapshot limits(UUID tenantId) {
+        // R0C-10: status subset of the EFFECTIVE predicate; the partial unique
+        // index bounds this at one row — the deterministic ordering is
+        // defensive so the lookup stays well-defined under multiplicity.
         List<LimitSnapshot> rows = jdbcTemplate.query(
                 "SELECT p.max_users, p.max_organizations FROM tenant_subscriptions s "
                         + "JOIN saas_plans p ON p.id = s.plan_id "
-                        + "WHERE s.tenant_id = ? AND s.status IN ('TRIALING', 'ACTIVE', 'PAST_DUE')",
+                        + "WHERE s.tenant_id = ? AND s.status IN ('TRIALING', 'ACTIVE', 'PAST_DUE') "
+                        + "ORDER BY s.created_at DESC, s.id DESC",
                 (rs, rowNum) -> new LimitSnapshot(rs.getInt("max_users"), rs.getInt("max_organizations")),
                 tenantId);
         if (rows.isEmpty()) {

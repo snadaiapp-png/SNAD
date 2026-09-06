@@ -321,68 +321,102 @@ class ExpiredContinuationDeadEndPostgresTest {
     }
 
     // ---------------------------------------------------------------
-    // PG-06 — storage-layer one-per-tenant constraint
-    // ---------------------------------------------------------------
+    // PG-06 — storage-layer invariant
+    // ----------------------------------------------------------------
 
+    /**
+     * R0C-10 SUPERSESSION (documented, not hidden):
+     *
+     * The original PG-06 (preserved verbatim in git history at
+     * 13c144e2a23bbdb34325b13f664489fb9440bc0c) asserted the LEGACY storage
+     * fact {@code uk_tenant_subscriptions_tenant UNIQUE (tenant_id)} — the
+     * one-subscription-per-tenant model that R0C-9 proved blocks historical
+     * multiplicity. R0C-10 implements the behavior R0C-9 proved missing: the
+     * legacy constraint is replaced by the MODEL_B partial unique index
+     * {@code uk_tenant_subscriptions_effective} (migration V20260906_1).
+     * This assertion now pins the R0C-10 storage inventory; the full
+     * MODEL_B storage battery lives in
+     * {@code SubscriptionMultiplicityStoragePostgresTest}.
+     */
     @Test
-    @DisplayName("PG-06: direct INSERT of a second subscription row for the tenant violates uk_tenant_subscriptions_tenant")
+    @DisplayName("PG-06 (R0C-10 supersession): legacy UNIQUE(tenant_id) removed; MODEL_B partial effective unique in force")
     void pg06_uniqueTenantConstraintBlocksSecondRow() {
         expiredSubscription();
 
-        // The constraint is exactly UNIQUE(tenant_id) on tenant_subscriptions.
-        String constraintDef = jdbc.queryForObject(
-                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+        // The legacy full-tenant UNIQUE constraint is gone.
+        Long legacyConstraint = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_constraint "
                         + "WHERE conname = 'uk_tenant_subscriptions_tenant' "
-                        + "AND conrelid = 'tenant_subscriptions'::regclass",
-                String.class);
-        assertThat(constraintDef).isEqualTo("UNIQUE (tenant_id)");
+                        + "AND conrelid = 'tenant_subscriptions'::regclass", Long.class);
+        assertThat(legacyConstraint).isZero();
 
-        // A second row for the same tenant cannot exist at the storage layer —
-        // regardless of the target status (even a terminal/EXPIRED one).
+        // The MODEL_B invariant is in force: terminal history coexists with an
+        // effective row, but a SECOND effective row is impossible (full
+        // battery in SubscriptionMultiplicityStoragePostgresTest).
+        jdbc.update(
+                "INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, plan_version_id, status, "
+                        + "billing_cycle, seat_quantity, credit_balance_minor, started_at, trial_ends_at, "
+                        + "current_period_start, current_period_end, cancel_at_period_end, billing_state, "
+                        + "created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, NOW(), NULL, NOW(), "
+                        + "NOW() + INTERVAL '30 days', FALSE, 'CURRENT', NOW(), NOW())",
+                UUID.randomUUID(), tenant, planA, versionA); // EXPIRED + ACTIVE = allowed
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, plan_version_id, status, "
                         + "billing_cycle, seat_quantity, credit_balance_minor, started_at, trial_ends_at, "
                         + "current_period_start, current_period_end, cancel_at_period_end, billing_state, "
                         + "created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'EXPIRED', 'MONTHLY', 1, 0, NOW(), NULL, NOW(), "
+                        + "VALUES (?, ?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, NOW(), NULL, NOW(), "
                         + "NOW() + INTERVAL '30 days', FALSE, 'CURRENT', NOW(), NOW())",
                 UUID.randomUUID(), tenant, planA, versionA))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("uk_tenant_subscriptions_tenant");
+                .hasMessageContaining("uk_tenant_subscriptions_effective");
     }
 
     // ---------------------------------------------------------------
-    // PG-07 — billing tenant lookup behavior with an EXPIRED row
-    // ---------------------------------------------------------------
+    // PG-07 — billing lookup behavior with an EXPIRED row
+    // ----------------------------------------------------------------
 
+    /**
+     * R0C-10 SUPERSESSION (documented, not hidden):
+     *
+     * The original PG-07 (preserved verbatim in git history at
+     * 13c144e2a23bbdb34325b13f664489fb9440bc0c) asserted that the billing
+     * tenant lookup was UNQUALIFIED by status — it found the EXPIRED row via
+     * {@code WHERE tenant_id = ?} (rows.get(0)) and the dunning scan admitted
+     * terminal rows by luck of a stale billing_state value. R0C-10 converges
+     * billing onto the EFFECTIVE subscription (subscription_id-scoped overdue
+     * counting, id-scoped writes, terminal-excluded dunning scan), so this
+     * assertion now pins the R0C-10 contract: an EXPIRED-only tenant is
+     * INVISIBLE to billing (evaluateAndTransition returns null; the terminal
+     * row is untouched). The full convergence battery lives in
+     * {@code EffectiveConvergencePostgresTest}.
+     */
     @Test
-    @DisplayName("PG-07: billing tenant lookup is unqualified — it finds the EXPIRED row and relies on one-row uniqueness")
+    @DisplayName("PG-07 (R0C-10 supersession): billing resolves EFFECTIVE only — an EXPIRED-only tenant is invisible to billing")
     void pg07_billingTenantLookupFindsExpiredRow() {
         UUID sub = expiredSubscription();
 
-        // The exact production SQL BillingStateService.findSubscription runs.
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT billing_state FROM tenant_subscriptions WHERE tenant_id = ?", tenant);
-        assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).get("billing_state")).isEqualTo("CURRENT");
+        // The R0C-10 effective predicate finds nothing for this tenant.
+        List<Map<String, Object>> effective = jdbc.queryForList(
+                "SELECT billing_state FROM tenant_subscriptions WHERE tenant_id = ? "
+                        + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')", tenant);
+        assertThat(effective).isEmpty();
 
-        // evaluateAndTransition on the expired tenant does not crash and does
-        // not mutate anything: the billing machine targets the (only) EXPIRED
-        // row for this tenant. It relies on the row's uniqueness — there is no
-        // subscription-scoped selection rule.
+        // evaluateAndTransition resolves no effective subscription and does
+        // not touch the terminal row.
         String state = transactions.execute(status -> billing.evaluateAndTransition(tenant));
-        assertThat(state).isEqualTo("CURRENT");
+        assertThat(state).isNull();
         assertThat(subscriptionField(sub, "status")).isEqualTo("EXPIRED");
+        assertThat(subscriptionField(sub, "billing_state")).isEqualTo("CURRENT");
 
-        // Dunning scan keys on tenant_id (not subscription_id) — the expired
-        // tenant is absent from the CURRENT/PAST_DUE/SUSPENDED billing_state
-        // scan set by luck of its billing_state value, not by status.
+        // The dunning scan excludes terminal rows even with a stale
+        // billing_state value.
         List<UUID> dunned = jdbc.queryForList(
                 "SELECT tenant_id FROM tenant_subscriptions "
-                        + "WHERE billing_state IN ('CURRENT','PAST_DUE','SUSPENDED')", UUID.class);
-        // (billing_state='CURRENT' IS in the scan set — the row is scanned by
-        // tenant even though its lifecycle status is terminal.)
-        assertThat(dunned).contains(tenant);
+                        + "WHERE billing_state IN ('CURRENT','PAST_DUE','SUSPENDED') "
+                        + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')", UUID.class);
+        assertThat(dunned).doesNotContain(tenant);
     }
 
     // ---------------------------------------------------------------

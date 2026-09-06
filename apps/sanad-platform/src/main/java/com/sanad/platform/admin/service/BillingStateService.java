@@ -2,6 +2,7 @@ package com.sanad.platform.admin.service;
 
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle;
+import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -58,6 +59,17 @@ import java.util.UUID;
  * {@code status} can never diverge (BILLING_LIFECYCLE_PARTIAL_STATE is
  * impossible; the legacy best-effort swallowed mirror is gone).
  *
+ * <p>R0C-10 — MODEL_B convergence: with historical multiplicity allowed, a
+ * tenant-only lookup would arbitrarily select among history rows. Every
+ * billing decision therefore resolves the tenant's unique EFFECTIVE
+ * subscription ({@code status NOT IN ('CANCELLED','EXPIRED','TERMINATED')})
+ * through {@link SubscriptionResolutionService}, overdue-invoice counting is
+ * scoped to that subscription's id ({@code billing_invoices.subscription_id}
+ * — invoices of historical subscriptions may never dunn a successor), and
+ * billing_state writes target the subscription id. The dunning scan excludes
+ * terminal rows so a stale {@code billing_state} on an EXPIRED row can never
+ * re-enter the cycle.
+ *
  * <p>The dunning scheduler is enabled via the {@code sanad.tenancy.billing.dunning-enabled}
  * property (default {@code false}). Production deployments enable it
  * via env var {@code SANAD_DUNNING_ENABLED=true}. The cadence is
@@ -75,12 +87,25 @@ public class BillingStateService {
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
     private final SubscriptionCommandService commandService;
+    private final SubscriptionResolutionService resolution;
 
     public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
-                               SubscriptionCommandService commandService) {
+                               SubscriptionCommandService commandService,
+                               SubscriptionResolutionService resolution) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.commandService = commandService;
+        this.resolution = resolution;
+    }
+
+    /**
+     * Backward-compatible constructor (tests): self-wires the R0C-10
+     * effective-resolution authority from the same JdbcTemplate
+     * (mirrors the SaasAdministrationService convention).
+     */
+    public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
+                               SubscriptionCommandService commandService) {
+        this(jdbc, auditService, commandService, new SubscriptionResolutionService(jdbc));
     }
 
     /**
@@ -92,17 +117,20 @@ public class BillingStateService {
     @Transactional
     public String evaluateAndTransition(UUID tenantId) {
         if (tenantId == null) return null;
-        Map<String, Object> sub = findSubscription(tenantId);
-        if (sub == null) return null;
+        SubscriptionResolutionService.EffectiveSubscription sub =
+                resolution.findEffectiveSubscription(tenantId).orElse(null);   // R0C-10: EFFECTIVE only
+        if (sub == null || sub.id() == null) return null;
 
-        String currentState = (String) sub.get("billing_state");
+        String currentState = sub.billingState();
         if ("CANCELLED".equals(currentState) || "TRIALING".equals(currentState)) {
             return currentState; // no automatic transitions out of these
         }
 
-        long overdueCount = countOverdueInvoices(tenantId, 0L);          // past due_at (no grace)
-        long pastDueGraceOverdueCount = countOverdueInvoices(tenantId, PAST_DUE_GRACE_HOURS);
-        long suspendGraceOverdueCount = countOverdueInvoices(tenantId, SUSPEND_GRACE_HOURS);
+        // R0C-10: overdue counting is subscription_id-scoped — invoices of
+        // historical (terminal) subscriptions may never dunn the successor.
+        long overdueCount = countOverdueInvoices(sub.id(), 0L);          // past due_at (no grace)
+        long pastDueGraceOverdueCount = countOverdueInvoices(sub.id(), PAST_DUE_GRACE_HOURS);
+        long suspendGraceOverdueCount = countOverdueInvoices(sub.id(), SUSPEND_GRACE_HOURS);
 
         String targetState;
         if (suspendGraceOverdueCount > 0 && !"SUSPENDED".equals(currentState)) {
@@ -117,7 +145,7 @@ public class BillingStateService {
             return currentState; // no change
         }
 
-        applyTransition(tenantId, currentState, targetState);
+        applyTransition(sub, targetState);
         return targetState;
     }
 
@@ -135,7 +163,8 @@ public class BillingStateService {
     public int runDunningCycleOnce() {
         List<UUID> tenantIds = jdbc.queryForList(
                 "SELECT tenant_id FROM tenant_subscriptions "
-                        + "WHERE billing_state IN ('CURRENT','PAST_DUE','SUSPENDED')",
+                        + "WHERE billing_state IN ('CURRENT','PAST_DUE','SUSPENDED') "
+                        + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')",
                 UUID.class);
         int evaluated = 0;
         for (UUID tenantId : tenantIds) {
@@ -169,34 +198,25 @@ public class BillingStateService {
     // Helpers
     // ============================================================
 
-    private Map<String, Object> findSubscription(UUID tenantId) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT billing_state FROM tenant_subscriptions WHERE tenant_id = ?",
-                tenantId);
-        return rows.isEmpty() ? null : rows.get(0);
-    }
-
-    private long countOverdueInvoices(UUID tenantId, long graceHours) {
+    /**
+     * R0C-10: overdue counting is scoped to the subscription's own invoices.
+     */
+    private long countOverdueInvoices(UUID subscriptionId, long graceHours) {
         Instant threshold = Instant.now().minusSeconds(graceHours * 3600L);
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM billing_invoices "
-                        + "WHERE tenant_id = ? AND status = 'OPEN' AND due_at < ?",
-                Long.class, tenantId, Timestamp.from(threshold));
+                        + "WHERE subscription_id = ? AND status = 'OPEN' AND due_at < ?",
+                Long.class, subscriptionId, Timestamp.from(threshold));
         return count == null ? 0L : count;
     }
 
-    private void applyTransition(UUID tenantId, String fromState, String toState) {
+    private void applyTransition(SubscriptionResolutionService.EffectiveSubscription sub,
+                                 String toState) {
+        String fromState = sub.billingState();
         if (fromState.equals(toState)) return;
 
-        // R0C-7: resolve the subscription and map the billing target state to
-        // the canonical lifecycle command that owns the status transition.
-        Map<String, Object> sub = jdbc.queryForList(
-                "SELECT id, status FROM tenant_subscriptions WHERE tenant_id = ?", tenantId)
-                .stream().findFirst().orElse(null);
-        if (sub == null) return;
-
-        UUID subscriptionId = (UUID) sub.get("id");
-        String status = (String) sub.get("status");
+        UUID subscriptionId = sub.id();
+        String status = sub.status();
 
         String command = switch (toState) {
             case "PAST_DUE" -> "MARK_PAST_DUE";
@@ -220,16 +240,17 @@ public class BillingStateService {
         if (status.equals(targetStatus)) {
             // The lifecycle status already reflects the target — update the
             // billing state alone; the pair stays consistent.
+            // R0C-10: the write targets the subscription id (never tenant-wide).
             jdbc.update(
-                    "UPDATE tenant_subscriptions SET billing_state = ?, updated_at = ? WHERE tenant_id = ?",
-                    toState, Timestamp.from(Instant.now()), tenantId);
+                    "UPDATE tenant_subscriptions SET billing_state = ?, updated_at = ? WHERE id = ?",
+                    toState, Timestamp.from(Instant.now()), subscriptionId);
         } else if (SubscriptionLifecycle.isLegal(command, status)) {
             // billing_state + canonical lifecycle transition commit (or roll
             // back) as ONE unit — a failure in the status write rolls the
             // billing_state write back with it.
             jdbc.update(
-                    "UPDATE tenant_subscriptions SET billing_state = ?, updated_at = ? WHERE tenant_id = ?",
-                    toState, Timestamp.from(Instant.now()), tenantId);
+                    "UPDATE tenant_subscriptions SET billing_state = ?, updated_at = ? WHERE id = ?",
+                    toState, Timestamp.from(Instant.now()), subscriptionId);
             commandService.applyCanonicalTransition(subscriptionId, command,
                     "Billing state " + fromState + " -> " + toState, null, null);
         } else {
@@ -242,9 +263,9 @@ public class BillingStateService {
         }
 
         try {
-            auditService.success(null, tenantId,
+            auditService.success(null, sub.tenantId(),
                     "SUBSCRIPTION.BILLING_STATE.CHANGED", "TENANT_SUBSCRIPTION",
-                    tenantId.toString(),
+                    subscriptionId.toString(),
                     "from=" + fromState + ",to=" + toState, fromState, toState);
         } catch (Exception ignored) {
             // audit failure must not break the state machine
