@@ -74,7 +74,10 @@ jobs:
   test:
     name: Maven Test Suite
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # R0C-12 §22 adaptation: synced from main (748e2c60, commit 9f4ad46c
+    # "ci: extend Maven suite timeout for full verification") — the full
+    # SCP suite needs the extended job window; proven 66.3 min on main.
+    timeout-minutes: 120
 
     services:
       postgres:
