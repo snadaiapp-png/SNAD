@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -125,11 +126,15 @@ public class WorkflowGraphExecutionService {
                         "Transition target step missing: " + selected.toStepId()));
 
         // Complete the current step instance (PENDING -> IN_PROGRESS -> COMPLETED
-        // mirrors the legacy lifecycle semantics), then move the pointer.
+        // mirrors the legacy lifecycle semantics), then move the pointer. Re-issued
+        // commands (e.g. routing back through a fork) must not re-complete a
+        // terminal step instance.
         WorkflowStepInstance started = current.status() == WorkflowStepInstance.Status.PENDING
                 ? stepInstanceRepo.save(current.start())
                 : current;
-        stepInstanceRepo.save(started.complete("Advanced via " + selected.transitionKey()));
+        if (started.status() != WorkflowStepInstance.Status.COMPLETED) {
+            stepInstanceRepo.save(started.complete("Advanced via " + selected.transitionKey()));
+        }
 
         WorkflowInstance updated = instance.advanceToStep(nextStep.stepKey());
 
@@ -141,7 +146,10 @@ public class WorkflowGraphExecutionService {
         }
 
         if (nextStep.stepType() == WorkflowStep.StepType.PARALLEL_JOIN) {
-            return arriveAtJoin(tenantId, updated, nextStep, null);
+            // Persist the pointer move BEFORE join handling: arrival mutates the instance
+            // again (park-at-fork on wait, advance on grant), and the optimistic lock
+            // protocol requires one persisted bump per mutation.
+            return arriveAtJoin(tenantId, instanceRepo.save(updated), nextStep, selected.fromStepId());
         }
 
         if (nextStep.stepType() == WorkflowStep.StepType.CALL_WORKFLOW) {
@@ -249,14 +257,99 @@ public class WorkflowGraphExecutionService {
     // ===== Controlled parallelism (R3) =====
 
     /**
+     * Resolves the PARALLEL_JOIN step reachable from a branch's first step by a
+     * bounded BFS over the pinned definition's transitions; null when the branch
+     * chain never reaches a join.
+     */
+    private UUID resolveDownstreamJoinStepId(List<WorkflowTransition> transitions,
+                                             Map<UUID, WorkflowStep> stepsById, UUID fromStepId) {
+        java.util.Set<UUID> visited = new java.util.HashSet<>();
+        java.util.Deque<UUID> queue = new java.util.ArrayDeque<>();
+        queue.add(fromStepId);
+        while (!queue.isEmpty()) {
+            UUID id = queue.poll();
+            if (!visited.add(id)) continue;
+            WorkflowStep step = stepsById.get(id);
+            if (step == null) continue;
+            if (step.stepType() == WorkflowStep.StepType.PARALLEL_JOIN) return id;
+            for (WorkflowTransition t : transitions) {
+                if (t.fromStepId().equals(id)) queue.add(t.toStepId());
+            }
+        }
+        return null;
+    }
+
+    private Map<UUID, WorkflowStep> stepsById(UUID definitionVersionId) {
+        return definitionRepo.findSteps(definitionVersionId).stream()
+                .collect(java.util.stream.Collectors.toMap(WorkflowStep::id, s -> s));
+    }
+
+    /**
+     * Maps the arriving transition's source step back to its fork branch key by
+     * walking each fork's branch chains (bounded BFS, never traversing past the
+     * join itself); null when the arrival does not belong to a fork branch.
+     */
+    private String resolveArrivingBranchKey(UUID definitionVersionId, UUID joinStepId, UUID arrivingFromStepId) {
+        List<WorkflowTransition> transitions = definitionRepo.findTransitions(definitionVersionId);
+        for (WorkflowStep fork : definitionRepo.findSteps(definitionVersionId)) {
+            if (fork.stepType() != WorkflowStep.StepType.PARALLEL_FORK) continue;
+            Map<UUID, String> owner = new java.util.HashMap<>();
+            java.util.Deque<UUID> queue = new java.util.ArrayDeque<>();
+            for (WorkflowTransition t : transitions) {
+                if (t.fromStepId().equals(fork.id())) {
+                    owner.putIfAbsent(t.toStepId(), t.transitionKey());
+                    queue.add(t.toStepId());
+                }
+            }
+            while (!queue.isEmpty()) {
+                UUID id = queue.poll();
+                if (id.equals(joinStepId)) continue;
+                for (WorkflowTransition t : transitions) {
+                    if (t.fromStepId().equals(id) && !owner.containsKey(t.toStepId())) {
+                        owner.put(t.toStepId(), owner.get(id));
+                        queue.add(t.toStepId());
+                    }
+                }
+            }
+            String key = owner.get(arrivingFromStepId);
+            if (key != null) return key;
+        }
+        return null;
+    }
+
+    /**
+     * Parks the instance pointer back on the fork step of a still-waiting join so
+     * the remaining branches stay commandable; falls back to the join itself when
+     * the fork cannot be resolved.
+     */
+    private WorkflowInstance parkAtFork(UUID tenantId, WorkflowInstance instance, UUID joinStepId) {
+        List<WorkflowBranchToken> tokens = branchTokenRepo.findByJoin(tenantId, instance.id(), joinStepId);
+        if (!tokens.isEmpty()) {
+            UUID forkStepInstanceId = tokens.get(0).forkStepInstanceId();
+            WorkflowStepInstance forkInstance = stepInstanceRepo.findByInstance(instance.id()).stream()
+                    .filter(si -> si.id().equals(forkStepInstanceId))
+                    .findFirst().orElse(null);
+            if (forkInstance != null) {
+                WorkflowStep forkStep = definitionRepo.findSteps(instance.definitionVersionId()).stream()
+                        .filter(s -> s.id().equals(forkInstance.workflowStepId()))
+                        .findFirst().orElse(null);
+                if (forkStep != null) {
+                    return instance.advanceToStep(forkStep.stepKey());
+                }
+            }
+        }
+        return instance;
+    }
+
+    /**
      * Opens one durable branch token per fork outgoing edge and creates each
      * branch's first step instance. Branch chains advance through their own
      * transitions; human branches are claimed and completed through their
      * WorkItems like any other step.
      */
     private WorkflowInstance openForkBranches(UUID tenantId, WorkflowInstance instance, WorkflowStep forkStep) {
-        List<WorkflowTransition> branches = definitionRepo
-                .findTransitions(instance.definitionVersionId()).stream()
+        List<WorkflowTransition> transitions = definitionRepo.findTransitions(instance.definitionVersionId());
+        List<WorkflowTransition> branches = transitions.stream()
                 .filter(t -> t.fromStepId().equals(forkStep.id()))
                 .sorted(java.util.Comparator.comparingInt(WorkflowTransition::priority).reversed())
                 .toList();
@@ -269,8 +362,12 @@ public class WorkflowGraphExecutionService {
                 .findFirst()
                 .orElseThrow();
         for (WorkflowTransition branch : branches) {
+            // T14-D1: the token's join_step_id MUST reference the PARALLEL_JOIN step the
+            // join runtime resolves tokens by (findByJoin on the join step id) — never the
+            // branch's first step, or the join can never observe its own branches.
             branchTokenRepo.insert(WorkflowBranchToken.create(tenantId, instance.id(),
-                    forkInstance.id(), branch.transitionKey(), branch.toStepId()));
+                    forkInstance.id(), branch.transitionKey(),
+                    resolveDownstreamJoinStepId(transitions, stepsById(instance.definitionVersionId()), branch.toStepId())));
         }
         // Branch step instances and their routing are minted when each branch's
         // first advance is commanded — the fork pointer only mints tokens.
@@ -324,13 +421,17 @@ public class WorkflowGraphExecutionService {
      * WorkflowParallelExecutionTest through {@link #grantJoinIfComplete}.
      */
     private WorkflowInstance arriveAtJoin(UUID tenantId, WorkflowInstance instance,
-                                          WorkflowStep joinStep, String arrivingBranchKey) {
+                                          WorkflowStep joinStep, UUID arrivingFromStepId) {
         WorkflowStepInstance joinInstance = stepInstanceRepo.findByInstance(instance.id()).stream()
                 .filter(si -> si.stepKey().equals(joinStep.stepKey()))
                 .findFirst()
                 .orElseGet(() -> stepInstanceRepo.save(WorkflowStepInstance.create(
                         tenantId, instance.id(), joinStep.id(), joinStep.stepKey(), null, null, null)));
 
+        // T14-D2: a REAL arrival must complete its own branch token — the arriving
+        // transition's source step identifies the fork branch that owns the chain.
+        String arrivingBranchKey = arrivingFromStepId == null ? null
+                : resolveArrivingBranchKey(instance.definitionVersionId(), joinStep.id(), arrivingFromStepId);
         if (arrivingBranchKey != null) {
             List<WorkflowBranchToken> forkTokens = branchTokenRepo.findByJoin(
                     tenantId, instance.id(), joinStep.id());
@@ -349,7 +450,10 @@ public class WorkflowGraphExecutionService {
         int expected = Math.max(all.size(), 1);
         long completed = all.stream().filter(t -> t.status() == WorkflowBranchToken.Status.COMPLETED).count();
         if (completed < expected) {
-            return instance;
+            // T14-D2: waiting arrival — park the pointer back on the fork so the remaining
+            // branches stay commandable, and PERSIST it (the previous code returned an
+            // unsaved instance, losing the pointer move entirely).
+            return instanceRepo.save(parkAtFork(tenantId, instance, joinStep.id()));
         }
 
         // Atomic grant: only one arrival's UPDATE may move the join out of PENDING.
@@ -431,7 +535,9 @@ public class WorkflowGraphExecutionService {
                 tenantId, parent.id(), child.id(), childDefinition.id());
         // WAIT_FOR_COMPLETION: the parent's CALL_WORKFLOW step stays PENDING;
         // child completion resumes the parent through the trigger/worker flow.
-        return parent;
+        // T14-D4: persist the parked pointer AT the call step — returning the advanced
+        // instance unsaved left the DB pointer on START with START already completed.
+        return instanceRepo.save(parent);
     }
 
     private void assertNoWorkflowCycle(UUID tenantId, WorkflowInstance parent, UUID childFamilyId) {
@@ -452,6 +558,12 @@ public class WorkflowGraphExecutionService {
             }
             cursor = ancestor.parentInstanceId();
             depth++;
+        }
+        // T14-D3: the bound must fail CLOSED — silently stopping the walk would permit
+        // cycles hidden deeper than the scan limit.
+        if (cursor != null) {
+            throw new IllegalStateException("Sub-workflow cycle guard depth limit reached for family "
+                    + childFamilyId + " (instance=" + parent.id() + ") — refusing fail-open resolution");
         }
     }
 
