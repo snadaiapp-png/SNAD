@@ -41,8 +41,10 @@ class PlatformApiCountTest {
      *  governance (2), executive read models (4), usage metering (2),
      *  all under /api/v1/executive = 746.
      *  + 4 R0C-11 product catalog runtime endpoints (GET /products, GET /products/{id},
-     *  POST /products, PUT /products/{id} — NO DELETE by design) = 750. */
-    private static final long EXPECTED_TOTAL_OPS = 750;
+     *  POST /products, PUT /products/{id} — NO DELETE by design) = 750.
+     *  + 1 R0C-12 design-contract detail alias (GET /subscriptions/{id} — additive,
+     *  same read model as /subscriptions/{id}/detail) = 751. */
+    private static final long EXPECTED_TOTAL_OPS = 751;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;
@@ -58,7 +60,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(79);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(80);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
