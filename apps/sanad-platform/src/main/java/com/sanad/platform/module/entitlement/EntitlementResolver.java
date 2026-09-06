@@ -4,6 +4,7 @@ import com.sanad.platform.module.registry.*;
 import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,6 +60,7 @@ public class EntitlementResolver {
     private final PlanModuleEntitlementRepository planModuleEntitlementRepository;
     private final SubscriptionResolutionService resolution;
 
+    @Autowired
     public EntitlementResolver(JdbcTemplate jdbc,
                                 ModuleRepository moduleRepository,
                                 ModuleCapabilityRepository moduleCapabilityRepository,

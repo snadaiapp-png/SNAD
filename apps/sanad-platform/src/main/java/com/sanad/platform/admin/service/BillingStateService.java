@@ -3,6 +3,7 @@ package com.sanad.platform.admin.service;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle;
 import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -89,6 +90,7 @@ public class BillingStateService {
     private final SubscriptionCommandService commandService;
     private final SubscriptionResolutionService resolution;
 
+    @Autowired
     public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
                                SubscriptionCommandService commandService,
                                SubscriptionResolutionService resolution) {
@@ -265,7 +267,7 @@ public class BillingStateService {
         try {
             auditService.success(null, sub.tenantId(),
                     "SUBSCRIPTION.BILLING_STATE.CHANGED", "TENANT_SUBSCRIPTION",
-                    subscriptionId.toString(),
+                    sub.tenantId().toString(),
                     "from=" + fromState + ",to=" + toState, fromState, toState);
         } catch (Exception ignored) {
             // audit failure must not break the state machine

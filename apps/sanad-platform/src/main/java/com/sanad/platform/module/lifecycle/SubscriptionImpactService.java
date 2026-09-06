@@ -4,6 +4,7 @@ import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.module.entitlement.ModuleCapabilityContext;
 import com.sanad.platform.module.registry.*;
 import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,7 @@ public class SubscriptionImpactService {
     private final JdbcTemplate jdbc;
     private final SubscriptionResolutionService resolution;
 
+    @Autowired
     public SubscriptionImpactService(EntitlementResolver entitlementResolver,
                                        ModuleRepository moduleRepository,
                                        ModuleCapabilityRepository moduleCapabilityRepository,
