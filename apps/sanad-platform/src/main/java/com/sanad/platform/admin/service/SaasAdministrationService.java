@@ -15,7 +15,9 @@ import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.UpdatePlanRequest;
 import com.sanad.platform.module.entitlement.SubscriptionEntitlementListener;
 import com.sanad.platform.subscription.change.SubscriptionChangeService;
+import com.sanad.platform.subscription.lifecycle.ExpiredSuccessorGate;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
+import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
@@ -64,19 +66,25 @@ public class SaasAdministrationService {
     private final BillingStateService billingStateService;
     private final SubscriptionChangeService changeService;
     private final SubscriptionCommandService commandService;
+    private final SubscriptionResolutionService resolution;
+    private final ExpiredSuccessorGate successorGate;
 
     @Autowired
     public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
                                      ApplicationEventPublisher eventPublisher,
                                      BillingStateService billingStateService,
                                      SubscriptionChangeService changeService,
-                                     SubscriptionCommandService commandService) {
+                                     SubscriptionCommandService commandService,
+                                     SubscriptionResolutionService resolution,
+                                     ExpiredSuccessorGate successorGate) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.eventPublisher = eventPublisher;
         this.billingStateService = billingStateService;
         this.changeService = changeService;
         this.commandService = commandService;
+        this.resolution = resolution;
+        this.successorGate = successorGate;
     }
 
     /**
@@ -93,7 +101,25 @@ public class SaasAdministrationService {
                 new SubscriptionChangeService(jdbcTemplate,
                         new SubscriptionItemRepository(jdbcTemplate),
                         new PriceResolver(new PriceRepository(jdbcTemplate))),
-                new SubscriptionCommandService(jdbcTemplate, auditService, eventPublisher));
+                new SubscriptionCommandService(jdbcTemplate, auditService, eventPublisher),
+                new SubscriptionResolutionService(jdbcTemplate),
+                new ExpiredSuccessorGate());
+    }
+
+    /**
+     * Backward-compatible constructor (tests) with explicit canonical
+     * collaborators: self-wires the R0C-10 authorities from the same
+     * JdbcTemplate.
+     */
+    public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
+                                     ApplicationEventPublisher eventPublisher,
+                                     BillingStateService billingStateService,
+                                     SubscriptionChangeService changeService,
+                                     SubscriptionCommandService commandService) {
+        this(jdbcTemplate, auditService, eventPublisher, billingStateService,
+                changeService, commandService,
+                new SubscriptionResolutionService(jdbcTemplate),
+                new ExpiredSuccessorGate());
     }
 
     /**
@@ -290,8 +316,39 @@ public class SaasAdministrationService {
             Authentication authentication
     ) {
         ensureTenant(request.tenantId());
-        if (count("SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ?", request.tenantId()) > 0) {
+        // R0C-10 MODEL_B creation guard (replaces the legacy all-history
+        // COUNT(*)-per-tenant guard). Decisions, in order:
+        //   1. effective subscription exists -> CONFLICT (unchanged contract);
+        //   2. no effective subscription, no history -> first creation;
+        //   3. latest historical state (deterministic created_at DESC, id DESC):
+        //      EXPIRED  -> gate OFF: legacy fail-closed rejection (R0C-9 dead
+        //                 end preserved bit-for-bit);
+        //                 gate ON: approved continuation — a NEW row is
+        //                 inserted through the existing creation contract with
+        //                 the trial FORCED OFF (no automatic second trial);
+        //                 the partial unique index is the concurrency backstop;
+        //      CANCELLED-> create-new rejected (resume is the sanctioned path);
+        //      TERMINATED-> re-subscription deferred (fail closed).
+        if (resolution.hasEffectiveSubscription(request.tenantId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
+        }
+        boolean successorCreation = false;
+        SubscriptionResolutionService.HistoricalSubscription latest =
+                resolution.findLatestHistorical(request.tenantId()).orElse(null);
+        if (latest != null) {
+            switch (latest.status()) {
+                case "EXPIRED" -> {
+                    if (!successorGate.isEnabled()) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
+                    }
+                    successorCreation = true;
+                }
+                case "CANCELLED" -> throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Tenant has a CANCELLED subscription; resume it instead of creating a new subscription");
+                case "TERMINATED" -> throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Re-subscription after TERMINATED is deferred");
+                default -> throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
+            }
         }
         PlanResponse plan = activePlan(request.planId());
         // R0C-4: canonical target version resolution — fail closed BEFORE any
@@ -300,21 +357,36 @@ public class SaasAdministrationService {
         String billingCycle = normalizeCycle(request.billingCycle());
         validateUsageAgainstPlan(request.tenantId(), request.seatQuantity(), plan);
 
-        int trialDays = request.trialDays() == null ? plan.trialDays() : request.trialDays();
+        // R0C-10 Task E: an EXPIRED successor NEVER silently receives another
+        // trial — the trial decision is forced off for the continuation path,
+        // regardless of plan default or request payload. Trial grants for
+        // successors as a manual/product policy are deferred (out of scope).
+        int trialDays = successorCreation ? 0
+                : (request.trialDays() == null ? plan.trialDays() : request.trialDays());
         Instant now = Instant.now();
         Instant trialEndsAt = trialDays > 0 ? now.plus(Duration.ofDays(trialDays)) : null;
         Instant periodEnd = trialEndsAt != null ? trialEndsAt : nextPeriod(now, billingCycle);
         String status = trialEndsAt == null ? "ACTIVE" : "TRIALING";
         UUID id = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO tenant_subscriptions "
-                        + "(id, tenant_id, plan_id, plan_version_id, pending_plan_id, status, billing_cycle, pending_billing_cycle, "
-                        + "seat_quantity, credit_balance_minor, started_at, trial_ends_at, current_period_start, "
-                        + "current_period_end, cancel_at_period_end, cancelled_at, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, 0, ?, ?, ?, ?, FALSE, NULL, ?, ?)",
-                id, request.tenantId(), request.planId(), planVersionId, status, billingCycle, request.seatQuantity(),
-                Timestamp.from(now), trialEndsAt == null ? null : Timestamp.from(trialEndsAt),
-                Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), Timestamp.from(now));
+        try {
+            jdbcTemplate.update(
+                    "INSERT INTO tenant_subscriptions "
+                            + "(id, tenant_id, plan_id, plan_version_id, pending_plan_id, status, billing_cycle, pending_billing_cycle, "
+                            + "seat_quantity, credit_balance_minor, started_at, trial_ends_at, current_period_start, "
+                            + "current_period_end, cancel_at_period_end, cancelled_at, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, 0, ?, ?, ?, ?, FALSE, NULL, ?, ?)",
+                    id, request.tenantId(), request.planId(), planVersionId, status, billingCycle, request.seatQuantity(),
+                    Timestamp.from(now), trialEndsAt == null ? null : Timestamp.from(trialEndsAt),
+                    Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), Timestamp.from(now));
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // R0C-10 Task J: the partial unique index
+            // uk_tenant_subscriptions_effective is the final concurrency
+            // backstop. A lost creation race is translated into the
+            // repository-standard deterministic domain outcome — the same
+            // CONFLICT a sequential caller would receive. No raw PostgreSQL
+            // constraint details leak to API consumers.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
+        }
         // R0C-4: canonical birth of the initial ACTIVE PLAN item — every
         // subscription is born inside the canonical composition model.
         changeService.insertInitialPlanItem(id, request.tenantId(), request.planId(), planVersionId,
@@ -499,6 +571,13 @@ public class SaasAdministrationService {
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, updated_at = ? WHERE id = ?",
                     Timestamp.from(now), subscriptionId);
         } else {
+            // R0C-10 Task F: CANCELLED resume keeps the R0C-7 revival contract
+            // ONLY while no effective successor exists — a cancelled row may
+            // never resurrect alongside the tenant's effective subscription.
+            if (resolution.hasEffectiveSubscription(before.tenantId())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "An effective subscription already exists for this tenant; the CANCELLED subscription cannot be resumed");
+            }
             PlanResponse plan = activePlan(before.planId());
             validateUsageAgainstPlan(before.tenantId(), before.seatQuantity(), plan);
             Instant periodEnd = nextPeriod(now, before.billingCycle());
