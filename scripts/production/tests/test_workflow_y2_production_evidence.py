@@ -130,6 +130,7 @@ def passing_snapshot():
     repo_versions = ["1", "2", "3", "4", "9", "15", *Y2_VERSIONS]
     return {
         "mainSha": "deadbeef",
+        "databaseReadOnly": True,
         "renderEnv": [{"key": key, "present": True} for key in EXPECTED_ENV_KEYS],
         "repositoryVersions": repo_versions,
         "dbHistory": [
@@ -376,6 +377,24 @@ class WorkflowY2EvidenceBehaviorTest(unittest.TestCase):
         for needle in forbidden:
             with self.subTest(needle=needle):
                 self.assertNotIn(needle, source)
+
+    def test_database_read_only_false_fails_closed(self):
+        def mutate(snapshot):
+            snapshot["databaseReadOnly"] = False
+
+        result = self.evaluate(mutate)
+        self.assertFalse(result["database"]["readOnly"])
+        self.assertEqual("FAIL", result["database"]["status"])
+        self.assertEqual("FAIL", result["result"])
+
+    def test_database_read_only_missing_fails_closed(self):
+        def mutate(snapshot):
+            snapshot.pop("databaseReadOnly")
+
+        result = self.evaluate(mutate)
+        self.assertFalse(result["database"]["readOnly"])
+        self.assertEqual("FAIL", result["database"]["status"])
+        self.assertEqual("FAIL", result["result"])
 
 
 if __name__ == "__main__":
