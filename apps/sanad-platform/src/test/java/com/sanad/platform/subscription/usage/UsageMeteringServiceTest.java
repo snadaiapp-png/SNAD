@@ -298,6 +298,8 @@ class UsageMeteringServiceTest {
         long jdbcCalls = org.mockito.Mockito.mockingDetails(jdbc).getInvocations().size();
         assertThat(jdbcCalls).as("jdbc interactions must stay bounded (metrics + aggregates + limits)")
                 .isLessThanOrEqualTo(4);
+        // FORCE-RLS contract: the batched read scopes the transaction to the tenant
+        verify(tenantRlsContext).applyForCurrentTransaction(TENANT_ID);
     }
 
     @Test
