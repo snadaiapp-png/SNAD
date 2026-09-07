@@ -15,6 +15,52 @@ import type {
   TaskStatus,
 } from "../../lib/execution";
 
+// ── G0 Closure Reconciliation (authoritative, documented-state-bound) ────
+
+/**
+ * HR-G0 engineering closure — authoritative reconciliation block.
+ *
+ * G0 (Foundation) was implemented by PR #914 and MERGED into main at
+ * commit 748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b. The static roadmap
+ * constants below previously reported G0 as NOT_STARTED — a false
+ * statement contradicted by repository reality (see regression test
+ * `hr-g0-closure-state.regression.test.ts`, which binds this file to
+ * the documented certificate and fails if the two drift apart).
+ *
+ * Separation of concerns (per the G0 reconciliation directive):
+ *   - Roadmap definition  : HR_GROUP_DATA / HR_TASKS (below)
+ *   - Execution status    : statuses below, reconciled to documented state
+ *   - Evidence            : docs/hrm/g0/evidence/ (certificate + WS records)
+ *   - Certification       : HR_G0_CLOSURE here — engineering vs legal are
+ *                           SEPARATE gates and must never be conflated.
+ *
+ * Claim discipline: this block intentionally does NOT claim
+ * PRODUCTION_READY, PRODUCTION_CERTIFIED, or SAUDI_LEGAL_COMPLIANT.
+ * No such independent gates exist.
+ */
+export const HR_G0_CLOSURE = {
+  /** Authoritative implementation state of G0. */
+  implementation: "DONE" as GroupStatus,
+  /** PR #914 merge commit (ancestor of main — verified by reconciliation). */
+  mergeSha: "748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b",
+  /** Documented engineering certificate backing this state. */
+  certificatePath: "docs/hrm/g0/evidence/HRM-G0-FINAL-ENGINEERING-CLOSURE.md",
+  /** Engineering certification — PENDING until the human review of the
+   *  closure certificate approves it. NOT auto-approved by this code. */
+  engineeringCertification: "PENDING" as "PENDING" | "APPROVED" | "REJECTED",
+  /** Legal certification is an INDEPENDENT human gate — always separate
+   *  from engineering completion. Blocked pending human legal review. */
+  legalCertification: "BLOCKED" as "BLOCKED" | "PENDING" | "APPROVED",
+  /** Saudi Country Pack remains DRAFT absent independent human evidence. */
+  saCountryPack: "DRAFT" as "DRAFT" | "ACTIVE" | "CERTIFIED",
+  /** Production authorization does not exist for G0. */
+  productionAuthorization: "NO" as const,
+  /** Historical execution record (never deleted, superseded by current). */
+  historicalRecord:
+    "PR #914 executed pre-merge as DRAFT with pinned verification runs; " +
+    "the execution records under docs/hrm/g0/evidence/ preserve that history verbatim.",
+} as const;
+
 // ── HR-Specific Task Type ────────────────────────────────────────────────
 
 /**
@@ -54,7 +100,8 @@ export const HR_GROUP_DATA = [
     titleEn: "Foundation: Employee Records & Org Structure",
     purposeAr: "تأسيس نظام الموظفين مع السجلات الأساسية والهيكل التنظيمي.",
     purposeEn: "Establish the employee system with core records and organizational structure.",
-    status: "NOT_STARTED" as GroupStatus,
+    // Reconciled: G0 implementation merged via PR #914 (748e2c60). See HR_G0_CLOSURE.
+    status: "DONE" as GroupStatus,
     dependencies: [],
     canParallelizeWith: [],
     stageReport: null,
@@ -130,7 +177,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Employees table with core fields: name, employee ID, department, position, hire date",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    // Reconciled: delivered by merged G0 (hr_employees + canonical people/identity migrations).
+    status: "DONE" as TaskStatus,
     dependencies: [],
     acceptanceCriteriaAr: "جدول employees يحتوي جميع الحقول الأساسية مع tenant_id",
     implementationNotesAr: "يتطلب UUID للمعرّف وقيود فريدة على الرقم الوظيفي",
@@ -145,7 +193,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "org_units table for departments and divisions with hierarchy relationships",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    // Reconciled: delivered by merged G0 (hr_org_units + versioned structure).
+    status: "DONE" as TaskStatus,
     dependencies: ["G0-T01"],
     acceptanceCriteriaAr: "جدول org_units مع دعم الشجرة الهرمية (parent_id)",
     implementationNotesAr: "استخدام recursive CTE لل querying",
@@ -160,7 +209,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Employee list page with search, filter, and add new employee",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    // Reconciled: delivered by merged G0 (/hr/employees Employee Directory).
+    status: "DONE" as TaskStatus,
     dependencies: ["G0-T01"],
     acceptanceCriteriaAr: "قائمة الموظفين تعرض جميع السجلات مع البحث والتصفية",
     implementationNotesAr: "استخدام جدول بيانات مع pagination",
@@ -175,7 +225,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Employee profile page with all personal data and employment history",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    // Reconciled: delivered by merged G0 (/hr/employees/[employmentId] Employee 360).
+    status: "DONE" as TaskStatus,
     dependencies: ["G0-T03"],
     acceptanceCriteriaAr: "ملف الموظف يعرض جميع البيانات الشخصية والوظيفية",
     implementationNotesAr: "تخطيط شريط جانبي مع تبويبات",
@@ -190,7 +241,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Automatic org chart rendering based on org_units data",
     type: "Frontend",
     priority: "Medium",
-    status: "NOT_STARTED",
+    // Reconciled: delivered by merged G0 (/hr/org-structure asOf tree).
+    status: "DONE" as TaskStatus,
     dependencies: ["G0-T02"],
     acceptanceCriteriaAr: "المخطط التنظيمي يعرض جميع الأقسام بشكل شجري",
     implementationNotesAr: "استخدام مكتبة رسم شجرة",

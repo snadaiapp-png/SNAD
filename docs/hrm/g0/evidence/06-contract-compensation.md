@@ -1,5 +1,23 @@
 # HRM-G0 — WS6 Contract & Compensation Foundation Verification Evidence
 
+```
+CURRENT AUTHORITATIVE STATE
+---------------------------
+HRM_G0_PR_914 = MERGED
+HRM_G0_MERGE_SHA = 748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b
+HRM_G0_IS_ANCESTOR_OF_MAIN = YES
+PAYROLL_ACCOUNTING_BOUNDARY = INTACT (no payroll implementation in G0)
+PRODUCTION_AUTHORIZATION = NO
+```
+
+```
+HISTORICAL EXECUTION RECORD
+---------------------------
+The header below reflects the state at the time this evidence was
+produced (pre-merge). It is preserved verbatim as history and is
+superseded by the CURRENT AUTHORITATIVE STATE block above.
+```
+
 Task: WS6 Task 5 — WS6 verification gate
 Directive: SNAD HRM-G0 MASTER MODULE COMPLETION & FINAL CLOSURE DIRECTIVE (Phase B)
 Branch: `feat/hrm-g0-foundation` (PR #914 — OPEN / DRAFT / UNMERGED)

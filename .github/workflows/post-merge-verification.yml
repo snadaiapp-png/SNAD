@@ -3,9 +3,47 @@ name: Post-Merge Main Verification
 # ============================================================
 # SNAD Platform — Post-Merge Verification on main branch
 # ------------------------------------------------------------
-# Dependency-aware collect-all verification. Repository checks record
+# v20260907.1 (HRM-G0 reconciliation — CI governance remediation):
+# Redesigned from one 642-line monolithic job into the directive's
+# verification chain. A single monolithic job had to absorb the whole
+# Maven suite duration (measured ~60 min; run #3215 was killed by a
+# 60-minute ceiling; the ceiling was raised to 120) — parallel,
+# independent jobs prevent one monolithic job from swallowing the
+# full-suite duration and keep evidence granular.
+#
+#   JOB A  frontend-verification           — deps, lint, typecheck,
+#                                            unit tests, production build,
+#                                            frontend operational smoke
+#   JOB B  backend-compile                 — deps resolution, compile,
+#                                            test-compile
+#   JOB C  postgres-direct-integration     — HOST-NATIVE PostgreSQL
+#                                            (no containers), full Maven
+#                                            suite, least-privilege role
+#                                            contract proof, backend
+#                                            operational smoke
+#   JOB D  hrm-focused-security-rls       — HRM-focused suite (RLS,
+#                                            tenant isolation, RBAC,
+#                                            audit/outbox, idempotency,
+#                                            IAM boundary, contracts)
+#   JOB E  security-governance-scans      — secret scan, workflow
+#                                            security, SDS/logo/brand/
+#                                            i18n/performance governance
+#   JOB F  final-evidence-aggregation     — assemble the truthful
+#                                            collect-all manifest from
+#                                            per-job fragments and close
+#                                            the fail-closed gate via
+#                                            scripts/ci/validate_post_merge_evidence.py
+#
+# PostgreSQL rule (non-negotiable): `services: postgres:` containers are
+# FORBIDDEN. Jobs B/C/D prove host-native availability with
+# `psql --version` + `pg_isready`; absence is a hard
+# ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (fail closed) —
+# never a Docker fallback.
+#
+# Dependency-aware collect-all verification is preserved: checks record
 # their real outcomes without hiding independent later checks. Evidence
-# is always emitted; the final gate is the only closure authority.
+# is always emitted (fragments + artifacts, if: always()); the final
+# gate (JOB F + validator) is the only closure authority.
 # ============================================================
 
 on:
@@ -21,107 +59,45 @@ concurrency:
   group: post-merge-verification-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+  SPRING_DATASOURCE_USERNAME: sanad
+  SPRING_DATASOURCE_PASSWORD: sanad_pass
+  SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+
 jobs:
-  verify-main:
-    name: Post-Merge Verification
+  # ============================================================
+  # JOB A — Frontend verification
+  # ============================================================
+  frontend-verification:
+    name: "JOB A — Frontend verification"
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres_pass
-          POSTGRES_DB: sanad
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d sanad"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-    env:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
-      SPRING_DATASOURCE_USERNAME: sanad
-      SPRING_DATASOURCE_PASSWORD: sanad_pass
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_PROFILES_ACTIVE: default
-      FLYWAY_ENABLED: 'true'
-      FLYWAY_BASELINE_ON_MIGRATE: 'true'
-      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
-      JPA_DDL_AUTO: validate
-      PGPASSWORD: postgres_pass
+    timeout-minutes: 40
 
     steps:
-      - name: Record start metadata
-        id: metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "start_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          echo "=== Post-Merge Verification Started ==="
-          echo "Exact Main SHA: ${{ github.sha }}"
-          echo "Trigger: ${{ github.event_name }}"
-          echo "Run ID: ${{ github.run_id }}"
-          echo "Actor: ${{ github.actor }}"
-
       - name: Checkout exact main SHA
-        id: checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up Node.js 24
-        id: setup-node
         uses: actions/setup-node@v6
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
-      - name: Set up Java 21
-        id: setup-java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Set up Maven
-        id: setup-maven
-        uses: stCarolas/setup-maven@v5
-        with:
-          maven-version: 3.9.9
-
-      - name: Initialize fail-closed evidence placeholders
-        id: evidence-placeholders
+      - name: Initialize fail-closed frontend smoke placeholders
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
           : > "$RUNNER_TEMP/vitest.log"
-          : > "$RUNNER_TEMP/backend.log"
           : > "$RUNNER_TEMP/frontend.log"
           printf '%s\n' '<html>NOT_AVAILABLE</html>' > "$RUNNER_TEMP/frontend-auth.html"
-          cat > "$RUNNER_TEMP/backend-health.json" <<'JSON'
-          {"status":"NOT_AVAILABLE"}
-          JSON
-          cat > "$RUNNER_TEMP/backend-smoke-metadata.json" <<'JSON'
-          {"applicationPort":8081,"managementPort":8082,"healthUrl":"http://127.0.0.1:8082/actuator/health","processStarted":false,"httpStatus":0,"healthStatus":"NOT_AVAILABLE","result":"FAIL","failureType":"PREREQUISITE_FAILED"}
-          JSON
-          cat > "$RUNNER_TEMP/frontend-smoke-metadata.json" <<'JSON'
-          {"url":"http://127.0.0.1:3001/","port":3001,"processStarted":false,"httpStatus":0,"brandNamePresent":false,"result":"FAIL","failureType":"PREREQUISITE_FAILED"}
-          JSON
-          cat > "$RUNNER_TEMP/secret-scan-report.json" <<JSON
-          {"result":"FAIL","findingsCount":0,"scanErrors":["PREREQUISITE_FAILED"],"commitSha":"${{ github.sha }}","workflowRunId":"${{ github.run_id }}"}
-          JSON
-          cat > "$RUNNER_TEMP/verification-manifest.json" <<JSON
-          {"verificationType":"post-merge-main","exactMainSha":"${{ github.sha }}","workflowRunId":"${{ github.run_id }}","result":"FAIL","failedGate":"manifest-not-generated","checks":{},"passedChecks":[],"failedChecks":[],"skippedChecks":[],"cancelledChecks":[],"missingChecks":[],"criticalFailures":["manifest-not-generated"]}
-          JSON
+          printf '%s\n' '{"url":"http://127.0.0.1:3001/","port":3001,"processStarted":false,"httpStatus":0,"brandNamePresent":false,"result":"FAIL","failureType":"PREREQUISITE_FAILED"}' > "$RUNNER_TEMP/frontend-smoke-metadata.json"
 
-      # === Clean dependency installation ===
       - name: Frontend dependencies
         id: frontend-deps
         if: ${{ !cancelled() }}
@@ -132,17 +108,6 @@ jobs:
           set -euo pipefail
           npm ci
 
-      - name: Backend dependencies
-        id: backend-deps
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        working-directory: apps/sanad-platform
-        run: |
-          set -euo pipefail
-          mvn --batch-mode --no-transfer-progress dependency:go-offline
-
-      # === Frontend checks ===
       - name: Frontend lint
         id: frontend-lint
         if: ${{ !cancelled() && steps.frontend-deps.outcome == 'success' }}
@@ -182,243 +147,6 @@ jobs:
         run: |
           set -euo pipefail
           npm run build
-
-      # === Brand governance ===
-      - name: SDS compliance check
-        id: sds-compliance
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check-design-system-compliance.py
-
-      - name: Logo governance check
-        id: logo-governance
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check-logo-governance.py
-
-      - name: Brand name governance check
-        id: brand-name
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check-brand-name-governance.py
-
-      - name: i18n key parity check
-        id: i18n-keys
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check_i18n_keys.py
-
-      - name: Performance budget check
-        id: performance-budget
-        if: ${{ !cancelled() && steps.frontend-build.outcome == 'success' }}
-        continue-on-error: true
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check-performance-budget.py
-
-      # === Backend prerequisites and checks ===
-      - name: Provision least-privilege application role
-        id: provision-db
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
-            END IF;
-          END $$;
-          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-          ALTER DATABASE sanad OWNER TO sanad;
-          SELECT 'CREATE DATABASE test_migration OWNER sanad'
-          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
-          GRANT CONNECT ON DATABASE postgres TO sanad;
-          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
-          \c test_migration
-          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
-          \c sanad
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
-              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
-            END IF;
-          END $$;
-          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-          SQL
-
-      - name: Assert least-privilege role contract
-        id: db-role-contract
-        if: ${{ !cancelled() && steps.provision-db.outcome == 'success' }}
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          psql -h 127.0.0.1 -U postgres -d sanad --no-psqlrc --set=ON_ERROR_STOP=1 \
-            --tuples-only --no-align --command="
-              SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin, rolbypassrls
-              FROM pg_roles
-              WHERE rolname IN ('sanad','crm_contact_rls_test_user')
-              ORDER BY rolname;
-            " > /tmp/role-contract.txt
-          sanad_line=$(grep '^sanad' /tmp/role-contract.txt)
-          echo "$sanad_line" | awk -F'|' '{
-            if ($2 != "f") exit 1
-            if ($3 != "f") exit 1
-            if ($4 != "f") exit 1
-            if ($5 != "t") exit 1
-            if ($6 != "f") exit 1
-          }'
-          rls_line=$(grep '^crm_contact_rls_test_user' /tmp/role-contract.txt)
-          echo "$rls_line" | awk -F'|' '{
-            if ($2 != "f") exit 1
-            if ($3 != "f") exit 1
-            if ($4 != "f") exit 1
-            if ($6 != "f") exit 1
-          }'
-          echo "POST_MERGE_DB_ROLE_CONTRACT=PASS"
-
-      - name: Generate ephemeral CRM encryption key
-        id: crm-key
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          key="$(openssl rand -base64 32 | tr -d '\n')"
-          test -n "$key"
-          echo "::add-mask::$key"
-          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
-
-      - name: Backend compile
-        id: backend-compile
-        if: ${{ !cancelled() && steps.backend-deps.outcome == 'success' }}
-        continue-on-error: true
-        shell: bash
-        working-directory: apps/sanad-platform
-        run: |
-          set -euo pipefail
-          mvn --batch-mode --no-transfer-progress compile
-
-      - name: Backend unit tests
-        id: backend-tests
-        if: ${{ !cancelled() && steps.backend-deps.outcome == 'success' && steps.provision-db.outcome == 'success' && steps.db-role-contract.outcome == 'success' && steps.crm-key.outcome == 'success' && steps.backend-compile.outcome == 'success' }}
-        continue-on-error: true
-        shell: bash
-        working-directory: apps/sanad-platform
-        env:
-          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
-        run: |
-          set -euo pipefail
-          mvn --batch-mode --no-transfer-progress test
-
-      # === Security validation — independent lane ===
-      - name: Workflow security validation
-        id: workflow-security
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          test -f scripts/ci/check_workflow_security.py
-          python3 scripts/ci/check_workflow_security.py
-
-      - name: Secret scanning
-        id: secret-scan
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          echo "Running secret scan..."
-          test -f scripts/ci/scan_secrets.py
-          python3 -m py_compile scripts/ci/scan_secrets.py
-          python3 scripts/ci/scan_secrets.py \
-            --repository-root . \
-            --report "$RUNNER_TEMP/secret-scan-report.json" \
-            --commit-sha "${{ github.sha }}" \
-            --workflow-run-id "${{ github.run_id }}"
-
-      # === Operational smoke tests — independent from test/lint failures ===
-      - name: Smoke test — Backend health (operational)
-        id: smoke-backend
-        if: ${{ !cancelled() && steps.backend-deps.outcome == 'success' && steps.provision-db.outcome == 'success' && steps.db-role-contract.outcome == 'success' && steps.crm-key.outcome == 'success' && steps.backend-compile.outcome == 'success' }}
-        continue-on-error: true
-        shell: bash
-        working-directory: apps/sanad-platform
-        run: |
-          set -euo pipefail
-          : > "$RUNNER_TEMP/backend.log"
-          printf '%s\n' '{"status":"NOT_AVAILABLE"}' > "$RUNNER_TEMP/backend-health.json"
-          printf '%s\n' '{"applicationPort":8081,"managementPort":8082,"healthUrl":"http://127.0.0.1:8082/actuator/health","processStarted":false,"httpStatus":0,"healthStatus":"NOT_AVAILABLE","result":"FAIL","failureType":"NOT_COMPLETED"}' > "$RUNNER_TEMP/backend-smoke-metadata.json"
-
-          cleanup_backend() {
-            kill "$BACKEND_PID" 2>/dev/null || true
-            wait "$BACKEND_PID" 2>/dev/null || true
-          }
-          trap cleanup_backend EXIT
-
-          SPRING_PROFILES_ACTIVE=local \
-            SERVER_PORT=8081 \
-            MANAGEMENT_SERVER_PORT=8082 \
-            CRM_CUSTOM_FIELD_ENCRYPTION_KEY="${CRM_CUSTOM_FIELD_ENCRYPTION_KEY}" \
-            mvn --batch-mode --no-transfer-progress spring-boot:run \
-            > "$RUNNER_TEMP/backend.log" 2>&1 &
-          BACKEND_PID=$!
-
-          BACKEND_READY=false
-          for i in $(seq 1 60); do
-            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
-              echo "::error::Backend process terminated before readiness (PROCESS_EXITED)"
-              tail -200 "$RUNNER_TEMP/backend.log" || true
-              exit 1
-            fi
-            if curl --fail --silent --show-error http://127.0.0.1:8082/actuator/health > /dev/null 2>&1; then
-              BACKEND_READY=true
-              break
-            fi
-            sleep 3
-          done
-          if [ "$BACKEND_READY" != "true" ]; then
-            echo "::error::Backend did not become ready within 180s (STARTUP_TIMEOUT)"
-            tail -200 "$RUNNER_TEMP/backend.log" || true
-            exit 1
-          fi
-
-          HTTP_STATUS="$(curl --silent --show-error \
-            --output "$RUNNER_TEMP/backend-health.json" \
-            --write-out '%{http_code}' \
-            http://127.0.0.1:8082/actuator/health)"
-
-          python3 "${{ github.workspace }}/scripts/ci/validate_backend_smoke.py" \
-            --health-file "$RUNNER_TEMP/backend-health.json" \
-            --metadata-file "$RUNNER_TEMP/backend-smoke-metadata.json" \
-            --http-status "$HTTP_STATUS" \
-            --application-port 8081 \
-            --management-port 8082 \
-            --health-url "http://127.0.0.1:8082/actuator/health"
 
       - name: Smoke test — Frontend auth entry route (operational)
         id: smoke-frontend
@@ -475,40 +203,818 @@ jobs:
             --url "$FRONTEND_SMOKE_URL" \
             --port 3001
 
-      # === Truthful collect-all manifest ===
+      - name: Emit outcome fragment
+        id: fragment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<PY
+          import json
+          fragment = {
+              'frontend_deps': '${{ steps.frontend-deps.outcome }}',
+              'frontend_lint': '${{ steps.frontend-lint.outcome }}',
+              'frontend_typecheck': '${{ steps.frontend-typecheck.outcome }}',
+              'frontend_tests': '${{ steps.frontend-tests.outcome }}',
+              'frontend_build': '${{ steps.frontend-build.outcome }}',
+              'smoke_frontend': '${{ steps.smoke-frontend.outcome }}',
+          }
+          with open('$RUNNER_TEMP/pmv-fragment.json', 'w') as f:
+              json.dump(fragment, f, indent=2)
+          print(json.dumps(fragment, indent=2))
+          PY
+
+      - name: Upload outcome fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmv-fragment-frontend
+          path: ${{ runner.temp }}/pmv-fragment.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload vitest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/vitest.log
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload frontend smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-smoke-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/frontend.log
+            ${{ runner.temp }}/frontend-auth.html
+            ${{ runner.temp }}/frontend-smoke-metadata.json
+          if-no-files-found: error
+          retention-days: 90
+
+  # ============================================================
+  # JOB B — Backend compile (deps resolution + compile + test-compile)
+  # ============================================================
+  backend-compile:
+    name: "JOB B — Backend compile"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: 3.9.9
+
+      - name: Backend dependencies
+        id: backend-deps
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress dependency:go-offline
+
+      - name: Backend compile
+        id: backend-compile
+        if: ${{ !cancelled() && steps.backend-deps.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress compile
+
+      - name: Backend test-compile
+        id: backend-test-compile
+        if: ${{ !cancelled() && steps.backend-compile.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress test-compile -DskipTests
+
+      - name: Emit outcome fragment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<PY
+          import json
+          fragment = {
+              'backend_deps': '${{ steps.backend-deps.outcome }}',
+              'backend_compile': '${{ steps.backend-compile.outcome }}',
+          }
+          with open('$RUNNER_TEMP/pmv-fragment.json', 'w') as f:
+              json.dump(fragment, f, indent=2)
+          print(json.dumps(fragment, indent=2))
+          PY
+
+      - name: Upload outcome fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmv-fragment-backend-compile
+          path: ${{ runner.temp }}/pmv-fragment.json
+          if-no-files-found: error
+          retention-days: 90
+
+  # ============================================================
+  # JOB C — PostgreSQL Direct integration/acceptance (HOST-NATIVE)
+  # ============================================================
+  postgres-direct-integration:
+    name: "JOB C — PostgreSQL Direct integration"
+    runs-on: ubuntu-latest
+    # Evidence-based ceiling: the full suite measured ~60 min green at the
+    # last run; 120 min is the documented 2x headroom (ci.yml v20260905.1) —
+    # not a blind timeout increase.
+    timeout-minutes: 120
+
+    env:
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Start host-native PostgreSQL (no containers)
+        id: host-native-pg
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (psql not found on runner)"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (cluster failed to start)"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege application role (host-native)
+        id: provision-db
+        if: ${{ !cancelled() && steps.host-native-pg.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+            END IF;
+          END $$;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
+
+      - name: Assert least-privilege role contract
+        id: db-role-contract
+        if: ${{ !cancelled() && steps.provision-db.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -d sanad --no-psqlrc --set=ON_ERROR_STOP=1 \
+            --tuples-only --no-align --command="
+              SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin, rolbypassrls
+              FROM pg_roles
+              WHERE rolname IN ('sanad','crm_contact_rls_test_user')
+              ORDER BY rolname;
+            " > /tmp/role-contract.txt
+          sanad_line=$(grep '^sanad' /tmp/role-contract.txt)
+          echo "$sanad_line" | awk -F'|' '{
+            if ($2 != "f") exit 1
+            if ($3 != "f") exit 1
+            if ($4 != "f") exit 1
+            if ($5 != "t") exit 1
+            if ($6 != "f") exit 1
+          }'
+          rls_line=$(grep '^crm_contact_rls_test_user' /tmp/role-contract.txt)
+          echo "$rls_line" | awk -F'|' '{
+            if ($2 != "f") exit 1
+            if ($3 != "f") exit 1
+            if ($4 != "f") exit 1
+            if ($6 != "f") exit 1
+          }'
+          echo "POST_MERGE_DB_ROLE_CONTRACT=PASS"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: 3.9.9
+
+      - name: Generate ephemeral CRM encryption key
+        id: crm-key
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Backend tests (full Maven suite, PostgreSQL Direct)
+        id: backend-tests
+        if: ${{ !cancelled() && steps.host-native-pg.outcome == 'success' && steps.provision-db.outcome == 'success' && steps.db-role-contract.outcome == 'success' && steps.crm-key.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        working-directory: apps/sanad-platform
+        env:
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress test
+
+      - name: Smoke test — Backend health (operational)
+        id: smoke-backend
+        if: ${{ !cancelled() && steps.host-native-pg.outcome == 'success' && steps.provision-db.outcome == 'success' && steps.db-role-contract.outcome == 'success' && steps.crm-key.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/backend.log"
+          printf '%s\n' '{"status":"NOT_AVAILABLE"}' > "$RUNNER_TEMP/backend-health.json"
+          printf '%s\n' '{"applicationPort":8081,"managementPort":8082,"healthUrl":"http://127.0.0.1:8082/actuator/health","processStarted":false,"httpStatus":0,"healthStatus":"NOT_AVAILABLE","result":"FAIL","failureType":"NOT_COMPLETED"}' > "$RUNNER_TEMP/backend-smoke-metadata.json"
+
+          cleanup_backend() {
+            kill "$BACKEND_PID" 2>/dev/null || true
+            wait "$BACKEND_PID" 2>/dev/null || true
+          }
+          trap cleanup_backend EXIT
+
+          SPRING_PROFILES_ACTIVE=local \
+            SERVER_PORT=8081 \
+            MANAGEMENT_SERVER_PORT=8082 \
+            CRM_CUSTOM_FIELD_ENCRYPTION_KEY="${CRM_CUSTOM_FIELD_ENCRYPTION_KEY}" \
+            mvn --batch-mode --no-transfer-progress spring-boot:run \
+            > "$RUNNER_TEMP/backend.log" 2>&1 &
+          BACKEND_PID=$!
+
+          BACKEND_READY=false
+          for i in $(seq 1 60); do
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+              echo "::error::Backend process terminated before readiness (PROCESS_EXITED)"
+              tail -200 "$RUNNER_TEMP/backend.log" || true
+              exit 1
+            fi
+            if curl --fail --silent --show-error http://127.0.0.1:8082/actuator/health > /dev/null 2>&1; then
+              BACKEND_READY=true
+              break
+            fi
+            sleep 3
+          done
+          if [ "$BACKEND_READY" != "true" ]; then
+            echo "::error::Backend did not become ready within 180s (STARTUP_TIMEOUT)"
+            tail -200 "$RUNNER_TEMP/backend.log" || true
+            exit 1
+          fi
+
+          HTTP_STATUS="$(curl --silent --show-error \
+            --output "$RUNNER_TEMP/backend-health.json" \
+            --write-out '%{http_code}' \
+            http://127.0.0.1:8082/actuator/health)"
+
+          python3 "${{ github.workspace }}/scripts/ci/validate_backend_smoke.py" \
+            --health-file "$RUNNER_TEMP/backend-health.json" \
+            --metadata-file "$RUNNER_TEMP/backend-smoke-metadata.json" \
+            --http-status "$HTTP_STATUS" \
+            --application-port 8081 \
+            --management-port 8082 \
+            --health-url "http://127.0.0.1:8082/actuator/health"
+
+      - name: Emit outcome fragment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<PY
+          import json
+          fragment = {
+              'postgresql_host_native': '${{ steps.host-native-pg.outcome }}',
+              'provision_db': '${{ steps.provision-db.outcome }}',
+              'db_role_contract': '${{ steps.db-role-contract.outcome }}',
+              'backend_tests': '${{ steps.backend-tests.outcome }}',
+              'smoke_backend': '${{ steps.smoke-backend.outcome }}',
+          }
+          with open('$RUNNER_TEMP/pmv-fragment.json', 'w') as f:
+              json.dump(fragment, f, indent=2)
+          print(json.dumps(fragment, indent=2))
+          PY
+
+      - name: Upload outcome fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmv-fragment-pg-direct
+          path: ${{ runner.temp }}/pmv-fragment.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmv-surefire-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload backend smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-smoke-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/backend-health.json
+            ${{ runner.temp }}/backend-smoke-metadata.json
+          if-no-files-found: error
+          retention-days: 90
+
+  # ============================================================
+  # JOB D — HRM focused security/RLS suite
+  # ============================================================
+  hrm-focused-security-rls:
+    name: "JOB D — HRM focused security/RLS"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Start host-native PostgreSQL (no containers)
+        id: host-native-pg
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (psql not found on runner)"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (cluster failed to start)"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege application role (host-native)
+        id: provision-db
+        if: ${{ !cancelled() && steps.host-native-pg.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+            END IF;
+          END $$;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: 3.9.9
+
+      - name: Run HRM focused suite (RLS, tenant isolation, RBAC, audit, outbox, idempotency, IAM, contracts)
+        id: hrm-focused-tests
+        if: ${{ !cancelled() && steps.host-native-pg.outcome == 'success' && steps.provision-db.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          # -Dsurefire.useFile=true emits per-class JUnit XML for the artifact
+          # upload below. -DfailIfNoTests=true fails loudly if the HR package
+          # scope ever drifts to zero matching tests (no silent no-ops).
+          mvn --batch-mode --no-transfer-progress test \
+            -Dsurefire.useFile=true \
+            -DfailIfNoTests=true \
+            -Dtest='com.sanad.platform.hr.**'
+
+      - name: Emit outcome fragment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<PY
+          import json
+          fragment = {
+              'hrm_focused_tests': '${{ steps.hrm-focused-tests.outcome }}',
+          }
+          with open('$RUNNER_TEMP/pmv-fragment.json', 'w') as f:
+              json.dump(fragment, f, indent=2)
+          print(json.dumps(fragment, indent=2))
+          PY
+
+      - name: Upload outcome fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmv-fragment-hrm
+          path: ${{ runner.temp }}/pmv-fragment.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload HRM test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hrm-surefire-reports
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: HRM test summary
+        if: always()
+        shell: bash
+        working-directory: apps/sanad-platform
+        run: |
+          echo "## HRM Focused Suite Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
+            awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # JOB E — security/governance scans
+  # ============================================================
+  security-governance-scans:
+    name: "JOB E — Security & governance scans"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: SDS compliance check
+        id: sds-compliance
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check-design-system-compliance.py
+
+      - name: Logo governance check
+        id: logo-governance
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check-logo-governance.py
+
+      - name: Brand name governance check
+        id: brand-name
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check-brand-name-governance.py
+
+      - name: i18n key parity check
+        id: i18n-keys
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check_i18n_keys.py
+
+      - name: Workflow security validation
+        id: workflow-security
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/ci/check_workflow_security.py
+          python3 scripts/ci/check_workflow_security.py
+
+      - name: Secret scanning
+        id: secret-scan
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running secret scan..."
+          test -f scripts/ci/scan_secrets.py
+          python3 -m py_compile scripts/ci/scan_secrets.py
+          python3 scripts/ci/scan_secrets.py \
+            --repository-root . \
+            --report "$RUNNER_TEMP/secret-scan-report.json" \
+            --commit-sha "${{ github.sha }}" \
+            --workflow-run-id "${{ github.run_id }}"
+
+      - name: Performance budget check
+        id: performance-budget
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          python3 "${{ github.workspace }}/scripts/ci/check-performance-budget.py"
+
+      - name: Emit outcome fragment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<PY
+          import json
+          fragment = {
+              'sds_compliance': '${{ steps.sds-compliance.outcome }}',
+              'logo_governance': '${{ steps.logo-governance.outcome }}',
+              'brand_name': '${{ steps.brand-name.outcome }}',
+              'i18n_keys': '${{ steps.i18n-keys.outcome }}',
+              'workflow_security': '${{ steps.workflow-security.outcome }}',
+              'secret_scan': '${{ steps.secret-scan.outcome }}',
+              'performance_budget': '${{ steps.performance-budget.outcome }}',
+          }
+          with open('$RUNNER_TEMP/pmv-fragment.json', 'w') as f:
+              json.dump(fragment, f, indent=2)
+          print(json.dumps(fragment, indent=2))
+          PY
+
+      - name: Upload outcome fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmv-fragment-security
+          path: ${{ runner.temp }}/pmv-fragment.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload secret scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secret-scan-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/secret-scan-report.json
+          if-no-files-found: error
+          retention-days: 90
+
+  # ============================================================
+  # JOB F — final evidence aggregation (the only closure authority)
+  # ============================================================
+  final-evidence-aggregation:
+    name: "JOB F — Final evidence aggregation"
+    needs:
+      - frontend-verification
+      - backend-compile
+      - postgres-direct-integration
+      - hrm-focused-security-rls
+      - security-governance-scans
+    # Run even when upstream jobs fail — the gate must close truthfully,
+    # never silently skip.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Record start metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "start_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "=== Post-Merge Verification Aggregation ==="
+          echo "Exact Main SHA: ${{ github.sha }}"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Actor: ${{ github.actor }}"
+
+      - name: Initialize fail-closed manifest placeholder
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/verification-manifest.json" <<JSON
+          {"verificationType":"post-merge-main","exactMainSha":"${{ github.sha }}","workflowRunId":"${{ github.run_id }}","result":"FAIL","failedGate":"aggregation-not-completed","checks":{},"passedChecks":[],"failedChecks":[],"skippedChecks":[],"cancelledChecks":[],"missingChecks":[],"criticalFailures":["aggregation-not-completed"]}
+          JSON
+
+      # === Download every per-job outcome fragment (always, never hide) ===
+      - name: Download JOB A fragment
+        id: frag-frontend
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: pmv-fragment-frontend
+          path: ${{ runner.temp }}/fragments/frontend
+
+      - name: Download JOB B fragment
+        id: frag-backend-compile
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: pmv-fragment-backend-compile
+          path: ${{ runner.temp }}/fragments/backend-compile
+
+      - name: Download JOB C fragment
+        id: frag-pg-direct
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: pmv-fragment-pg-direct
+          path: ${{ runner.temp }}/fragments/pg-direct
+
+      - name: Download JOB D fragment
+        id: frag-hrm
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: pmv-fragment-hrm
+          path: ${{ runner.temp }}/fragments/hrm
+
+      - name: Download JOB E fragment
+        id: frag-security
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: pmv-fragment-security
+          path: ${{ runner.temp }}/fragments/security
+
+      # === Download cross-job evidence consumed by the validator ===
+      - name: Download secret scan report
+        id: ev-secret
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: secret-scan-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+
+      - name: Download backend smoke evidence
+        id: ev-backend
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-smoke-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence/backend
+
+      - name: Download frontend smoke evidence
+        id: ev-frontend
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-smoke-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence/frontend
+
+      - name: Download vitest log
+        id: ev-vitest
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: vitest-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+
+      # === Truthful collect-all manifest (merged from fragments) ===
       - name: Generate verification manifest
         id: manifest
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          START_TS="${{ steps.metadata.outputs.start_ts }}"
           END_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python3 - <<PY
+          import glob
           import json
+          import os
 
-          raw = {
-              'frontend_deps': '${{ steps.frontend-deps.outcome }}',
-              'backend_deps': '${{ steps.backend-deps.outcome }}',
-              'frontend_lint': '${{ steps.frontend-lint.outcome }}',
-              'frontend_typecheck': '${{ steps.frontend-typecheck.outcome }}',
-              'frontend_tests': '${{ steps.frontend-tests.outcome }}',
-              'frontend_build': '${{ steps.frontend-build.outcome }}',
-              'sds_compliance': '${{ steps.sds-compliance.outcome }}',
-              'logo_governance': '${{ steps.logo-governance.outcome }}',
-              'brand_name': '${{ steps.brand-name.outcome }}',
-              'i18n_keys': '${{ steps.i18n-keys.outcome }}',
-              'performance_budget': '${{ steps.performance-budget.outcome }}',
-              'provision_db': '${{ steps.provision-db.outcome }}',
-              'db_role_contract': '${{ steps.db-role-contract.outcome }}',
-              'crm_key': '${{ steps.crm-key.outcome }}',
-              'backend_compile': '${{ steps.backend-compile.outcome }}',
-              'backend_tests': '${{ steps.backend-tests.outcome }}',
-              'workflow_security': '${{ steps.workflow-security.outcome }}',
-              'secret_scan': '${{ steps.secret-scan.outcome }}',
-              'smoke_backend': '${{ steps.smoke-backend.outcome }}',
-              'smoke_frontend': '${{ steps.smoke-frontend.outcome }}',
-          }
+          raw = {}
+          for path in sorted(glob.glob(os.path.join('$RUNNER_TEMP', 'fragments', '*', 'pmv-fragment.json'))):
+              with open(path) as handle:
+                  raw.update(json.load(handle))
+
           steps = {key: (value if value else 'missing') for key, value in raw.items()}
           passed = [key for key, value in steps.items() if value == 'success']
           failed = [key for key, value in steps.items() if value == 'failure']
@@ -527,7 +1033,7 @@ jobs:
               'exactMainSha': '${{ github.sha }}',
               'workflowRunId': '${{ github.run_id }}',
               'triggerType': '${{ github.event_name }}',
-              'startedAtUtc': '${START_TS}',
+              'startedAtUtc': '${{ steps.metadata.outputs.start_ts }}',
               'completedAtUtc': '${END_TS}',
               'actor': '${{ github.actor }}',
               'result': result,
@@ -540,13 +1046,12 @@ jobs:
               'cancelledChecks': cancelled,
               'missingChecks': missing,
           }
-          with open('${{ runner.temp }}/verification-manifest.json', 'w', encoding='utf-8') as handle:
+          with open('$RUNNER_TEMP/verification-manifest.json', 'w', encoding='utf-8') as handle:
               json.dump(manifest, handle, indent=2)
           print(json.dumps(manifest, indent=2))
           PY
           echo "result=$(python3 -c "import json; print(json.load(open('$RUNNER_TEMP/verification-manifest.json'))['result'])")" >> "$GITHUB_OUTPUT"
 
-      # === Evidence uploads always run ===
       - name: Upload verification manifest
         id: upload-manifest
         if: always()
@@ -554,52 +1059,6 @@ jobs:
         with:
           name: verification-manifest-${{ github.run_id }}
           path: ${{ runner.temp }}/verification-manifest.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Upload secret scan report
-        id: upload-secret-report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: secret-scan-report-${{ github.run_id }}
-          path: ${{ runner.temp }}/secret-scan-report.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Upload vitest log
-        id: upload-vitest-log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vitest-log-${{ github.run_id }}
-          path: ${{ runner.temp }}/vitest.log
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload backend smoke evidence
-        id: upload-backend-evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-smoke-evidence-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/backend.log
-            ${{ runner.temp }}/backend-health.json
-            ${{ runner.temp }}/backend-smoke-metadata.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Upload frontend smoke evidence
-        id: upload-frontend-evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-smoke-evidence-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/frontend.log
-            ${{ runner.temp }}/frontend-auth.html
-            ${{ runner.temp }}/frontend-smoke-metadata.json
           if-no-files-found: error
           retention-days: 90
 
@@ -614,27 +1073,19 @@ jobs:
           MANIFEST_RESULT="${{ steps.manifest.outputs.result }}"
           if [ "$MANIFEST_RESULT" != "PASS" ]; then
             echo "::error::Manifest result is not PASS — refusing to close gate"
+            python3 -c "import json; m=json.load(open('$RUNNER_TEMP/verification-manifest.json')); print(json.dumps({'criticalFailures': m['criticalFailures'], 'missingChecks': m['missingChecks']}, indent=2))"
             exit 1
           fi
 
           echo "Manifest upload: ${{ steps.upload-manifest.outcome }}"
-          echo "Secret report upload: ${{ steps.upload-secret-report.outcome }}"
-          echo "Vitest upload: ${{ steps.upload-vitest-log.outcome }}"
-          echo "Backend evidence upload: ${{ steps.upload-backend-evidence.outcome }}"
-          echo "Frontend evidence upload: ${{ steps.upload-frontend-evidence.outcome }}"
-
           if [ "${{ steps.upload-manifest.outcome }}" != "success" ]; then exit 1; fi
-          if [ "${{ steps.upload-secret-report.outcome }}" != "success" ]; then exit 1; fi
-          if [ "${{ steps.upload-vitest-log.outcome }}" != "success" ]; then exit 1; fi
-          if [ "${{ steps.upload-backend-evidence.outcome }}" != "success" ]; then exit 1; fi
-          if [ "${{ steps.upload-frontend-evidence.outcome }}" != "success" ]; then exit 1; fi
 
           python3 "${{ github.workspace }}/scripts/ci/validate_post_merge_evidence.py" \
             --manifest "$RUNNER_TEMP/verification-manifest.json" \
-            --secret-report "$RUNNER_TEMP/secret-scan-report.json" \
-            --backend-metadata "$RUNNER_TEMP/backend-smoke-metadata.json" \
-            --backend-health "$RUNNER_TEMP/backend-health.json" \
-            --frontend-metadata "$RUNNER_TEMP/frontend-smoke-metadata.json" \
+            --secret-report "$RUNNER_TEMP/evidence/secret-scan-report.json" \
+            --backend-metadata "$RUNNER_TEMP/evidence/backend/backend-smoke-metadata.json" \
+            --backend-health "$RUNNER_TEMP/evidence/backend/backend-health.json" \
+            --frontend-metadata "$RUNNER_TEMP/evidence/frontend/frontend-smoke-metadata.json" \
             --expected-sha "${{ github.sha }}" \
             --expected-run-id "${{ github.run_id }}"
 
