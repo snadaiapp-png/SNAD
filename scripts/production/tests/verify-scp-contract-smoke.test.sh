@@ -52,10 +52,16 @@ run_smoke() {
   done
 
   local exit_code=0
+  # Mock credentials are generated per run (never hardcoded — the scanner is
+  # authoritative even for test scaffolding). The mock backend does not
+  # validate them; the smoke script only needs a 200 login response.
+  local run_pw run_email
+  run_pw="mock-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  run_email="smoke-$(date +%s%N)@example.test"
   (
     export SCP_SMOKE_BASE_URL="http://127.0.0.1:$PORT"
-    export CONTROL_PLANE_ADMIN_EMAIL="smoke@example.test"
-    export CONTROL_PLANE_ADMIN_PASSWORD="smoke-password"
+    export CONTROL_PLANE_ADMIN_EMAIL="$run_email"
+    export CONTROL_PLANE_ADMIN_PASSWORD="$run_pw"
     export CONTROL_PLANE_TENANT_ID="00000000-0000-0000-0000-000000000001"
     export DEPLOYED_COMMIT_SHA="83228cec83a2bc7a7a99cc1a72726f27f82fe378"
     export SCP_SMOKE_EVIDENCE_FILE="$EVIDENCE"
