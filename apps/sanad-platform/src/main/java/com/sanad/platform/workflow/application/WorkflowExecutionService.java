@@ -57,7 +57,27 @@ public class WorkflowExecutionService {
 
     @Transactional
     public WorkflowInstance startWorkflow(WorkflowInstance instance, UUID actorUserId) {
-        var saved = instanceRepo.save(instance);
+        // Canonical start resolution (Z3/AA3): resolve the concrete definition
+        // in the instance's tenant, enforce start eligibility for its
+        // generation, and pin the definition's engine generation as the
+        // instance's immutable routing authority.
+        WorkflowDefinition definition = defRepo
+                .findById(instance.tenantId(), instance.workflowDefinitionId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "WorkflowDefinition not found in tenant: " + instance.workflowDefinitionId()));
+        boolean startEligible = switch (definition.engineGeneration()) {
+            case LEGACY -> definition.status() == WorkflowDefinition.Status.ACTIVE;
+            case Y2 -> definition.publicationState() == WorkflowDefinition.PublicationState.PUBLISHED;
+        };
+        if (!startEligible) {
+            throw new IllegalStateException("WorkflowDefinition " + definition.id()
+                    + " is not a valid start target (status=" + definition.status()
+                    + ", publicationState=" + definition.publicationState() + ")");
+        }
+        WorkflowInstance resolved = instance.pinnedTo(
+                WorkflowInstance.EngineGeneration.valueOf(definition.engineGeneration().name()),
+                definition.definitionFamilyId(), definition.id());
+        var saved = instanceRepo.save(resolved);
         // Create the first step_instance (PENDING) for the firstStepKey.
         createPendingStepInstance(saved, saved.currentStepKey());
         audit(actorUserId, saved, null, WorkflowTransitionAudit.Action.START,
@@ -151,6 +171,12 @@ public class WorkflowExecutionService {
     public WorkflowInstance advanceToNextStep(UUID tenantId, UUID instanceId,
                                               String nextStepKey, UUID actorUserId) {
         var i = load(tenantId, instanceId);
+        // No dual execution (AA3): an instance routes by its persisted
+        // generation, never by the current latest definition.
+        if (i.engineGeneration() == WorkflowInstance.EngineGeneration.Y2) {
+            throw new IllegalStateException(
+                    "Y2 graph instances must advance through WorkflowGraphExecutionService");
+        }
         var oldStepKey = i.currentStepKey();
         // 1. Complete the current step_instance.
         completeCurrentStepInstance(tenantId, i, "Advanced to " + nextStepKey);

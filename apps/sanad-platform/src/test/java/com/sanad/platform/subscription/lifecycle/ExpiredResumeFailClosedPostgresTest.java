@@ -3,7 +3,6 @@ package com.sanad.platform.subscription.lifecycle;
 import com.sanad.platform.admin.api.SaasAdminDtos.CreateSubscriptionRequest;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.SaasAdministrationService;
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.module.entitlement.SubscriptionEntitlementListener;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
@@ -99,7 +98,6 @@ class ExpiredResumeFailClosedPostgresTest {
         Flyway flyway = Flyway.configure()
                 .dataSource(url, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();

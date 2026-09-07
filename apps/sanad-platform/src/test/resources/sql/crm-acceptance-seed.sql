@@ -294,6 +294,27 @@ WHERE tenant.id = '22222222-2222-4222-8222-222222222222'
   )
 ON CONFLICT (id) DO NOTHING;
 
+-- 5b. ADMIN roles receive EVERY active capability (explicit, see note above).
+INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+SELECT
+    gen_random_uuid(),
+    role.tenant_id,
+    role.id,
+    cap.id,
+    CURRENT_TIMESTAMP
+FROM roles role
+JOIN tenants tenant ON tenant.id = role.tenant_id
+JOIN access_capabilities cap ON cap.status = 'ACTIVE'
+WHERE role.code = 'ADMIN'
+  AND tenant.id IN ('11111111-1111-4111-8111-111111111111',
+                    '22222222-2222-4222-8222-222222222222')
+  AND NOT EXISTS (
+      SELECT 1 FROM role_capabilities existing
+      WHERE existing.tenant_id = role.tenant_id
+        AND existing.role_id = role.id
+        AND existing.capability_id = cap.id
+);
+
 -- Tenant A — CRM_READ_ONLY
 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
 VALUES (
@@ -339,8 +360,13 @@ ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------------------
 -- 6. Role capabilities (for the three non-admin Tenant A roles)
 -- ----------------------------------------------------------------------------
--- The ADMIN roles already receive every active capability via V20260702_2.
--- Here we grant selective capabilities to the restricted roles.
+-- The ADMIN roles receive EVERY active capability below (section 5b).
+-- V20260702_2 runs before any tenant exists on a fresh CI database, so it
+-- cannot bind capabilities here. Until 2026-09-04 the binding accidentally
+-- came from the ghost V15 Java migration being re-applied at backend boot
+-- (out-of-order) after this seed had created the tenants; that class is now
+-- removed from the repository, so the binding must be explicit.
+-- Here we also grant selective capabilities to the restricted roles.
 
 -- CRM_READ_ONLY → every CRM.*.READ capability
 INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)

@@ -1,6 +1,5 @@
 package com.sanad.platform.crm.testsupport;
 
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -50,7 +49,6 @@ public abstract class CrmRepositoryPostgresTestBase {
         Flyway.configure()
                 .dataSource(JDBC_URL, USERNAME, PASSWORD)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load()

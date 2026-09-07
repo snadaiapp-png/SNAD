@@ -25,6 +25,11 @@ export default defineConfig({
     // Playwright E2E & Visual Regression workflow would fail the
     // beforeAll env-var guard.
     "**/crm-execution-acceptance.spec.ts",
+    // The Workflow Y2 release matrix requires the workflow-e2e Spring profile
+    // (deterministic multi-actor fixture seed) on top of its own real stack.
+    // It runs exclusively through playwright.workflow-y2.config.ts in the
+    // Workflow Y2 Playwright Release Gate workflow.
+    "**/workflow-y2-release.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

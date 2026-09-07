@@ -21,6 +21,10 @@ public record WorkflowApprovalRequest(
         UUID requestedFromUserId,
         String requestedFromRole,
         UUID requestedByUserId,
+        UUID requestedFromEmployeeId,
+        WorkflowApprovalPolicy.Aggregation approvalPolicy,
+        WorkflowApprovalPolicy.SelfApproval selfApprovalPolicy,
+        String policySnapshot,
         Status status,
         Instant requestedAt,
         Instant dueAt,
@@ -38,10 +42,22 @@ public record WorkflowApprovalRequest(
             UUID tenantId, UUID workflowInstanceId, UUID workflowStepInstanceId,
             UUID requestedFromUserId, String requestedFromRole, Instant dueAt,
             UUID requestedByUserId) {
+        return create(tenantId, workflowInstanceId, workflowStepInstanceId,
+                requestedFromUserId, requestedFromRole, dueAt, requestedByUserId,
+                null, WorkflowApprovalPolicy.defaultPolicy());
+    }
+
+    public static WorkflowApprovalRequest create(
+            UUID tenantId, UUID workflowInstanceId, UUID workflowStepInstanceId,
+            UUID requestedFromUserId, String requestedFromRole, Instant dueAt,
+            UUID requestedByUserId, UUID requestedFromEmployeeId,
+            WorkflowApprovalPolicy policy) {
         var now = Instant.now();
         return new WorkflowApprovalRequest(UUID.randomUUID(), tenantId, workflowInstanceId,
                 workflowStepInstanceId, requestedFromUserId, requestedFromRole,
                 requestedByUserId,
+                requestedFromEmployeeId, policy.aggregation(), policy.selfApproval(),
+                policy.snapshotJson(),
                 Status.PENDING, now, dueAt, null, null, null, null,
                 0, now, now);
     }
@@ -51,11 +67,14 @@ public record WorkflowApprovalRequest(
      * The user who created the approval request (requestedByUserId) cannot approve it.
      */
     public WorkflowApprovalRequest approve(UUID approverId, String comments) {
-        return resolve(approverId, "APPROVED", Status.APPROVED, comments);
+        return resolve(approverId, "APPROVED", Status.APPROVED, comments, true);
     }
 
     public WorkflowApprovalRequest reject(UUID rejecterId, String comments) {
-        return resolve(rejecterId, "REJECTED", Status.REJECTED, comments);
+        if (comments == null || comments.isBlank()) {
+            throw new IllegalArgumentException("Rejection reason is required");
+        }
+        return resolve(rejecterId, "REJECTED", Status.REJECTED, comments, false);
     }
 
     public WorkflowApprovalRequest cancel(UUID cancelledBy) {
@@ -63,6 +82,7 @@ public record WorkflowApprovalRequest(
         var now = Instant.now();
         return new WorkflowApprovalRequest(id, tenantId, workflowInstanceId, workflowStepInstanceId,
                 requestedFromUserId, requestedFromRole, requestedByUserId,
+                requestedFromEmployeeId, approvalPolicy, selfApprovalPolicy, policySnapshot,
                 Status.CANCELLED,
                 requestedAt, dueAt, cancelledBy, now, null, null,
                 version + 1, createdAt, now);
@@ -73,21 +93,28 @@ public record WorkflowApprovalRequest(
         var now = Instant.now();
         return new WorkflowApprovalRequest(id, tenantId, workflowInstanceId, workflowStepInstanceId,
                 requestedFromUserId, requestedFromRole, requestedByUserId,
+                requestedFromEmployeeId, approvalPolicy, selfApprovalPolicy, policySnapshot,
                 Status.EXPIRED,
                 requestedAt, dueAt, null, now, null, null,
                 version + 1, createdAt, now);
     }
 
-    private WorkflowApprovalRequest resolve(UUID actorId, String decisionStr, Status newStatus, String comments) {
+    private WorkflowApprovalRequest resolve(UUID actorId, String decisionStr, Status newStatus,
+                                            String comments, boolean selfApprovalPermittedByPolicy) {
         requireStatus(Status.PENDING, "resolve");
-        // SOD: The user who created the approval request cannot approve/reject it.
-        if (requestedByUserId != null && actorId.equals(requestedByUserId)) {
+        // SOD/M3: the requester cannot act on their own request unless the
+        // frozen step policy explicitly allows self-approval. Even then the
+        // application boundary must independently verify the
+        // WORKFLOW.SELF_APPROVAL_OVERRIDE capability.
+        if (requestedByUserId != null && actorId.equals(requestedByUserId)
+                && !(selfApprovalPermittedByPolicy && selfApprovalPolicy == WorkflowApprovalPolicy.SelfApproval.ALLOW)) {
             throw new IllegalStateException(
                     "Segregation of duties: the user who created the approval request cannot approve/reject it");
         }
         var now = Instant.now();
         return new WorkflowApprovalRequest(id, tenantId, workflowInstanceId, workflowStepInstanceId,
                 requestedFromUserId, requestedFromRole, requestedByUserId,
+                requestedFromEmployeeId, approvalPolicy, selfApprovalPolicy, policySnapshot,
                 newStatus,
                 requestedAt, dueAt, actorId, now, decisionStr, comments,
                 version + 1, createdAt, now);

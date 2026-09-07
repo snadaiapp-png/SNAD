@@ -77,6 +77,10 @@ class Crm008bFoundationAcceptanceTest {
     // SCP closure: V20260901_1 (canonicalize capability codes to uppercase)
     //   is the current terminal migration.
     // R0C-10: subscription multiplicity MODEL_B migration is the current latest.
+    // Merged from main (Y2/HRM-G0): V20260905_18 reconciles the Y2 Employee<->User
+    //   identity uniqueness with the G0 cutover lifecycle; it precedes the
+    //   V20260906_1 SCP MODEL_B terminal (mechanically confirmed against the
+    //   merged db/migration inventory).
     private static final String CRM_LATEST_VERSION = "20260906.1";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -531,11 +535,15 @@ class Crm008bFoundationAcceptanceTest {
 
         JdbcTemplate jdbc = jdbc();
 
-        // Terminal migration tracks db/migration — currently V20260820_7
-        // (RBAC exact matrix 9/9). See CRM_LATEST_VERSION above.
+        // Terminal versioned migration tracks db/migration — currently V20260901_4.
+        // See CRM_LATEST_VERSION above. NOTE: version IS NOT NULL is required
+        // because repeatable migrations (R__finalize_hr_backfill_closure) run
+        // AFTER the versioned chain on a clean install and occupy the highest
+        // installed_rank with a NULL version — they must not shadow the
+        // terminal versioned migration this assertion tracks.
         String latest = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
-                "ORDER BY installed_rank DESC LIMIT 1", String.class);
+                "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
         assertThat(latest).isEqualTo(CRM_LATEST_VERSION);
 
         // All 13 new CRM-008B tables exist
@@ -645,6 +653,12 @@ class Crm008bFoundationAcceptanceTest {
         var configuration = Flyway.configure()
                 .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                // V15 is a production JDBC migration registered as a bean by
+                // FlywayJavaMigrationConfig. Resolving it here keeps the
+                // shared test_migration history canonical (identical chain to
+                // the Spring auto-configured Flyway on the sanad database) so
+                // validate() and other tests' validateOnMigrate(true) are
+                // order-independent.
                 .cleanDisabled(false)
                 .validateOnMigrate(false);
         if (target != null) configuration.target(target);

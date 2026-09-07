@@ -2,7 +2,6 @@ package com.sanad.platform.subscription;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.admin.service.PlatformAuditWriter;
-import com.sanad.platform.config.migration.V15__seed_rbac_roles_and_capabilities;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.subscription.audit.AuditQueryService;
@@ -111,7 +110,6 @@ class ScpFinalModuleAcceptancePostgresTest {
         Flyway flyway = Flyway.configure()
                 .dataSource(isolatedUrl, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
                 .load();
