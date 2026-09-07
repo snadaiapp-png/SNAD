@@ -20,7 +20,7 @@ import type {
 /**
  * HR-G0 engineering closure — authoritative reconciliation block.
  *
- * G0 (Foundation) was implemented by PR #914 and MERGED into main at
+ * G0 (Foundation) was implemented by PR 914 and MERGED into main at
  * commit 748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b. The static roadmap
  * constants below previously reported G0 as NOT_STARTED — a false
  * statement contradicted by repository reality (see regression test
@@ -41,7 +41,7 @@ import type {
 export const HR_G0_CLOSURE = {
   /** Authoritative implementation state of G0. */
   implementation: "DONE" as GroupStatus,
-  /** PR #914 merge commit (ancestor of main — verified by reconciliation). */
+  /** PR 914 merge commit (ancestor of main — verified by reconciliation). */
   mergeSha: "748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b",
   /** Documented engineering certificate backing this state. */
   certificatePath: "docs/hrm/g0/evidence/HRM-G0-FINAL-ENGINEERING-CLOSURE.md",
@@ -57,7 +57,7 @@ export const HR_G0_CLOSURE = {
   productionAuthorization: "NO" as const,
   /** Historical execution record (never deleted, superseded by current). */
   historicalRecord:
-    "PR #914 executed pre-merge as DRAFT with pinned verification runs; " +
+    "PR 914 executed pre-merge as DRAFT with pinned verification runs; " +
     "the execution records under docs/hrm/g0/evidence/ preserve that history verbatim.",
 } as const;
 
@@ -100,7 +100,7 @@ export const HR_GROUP_DATA = [
     titleEn: "Foundation: Employee Records & Org Structure",
     purposeAr: "تأسيس نظام الموظفين مع السجلات الأساسية والهيكل التنظيمي.",
     purposeEn: "Establish the employee system with core records and organizational structure.",
-    // Reconciled: G0 implementation merged via PR #914 (748e2c60). See HR_G0_CLOSURE.
+    // Reconciled: G0 implementation merged via PR 914 (748e2c60). See HR_G0_CLOSURE.
     status: "DONE" as GroupStatus,
     dependencies: [],
     canParallelizeWith: [],

@@ -4,7 +4,7 @@
  * Guards the reconciled G0 execution-dashboard state against regression.
  *
  * Background: `hr-execution-data.ts` reported G0 as NOT_STARTED even after
- * PR #914 (HRM-G0 foundation) was merged into main (748e2c60). The
+ * PR 914 (HRM-G0 foundation) was merged into main (748e2c60). The
  * reconciliation directive requires the dashboard to reflect the real
  * engineering state, with a documented certificate as the evidence source,
  * and requires a regression test that prevents `G0 NOT_STARTED` from
