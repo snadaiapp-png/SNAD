@@ -1,0 +1,84 @@
+name: Workflow Y2 Wave 3 Targeted
+
+on:
+  push:
+    branches: [feat/workflow-y2-task16-typed-api]
+    paths:
+      - 'apps/sanad-platform/**'
+      - 'apps/web/**'
+      - '.github/workflows/workflow-y2-wave3-targeted.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  task16-contract:
+    name: Task 16 Typed API Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Start host-native PostgreSQL (no containers)
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || exit 1
+          sudo systemctl start postgresql
+          for i in $(seq 1 30); do
+            pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1 && break
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+      - name: Provision least-privilege application role and databases
+        run: |
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
+          SELECT 'CREATE DATABASE test_migration OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          \c sanad
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+            END IF;
+          END $$;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      - name: Generate ephemeral CRM encryption key
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+      - name: Run Task 16 contract RED/GREEN target
+        run: mvn -B -ntp -Dtest=WorkflowTask16TypedApiContractTest test
