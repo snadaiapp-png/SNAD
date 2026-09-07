@@ -103,7 +103,7 @@ class WorkflowNotificationDedupRaceTest {
 
     @Test
     void concurrentIdenticalEnqueuesCollapseToOneDurableIntent() throws Exception {
-        int rounds = 10;
+        int rounds = 20;
         int racers = 6;
         ExecutorService pool = Executors.newFixedThreadPool(racers);
         try {
