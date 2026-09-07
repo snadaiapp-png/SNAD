@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 class HrRlsFailClosedIntegrationTest {
 
     private Connection conn;
-    private DriverManagerDataSource dataSource;
+    private static DriverManagerDataSource dataSource;
     private static String ISOLATED_URL;
     private static final AtomicInteger SCHEMA_MIGRATION_RUNS = new AtomicInteger();
     private static final String DB_URL = System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
@@ -57,27 +57,36 @@ class HrRlsFailClosedIntegrationTest {
         Assumptions.assumeTrue(ok, "PostgreSQL Direct is not available");
         MigrationTestSchemaSupport.ensureDatabase(DB_URL, DB_USER, DB_PASSWORD);
         ISOLATED_URL = MigrationTestSchemaSupport.getIsolatedJdbcUrl(DB_URL);
-    }
 
-    @BeforeEach
-    void setup() throws Exception {
         dataSource = new DriverManagerDataSource(ISOLATED_URL, DB_USER, DB_PASSWORD);
         Flyway flyway = Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .baselineOnMigrate(true).cleanDisabled(false).validateOnMigrate(false).load();
-        int migrationRun = SCHEMA_MIGRATION_RUNS.incrementAndGet();
-        assertThat(migrationRun)
-                .as("TDD RED: HrRlsFailClosedIntegrationTest must migrate its isolated schema once per class, not once per testcase")
-                .isEqualTo(1);
         flyway.clean();
         flyway.migrate();
+        assertThat(SCHEMA_MIGRATION_RUNS.incrementAndGet())
+                .as("HrRlsFailClosedIntegrationTest must migrate its isolated schema exactly once per class")
+                .isEqualTo(1);
+    }
+
+    @BeforeEach
+    void setup() throws Exception {
+        assertThat(SCHEMA_MIGRATION_RUNS.get())
+                .as("The isolated HR RLS schema must already be migrated exactly once before each testcase")
+                .isEqualTo(1);
         conn = dataSource.getConnection();
-        conn.setAutoCommit(true);
+        conn.setAutoCommit(false);
     }
 
     @AfterEach
     void cleanup() throws Exception {
-        if (conn != null && !conn.isClosed()) conn.close();
+        if (conn != null && !conn.isClosed()) {
+            try {
+                conn.rollback();
+            } finally {
+                conn.close();
+            }
+        }
     }
 
     // ==================== COMPLETE HR TABLE INVENTORY ====================
