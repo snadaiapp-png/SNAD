@@ -189,8 +189,7 @@ CI_GOVERNANCE_DEFECTS = FIXED (PostgreSQL service containers removed from ci.yml
 ## 9. Reconciliation candidate commit
 
 ```text
-RECONCILIATION_CANDIDATE_SHA = (recorded post-commit in the PR description; the
-  candidate is the head of fix/hrm-g0-reconciliation carrying this file)
+RECONCILIATION_CANDIDATE_SHA = 7dfcc8935cdc804351518310cd5fb976cce0777b
 G0_CLOSURE_MERGE_SHA = recorded after the protected merge lands on main (Phase 9)
 ```
 
