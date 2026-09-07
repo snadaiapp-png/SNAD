@@ -73,7 +73,7 @@ class Crm008bFoundationAcceptanceTest {
     // CRM Contacts Collaboration Integration (impl/crm-contacts-collaboration-20260823):
     //   V20260823.2 - crm participant role exclusivity is the new terminal migration.
     //   Earlier V20260823.1 (crm contacts force rls) precedes it.
-    private static final String CRM_LATEST_VERSION = "20260905.18"; // Terminal versioned migration: V20260905_18 reconciles the Y2 Employee<->User identity uniqueness with the G0 cutover lifecycle (chain last extended by the HRM-G0 release gate)
+    private static final String CRM_LATEST_VERSION = "20260906.1"; // Terminal versioned migration: V20260906_1 (workflow task 15 remediation T15-D1) adds the notification intent dedup unique index — chain last extended by the Workflow Y2 Task 15 remediation
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

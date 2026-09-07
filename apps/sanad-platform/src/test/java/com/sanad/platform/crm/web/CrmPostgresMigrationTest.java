@@ -205,7 +205,8 @@ class CrmPostgresMigrationTest {
     private static final String HR_CONTRACT_COMPENSATION_VERSION = "20260905.16";
     private static final String HRM_V2_CAPABILITIES_VERSION = "20260905.17";
     private static final String Y2_G0_IDENTITY_RECONCILIATION_VERSION = "20260905.18";
-    private static final String LATEST_MIGRATION_VERSION = Y2_G0_IDENTITY_RECONCILIATION_VERSION;
+    private static final String WF_NOTIFICATION_DEDUP_VERSION = "20260906.1";
+    private static final String LATEST_MIGRATION_VERSION = WF_NOTIFICATION_DEDUP_VERSION;
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
             "crm_pipeline_stages", "crm_opportunities", "crm_opportunity_stage_history",
@@ -452,7 +453,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_AUDIT_DELIVERY_CLAIM_VERSION),
                         MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
-                        MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION));        upgrade.migrate();
+                        MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION));        upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
     }
@@ -621,7 +623,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_AUDIT_DELIVERY_CLAIM_VERSION),
                         MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
-                        MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION));        completion.migrate();
+                        MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION));        completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
     }
