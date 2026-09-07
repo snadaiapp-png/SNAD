@@ -1,5 +1,24 @@
 # HRM-G0 — WS3 Country & Compliance Verification Evidence
 
+```
+CURRENT AUTHORITATIVE STATE
+---------------------------
+HRM_G0_PR_914 = MERGED
+HRM_G0_MERGE_SHA = 748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b
+HRM_G0_IS_ANCESTOR_OF_MAIN = YES
+LEGAL_REVIEW = BLOCKED (by design — independent human gate)
+SA_PACK = DRAFT (never promoted to ACTIVE)
+PRODUCTION_AUTHORIZATION = NO
+```
+
+```
+HISTORICAL EXECUTION RECORD
+---------------------------
+The header below reflects the state at the time this evidence was
+produced (pre-merge). It is preserved verbatim as history and is
+superseded by the CURRENT AUTHORITATIVE STATE block above.
+```
+
 Task: WS3 Task 6 — Country/compliance verification gate
 Directive: SNAD HRM-G0 MASTER MODULE COMPLETION & FINAL CLOSURE DIRECTIVE (Phase A)
 Branch: `feat/hrm-g0-foundation` (PR #914 — OPEN / DRAFT / UNMERGED)

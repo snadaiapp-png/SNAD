@@ -1,3 +1,18 @@
+# ============================================================
+# HRM Human Preview - HISTORICAL HARNESS (G0 reconciliation)
+# ------------------------------------------------------------
+# CURRENT AUTHORITATIVE STATE
+# ---------------------------
+# This preview harness is pinned to PR #914 (HRM-G0 foundation),
+# which was MERGED at 748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b.
+# The PR-number and branch guards inside are HISTORICAL EXECUTION
+# RECORD - they no longer match any open PR and the harness is
+# dormant for G0. It is retained (not deleted) as history and as
+# the template for a generalized HR preview harness when HRM-G1
+# needs previews (follow-up, out of scope for the G0
+# reconciliation PR).
+# ============================================================
+
 name: HRM Human Preview
 
 on:
