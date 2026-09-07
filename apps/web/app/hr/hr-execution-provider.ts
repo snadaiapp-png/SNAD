@@ -15,7 +15,25 @@ import type {
   Certification,
 } from "../../lib/execution";
 import { calculateGroupProgress, calculateProgramProgress } from "../../lib/execution";
-import { HR_GROUP_DATA, HR_TASKS, type HrTask } from "./hr-execution-data";
+import { HR_GROUP_DATA, HR_TASKS, HR_G0_CLOSURE, type HrTask } from "./hr-execution-data";
+
+/**
+ * FOLLOW-UP DEFECT (HRM-G0 reconciliation — persistence gap):
+ * The in-memory `certifications` Map below is process-local and volatile:
+ * any runtime certification submitted through `submitForCertification`
+ * is LOST on restart. It therefore represents PROVISIONAL state only and
+ * MUST NOT be treated as the authoritative certification record.
+ *
+ * Authoritative certification state for G0 comes from the documented
+ * closure block (HR_G0_CLOSURE in ./hr-execution-data.ts), which is
+ * bound to the committed evidence certificate by the regression test
+ * `hr-g0-closure-state.regression.test.ts`. Durable, restart-surviving
+ * certification persistence (DB-backed) is tracked as a follow-up
+ * defect and is intentionally OUT OF SCOPE for the reconciliation PR —
+ * the fail-closed guarantee enforced here is that a restart can never
+ * FABRICATE or DOWNGRADE the documented G0 state: the documented seed
+ * is always returned for G0 and runtime submissions cannot override it.
+ */
 
 /**
  * HR Execution Provider
@@ -94,6 +112,11 @@ export class HrExecutionProvider {
   }
 
   async getCertification(programId: string, groupCode: string): Promise<Certification | null> {
+    // Fail-closed: the documented G0 certification is authoritative and
+    // survives restarts — the volatile Map can neither replace nor hide it.
+    if (groupCode === "G0") {
+      return this.documentedG0Certification();
+    }
     return this.certifications.get(groupCode) ?? null;
   }
 
@@ -127,6 +150,12 @@ export class HrExecutionProvider {
     const group = await this.getGroup(programId, groupCode);
     if (!group) return;
 
+    // Fail-closed: G0 certification is documented and authoritative.
+    // Runtime submissions MUST NOT overwrite, downgrade, or duplicate it.
+    if (groupCode === "G0") {
+      return;
+    }
+
     const progress = calculateGroupProgress(group);
     if (progress.percentage === 100) {
       this.certifications.set(groupCode, {
@@ -140,6 +169,30 @@ export class HrExecutionProvider {
   }
 
   // ── Private Helpers ──────────────────────────────────────────────────────
+
+  /**
+   * The documented G0 engineering certification — derived from the
+   * committed closure evidence, not from volatile runtime state.
+   * Engineering certification is PENDING until a human approves the
+   * closure certificate; this code never self-approves.
+   */
+  documentedG0Certification(): Certification {
+    return {
+      id: "CERT-G0-DOCUMENTED",
+      entityId: "GROUP-G0",
+      entityType: "GROUP",
+      status: HR_G0_CLOSURE.engineeringCertification === "APPROVED"
+        ? "CERTIFIED"
+        : "PENDING_REVIEW",
+      acceptanceCriteria: [],
+      notes:
+        `Documented closure (merge ${HR_G0_CLOSURE.mergeSha}); ` +
+        `legal certification: ${HR_G0_CLOSURE.legalCertification} ` +
+        `(independent human gate); production authorization: ` +
+        `${HR_G0_CLOSURE.productionAuthorization}. Evidence: ` +
+        `${HR_G0_CLOSURE.certificatePath}`,
+    };
+  }
 
   private buildProgram(): ExecutionProgram {
     const groups = HR_GROUP_DATA.map((groupData) => this.buildGroup(groupData));

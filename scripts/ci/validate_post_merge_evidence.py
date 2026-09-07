@@ -28,6 +28,9 @@ import sys
 from pathlib import Path
 
 # Checks whose "skipped" or "cancelled" outcome must keep the gate OPEN.
+# v20260907.1 (HRM-G0 reconciliation): added postgresql_host_native,
+# provision_db, db_role_contract and hrm_focused_tests — the new JOB B/C/D
+# verification chain must never be skipped for a G0 closure to be claimed.
 CRITICAL_CHECK_KEYS = {
     "frontend_deps",
     "backend_deps",
@@ -46,6 +49,10 @@ CRITICAL_CHECK_KEYS = {
     "secret_scan",
     "smoke_backend",
     "smoke_frontend",
+    "postgresql_host_native",
+    "provision_db",
+    "db_role_contract",
+    "hrm_focused_tests",
 }
 
 
