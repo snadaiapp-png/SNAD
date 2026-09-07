@@ -18,6 +18,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -41,6 +42,7 @@ class HrRlsFailClosedIntegrationTest {
     private Connection conn;
     private DriverManagerDataSource dataSource;
     private static String ISOLATED_URL;
+    private static final AtomicInteger SCHEMA_MIGRATION_RUNS = new AtomicInteger();
     private static final String DB_URL = System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
     private static final String DB_USER = System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad");
     private static final String DB_PASSWORD = System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "");
@@ -63,6 +65,10 @@ class HrRlsFailClosedIntegrationTest {
         Flyway flyway = Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .baselineOnMigrate(true).cleanDisabled(false).validateOnMigrate(false).load();
+        int migrationRun = SCHEMA_MIGRATION_RUNS.incrementAndGet();
+        assertThat(migrationRun)
+                .as("TDD RED: HrRlsFailClosedIntegrationTest must migrate its isolated schema once per class, not once per testcase")
+                .isEqualTo(1);
         flyway.clean();
         flyway.migrate();
         conn = dataSource.getConnection();
