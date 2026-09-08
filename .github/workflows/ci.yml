@@ -616,10 +616,10 @@ jobs:
       JPA_DDL_AUTO: validate
       CANON_ROOT: ${{ github.workspace }}/r0c12-canonical-evidence
 
-    defaults:
-      run:
-        working-directory: apps/sanad-platform
-
+    # NOTE: no job-level defaults.run.working-directory — the first step runs
+    # BEFORE checkout, so apps/sanad-platform does not exist yet (a job-level
+    # default made bash fail to start on the runner). Steps that need the
+    # repo layout declare `working-directory` explicitly.
     steps:
       - name: A6-4/9 Record dispatch binding (manual-only, run-id bound)
         run: |
@@ -851,6 +851,7 @@ jobs:
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
 
       - name: A6-11 Cleanliness gates (0 tables, STALE_SUREFIRE_XML=0)
+        working-directory: apps/sanad-platform
         run: |
           set -euo pipefail
           export PATH="$PGHOME/bin:$PATH"
@@ -878,6 +879,7 @@ jobs:
           } >> "$CANON_ROOT/toolchain.txt"
 
       - name: A6-12 CANONICAL GATE G — single uninterrupted Maven invocation
+        working-directory: apps/sanad-platform
         env:
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: |
@@ -1025,6 +1027,7 @@ jobs:
 
       - name: A6-16/17 PG-ACCEPTANCE COMPANION (only AFTER Gate-G freeze)
         if: always()
+        working-directory: apps/sanad-platform
         env:
           SPRING_PROFILES_ACTIVE: pg-acceptance
           PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
