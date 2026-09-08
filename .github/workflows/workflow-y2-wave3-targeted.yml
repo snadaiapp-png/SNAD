@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   task16-contract:
-    name: Task 16 Typed API Contract
+    name: Task 16 Backend Regression
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -80,11 +80,11 @@ jobs:
           key="$(openssl rand -base64 32 | tr -d '\n')"
           echo "::add-mask::$key"
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
-      - name: Run Task 16 contract RED/GREEN target
-        run: mvn -B -ntp -Dtest=WorkflowTask16TypedApiContractTest test
+      - name: Run Task 16 backend regression
+        run: mvn -B -ntp -Dtest=WorkflowTask16TypedApiContractTest,WorkflowApiContractTest test
 
   task16-web-contract:
-    name: Task 16 Web Client Contract
+    name: Task 16 Web Regression
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -101,5 +101,5 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - name: Install web dependencies
         run: npm ci
-      - name: Run Task 16 web contract
-        run: npm test -- workflow-y2-task16-contract
+      - name: Run workflow web regression
+        run: npm test -- workflow
