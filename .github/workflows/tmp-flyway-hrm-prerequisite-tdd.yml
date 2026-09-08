@@ -1,8 +1,9 @@
 name: TEMP Flyway HRM Prerequisite TDD
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches:
+      - fix/flyway-hrm-prerequisite-forward-reconciliation
 
 permissions:
   contents: read
