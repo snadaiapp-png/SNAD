@@ -614,7 +614,10 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
-      CANON_ROOT: ${{ github.workspace }}/r0c12-canonical-evidence
+
+    # NOTE: CANON_ROOT lives under $RUNNER_TEMP (NOT the workspace) —
+    # actions/checkout runs `git clean -ffdx` over the workspace, which
+    # would erase any pre-checkout evidence directory created there.
 
     # NOTE: no job-level defaults.run.working-directory — the first step runs
     # BEFORE checkout, so apps/sanad-platform does not exist yet (a job-level
@@ -632,6 +635,7 @@ jobs:
             echo "::error::PROCESS_PERSISTENCE_BINDING=FAIL (no GITHUB_RUN_ID)"
             exit 1
           }
+          echo "CANON_ROOT=$RUNNER_TEMP/r0c12-canonical-evidence" >> "$GITHUB_ENV"
           mkdir -p "$CANON_ROOT"
           {
             echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
@@ -667,6 +671,7 @@ jobs:
             echo "::error::SHA_BINDING_MISMATCH expected=${EXPECTED_SHA} actual=${ACTUAL_GIT_HEAD}"
             exit 1
           fi
+          mkdir -p "$CANON_ROOT"
           {
             echo "ACTUAL_GIT_HEAD=${ACTUAL_GIT_HEAD}"
             echo "SHA_BINDING=PASS"
@@ -910,17 +915,21 @@ jobs:
           fi
           {
             echo "FREEZE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "JAVA=$(java -version 2>&1 | head -n1)"
-            echo "MAVEN=$(mvn -version 2>/dev/null | head -n1)"
-            echo "POSTGRES=$("$PGHOME/bin/postgres" --version 2>/dev/null || echo unavailable)"
-            echo "GIT_HEAD=$(git rev-parse HEAD)"
+            echo "JAVA=$( (java -version 2>&1 | head -n1) || true )"
+            echo "MAVEN=$( (mvn -version 2>/dev/null | head -n1) || true )"
+            echo "POSTGRES=$( ("$PGHOME/bin/postgres" --version 2>/dev/null) || echo unavailable )"
+            echo "GIT_HEAD=$( (git -C "$GITHUB_WORKSPACE" rev-parse HEAD 2>/dev/null) || echo unknown )"
             echo "DISK=$(df -h "$RUNNER_TEMP" | tail -n1 | awk '{print $4" free"}')"
             echo "GATE_G_START_UTC=$(cat "$CANON_ROOT/GATE_G_START_UTC.txt" 2>/dev/null || echo n/a)"
             echo "GATE_G_END_UTC=$(cat "$CANON_ROOT/GATE_G_END_UTC.txt" 2>/dev/null || echo n/a)"
             echo "MAVEN_EXIT_CODE=$(cat "$CANON_ROOT/MAVEN_EXIT_CODE.txt" 2>/dev/null || echo n/a)"
           } > "$CANON_ROOT/A6-GATE-G-METADATA.txt"
-          cat "$CANON_ROOT/dispatch-binding.txt" >> "$CANON_ROOT/A6-GATE-G-METADATA.txt"
-          cat "$CANON_ROOT/toolchain.txt" >> "$CANON_ROOT/A6-GATE-G-METADATA.txt"
+          if [ -f "$CANON_ROOT/dispatch-binding.txt" ]; then
+            cat "$CANON_ROOT/dispatch-binding.txt" >> "$CANON_ROOT/A6-GATE-G-METADATA.txt"
+          fi
+          if [ -f "$CANON_ROOT/toolchain.txt" ]; then
+            cat "$CANON_ROOT/toolchain.txt" >> "$CANON_ROOT/A6-GATE-G-METADATA.txt"
+          fi
           cd "$CANON_ROOT"
           find . -type f ! -name 'SHA256SUMS.txt' ! -name 'SHA256SUMS-FINAL.txt' -print0 \
             | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
@@ -981,11 +990,13 @@ jobs:
                   critical += exp
           pat = re.compile(r"Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)")
           last = None
-          with open(os.path.join(root, "A6-GATE-G-CONSOLE.log"), "r", errors="replace") as fh:
-              for line in fh:
-                  m = pat.search(line)
-                  if m:
-                      last = tuple(int(x) for x in m.groups())
+          console_path = os.path.join(root, "A6-GATE-G-CONSOLE.log")
+          if os.path.exists(console_path):
+              with open(console_path, "r", errors="replace") as fh:
+                  for line in fh:
+                      m = pat.search(line)
+                      if m:
+                          last = tuple(int(x) for x in m.groups())
           ct, cf, ce, cs = last if last else (None, None, None, None)
           recon_ok = (ct == tests and cf == failures and ce == errors and cs == skipped
                       and parse_errors == 0 and duplicate_reports == 0)
@@ -1121,11 +1132,14 @@ jobs:
           root = os.environ["CANON_ROOT"]
           def kv(path):
               d = {}
-              with open(path) as fh:
-                  for line in fh:
-                      m = re.match(r"^([A-Za-z0-9_]+)=(.*)$", line.rstrip("\n"))
-                      if m:
-                          d[m.group(1)] = m.group(2)
+              try:
+                  with open(path) as fh:
+                      for line in fh:
+                          m = re.match(r"^([A-Za-z0-9_]+)=(.*)$", line.rstrip("\n"))
+                          if m:
+                              d[m.group(1)] = m.group(2)
+              except FileNotFoundError:
+                  pass
               return d
           binding = kv(os.path.join(root, "dispatch-binding.txt"))
           tool = kv(os.path.join(root, "toolchain.txt"))
@@ -1200,7 +1214,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: r0c12-canonical-gate-g-${{ env.SHORT_SHA }}-run-${{ github.run_id }}
-          path: ${{ github.workspace }}/r0c12-canonical-evidence
+          path: ${{ env.CANON_ROOT }}
           if-no-files-found: error
           retention-days: 30
 
