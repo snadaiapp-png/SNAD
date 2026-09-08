@@ -34,3 +34,8 @@ README.md:sidekiq-secret:50
 # under test which throw UnsupportedOperationException (RED state).
 /repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:480
 /repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/identity/HrPersonServiceBehaviorIntegrationTest.java:generic-api-key:481
+
+# HRM-G0 reconciliation — synthetic AES-256 + HMAC-SHA-256 test-only keys for
+# the canonical-write-integrity InMemoryTestCryptoService (NOT real secrets).
+# Same class of fixture as HrPersonServiceBehaviorIntegrationTest above.
+/repo/apps/sanad-platform/src/test/java/com/sanad/platform/hr/employment/HrEmploymentCanonicalWriteIntegrityIntegrationTest.java:generic-api-key:259

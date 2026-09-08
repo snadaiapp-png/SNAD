@@ -1,5 +1,25 @@
 # HRM-G0 Evidence — 05 API/UI Cutover (WS5 Tasks 8–12)
 
+```
+CURRENT AUTHORITATIVE STATE
+---------------------------
+HRM_G0_PR_914 = MERGED
+HRM_G0_MERGE_SHA = 748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b
+HRM_G0_IS_ANCESTOR_OF_MAIN = YES
+PRODUCTION_DEPLOYED = NO
+PRODUCTION_AUTHORIZATION = NO
+```
+
+```
+HISTORICAL EXECUTION RECORD
+---------------------------
+The body of this record (including the pre-merge branch line, the PR-
+pinned verification runs and the "MERGED = NO" statement below) reflects
+the state at the time each WS5 task executed. It is preserved verbatim
+as history and is superseded by the CURRENT AUTHORITATIVE STATE block
+above.
+```
+
 Evidence record for WS5 Tasks 8–12 of the HRM-G0 foundation plan
 (`docs/superpowers/plans/2026-08-27-hrm-g0-05-api-ui-cutover.md`, branch
 `feat/hrm-g0-foundation`, PR #914). PostgreSQL Direct only (127.0.0.1:5432/sanad,
@@ -185,8 +205,9 @@ Implementation record:
 - The preview's seed+cutover SQL was validated locally against PostgreSQL Direct
   on a fresh bootstrap-shaped tenant: `STATE=CANONICAL, PEOPLE=3` (simulation
   tenant removed afterwards).
-- `MERGED = NO`, `PRODUCTION_DEPLOYED = NO` — Task 12 grants no deployment
-  authorization.
+- Historical statement (pre-merge): `MERGED = NO`, `PRODUCTION_DEPLOYED = NO`
+  — Task 12 granted no deployment authorization. The merge state above is
+  now authoritative; the no-deployment authorization remains in force.
 
 ## Main reconciliation (origin/main advanced during implementation)
 

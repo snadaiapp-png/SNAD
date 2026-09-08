@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260906_1: R0C-10 — Subscription multiplicity MODEL_B
+-- V20260906_2: R0C-10 — Subscription multiplicity MODEL_B
 --
 -- MODEL_B frozen contract (R0C-9 closed contract, inherited):
 --   Historical subscriptions:           tenant -> 0..N

@@ -74,34 +74,66 @@ public final class JdbcEmploymentRepository implements EmploymentRepository {
     @Override
     public void saveEmployment(Employment employment) {
         inTenantTransaction(employment.tenantId(), connection -> {
+            // G0 reconciliation fix (T-G0-DEF-1): the canonical write path
+            // must never persist placeholder identity data. Names are owned
+            // by the canonical Person (hr_people) and are projected onto the
+            // legacy hr_employees name columns from the SAME tenant
+            // transaction. A missing person row fails the write (fail-closed).
+            String firstName;
+            String lastName;
+            String displayName;
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "SELECT first_name, last_name, display_name FROM hr_people "
+                    + "WHERE id = ? AND tenant_id = ?")) {
+                ps.setObject(1, employment.personId());
+                ps.setObject(2, employment.tenantId());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new IllegalStateException(
+                            "Cannot save employment " + employment.id()
+                            + ": canonical person " + employment.personId()
+                            + " not found in tenant " + employment.tenantId());
+                    }
+                    firstName = rs.getString(1);
+                    lastName = rs.getString(2);
+                    displayName = rs.getString(3);
+                }
+            }
+            // employment_type is the legacy classification column with a DB
+            // CHECK constraint (FULL_TIME, PART_TIME, CONTRACT, INTERN,
+            // CONSULTANT). The canonical workerClassificationCode is now
+            // persisted verbatim instead of being silently rewritten to
+            // FULL_TIME; an out-of-vocabulary code is rejected by the
+            // CHECK constraint (fail-closed) instead of being masked.
             try (PreparedStatement ps = connection.prepareStatement(
                     "INSERT INTO hr_employees " +
                     "(id, tenant_id, person_id, legal_entity_id, employee_number, " +
                     "first_name, last_name, display_name, employment_type, worker_classification_code, " +
                     "status, hire_date, termination_date, rehire_of_employee_id, version, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'FULL_TIME', ?, ?, ?, ?, ?, ?, NOW(), NOW())")) {
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")) {
                 ps.setObject(1, employment.id());
                 ps.setObject(2, employment.tenantId());
                 ps.setObject(3, employment.personId());
                 ps.setObject(4, employment.legalEntityId());
                 ps.setString(5, employment.employeeNumber());
-                ps.setString(6, "Test");
-                ps.setString(7, "Employee");
-                ps.setString(8, "Test Employee");
+                ps.setString(6, firstName);
+                ps.setString(7, lastName);
+                ps.setString(8, displayName);
                 ps.setString(9, employment.workerClassificationCode());
-                ps.setString(10, employment.currentStatus().name());
+                ps.setString(10, employment.workerClassificationCode());
+                ps.setString(11, employment.currentStatus().name());
                 if (employment.employmentStartDate() != null) {
-                    ps.setObject(11, java.sql.Date.valueOf(employment.employmentStartDate()));
-                } else {
-                    ps.setNull(11, Types.DATE);
-                }
-                if (employment.terminationDate() != null) {
-                    ps.setObject(12, java.sql.Date.valueOf(employment.terminationDate()));
+                    ps.setObject(12, java.sql.Date.valueOf(employment.employmentStartDate()));
                 } else {
                     ps.setNull(12, Types.DATE);
                 }
-                ps.setObject(13, employment.rehireOfEmployeeId());
-                ps.setLong(14, employment.version());
+                if (employment.terminationDate() != null) {
+                    ps.setObject(13, java.sql.Date.valueOf(employment.terminationDate()));
+                } else {
+                    ps.setNull(13, Types.DATE);
+                }
+                ps.setObject(14, employment.rehireOfEmployeeId());
+                ps.setLong(15, employment.version());
                 ps.executeUpdate();
             }
             return null;

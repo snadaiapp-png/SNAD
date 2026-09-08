@@ -342,7 +342,7 @@ class ExpiredContinuationDeadEndPostgresTest {
      * one-subscription-per-tenant model that R0C-9 proved blocks historical
      * multiplicity. R0C-10 implements the behavior R0C-9 proved missing: the
      * legacy constraint is replaced by the MODEL_B partial unique index
-     * {@code uk_tenant_subscriptions_effective} (migration V20260906_1).
+     * {@code uk_tenant_subscriptions_effective} (migration V20260906_2).
      * This assertion now pins the R0C-10 storage inventory; the full
      * MODEL_B storage battery lives in
      * {@code SubscriptionMultiplicityStoragePostgresTest}.

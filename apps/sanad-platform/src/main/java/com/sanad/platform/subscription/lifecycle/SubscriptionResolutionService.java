@@ -19,7 +19,7 @@ import java.util.UUID;
  *   <li><b>EFFECTIVE</b> — rows with {@code status NOT IN ('CANCELLED',
  *       'EXPIRED','TERMINATED')}; cardinality 0..1, bounded by the partial
  *       unique index {@code uk_tenant_subscriptions_effective}
- *       (V20260906_1).</li>
+ *       (V20260906_2).</li>
  * </ul>
  *
  * <p><b>Canonical chronology authority:</b> {@code (created_at DESC, id DESC)} —

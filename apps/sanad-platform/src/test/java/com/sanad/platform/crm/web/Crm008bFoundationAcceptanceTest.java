@@ -74,14 +74,13 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260823.2 - crm participant role exclusivity is the new terminal migration.
     //   Earlier V20260823.1 (crm contacts force rls) precedes it.
     //
-    // SCP closure: V20260901_1 (canonicalize capability codes to uppercase)
-    //   is the current terminal migration.
-    // R0C-10: subscription multiplicity MODEL_B migration is the current latest.
-    // Merged from main (Y2/HRM-G0): V20260905_18 reconciles the Y2 Employee<->User
-    //   identity uniqueness with the G0 cutover lifecycle; it precedes the
-    //   V20260906_1 SCP MODEL_B terminal (mechanically confirmed against the
-    //   merged db/migration inventory).
-    private static final String CRM_LATEST_VERSION = "20260906.1";
+    // Migration identity reconciliation (Amendment #5, owner decision Option 2):
+    //   V20260906_1 = workflow notification dedup unique index (main Task 15
+    //                 T15-D1 remediation; main-authoritative at 20260906.1).
+    //   V20260906_2 = SCP subscription multiplicity MODEL_B (renumbered from
+    //                 V20260906_1 at integration; unmerged on PR #989).
+    // V20260906_2 is the current terminal migration.
+    private static final String CRM_LATEST_VERSION = "20260906.2";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

@@ -205,10 +205,15 @@ class CrmPostgresMigrationTest {
     private static final String HR_CONTRACT_COMPENSATION_VERSION = "20260905.16";
     private static final String HRM_V2_CAPABILITIES_VERSION = "20260905.17";
     private static final String Y2_G0_IDENTITY_RECONCILIATION_VERSION = "20260905.18";
+    // Workflow Task 15 remediation (T15-D1): notification intent dedup unique
+    // index (main-authoritative identity at 20260906.1).
+    private static final String WF_NOTIFICATION_DEDUP_VERSION = "20260906.1";
     // R0C-10: subscription multiplicity MODEL_B migration is the current latest
-    // (mechanically confirmed as the merged db/migration terminal version).
-    private static final String SCP_MULTIPLICITY_MODEL_B_VERSION = "20260906.1";
+    // (renumbered from V20260906_1 to V20260906_2 at Amendment #5 integration;
+    // mechanically confirmed as the merged db/migration terminal version).
+    private static final String SCP_MULTIPLICITY_MODEL_B_VERSION = "20260906.2";
     private static final String LATEST_MIGRATION_VERSION = SCP_MULTIPLICITY_MODEL_B_VERSION;
+
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -457,6 +462,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -628,6 +634,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION));
         completion.migrate();
         completion.validate();

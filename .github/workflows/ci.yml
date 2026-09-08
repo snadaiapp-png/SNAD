@@ -12,10 +12,6 @@
 #   The @EnabledIfEnvironmentVariable guard makes the default-profile
 #   Maven Test Suite report 6 intentional SKIPPED; this dedicated job
 #   is the authoritative execution path for those 6 concurrency tests.
-#   The postgres:16-alpine POSTGRES_USER env var creates a SUPERUSER
-#   bootstrap role. Previously we set POSTGRES_USER=sanad which made
-#   the application role itself a SUPERUSER, bypassing FORCE RLS and
-#   defeating every tenant-isolation / least-privilege test (RC-1).
 #
 #   Architecture now:
 #     BOOTSTRAP_ADMIN_ROLE=postgres  (SUPERUSER, used ONLY for provisioning)
@@ -30,13 +26,8 @@
 #        making FORCE RLS apply to the table owner — exactly the
 #        contract the RC-1 security tests verify)
 #     - the disposable `test_migration` database owned by `sanad`
-#       (used by MigrationTestSchemaSupport-leveraging tests:
-#        ContactParticipantInvariantPostgresTest, ContactRlsPostgresTest,
-#        ContactTransferSpringProxyPostgresTest, ContactOwnerPatch-
-#        CanonicalizationPostgresTest, and the least-privilege test itself)
+#       (used by MigrationTestSchemaSupport-leveraging tests)
 #     - CONNECT on the `postgres` maintenance DB for `sanad`
-#       (MigrationTestSchemaSupport.ensureDatabase + the least-privilege
-#       test connect to `postgres` to query pg_database / pg_roles)
 #     - the `crm_contact_rls_test_user` role (C2 test RLS user)
 #
 #   Flyway then runs as `sanad` against both `sanad` and `test_migration`.
@@ -48,13 +39,28 @@
 #   and run #3215 was killed by the 60-minute ceiling (60m39s) with
 #   zero test failures — an infrastructure cancellation, not a regression.
 #
+# v20260907.1 (HRM-G0 reconciliation — CI governance remediation):
+#   PostgreSQL service CONTAINERS (services: postgres: image: ...) are
+#   FORBIDDEN for this certification. All three jobs now run against
+#   HOST-NATIVE PostgreSQL preinstalled on the runner:
+#     - the preinstalled cluster is started via systemctl (no Docker)
+#     - availability is proven with `psql --version` + `pg_isready`
+#       before anything runs; absence is a hard ENVIRONMENT_BLOCKER
+#       (fail closed) — never a Docker fallback
+#     - a disposable `sanad` database/role pair is provisioned with the
+#       same least-privilege contract as before (NOSUPERUSER NOBYPASSRLS)
+#     - the bootstrap admin connects over the unix socket with peer auth
+#       (`sudo -u postgres psql`); the application role connects over TCP
+#   Job names are unchanged so branch-protection required checks keep
+#   their identity. History (Docker-era changelog above) is preserved.
+#
 # NOTE on heredoc bodies: SQL heredocs inside run: blocks must use
 #   `--` for comments. Bash-style `#` comments are sent to psql as SQL
 #   and break the script.
 # ============================================================
 # Runs on every push to main and on pull requests.
-# Executes Maven tests against the GitHub-provided PostgreSQL 16 service
-# and reports results.
+# Executes Maven tests against host-native PostgreSQL (Direct, no
+# containers) and reports results.
 # The `crm` job runs the CRM integration test classes in isolation and is
 # intended as a required status check on main.
 # ============================================================
@@ -81,24 +87,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          # Bootstrap SUPERUSER — used ONLY for the provisioning step below.
-          # The application role `sanad` is created separately as a
-          # least-privilege LOGIN role.
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres_pass
-          POSTGRES_DB: sanad
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d sanad"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
@@ -109,10 +97,6 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
-      # PGPASSWORD for the psql client used in the provisioning step
-      # (connects as the `postgres` bootstrap superuser to CREATE ROLE
-      # `sanad` + databases + grants).
-      PGPASSWORD: postgres_pass
 
     defaults:
       run:
@@ -122,27 +106,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Start host-native PostgreSQL (no containers)
+        # G0 reconciliation directive: GITHUB_POSTGRES_SERVICE_CONTAINER is
+        # forbidden. The runner image ships a real PostgreSQL server — start
+        # it natively and prove availability, or FAIL CLOSED.
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (psql not found on runner)"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (cluster failed to start)"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
       - name: Provision application role + databases + test RLS user
-        # Connects as the `postgres` bootstrap SUPERUSER to provision:
+        # Connects as the `postgres` bootstrap SUPERUSER (peer auth over the
+        # unix socket — no passwords in logs) to provision:
         #   1. The `sanad` application role (NOSUPERUSER NOCREATEDB
         #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD 'sanad_pass').
-        #   2. ALTER DATABASE sanad OWNER TO sanad — so Flyway tables
-        #      created by `sanad` are owned by `sanad`, making FORCE RLS
-        #      apply to the table owner (the RC-1 security contract).
+        #   2. The disposable `sanad` database, owned by `sanad` so Flyway
+        #      tables are owned by the application role and FORCE RLS
+        #      applies to the owner (the RC-1 security contract).
         #   3. The disposable `test_migration` database owned by `sanad`
         #      (used by MigrationTestSchemaSupport-leveraging tests +
         #      the least-privilege R0-C test).
-        #   4. CONNECT on the `postgres` maintenance DB for `sanad`
-        #      (MigrationTestSchemaSupport.ensureDatabase + the R0-C
-        #      least-privilege test connect to `postgres` to query
-        #      pg_database / pg_roles).
-        #   5. USAGE + CREATE on schema public for `sanad` (Flyway needs
-        #      CREATE TABLE / ALTER TABLE; tests need INSERT/UPDATE/DELETE
-        #      on their own tables — covered by table ownership).
+        #   4. CONNECT on the `postgres` maintenance DB for `sanad`.
+        #   5. USAGE + CREATE on schema public for `sanad`.
         #   6. The `crm_contact_rls_test_user` role (C2 RLS test user).
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
@@ -152,29 +153,22 @@ jobs:
           END $$;
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
-          -- 2. Transfer database ownership from `postgres` to `sanad`.
-          --    Flyway will then run as `sanad` and own every table it
-          --    creates — making FORCE RLS apply to `sanad` as table owner.
+          -- 2. The disposable application database, owned by `sanad`.
+          SELECT 'CREATE DATABASE sanad OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
           ALTER DATABASE sanad OWNER TO sanad;
 
           -- 3. Pre-provision the disposable `test_migration` database
           --    (used by MigrationTestSchemaSupport-leveraging tests).
           --    Owned by `sanad` so the application role can Flyway-migrate
-          --    it without needing CREATEDB. CREATE DATABASE ... OWNER
-          --    requires SUPERUSER (which `postgres` has).
+          --    it without needing CREATEDB.
           SELECT 'CREATE DATABASE test_migration OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
 
-          -- 4. CONNECT on the maintenance DB for `sanad`. Needed by
-          --    MigrationTestSchemaSupport.ensureDatabase() and the R0-C
-          --    least-privilege test — both connect to `postgres` to
-          --    query pg_database / pg_roles.
+          -- 4. CONNECT on the maintenance DB for `sanad`.
           GRANT CONNECT ON DATABASE postgres TO sanad;
 
           -- 5. Schema privileges for `sanad` on the `sanad` database.
-          --    Flyway needs CREATE (for CREATE TABLE / ALTER TABLE) +
-          --    USAGE. Tests need USAGE + DML on their own tables
-          --    (covered by table ownership — sanad owns what it creates).
           GRANT USAGE, CREATE ON SCHEMA public TO sanad;
 
           -- Mirror the schema privileges on the test_migration database
@@ -211,7 +205,7 @@ jobs:
           echo "::add-mask::$key"
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
 
-      - name: Run tests (PostgreSQL Direct)
+      - name: Run tests (PostgreSQL Direct, host-native)
         env:
           # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
@@ -249,21 +243,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres_pass
-          POSTGRES_DB: sanad
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d sanad"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
@@ -274,7 +253,6 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
-      PGPASSWORD: postgres_pass
 
     defaults:
       run:
@@ -284,13 +262,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Start host-native PostgreSQL (no containers)
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (psql not found on runner)"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (cluster failed to start)"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
       - name: Provision application role + databases + test RLS user
         # Mirror of the test job's provisioning step (same least-privilege
         # role separation so CRM Integration Tests run against the same
         # non-superuser application role as the Maven Test Suite).
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
@@ -298,6 +294,8 @@ jobs:
             END IF;
           END $$;
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
           ALTER DATABASE sanad OWNER TO sanad;
           SELECT 'CREATE DATABASE test_migration OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
@@ -330,10 +328,7 @@ jobs:
         # Note: CRM_CUSTOM_FIELD_ENCRYPTION_KEY is intentionally NOT set
         # here — CRM Integration Tests use the `default` profile which
         # generates an ephemeral key at startup. Setting the well-known
-        # test key here would introduce a redundant gitleaks finding
-        # (the same key is already committed in 8+ other workflow files
-        # as a known test fixture, but adding a new occurrence here is
-        # unnecessary and was reverted in v20260816.11).
+        # test key here would introduce a redundant gitleaks finding.
         run: |
           mvn test -B -ntp \
             -Dsurefire.useFile=true \
@@ -399,40 +394,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres_pass
-          POSTGRES_DB: sanad
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d sanad"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
     env:
       # SPRING_DATASOURCE_URL is intentionally NOT set here.
-      # Spring Boot binds SPRING_DATASOURCE_URL env var directly to
-      # spring.datasource.url with HIGHER precedence than profile-specific
-      # YAML. If we set SPRING_DATASOURCE_URL=sanad here, the
-      # application-pg-acceptance.yml override (spring.datasource.url:
-      # ${PG_ACCEPTANCE_JDBC_URL:}) would be IGNORED, and HikariCP would
-      # connect to the shared `sanad` database — defeating the entire
-      # isolation contract of this job. The pg-acceptance profile reads
-      # PG_ACCEPTANCE_JDBC_URL/USERNAME/PASSWORD exclusively.
-      PGPASSWORD: postgres_pass
+      # The pg-acceptance profile reads PG_ACCEPTANCE_JDBC_URL/USERNAME/
+      # PASSWORD exclusively (see v20260825.1 note above).
       # pg-acceptance profile activation (gates @EnabledIfEnvironmentVariable).
       SPRING_PROFILES_ACTIVE: pg-acceptance
       # Dedicated isolated acceptance DB credentials.
       # The PgAcceptanceDatabaseGuard enforces that this URL must NOT match
-      # the production Supabase / Render managed DB markers (snad-prod,
-      # render-db.internal, supabase.co refs, db names containing 'prod').
-      # The pg_acceptance database is dedicated to this job — no other job
-      # touches it.
+      # the production Supabase / Render managed DB markers.
       PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
       PG_ACCEPTANCE_USERNAME: sanad
       PG_ACCEPTANCE_PASSWORD: sanad_pass
@@ -445,27 +415,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Start host-native PostgreSQL (no containers)
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (psql not found on runner)"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (cluster failed to start)"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
       - name: Provision application role + dedicated pg_acceptance database
-        # Connects as the `postgres` bootstrap SUPERUSER to provision:
-        #   1. The `sanad` application role (NOSUPERUSER NOCREATEDB
-        #      NOCREATEROLE NOBYPASSRLS, LOGIN PASSWORD 'sanad_pass').
-        #      Reuses the same least-privilege application role as the
-        #      other jobs — no new role is created.
-        #   2. The dedicated `pg_acceptance` database owned by `sanad`.
-        #      CREATE DATABASE ... OWNER requires SUPERUSER (which
-        #      `postgres` has). The DB is idempotently re-created (DROP
-        #      IF EXISTS + CREATE) on every run so the concurrency tests
-        #      start from a known-empty sequence state — required by the
-        #      test 2 assertion "ORD-\\d{6}-00001" (first row for a fresh
-        #      tenant in commerce_order_number_sequences).
-        #   3. Schema privileges for `sanad` on the `pg_acceptance` database.
-        #      Mirrors the proven pattern used by the `test_migration`
-        #      database provisioning in the Maven Test Suite and CRM
-        #      Integration Tests jobs (lines 167-172 of this file):
-        #      GRANT USAGE, CREATE ON SCHEMA public TO sanad.
+        # Connects as the `postgres` bootstrap SUPERUSER (peer auth) to
+        # provision the least-privilege `sanad` role and the dedicated,
+        # idempotently re-created `pg_acceptance` database owned by `sanad`.
         # NOTE: the heredoc body is SQL — only -- comments are allowed inside it.
         run: |
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
           -- 1. Application role `sanad` (least-privilege LOGIN).
           DO $$
           BEGIN
@@ -478,9 +452,7 @@ jobs:
           -- 2. Recreate the dedicated pg_acceptance database from scratch.
           --    DROP + CREATE guarantees a known-empty sequence state at
           --    the start of every run (the test asserts ORD-NNNNNN-00001
-          --    for the first sequence row of a fresh tenant). Idempotent
-          --    DROP IF EXISTS handles the first run on a fresh container.
-          --    Terminate any lingering connections before DROP (defensive).
+          --    for the first sequence row of a fresh tenant).
           SELECT pg_terminate_backend(pid)
           FROM pg_stat_activity
           WHERE datname = 'pg_acceptance' AND pid <> pg_backend_pid();
@@ -488,9 +460,6 @@ jobs:
           CREATE DATABASE pg_acceptance OWNER sanad;
 
           -- 3. Schema privileges for `sanad` on the `pg_acceptance` database.
-          --    Mirrors the proven pattern from the Maven Test Suite and
-          --    CRM Integration Tests jobs (which provision the
-          --    `test_migration` database with the exact same GRANT).
           \c pg_acceptance
           GRANT USAGE, CREATE ON SCHEMA public TO sanad;
           SQL

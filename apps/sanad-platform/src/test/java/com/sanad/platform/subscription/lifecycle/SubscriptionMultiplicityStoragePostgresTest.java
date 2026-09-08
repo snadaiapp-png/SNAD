@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * R0C-10 — MODEL_B SUBSCRIPTION MULTIPLICITY STORAGE INVARIANT (PostgreSQL Direct).
  *
  * <p>Proves the storage contract after migration
- * {@code V20260906_1__scp_subscription_multiplicity_model_b}:</p>
+ * {@code V20260906_2__scp_subscription_multiplicity_model_b}:</p>
  *
  * <ul>
  *   <li>DB-01 — migration inventory: legacy {@code uk_tenant_subscriptions_tenant}

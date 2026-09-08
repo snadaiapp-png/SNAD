@@ -1,5 +1,6 @@
 package com.sanad.platform.workflow.application;
 
+import com.sanad.platform.hr.domain.HrEmployeeRepository;
 import com.sanad.platform.workflow.domain.WorkflowWorkItem;
 import com.sanad.platform.workflow.domain.WorkflowWorkItemCandidate;
 import com.sanad.platform.workflow.domain.WorkflowWorkItemRepository;
@@ -27,9 +28,15 @@ public class WorkflowWorkItemService {
     private static final Logger log = LoggerFactory.getLogger(WorkflowWorkItemService.class);
 
     private final WorkflowWorkItemRepository workItemRepo;
+    private final HrEmployeeRepository employeeRepo;
+    private final WorkflowNotificationService notificationService;
 
-    public WorkflowWorkItemService(WorkflowWorkItemRepository workItemRepo) {
+    public WorkflowWorkItemService(WorkflowWorkItemRepository workItemRepo,
+                                   HrEmployeeRepository employeeRepo,
+                                   WorkflowNotificationService notificationService) {
         this.workItemRepo = workItemRepo;
+        this.employeeRepo = employeeRepo;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -41,10 +48,37 @@ public class WorkflowWorkItemService {
             }
             workItemRepo.insertCandidates(saved.id(), candidates);
         }
+
+        // Task 15 / K3: the durable assignment intent is part of the same
+        // transaction that creates the WorkItem. When create() is reached from
+        // WorkflowGraphExecutionService, notification insertion therefore joins
+        // the authoritative Y2 transition transaction: commit publishes both;
+        // rollback publishes neither. Delivery is intentionally separate.
+        enqueueTaskAssignedIntents(saved, candidates);
+
         log.info("WorkItem created: tenant={} id={} type={} mode={} candidates={}",
                 saved.tenantId(), saved.id(), saved.type(), saved.assignmentMode(),
                 candidates != null ? candidates.size() : 0);
         return saved;
+    }
+
+    private void enqueueTaskAssignedIntents(WorkflowWorkItem item,
+                                            List<WorkflowWorkItemCandidate> candidates) {
+        List<UUID> recipientEmployeeIds = item.assignmentMode() == WorkflowWorkItem.AssignmentMode.DIRECT
+                ? List.of(item.assigneeEmployeeId())
+                : candidates.stream().map(WorkflowWorkItemCandidate::employeeId).distinct().toList();
+
+        for (UUID employeeId : recipientEmployeeIds) {
+            var employee = employeeRepo.findById(item.tenantId(), employeeId).orElse(null);
+            if (employee == null || employee.userId() == null) {
+                continue;
+            }
+            UUID recipientUserId = employee.userId();
+            String deduplicationKey = "TASK_ASSIGNED:" + item.id() + ":" + recipientUserId;
+            notificationService.enqueue(
+                    item.tenantId(), "TASK_ASSIGNED", item.workflowInstanceId(), item.id(),
+                    recipientUserId, "IN_APP", deduplicationKey);
+        }
     }
 
     @Transactional(readOnly = true)
