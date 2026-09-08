@@ -39,4 +39,13 @@ public interface RecruitmentAuthorizationPort {
 
     /** APPLICATION.REJECT — terminal rejection with registered reason. */
     void requireApplicationReject(HrCommandContext ctx, UUID applicationId);
+
+    /** INTERVIEW.SCHEDULE — interview scheduling with panel. */
+    void requireInterviewSchedule(HrCommandContext ctx, UUID interviewId);
+
+    /** INTERVIEW.RECORD_OUTCOME — outcome recording (terminal). */
+    void requireInterviewRecordOutcome(HrCommandContext ctx, UUID interviewId);
+
+    /** INTERVIEW.MANAGE — detail/feedback administration. */
+    void requireInterviewManage(HrCommandContext ctx, UUID interviewId);
 }
