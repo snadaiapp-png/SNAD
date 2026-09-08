@@ -237,6 +237,10 @@ class CrmFlywayHistoryAssertionTest {
             , "20260905.17"  // hrm-g0 master task 6 ws5 task 1 seed hrm v2 capabilities
             , "20260905.18"  // hrm-g0 reconcile y2 employee/user identity uniqueness with g0 cutover lifecycle
             , "20260906.1"   // workflow task 15 remediation (T15-D1): notification intent dedup unique index
+            // R0C-10: subscription multiplicity MODEL_B (legacy UNIQUE(tenant_id)
+            // replaced by the partial effective-unique invariant); renumbered
+            // from V20260906_1 to V20260906_2 at Amendment #5 integration.
+            , "20260906.2"   // scp subscription multiplicity model b
             , "20260908.1"   // workflow incident optimistic lock
     );
 

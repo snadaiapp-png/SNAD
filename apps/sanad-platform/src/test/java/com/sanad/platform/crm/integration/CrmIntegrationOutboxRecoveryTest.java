@@ -53,12 +53,21 @@ class CrmIntegrationOutboxRecoveryTest {
         MigrationTestSchemaSupport.ensureDatabase(baseUrl, user, password);
         String isolatedUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(baseUrl);
 
+        // R0C-RECOVERY-CHAIN §17 harness fix (test-only, reproduced on pristine
+        // 7f30c4ff): earlier classes — notably Crm008bFoundationAcceptanceTest —
+        // intentionally leave test_migration at an intermediate Flyway history
+        // state with later-version tables present, which makes a plain
+        // migrate() here fail the V20260722.1 precondition depending on
+        // execution order. Clean first so this class is order-independent and
+        // starts from the same deterministic schema every run.
+        // Self-sufficiency: always start from a canonical clean state so the
+        // shared test_migration history never depends on prior test order.
+        // Production Flyway chain is SQL-only (current-main authority): no Java
+        // migration registration is permitted in test harnesses.
         Flyway flyway = Flyway.configure()
                 .dataSource(isolatedUrl, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                .cleanDisabled(false).validateOnMigrate(false).load();
-        // Self-sufficiency: always start from a canonical clean state so the
-        // shared test_migration history never depends on prior test order.
+                .cleanDisabled(false).validateOnMigrate(true).load();
         flyway.clean();
         flyway.migrate();
 

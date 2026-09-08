@@ -171,7 +171,14 @@ class CrmPostgresMigrationTest {
     private static final String HR_CONTRACT_COMPENSATION_VERSION = "20260905.16";
     private static final String HRM_V2_CAPABILITIES_VERSION = "20260905.17";
     private static final String Y2_G0_IDENTITY_RECONCILIATION_VERSION = "20260905.18";
+    // Workflow Task 15 remediation (T15-D1): notification intent dedup unique
+    // index (main-authoritative identity at 20260906.1).
     private static final String WF_NOTIFICATION_DEDUP_VERSION = "20260906.1";
+    // R0C-10: subscription multiplicity MODEL_B (renumbered from V20260906_1
+    // to V20260906_2 at Amendment #5 integration).
+    private static final String SCP_MULTIPLICITY_MODEL_B_VERSION = "20260906.2";
+    // Forward drift reconciliation of 05b64dfc: workflow incident optimistic
+    // lock is the terminal migration of the merged ledger.
     private static final String WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION = "20260908.1";
     private static final String LATEST_MIGRATION_VERSION = WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION;
 
@@ -405,6 +412,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
+                        MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -575,6 +583,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
+                        MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
         completion.migrate();
         completion.validate();

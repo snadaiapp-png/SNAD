@@ -1,6 +1,7 @@
 package com.sanad.platform.subscription.api;
 
 import com.sanad.platform.subscription.catalog.ApplicationEntity;
+import com.sanad.platform.subscription.catalog.ProductEntity;
 import com.sanad.platform.subscription.item.SubscriptionItemEntity;
 import com.sanad.platform.subscription.plan.PlanVersionEntity;
 import com.sanad.platform.subscription.pricing.PriceEntity;
@@ -148,6 +149,37 @@ public final class ScpDtos {
     }
 
     public record CountryCurrencyResponse(String countryCode, String currencyCode, boolean isDefault) {
+    }
+
+    // ============================================================
+    // Products (R0C-11 — product catalog runtime)
+    // ============================================================
+
+    public record ProductRequest(
+            @NotBlank @Size(max = 50) @Pattern(regexp = "^[A-Za-z0-9_-]+$") String code,
+            @NotBlank @Size(max = 200) String name,
+            @Size(max = 1000) String description,
+            @Size(max = 20) @Pattern(regexp = "^(APPLICATION|ADD_ON|METERED|OTHER)$") String productType,
+            UUID applicationId,
+            @Pattern(regexp = "^(ACTIVE|INACTIVE|ARCHIVED)$") String status) {
+    }
+
+    public record ProductResponse(
+            UUID id,
+            String code,
+            String name,
+            String description,
+            UUID applicationId,
+            String productType,
+            String status,
+            Instant createdAt,
+            Instant updatedAt) {
+
+        public static ProductResponse from(ProductEntity p) {
+            return new ProductResponse(p.getId(), p.getCode(), p.getName(),
+                    p.getDescription(), p.getApplicationId(), p.getProductType(),
+                    p.getStatus(), p.getCreatedAt(), p.getUpdatedAt());
+        }
     }
 
     // ============================================================

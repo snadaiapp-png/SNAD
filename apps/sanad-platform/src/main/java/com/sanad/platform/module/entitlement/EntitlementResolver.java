@@ -1,8 +1,10 @@
 package com.sanad.platform.module.entitlement;
 
 import com.sanad.platform.module.registry.*;
+import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,15 +58,31 @@ public class EntitlementResolver {
     private final ModuleRepository moduleRepository;
     private final ModuleCapabilityRepository moduleCapabilityRepository;
     private final PlanModuleEntitlementRepository planModuleEntitlementRepository;
+    private final SubscriptionResolutionService resolution;
 
+    @Autowired
     public EntitlementResolver(JdbcTemplate jdbc,
                                 ModuleRepository moduleRepository,
                                 ModuleCapabilityRepository moduleCapabilityRepository,
-                                PlanModuleEntitlementRepository planModuleEntitlementRepository) {
+                                PlanModuleEntitlementRepository planModuleEntitlementRepository,
+                                SubscriptionResolutionService resolution) {
         this.jdbc = jdbc;
         this.moduleRepository = moduleRepository;
         this.moduleCapabilityRepository = moduleCapabilityRepository;
         this.planModuleEntitlementRepository = planModuleEntitlementRepository;
+        this.resolution = resolution;
+    }
+
+    /**
+     * Backward-compatible constructor (tests): self-wires the R0C-10
+     * effective-resolution authority from the same JdbcTemplate.
+     */
+    public EntitlementResolver(JdbcTemplate jdbc,
+                                ModuleRepository moduleRepository,
+                                ModuleCapabilityRepository moduleCapabilityRepository,
+                                PlanModuleEntitlementRepository planModuleEntitlementRepository) {
+        this(jdbc, moduleRepository, moduleCapabilityRepository, planModuleEntitlementRepository,
+                new SubscriptionResolutionService(jdbc));
     }
 
     /**
@@ -298,22 +316,29 @@ public class EntitlementResolver {
     }
 
     /**
-     * Find the active subscription for a tenant.
+     * Find the tenant's EFFECTIVE subscription and apply the legacy lifecycle
+     * gate (module entitlements resolve only from an ACTIVE subscription).
+     *
+     * <p>R0C-10 MODEL_B convergence: the resolution step is multiplicity-safe
+     * — it resolves the tenant's unique non-terminal row (bounded by the
+     * partial unique index) instead of the arbitrary
+     * {@code status = 'ACTIVE' LIMIT 1} tenant-only selection. The observable
+     * module-enable semantics are unchanged: a subscription that is not
+     * ACTIVE (e.g. TRIAL) still resolves to "no active subscription" here.</p>
      *
      * @return map with "subscriptionId" and "planId" keys, or null if no active subscription
      */
     private Map<String, Object> findActiveSubscription(UUID tenantId) {
         try {
-            return jdbc.queryForStream(
-                    "SELECT id, plan_id FROM tenant_subscriptions WHERE tenant_id = ? AND status = 'ACTIVE' LIMIT 1",
-                    (rs, rowNum) -> {
+            return resolution.findEffectiveSubscription(tenantId)
+                    .filter(sub -> "ACTIVE".equals(sub.status()))   // unchanged lifecycle gate
+                    .map(sub -> {
                         Map<String, Object> m = new HashMap<>();
-                        m.put("subscriptionId", rs.getObject("id", UUID.class));
-                        m.put("planId", rs.getObject("plan_id", UUID.class));
+                        m.put("subscriptionId", sub.id());
+                        m.put("planId", sub.planId());
                         return m;
-                    },
-                    tenantId
-            ).findFirst().orElse(null);
+                    })
+                    .orElse(null);
         } catch (Exception e) {
             log.debug("Error finding active subscription for tenant {}: {}", tenantId, e.getMessage());
             return null;

@@ -5,6 +5,8 @@ import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.subscription.catalog.ApplicationCatalogService;
 import com.sanad.platform.subscription.catalog.ApplicationEntity;
+import com.sanad.platform.subscription.catalog.ProductCatalogService;
+import com.sanad.platform.subscription.catalog.ProductEntity;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,11 +18,15 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Executive API for the application catalog.
+ * Executive API for the application catalog and the product catalog.
  *
  * <p>The catalog is data, not code: the console renders whatever this API
  * returns. Endpoints are additive to the existing {@code /api/v1/executive}
  * namespace and follow its conventions (control-plane guard + capability).
+ * R0C-11 adds the product surface with granular capabilities:
+ * reads require {@code catalog.read}, writes require {@code catalog.manage}.
+ * There is deliberately NO DELETE endpoint — products are retired through
+ * INACTIVE/ARCHIVED statuses, never physically removed.</p>
  */
 @RestController
 @RequestMapping("/api/v1/executive")
@@ -30,13 +36,16 @@ public class CatalogController {
 
     private final ControlPlaneAccessGuard accessGuard;
     private final ApplicationCatalogService catalogService;
+    private final ProductCatalogService productCatalogService;
     private final PlatformAuditService auditService;
 
     public CatalogController(ControlPlaneAccessGuard accessGuard,
                              ApplicationCatalogService catalogService,
+                             ProductCatalogService productCatalogService,
                              PlatformAuditService auditService) {
         this.accessGuard = accessGuard;
         this.catalogService = catalogService;
+        this.productCatalogService = productCatalogService;
         this.auditService = auditService;
     }
 
@@ -102,6 +111,71 @@ public class CatalogController {
         entity.setSupportedCountries(request.supportedCountries());
         entity.setDependencies(request.dependencies());
         entity.setDisplayOrder(request.displayOrder() == null ? 0 : request.displayOrder());
+        return entity;
+    }
+
+    // ============================================================
+    // Products (R0C-11) — reads: catalog.read; writes: catalog.manage
+    // ============================================================
+
+    @GetMapping("/products")
+    @RequireCapability("catalog.read")
+    public ResponseEntity<List<ScpDtos.ProductResponse>> listProducts(
+            @RequestParam(name = "availableOnly", required = false, defaultValue = "false")
+            boolean availableOnly,
+            Authentication authentication) {
+        accessGuard.require(authentication);
+        List<ScpDtos.ProductResponse> products = (availableOnly
+                ? productCatalogService.findAvailable()
+                : productCatalogService.findAll())
+                .stream().map(ScpDtos.ProductResponse::from).toList();
+        return ResponseEntity.ok(products);
+    }
+
+    @GetMapping("/products/{id}")
+    @RequireCapability("catalog.read")
+    public ResponseEntity<ScpDtos.ProductResponse> getProduct(
+            @PathVariable UUID id,
+            Authentication authentication) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(ScpDtos.ProductResponse.from(productCatalogService.findById(id)));
+    }
+
+    @PostMapping("/products")
+    @RequireCapability("catalog.manage")
+    public ResponseEntity<ScpDtos.ProductResponse> createProduct(
+            @Valid @RequestBody ScpDtos.ProductRequest request,
+            Authentication authentication) {
+        accessGuard.require(authentication);
+        ProductEntity created = productCatalogService.create(fromProductRequest(request));
+        auditService.success(authentication, null, "PRODUCT_CREATE",
+                "product", created.getId().toString(), null, null, created);
+        log.info("Product created: code={} id={}", created.getCode(), created.getId());
+        return ResponseEntity.ok(ScpDtos.ProductResponse.from(created));
+    }
+
+    @PutMapping("/products/{id}")
+    @RequireCapability("catalog.manage")
+    public ResponseEntity<ScpDtos.ProductResponse> updateProduct(
+            @PathVariable UUID id,
+            @Valid @RequestBody ScpDtos.ProductRequest request,
+            Authentication authentication) {
+        accessGuard.require(authentication);
+        ProductEntity before = productCatalogService.findById(id);
+        ProductEntity updated = productCatalogService.update(id, fromProductRequest(request));
+        auditService.success(authentication, null, "PRODUCT_UPDATE",
+                "product", id.toString(), null, before, updated);
+        return ResponseEntity.ok(ScpDtos.ProductResponse.from(updated));
+    }
+
+    private static ProductEntity fromProductRequest(ScpDtos.ProductRequest request) {
+        ProductEntity entity = new ProductEntity();
+        entity.setCode(request.code());
+        entity.setName(request.name());
+        entity.setDescription(request.description());
+        entity.setProductType(request.productType());
+        entity.setApplicationId(request.applicationId());
+        entity.setStatus(request.status());
         return entity;
     }
 }

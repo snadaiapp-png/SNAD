@@ -1,5 +1,6 @@
 package com.sanad.platform.subscription.provisioning;
 
+import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,15 @@ import java.util.UUID;
  * <p>Steps are keyed ({@code UNIQUE(job_id, step_key)}); already-succeeded
  * steps are skipped on retry, making the runner idempotent. Failures mark the
  * job RETRYING (first attempt) or FAILED — never silently successful.
+ *
+ * <p>R0C-7 — lifecycle convergence: the final VALIDATE step no longer writes
+ * {@code tenant_subscriptions.status} directly. Successful validation routes
+ * the activation through the canonical lifecycle command authority
+ * (ACTIVATE: status + command ledger + SubscriptionLifecycle validation). An
+ * already-ACTIVE subscription is an idempotent no-op (re-provisioning and
+ * retries succeed without a second transition); a terminal or otherwise
+ * non-activatable subscription fails closed. Job status, step status, retry
+ * and idempotency behavior are unchanged.</p>
  */
 @Service
 public class ProvisioningJobRunner {
@@ -30,9 +40,11 @@ public class ProvisioningJobRunner {
             Set.of("CANCELLED", "EXPIRED", "TERMINATED");
 
     private final JdbcTemplate jdbc;
+    private final SubscriptionCommandService commandService;
 
-    public ProvisioningJobRunner(JdbcTemplate jdbc) {
+    public ProvisioningJobRunner(JdbcTemplate jdbc, SubscriptionCommandService commandService) {
         this.jdbc = jdbc;
+        this.commandService = commandService;
     }
 
     public record JobOutcome(UUID jobId, String status, List<String> skippedSteps) {
@@ -112,10 +124,17 @@ public class ProvisioningJobRunner {
                     throw new IllegalStateException(
                             "Subscription is terminal (" + status + "); refusing to activate");
                 }
-                // transition the subscription to ACTIVE — the job's final contract
-                jdbc.update(
-                        "UPDATE tenant_subscriptions SET status = 'ACTIVE', updated_at = NOW() WHERE id = ?",
-                        subscriptionId);
+                if ("ACTIVE".equals(status)) {
+                    // Idempotent re-provision/retry: the subscription is already
+                    // ACTIVE — no transition occurs, the job still succeeds.
+                    yield "subscription already ACTIVE (idempotent)";
+                }
+                // R0C-7: transition the subscription to ACTIVE through the
+                // canonical lifecycle authority — the job's final contract.
+                // ACTIVATE only accepts DRAFT/PENDING_ACTIVATION/PENDING_PAYMENT/
+                // TRIAL/TRIALING; anything else fails the step (fail-closed).
+                commandService.applyCanonicalTransition(subscriptionId, "ACTIVATE",
+                        "Provisioning validated", null, null);
                 yield "subscription ACTIVE";
             }
             default -> throw new IllegalArgumentException("Unknown provisioning step: " + step);
@@ -123,10 +142,13 @@ public class ProvisioningJobRunner {
     }
 
     private void recordStep(UUID jobId, String stepKey, String status, String detail) {
+        // R0C-7 defect fix: created_at is NOT NULL without a default — the
+        // legacy INSERT omitted it, so every real-PostgreSQL provisioning run
+        // failed at the first step record (masked by mocked-jdbc unit tests).
         jdbc.update("""
                         INSERT INTO provisioning_job_steps (
-                            id, job_id, step_key, status, detail, completed_at
-                        ) VALUES (?, ?, ?, ?, ?, ?)
+                            id, job_id, step_key, status, detail, completed_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, NOW())
                         """,
                 UUID.randomUUID(), jobId, stepKey, status, detail,
                 Timestamp.from(Instant.now()));

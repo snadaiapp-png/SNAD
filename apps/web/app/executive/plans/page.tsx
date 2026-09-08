@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { executiveApi, type SaasPlan } from "@/lib/api/executive-api";
-import { scpApi, type PlanVersion } from "@/lib/api/scp-api";
+import {
+  executiveApi,
+  type PlanModuleEntitlementResponse,
+  type SaasPlan,
+} from "@/lib/api/executive-api";
+import { scpApi, type PlanVersion, type Price } from "@/lib/api/scp-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { Button, Input } from "@/components/sds";
 import {
@@ -13,6 +17,8 @@ import {
   ScpStatusPill,
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
+import { PlanVersionPricesTable } from "./PlanVersionPricesTable";
+import { PlanEntitlementsSummary } from "./PlanEntitlementsSummary";
 import styles from "../scp.module.css";
 
 /**
@@ -96,18 +102,30 @@ function PlanCard({
   const { t } = useI18n();
   const { money } = useScpFormat();
   const [versions, setVersions] = useState<PlanVersion[] | null>(null);
+  const [modules, setModules] = useState<PlanModuleEntitlementResponse[] | null>(null);
+  const [prices, setPrices] = useState<Price[] | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function toggleVersions() {
     setExpanded((value) => !value);
-    if (!versions) {
-      try {
-        setVersions(await scpApi.planVersions(plan.id));
-      } catch (reason) {
-        onError(reason instanceof Error ? reason.message : String(reason));
+    try {
+      let current = versions;
+      if (!current) {
+        current = await scpApi.planVersions(plan.id);
+        setVersions(current);
       }
+      // R0C-12 G6-R5: make Price and Entitlement explicit surfaces (design §9)
+      if (!modules) {
+        setModules(await executiveApi.planModules(plan.id));
+      }
+      if (!prices) {
+        const active = current.find((version) => version.status === "ACTIVE");
+        setPrices(active ? await scpApi.planVersionPrices(plan.id, active.id) : []);
+      }
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : String(reason));
     }
   }
 
@@ -225,6 +243,9 @@ function PlanCard({
           </table>
         </div>
       ) : null}
+
+      {expanded && prices ? <PlanVersionPricesTable prices={prices} /> : null}
+      {expanded && modules ? <PlanEntitlementsSummary modules={modules} /> : null}
     </article>
   );
 }

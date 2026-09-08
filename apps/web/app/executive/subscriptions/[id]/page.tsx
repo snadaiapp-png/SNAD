@@ -25,6 +25,10 @@ import {
 } from "../../_components/ScpStates";
 import { useScpFormat } from "../../_components/format";
 import styles from "../../scp.module.css";
+import {
+  SubscriptionEntitlementsSection,
+  type ScpEntitlementRow,
+} from "./SubscriptionEntitlementsSection";
 
 /**
  * Subscription detail — overview, items, usage, invoices, changes,
@@ -222,6 +226,12 @@ export default function SubscriptionDetailPage() {
           <ScpEmpty message={t("scp.state.empty")} />
         )}
       </section>
+
+      {detail ? (
+        <SubscriptionEntitlementsSection
+          entitlements={(detail.entitlements ?? []) as unknown as ScpEntitlementRow[]}
+        />
+      ) : null}
 
       {usage && usage.length > 0 ? (
         <section className={styles.panel} aria-labelledby="scp-usage-heading">

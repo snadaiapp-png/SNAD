@@ -208,6 +208,8 @@ export interface SubscriptionDetail {
   id: string;
   overview: Record<string, unknown>;
   items: Array<Record<string, unknown>>;
+  /** R0C-12 G5-R2: plan-derived ∪ item-derived entitlement rows */
+  entitlements: Array<Record<string, unknown>>;
   invoices: Array<Record<string, unknown>>;
   changes: Array<Record<string, unknown>>;
   provisioningJobs: Array<Record<string, unknown>>;
@@ -259,7 +261,11 @@ export interface UsageSnapshot {
   limit: number | null;
   percent: number | null;
   limitKind: string;
+  /** R0C-12 G6-R6: MONTHLY period of the aggregate */
+  periodStart: string | null;
   warning: boolean;
+  /** R0C-12 G4-R1: 90% critical threshold */
+  critical: boolean;
 }
 
 export interface ProvisioningJob {

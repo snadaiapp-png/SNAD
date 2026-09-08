@@ -167,6 +167,31 @@ jq -e '(.authenticated | type == "boolean") and (.capabilities | type == "object
   exit 1
 }
 
+# R0C-12 corrective recertification (ACCESS_CHECK_SMOKE_FAIL_OPEN_GAP=FIXED):
+# the former contract accepted authenticated=false as long as the field TYPES
+# were right, so a backend that reported genuine JWT users as unauthenticated
+# passed the production smoke. The smoke identity is a documented
+# CONTROL_PLANE_ADMIN read-capable identity — it MUST come back authenticated
+# with every mandatory SCP read capability granted (read-only; no manage/write
+# capability is required by the smoke identity role contract).
+jq -e '
+  .authenticated == true
+  and
+  ( .capabilities["subscription.read"] == true
+    and .capabilities["catalog.read"] == true
+    and .capabilities["application.read"] == true
+    and .capabilities["plan.read"] == true
+    and .capabilities["pricing.read"] == true
+    and .capabilities["entitlement.read"] == true
+    and .capabilities["usage.read"] == true
+    and .capabilities["billing.read"] == true
+    and .capabilities["provisioning.read"] == true
+    and .capabilities["audit.read"] == true )
+' "$WORK_DIR/accessCheckV2.json" >/dev/null || {
+  echo "::error::access-check/v2 reported authenticated=false or a missing mandatory read capability — the real-JWT RBAC access contract is violated for the smoke identity."
+  exit 1
+}
+
 jq -e '(.totalTenants | type == "number") and (.generatedAt | type == "string")' \
   "$WORK_DIR/overview.json" >/dev/null || {
   echo "::error::overview does not honour the ScpOverview schema."
