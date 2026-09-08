@@ -96,4 +96,14 @@ describe("workflow Y2 operational IA (Task 17)", () => {
     expect(approvals).toContain("409");
     expect(approvals).toContain("403");
   });
+
+  it("keeps legacy activation out of the Y2 publication lifecycle", () => {
+    const definitions = readRequired("components/workflow-definitions.tsx");
+
+    expect(definitions).toContain(
+      'definition.engineGeneration === "LEGACY" && definition.publicationState === "DRAFT" && definition.status === "DRAFT"',
+    );
+    expect(definitions).toContain("workflowApi.activateDefinition");
+    expect(definitions).toContain("فتح المصمم");
+  });
 });
