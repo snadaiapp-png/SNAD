@@ -879,6 +879,7 @@ jobs:
             exit 1
           }
           rm -rf target/surefire-reports
+          mkdir -p target/surefire-reports
           stale="$(find target/surefire-reports -name 'TEST-*.xml' 2>/dev/null | wc -l)"
           echo "STALE_SUREFIRE_XML=${stale}"
           [ "$stale" = "0" ] || {
