@@ -968,19 +968,32 @@ jobs:
                   continue
               suites = [r] if r.tag == "testsuite" else (r.findall("testsuite") if r.tag == "testsuites" else [])
               for s in suites:
-                  t_, f_, e_, s_ = (int(s.get(k, "0")) for k in ("tests", "failures", "errors", "skipped"))
-                  tests += t_; failures += f_; errors += e_; skipped += s_
                   cls = (s.get("name") or "").split(".")[-1]
-                  if cls:
-                      a = per_class.setdefault(cls, [0, 0, 0, 0])
-                      a[0] += t_; a[1] += f_; a[2] += e_; a[3] += s_
                   for tc in s.iter("testcase"):
                       key = ((tc.get("classname") or s.get("name") or "") + "#" + (tc.get("name") or ""))
                       if key in seen_keys:
                           duplicate_reports += 1
                       seen_keys.add(key)
-                      if tc.find("skipped") is not None:
-                          cn = (tc.get("classname") or "").split(".")[-1]
+                      # Element-based counting: the testsuite `tests` attribute is
+                      # unreliable under JUnit 5 nested/display-name containers
+                      # (surefire can emit tests="0" with testcase children --
+                      # canonical run 34237627546: attr sum 3225 vs 3467 testcase
+                      # elements == console aggregate). Elements are the truth.
+                      has_skip = tc.find("skipped") is not None
+                      has_fail = tc.find("failure") is not None
+                      has_err = tc.find("error") is not None
+                      tests += 1
+                      skipped += 1 if has_skip else 0
+                      failures += 1 if has_fail else 0
+                      errors += 1 if has_err else 0
+                      if cls:
+                          a = per_class.setdefault(cls, [0, 0, 0, 0])
+                          a[0] += 1
+                          a[1] += 1 if has_fail else 0
+                          a[2] += 1 if has_err else 0
+                          a[3] += 1 if has_skip else 0
+                      if has_skip:
+                          cn = (tc.get("classname") or s.get("name") or "").split(".")[-1]
                           skip_classes[cn] = skip_classes.get(cn, 0) + 1
           ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15}
           unexplained = critical = 0
@@ -1103,12 +1116,23 @@ jobs:
                   continue
               suites = [r] if r.tag == "testsuite" else (r.findall("testsuite") if r.tag == "testsuites" else [])
               for s in suites:
-                  t_, f_, e_, s_ = (int(s.get(k, "0")) for k in ("tests", "failures", "errors", "skipped"))
-                  tests += t_; failures += f_; errors += e_; skipped += s_
                   cls = (s.get("name") or "").split(".")[-1]
-                  if cls:
-                      a = per_class.setdefault(cls, [0, 0, 0, 0])
-                      a[0] += t_; a[1] += f_; a[2] += e_; a[3] += s_
+                  for tc in s.iter("testcase"):
+                      # Element-based counting: the testsuite `tests` attribute is
+                      # unreliable under JUnit 5 nested/display-name containers.
+                      has_skip = tc.find("skipped") is not None
+                      has_fail = tc.find("failure") is not None
+                      has_err = tc.find("error") is not None
+                      tests += 1
+                      skipped += 1 if has_skip else 0
+                      failures += 1 if has_fail else 0
+                      errors += 1 if has_err else 0
+                      if cls:
+                          a = per_class.setdefault(cls, [0, 0, 0, 0])
+                          a[0] += 1
+                          a[1] += 1 if has_fail else 0
+                          a[2] += 1 if has_err else 0
+                          a[3] += 1 if has_skip else 0
           acc_exit = open(os.path.join(root, "ACCEPTANCE_EXIT_CODE.txt")).read().strip() if os.path.exists(os.path.join(root, "ACCEPTANCE_EXIT_CODE.txt")) else "n/a"
           com = per_class.get("CommerceOrderPostgresConcurrencyTest", [0, 0, 0, 0])
           rbac = per_class.get("RbacAccessCheckPostgresAcceptanceTest", [0, 0, 0, 0])
