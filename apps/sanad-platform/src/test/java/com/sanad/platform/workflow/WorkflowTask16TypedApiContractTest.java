@@ -42,4 +42,32 @@ class WorkflowTask16TypedApiContractTest {
         assertThat(componentNames)
                 .contains("requestedFromUserId", "requestedFromEmployeeId");
     }
+
+    @Test
+    void approvalEndpointsUseTypedResponsesAndExpectedVersionCommands() throws Exception {
+        var decisionRequest = Class.forName(
+                "com.sanad.platform.workflow.api.WorkflowController$ApprovalDecisionRequest");
+        var requestComponents = java.util.Arrays.stream(decisionRequest.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .toList();
+        assertThat(requestComponents).containsExactly("expectedVersion", "comments");
+
+        var list = WorkflowController.class.getDeclaredMethod(
+                "listPendingApprovals", Authentication.class, int.class);
+        var pending = WorkflowController.class.getDeclaredMethod(
+                "listPendingApprovalsForUser", Authentication.class, int.class);
+        assertThat(list.getGenericReturnType().getTypeName())
+                .contains("WorkflowDtos$ApprovalResponse");
+        assertThat(pending.getGenericReturnType().getTypeName())
+                .contains("WorkflowDtos$ApprovalResponse");
+
+        var approve = WorkflowController.class.getDeclaredMethod(
+                "approveRequest", Authentication.class, java.util.UUID.class, decisionRequest);
+        var reject = WorkflowController.class.getDeclaredMethod(
+                "rejectRequest", Authentication.class, java.util.UUID.class, decisionRequest);
+        assertThat(approve.getGenericReturnType().getTypeName())
+                .contains("WorkflowDtos$ApprovalResponse");
+        assertThat(reject.getGenericReturnType().getTypeName())
+                .contains("WorkflowDtos$ApprovalResponse");
+    }
 }
