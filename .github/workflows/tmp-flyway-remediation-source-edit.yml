@@ -1,3 +1,4 @@
+# trigger one-shot updater after workflow exists on branch
 name: TEMP Flyway Remediation Source Edit
 
 on:
