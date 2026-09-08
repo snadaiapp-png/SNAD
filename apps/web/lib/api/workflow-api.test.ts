@@ -243,9 +243,11 @@ describe("workflowApi", () => {
       const def: import("./workflow-api").WorkflowDefinitionResponse = {
         id: "wf-1", code: "WF-1", name: "Test", status: "DRAFT",
         triggerType: "MANUAL", module: "GENERAL", version: 1, versionLock: 0, createdBy: "u-1",
+        definitionFamilyId: "family-1", engineGeneration: "Y2", publicationState: "DRAFT",
       };
       expect(def.code).toBe("WF-1");
       expect(def.status).toBe("DRAFT");
+      expect(def.publicationState).toBe("DRAFT");
     });
 
     it("WorkflowInstanceResponse has all required fields", () => {
