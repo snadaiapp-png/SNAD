@@ -6,6 +6,7 @@ import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -24,6 +25,13 @@ public final class WorkflowActionabilityService {
         this.users = users;
     }
 
+    /**
+     * RLS-protected employee/user reads must share an explicit transaction so
+     * TenantRlsDataSource can apply the authenticated tenant with SET LOCAL.
+     * Without this boundary a real HTTP request borrows an autocommit
+     * connection and fail-closed RLS makes a valid employee appear absent.
+     */
+    @Transactional(readOnly = true)
     public HrEmployee requireActionableEmployee(UUID tenantId, UUID userId) {
         var employee = employees.findByUserId(tenantId, userId)
                 .orElseThrow(() -> new AccessDeniedException(
