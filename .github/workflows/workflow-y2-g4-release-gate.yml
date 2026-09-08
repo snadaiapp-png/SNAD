@@ -146,12 +146,7 @@ jobs:
     name: G4 Workflow Y2 Playwright PostgreSQL Direct
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      <<: *pg_env
-      SERVER_PORT: '8080'
-      SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
-      WF_E2E_EMAIL: wf-e2e-admin@snad-e2e.example
-      WF_E2E_PASSWORD: WfE2eTest!2026
+    env: *pg_env
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -164,6 +159,11 @@ jobs:
         run: mvn -B -ntp -DskipTests -Dmaven.test.skip=true clean package
       - name: Start Spring Boot backend
         id: backend
+        env:
+          SERVER_PORT: '8080'
+          SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+          WF_E2E_EMAIL: wf-e2e-admin@snad-e2e.example
+          WF_E2E_PASSWORD: WfE2eTest!2026
         run: |
           set -euo pipefail
           BACKEND_LOG="$RUNNER_TEMP/workflow-y2-g4-backend.log"
