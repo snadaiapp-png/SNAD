@@ -1,80 +1,134 @@
-# Workflow Y2 Release Evidence — TRUE END-TO-END EXECUTION (Task 22)
+# Workflow Y2 Release Evidence — Wave 4 / Gate G4 (Task 22)
 
-<!-- STATUS_AUTHORITY: CURRENT — supersedes all prior workflow-y2-release-evidence.md revisions -->
+<!-- STATUS_AUTHORITY: CURRENT — supersedes the historical PR #923 evidence previously stored at this path -->
 
-Repository: `snadaiapp-png/SNAD`
-Branch: `design/workflow-orchestration-spec`
-PR: **#923** (base `main`)
+Repository: `snadaiapp-png/SNAD`  
+PR: **#997** → `main`  
+Branch: `feat/workflow-y2-wave4-g4`  
+Scope: **Wave 4 / Tasks 20–22 only**  
+Production actions: **OUT OF SCOPE / NOT EXECUTED**
 
-- `INITIAL_REMOTE_HEAD` = `e1bfdc7bdf86f396d3b5404abbcf64cd332c30f4`
-- `VERIFIED_IMPLEMENTATION_HEAD` = `ece9beedff85834c7807c3186cf53ddf5d97b044`
-- `FINAL_EVIDENCE_HEAD` = the SHA of the commit that introduced this file revision (docs-only)
-- `CURRENT_MAIN_SHA_AT_EXECUTION` = `7f30c4ff1f8c8f856bb17126fb6364c9eae6b291` (fully merged INTO this branch — conflict analysis §34 executed; PR mergeable=TRUE)
-- Merge strategy: protected squash merge, authorized by repository ruleset (merge methods: merge/squash/rebase)
+- `BASELINE_MAIN_SHA` = `05b64dfc2f42f25548112dd3b1ab50026641c075`
+- `VERIFIED_IMPLEMENTATION_HEAD` = `ae7e0da4c3660fc045abe553d255aaa37752ed12`
+- `FINAL_EVIDENCE_HEAD` = the commit containing this revision; GitHub PR head + exact-head check suite are the authority for its SHA
+- `GOVERNING_DATABASE_PATH` = **POSTGRESQL_DIRECT_HOST_NATIVE**
+- `DOCKER_TESTCONTAINERS_G4_AUTHORITY` = **FORBIDDEN**
+- Merge strategy after all closure gates: **squash**, fail-closed with `expected_head_sha`
 
-## 1. Workflow Flyway migrations (all seven, verified applied + validated)
+## 1. Task 20 — Security / authority closure
 
-V20260902_1 (identity bridge), V20260902_2 (definition graph), V20260902_3 (work items/approvals),
-V20260902_4 (runtime context), V20260902_5 (SLA/incidents/attempts), V20260902_6 (events/notifications),
-V20260902_7 (break-glass audit OVERRIDE).
-Registry union after main integration: …20260830.2 → 20260901.1 (SCP canonicalization) → 20260902.1..7 (terminal).
-`FLYWAY_COLLISION = NONE` (regression suites green; check "Verify 8 tables, 26 indexes, and tenant isolation" PASS).
+Task 20 release behavior was re-certified rather than inferred from historical evidence.
 
-## 2. Semantic browser matrix P01..P13 (Playwright, real stack: Spring Boot + PostgreSQL Direct + Next.js)
+Authoritative G4 run on `VERIFIED_IMPLEMENTATION_HEAD`:
 
-| Scenario | Result |
-|---|---|
-| P01 real multi-actor auth (10 actors) | PASS |
-| P02 design → validate → simulate → PUBLISHED (Y2) | PASS |
-| P03 published immutability fail-closed (409) + family chaining | PASS |
-| P04 exact version pinning (5 unconditional pins) + new-version start | PASS |
-| P05 real DIRECT HUMAN_TASK generation/assignment/completion/advance | PASS |
-| P06 atomic two-actor WORK_POOL claim race (200+409, single owner) | PASS |
-| P07 ANY_ONE approval closes step, siblings cancelled, no second approval | PASS |
-| P08 ALL unanimity + reasoned rejection (400 blank / REJECT path) | PASS |
-| P09 disabled-user B1 semantics (401 login, 403 commands, preserved work, explicit reassign) | PASS |
-| P10 real incident lifecycle (deterministic SYSTEM_ACTION failure → OPEN → ack → RESOLVED) | PASS |
-| P11 LEGACY/Y2 strangler cutover (unconditional pins both sides) | PASS |
-| P12 true cross-tenant denial (real tenant B actor: 404/404/409/409; owner keeps access) | PASS |
-| P13 real app Arabic RTL, 8 IA tabs, landmarks, error state, keyboard, axe-critical=0 | PASS |
+- Workflow: `Workflow Y2 G4 Release Gate`
+- Run ID: **34239392263**
+- Result: **SUCCESS**
+- `G4 PostgreSQL Direct Baseline` — SUCCESS
+- `G4 Flag OFF Regression` — SUCCESS
+- `G4 Backend Test Matrix (P01-P12)` — SUCCESS
+- `G4 Web Static Gate` — SUCCESS
+- `G4 Playwright E2E (P01-P13)` — SUCCESS
+- Browser artifact: `g4-workflow-y2-playwright-report`, artifact ID **10061530043**
+- Artifact digest: `sha256:0c04bf53438fa220392d9e2b9c58d42a00631608a137daa030ea266f892c275d`
 
-`PLAYWRIGHT_RUN_ID` = 33826801493 · `PLAYWRIGHT_HEAD_SHA` = ece9beed… · TOTAL=13 · PASSED=13 · FAILED=0 · SKIPPED=0 · retries=0
-Final-gate history on this branch: a5a3d855(FAIL→repaired), 7dfbd657(FAIL→repaired), d8d55f3d(FAIL→repaired), 03becd9d/a077a6fd(1d98e6dd SUCCESS), 346dc5f1(SUCCESS), ece9beed(SUCCESS).
+Security and operational gates on the same implementation SHA:
 
-## 3. Same-SHA certifications (VERIFIED_IMPLEMENTATION_HEAD)
+- `Security Baseline` run **34239392431** — **SUCCESS**
+- `Pre-Merge Operational Smoke` run **34239392273** — **SUCCESS**
+- `SNAD Identity Governance` run **34239392223** — **SUCCESS**
+- `Backup Restore Validation` run **34239392212** — **SUCCESS**
 
-- Web: `npm ci` + `npm test` = **750/750 PASS (61 files)** · `npm run lint` = **0 errors** · `npm run build` = **SUCCESS**
-- Integrity validator (direct): **42/43 rules PASS**; Rule 5 dashboard-structure fails IDENTICALLY on main (source identical both branches) → classified `PRE_EXISTING_NON_WORKFLOW_FAILURE` (non-blocking per §26)
-- Workflow Maven: included in full suite (workflow package green)
-- Full Maven (PostgreSQL Direct service container): **Tests run: 2536, Failures: 0, Errors: 0, Skipped: 6** → `Maven Test Suite` required check PASS
-- PostgreSQL Direct: PG16 service container; all workflow migrations applied exactly once, checksums valid
-- Security: Current Tree Secret Scan PASS · Supplemental Secret Policy PASS (SANAD-FP-Y2-001 documented allowlist) · Workflow Security Policy PASS · Backend Container Hardening PASS · production-only npm audit locally = **0 vulnerabilities** (CI audit job hit npm-registry 503 outage ×3 — `CI_INFRA_DEFECT`, not a code finding; the 5 reported highs are dev-only)
-- CRM / shared platform regression: `CRM Integration Tests` (PostgreSQL Direct) PASS; `CRM Modular Architecture Validation` PASS; `CRM API Contract Validation` PASS
-- Tenant/security acceptance: `Verify 8 tables, 26 indexes, and tenant isolation` PASS
+Hardening found during this closure execution:
 
-## 4. Required protected checks on VERIFIED_IMPLEMENTATION_HEAD (branch ruleset `min`)
+1. A real HTTP/RLS actionability regression was traced to reads occurring without a transaction boundary; fail-closed RLS made a valid employee appear absent.
+2. An initial `@Transactional` repair was rejected after a startup gate exposed that `WorkflowActionabilityService` is `final` and therefore cannot be CGLIB-subclassed.
+3. Final repair uses a read-only `TransactionTemplate` inside the final service, preserving the class contract while providing the PostgreSQL `SET LOCAL` transaction boundary required by tenant RLS.
+4. `WorkflowActionabilityRlsTransactionBoundaryTest` provides regression coverage for the canonical user→employee lookup through the RLS-protected path.
+5. Hard-coded Java E2E browser credentials were removed; test/bootstrap credentials are ephemeral/runtime supplied.
 
-Build Next.js Web · provenance · CRM Integration Tests · Maven Test Suite · CRM Deployment Readiness · Verify 8 tables/26 indexes/tenant isolation — **ALL SUCCESS**. Workflow Y2 Playwright Release Gate SUCCESS.
+## 2. Task 21 — Strangler / runtime compatibility closure
 
-## 5. Product defects found and fixed during this execution (each with regression coverage)
+The G4 backend/browser matrix proves the Wave 4 cutover contract, including P01–P13 and the LEGACY/Y2 coexistence path, on the same implementation SHA.
 
-1. `addStep` accepted mutations on PUBLISHED versions → service guard (409) + `WorkflowDefinitionImmutabilityTest`
-2. Y2 graph runtime unreachable over REST → wired start/completion/approvals/system-actions through `WorkflowGraphExecutionService` (work items, approval requests, incidents now real end-to-end)
-3. DIRECT work items could not be completed (claimed_by predicate) → repository admits the DIRECT assignee
-4. Controller-thrown AccessDeniedException surfaced as 500 → mapped to 403 (fail-closed denial)
-5. Approval policy aggregation advances Y2 instances only; LEGACY approvals keep legacy semantics
-6. SYSTEM_ACTION registry (fail-closed) + E2E deterministic failing adapter under `workflow-e2e` profile
-7. Multi-actor deterministic fixture seed (10 actors / 2 tenants) — `WorkflowE2eBootstrapConfig`
+Additional exact-head web/browser evidence:
 
-## 6. Known deferred scope / notes
+- `Web CI` run **34239392096** — **SUCCESS**
+- General `Playwright E2E & Visual Regression` run **34239392236** — **SUCCESS**
+- `CRM Deployment Readiness` run **34239392390** — **SUCCESS**
+- `Stage 07 Artifact Provenance` run **34239392426** — **SUCCESS**
+- `Compile Diagnostics` run **34239392074** — **SUCCESS**
 
-- `Playwright E2E & Visual Regression` (non-required) initially ran the Y2 spec out of scope — fixed via default-config `testIgnore`; `PostgreSQL Acceptance Tests` (non-required) hit a transient surefire dependency-collection failure (CI infra) — classified, not blocking
-- Audit READ API absent (workflow_transition_audit write-only) — P09/P10 audit assertions are covered by backend tests; endpoint deferred
-- Branch protection requires ONE independent approving review (ruleset `min`, no bypass; self-approval prohibited) — merge proceeds the moment that approval is recorded
+`Performance Baseline` run **34239392169** is **SUCCESS** and is retained as supplemental evidence only. It is not the governing PostgreSQL certification path because that general workflow uses service containers; G4 authority remains the host-native PostgreSQL Direct gates above.
 
-## 7. Verdicts
+## 3. Task 22 — PostgreSQL Direct / protected CI certification
 
-- `IMPLEMENTATION_VERDICT` = **PASS**
-- `RELEASE_VERDICT` = **PASS** (all certification gates green at VERIFIED_IMPLEMENTATION_HEAD)
-- `MERGE_READINESS_VERDICT` = **PASS** (mergeable=TRUE; protected checks green) — merge itself awaits the ruleset-mandated independent approval
-- `PRODUCTION_VERDICT` = **PENDING** (post-merge: exact-SHA deploy → Flyway verify → smoke → observability watch)
+Full protected CI on `VERIFIED_IMPLEMENTATION_HEAD`:
+
+- Workflow: `CI`
+- Run ID: **34239392410**
+- Overall result: **SUCCESS**
+- `Maven Test Suite` — **SUCCESS**
+- `CRM Integration Tests` — **SUCCESS**
+- `PostgreSQL Acceptance Tests` — **SUCCESS**
+
+All three jobs start **host-native PostgreSQL** and explicitly use **no containers** for this governing certification.
+
+Artifacts:
+
+| Artifact | ID | SHA-256 digest |
+|---|---:|---|
+| `surefire-reports` | `10062558382` | `71f496ff42f4ad3cd27ca5eef7daebf623e2d22938fde1d0f6c42af4a0827c9c` |
+| `crm-surefire-reports` | `10061401714` | `681b1f4f0527b7d875ef1555a9e81f6c9b74c0bd73dfa27369a8fa4cd2eb345c` |
+| `pg-acceptance-surefire-reports` | `10061396028` | `0b4b810bb3afd9ee68b81c769db07f952961b7f197252681946c2ec0f0a08d31` |
+| `g4-workflow-y2-playwright-report` | `10061530043` | `0c04bf53438fa220392d9e2b9c58d42a00631608a137daa030ea266f892c275d` |
+
+Other same-SHA green checks include CRM G1 Schema Isolation, Service Decomposition Validation, Master Backlog Validation and CRM Web Lint Diagnostics. ERP/HRM human preview jobs were skipped and are not G4 governing gates.
+
+## 4. Baseline / drift / cleanup
+
+Immediately before this Task 22 evidence update:
+
+- PR #997 = **OPEN / DRAFT / MERGEABLE**
+- PR base = `main@05b64dfc2f42f25548112dd3b1ab50026641c075`
+- PR head = `ae7e0da4c3660fc045abe553d255aaa37752ed12`
+- `main` had not drifted from the PR baseline
+- no transient helper workflow or disposable repair file is part of the PR changed-file inventory
+- no production deployment, production migration, or production operation was performed
+
+## 5. Independent review authority
+
+Repository ruleset `min` is active on the default branch and requires **1 approving review**. It has **no bypass actors** and `dismiss_stale_reviews_on_push=true`.
+
+Therefore:
+
+- `INDEPENDENT_REVIEW` = **PENDING LIVE GITHUB APPROVAL**
+- This evidence revision **does not assert or simulate a human approval**.
+- The PR must first be re-certified on the exact `FINAL_EVIDENCE_HEAD`.
+- Only after that exact-head certification may the PR be marked Ready for review and an independent reviewer requested.
+- Any later push invalidates a prior review and requires a fresh approval.
+
+## 6. Exact-head post-evidence closure contract
+
+This document update intentionally changes the PR SHA. Historical success on `VERIFIED_IMPLEMENTATION_HEAD` is implementation evidence, not permission to merge the new head.
+
+Before merge, GitHub must prove on the exact `FINAL_EVIDENCE_HEAD`:
+
+1. Workflow Y2 G4 Release Gate = SUCCESS.
+2. Required protected CI, including Maven Test Suite / CRM Integration / PostgreSQL acceptance as triggered = SUCCESS.
+3. Web / Security / Pre-Merge Smoke and other required contexts = SUCCESS where triggered/required.
+4. PR remains mergeable against the same authoritative `main` baseline or any base movement is explicitly re-evaluated.
+5. An independent human review is `APPROVED` after the final push.
+6. No unresolved blocking review finding exists.
+7. Merge uses `squash` with `expected_head_sha = FINAL_EVIDENCE_HEAD`.
+8. Post-merge verification proves PR merged and `main` points to the returned squash merge SHA.
+
+## 7. Verdict at evidence creation
+
+- `TASK20_IMPLEMENTATION_VERDICT` = **PASS**
+- `TASK21_IMPLEMENTATION_VERDICT` = **PASS**
+- `TASK22_IMPLEMENTATION_HEAD_CERTIFICATION` = **PASS**
+- `POST_EVIDENCE_EXACT_HEAD_RECERTIFICATION` = **PENDING**
+- `INDEPENDENT_REVIEW_VERDICT` = **PENDING**
+- `MERGE_READINESS_VERDICT` = **BLOCKED_FAIL_CLOSED**
+- `G4_FINAL_CLOSURE` = **PENDING_EXACT_HEAD_RECERTIFICATION_AND_INDEPENDENT_REVIEW**
