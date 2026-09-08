@@ -1,0 +1,131 @@
+name: Workflow Y2 Production Release Orchestrator
+
+on:
+  workflow_run:
+    workflows: ["Publish Render Backend Image"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: workflow-y2-production-release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  authorize-dispatch-and-watch:
+    name: Authorize exact main, dispatch canonical release, and watch
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Verify exact current main and immutable production authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Image publication head SHA is not a canonical commit SHA"
+            exit 1
+          }
+
+          main_ref="$(gh api --method GET "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main")"
+          test "$(jq -r '.ref' <<<"$main_ref")" = "refs/heads/main" || {
+            echo "::error::Unable to prove refs/heads/main"
+            exit 1
+          }
+          main_sha="$(jq -r '.object.sha // empty' <<<"$main_ref")"
+          test "$main_sha" = "$HEAD_SHA" || {
+            echo "::error::Image publication SHA is no longer exact current main"
+            echo "Expected current main: $HEAD_SHA"
+            echo "Observed current main: $main_sha"
+            exit 1
+          }
+
+          commit_json="$(gh api --method GET "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}")"
+          commit_message="$(jq -r '.commit.message // empty' <<<"$commit_json")"
+          case "$commit_message" in
+            *PRODUCTION-RELEASE-AUTHORIZED*) ;;
+            *)
+              echo "::error::Exact main commit is not explicitly authorized for production release"
+              exit 1
+              ;;
+          esac
+
+          pr_json="$(gh api --method GET "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls")"
+          pr_count="$(jq --arg sha "$HEAD_SHA" '[.[] | select(.merged_at != null and .base.ref == "main" and .merge_commit_sha == $sha)] | length' <<<"$pr_json")"
+          test "$pr_count" = "1" || {
+            echo "::error::Expected exactly one merged main PR for authorized release SHA; found $pr_count"
+            exit 1
+          }
+          PR_NUMBER="$(jq -r --arg sha "$HEAD_SHA" '[.[] | select(.merged_at != null and .base.ref == "main" and .merge_commit_sha == $sha)][0].number // empty' <<<"$pr_json")"
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::Unable to resolve authoritative merged PR number"
+            exit 1
+          }
+
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
+          echo "Authorized exact main SHA: $HEAD_SHA"
+          echo "Authoritative merged PR: #$PR_NUMBER"
+
+      - name: Dispatch canonical SANAD Production Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          DISPATCHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "DISPATCHED_AT=$DISPATCHED_AT" >> "$GITHUB_ENV"
+
+          gh workflow run production-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f "commit_sha=$HEAD_SHA" \
+            -f "pull_request_number=$PR_NUMBER" \
+            -f "rollback_on_failure=true"
+
+      - name: Resolve canonical production release run
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_RUN_ID=""
+          for attempt in $(seq 1 30); do
+            runs_json="$(gh api --method GET "/repos/${GITHUB_REPOSITORY}/actions/workflows/production-release.yml/runs?event=workflow_dispatch&branch=main&per_page=30")"
+            RELEASE_RUN_ID="$(jq -r --arg sha "$HEAD_SHA" --arg since "$DISPATCHED_AT" '[.workflow_runs[] | select(.head_sha == $sha and .created_at >= $since)] | sort_by(.created_at) | last | .id // empty' <<<"$runs_json")"
+            if [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]]; then
+              break
+            fi
+            sleep 2
+          done
+          [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "::error::Canonical production release run was not observed after dispatch"
+            exit 1
+          }
+          echo "RELEASE_RUN_ID=$RELEASE_RUN_ID" >> "$GITHUB_ENV"
+          echo "Canonical production release run: $RELEASE_RUN_ID"
+
+      - name: Watch canonical production release fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run watch "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      - name: Record orchestrated release evidence
+        if: success()
+        run: |
+          {
+            echo "## Workflow Y2 Production Release Orchestration"
+            echo "- Exact main SHA: $HEAD_SHA"
+            echo "- Authoritative PR: #$PR_NUMBER"
+            echo "- Image publication workflow: Publish Render Backend Image"
+            echo "- Canonical production release run: $RELEASE_RUN_ID"
+            echo "- Rollback on failure: enabled"
+            echo "- Result: PASS"
+          } >> "$GITHUB_STEP_SUMMARY"
