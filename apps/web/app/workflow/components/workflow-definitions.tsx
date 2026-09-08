@@ -147,13 +147,15 @@ export function WorkflowDefinitions() {
                   <td style={cellStyle}>v{definition.version}.{definition.versionLock}</td>
                   <td style={cellStyle}>{definition.status}</td>
                   <td style={cellStyle}>
-                    {definition.status === "DRAFT" ? (
+                    {definition.engineGeneration === "LEGACY" && definition.publicationState === "DRAFT" && definition.status === "DRAFT" ? (
                       <button
                         type="button"
                         onClick={() => void runMutation(() => workflowApi.activateDefinition(definition.id))}
                       >
                         تفعيل
                       </button>
+                    ) : definition.engineGeneration === "Y2" ? (
+                      <a href={`/workflow/definitions/${definition.id}`}>فتح المصمم</a>
                     ) : "—"}
                   </td>
                 </tr>
