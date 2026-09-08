@@ -36,10 +36,9 @@ jobs:
 
           postgres = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java')
           text = postgres.read_text()
-
           old_constant = 'private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260827.1";'
           new_constant = 'private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260904.2";'
-          assert text.count(old_constant) == 1, f'expected one old version constant, got {text.count(old_constant)}'
+          assert text.count(old_constant) == 1
           text = text.replace(old_constant, new_constant, 1)
 
           old_early = (
@@ -51,7 +50,7 @@ jobs:
               '                        MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),\n'
               '                        MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),\n'
           )
-          assert text.count(old_early) == 2, f'expected two historical-position blocks, got {text.count(old_early)}'
+          assert text.count(old_early) == 2
           text = text.replace(old_early, new_early)
 
           old_forward = (
@@ -63,19 +62,18 @@ jobs:
               '                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),\n'
               '                        MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),\n'
           )
-          assert text.count(old_forward) == 2, f'expected two forward-position anchors, got {text.count(old_forward)}'
+          assert text.count(old_forward) == 2
           text = text.replace(old_forward, new_forward)
           postgres.write_text(text)
 
           history = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java')
           text = history.read_text()
           old_item = '            , "20260827.1"   // hrm-g0 ws1 platform country and employer prerequisites\n'
-          assert text.count(old_item) == 1, f'expected one historical history item, got {text.count(old_item)}'
+          assert text.count(old_item) == 1
           text = text.replace(old_item, '', 1)
-
           anchor = '            , "20260904.1"   // forward-only idempotent production reconciliation of the Y2 wave\n'
           forward_item = '            , "20260904.2"   // forward-only reconciliation of HRM-G0 WS1 platform prerequisites\n'
-          assert text.count(anchor) == 1, f'expected one 20260904.1 anchor, got {text.count(anchor)}'
+          assert text.count(anchor) == 1
           assert forward_item not in text
           text = text.replace(anchor, anchor + forward_item, 1)
           history.write_text(text)
@@ -93,7 +91,7 @@ jobs:
           git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java
           git add apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java
 
-          changed="$(git diff --cached --name-only | sort)"
+          changed="$(git diff --cached --no-renames --name-only | sort)"
           expected_staged="$(printf '%s\n' \
             "$WORKFLOW" \
             'apps/sanad-platform/src/main/resources/db/migration/V20260827_1__create_hrm_platform_country_and_employer_prerequisites.sql' \
@@ -101,20 +99,22 @@ jobs:
             'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java' \
             'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java' \
             'apps/sanad-platform/src/test/java/com/sanad/platform/hr/foundation/HrmPlatformPrerequisiteFlywayOrderingTest.java' | sort)"
+          printf '%s\n' '--- staged actual ---' "$changed" '--- staged expected ---' "$expected_staged"
           test "$changed" = "$expected_staged"
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'fix(flyway): forward-reconcile late HRM prerequisite on current main'
 
-          net="$(git diff --name-only "$BASE_SHA"...HEAD | sort)"
+          net="$(git diff --no-renames --name-only "$BASE_SHA"...HEAD | sort)"
           expected_net="$(printf '%s\n' \
             'apps/sanad-platform/src/main/resources/db/migration/V20260827_1__create_hrm_platform_country_and_employer_prerequisites.sql' \
             'apps/sanad-platform/src/main/resources/db/migration/V20260904_2__reconcile_hrm_platform_country_and_employer_prerequisites.sql' \
             'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java' \
             'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java' \
             'apps/sanad-platform/src/test/java/com/sanad/platform/hr/foundation/HrmPlatformPrerequisiteFlywayOrderingTest.java' | sort)"
+          printf '%s\n' '--- net actual ---' "$net" '--- net expected ---' "$expected_net"
           test "$net" = "$expected_net"
-          ! git diff --name-only "$BASE_SHA"...HEAD | grep -Fqx "$WORKFLOW"
+          ! git diff --no-renames --name-only "$BASE_SHA"...HEAD | grep -Fqx "$WORKFLOW"
 
           git push origin HEAD:fix/r0c12-production-flyway-forward-reconciliation
