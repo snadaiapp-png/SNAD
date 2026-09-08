@@ -2,13 +2,14 @@ package com.sanad.platform.workflow.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -27,6 +28,11 @@ import java.util.UUID;
  * Tenant B employees for true cross-tenant isolation proof (P12). Every
  * interactive user is linked to an ACTIVE Employee in the same tenant, as
  * required by WorkflowActionabilityService.</p>
+ *
+ * <p>The seed runs in one transaction and explicitly sets the transaction-local
+ * {@code app.tenant_id} before every tenant-scoped RLS write. This mirrors the
+ * production fail-closed RLS contract without granting BYPASSRLS or weakening
+ * any policy.</p>
  */
 @Configuration
 @Profile("workflow-e2e")
@@ -67,12 +73,14 @@ public class WorkflowE2eBootstrapConfig {
                     List.of("WORKFLOW.VIEW", "WORKFLOW.TASK_EXECUTE")));
 
     @Bean
-    ApplicationRunner workflowE2eSeeder(JdbcTemplate jdbc, PasswordEncoder passwordEncoder) {
-        return args -> {
+    ApplicationRunner workflowE2eSeeder(JdbcTemplate jdbc,
+                                         PasswordEncoder passwordEncoder,
+                                         PlatformTransactionManager transactionManager) {
+        return args -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             log.info("WorkflowE2eBootstrap: seeding E2E tenants, multi-actor fixtures and capabilities");
             var now = Timestamp.from(Instant.now());
 
-            // 1. Tenants
+            // 1. Tenants are platform rows and are created before selecting a tenant RLS context.
             jdbc.update("""
                     INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
                     VALUES (?, 'Workflow E2E Tenant', 'wf-e2e', 'ACTIVE', ?, ?)
@@ -83,6 +91,10 @@ public class WorkflowE2eBootstrapConfig {
                     VALUES (?, 'Workflow E2E Tenant B', 'wf-e2e-b', 'ACTIVE', ?, ?)
                     ON CONFLICT (id) DO NOTHING
                     """, TENANT_B_ID, now, now);
+
+            // Tenant A block. All RLS-protected writes happen on the same
+            // transaction-bound connection under this transaction-local context.
+            setTenantContext(jdbc, TENANT_A_ID);
 
             // 2. Admin user with real PasswordEncoder hash (API-level setup actor)
             String passwordHash = passwordEncoder.encode(E2E_PASSWORD);
@@ -132,12 +144,17 @@ public class WorkflowE2eBootstrapConfig {
                     ON CONFLICT DO NOTHING
                     """, TENANT_A_ID, ADMIN_ROLE_ID);
 
-            // 7. Multi-actor fixture (task §9): one user + linked ACTIVE employee
-            //    + tenant role + capability bindings per actor.
-            seedActors(jdbc, passwordEncoder, TENANT_A_ID, TENANT_A_ACTORS, "A", passwordHash, now);
-            seedActors(jdbc, passwordEncoder, TENANT_B_ID, TENANT_B_ACTORS, "B", passwordHash, now);
+            // 7. Multi-actor fixture: seed Tenant A while Tenant A is the
+            // active transaction-local RLS context.
+            seedActors(jdbc, TENANT_A_ID, TENANT_A_ACTORS, "A", passwordHash, now);
 
-            // 8. Verify seeding
+            // Switch the same transaction-bound connection to Tenant B before
+            // Tenant B employee/role/capability writes.
+            setTenantContext(jdbc, TENANT_B_ID);
+            seedActors(jdbc, TENANT_B_ID, TENANT_B_ACTORS, "B", passwordHash, now);
+
+            // 8. Verify seeding through the same fail-closed tenant views.
+            setTenantContext(jdbc, TENANT_A_ID);
             Integer userCount = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM users WHERE tenant_id = ? AND status = 'ACTIVE'",
                     Integer.class, TENANT_A_ID);
@@ -147,15 +164,18 @@ public class WorkflowE2eBootstrapConfig {
             Integer employeeCountA = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM hr_employees WHERE tenant_id = ? AND status = 'ACTIVE'",
                     Integer.class, TENANT_A_ID);
+
+            setTenantContext(jdbc, TENANT_B_ID);
             Integer employeeCountB = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM hr_employees WHERE tenant_id = ? AND status = 'ACTIVE'",
                     Integer.class, TENANT_B_ID);
+
             log.info("WorkflowE2eBootstrap: seeded tenantA={} (users={} employees={}) tenantB={} employees={} adminCaps={}",
                     TENANT_A_ID, userCount, employeeCountA, TENANT_B_ID, employeeCountB, capCount);
-        };
+        });
     }
 
-    private void seedActors(JdbcTemplate jdbc, PasswordEncoder passwordEncoder, UUID tenantId,
+    private void seedActors(JdbcTemplate jdbc, UUID tenantId,
                             List<Actor> actors, String tenantLabel, String passwordHash, Timestamp now) {
         for (Actor actor : actors) {
             String email = actor.emailLocalPart() + "@snad-e2e.example";
@@ -202,6 +222,15 @@ public class WorkflowE2eBootstrapConfig {
                       AND ac.status = 'ACTIVE'
                     ON CONFLICT DO NOTHING
                     """, tenantId, roleId, actor.capabilities().toArray(new String[0]));
+        }
+    }
+
+    private void setTenantContext(JdbcTemplate jdbc, UUID tenantId) {
+        String applied = jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
+        if (!tenantId.toString().equals(applied)) {
+            throw new IllegalStateException("Failed to apply workflow-e2e tenant RLS context for " + tenantId);
         }
     }
 
