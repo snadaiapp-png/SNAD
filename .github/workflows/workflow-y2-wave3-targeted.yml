@@ -83,8 +83,8 @@ jobs:
       - name: Run Task 16 backend regression
         run: mvn -B -ntp -Dtest=WorkflowTask16TypedApiContractTest,WorkflowApiContractTest test
 
-  task17-web-gate:
-    name: Task 17 Web Gate
+  task18-web-gate:
+    name: Task 18 Web Gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -101,7 +101,7 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - name: Install web dependencies
         run: npm ci
-      - name: Run Task 17 workflow tests
+      - name: Run Task 18 workflow tests
         run: npm test -- app/workflow
       - name: Run web lint
         run: npm run lint
