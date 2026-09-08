@@ -89,4 +89,28 @@ class WorkflowDefinitionVersioningTest {
         assertThat(published.publicationState()).isEqualTo(WorkflowDefinition.PublicationState.PUBLISHED);
         assertThat(published.version()).isEqualTo(1);
     }
+
+    @Test
+    void publishedY2DefinitionRejectsLegacyActivation() {
+        var published = fixturePublishedDefinition();
+        assertThatThrownBy(published::activate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Y2");
+    }
+
+    @Test
+    void y2NextDraftRejectsLegacyActivation() {
+        var draft = fixturePublishedDefinition().nextDraft(ACTOR);
+        assertThat(draft.engineGeneration()).isEqualTo(WorkflowDefinition.EngineGeneration.Y2);
+        assertThatThrownBy(draft::activate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Y2");
+    }
+
+    @Test
+    void legacyDraftStillSupportsLegacyActivationDuringCutover() {
+        var legacy = WorkflowDefinition.create(TENANT, "WF-LEGACY", "Legacy", "fixture",
+                "GENERAL", WorkflowDefinition.TriggerType.MANUAL, ACTOR);
+        assertThat(legacy.activate().status()).isEqualTo(WorkflowDefinition.Status.ACTIVE);
+    }
 }

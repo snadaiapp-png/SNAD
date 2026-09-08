@@ -29,6 +29,8 @@ public class WorkflowOperationalQueryService {
     private final AtomicLong queueDepth = new AtomicLong();
     private final AtomicLong overdueStepsGauge = new AtomicLong();
     private final AtomicLong overdueApprovalsGauge = new AtomicLong();
+    private final AtomicLong oldestTaskAgeGauge = new AtomicLong();
+    private final AtomicLong oldestApprovalAgeGauge = new AtomicLong();
     private final AtomicLong openIncidentGauge = new AtomicLong();
     private final AtomicLong openIncidentAgeGauge = new AtomicLong();
     private final AtomicLong inboxLagGauge = new AtomicLong();
@@ -37,6 +39,8 @@ public class WorkflowOperationalQueryService {
     private final AtomicLong notificationFailuresGauge = new AtomicLong();
     private final AtomicLong actionRetryGauge = new AtomicLong();
     private final AtomicLong actionFailureGauge = new AtomicLong();
+    private final AtomicLong actionRetryRateGauge = new AtomicLong();
+    private final AtomicLong actionFailureRateGauge = new AtomicLong();
 
     public WorkflowOperationalQueryService(JdbcWorkflowOperationalQueryRepository repo,
                                            MeterRegistry meterRegistry) {
@@ -44,6 +48,8 @@ public class WorkflowOperationalQueryService {
         meterRegistry.gauge("workflow_queue_depth", queueDepth);
         meterRegistry.gauge("workflow_overdue_steps", overdueStepsGauge);
         meterRegistry.gauge("workflow_overdue_approvals", overdueApprovalsGauge);
+        meterRegistry.gauge("workflow_task_oldest_age_seconds", oldestTaskAgeGauge);
+        meterRegistry.gauge("workflow_approval_oldest_age_seconds", oldestApprovalAgeGauge);
         meterRegistry.gauge("workflow_open_incidents", openIncidentGauge);
         meterRegistry.gauge("workflow_open_incident_age_minutes", openIncidentAgeGauge);
         meterRegistry.gauge("workflow_inbox_lag_seconds", inboxLagGauge);
@@ -52,10 +58,15 @@ public class WorkflowOperationalQueryService {
         meterRegistry.gauge("workflow_notification_failures", notificationFailuresGauge);
         meterRegistry.gauge("workflow_action_retries", actionRetryGauge);
         meterRegistry.gauge("workflow_action_failures", actionFailureGauge);
+        meterRegistry.gauge("workflow_action_retry_rate_per_minute", actionRetryRateGauge);
+        meterRegistry.gauge("workflow_action_failure_rate_per_minute", actionFailureRateGauge);
     }
 
     public record OperationalTaskRow(
+            UUID tenantId,
             UUID workItemId,
+            UUID assigneeEmployeeId,
+            UUID claimedByEmployeeId,
             String title,
             String status,
             String assignmentMode,
@@ -67,6 +78,8 @@ public class WorkflowOperationalQueryService {
             int availableWorkItems,
             int overdueSteps,
             int overdueApprovals,
+            long oldestTaskAgeSeconds,
+            long oldestApprovalAgeSeconds,
             int openIncidents,
             long openIncidentAgeMinutes,
             long inboxLagSeconds,
@@ -74,7 +87,9 @@ public class WorkflowOperationalQueryService {
             int stuckJoins,
             int failedNotifications,
             long actionRetryCount,
-            long actionFailureCount) {}
+            long actionFailureCount,
+            long actionRetryRatePerMinute,
+            long actionFailureRatePerMinute) {}
 
     /** Direct and claimed work for one concrete employee, tenant-scoped. */
     @Transactional(readOnly = true)
@@ -91,8 +106,17 @@ public class WorkflowOperationalQueryService {
     }
 
     private OperationalTaskRow toRow(JdbcWorkflowOperationalQueryRepository.TaskRow row) {
-        return new OperationalTaskRow(row.workItemId(), row.title(), row.status(),
-                row.assignmentMode(), row.type(), row.dueAt(), row.version());
+        return new OperationalTaskRow(
+                row.tenantId(),
+                row.workItemId(),
+                row.assigneeEmployeeId(),
+                row.claimedByEmployeeId(),
+                row.title(),
+                row.status(),
+                row.assignmentMode(),
+                row.type(),
+                row.dueAt(),
+                row.version());
     }
 
     @Transactional(readOnly = true)
@@ -116,9 +140,9 @@ public class WorkflowOperationalQueryService {
     }
 
     /**
-     * Operational snapshot for one tenant. Publishes the bounded global
-     * gauges as a side effect; metric publication failure must never fail a
-     * workflow transaction, so the caller treats this as best-effort.
+     * Operational snapshot for one tenant. Publishes bounded global gauges as
+     * a side effect. The values represent the latest sampled tenant snapshot;
+     * no tenant/user/instance identity is emitted as a metric label.
      */
     @Transactional(readOnly = true)
     public MonitoringSnapshot monitoringSnapshot(UUID tenantId) {
@@ -129,6 +153,8 @@ public class WorkflowOperationalQueryService {
                 repo.countByStatus(tenantId, "AVAILABLE"),
                 repo.countOverdueSteps(tenantId),
                 repo.countOverdueApprovals(tenantId),
+                repo.oldestTaskAgeSeconds(tenantId),
+                repo.oldestApprovalAgeSeconds(tenantId),
                 openIncidents.count(),
                 openIncidents.oldestAgeMinutes(),
                 repo.inboxLagSeconds(tenantId),
@@ -136,10 +162,14 @@ public class WorkflowOperationalQueryService {
                 repo.stuckJoins(tenantId),
                 repo.countNotificationsByStatus(tenantId, "FAILED"),
                 retries,
-                failures);
+                failures,
+                repo.actionRetryRatePerMinute(tenantId),
+                repo.actionFailureRatePerMinute(tenantId));
         queueDepth.set(snapshot.availableWorkItems());
         overdueStepsGauge.set(snapshot.overdueSteps());
         overdueApprovalsGauge.set(snapshot.overdueApprovals());
+        oldestTaskAgeGauge.set(snapshot.oldestTaskAgeSeconds());
+        oldestApprovalAgeGauge.set(snapshot.oldestApprovalAgeSeconds());
         openIncidentGauge.set(snapshot.openIncidents());
         openIncidentAgeGauge.set(snapshot.openIncidentAgeMinutes());
         inboxLagGauge.set(snapshot.inboxLagSeconds());
@@ -148,6 +178,8 @@ public class WorkflowOperationalQueryService {
         notificationFailuresGauge.set(snapshot.failedNotifications());
         actionRetryGauge.set(snapshot.actionRetryCount());
         actionFailureGauge.set(snapshot.actionFailureCount());
+        actionRetryRateGauge.set(snapshot.actionRetryRatePerMinute());
+        actionFailureRateGauge.set(snapshot.actionFailureRatePerMinute());
         return snapshot;
     }
 }

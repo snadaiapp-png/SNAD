@@ -237,6 +237,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260905.17"  // hrm-g0 master task 6 ws5 task 1 seed hrm v2 capabilities
             , "20260905.18"  // hrm-g0 reconcile y2 employee/user identity uniqueness with g0 cutover lifecycle
             , "20260906.1"   // workflow task 15 remediation (T15-D1): notification intent dedup unique index
+            , "20260908.1"   // workflow incident optimistic lock
     );
 
 
@@ -251,20 +252,12 @@ class CrmFlywayHistoryAssertionTest {
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmFlywayHistoryAssertionTest. " +
                         "Run with PostgreSQL Direct to exercise Flyway history assertions.");
-        // Ensure the disposable test_migration database exists so that flyway.clean()
-        // below only affects this isolated database (not the shared sanad database
-        // that other @SpringBootTest contexts depend on).
         MigrationTestSchemaSupport.ensureDatabase(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
-    /**
-     * Asserts that the Flyway history table contains exactly the expected
-     * CRM versions in the correct order, with no duplicates and no missing
-     * versions.
-     */
     @Test
     void flywayHistoryContainsExactlyExpectedCrmVersionsInOrder() {
         Flyway flyway = flyway(null);
@@ -273,43 +266,34 @@ class CrmFlywayHistoryAssertionTest {
         flyway.validate();
 
         JdbcTemplate jdbc = jdbc();
-
-        // 1. Fetch all successful CRM versions from flyway_schema_history in
-        //    installed_rank order.
         List<String> actualVersions = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history " +
                         "WHERE version IS NOT NULL AND success = TRUE " +
                         "ORDER BY installed_rank ASC",
                 String.class);
 
-        // 2. Filter to only CRM versions (those >= the first CRM version).
         String firstCrmVersion = EXPECTED_CRM_VERSIONS.get(0);
         List<String> actualCrmVersions = actualVersions.stream()
                 .filter(v -> compareVersions(v, firstCrmVersion) >= 0)
                 .toList();
 
-        // 3. Assert no missing versions.
         List<String> missingVersions = new ArrayList<>(EXPECTED_CRM_VERSIONS);
         missingVersions.removeAll(actualCrmVersions);
         assertThat(missingVersions)
                 .as("No expected CRM versions should be missing from flyway_schema_history")
                 .isEmpty();
 
-        // 4. Assert no unexpected versions.
         List<String> unexpectedVersions = new ArrayList<>(actualCrmVersions);
         unexpectedVersions.removeAll(EXPECTED_CRM_VERSIONS);
         assertThat(unexpectedVersions)
                 .as("No unexpected CRM versions should appear in flyway_schema_history")
                 .isEmpty();
 
-        // 5. Assert exact count match.
         assertThat(actualCrmVersions)
                 .as("Number of CRM versions in history must match expected count (%d)",
                         EXPECTED_CRM_VERSIONS.size())
                 .hasSize(EXPECTED_CRM_VERSIONS.size());
 
-        // 6. Assert correct ordering — each version must appear in the same
-        //    relative position as in the expected list.
         for (int i = 0; i < EXPECTED_CRM_VERSIONS.size(); i++) {
             assertThat(actualCrmVersions.get(i))
                     .as("CRM version at position %d must be %s", i, EXPECTED_CRM_VERSIONS.get(i))
@@ -317,9 +301,6 @@ class CrmFlywayHistoryAssertionTest {
         }
     }
 
-    /**
-     * Asserts that no duplicate versions exist in the Flyway history table.
-     */
     @Test
     void flywayHistoryContainsNoDuplicateVersions() {
         Flyway flyway = flyway(null);
@@ -327,7 +308,6 @@ class CrmFlywayHistoryAssertionTest {
         flyway.migrate();
 
         JdbcTemplate jdbc = jdbc();
-
         Long duplicateCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM (" +
                         "  SELECT version FROM flyway_schema_history " +
@@ -341,10 +321,6 @@ class CrmFlywayHistoryAssertionTest {
                 .isZero();
     }
 
-    /**
-     * Asserts that the latest version in the history matches the last entry
-     * in the expected versions list.
-     */
     @Test
     void flywayHistoryLatestVersionMatchesExpected() {
         Flyway flyway = flyway(null);
@@ -352,7 +328,6 @@ class CrmFlywayHistoryAssertionTest {
         flyway.migrate();
 
         JdbcTemplate jdbc = jdbc();
-
         String latestVersion = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history " +
                         "WHERE success = TRUE AND version IS NOT NULL " +
@@ -365,9 +340,6 @@ class CrmFlywayHistoryAssertionTest {
                 .isEqualTo(EXPECTED_CRM_VERSIONS.get(EXPECTED_CRM_VERSIONS.size() - 1));
     }
 
-    /**
-     * Asserts that every migration in the history was successful.
-     */
     @Test
     void allFlywayMigrationsSuccessful() {
         Flyway flyway = flyway(null);
@@ -375,7 +347,6 @@ class CrmFlywayHistoryAssertionTest {
         flyway.migrate();
 
         JdbcTemplate jdbc = jdbc();
-
         Long failedCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = FALSE",
                 Long.class);
@@ -385,12 +356,6 @@ class CrmFlywayHistoryAssertionTest {
                 .isZero();
     }
 
-    /**
-     * Asserts that the total number of migrations includes all expected CRM
-     * versions plus at least the baseline. The V15 Java migration was removed
-     * from the repository (its production history row carries a DELETE
-     * marker), so the applied chain is SQL-only.
-     */
     @Test
     void flywayHistoryTotalMigrationCountIncludesAllCrmVersions() {
         Flyway flyway = flyway(null);
@@ -398,25 +363,16 @@ class CrmFlywayHistoryAssertionTest {
         flyway.migrate();
 
         JdbcTemplate jdbc = jdbc();
-
         Long actualCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE",
                 Long.class);
 
-        // Total must be at least: CRM versions + baseline (1). The V15 Java
-        // migration was removed from the repository (production chain decision),
-        // so fresh databases apply one migration fewer than the legacy pin.
         long minimumExpected = EXPECTED_CRM_VERSIONS.size() + 1;
-
         assertThat(actualCount)
                 .as("Total successful migrations must be >= %d (at least %d CRM + baseline)",
                         minimumExpected, EXPECTED_CRM_VERSIONS.size())
                 .isGreaterThanOrEqualTo(minimumExpected);
     }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
@@ -435,10 +391,6 @@ class CrmFlywayHistoryAssertionTest {
         return new JdbcTemplate(dataSource);
     }
 
-    /**
-     * Compares two Flyway version strings numerically.
-     * Returns negative if v1 < v2, zero if equal, positive if v1 > v2.
-     */
     private int compareVersions(String v1, String v2) {
         String[] parts1 = v1.split("\\.");
         String[] parts2 = v2.split("\\.");

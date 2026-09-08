@@ -23,12 +23,21 @@ public class JdbcWorkflowOperationalQueryRepository {
         this.jdbc = jdbc;
     }
 
-    public record TaskRow(UUID workItemId, String title, String status,
-                          String assignmentMode, String type, Instant dueAt, long version) {}
+    public record TaskRow(UUID tenantId,
+                          UUID workItemId,
+                          UUID assigneeEmployeeId,
+                          UUID claimedByEmployeeId,
+                          String title,
+                          String status,
+                          String assignmentMode,
+                          String type,
+                          Instant dueAt,
+                          long version) {}
 
     public List<TaskRow> findMyTasks(UUID tenantId, UUID employeeId, int limit) {
         return jdbc.query("""
-                SELECT id, title, status, assignment_mode, type, due_at, version
+                SELECT tenant_id, id, assignee_employee_id, claimed_by_employee_id,
+                       title, status, assignment_mode, type, due_at, version
                 FROM workflow_work_items
                 WHERE tenant_id = ?
                   AND status NOT IN ('COMPLETED', 'CANCELLED', 'EXPIRED')
@@ -36,20 +45,14 @@ public class JdbcWorkflowOperationalQueryRepository {
                 ORDER BY priority DESC, due_at NULLS LAST, created_at ASC
                 LIMIT ?
                 """,
-                (rs, n) -> new TaskRow(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("title"),
-                        rs.getString("status"),
-                        rs.getString("assignment_mode"),
-                        rs.getString("type"),
-                        rs.getTimestamp("due_at") != null ? rs.getTimestamp("due_at").toInstant() : null,
-                        rs.getLong("version")),
+                (rs, n) -> mapTaskRow(rs),
                 tenantId, employeeId, employeeId, limit);
     }
 
     public List<TaskRow> findPoolTasks(UUID tenantId, UUID employeeId, int limit) {
         return jdbc.query("""
-                SELECT wi.id, wi.title, wi.status, wi.assignment_mode, wi.type, wi.due_at, wi.version
+                SELECT wi.tenant_id, wi.id, wi.assignee_employee_id, wi.claimed_by_employee_id,
+                       wi.title, wi.status, wi.assignment_mode, wi.type, wi.due_at, wi.version
                 FROM workflow_work_items wi
                 WHERE wi.tenant_id = ? AND wi.status = 'AVAILABLE'
                   AND EXISTS (
@@ -61,15 +64,23 @@ public class JdbcWorkflowOperationalQueryRepository {
                 ORDER BY wi.priority DESC, wi.due_at NULLS LAST, wi.created_at ASC
                 LIMIT ?
                 """,
-                (rs, n) -> new TaskRow(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("title"),
-                        rs.getString("status"),
-                        rs.getString("assignment_mode"),
-                        rs.getString("type"),
-                        rs.getTimestamp("due_at") != null ? rs.getTimestamp("due_at").toInstant() : null,
-                        rs.getLong("version")),
+                (rs, n) -> mapTaskRow(rs),
                 tenantId, employeeId, limit);
+    }
+
+    private TaskRow mapTaskRow(java.sql.ResultSet rs) throws java.sql.SQLException {
+        Timestamp dueAt = rs.getTimestamp("due_at");
+        return new TaskRow(
+                rs.getObject("tenant_id", UUID.class),
+                rs.getObject("id", UUID.class),
+                rs.getObject("assignee_employee_id", UUID.class),
+                rs.getObject("claimed_by_employee_id", UUID.class),
+                rs.getString("title"),
+                rs.getString("status"),
+                rs.getString("assignment_mode"),
+                rs.getString("type"),
+                dueAt != null ? dueAt.toInstant() : null,
+                rs.getLong("version"));
     }
 
     public List<Map<String, Object>> findMyApprovals(UUID tenantId, UUID userId, int limit) {
@@ -133,6 +144,27 @@ public class JdbcWorkflowOperationalQueryRepository {
                 WHERE tenant_id = ? AND status = 'PENDING' AND due_at < NOW()
                 """, Long.class, tenantId);
         return count != null ? count.intValue() : 0;
+    }
+
+    /** Oldest non-terminal work item age, in seconds, for the tenant snapshot. */
+    public long oldestTaskAgeSeconds(UUID tenantId) {
+        var age = jdbc.queryForObject("""
+                SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
+                FROM workflow_work_items
+                WHERE tenant_id = ?
+                  AND status NOT IN ('COMPLETED', 'CANCELLED', 'EXPIRED')
+                """, Double.class, tenantId);
+        return age != null ? Math.max(0, age.longValue()) : 0;
+    }
+
+    /** Oldest pending approval age, in seconds, for the tenant snapshot. */
+    public long oldestApprovalAgeSeconds(UUID tenantId) {
+        var age = jdbc.queryForObject("""
+                SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(requested_at))), 0)
+                FROM workflow_approval_requests
+                WHERE tenant_id = ? AND status = 'PENDING'
+                """, Double.class, tenantId);
+        return age != null ? Math.max(0, age.longValue()) : 0;
     }
 
     public record OpenIncidentAggregate(int count, long oldestAgeMinutes) {}
@@ -210,4 +242,28 @@ public class JdbcWorkflowOperationalQueryRepository {
         return count != null ? count : 0;
     }
 
+    /**
+     * Retry rate over a fixed one-minute observation window. A retry is an
+     * execution attempt after attempt #1, independent of its eventual outcome.
+     */
+    public long actionRetryRatePerMinute(UUID tenantId) {
+        var count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM workflow_execution_attempts
+                WHERE tenant_id = ?
+                  AND attempt_number > 1
+                  AND started_at >= NOW() - INTERVAL '1 minute'
+                """, Long.class, tenantId);
+        return count != null ? count : 0;
+    }
+
+    /** Failure rate over the same fixed one-minute observation window. */
+    public long actionFailureRatePerMinute(UUID tenantId) {
+        var count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM workflow_execution_attempts
+                WHERE tenant_id = ?
+                  AND outcome IN ('FAILED_TRANSIENT', 'FAILED_PERMANENT', 'TIMED_OUT')
+                  AND started_at >= NOW() - INTERVAL '1 minute'
+                """, Long.class, tenantId);
+        return count != null ? count : 0;
+    }
 }
