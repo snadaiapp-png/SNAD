@@ -95,6 +95,69 @@ public class ComplianceEngine {
         return decision;
     }
 
+    /**
+     * HRM-G1 T3 — opening publish compliance gate (additive; the employment
+     * path above is unchanged and remains the G0 authority).
+     *
+     * <p>The design (§Compliance authority) fail-closes opening publication
+     * whenever the statutory posture of the hiring jurisdiction is UNKNOWN:
+     * an unresolvable jurisdiction or an absent authoritative pack yields a
+     * persisted {@code LEGAL_REVIEW_REQUIRED} decision row and the caller
+     * must not publish. With an authoritative localized pack, publication is
+     * generic HR and proceeds legally neutral (pack-specific rules, when
+     * registered, still veto through the standard handler loop).</p>
+     *
+     * @param context      command context (employmentId is null for openings)
+     * @param orgUnitId    the opening's org unit — jurisdiction chain source
+     * @param resource     the opening resource reference (HR_JOB_OPENING)
+     * @param effectiveDate operation effective date
+     */
+    public ComplianceDecision evaluateOpeningPublish(
+            HrCommandContext context, java.util.UUID orgUnitId,
+            ComplianceResource resource, LocalDate effectiveDate) {
+        Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(orgUnitId, "orgUnitId");
+        Objects.requireNonNull(effectiveDate, "effectiveDate");
+
+        ResolvedCountryPolicy policy;
+        try {
+            policy = countryPolicyResolver.resolveForOpening(context.tenantId(), orgUnitId, effectiveDate);
+        } catch (RuntimeException unresolved) {
+            // Fail closed WITH a decision row: the statutory posture is unknown.
+            ComplianceDecision decision = new ComplianceDecision(
+                    ComplianceDecisionType.LEGAL_REVIEW_REQUIRED,
+                    null,
+                    CountryOperatingMode.GLOBAL,
+                    null, null, null, null,
+                    "OPENING_JURISDICTION_UNRESOLVED",
+                    List.of("No ACTIVE legal-entity binding for the opening's organization — "
+                            + "publishing is blocked until the jurisdiction is resolvable."));
+            decisionRepository.persist(decision, context, resource,
+                    "HRM.RECRUITMENT.OPENING.PUBLISH",
+                    ComplianceOperationType.LOCAL_STATUTORY.name(), effectiveDate);
+            return decision;
+        }
+
+        ComplianceDecision decision;
+        if (policy.mode() == CountryOperatingMode.GLOBAL) {
+            // Absent pack ⇒ fail closed with a decision row (design §Compliance).
+            decision = new ComplianceDecision(
+                    ComplianceDecisionType.LEGAL_REVIEW_REQUIRED,
+                    policy.laborJurisdiction(),
+                    policy.mode(),
+                    null, null, null, null,
+                    "OPENING_PUBLISH_PACK_ABSENT",
+                    List.of("No authoritative localized pack is effective for the opening's jurisdiction — "
+                            + "publishing is blocked (unknown statutory posture)."));
+        } else {
+            decision = evaluateLocalizedMode(context, "HRM.RECRUITMENT.OPENING.PUBLISH",
+                    ComplianceOperationType.GENERIC_HR, effectiveDate, resource, policy);
+        }
+        decisionRepository.persist(decision, context, resource,
+                "HRM.RECRUITMENT.OPENING.PUBLISH", ComplianceOperationType.GENERIC_HR.name(), effectiveDate);
+        return decision;
+    }
+
     private ComplianceDecision evaluateGlobalMode(ResolvedCountryPolicy policy, ComplianceOperationType operationType) {
         if (operationType == ComplianceOperationType.GENERIC_HR) {
             return new ComplianceDecision(
