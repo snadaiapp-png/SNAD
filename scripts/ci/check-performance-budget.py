@@ -31,8 +31,10 @@ BUDGETS = {
     "exec_dashboard_js": 350_000,       # 350 KB executive dashboard JS
 }
 
-BUILD_DIR = Path("apps/web/.next")
-PUBLIC_DIR = Path("apps/web/public")
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[2]
+BUILD_DIR = REPO_ROOT / "apps" / "web" / ".next"
+PUBLIC_DIR = REPO_ROOT / "apps" / "web" / "public"
 
 
 def fail(message):
