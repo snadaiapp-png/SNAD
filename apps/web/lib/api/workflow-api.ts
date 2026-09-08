@@ -1,13 +1,9 @@
 /**
- * Workflow Engine API client — typed wrapper for all /api/v1/workflows/* endpoints.
- *
- * Mirrors the management-api.ts pattern. Consumes backend APIs only.
- * Does NOT duplicate business logic.
+ * Workflow Engine API client — typed wrapper for /api/v1/workflows/* endpoints.
+ * Business rules and authorization remain server-side.
  */
 
 import { apiClient } from "./client";
-
-// ── Types ────────────────────────────────────────────────────────────
 
 export interface WorkflowDefinitionResponse {
   id: string;
@@ -19,6 +15,9 @@ export interface WorkflowDefinitionResponse {
   version: number;
   versionLock: number;
   createdBy: string;
+  definitionFamilyId: string;
+  engineGeneration: "LEGACY" | "Y2" | string;
+  publicationState: "DRAFT" | "PUBLISHED" | "RETIRED" | string;
 }
 
 export interface WorkflowInstanceResponse {
@@ -68,11 +67,63 @@ export interface StartWorkflowRequest {
   correlationId?: string;
 }
 
-// ── Constants ────────────────────────────────────────────────────────
+export type WorkflowStepType =
+  | "START"
+  | "HUMAN_TASK"
+  | "APPROVAL"
+  | "CONDITION"
+  | "SYSTEM_ACTION"
+  | "PARALLEL_FORK"
+  | "PARALLEL_JOIN"
+  | "CALL_WORKFLOW"
+  | "NOTIFICATION"
+  | "END";
+
+export interface WorkflowStepResponse {
+  id: string;
+  workflowDefinitionId: string;
+  stepKey: string;
+  name: string;
+  stepType: WorkflowStepType | string;
+  sequenceOrder: number;
+  configuration: string;
+  slaHours: number;
+  requiredCapability: string;
+  requiredRole: string;
+  version: number;
+}
+
+export interface CreateWorkflowStepRequest {
+  stepKey: string;
+  name: string;
+  stepType: WorkflowStepType;
+  sequenceOrder: number;
+  configuration: string;
+  slaHours: number;
+  requiredCapability: string;
+  requiredRole: string;
+}
+
+export interface WorkflowTransitionResponse {
+  id: string;
+  fromStepId: string;
+  toStepId: string;
+  transitionKey: string;
+  outcome: string;
+  priority: number;
+}
+
+export interface CreateWorkflowTransitionRequest {
+  fromStepId: string;
+  toStepId: string;
+  transitionKey: string;
+  outcome: string;
+  conditionAst: string;
+  priority: number;
+  metadata: string;
+}
 
 const BASE = "/api/v1/workflows";
-
-// ── Client ───────────────────────────────────────────────────────────
 
 export const workflowApi = {
   // ===== Definitions =====
@@ -133,7 +184,7 @@ export const workflowApi = {
   triggerSlaCheck: () =>
     apiClient.post<WorkflowMonitoringHealthResponse>(`${BASE}/monitoring/check-sla`),
 
-  // ===== Y2 WorkItems (Task 16) =====
+  // ===== Y2 WorkItems =====
   listMyWorkItems: (limit = 50) =>
     apiClient.get<WorkflowWorkItemResponse[]>(`${BASE}/work-items/mine?limit=${limit}`),
 
@@ -153,7 +204,7 @@ export const workflowApi = {
     apiClient.post<WorkflowWorkItemResponse>(`${BASE}/work-items/${id}/reassign`,
       { newAssigneeEmployeeId, expectedVersion, reason }),
 
-  // ===== Y2 Publishing (Task 16) =====
+  // ===== Y2 Definition/version designer =====
   publishDefinition: (id: string, expectedVersion: number) =>
     apiClient.post<WorkflowDefinitionResponse>(`${BASE}/definitions/${id}/publish`, { expectedVersion }),
 
@@ -172,7 +223,13 @@ export const workflowApi = {
   getDefinitionTransitions: (id: string) =>
     apiClient.get<WorkflowTransitionResponse[]>(`${BASE}/definitions/${id}/transitions`),
 
-  // ===== Y2 Incidents (Task 16) =====
+  addDefinitionStep: (id: string, data: CreateWorkflowStepRequest) =>
+    apiClient.post<WorkflowStepResponse>(`${BASE}/definitions/${id}/steps`, data),
+
+  createDefinitionTransition: (id: string, data: CreateWorkflowTransitionRequest) =>
+    apiClient.post<WorkflowTransitionResponse>(`${BASE}/definitions/${id}/transitions`, data),
+
+  // ===== Y2 Incidents =====
   listIncidents: (limit = 50) =>
     apiClient.get<WorkflowIncidentResponse[]>(`${BASE}/incidents?limit=${limit}`),
 
@@ -208,29 +265,6 @@ export interface WorkflowSimulationResponse {
   simulated: boolean;
   visitedStepIds: string[];
   notes: string[];
-}
-
-export interface WorkflowStepResponse {
-  id: string;
-  workflowDefinitionId: string;
-  stepKey: string;
-  name: string;
-  stepType: string;
-  sequenceOrder: number;
-  configuration: string;
-  slaHours: number;
-  requiredCapability: string;
-  requiredRole: string;
-  version: number;
-}
-
-export interface WorkflowTransitionResponse {
-  id: string;
-  fromStepId: string;
-  toStepId: string;
-  transitionKey: string;
-  outcome: string;
-  priority: number;
 }
 
 export interface WorkflowIncidentResponse {
