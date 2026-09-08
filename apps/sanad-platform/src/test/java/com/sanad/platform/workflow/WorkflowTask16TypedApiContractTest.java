@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
- * Task 16 RED contract: Y2 endpoints must expose typed DTOs while the existing
+ * Task 16 contract: Y2 endpoints must expose typed DTOs while the existing
  * /api/v1/workflows JSON contract remains protected by WorkflowApiContractTest.
  */
 class WorkflowTask16TypedApiContractTest {
@@ -21,10 +21,15 @@ class WorkflowTask16TypedApiContractTest {
 
     @Test
     void workItemEndpointsReturnTypedResponses() throws Exception {
-        var method = WorkflowController.class.getDeclaredMethod(
+        var mine = WorkflowController.class.getDeclaredMethod(
                 "myWorkItems", Authentication.class, int.class);
-        assertThat(method.getGenericReturnType().getTypeName())
-                .contains("WorkflowDtos.WorkItemResponse");
+        var pool = WorkflowController.class.getDeclaredMethod(
+                "poolWorkItems", Authentication.class, int.class);
+
+        assertThat(mine.getGenericReturnType().getTypeName())
+                .contains("WorkflowDtos$WorkItemResponse");
+        assertThat(pool.getGenericReturnType().getTypeName())
+                .contains("WorkflowDtos$WorkItemResponse");
     }
 
     @Test
