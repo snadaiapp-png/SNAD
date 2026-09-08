@@ -730,10 +730,15 @@ jobs:
           base="https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries"
           curl -fsSL "$base/apache-maven-3.9.16-bin.tar.gz" -o "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz"
           curl -fsSL "$base/apache-maven-3.9.16-bin.tar.gz.sha512" -o "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz.sha512"
-          (cd "$RUNNER_TEMP" && sha512sum -c apache-maven-3.9.16-bin.tar.gz.sha512) || {
-            echo "::error::ENVIRONMENT_BLOCKER=MAVEN_SHA512_MISMATCH"
+          # Apache publishes the Maven .sha512 as a BARE hash (no filename),
+          # which `sha512sum -c` cannot parse — verify by token comparison.
+          msha_expected="$(awk '{print $1}' "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz.sha512")"
+          msha_actual="$(sha512sum "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz" | awk '{print $1}')"
+          if [ -z "$msha_expected" ] || [ "$msha_expected" != "$msha_actual" ]; then
+            echo "::error::ENVIRONMENT_BLOCKER=MAVEN_SHA512_MISMATCH (expected=${msha_expected:0:16}... actual=${msha_actual:0:16}...)"
             exit 1
-          }
+          fi
+          echo "MAVEN_SHA512=VERIFIED"
           mkdir -p "$RUNNER_TEMP/maven"
           tar -xzf "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz" -C "$RUNNER_TEMP/maven"
           MVN_HOME="$RUNNER_TEMP/maven/apache-maven-3.9.16"
