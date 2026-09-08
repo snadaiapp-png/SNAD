@@ -1,0 +1,28 @@
+name: Workflow Y2 Production Orchestrator Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/workflow-y2-production-release-orchestrator.yml'
+      - '.github/workflows/workflow-y2-production-orchestrator-contract.yml'
+      - 'tests/ci/test_workflow_y2_production_orchestrator.py'
+      - 'apps/sanad-platform/.release/workflow-y2-production-release-authorized.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-y2-production-orchestrator-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Workflow Y2 Production Orchestrator Contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run fail-closed orchestrator contract
+        run: python3 tests/ci/test_workflow_y2_production_orchestrator.py
