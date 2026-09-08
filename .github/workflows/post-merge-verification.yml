@@ -907,6 +907,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
       - name: Record start metadata
         id: metadata
         shell: bash
