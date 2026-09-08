@@ -38,6 +38,7 @@ export interface WorkflowApprovalResponse {
   workflowInstanceId: string;
   workflowStepInstanceId: string;
   requestedFromUserId: string;
+  requestedFromEmployeeId: string | null;
   status: string;
   decision: string;
   comments: string;
@@ -119,11 +120,11 @@ export const workflowApi = {
   listMyPendingApprovals: (limit = 50) =>
     apiClient.get<WorkflowApprovalResponse[]>(`${BASE}/approvals/pending?limit=${limit}`),
 
-  approveRequest: (id: string, comments: string = "") =>
-    apiClient.post<WorkflowApprovalResponse>(`${BASE}/approvals/${id}/approve`, { comments }),
+  approveRequest: (id: string, expectedVersion: number, comments: string = "") =>
+    apiClient.post<WorkflowApprovalResponse>(`${BASE}/approvals/${id}/approve`, { expectedVersion, comments }),
 
-  rejectRequest: (id: string, comments: string = "") =>
-    apiClient.post<WorkflowApprovalResponse>(`${BASE}/approvals/${id}/reject`, { comments }),
+  rejectRequest: (id: string, expectedVersion: number, comments: string = "") =>
+    apiClient.post<WorkflowApprovalResponse>(`${BASE}/approvals/${id}/reject`, { expectedVersion, comments }),
 
   // ===== Monitoring =====
   getMonitoringHealth: () =>
@@ -178,8 +179,8 @@ export const workflowApi = {
   acknowledgeIncident: (id: string) =>
     apiClient.post<WorkflowIncidentResponse>(`${BASE}/incidents/${id}/acknowledge`, {}),
 
-  resolveIncident: (id: string, resolution: string) =>
-    apiClient.post<WorkflowIncidentResponse>(`${BASE}/incidents/${id}/resolve`, { resolution }),
+  resolveIncident: (id: string, expectedVersion: number, resolution: string) =>
+    apiClient.post<WorkflowIncidentResponse>(`${BASE}/incidents/${id}/resolve`, { expectedVersion, resolution }),
 };
 
 export interface WorkflowWorkItemResponse {
@@ -241,4 +242,5 @@ export interface WorkflowIncidentResponse {
   status: string;
   resolution: string;
   createdAt: string;
+  version: number;
 }

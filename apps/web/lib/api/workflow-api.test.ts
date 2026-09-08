@@ -153,34 +153,42 @@ describe("workflowApi", () => {
       expect(apiClient.get).toHaveBeenCalledWith("/api/v1/workflows/approvals/pending?limit=15");
     });
 
-    it("approveRequest calls POST /approve with comments", async () => {
+    it("approveRequest calls POST /approve with expectedVersion and comments", async () => {
       vi.mocked(apiClient.post).mockReturnValue(mockResolve({
         id: "app-1", status: "APPROVED", decision: "APPROVED",
       }));
-      const result = await workflowApi.approveRequest("app-1", "looks good");
-      expect(apiClient.post).toHaveBeenCalledWith("/api/v1/workflows/approvals/app-1/approve", { comments: "looks good" });
+      const result = await workflowApi.approveRequest("app-1", 3, "looks good");
+      expect(apiClient.post).toHaveBeenCalledWith("/api/v1/workflows/approvals/app-1/approve", {
+        expectedVersion: 3, comments: "looks good",
+      });
       expect(result.status).toBe("APPROVED");
     });
 
     it("approveRequest defaults comments to empty string", async () => {
       vi.mocked(apiClient.post).mockReturnValue(mockResolve({ id: "app-1", status: "APPROVED" }));
-      await workflowApi.approveRequest("app-1");
-      expect(apiClient.post).toHaveBeenCalledWith("/api/v1/workflows/approvals/app-1/approve", { comments: "" });
+      await workflowApi.approveRequest("app-1", 4);
+      expect(apiClient.post).toHaveBeenCalledWith("/api/v1/workflows/approvals/app-1/approve", {
+        expectedVersion: 4, comments: "",
+      });
     });
 
-    it("rejectRequest calls POST /reject with comments", async () => {
+    it("rejectRequest calls POST /reject with expectedVersion and comments", async () => {
       vi.mocked(apiClient.post).mockReturnValue(mockResolve({
         id: "app-1", status: "REJECTED", decision: "REJECTED",
       }));
-      const result = await workflowApi.rejectRequest("app-1", "not compliant");
-      expect(apiClient.post).toHaveBeenCalledWith("/api/v1/workflows/approvals/app-1/reject", { comments: "not compliant" });
+      const result = await workflowApi.rejectRequest("app-1", 5, "not compliant");
+      expect(apiClient.post).toHaveBeenCalledWith("/api/v1/workflows/approvals/app-1/reject", {
+        expectedVersion: 5, comments: "not compliant",
+      });
       expect(result.status).toBe("REJECTED");
     });
 
     it("rejectRequest defaults comments to empty string", async () => {
       vi.mocked(apiClient.post).mockReturnValue(mockResolve({ id: "app-1", status: "REJECTED" }));
-      await workflowApi.rejectRequest("app-1");
-      expect(apiClient.post).toHaveBeenCalledWith("/api/v1/workflows/approvals/app-1/reject", { comments: "" });
+      await workflowApi.rejectRequest("app-1", 6);
+      expect(apiClient.post).toHaveBeenCalledWith("/api/v1/workflows/approvals/app-1/reject", {
+        expectedVersion: 6, comments: "",
+      });
     });
   });
 
@@ -226,7 +234,7 @@ describe("workflowApi", () => {
       const err = new Error("Server error") as Error & { status?: number };
       err.status = 500;
       vi.mocked(apiClient.post).mockReturnValue(Promise.reject(err));
-      await expect(workflowApi.approveRequest("app-1")).rejects.toMatchObject({ status: 500 });
+      await expect(workflowApi.approveRequest("app-1", 0)).rejects.toMatchObject({ status: 500 });
     });
   });
 
@@ -253,8 +261,8 @@ describe("workflowApi", () => {
     it("WorkflowApprovalResponse has all required fields", () => {
       const app: import("./workflow-api").WorkflowApprovalResponse = {
         id: "app-1", workflowInstanceId: "inst-1", workflowStepInstanceId: "step-1",
-        requestedFromUserId: "u-1", status: "PENDING", decision: "",
-        comments: "", version: 0,
+        requestedFromUserId: "u-1", requestedFromEmployeeId: "e-1",
+        status: "PENDING", decision: "", comments: "", version: 0,
       };
       expect(app.status).toBe("PENDING");
     });

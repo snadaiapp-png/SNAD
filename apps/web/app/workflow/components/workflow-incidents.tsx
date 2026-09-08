@@ -52,7 +52,7 @@ export function WorkflowIncidents() {
       return;
     }
     try {
-      await workflowApi.resolveIncident(incident.id, note);
+      await workflowApi.resolveIncident(incident.id, incident.version, note);
       await load();
     } catch (e: unknown) {
       setError(describeWorkflowError(e, "فشل الحل"));
