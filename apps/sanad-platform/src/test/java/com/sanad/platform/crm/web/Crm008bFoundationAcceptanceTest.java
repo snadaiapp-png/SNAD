@@ -73,7 +73,7 @@ class Crm008bFoundationAcceptanceTest {
     // CRM Contacts Collaboration Integration (impl/crm-contacts-collaboration-20260823):
     //   V20260823.2 - crm participant role exclusivity is the new terminal migration.
     //   Earlier V20260823.1 (crm contacts force rls) precedes it.
-    private static final String CRM_LATEST_VERSION = "20260906.1"; // Terminal versioned migration: V20260906_1 (workflow task 15 remediation T15-D1) adds the notification intent dedup unique index — chain last extended by the Workflow Y2 Task 15 remediation
+    private static final String CRM_LATEST_VERSION = "20260908.1"; // Terminal versioned migration: V20260908_1 adds workflow incident optimistic locking
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
@@ -496,7 +496,6 @@ class Crm008bFoundationAcceptanceTest {
         flyway.migrate();
 
         JdbcTemplate jdbc = jdbc();
-        // All 7 partial unique indexes must exist with correct predicates
         assertThat(indexPredicateContains(jdbc, "crm_team_memberships",
                 "uk_team_memberships_active", "status = 'ACTIVE'")).isTrue();
         assertThat(indexPredicateContains(jdbc, "crm_team_memberships",
@@ -515,9 +514,6 @@ class Crm008bFoundationAcceptanceTest {
                 "uk_assignments_active_per_record", "status = 'ACTIVE'")).isTrue();
     }
 
-    /**
-     * AC-CLEAN-INSTALL-01: Clean install produces exact schema on PostgreSQL 16.
-     */
     @Test
     void cleanInstallProducesExpectedSchema() {
         Flyway flyway = flyway(null);
@@ -526,19 +522,11 @@ class Crm008bFoundationAcceptanceTest {
         flyway.validate();
 
         JdbcTemplate jdbc = jdbc();
-
-        // Terminal versioned migration tracks db/migration — currently V20260901_4.
-        // See CRM_LATEST_VERSION above. NOTE: version IS NOT NULL is required
-        // because repeatable migrations (R__finalize_hr_backfill_closure) run
-        // AFTER the versioned chain on a clean install and occupy the highest
-        // installed_rank with a NULL version — they must not shadow the
-        // terminal versioned migration this assertion tracks.
         String latest = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
                 "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
         assertThat(latest).isEqualTo(CRM_LATEST_VERSION);
 
-        // All 13 new CRM-008B tables exist
         List<String> expectedTables = List.of(
                 "crm_sales_teams", "crm_team_memberships",
                 "crm_queues", "crm_queue_memberships",
@@ -551,27 +539,16 @@ class Crm008bFoundationAcceptanceTest {
             assertThat(tableExists(jdbc, table)).as(table + " must exist").isTrue();
         }
 
-        // No failed Flyway history rows
         Long failedCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = FALSE", Long.class);
         assertThat(failedCount).as("failed flyway history rows").isZero();
 
-        // No duplicate versions
         Long dupVersions = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history " +
                 "WHERE version IS NOT NULL GROUP BY version HAVING COUNT(*) > 1) d", Long.class);
         assertThat(dupVersions).as("duplicate flyway versions").isZero();
     }
 
-    // ============================================================
-    // TRANSACTION ROLLBACK TEST
-    // ============================================================
-
-    /**
-     * AC-ROLLBACK-01: When V20260722.5 fails mid-migration, the entire
-     * migration is rolled back. No partial columns, no partial indexes,
-     * no crm_ownership_history table, no successful history row.
-     */
     @Test
     void v20260722_5_RollsBackTransactionOnFailure() {
         Flyway flyway = flyway(null);
@@ -583,12 +560,10 @@ class Crm008bFoundationAcceptanceTest {
         seedTenant(jdbc);
         seedG1AssignmentRows(jdbc);
 
-        // Snapshot baseline: count of crm_assignments columns BEFORE
         long columnsBefore = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns " +
                 "WHERE table_schema='public' AND table_name='crm_assignments'", Long.class);
 
-        // Inject an unmappable row (NULL subject_id by temporarily dropping NOT NULL)
         jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id DROP NOT NULL");
         try {
             jdbc.update(
@@ -599,23 +574,18 @@ class Crm008bFoundationAcceptanceTest {
                     "?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                     UUID.randomUUID(), TENANT_ID, USER_ID_1, USER_ID_1, USER_ID_1);
         } finally {
-            // Note: ALTER COLUMN was applied outside the Flyway transaction, so it persists.
-            // The migration itself is what we test for rollback.
         }
 
-        // Attempt V20260722.5 — must FAIL
         Flyway target5 = flyway(MigrationVersion.fromVersion(CRM_008B_ASSIGNMENTS_VERSION));
         assertThatThrownBy(target5::migrate)
                 .hasMessageContaining("backfill");
 
-        // After failure: column count must equal baseline (no new columns added)
         long columnsAfter = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns " +
                 "WHERE table_schema='public' AND table_name='crm_assignments'", Long.class);
         assertThat(columnsAfter).as("crm_assignments column count must be unchanged after rollback")
                 .isEqualTo(columnsBefore);
 
-        // No new V20260722.5 indexes
         Long indexCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
                 "AND tablename='crm_assignments' " +
@@ -624,33 +594,20 @@ class Crm008bFoundationAcceptanceTest {
                 "'idx_owr_assignments_correlation','uk_assignments_active_per_record')", Long.class);
         assertThat(indexCount).as("no V20260722.5 indexes after rollback").isZero();
 
-        // No successful history row
         Long successCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history " +
                 "WHERE version = ? AND success = TRUE", Long.class, CRM_008B_ASSIGNMENTS_VERSION);
         assertThat(successCount).as("no successful V20260722.5 history row").isZero();
 
-        // crm_ownership_history MUST NOT exist
         assertThat(tableExists(jdbc, "crm_ownership_history")).isFalse();
 
-        // Best-effort cleanup: restore NOT NULL constraint
         try { jdbc.execute("ALTER TABLE crm_assignments ALTER COLUMN subject_id SET NOT NULL"); } catch (Exception ignored) {}
     }
-
-    // ============================================================
-    // HELPERS
-    // ============================================================
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
                 .dataSource(MigrationTestSchemaSupport.getIsolatedJdbcUrl(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad")), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
-                // V15 is a production JDBC migration registered as a bean by
-                // FlywayJavaMigrationConfig. Resolving it here keeps the
-                // shared test_migration history canonical (identical chain to
-                // the Spring auto-configured Flyway on the sanad database) so
-                // validate() and other tests' validateOnMigrate(true) are
-                // order-independent.
                 .cleanDisabled(false)
                 .validateOnMigrate(false);
         if (target != null) configuration.target(target);
@@ -665,12 +622,9 @@ class Crm008bFoundationAcceptanceTest {
     }
 
     private void seedTenant(JdbcTemplate jdbc) {
-        // Check if tenant already exists
         Long exists = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM tenants WHERE id = ?", Long.class, TENANT_ID);
         if (exists != null && exists > 0) return;
-        // tenants schema (V1): id, name, subdomain (NOT NULL), status, created_at, updated_at.
-        // No 'code' column — matches FlywayV15ProductionUpgradeTest pattern.
         jdbc.update(
                 "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
                 "VALUES (?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
@@ -679,8 +633,6 @@ class Crm008bFoundationAcceptanceTest {
 
     private void seedG1AssignmentRows(JdbcTemplate jdbc) {
         seedTenant(jdbc);
-        // Insert G1 crm_assignments rows (subject_type, subject_id, assigned_user_id)
-        // These will be backfilled by V20260722.5
         jdbc.update(
                 "INSERT INTO crm_assignments (id, tenant_id, version, subject_type, subject_id, " +
                 "assigned_user_id, assignment_role, status, starts_at, " +
@@ -720,11 +672,6 @@ class Crm008bFoundationAcceptanceTest {
     }
 
     private boolean jsonbColumnExists(JdbcTemplate jdbc, String table, String column) {
-        // PostgreSQL catalog records JSONB columns as:
-        //   information_schema.columns.data_type = 'jsonb'
-        //   information_schema.columns.udt_name  = 'jsonb'
-        // (NOT 'USER-DEFINED' — that is the old value for some other types).
-        // Assert BOTH fields to prevent regression of the catalog-reading bug.
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                         "AND table_name=? AND column_name=? " +
@@ -734,8 +681,6 @@ class Crm008bFoundationAcceptanceTest {
     }
 
     private boolean indexPredicateContains(JdbcTemplate jdbc, String table, String indexName, String predicateFragment) {
-        // Use pg_get_expr(pg_index.indpred, pg_index.indrelid) for stable semantic check.
-        // pg_indexes.indexdef representation can vary between PostgreSQL versions.
         try {
             String predicate = jdbc.queryForObject(
                     "SELECT pg_get_expr(i.indpred, i.indrelid) " +
@@ -746,9 +691,6 @@ class Crm008bFoundationAcceptanceTest {
                             "WHERE n.nspname='public' AND c.relname=? AND ci.relname=?",
                     String.class, table, indexName);
             if (predicate == null) return false;
-            // Token-based check: extract identifiers/values from fragment and
-            // verify each token appears in the predicate independently (robust
-            // to cast representation differences).
             String[] tokens = predicateFragment.replaceAll("[=()'\"\\s]+", " ").trim().split("\\s+");
             for (String token : tokens) {
                 if (token.isEmpty()) continue;
