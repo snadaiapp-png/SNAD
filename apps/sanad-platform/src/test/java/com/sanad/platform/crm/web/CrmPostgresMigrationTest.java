@@ -206,6 +206,11 @@ class CrmPostgresMigrationTest {
     private static final String HRM_V2_CAPABILITIES_VERSION = "20260905.17";
     private static final String Y2_G0_IDENTITY_RECONCILIATION_VERSION = "20260905.18";
     private static final String WF_NOTIFICATION_DEDUP_VERSION = "20260906.1";
+    // HRM-G1 (V20260908.1-.3) legitimately extends the terminal state forward
+    // (append-only history, G1 design §17). CRM completion is therefore a
+    // FLOOR for the terminal version — later authorized migrations must not
+    // fail CRM's completion assertions; checksum tamper-evidence stays with
+    // flyway validate() and CrmFlywayHistoryAssertionTest's version allowlist.
     private static final String LATEST_MIGRATION_VERSION = WF_NOTIFICATION_DEDUP_VERSION;
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -300,8 +305,11 @@ class CrmPostgresMigrationTest {
         assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(allCrmTables());
 
         Flyway upgrade = flyway(null);
+        // Prefix semantics: the CRM upgrade sequence must run in exactly this
+        // order; later authorized migrations (HRM-G1 V20260908.*) may extend
+        // the pending list forward without violating CRM's contract.
         assertThat(Arrays.stream(upgrade.info().pending()).map(MigrationInfo::getVersion))
-                .containsExactly(
+                .startsWith(
                         MigrationVersion.fromVersion(CRM_CORE_VERSION),
                         MigrationVersion.fromVersion(RECONCILER_VERSION),
                         MigrationVersion.fromVersion(CRM_COMPLETION_VERSION),
@@ -471,8 +479,9 @@ class CrmPostgresMigrationTest {
         assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(CRM_G2_TABLES);
 
         Flyway completion = flyway(null);
+        // Prefix semantics (see upgradesExistingPlatformThroughCrmRbacAndCompletion).
         assertThat(Arrays.stream(completion.info().pending()).map(MigrationInfo::getVersion))
-                .containsExactly(
+                .startsWith(
                         MigrationVersion.fromVersion(RECONCILER_VERSION),
                         MigrationVersion.fromVersion(CRM_COMPLETION_VERSION),
                         MigrationVersion.fromVersion(TENANT_QUOTA_VERSION),
@@ -822,8 +831,11 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CONTACTS_FORCE_RLS_VERSION, "SQL", "crm contacts force rls");
         assertMigration(jdbc, PARTICIPANT_ROLE_EXCLUSIVITY_VERSION, "SQL", "crm participant role exclusivity");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
-        assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
+        assertThat(compareVersionStrings(latestVersion(jdbc), LATEST_MIGRATION_VERSION))
+                .as("CRM completion migrations are applied; later authorized "
+                        + "migrations may extend the terminal state forward")
+                .isGreaterThanOrEqualTo(0);
+        assertThat(existingTables(jdbc)).containsAll(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
         // CRM-008B table scope assertions
@@ -1028,6 +1040,21 @@ class CrmPostgresMigrationTest {
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE "
                         + "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
+    }
+
+    /** Numeric-aware comparison of Flyway versions like {@code 20260906.1}. */
+    private static int compareVersionStrings(String left, String right) {
+        String[] l = left.split("\\.");
+        String[] r = right.split("\\.");
+        int len = Math.max(l.length, r.length);
+        for (int i = 0; i < len; i++) {
+            int li = i < l.length ? Integer.parseInt(l[i]) : 0;
+            int ri = i < r.length ? Integer.parseInt(r[i]) : 0;
+            if (li != ri) {
+                return Integer.compare(li, ri);
+            }
+        }
+        return 0;
     }
 
     private List<String> existingTables(JdbcTemplate jdbc) {

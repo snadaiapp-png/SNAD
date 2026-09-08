@@ -237,6 +237,11 @@ class CrmFlywayHistoryAssertionTest {
             , "20260905.17"  // hrm-g0 master task 6 ws5 task 1 seed hrm v2 capabilities
             , "20260905.18"  // hrm-g0 reconcile y2 employee/user identity uniqueness with g0 cutover lifecycle
             , "20260906.1"   // workflow task 15 remediation (T15-D1): notification intent dedup unique index
+            // HRM-G1 recruitment & onboarding (append-only forward extension —
+            // terminal state continues forward per G1 design §17):
+            , "20260908.1"   // hrm-g1 t2 recruitment onboarding schema (15 tables, section 5.2)
+            , "20260908.2"   // hrm-g1 t2 rls enable+force+tenant_isolation on every g1 table (section 8.1)
+            , "20260908.3"   // hrm-g1 t2 seed generic onboarding checklist template (section 17)
     );
 
 
