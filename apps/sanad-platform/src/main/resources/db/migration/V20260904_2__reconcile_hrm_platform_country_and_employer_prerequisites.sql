@@ -1,5 +1,21 @@
 -- ============================================================
--- HRM-G0 WS1 — Platform Country and Employer Prerequisites
+-- V20260904_2 — HRM-G0 WS1 Platform Country and Employer Prerequisites
+-- FORWARD-ONLY PRODUCTION RECONCILIATION
+--
+-- INCIDENT (2026-09-08):
+--   This migration originally reached protected main as V20260827_1 only
+--   after production had already advanced to Flyway version 20260904.1.
+--   With FLYWAY_OUT_OF_ORDER=false, Flyway correctly refused startup because
+--   the resolved historical migration had never been applied to production.
+--
+-- GOVERNANCE:
+--   * Production flyway_schema_history has no 20260827.1 row.
+--   * Production also has none of the four prerequisite tables, so this is a
+--     real schema gap rather than a ledger-only mismatch.
+--   * 20260904.2 is strictly above the production ledger head 20260904.1 and
+--     strictly before the dependent HRM wave beginning at 20260905.1.
+--   * SQL semantics below are preserved from the original unapplied migration.
+--   * No out-of-order execution and no manual flyway_schema_history mutation.
 -- ============================================================
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 

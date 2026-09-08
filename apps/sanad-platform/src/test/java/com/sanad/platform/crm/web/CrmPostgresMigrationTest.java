@@ -137,7 +137,7 @@ class CrmPostgresMigrationTest {
     private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
     private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
     private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
-    private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260827.1";
+    private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260904.2";
     private static final String SCP_APPLICATIONS_CATALOG_VERSION = "20260829.1";
     private static final String SCP_PRODUCTS_PLAN_VERSIONS_VERSION = "20260829.2";
     private static final String SCP_SUBSCRIPTION_ITEMS_VERSION = "20260829.3";
@@ -376,7 +376,6 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
-                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
                         MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
@@ -393,6 +392,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
                         MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
@@ -547,7 +547,6 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
-                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
                         MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
@@ -564,6 +563,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
                         MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
