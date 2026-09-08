@@ -6,6 +6,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -46,7 +47,6 @@ public class WorkflowE2eBootstrapConfig {
     static final UUID ADMIN_ROLE_ID = UUID.fromString("aaaaaaa3-0000-4000-8000-000000000003");
 
     static final String E2E_ADMIN_EMAIL = "wf-e2e-admin@snad-e2e.example";
-    static final String E2E_PASSWORD = "WfE2eTest!2026";
 
     /** Tenant A fixture actors (email local part, role code, capability list). */
     private record Actor(String emailLocalPart, String roleCode, List<String> capabilities) {}
@@ -75,10 +75,15 @@ public class WorkflowE2eBootstrapConfig {
     @Bean
     ApplicationRunner workflowE2eSeeder(JdbcTemplate jdbc,
                                          PasswordEncoder passwordEncoder,
-                                         PlatformTransactionManager transactionManager) {
+                                         PlatformTransactionManager transactionManager,
+                                         Environment environment) {
         return args -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             log.info("WorkflowE2eBootstrap: seeding E2E tenants, multi-actor fixtures and capabilities");
             var now = Timestamp.from(Instant.now());
+            String e2ePassword = environment.getRequiredProperty("WF_E2E_PASSWORD");
+            if (e2ePassword.isBlank()) {
+                throw new IllegalStateException("WF_E2E_PASSWORD must be non-blank for workflow-e2e profile");
+            }
 
             // 1. Tenants are platform rows and are created before selecting a tenant RLS context.
             jdbc.update("""
@@ -97,7 +102,7 @@ public class WorkflowE2eBootstrapConfig {
             setTenantContext(jdbc, TENANT_A_ID);
 
             // 2. Admin user with real PasswordEncoder hash (API-level setup actor)
-            String passwordHash = passwordEncoder.encode(E2E_PASSWORD);
+            String passwordHash = passwordEncoder.encode(e2ePassword);
             jdbc.update("""
                     INSERT INTO users (id, tenant_id, email, display_name, status,
                                        password_hash, created_at, updated_at)
