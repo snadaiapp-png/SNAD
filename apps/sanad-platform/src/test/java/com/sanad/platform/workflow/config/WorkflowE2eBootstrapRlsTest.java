@@ -7,6 +7,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
@@ -24,6 +26,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(SecurityPermitAllTestConfig.class)
 @Transactional
 class WorkflowE2eBootstrapRlsTest {
+
+    @DynamicPropertySource
+    static void workflowE2eCredential(DynamicPropertyRegistry registry) {
+        registry.add("WF_E2E_PASSWORD", () -> "e2e-" + UUID.randomUUID());
+    }
 
     @Autowired
     private JdbcTemplate jdbc;
