@@ -36,6 +36,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -61,14 +62,14 @@ class WorkflowTask20RaceMatrixTest {
     @Test
     void concurrentPoolClaim_exactlyOneWins() throws Exception {
         Fixture f = fixture("claim");
-        WorkflowWorkItem item = WorkflowWorkItem.create(
+        WorkflowWorkItem draftItem = WorkflowWorkItem.create(
                 f.tenantId(), f.instanceId(), f.stepInstanceId(),
                 WorkflowWorkItem.Type.HUMAN_TASK, WorkflowWorkItem.AssignmentMode.WORK_POOL,
                 null, "TEST", "CASE", UUID.randomUUID(),
                 "Task 20 claim race", "race fixture", 10, null, null);
-        item = workItemService.create(item, List.of(
-                WorkflowWorkItemCandidate.create(f.tenantId(), item.id(), f.employeeA(), "TASK20"),
-                WorkflowWorkItemCandidate.create(f.tenantId(), item.id(), f.employeeB(), "TASK20")));
+        final WorkflowWorkItem item = workItemService.create(draftItem, List.of(
+                WorkflowWorkItemCandidate.create(f.tenantId(), draftItem.id(), f.employeeA(), "TASK20"),
+                WorkflowWorkItemCandidate.create(f.tenantId(), draftItem.id(), f.employeeB(), "TASK20")));
 
         long expectedVersion = item.version();
         Race race = race(
@@ -88,10 +89,10 @@ class WorkflowTask20RaceMatrixTest {
     @Test
     void concurrentApproveAndReject_exactlyOneDecisionWins() throws Exception {
         Fixture f = fixture("approval");
-        WorkflowApprovalRequest request = WorkflowApprovalRequest.create(
+        WorkflowApprovalRequest draftRequest = WorkflowApprovalRequest.create(
                 f.tenantId(), f.instanceId(), null,
                 f.userB(), "APPROVER", Instant.now().plus(1, ChronoUnit.DAYS), f.userA());
-        request = approvalService.createApproval(request, f.userA());
+        final WorkflowApprovalRequest request = approvalService.createApproval(draftRequest, f.userA());
         long expectedVersion = request.version();
 
         Race race = race(
@@ -135,12 +136,12 @@ class WorkflowTask20RaceMatrixTest {
     @Test
     void concurrentReassign_exactlyOneAssigneeWins() throws Exception {
         Fixture f = fixture("reassign");
-        WorkflowWorkItem item = WorkflowWorkItem.create(
+        WorkflowWorkItem draftItem = WorkflowWorkItem.create(
                 f.tenantId(), f.instanceId(), f.stepInstanceId(),
                 WorkflowWorkItem.Type.HUMAN_TASK, WorkflowWorkItem.AssignmentMode.DIRECT,
                 f.employeeA(), "TEST", "CASE", UUID.randomUUID(),
                 "Task 20 reassign race", "race fixture", 10, null, null);
-        item = workItemService.create(item, List.of());
+        final WorkflowWorkItem item = workItemService.create(draftItem, List.of());
         long expectedVersion = item.version();
 
         Race race = race(
@@ -197,8 +198,7 @@ class WorkflowTask20RaceMatrixTest {
         UUID userA = UUID.randomUUID();
         UUID userB = UUID.randomUUID();
         UUID userC = UUID.randomUUID();
-        Instant instant = Instant.now();
-        Timestamp now = Timestamp.from(instant);
+        Timestamp now = Timestamp.from(Instant.now());
 
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
                 tenantId, "Task20 " + suffix, "wf-t20-" + tenantId.toString().substring(0, 8), now, now);
@@ -339,7 +339,7 @@ class WorkflowTask20RaceMatrixTest {
     }
 
     private Throwable assertExactlyOneWinner(Race race) {
-        long failures = List.of(race.leftFailure(), race.rightFailure()).stream()
+        long failures = Stream.of(race.leftFailure(), race.rightFailure())
                 .filter(Objects::nonNull).count();
         assertThat(failures).as("exactly one concurrent command must lose").isEqualTo(1);
         return race.leftFailure() != null ? race.leftFailure() : race.rightFailure();
