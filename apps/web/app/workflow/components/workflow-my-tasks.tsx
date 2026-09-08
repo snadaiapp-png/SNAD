@@ -7,18 +7,13 @@ import {
 } from "@/lib/api/workflow-api";
 import { describeWorkflowError } from "@/lib/workflow/error-messages";
 
-/**
- * My Tasks (design decisions C3/L3/T3): direct and pool work are shown
- * separately, every command sends the current `version` as expectedVersion,
- * and a 409 conflict reloads the item and surfaces a conflict message.
- * The server remains the authorization boundary.
- */
 export function WorkflowMyTasks() {
   const [mine, setMine] = useState<WorkflowWorkItemResponse[]>([]);
   const [pool, setPool] = useState<WorkflowWorkItemResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
+  const [actioningId, setActioningId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -30,10 +25,8 @@ export function WorkflowMyTasks() {
       ]);
       setMine(myItems);
       setPool(poolItems);
-    } catch (e: unknown) {
-      // User-facing message is always the mapped Arabic guidance — raw
-      // transport details stay in the console (Y2 hotfix contract).
-      setError(describeWorkflowError(e, "تعذر تحميل المهام"));
+    } catch (cause: unknown) {
+      setError(describeWorkflowError(cause, "تعذر تحميل المهام"));
     } finally {
       setLoading(false);
     }
@@ -44,81 +37,114 @@ export function WorkflowMyTasks() {
   }, [load]);
 
   const runCommand = async (
+    workItem: WorkflowWorkItemResponse,
     command: () => Promise<WorkflowWorkItemResponse>,
-    itemId: string,
   ) => {
+    setActioningId(workItem.id);
     setConflict(null);
     setError(null);
     try {
       await command();
       await load();
-    } catch (e: unknown) {
-      const err = e as { status?: number; message?: string };
-      if (err?.status === 409) {
-        setConflict(`تعارض إصدار في المهمة ${itemId}: تم تحديثها من قبل مستخدم آخر — أعيد التحميل.`);
+    } catch (cause: unknown) {
+      const status = (cause as { status?: number })?.status;
+      if (status === 409) {
+        setConflict(`تم تحديث المهمة ${workItem.id.slice(0, 8)}… من مستخدم آخر. أُعيد تحميل النسخة الأحدث.`);
         await load();
+      } else if (status === 403) {
+        setError(describeWorkflowError(cause, "لا تملك صلاحية تنفيذ هذا الإجراء على المهمة"));
       } else {
-        setError(describeWorkflowError(e, "فشل تنفيذ الإجراء"));
+        setError(describeWorkflowError(cause, "فشل تنفيذ الإجراء"));
       }
+    } finally {
+      setActioningId(null);
     }
   };
 
-  const claim = (item: WorkflowWorkItemResponse) =>
-    runCommand(() => workflowApi.claimWorkItem(item.id, item.version), item.id);
-  const release = (item: WorkflowWorkItemResponse) =>
-    runCommand(() => workflowApi.releaseWorkItem(item.id, item.version), item.id);
-  const complete = (item: WorkflowWorkItemResponse) =>
-    runCommand(() => workflowApi.completeWorkItem(item.id, item.version), item.id);
+  const claim = (workItem: WorkflowWorkItemResponse) =>
+    runCommand(
+      workItem,
+      () => workflowApi.claimWorkItem(workItem.id, workItem.version),
+    );
+
+  const release = (workItem: WorkflowWorkItemResponse) =>
+    runCommand(
+      workItem,
+      () => workflowApi.releaseWorkItem(workItem.id, workItem.version),
+    );
+
+  const complete = (workItem: WorkflowWorkItemResponse) =>
+    runCommand(
+      workItem,
+      () => workflowApi.completeWorkItem(workItem.id, workItem.version),
+    );
 
   if (loading) return <p>جارٍ التحميل…</p>;
 
   return (
     <div dir="rtl">
-      {conflict && (
-        <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>
-      )}
+      <h2 style={{ marginTop: 0, fontSize: 20 }}>مهامي</h2>
+      {conflict && <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>}
       {error && (
         <div role="alert" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <p style={{ color: "var(--snad-color-error)", margin: 0 }}>{error}</p>
-          <button onClick={() => void load()}>إعادة المحاولة</button>
+          <button type="button" onClick={() => void load()}>إعادة المحاولة</button>
         </div>
       )}
 
       <h3>مهامي المباشرة</h3>
       {!error && mine.length === 0 && <p>لا توجد مهام مباشرة.</p>}
-      {mine.map((item) => (
-        <div key={item.id} style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
-          <strong>{item.title}</strong>{" "}
-          <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
-            {item.status} · إصدار {item.version}
-          </span>
-          <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-            {item.status === "CLAIMED" && (
-              <>
-                <button onClick={() => void complete(item)}>إكمال</button>
-                <button onClick={() => void release(item)}>إفلات</button>
-              </>
-            )}
-            {item.status === "ASSIGNEE_UNAVAILABLE" && (
-              <span style={{ color: "var(--snad-color-warning)" }}>
-                غير متاحة — يلزم إعادة تعيين مصرّح بها
-              </span>
-            )}
-          </div>
-        </div>
+      {mine.map((workItem) => (
+        <WorkItemCard
+          key={workItem.id}
+          workItem={workItem}
+          busy={actioningId === workItem.id}
+          onComplete={() => void complete(workItem)}
+          onRelease={() => void release(workItem)}
+        />
       ))}
 
       <h3 style={{ marginTop: 24 }}>تجمع المهام (Work Pool)</h3>
       {!error && pool.length === 0 && <p>لا توجد مهام متاحة في التجمع.</p>}
-      {pool.map((item) => (
-        <div key={item.id} style={{ border: "1px dashed var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
-          <strong>{item.title}</strong>{" "}
-          <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>متاحة · إصدار {item.version}</span>
-          <div style={{ marginTop: 8 }}>
-            <button onClick={() => void claim(item)}>استلام (Claim)</button>
-          </div>
-        </div>
+      {pool.map((workItem) => (
+        <WorkItemCard
+          key={workItem.id}
+          workItem={workItem}
+          busy={actioningId === workItem.id}
+          onClaim={() => void claim(workItem)}
+        />
       ))}
     </div>
+  );
+}
+
+function WorkItemCard({
+  workItem,
+  busy,
+  onClaim,
+  onComplete,
+  onRelease,
+}: {
+  workItem: WorkflowWorkItemResponse;
+  busy: boolean;
+  onClaim?: () => void;
+  onComplete?: () => void;
+  onRelease?: () => void;
+}) {
+  return (
+    <article style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+      <strong>{workItem.title}</strong>{" "}
+      <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
+        {workItem.status} · إصدار {workItem.version}
+      </span>
+      <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {onClaim && <button type="button" disabled={busy} onClick={onClaim}>استلام</button>}
+        {onComplete && <button type="button" disabled={busy} onClick={onComplete}>إكمال</button>}
+        {onRelease && <button type="button" disabled={busy} onClick={onRelease}>إفلات</button>}
+        {workItem.status === "ASSIGNEE_UNAVAILABLE" && (
+          <span style={{ color: "var(--snad-color-warning)" }}>غير متاحة — يلزم إعادة تعيين مصرّح بها</span>
+        )}
+      </div>
+    </article>
   );
 }

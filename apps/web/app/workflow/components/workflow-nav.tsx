@@ -1,7 +1,5 @@
 "use client";
 
-import { useAuth } from "@/lib/auth/auth-provider";
-
 export type WorkflowSection =
   | "overview"
   | "definitions"
@@ -23,11 +21,7 @@ const SECTIONS: { key: WorkflowSection; label: string }[] = [
   { key: "settings", label: "الإعدادات" },
 ];
 
-/**
- * Y2 operational IA navigation (design decision AP3). The UI only routes —
- * every action is authorized server-side; hiding a tab is usability, not
- * an authorization boundary.
- */
+/** Routing only. Authorization remains server-authoritative. */
 export function WorkflowNav({
   value,
   onChange,
@@ -35,26 +29,42 @@ export function WorkflowNav({
   value: WorkflowSection;
   onChange: (section: WorkflowSection) => void;
 }) {
-  const { user } = useAuth();
   return (
-    <nav aria-label="أقسام سير العمل" role="tablist" dir="rtl"
-         style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16 }}>
+    <nav
+      aria-label="أقسام سير العمل"
+      role="tablist"
+      dir="rtl"
+      style={{
+        display: "flex",
+        gap: 4,
+        overflowX: "auto",
+        borderBottom: "1px solid var(--snad-color-border-default)",
+        marginBottom: 20,
+      }}
+    >
       {SECTIONS.map((section) => {
         const active = section.key === value;
         return (
           <button
             key={section.key}
+            type="button"
             role="tab"
             aria-selected={active}
+            aria-controls={`workflow-panel-${section.key}`}
             onClick={() => onChange(section.key)}
             style={{
-              padding: "8px 14px",
-              borderRadius: 8,
-              border: "1px solid " + (active ? "var(--snad-color-primary)" : "transparent"),
-              background: active ? "var(--snad-color-primary)" : "transparent",
-              color: active ? "var(--snad-color-text-inverse)" : "var(--snad-color-text-secondary)",
-              cursor: user ? "pointer" : "not-allowed",
+              padding: "10px 14px",
+              border: 0,
+              borderBottom: active
+                ? "2px solid var(--snad-color-primary)"
+                : "2px solid transparent",
+              background: "transparent",
+              color: active
+                ? "var(--snad-color-primary)"
+                : "var(--snad-color-text-secondary)",
+              cursor: "pointer",
               fontWeight: active ? 700 : 500,
+              whiteSpace: "nowrap",
             }}
           >
             {section.label}

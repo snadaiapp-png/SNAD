@@ -20,6 +20,7 @@ public record WorkflowIncident(
         UUID owner,
         String resolution,
         UUID retryStepInstanceId,
+        long version,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -32,7 +33,7 @@ public record WorkflowIncident(
         var now = Instant.now();
         return new WorkflowIncident(UUID.randomUUID(), tenantId, workflowInstanceId,
                 workflowStepInstanceId, source, severity, failureCategory,
-                Status.OPEN, null, null, null, now, now);
+                Status.OPEN, null, null, null, 0L, now, now);
     }
 
     public WorkflowIncident acknowledge(UUID actor) {
@@ -57,6 +58,6 @@ public record WorkflowIncident(
     private WorkflowIncident copy(Status newStatus, UUID owner, String resolution) {
         return new WorkflowIncident(id, tenantId, workflowInstanceId, workflowStepInstanceId,
                 source, severity, failureCategory, newStatus, owner, resolution,
-                retryStepInstanceId, createdAt, Instant.now());
+                retryStepInstanceId, version + 1, createdAt, Instant.now());
     }
 }
