@@ -30,4 +30,13 @@ public interface RecruitmentAuthorizationPort {
 
     /** CANDIDATE.MANAGE — candidate create/update/archive + full contact reads. */
     void requireCandidateManage(HrCommandContext ctx, UUID candidateId);
+
+    /** APPLICATION.MANAGE — apply (operator path) + withdraw. */
+    void requireApplicationManage(HrCommandContext ctx, UUID applicationId);
+
+    /** APPLICATION.ADVANCE — forward stage movement. */
+    void requireApplicationAdvance(HrCommandContext ctx, UUID applicationId);
+
+    /** APPLICATION.REJECT — terminal rejection with registered reason. */
+    void requireApplicationReject(HrCommandContext ctx, UUID applicationId);
 }
