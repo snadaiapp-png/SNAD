@@ -62,7 +62,7 @@ jobs:
           cd apps/web
           npm ci
           node -e "console.log('next=' + require('next/package.json').version); if (require('next/package.json').version !== '16.3.3') process.exit(2)"
-          node -e "console.log('sharp=' + require('sharp/package.json').version); if (require('sharp/package.json').version !== '0.35.4') process.exit(3)"
+          node -e "const v=require('sharp').versions.sharp; console.log('sharp=' + v); if (v !== '0.35.4') process.exit(3)"
           npm audit --omit=dev --audit-level=high
           npm run lint
           npx tsc --noEmit
