@@ -82,3 +82,24 @@ jobs:
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
       - name: Run Task 16 contract RED/GREEN target
         run: mvn -B -ntp -Dtest=WorkflowTask16TypedApiContractTest test
+
+  task16-web-contract:
+    name: Task 16 Web Client Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install web dependencies
+        run: npm ci
+      - name: Run Task 16 web contract
+        run: npm test -- workflow-y2-task16-contract
