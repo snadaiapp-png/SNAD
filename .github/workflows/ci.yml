@@ -636,6 +636,9 @@ jobs:
             exit 1
           }
           echo "CANON_ROOT=$RUNNER_TEMP/r0c12-canonical-evidence" >> "$GITHUB_ENV"
+          # GITHUB_ENV writes apply only to SUBSEQUENT steps — define the
+          # same value locally for THIS step (set -u would abort otherwise).
+          export CANON_ROOT="$RUNNER_TEMP/r0c12-canonical-evidence"
           mkdir -p "$CANON_ROOT"
           {
             echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
