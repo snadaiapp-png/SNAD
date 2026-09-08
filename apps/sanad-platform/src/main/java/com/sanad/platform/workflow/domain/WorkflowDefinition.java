@@ -62,6 +62,9 @@ public record WorkflowDefinition(
     }
 
     public WorkflowDefinition activate() {
+        if (engineGeneration == EngineGeneration.Y2) {
+            throw new IllegalStateException("Y2 definitions cannot use the legacy activation lifecycle");
+        }
         if (status != Status.DRAFT && status != Status.INACTIVE)
             throw new IllegalStateException("Cannot activate from " + status);
         return withStatus(Status.ACTIVE);
