@@ -771,7 +771,7 @@ jobs:
           make install >> a6-btreegist-make.log 2>&1
           PVER="$("$PGHOME/bin/postgres" --version)"
           echo "postgres --version: ${PVER}"
-          echo "$PVER" | grep -Eq 'PostgreSQL 16\.2(\s|$)' || {
+          echo "$PVER" | grep -Eq '\(PostgreSQL\) 16\.2(\s|$)' || {
             echo "::error::ENVIRONMENT_BLOCKER=POSTGRES_VERSION_NOT_16.2 (got ${PVER})"
             exit 1
           }
