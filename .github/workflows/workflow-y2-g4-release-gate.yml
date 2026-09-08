@@ -118,7 +118,7 @@ jobs:
       - *java
       - *key
       - name: Run full Workflow backend suite
-        run: mvn -B -ntp -Dtest='com.sanad.platform.workflow.*' test
+        run: mvn -B -ntp -Dtest='Workflow*Test' test
 
   g4-web:
     name: G4 Web Test Lint Build
