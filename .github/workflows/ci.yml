@@ -844,7 +844,7 @@ jobs:
           ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SQL
           attrs="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -tAc \
-            "SELECT rolname||'='||rolsuper||rolcreatedb||rolcreaterole||rolbypassrls||rolcanlogin FROM pg_roles WHERE rolname IN ('sanad','crm_contact_rls_test_user') ORDER BY rolname;")"
+            "SELECT rolname||'='||CASE WHEN rolsuper THEN 't' ELSE 'f' END||CASE WHEN rolcreatedb THEN 't' ELSE 'f' END||CASE WHEN rolcreaterole THEN 't' ELSE 'f' END||CASE WHEN rolbypassrls THEN 't' ELSE 'f' END||CASE WHEN rolcanlogin THEN 't' ELSE 'f' END FROM pg_roles WHERE rolname IN ('sanad','crm_contact_rls_test_user') ORDER BY rolname;")"
           echo "$attrs"
           echo "$attrs" | grep -q '^crm_contact_rls_test_user=fffft$' || {
             echo "::error::ENVIRONMENT_BLOCKER=RLS_TEST_USER_PRIVILEGE_CONTRACT_VIOLATED"; exit 1;
