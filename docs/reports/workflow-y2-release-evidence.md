@@ -1,80 +1,152 @@
-# Workflow Y2 Release Evidence — TRUE END-TO-END EXECUTION (Task 22)
+# Workflow Y2 Release Evidence — Final G4 Closure
 
-<!-- STATUS_AUTHORITY: CURRENT — supersedes all prior workflow-y2-release-evidence.md revisions -->
+<!-- STATUS_AUTHORITY: FINAL_G4_CLOSURE -->
 
-Repository: `snadaiapp-png/SNAD`
-Branch: `design/workflow-orchestration-spec`
-PR: **#923** (base `main`)
+Repository: `snadaiapp-png/SNAD`  
+Implementation PR: **#997**  
+Scope: **Workflow Orchestration Y2 V1 — Tasks 1–22 / Gates G0–G4**  
+Governing database path: **POSTGRESQL_DIRECT_HOST_NATIVE**  
+Docker/Testcontainers as G4 authority: **FORBIDDEN**  
+Production deployment/cutover: **SEPARATE RELEASE PHASE**
 
-- `INITIAL_REMOTE_HEAD` = `e1bfdc7bdf86f396d3b5404abbcf64cd332c30f4`
-- `VERIFIED_IMPLEMENTATION_HEAD` = `ece9beedff85834c7807c3186cf53ddf5d97b044`
-- `FINAL_EVIDENCE_HEAD` = the SHA of the commit that introduced this file revision (docs-only)
-- `CURRENT_MAIN_SHA_AT_EXECUTION` = `7f30c4ff1f8c8f856bb17126fb6364c9eae6b291` (fully merged INTO this branch — conflict analysis §34 executed; PR mergeable=TRUE)
-- Merge strategy: protected squash merge, authorized by repository ruleset (merge methods: merge/squash/rebase)
+## 1. Final closure identity
 
-## 1. Workflow Flyway migrations (all seven, verified applied + validated)
+- `G3_BASELINE_MAIN_SHA` = `05b64dfc2f42f25548112dd3b1ab50026641c075`
+- `VERIFIED_IMPLEMENTATION_HEAD` = `ae7e0da4c3660fc045abe553d255aaa37752ed12`
+- `FINAL_EVIDENCE_HEAD` = `928ed95c4eeb55baa3ac20e6dbc838e393b74073`
+- `FINAL_G4_PR` = `#997`
+- `FINAL_G4_MERGED_MAIN_SHA` = `cf27d0e260691ce16b4ef884e408f8943977870c`
+- `MERGE_METHOD` = `SQUASH`
+- `MERGE_TIME_UTC` = `2026-09-08T15:48:06Z`
+- `INDEPENDENT_REVIEWER` = `abdulrhmansenan1985-creator`
+- `INDEPENDENT_REVIEW` = **APPROVED**
+- `UNRESOLVED_REVIEW_THREADS` = `0`
+- `G4_FINAL_CLOSURE` = **COMPLETE**
 
-V20260902_1 (identity bridge), V20260902_2 (definition graph), V20260902_3 (work items/approvals),
-V20260902_4 (runtime context), V20260902_5 (SLA/incidents/attempts), V20260902_6 (events/notifications),
-V20260902_7 (break-glass audit OVERRIDE).
-Registry union after main integration: …20260830.2 → 20260901.1 (SCP canonicalization) → 20260902.1..7 (terminal).
-`FLYWAY_COLLISION = NONE` (regression suites green; check "Verify 8 tables, 26 indexes, and tenant isolation" PASS).
+The final merge was fail-closed against exact head `928ed95c4eeb55baa3ac20e6dbc838e393b74073`. GitHub returned squash merge SHA `cf27d0e260691ce16b4ef884e408f8943977870c`, and `main` was verified to point to that SHA after merge.
 
-## 2. Semantic browser matrix P01..P13 (Playwright, real stack: Spring Boot + PostgreSQL Direct + Next.js)
+## 2. Task 20 — Security / authority closure
 
-| Scenario | Result |
-|---|---|
-| P01 real multi-actor auth (10 actors) | PASS |
-| P02 design → validate → simulate → PUBLISHED (Y2) | PASS |
-| P03 published immutability fail-closed (409) + family chaining | PASS |
-| P04 exact version pinning (5 unconditional pins) + new-version start | PASS |
-| P05 real DIRECT HUMAN_TASK generation/assignment/completion/advance | PASS |
-| P06 atomic two-actor WORK_POOL claim race (200+409, single owner) | PASS |
-| P07 ANY_ONE approval closes step, siblings cancelled, no second approval | PASS |
-| P08 ALL unanimity + reasoned rejection (400 blank / REJECT path) | PASS |
-| P09 disabled-user B1 semantics (401 login, 403 commands, preserved work, explicit reassign) | PASS |
-| P10 real incident lifecycle (deterministic SYSTEM_ACTION failure → OPEN → ack → RESOLVED) | PASS |
-| P11 LEGACY/Y2 strangler cutover (unconditional pins both sides) | PASS |
-| P12 true cross-tenant denial (real tenant B actor: 404/404/409/409; owner keeps access) | PASS |
-| P13 real app Arabic RTL, 8 IA tabs, landmarks, error state, keyboard, axe-critical=0 | PASS |
+Task 20 was re-certified on the final evidence head rather than inferred from historical PRs.
 
-`PLAYWRIGHT_RUN_ID` = 33826801493 · `PLAYWRIGHT_HEAD_SHA` = ece9beed… · TOTAL=13 · PASSED=13 · FAILED=0 · SKIPPED=0 · retries=0
-Final-gate history on this branch: a5a3d855(FAIL→repaired), 7dfbd657(FAIL→repaired), d8d55f3d(FAIL→repaired), 03becd9d/a077a6fd(1d98e6dd SUCCESS), 346dc5f1(SUCCESS), ece9beed(SUCCESS).
+Final exact-head release gate:
 
-## 3. Same-SHA certifications (VERIFIED_IMPLEMENTATION_HEAD)
+- Workflow: `Workflow Y2 G4 Release Gate`
+- Run ID: **34242744543**
+- Head SHA: `928ed95c4eeb55baa3ac20e6dbc838e393b74073`
+- Result: **SUCCESS**
 
-- Web: `npm ci` + `npm test` = **750/750 PASS (61 files)** · `npm run lint` = **0 errors** · `npm run build` = **SUCCESS**
-- Integrity validator (direct): **42/43 rules PASS**; Rule 5 dashboard-structure fails IDENTICALLY on main (source identical both branches) → classified `PRE_EXISTING_NON_WORKFLOW_FAILURE` (non-blocking per §26)
-- Workflow Maven: included in full suite (workflow package green)
-- Full Maven (PostgreSQL Direct service container): **Tests run: 2536, Failures: 0, Errors: 0, Skipped: 6** → `Maven Test Suite` required check PASS
-- PostgreSQL Direct: PG16 service container; all workflow migrations applied exactly once, checksums valid
-- Security: Current Tree Secret Scan PASS · Supplemental Secret Policy PASS (SANAD-FP-Y2-001 documented allowlist) · Workflow Security Policy PASS · Backend Container Hardening PASS · production-only npm audit locally = **0 vulnerabilities** (CI audit job hit npm-registry 503 outage ×3 — `CI_INFRA_DEFECT`, not a code finding; the 5 reported highs are dev-only)
-- CRM / shared platform regression: `CRM Integration Tests` (PostgreSQL Direct) PASS; `CRM Modular Architecture Validation` PASS; `CRM API Contract Validation` PASS
-- Tenant/security acceptance: `Verify 8 tables, 26 indexes, and tenant isolation` PASS
+Covered release behavior includes:
 
-## 4. Required protected checks on VERIFIED_IMPLEMENTATION_HEAD (branch ruleset `min`)
+- cross-tenant fail-closed enforcement;
+- stale-version / optimistic-lock conflict handling;
+- idempotency and concurrent action races;
+- break-glass constraints and audit semantics;
+- RLS-protected employee/actionability reads;
+- server-authoritative command routing.
 
-Build Next.js Web · provenance · CRM Integration Tests · Maven Test Suite · CRM Deployment Readiness · Verify 8 tables/26 indexes/tenant isolation — **ALL SUCCESS**. Workflow Y2 Playwright Release Gate SUCCESS.
+Hardening discovered during closure:
 
-## 5. Product defects found and fixed during this execution (each with regression coverage)
+1. A real HTTP/RLS actionability regression was traced to employee reads occurring without the transaction boundary required for PostgreSQL `SET LOCAL` tenant context.
+2. An initial annotation-based repair was rejected because `WorkflowActionabilityService` is `final` and Spring CGLIB could not proxy it.
+3. The final repair uses a read-only `TransactionTemplate` inside the final service, preserving the class contract while providing the RLS transaction boundary.
+4. `WorkflowActionabilityRlsTransactionBoundaryTest` locks the regression down.
+5. Hard-coded Java E2E browser credentials were removed; the E2E/bootstrap path uses runtime/ephemeral credentials.
 
-1. `addStep` accepted mutations on PUBLISHED versions → service guard (409) + `WorkflowDefinitionImmutabilityTest`
-2. Y2 graph runtime unreachable over REST → wired start/completion/approvals/system-actions through `WorkflowGraphExecutionService` (work items, approval requests, incidents now real end-to-end)
-3. DIRECT work items could not be completed (claimed_by predicate) → repository admits the DIRECT assignee
-4. Controller-thrown AccessDeniedException surfaced as 500 → mapped to 403 (fail-closed denial)
-5. Approval policy aggregation advances Y2 instances only; LEGACY approvals keep legacy semantics
-6. SYSTEM_ACTION registry (fail-closed) + E2E deterministic failing adapter under `workflow-e2e` profile
-7. Multi-actor deterministic fixture seed (10 actors / 2 tenants) — `WorkflowE2eBootstrapConfig`
+## 3. Task 21 — Strangler / compatibility closure
 
-## 6. Known deferred scope / notes
+The final G4 matrix proves the intended coexistence contract:
 
-- `Playwright E2E & Visual Regression` (non-required) initially ran the Y2 spec out of scope — fixed via default-config `testIgnore`; `PostgreSQL Acceptance Tests` (non-required) hit a transient surefire dependency-collection failure (CI infra) — classified, not blocking
-- Audit READ API absent (workflow_transition_audit write-only) — P09/P10 audit assertions are covered by backend tests; endpoint deferred
-- Branch protection requires ONE independent approving review (ruleset `min`, no bypass; self-approval prohibited) — merge proceeds the moment that approval is recorded
+- running LEGACY instances remain LEGACY;
+- Y2 starts resolve to a concrete published Y2 version and stay pinned;
+- no instance executes on both engines;
+- no automatic in-flight LEGACY → Y2 migration occurs;
+- rollback changes future-start resolution only and never rewrites running-instance engine generation.
 
-## 7. Verdicts
+The operational runbook is `docs/runbooks/workflow-y2-cutover.md`.
 
-- `IMPLEMENTATION_VERDICT` = **PASS**
-- `RELEASE_VERDICT` = **PASS** (all certification gates green at VERIFIED_IMPLEMENTATION_HEAD)
-- `MERGE_READINESS_VERDICT` = **PASS** (mergeable=TRUE; protected checks green) — merge itself awaits the ruleset-mandated independent approval
-- `PRODUCTION_VERDICT` = **PENDING** (post-merge: exact-SHA deploy → Flyway verify → smoke → observability watch)
+## 4. Task 22 — Final exact-head certification
+
+All relevant final-head workflows were terminal and green on `928ed95c4eeb55baa3ac20e6dbc838e393b74073`:
+
+| Workflow | Run ID | Result |
+|---|---:|---|
+| Workflow Y2 G4 Release Gate | 34242744543 | SUCCESS |
+| CI | 34242744861 | SUCCESS |
+| Security Baseline | 34242744679 | SUCCESS |
+| Web CI | 34242744444 | SUCCESS |
+| Playwright E2E & Visual Regression | 34242744667 | SUCCESS |
+| Performance Baseline | 34242744424 | SUCCESS |
+| Pre-Merge Operational Smoke | 34242744767 | SUCCESS |
+| CRM Deployment Readiness | 34242744872 | SUCCESS |
+| SNAD Identity Governance | 34242744869 | SUCCESS |
+| CRM G1 Schema Isolation | 34242744457 | SUCCESS |
+| Backup Restore Validation | 34242744723 | SUCCESS |
+| Stage 07 Artifact Provenance | 34242744521 | SUCCESS |
+| Compile Diagnostics | 34242744939 | SUCCESS |
+| Service Decomposition Validation | 34242744709 | SUCCESS |
+| Master Backlog Validation | 34242744453 | SUCCESS |
+| CRM Web Lint Diagnostics | 34242744630 | SUCCESS |
+
+The protected CI includes the required Maven, CRM integration, and PostgreSQL acceptance gates. The dedicated Workflow G4 authority uses host-native PostgreSQL Direct.
+
+General workflows that use service containers are supplemental only and are not substituted for the PostgreSQL Direct G4 authority.
+
+## 5. Review and merge proof
+
+Repository ruleset `min` requires one approving review, dismisses stale reviews after pushes, and has no bypass actors.
+
+Final sequence:
+
+1. Exact-head G4/CI/security/browser gates completed successfully.
+2. PR #997 was marked Ready for review.
+3. `abdulrhmansenan1985-creator` submitted **APPROVED** at `2026-09-08T15:46:19Z`.
+4. Review threads = `0`.
+5. PR remained mergeable with head `928ed95c4eeb55baa3ac20e6dbc838e393b74073`.
+6. Squash merge executed with `expected_head_sha` locked to that exact head.
+7. GitHub returned `cf27d0e260691ce16b4ef884e408f8943977870c`.
+8. Post-merge verification proved PR #997 `merged=true` and `main` at the same returned SHA.
+
+## 6. Superseded recovery evidence
+
+- PR #955 (`recovery/task22-semantic-hardening`) is **SUPERSEDED / CLOSED / NOT MERGED**.
+- PR #923 is historical implementation evidence only; it is not current release authority.
+- PR #997 plus this report are the final Y2 V1 G4 implementation authority.
+
+Do not reopen or merge recovery-only branches to reconstruct release state.
+
+## 7. Explicit deferred scope — not implementation defects
+
+The approved Y2 V1 plan intentionally excludes:
+
+- `QUORUM / N_OF_M` approval policy;
+- full BPMN gateway/event semantics beyond the controlled V1 set;
+- arbitrary user-authored executable scripting;
+- Workflow-owned SMS/WhatsApp provider implementation;
+- automatic migration of already-running LEGACY instances into Y2;
+- replacing source-module domain records with Workflow-owned records;
+- replacing PostgreSQL with event sourcing.
+
+These are future-scope items, not incomplete Tasks 1–22.
+
+## 8. Production handoff
+
+`G4_FINAL_CLOSURE=COMPLETE` proves implementation/release-candidate quality. It does **not** by itself assert that the merged build has been deployed or that a Y2 family has been cut over in production.
+
+Production proceeds through the repository's canonical `SANAD Production Release` workflow (`.github/workflows/production-release.yml`) using the exact current `main` SHA, followed by the production preflight/canary/cutover procedure in `docs/runbooks/workflow-y2-cutover.md`.
+
+The exact production release candidate must be resolved **after** this post-G4 cleanup PR is protected-merged; the dispatch workflow itself rejects any SHA that is not the current `main` head.
+
+## 9. Final implementation verdict
+
+```text
+WORKFLOW_Y2_V1_TASKS_1_22 = COMPLETE
+GATES_G0_G4               = COMPLETE
+FINAL_EXACT_HEAD_TESTED   = 928ed95c4eeb55baa3ac20e6dbc838e393b74073
+INDEPENDENT_REVIEW        = APPROVED
+PR_997                     = MERGED
+G4_MERGED_MAIN_SHA         = cf27d0e260691ce16b4ef884e408f8943977870c
+G4_FINAL_CLOSURE           = COMPLETE
+PRODUCTION_DEPLOYMENT      = SEPARATE_PHASE
+PRODUCTION_Y2_CUTOVER      = SEPARATE_PHASE
+```

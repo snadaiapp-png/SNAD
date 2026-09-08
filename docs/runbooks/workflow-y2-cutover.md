@@ -1,57 +1,130 @@
-# Workflow Y2 Strangler Cutover Runbook
+# Workflow Y2 Production Release & Strangler Cutover Runbook
 
-> **Status:** operational runbook for the LEGACY → Y2 cutover of the
-> Workflow Orchestration Platform. This runbook is exercised only through
-> code paths shipped on `design/workflow-orchestration-spec` (PR #923).
-> **No production cutover is authorized by this document alone** — operator
-> approval and change-management gates apply.
+> **Status:** authoritative operational runbook after Workflow Y2 V1 G4 closure.
+> The implementation was independently reviewed and merged through PR #997.
+> G4 merged baseline: `cf27d0e260691ce16b4ef884e408f8943977870c`.
+> The exact production candidate is always the **current protected `main` head at dispatch time**.
+
+This runbook separates two distinct operations:
+
+1. **Platform production release** — deploy the exact immutable `main` image through `.github/workflows/production-release.yml`.
+2. **Workflow Y2 functional cutover** — after platform verification, enable/repoint future starts to an approved PUBLISHED Y2 definition version and run a controlled canary.
+
+A successful platform deployment does **not** automatically migrate or repoint existing Workflow families.
 
 ---
 
-## A. Scope and invariants
+## A. Non-negotiable invariants
 
-- **Z3** — backward-compatible evolution: legacy endpoints, legacy lifecycle
-  (`DRAFT → ACTIVE → INACTIVE → ARCHIVED`), and wall-clock `slaHours`
-  behavior remain until explicit retirement.
-- **AA3** — strict strangler cutover: engine selection happens exactly once,
-  at instance creation. `workflow_instances.engine_generation` is the
-  immutable routing authority for every later command.
-- **No dual execution**: one instance is advanced by exactly one engine for
-  its whole life. The legacy advance command refuses Y2 instances; the Y2
-  graph command refuses LEGACY instances.
-- **No in-flight migration**: nothing converts a running LEGACY instance to
-  Y2 (no SQL, no runtime promotion, no step-instance rewriting).
+- PostgreSQL is the authoritative persisted Workflow state.
+- Production release uses the repository's canonical `SANAD Production Release` workflow.
+- Release input `commit_sha` must equal the current remote `main` head; the workflow rejects drift.
+- The backend deploy is image-backed and immutable: `ghcr.io/<owner>/snad-backend:<exact-main-sha>`.
+- Existing LEGACY instances remain LEGACY for their whole lifetime.
+- Existing Y2 instances remain Y2 for their whole lifetime.
+- No instance may execute through both engines.
+- No automatic in-flight LEGACY → Y2 migration is permitted.
+- Running instances stay pinned to their concrete definition version.
+- Rollback of a Y2 cutover changes **future start resolution only**; it never rewrites running instances.
+- Cross-tenant references and authorization failures remain fail-closed.
 
-## B. Preconditions
+---
 
-1. All Flyway migrations deployed through the standard application bootstrap
-   (PostgreSQL Direct); `flyway_schema_history` shows no failed rows.
-2. `V20260830_1..V20260830_7` (this workstream) applied exactly once each.
-3. A Y2 definition version is **PUBLISHED** for the target family and the
-   publish validator returned `valid = true`
-   (`POST /api/v1/workflows/definitions/{id}/validate`).
-4. Operator-approved rollback thresholds recorded (see section K).
-5. Break-glass operators hold `WORKFLOW.BREAK_GLASS`; cutover operators hold
-   `WORKFLOW.MONITOR`.
+## B. Entry authority
 
-## C. Current version inventory
+Before any production action, all of the following must be true:
 
-Flyway terminal version and repeatable inventory:
+```text
+G4_FINAL_CLOSURE             = COMPLETE
+CURRENT_MAIN_SHA             = RESOLVED_FROM_GITHUB
+MAIN_PROTECTION              = ACTIVE
+PRODUCTION_RELEASE_WORKFLOW  = PRESENT
+EXACT_SHA_IMAGE              = REQUIRED
+ROLLBACK_ON_FAILURE          = TRUE (default)
+PRODUCTION_ENVIRONMENT       = AUTHORIZED
+```
+
+The final G4 implementation evidence is:
+
+- `docs/reports/workflow-y2-release-evidence.md`
+- PR #997
+- final tested head `928ed95c4eeb55baa3ac20e6dbc838e393b74073`
+- G4 merge `cf27d0e260691ce16b4ef884e408f8943977870c`
+
+Any post-G4 cleanup merged before production becomes part of the release candidate; therefore the production SHA is resolved only after all cleanup is merged.
+
+---
+
+## C. Phase 1 — Platform production release
+
+Canonical workflow: `.github/workflows/production-release.yml` (`SANAD Production Release`).
+
+Required dispatch inputs:
+
+```text
+commit_sha            = exact current main SHA
+pull_request_number   = PR/change record used for production evidence
+rollback_on_failure   = true
+```
+
+The workflow is responsible for proving, before/after deployment:
+
+1. requested SHA is exactly current `main`;
+2. exact SHA-tagged GHCR image exists;
+3. required Render environment variables are present;
+4. `BOOTSTRAP_ENABLED=false`;
+5. Control Plane tenant exists in the production database;
+6. previous live image is captured for rollback;
+7. exact immutable image is deployed to Render;
+8. Render reports the same requested image as live;
+9. production readiness is `UP`;
+10. runtime Flyway invariants are safe (`FLYWAY_ENABLED=true`, out-of-order disabled/unset);
+11. production Flyway compatibility passes;
+12. production auth/security contract passes;
+13. SCP contract smoke passes;
+14. Vercel Control Plane and BFF checks pass;
+15. sanitized evidence artifact is uploaded;
+16. on failure, the previous live image is redeployed when rollback is enabled.
+
+### Platform release stop conditions
+
+Stop and classify; do not blind-rerun if any of these occur:
+
+- requested SHA is not current `main`;
+- exact image is missing;
+- Render environment proof is incomplete;
+- production DB/Control Plane tenant proof fails;
+- Flyway compatibility fails;
+- deployed image does not equal requested immutable image;
+- readiness does not reach `UP`;
+- security/SCP/BFF verification fails;
+- rollback fails or previous-image identity cannot be proven.
+
+A failed release is an incident/root-cause exercise, not permission to deploy a different SHA.
+
+---
+
+## D. Phase 2 — Workflow database/read-only preflight
+
+Run after Phase 1 is verified and before changing a family start target.
+
+### D1. Flyway inventory
 
 ```sql
 SELECT version, description, script, success, installed_on
 FROM flyway_schema_history
 ORDER BY installed_rank DESC
-LIMIT 20;
+LIMIT 30;
 ```
 
-Verify exactly one row per `20260830.x` version of this workstream and zero
-duplicate version numbers across all migration scripts (a duplicate signals
-an unresolved divergence with another workstream — resolve before cutover).
+Requirements:
 
-## D. Preflight SQL (READ ONLY)
+- no failed Flyway row;
+- expected Y2 migrations appear exactly once;
+- no unresolved duplicate migration version;
+- production schema is at or beyond the repository-required Workflow version.
 
-Invalid or missing engine generation (must return zero rows):
+### D2. Invalid/missing engine generation — must return zero
 
 ```sql
 SELECT id, tenant_id, status
@@ -60,7 +133,7 @@ WHERE engine_generation IS NULL
    OR engine_generation NOT IN ('LEGACY', 'Y2');
 ```
 
-Instances referencing missing definitions (must return zero rows):
+### D3. Missing definition references — must return zero
 
 ```sql
 SELECT i.id, i.tenant_id
@@ -69,26 +142,25 @@ LEFT JOIN workflow_definitions d ON d.id = i.workflow_definition_id
 WHERE d.id IS NULL;
 ```
 
-Y2 instances not pinned to a Y2 definition (must return zero rows):
-
-```sql
-SELECT i.id, i.tenant_id, i.workflow_definition_id, d.engine_generation AS def_gen
-FROM workflow_instances i
-JOIN workflow_definitions d ON d.id = i.workflow_definition_id
-WHERE i.engine_generation = 'Y2' AND d.engine_generation <> 'Y2';
-```
-
-Legacy instances executing a Y2 definition (invalid under the model —
-must return zero rows):
+### D4. Wrong engine/definition pairing — both must return zero
 
 ```sql
 SELECT i.id, i.tenant_id, i.workflow_definition_id
 FROM workflow_instances i
 JOIN workflow_definitions d ON d.id = i.workflow_definition_id
-WHERE i.engine_generation = 'LEGACY' AND d.engine_generation = 'Y2';
+WHERE i.engine_generation = 'Y2'
+  AND d.engine_generation <> 'Y2';
 ```
 
-Orphan step instances (must return zero rows):
+```sql
+SELECT i.id, i.tenant_id, i.workflow_definition_id
+FROM workflow_instances i
+JOIN workflow_definitions d ON d.id = i.workflow_definition_id
+WHERE i.engine_generation = 'LEGACY'
+  AND d.engine_generation = 'Y2';
+```
+
+### D5. Orphan step instances — must return zero
 
 ```sql
 SELECT si.id, si.tenant_id
@@ -97,149 +169,169 @@ LEFT JOIN workflow_instances i ON i.id = si.workflow_instance_id
 WHERE i.id IS NULL;
 ```
 
-## E. LEGACY instance counts by state
+### D6. LEGACY/Y2 state snapshots
 
 ```sql
-SELECT status, count(*)
+SELECT engine_generation, status, count(*)
 FROM workflow_instances
-WHERE engine_generation = 'LEGACY'
-GROUP BY status;
+GROUP BY engine_generation, status
+ORDER BY engine_generation, status;
 ```
 
-Retirement requires every non-terminal count (`RUNNING`, `PAUSED`) to reach
-zero (section N).
-
-## F. Y2 instance counts by state
+### D7. Published definitions
 
 ```sql
-SELECT status, count(*)
-FROM workflow_instances
-WHERE engine_generation = 'Y2'
-GROUP BY status;
-```
-
-## G. Published definition/version inventory
-
-```sql
-SELECT definition_family_id, version, engine_generation, publication_state,
-       status, published_at, definition_checksum
+SELECT definition_family_id,
+       version,
+       engine_generation,
+       publication_state,
+       status,
+       published_at,
+       definition_checksum
 FROM workflow_definitions
 WHERE publication_state = 'PUBLISHED'
 ORDER BY definition_family_id, version DESC;
 ```
 
-Current start target per family = highest `version` with
-`publication_state = 'PUBLISHED'`.
-
-## H. Open incidents by engine generation
+### D8. Open incidents
 
 ```sql
-SELECT i.engine_generation, w.status AS incident_status, count(*)
+SELECT i.engine_generation,
+       w.status AS incident_status,
+       count(*)
 FROM workflow_incidents w
 JOIN workflow_instances i ON i.id = w.workflow_instance_id
 WHERE w.status IN ('OPEN', 'ACKNOWLEDGED')
 GROUP BY i.engine_generation, w.status;
 ```
 
-## I. Cutover sequence
+Archive these outputs with timestamp before cutover.
 
-1. **PRECHECK** — run sections C–H; every "must return zero rows" query
-   returns zero.
-2. Verify the target Y2 version is `PUBLISHED` and validator PASS (section B.3).
-3. Record LEGACY running/paused counts (section E snapshot).
-4. Record Y2 counts (section F snapshot).
-5. **Enable/repoint NEW START target**: publish (or keep published) the Y2
-   concrete version for the family. Publication state alone selects the
-   start target — there is no separate global cutover flag.
-6. Start one controlled canary instance through the normal authorized start
-   path (`POST /api/v1/workflows/instances`, `WORKFLOW.START` capability).
-7. Verify the canary:
-   - `engine_generation = 'Y2'`, `workflow_version` = published version,
-     `definition_version_id` = that concrete version;
-   - first graph execution advanced the START step;
-   - WorkItem/approval rows created for human steps;
-   - OVERRIDE/audit rows only from explicitly authorized commands;
-   - monitoring gauges (`workflow_queue_depth`, `workflow_open_incidents`)
-     move without errors.
-8. Observe for the operator-approved window, then continue rollout.
+---
 
-## J. Health verification
+## E. Phase 3 — Family-level Y2 cutover authorization
 
-- `workflow_scheduler_ticks_total` increasing;
-  `workflow_scheduler_tick_failures_total` flat.
-- `workflow_inbox_lag_seconds` / `workflow_outbox_lag_seconds` bounded.
-- `workflow_stuck_joins` = 0 growth.
-- `workflow_action_failures` not trending up; incidents, when raised, get
-  acknowledged/resolved through the incidents API.
-- No `workflow_sla_breach_total` spike attributable to Y2 steps.
+A platform release does not identify which business Workflow family should switch to Y2. For each target family, record before action:
 
-## K. Rollback triggers
+```text
+TENANT / SCOPE
+DEFINITION_FAMILY_ID
+CURRENT_START_TARGET
+TARGET_Y2_VERSION_ID
+TARGET_Y2_VERSION
+VALIDATOR_RESULT = PASS
+ROLLBACK_TARGET
+CANARY_OWNER
+OBSERVATION_WINDOW
+ROLLBACK_THRESHOLDS
+```
 
-Objective triggers (each alone justifies rollback of future starts):
+The target Y2 definition must be `PUBLISHED` and server validation must return valid.
 
-1. New Y2 start failures (HTTP 5xx on start) repeating across tenants.
-2. Duplicate instance creation for one start request (idempotency breach).
-3. Any observed wrong-engine routing (Y2 instance advancing through the
-   legacy command or vice versa).
-4. Any cross-tenant violation demonstrated at runtime.
-5. Persistent graph-resolution incidents (recurring
-   `Graph resolution incident` on the same step).
-6. Stuck-join growth without branch completion.
-7. WorkItem creation failure for an activated human step.
-8. Approval progression corruption (double decisions, lost decisions).
-9. Audit discontinuity (missing START/ADVANCE rows for executed instances).
-10. Database integrity violations from workflow writes.
-11. SLA scheduler severe regression (tick failures across tenants).
+No generic SQL should publish/activate a definition as a shortcut around the server-authoritative command path.
 
-Numeric paging thresholds: **operator-approved thresholds required before
-production cutover** (no SLO for these signals exists yet in this repo).
+---
 
-## L. Rollback procedure
+## F. Phase 4 — Controlled Y2 canary
 
-Rollback changes **only future start resolution**:
+1. Keep all existing running instances unchanged.
+2. Repoint/retain the target family so new starts resolve to the approved PUBLISHED Y2 version.
+3. Start **one controlled canary** through the normal authorized API path (`WORKFLOW.START`).
+4. Verify persisted identity:
+   - `engine_generation = 'Y2'`;
+   - concrete `definition_version_id` equals the approved target;
+   - version pin is immutable.
+5. Verify initial graph execution and expected WorkItem/approval creation.
+6. Verify tenant, actor, audit, correlation/causation and idempotency evidence.
+7. Verify no LEGACY instance changed generation or definition pin.
+8. Observe for the approved window before expanding new starts.
 
-1. Repoint the family's start target: set the offending Y2 version to
-   `RETIRED` (and, if a prior safe published version exists, it becomes the
-   resolution automatically; otherwise publish a known-good version):
+---
+
+## G. Runtime health during canary/rollout
+
+Monitor at minimum:
+
+- scheduler ticks continue;
+- scheduler failures remain flat;
+- inbox/outbox lag stays bounded;
+- stuck joins do not grow;
+- action retry/failure rate does not regress;
+- open incidents are explainable and handled;
+- SLA breach rate does not spike due to Y2;
+- no duplicate start or duplicate human decision appears;
+- no cross-tenant leakage or unauthorized action appears;
+- no wrong-engine routing appears.
+
+---
+
+## H. Immediate rollback triggers
+
+Any one of these is sufficient to stop/rollback future Y2 starts for the affected family:
+
+1. repeated HTTP 5xx on new Y2 starts;
+2. duplicate instance creation for one idempotency key;
+3. wrong-engine routing;
+4. any confirmed cross-tenant violation;
+5. recurring graph-resolution incidents on the same path;
+6. stuck-join growth;
+7. failed WorkItem creation for activated human steps;
+8. approval corruption (duplicate/lost decisions);
+9. missing audit continuity for executed transitions;
+10. Workflow DB integrity violations;
+11. severe scheduler regression;
+12. inability to prove the deployed image or schema state.
+
+Numeric paging thresholds must be explicitly recorded for the production change before broad rollout.
+
+---
+
+## I. Functional cutover rollback
+
+Rollback changes only **future starts**.
+
+Preferred method: retire the offending Y2 published version through the authorized definition lifecycle and restore a known-good published target.
+
+If an operator-approved SQL recovery is required, it must be separately change-controlled. Example semantics only:
 
 ```sql
--- change-control approved only; not part of application runtime
 UPDATE workflow_definitions
 SET publication_state = 'RETIRED', updated_at = NOW()
 WHERE id = :offending_version_id;
 ```
 
-2. Stop-new-starts alternative: retire ALL Y2 versions of the family
-   (LEGACY versions with `status='ACTIVE'` remain start targets).
+Never during rollback:
 
-**Rollback MUST NOT**: rewrite `engine_generation` on any instance, delete
-Y2 instances, rewrite graph state, delete/rewrite audit rows, or change any
-`definition_version_id` pin.
+- rewrite `workflow_instances.engine_generation`;
+- rewrite running `definition_version_id`;
+- delete running Y2 instances;
+- delete/rewrite graph state or audit history;
+- migrate a running instance to another engine.
 
-## M. Post-rollback verification
+---
+
+## J. Post-cutover verification
 
 ```sql
--- No instance changed generation (compare against the section E/F snapshot).
 SELECT engine_generation, status, count(*)
 FROM workflow_instances
 GROUP BY engine_generation, status;
-
--- New starts now resolve to the rollback target.
-SELECT id, version, publication_state
-FROM workflow_definitions
-WHERE definition_family_id = :family_id
-ORDER BY version DESC;
 ```
 
-- The offending version shows `RETIRED`; prior published version resolves.
-- Running instances (LEGACY and Y2) keep their original pins and continue
-  on their own engines.
-- `workflow_scheduler_tick_failures_total` flat after the change.
+Verify:
 
-## N. Legacy retirement conditions
+- the canary/new instances use Y2 only;
+- old running LEGACY instances remain LEGACY;
+- no unexpected count discontinuity;
+- target definition/version is correct;
+- incidents/audit/metrics are healthy;
+- platform production release evidence and Workflow cutover evidence point to the same deployed main SHA.
 
-Legacy runtime retirement is a **separate future project** and requires ALL
-of:
+---
+
+## K. Legacy retirement remains future scope
+
+Legacy runtime removal is **not** part of Y2 V1 production cutover. Retirement requires all of:
 
 ```text
 ACTIVE_LEGACY_INSTANCES      = 0
@@ -251,15 +343,26 @@ DATA_INTEGRITY               = PASS
 ROLLBACK_REQUIREMENT         = CLOSED
 ```
 
-(Evidence queries: sections E and H plus a full audit-continuity check.)
-Until then the legacy runtime stays deployed and routes every persisted
-LEGACY instance.
+Until then, the LEGACY runtime remains deployed and continues routing persisted LEGACY instances.
 
-## O. Audit/evidence capture
+---
 
-- Capture sections C–H outputs (with timestamps) before and after cutover.
-- Export the canary instance's `workflow_transition_audit` rows.
-- Archive the CI run evidence for the cutover build
-  (`Maven Test Suite`, `PostgreSQL Acceptance Tests`, `CRM Integration
-  Tests` all SUCCESS on the exact deployed commit).
-- Store everything with the change-management record for the cutover.
+## L. Evidence package required for production closure
+
+Archive together:
+
+1. exact protected `main` SHA deployed;
+2. immutable GHCR image reference;
+3. Render deployment ID and previous image reference;
+4. production-release workflow run ID/result;
+5. readiness/Flyway/security/SCP/BFF results;
+6. preflight SQL outputs D1–D8;
+7. target definition family/version and validator result;
+8. canary instance ID and engine/version proof;
+9. transition/audit evidence for the canary;
+10. monitoring snapshot during observation window;
+11. rollback thresholds and final decision;
+12. post-cutover SQL snapshot;
+13. final production verdict: `PASS`, `ROLLED_BACK`, or `BLOCKED`.
+
+No production `PASS` is valid unless the exact deployed SHA, database state, and canary/cutover evidence are all tied together.
