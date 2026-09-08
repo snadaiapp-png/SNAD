@@ -1,9 +1,5 @@
 package com.sanad.platform.workflow.application;
 
-import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
-import com.sanad.platform.workflow.domain.WorkflowApprovalRequestRepository;
-import com.sanad.platform.workflow.domain.WorkflowStepInstance;
-import com.sanad.platform.workflow.domain.WorkflowStepInstanceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +16,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * SLA Monitoring Scheduler for the Workflow Engine.
@@ -55,28 +52,32 @@ public class WorkflowSlaScheduler {
     private final WorkflowMonitoringService monitoringService;
     private final JdbcTemplate jdbc;
     private final boolean schedulerEnabled;
+    private final long schedulingIntervalSeconds;
 
     // Observability (AG3): bounded counters/gauges only — no tenant, user,
     // instance, or free-text labels. Metric failure never fails a tick.
     private final io.micrometer.core.instrument.Counter tickCounter;
     private final io.micrometer.core.instrument.Counter tickFailureCounter;
     private final io.micrometer.core.instrument.Counter slaBreachCounter;
-    private final java.util.concurrent.atomic.AtomicLong lastSuccessfulTickEpoch =
-            new java.util.concurrent.atomic.AtomicLong(0);
+    private final AtomicLong lastSuccessfulTickEpoch = new AtomicLong(0);
+    private final AtomicLong schedulerLagSeconds = new AtomicLong(0);
 
     @Autowired
     public WorkflowSlaScheduler(
             WorkflowMonitoringService monitoringService,
             JdbcTemplate jdbc,
             @Value("${scheduling.enabled:false}") boolean schedulerEnabled,
+            @Value("${sanad.workflow.sla.interval-ms:300000}") long schedulingIntervalMs,
             MeterRegistry meterRegistry) {
         this.monitoringService = monitoringService;
         this.jdbc = jdbc;
         this.schedulerEnabled = schedulerEnabled;
+        this.schedulingIntervalSeconds = Math.max(1, (schedulingIntervalMs + 999) / 1000);
         this.tickCounter = meterRegistry.counter("workflow_scheduler_ticks_total");
         this.tickFailureCounter = meterRegistry.counter("workflow_scheduler_tick_failures_total");
         this.slaBreachCounter = meterRegistry.counter("workflow_sla_breach_total");
         meterRegistry.gauge("workflow_scheduler_last_success_epoch_seconds", lastSuccessfulTickEpoch);
+        meterRegistry.gauge("workflow_scheduler_lag_seconds", schedulerLagSeconds);
     }
 
     /**
@@ -105,6 +106,7 @@ public class WorkflowSlaScheduler {
     @Transactional(propagation = Propagation.NEVER)
     public SlaCheckResult runSlaCheckInternal() {
         long startedAt = System.currentTimeMillis();
+        updateSchedulerLag(Instant.now().getEpochSecond());
         int tenantsProcessed = 0;
         int tenantsFailed = 0;
         int totalBreaches = 0;
@@ -146,6 +148,18 @@ public class WorkflowSlaScheduler {
     }
 
     /**
+     * Delay beyond the configured fixed-delay cadence since the previous
+     * completed tick. First-run lag is defined as zero.
+     */
+    private void updateSchedulerLag(long startedEpoch) {
+        long previousSuccess = lastSuccessfulTickEpoch.get();
+        long lag = previousSuccess == 0
+                ? 0
+                : Math.max(0, startedEpoch - previousSuccess - schedulingIntervalSeconds);
+        schedulerLagSeconds.set(lag);
+    }
+
+    /**
      * Check SLA breaches for a single tenant in its own transaction.
      *
      * <p>Uses {@link Propagation#REQUIRES_NEW} to ensure failures in one tenant's check
@@ -156,9 +170,7 @@ public class WorkflowSlaScheduler {
         return monitoringService.checkAllSlaBreaches(tenantId);
     }
 
-    /**
-     * Result of a single scheduler tick. Used for test assertions.
-     */
+    /** Result of a single scheduler tick. Used for test assertions. */
     public record SlaCheckResult(
             int tenantsProcessed,
             int tenantsFailed,

@@ -1,248 +1,402 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type DragEvent } from "react";
+import { useRouter } from "next/navigation";
 import {
   workflowApi,
+  type CreateWorkflowStepRequest,
+  type CreateWorkflowTransitionRequest,
   type WorkflowDefinitionResponse,
-  type WorkflowValidationResponse,
-  type WorkflowSimulationResponse,
+  type WorkflowStepResponse,
+  type WorkflowStepType,
+  type WorkflowTransitionResponse,
 } from "@/lib/api/workflow-api";
+import { describeWorkflowError } from "@/lib/workflow/error-messages";
+import { StepPalette } from "./step-palette";
+import { StepInspector, type DesignerStepDraft } from "./step-inspector";
+import { PublishPanel } from "./publish-panel";
 
-interface StepView {
-  id: string;
-  stepKey: string;
-  name: string;
-  stepType: string;
-  sequenceOrder: number;
-}
+interface NodePosition { x: number; y: number }
 
-interface TransitionView {
-  id: string;
-  fromStepId: string;
-  toStepId: string;
-  transitionKey: string;
-  outcome: string;
-  priority: number;
-}
-
-/**
- * Versioned workflow designer (design decisions H3/I3/AN3):
- *  - DRAFT versions are editable; PUBLISHED versions render read-only with
- *    "إنشاء مسودة جديدة" as the only mutation.
- *  - The canvas is DOM/CSS positioned nodes with SVG edges (no new graph
- *    dependency); a structured table view always mirrors the graph.
- *  - Publish stays disabled until the latest server validation is valid, and
- *    the simulation result is explicitly marked non-production.
- */
 export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
+  const router = useRouter();
   const [definition, setDefinition] = useState<WorkflowDefinitionResponse | null>(null);
-  const [steps, setSteps] = useState<StepView[]>([]);
-  const [transitions, setTransitions] = useState<TransitionView[]>([]);
-  const [validation, setValidation] = useState<WorkflowValidationResponse | null>(null);
-  const [simulation, setSimulation] = useState<WorkflowSimulationResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [steps, setSteps] = useState<WorkflowStepResponse[]>([]);
+  const [transitions, setTransitions] = useState<WorkflowTransitionResponse[]>([]);
+  const [draft, setDraft] = useState<DesignerStepDraft | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [positions, setPositions] = useState<Record<string, NodePosition>>({});
+  const [draggedStepId, setDraggedStepId] = useState<string | null>(null);
   const [view, setView] = useState<"canvas" | "table">("canvas");
+  const [graphRevision, setGraphRevision] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      const [def, stepList, transitionList] = await Promise.all([
+      const [nextDefinition, nextSteps, nextTransitions] = await Promise.all([
         workflowApi.getDefinition(definitionId),
         workflowApi.getDefinitionSteps(definitionId),
         workflowApi.getDefinitionTransitions(definitionId),
       ]);
-      setDefinition(def);
-      setSteps(stepList as StepView[]);
-      setTransitions(transitionList as TransitionView[]);
-    } catch (e: unknown) {
-      setError((e as { message?: string })?.message ?? "تعذر تحميل التعريف");
+      setDefinition(nextDefinition);
+      setSteps(nextSteps);
+      setTransitions(nextTransitions);
+      setPositions((current) => buildPositions(nextSteps, current));
+      if (selectedStepId && !nextSteps.some((step) => step.id === selectedStepId)) {
+        setSelectedStepId(null);
+      }
+    } catch (cause: unknown) {
+      setError(describeWorkflowError(cause, "تعذر تحميل مصمم سير العمل"));
+    } finally {
+      setLoading(false);
     }
-  }, [definitionId]);
+  }, [definitionId, selectedStepId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const published = definition?.status === "ACTIVE";
-  // The Y2 publication state rides additively on the definition payload.
-  const publicationState =
-    (definition as unknown as { publicationState?: string })?.publicationState ?? "DRAFT";
+  const editable = definition?.publicationState === "DRAFT";
+  const selectedStep = useMemo(
+    () => steps.find((step) => step.id === selectedStepId) ?? null,
+    [selectedStepId, steps],
+  );
 
-  const runValidate = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      setValidation(await workflowApi.validateDefinition(definitionId));
-    } catch (e: unknown) {
-      setError((e as { message?: string })?.message ?? "فشل التحقق");
-    } finally {
-      setBusy(false);
-    }
+  const addLocalDraft = (stepType: WorkflowStepType) => {
+    if (!editable || draft) return;
+    const ordinal = steps.length + 1;
+    setSelectedStepId(null);
+    setDraft({
+      localId: `local-${Date.now()}`,
+      stepKey: `${stepType.toLowerCase()}_${ordinal}`,
+      name: defaultName(stepType),
+      stepType,
+      sequenceOrder: ordinal,
+      assignmentRule: { type: "EMPLOYEE", target: "" },
+      approvalPolicy: "ANY_ONE",
+      selfApproval: "DENY",
+      slaMode: "NONE",
+      slaHours: 0,
+      requiredCapability: "",
+      requiredRole: "",
+    });
   };
 
-  const runSimulate = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      setSimulation(await workflowApi.simulateDefinition(definitionId));
-    } catch (e: unknown) {
-      setError((e as { message?: string })?.message ?? "فشل المحاكاة");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const publish = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await workflowApi.publishDefinition(definitionId, definition?.versionLock ?? 0);
+  const handleMutationFailure = async (cause: unknown, fallback: string) => {
+    const status = (cause as { status?: number })?.status;
+    if (status === 409) {
+      setConflict("تغير الرسم بالتزامن. أُعيد تحميل النسخة الأحدث وأُلغي اعتماد أي تحقق سابق.");
+      setGraphRevision((value) => value + 1);
       await load();
-    } catch (e: unknown) {
-      const err = e as { status?: number; message?: string };
-      setError(err?.status === 409 ? "تعارض نشر: قُدّم التعريف للتو" : err?.message ?? "فشل النشر");
+      return;
+    }
+    setError(describeWorkflowError(cause, fallback));
+  };
+
+  const saveStep = async (request: CreateWorkflowStepRequest) => {
+    if (!editable) return;
+    setBusy(true);
+    setError(null);
+    setConflict(null);
+    try {
+      const saved = await workflowApi.addDefinitionStep(definitionId, request);
+      setDraft(null);
+      setSelectedStepId(saved.id);
+      setGraphRevision((value) => value + 1);
+      await load();
+    } catch (cause: unknown) {
+      await handleMutationFailure(cause, "فشل حفظ خطوة سير العمل");
     } finally {
       setBusy(false);
     }
   };
 
-  const nextDraft = async () => {
+  const createTransition = async (request: CreateWorkflowTransitionRequest) => {
+    if (!editable) return;
+    setBusy(true);
+    setError(null);
+    setConflict(null);
+    try {
+      await workflowApi.createDefinitionTransition(definitionId, request);
+      setGraphRevision((value) => value + 1);
+      const nextTransitions = await workflowApi.getDefinitionTransitions(definitionId);
+      setTransitions(nextTransitions);
+    } catch (cause: unknown) {
+      await handleMutationFailure(cause, "فشل حفظ انتقال سير العمل");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createNextDraft = async () => {
+    if (!definition || definition.publicationState !== "PUBLISHED") return;
     setBusy(true);
     setError(null);
     try {
-      await workflowApi.createNextDraft(definitionId);
-      await load();
-    } catch (e: unknown) {
-      setError((e as { message?: string })?.message ?? "فشل إنشاء المسودة");
+      const next = await workflowApi.createNextDraft(definition.id);
+      router.push(`/workflow/definitions/${next.id}`);
+    } catch (cause: unknown) {
+      setError(describeWorkflowError(cause, "فشل إنشاء المسودة التالية"));
     } finally {
       setBusy(false);
     }
   };
 
-  if (!definition && !error) return <p dir="rtl">جارٍ التحميل…</p>;
+  const dropNode = (event: DragEvent<HTMLDivElement>) => {
+    if (!editable || !draggedStepId) return;
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(8, Math.min(rect.width - 150, event.clientX - rect.left - 70));
+    const y = Math.max(8, Math.min(rect.height - 64, event.clientY - rect.top - 28));
+    setPositions((current) => ({ ...current, [draggedStepId]: { x, y } }));
+    setDraggedStepId(null);
+  };
 
-  const positions = layout(steps);
+  if (loading && !definition) return <p dir="rtl">جارٍ تحميل المصمم…</p>;
+  if (!definition) {
+    return (
+      <div dir="rtl">
+        {error && <p role="alert" style={{ color: "var(--snad-color-error)" }}>{error}</p>}
+        <button type="button" onClick={() => void load()}>إعادة المحاولة</button>
+      </div>
+    );
+  }
+
+  const published = definition.publicationState === "PUBLISHED";
+  const retired = definition.publicationState === "RETIRED";
 
   return (
     <div dir="rtl">
-      {error && <p role="alert" style={{ color: "var(--snad-color-error)" }}>{error}</p>}
-      <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>{definition?.name}</h2>
-        <span data-testid="publication-state">
-          {publicationState === "PUBLISHED" ? "منشور" : publicationState === "RETIRED" ? "مُهمَل" : "مسودة"}
-        </span>
+      <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+        <div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <h1 style={{ margin: 0, fontSize: 24 }}>{definition.name}</h1>
+            <span style={badgeStyle}>
+              {published ? "منشور" : retired ? "متقاعد" : "مسودة"}
+            </span>
+            <span style={badgeStyle}>v{definition.version}</span>
+          </div>
+          <p style={{ margin: "5px 0 0", color: "var(--snad-color-text-secondary)" }}>
+            {definition.code} · {definition.engineGeneration} · مواضع العقد في اللوحة محلية للعرض، أما البنية فتحفظ في الخادم.
+          </p>
+        </div>
+        {published && (
+          <button type="button" disabled={busy} onClick={() => void createNextDraft()}>
+            إنشاء مسودة جديدة
+          </button>
+        )}
       </header>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <button onClick={() => setView("canvas")} disabled={view === "canvas"}>لوحة الرسم</button>
-        <button onClick={() => setView("table")} disabled={view === "table"}>جدول البنية</button>
-        <button onClick={() => void runValidate()} disabled={busy}>تحقق</button>
-        <button onClick={() => void runSimulate()} disabled={busy}>محاكاة</button>
-        <button
-          onClick={() => void publish()}
-          disabled={busy || !validation?.valid || published || publicationState !== "DRAFT"}
-          title={validation && !validation.valid ? "لا يُنشر قبل اجتياز التحقق" : undefined}
-        >
-          نشر
-        </button>
-        {published || publicationState === "PUBLISHED" ? (
-          <button onClick={() => void nextDraft()} disabled={busy}>إنشاء مسودة جديدة</button>
-        ) : null}
+      {conflict && <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>}
+      {error && <p role="alert" style={{ color: "var(--snad-color-error)" }}>{error}</p>}
+
+      {!editable && (
+        <div role="status" style={readOnlyStyle}>
+          هذه النسخة {published ? "منشورة" : "غير قابلة للتحرير"} وهي للقراءة فقط. لا تُعدّل العقد أو الانتقالات في مكانها.
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "14px 0" }}>
+        <button type="button" onClick={() => setView("canvas")} disabled={view === "canvas"}>لوحة الرسم</button>
+        <button type="button" onClick={() => setView("table")} disabled={view === "table"}>جدول البنية</button>
+        <button type="button" onClick={() => void load()}>تحديث من الخادم</button>
+        {draft && editable && (
+          <button type="button" onClick={() => setDraft(null)}>
+            حذف خطوة غير محفوظة
+          </button>
+        )}
       </div>
 
-      {validation && (
-        <p role="status">
-          {validation.valid
-            ? "التحقق: سليم ✓"
-            : "التحقق: أخفق — " + validation.errors.map((e) => e.code).join("، ")}
-        </p>
-      )}
-      {simulation && (
-        <p role="status">
-          المحاكاة (غير إنتاجية — لا آثار جانبية حقيقية): {simulation.simulated ? "نُفذت على " : ""}
-          {simulation.visitedStepIds.length} خطوة
-        </p>
-      )}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 0.65fr) minmax(340px, 2fr) minmax(260px, 1fr)", gap: 12, alignItems: "start" }}>
+        <StepPalette disabled={!editable || Boolean(draft) || busy} onAdd={addLocalDraft} />
 
-      {view === "canvas" ? (
-        <div style={{ position: "relative", height: 320, border: "1px solid var(--snad-color-border-default)", borderRadius: 8, overflow: "hidden" }}>
-          <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} aria-hidden>
-            {transitions.map((t) => {
-              const from = positions.get(t.fromStepId);
-              const to = positions.get(t.toStepId);
-              if (!from || !to) return null;
-              return (
-                <line key={t.id} x1={from.x + 90} y1={from.y + 24} x2={to.x} y2={to.y + 24}
-                      stroke="var(--snad-color-info)" strokeWidth={2} markerEnd="url(#arrow)" />
-              );
-            })}
-            <defs>
-              <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
-                <path d="M0,0 L8,4 L0,8 z" fill="var(--snad-color-info)" />
-              </marker>
-            </defs>
-          </svg>
-          {steps.map((step) => {
-            const pos = positions.get(step.id);
-            if (!pos) return null;
-            return (
-              <div key={step.id} style={{
-                position: "absolute", left: pos.x, top: pos.y, width: 90,
-                padding: "8px 6px", borderRadius: 8, textAlign: "center", fontSize: 12,
-                border: "2px solid var(--snad-color-primary)", background: "var(--snad-color-background-default)",
-                opacity: published || publicationState === "PUBLISHED" ? 0.85 : 1,
-                pointerEvents: published || publicationState === "PUBLISHED" ? "none" : "auto",
-                cursor: published || publicationState === "PUBLISHED" ? "default" : "move",
-              }}>
-                <strong>{step.stepKey}</strong>
-                <div style={{ color: "var(--snad-color-text-secondary)" }}>{step.stepType}</div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
-          <thead>
-            <tr>
-              <th style={cell}>الخطوة</th>
-              <th style={cell}>النوع</th>
-              <th style={cell}>الانتقالات الصادرة</th>
-            </tr>
-          </thead>
-          <tbody>
-            {steps.map((step) => (
-              <tr key={step.id}>
-                <td style={cell}>{step.stepKey}</td>
-                <td style={cell}>{step.stepType}</td>
-                <td style={cell}>
-                  {transitions
-                    .filter((t) => t.fromStepId === step.id)
-                    .map((t) => `${t.transitionKey}→${labelOf(t.toStepId)}`)
-                    .join("، ") || "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        <section aria-label="لوحة تصميم سير العمل" style={{ minWidth: 0 }}>
+          {view === "canvas" ? (
+            <div
+              onDragOver={(event) => { if (editable) event.preventDefault(); }}
+              onDrop={dropNode}
+              style={canvasStyle}
+            >
+              <svg aria-hidden style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+                <defs>
+                  <marker id="workflow-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
+                  </marker>
+                </defs>
+                {transitions.map((transition) => {
+                  const from = positions[transition.fromStepId];
+                  const to = positions[transition.toStepId];
+                  if (!from || !to) return null;
+                  return (
+                    <line
+                      key={transition.id}
+                      x1={from.x + 140}
+                      y1={from.y + 28}
+                      x2={to.x}
+                      y2={to.y + 28}
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      markerEnd="url(#workflow-arrow)"
+                    />
+                  );
+                })}
+              </svg>
+
+              {steps.map((step) => {
+                const position = positions[step.id] ?? { x: 12, y: 12 };
+                return (
+                  <button
+                    key={step.id}
+                    type="button"
+                    draggable={editable}
+                    onDragStart={() => setDraggedStepId(step.id)}
+                    onDragEnd={() => setDraggedStepId(null)}
+                    onClick={() => { setDraft(null); setSelectedStepId(step.id); }}
+                    style={{
+                      ...nodeStyle,
+                      left: position.x,
+                      top: position.y,
+                      outline: selectedStepId === step.id ? "3px solid var(--snad-color-info)" : undefined,
+                      cursor: editable ? "grab" : "pointer",
+                    }}
+                  >
+                    <strong>{step.name}</strong>
+                    <span style={{ display: "block", fontSize: 11, opacity: 0.72 }}>{step.stepType}</span>
+                  </button>
+                );
+              })}
+
+              {draft && editable && (
+                <div style={{ ...nodeStyle, left: 12, bottom: 12, borderStyle: "dashed", top: "auto" }}>
+                  <strong>{draft.name}</strong>
+                  <span style={{ display: "block", fontSize: 11 }}>{draft.stepType} · غير محفوظة</span>
+                </div>
+              )}
+
+              {steps.length === 0 && !draft && (
+                <p style={{ padding: 24, color: "var(--snad-color-text-secondary)" }}>
+                  لا توجد خطوات بعد. أضف أول عقدة من المكتبة.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr><th style={cellStyle}>الخطوة</th><th style={cellStyle}>النوع</th><th style={cellStyle}>الترتيب</th><th style={cellStyle}>الانتقالات</th></tr>
+                </thead>
+                <tbody>
+                  {steps.map((step) => (
+                    <tr key={step.id}>
+                      <td style={cellStyle}>{step.stepKey}</td>
+                      <td style={cellStyle}>{step.stepType}</td>
+                      <td style={cellStyle}>{step.sequenceOrder}</td>
+                      <td style={cellStyle}>
+                        {transitions.filter((item) => item.fromStepId === step.id).map((item) => `${item.outcome} → ${stepLabel(item.toStepId, steps)}`).join("، ") || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <StepInspector
+          draft={draft}
+          selectedStep={selectedStep}
+          steps={steps}
+          editable={Boolean(editable)}
+          busy={busy}
+          onDraftChange={setDraft}
+          onSaveDraft={saveStep}
+          onCreateTransition={createTransition}
+        />
+      </div>
+
+      <PublishPanel
+        definition={definition}
+        editable={Boolean(editable)}
+        graphRevision={graphRevision}
+        onPublished={load}
+        onReload={load}
+      />
     </div>
   );
-
-  function labelOf(stepId: string) {
-    return steps.find((s) => s.id === stepId)?.stepKey ?? stepId.slice(0, 6);
-  }
 }
 
-const cell: React.CSSProperties = {
-  border: "1px solid var(--snad-color-border-default)", padding: 8, textAlign: "right",
+function buildPositions(steps: WorkflowStepResponse[], current: Record<string, NodePosition>) {
+  const next: Record<string, NodePosition> = {};
+  steps.forEach((step, index) => {
+    next[step.id] = current[step.id] ?? {
+      x: 24 + (index % 4) * 170,
+      y: 24 + Math.floor(index / 4) * 92,
+    };
+  });
+  return next;
+}
+
+function stepLabel(id: string, steps: WorkflowStepResponse[]) {
+  return steps.find((step) => step.id === id)?.stepKey ?? id.slice(0, 8);
+}
+
+function defaultName(type: WorkflowStepType) {
+  const labels: Record<WorkflowStepType, string> = {
+    START: "البداية",
+    HUMAN_TASK: "مهمة بشرية",
+    APPROVAL: "موافقة",
+    CONDITION: "شرط",
+    SYSTEM_ACTION: "إجراء نظامي",
+    PARALLEL_FORK: "تفريع متوازٍ",
+    PARALLEL_JOIN: "دمج متوازٍ",
+    CALL_WORKFLOW: "استدعاء سير عمل",
+    NOTIFICATION: "إشعار",
+    END: "النهاية",
+  };
+  return labels[type];
+}
+
+const canvasStyle: CSSProperties = {
+  position: "relative",
+  minHeight: 440,
+  overflow: "auto",
+  border: "1px solid var(--snad-color-border-default)",
+  borderRadius: 10,
+  background: "var(--snad-color-background-default)",
 };
 
-/** Deterministic two-column layout keyed off sequence order. */
-function layout(steps: StepView[]): Map<string, { x: number; y: number }> {
-  const positions = new Map<string, { x: number; y: number }>();
-  steps.forEach((step, index) => {
-    positions.set(step.id, { x: 24 + (index % 4) * 150, y: 24 + Math.floor(index / 4) * 90 });
-  });
-  return positions;
-}
+const nodeStyle: CSSProperties = {
+  position: "absolute",
+  width: 140,
+  minHeight: 56,
+  padding: "8px 10px",
+  border: "2px solid var(--snad-color-border-default)",
+  borderRadius: 9,
+  background: "var(--snad-color-background-default)",
+  textAlign: "right",
+};
+
+const badgeStyle: CSSProperties = {
+  padding: "3px 8px",
+  border: "1px solid var(--snad-color-border-default)",
+  borderRadius: 999,
+  fontSize: 12,
+};
+
+const readOnlyStyle: CSSProperties = {
+  padding: 10,
+  border: "1px solid var(--snad-color-border-default)",
+  borderRadius: 8,
+  marginBottom: 10,
+};
+
+const cellStyle: CSSProperties = {
+  padding: "9px 10px",
+  borderBottom: "1px solid var(--snad-color-border-default)",
+  textAlign: "right",
+};

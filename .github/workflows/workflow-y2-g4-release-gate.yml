@@ -1,0 +1,252 @@
+name: Workflow Y2 G4 Release Gate
+
+on:
+  push:
+    branches: [feat/workflow-y2-wave4-g4]
+    paths:
+      - 'apps/sanad-platform/**'
+      - 'apps/web/**'
+      - 'docs/runbooks/workflow-y2-cutover.md'
+      - 'docs/reports/workflow-y2-release-evidence.md'
+      - '.github/workflows/workflow-y2-g4-release-gate.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/**'
+      - 'apps/web/**'
+      - 'docs/runbooks/workflow-y2-cutover.md'
+      - 'docs/reports/workflow-y2-release-evidence.md'
+      - '.github/workflows/workflow-y2-g4-release-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-y2-g4-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  task20-security-gate:
+    name: Task 20 Security Race Isolation Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env: &pg_env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - uses: actions/checkout@v4
+      - &postgres
+        name: Start host-native PostgreSQL (no containers)
+        run: |
+          set -euo pipefail
+          sudo systemctl start postgresql
+          for i in $(seq 1 30); do pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1 && break; sleep 1; done
+          pg_isready -h 127.0.0.1 -p 5432
+      - &provision
+        name: Provision least-privilege PostgreSQL Direct database
+        run: |
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sanad') THEN CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass'; END IF; END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='sanad')\gexec
+          SELECT 'CREATE DATABASE test_migration OWNER sanad' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          \c sanad
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+          DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='crm_contact_rls_test_user') THEN CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass'; END IF; END $$;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
+      - &java
+        name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      - &key
+        name: Generate ephemeral CRM encryption key
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+      - name: Run Task 20 security, idempotency, tenant isolation, and break-glass suites
+        run: mvn -B -ntp -Dtest=WorkflowSecurityNegativeTest,WorkflowIdempotencyTest,WorkflowY2TenantIsolationTest,WorkflowBreakGlassTest test
+
+  task21-cutover-gate:
+    name: Task 21 Strangler Cutover Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env: *pg_env
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - uses: actions/checkout@v4
+      - *postgres
+      - *provision
+      - *java
+      - *key
+      - name: Run Task 21 cutover compatibility suites
+        run: mvn -B -ntp -Dtest=WorkflowY2CutoverTest,WorkflowEngineIntegrationTest,WorkflowManagementE2ETest test
+
+  g4-workflow-backend:
+    name: G4 Full Workflow Backend Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env: *pg_env
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - uses: actions/checkout@v4
+      - *postgres
+      - *provision
+      - *java
+      - *key
+      - name: Run full Workflow backend suite
+        run: mvn -B -ntp -Dtest='Workflow*Test' test
+
+  g4-web:
+    name: G4 Web Test Lint Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - name: Run full web tests
+        run: npm test
+      - name: Run web lint
+        run: npm run lint
+      - name: Run production build
+        run: npm run build
+
+  g4-playwright:
+    name: G4 Workflow Y2 Playwright PostgreSQL Direct
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env: *pg_env
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - *postgres
+      - *provision
+      - *java
+      - *key
+      - name: Build Spring Boot JAR
+        working-directory: apps/sanad-platform
+        run: mvn -B -ntp -DskipTests -Dmaven.test.skip=true clean package
+      - name: Start Spring Boot backend
+        id: backend
+        env:
+          SERVER_PORT: '8080'
+          SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+          WF_E2E_EMAIL: wf-e2e-admin@snad-e2e.example
+          WF_E2E_PASSWORD: WfE2eTest!2026
+        run: |
+          set -euo pipefail
+          BACKEND_LOG="$RUNNER_TEMP/workflow-y2-g4-backend.log"
+          JAR_PATH="$(find apps/sanad-platform/target -name 'sanad-platform-*.jar' ! -name '*-sources.jar' | head -n1)"
+          test -n "$JAR_PATH"
+          java -jar "$JAR_PATH" --spring.profiles.active=local,workflow-e2e > "$BACKEND_LOG" 2>&1 &
+          BACKEND_PID=$!
+          echo "pid=$BACKEND_PID" >> "$GITHUB_OUTPUT"
+          echo "log=$BACKEND_LOG" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/actuator/health >/dev/null; then
+              echo "Backend ready after $((i*3))s"
+              exit 0
+            fi
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+              tail -120 "$BACKEND_LOG" || true
+              exit 1
+            fi
+            sleep 3
+          done
+          tail -120 "$BACKEND_LOG" || true
+          exit 1
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Build Next.js
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8080
+        run: npm run build
+      - name: Start Next.js
+        id: frontend
+        working-directory: apps/web
+        env:
+          BACKEND_API_BASE_URL: http://127.0.0.1:8080
+        run: |
+          set -euo pipefail
+          FRONTEND_LOG="$RUNNER_TEMP/workflow-y2-g4-frontend.log"
+          NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production \
+            ./node_modules/.bin/next start -H 127.0.0.1 -p 3001 > "$FRONTEND_LOG" 2>&1 &
+          FRONTEND_PID=$!
+          echo "pid=$FRONTEND_PID" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/ >/dev/null; then
+              echo "Frontend ready"
+              exit 0
+            fi
+            if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+              tail -100 "$FRONTEND_LOG" || true
+              exit 1
+            fi
+            sleep 2
+          done
+          tail -100 "$FRONTEND_LOG" || true
+          exit 1
+      - name: Run Workflow Y2 Playwright semantic matrix
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+          SANAD_BACKEND_BASE_URL: http://127.0.0.1:8080
+        run: |
+          npx playwright install chromium --with-deps
+          npx playwright test --config=playwright.workflow-y2.config.ts
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g4-workflow-y2-playwright-report
+          path: apps/web/wf-playwright-report/
+      - name: Upload backend log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g4-workflow-y2-backend-log
+          path: /home/runner/work/_temp/workflow-y2-g4-backend.log
+      - name: Stop services
+        if: always()
+        run: |
+          kill ${{ steps.backend.outputs.pid }} 2>/dev/null || true
+          kill ${{ steps.frontend.outputs.pid }} 2>/dev/null || true
