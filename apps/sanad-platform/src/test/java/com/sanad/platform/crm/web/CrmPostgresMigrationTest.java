@@ -60,8 +60,6 @@ class CrmPostgresMigrationTest {
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     private static final String CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION = "20260728.1";
     private static final String CRM_RLS_ENABLE_VERSION = "20260730.1";
-    // CRM-018: V20260730_2 (disable RLS) removed from Flyway forward path
-    // under RECOVERY-CRM-022 R1. Terminal migration is V20260802_1 (re-enable).
     private static final String CRM_RLS_RE_ENABLE_VERSION = "20260802.1";
     private static final String CRM_RECONCILE_CUSTOM_FIELD_VERSION = "20260804.1";
     private static final String CRM_SHIFT_TEMPLATES_VERSION = "20260804.2";
@@ -80,28 +78,21 @@ class CrmPostgresMigrationTest {
     private static final String CRM_SEED_DEFAULT_PIPELINE_VERSION = "20260807.2";
     private static final String CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION = "20260807.3";
     private static final String CRM_ACTIVITY_RESULT_VERSION = "20260807.4";
-    // G7 Mobile Offline Sync (V20260812.1/2/3)
     private static final String G7_MOBILE_SYNC_TABLES_VERSION = "20260812.1";
     private static final String G7_MOBILE_SYNC_COLUMNS_VERSION = "20260812.2";
     private static final String G7_MOBILE_SYNC_RLS_VERSION = "20260812.3";
-    // Mission 01: Control Plane Admin + Module Registry + Capabilities (V20260813.1, V20260814.1/2)
     private static final String MISSION_01_ADMIN_SEED_VERSION = "20260813.1";
     private static final String MISSION_01_MODULE_REGISTRY_VERSION = "20260814.1";
     private static final String MISSION_01_MODULE_CAPABILITIES_VERSION = "20260814.2";
-    // Senior Management Operating Layer (V20260815.1/2)
     private static final String MGMT_KPI_ENGINE_VERSION = "20260815.1";
     private static final String MGMT_CAPABILITIES_VERSION = "20260815.2";
-    // Senior Management Phase B+C (V20260815.3/4)
     private static final String MGMT_DECISION_RISK_ISSUE_VERSION = "20260815.3";
     private static final String MGMT_PHASE_BC_CAPABILITIES_VERSION = "20260815.4";
-    // Senior Management Phase D-G (V20260815.5/6)
     private static final String MGMT_COMMAND_CENTER_VERSION = "20260815.5";
     private static final String MGMT_COMMAND_CENTER_CAPS_VERSION = "20260815.6";
-    // SLA fields (V20260815.7)
     private static final String MGMT_SLA_FIELDS_VERSION = "20260815.7";
     private static final String MGMT_ALERT_NULLABLE_VERSION = "20260815.8";
     private static final String MGMT_AUDIT_NULLABLE_VERSION = "20260815.9";
-    // Workflow Engine (V20260815.10/11)
     private static final String WORKFLOW_ENGINE_VERSION = "20260815.10";
     private static final String WORKFLOW_CAPABILITIES_VERSION = "20260815.11";
     private static final String WORKFLOW_SOD_VERSION = "20260815.12";
@@ -112,31 +103,21 @@ class CrmPostgresMigrationTest {
     private static final String FINANCE_CAPABILITIES_VERSION = "20260815.17";
     private static final String ANALYTICS_MODULE_VERSION = "20260815.18";
     private static final String ANALYTICS_CAPABILITIES_VERSION = "20260815.19";
-    // v20260815.7 — Final Governance Closure
     private static final String TENANT_DOMAINS_VERSION = "20260815.20";
     private static final String DROP_ENTITLEMENT_CACHE_VERSION = "20260815.21";
     private static final String DOMAIN_MGMT_CAPABILITIES_VERSION = "20260815.23";
-    // v20260815.8 — Senior Management Final 5-Gap Closure
     private static final String GOVERNANCE_CONFIGURATIONS_VERSION = "20260815.24";
     private static final String GOV_CONFIG_CAPABILITIES_VERSION = "20260815.25";
     private static final String GOV_CONFIG_RLS_VERSION = "20260815.26";
-    // v20260816.2 — Future Modules Governance Readiness
     private static final String CONTRACT_MGMT_REGISTRY_VERSION = "20260816.1";
-    // v20260816.3 — Website Platform
     private static final String REGISTER_WEBSITES_MODULE_VERSION = "20260816.2";
     private static final String CREATE_WEBSITES_TABLES_VERSION = "20260816.3";
     private static final String ENABLE_WEBSITES_RLS_VERSION = "20260816.4";
-    // v20260816.4 — Stores / E-Commerce Platform
     private static final String CREATE_COMMERCE_TABLES_VERSION = "20260816.5";
     private static final String ENABLE_COMMERCE_RLS_VERSION = "20260816.6";
-    // v20260816.9 — ERP Core Platform
     private static final String CREATE_ERP_TABLES_VERSION = "20260816.7";
     private static final String ENABLE_ERP_RLS_VERSION = "20260816.8";
-    // V20260819_1 — HR Employees (module tables + capabilities)
     private static final String HR_EMPLOYEES_VERSION = "20260819.1";
-    // V20260820 — commerce order sequences, RBAC templates, idempotency/cart
-    // invariant, RBAC exact matrix + provenance, commerce/finance linkage,
-    // exact matrix 9/9. (V20260820_8 settlement-failed status was removed by v12.1.)
     private static final String COMMERCE_ORDER_SEQUENCES_VERSION = "20260820.1";
     private static final String SEED_RBAC_ROLE_TEMPLATES_VERSION = "20260820.2";
     private static final String CORRECT_RBAC_TEMPLATE_CAPS_VERSION = "20260820.3";
@@ -145,29 +126,18 @@ class CrmPostgresMigrationTest {
     private static final String COMMERCE_FINANCE_LINKAGE_VERSION = "20260820.6";
     private static final String RBAC_EXACT_MATRIX_9_OF_9_VERSION = "20260820.7";
     private static final String ADMIN_CAPABILITY_INVARIANT_VERSION = "20260820.9";
-    // P0 FLYWAY LEDGER RECOVERY (2026-08-20): the four applied-in-production
-    // migrations were restored byte-for-byte to main's repository history
-    // (checksums verified against production with Flyway 11.7.2) without
-    // restoring any G8 runtime. Governance tests track the restored ledger.
     private static final String CALLER_IDENTIFICATION_CAPABILITIES_VERSION = "20260820.10";
     private static final String CALL_EVENT_TABLE_VERSION = "20260820.11";
     private static final String CALL_EVENT_RLS_FORCE_VERSION = "20260820.12";
     private static final String CALL_EVENT_CAPABILITIES_VERSION = "20260820.13";
-    // CRM Collaboration & Event Foundation (impl/crm-collaboration-event-foundation-20260822)
     private static final String COLLABORATION_FOUNDATION_VERSION = "20260822.1";
     private static final String COLLABORATION_RLS_VERSION = "20260822.2";
     private static final String COLLABORATION_INTEGRITY_VERSION = "20260822.3";
     private static final String COLLABORATION_OUTBOX_ALIGNMENT_VERSION = "20260822.4";
-    // Latest migration — keep in sync with db/migration
-    // V20260823_1 (crm_contacts FORCE RLS) + V20260823_2 (participant role exclusivity)
-    // are the new terminal migrations added by the CRM Contacts Collaboration
-    // Integration (impl/crm-contacts-collaboration-20260823).
     private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
     private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
     private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
-    // HRM-G0 WS1 — Platform Country and Employer Prerequisites
     private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260827.1";
-    // Subscription Control Plane (SCP closure — merged from main at ab2b46e7):
     private static final String SCP_APPLICATIONS_CATALOG_VERSION = "20260829.1";
     private static final String SCP_PRODUCTS_PLAN_VERSIONS_VERSION = "20260829.2";
     private static final String SCP_SUBSCRIPTION_ITEMS_VERSION = "20260829.3";
@@ -175,7 +145,6 @@ class CrmPostgresMigrationTest {
     private static final String SCP_LIFECYCLE_PROVISIONING_VERSION = "20260830.1";
     private static final String SCP_USAGE_METERING_RBAC_VERSION = "20260830.2";
     private static final String CAPABILITY_CODE_CANONICALIZATION_VERSION = "20260901.1";
-    // Workflow Y2 (merged from main at ab2b46e7):
     private static final String WORKFLOW_Y2_IDENTITY_VERSION = "20260902.1";
     private static final String WORKFLOW_Y2_DEFINITION_GRAPH_VERSION = "20260902.2";
     private static final String WORKFLOW_Y2_WORK_ITEMS_VERSION = "20260902.3";
@@ -184,9 +153,6 @@ class CrmPostgresMigrationTest {
     private static final String WORKFLOW_Y2_EVENTS_VERSION = "20260902.6";
     private static final String WORKFLOW_Y2_BREAK_GLASS_VERSION = "20260902.7";
     private static final String WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION = "20260904.1";
-    // HRM-G0 WS2..WS5 — renumbered to V20260905_* (order preserved) because the
-    // original V20260829_1/V20260830_1/V20260901_1/V20260902_1/V20260904_1
-    // versions collided with main's SCP/Workflow-Y2 migrations after merge.
     private static final String HR_PERSON_IDENTITY_SCHEMA_VERSION = "20260905.1";
     private static final String EMPLOYMENT_EXPANSION_VERSION = "20260905.2";
     private static final String STRUCTURE_VERSIONING_VERSION = "20260905.3";
@@ -206,21 +172,16 @@ class CrmPostgresMigrationTest {
     private static final String HRM_V2_CAPABILITIES_VERSION = "20260905.17";
     private static final String Y2_G0_IDENTITY_RECONCILIATION_VERSION = "20260905.18";
     private static final String WF_NOTIFICATION_DEDUP_VERSION = "20260906.1";
-    // HRM-G1 (V20260908.1-.3) legitimately extends the terminal state forward
-    // (append-only history, G1 design §17). CRM completion is therefore a
-    // FLOOR for the terminal version — later authorized migrations must not
-    // fail CRM's completion assertions; checksum tamper-evidence stays with
-    // flyway validate() and CrmFlywayHistoryAssertionTest's version allowlist.
-    private static final String LATEST_MIGRATION_VERSION = WF_NOTIFICATION_DEDUP_VERSION;
+    private static final String WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION = "20260908.1";
+    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION;
+
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
             "crm_pipeline_stages", "crm_opportunities", "crm_opportunity_stage_history",
             "crm_activities", "crm_timeline_events", "crm_import_jobs",
             "crm_custom_field_definitions");
-
     private static final List<String> CRM_COMPLETION_TABLES = List.of(
             "crm_import_files", "crm_import_errors", "crm_custom_field_values");
-
     private static final List<String> CRM_G2_TABLES = List.of("crm_idempotency_records");
     private static final List<String> CRM_TASKS_TABLES = List.of("crm_tasks");
     private static final List<String> CRM_NOTES_TABLES = List.of("crm_notes");
@@ -241,39 +202,28 @@ class CrmPostgresMigrationTest {
             "crm_party_addresses", "crm_party_address_history",
             "crm_communication_policies", "crm_communication_methods",
             "crm_communication_method_history");
-
     private static final List<String> CRM_008B_NEW_TABLES = List.of(
             "crm_sales_teams", "crm_team_memberships",
             "crm_queues", "crm_queue_memberships",
             "crm_territories", "crm_territory_closure", "crm_territory_assignments",
             "crm_assignment_rules", "crm_assignment_rule_versions",
-            "crm_ownership_history",
-            "crm_transfer_requests", "crm_transfer_steps",
+            "crm_ownership_history", "crm_transfer_requests", "crm_transfer_steps",
             "crm_assignment_rule_counters");
-
     private static final List<String> CRM_009_NEW_TABLES = List.of(
             "crm_integration_requests", "crm_integration_outbox", "crm_integration_decisions",
             "crm_integration_command_executions", "crm_integration_command_artifacts");
-
     private static final List<String> CRM_010_NEW_TABLES = List.of(
             "crm_customer_scores", "crm_customer_score_history", "crm_scoring_models",
-            "crm_customer_segments", "crm_segment_memberships",
-            "crm_next_best_actions");
-
+            "crm_customer_segments", "crm_segment_memberships", "crm_next_best_actions");
     private static final List<String> CRM_CASES_TABLES = List.of("crm_cases");
-
     private static final List<String> CRM_EMAIL_LOGS_TABLES = List.of("crm_email_logs");
     private static final List<String> CRM_CALL_EVENT_TABLES = List.of("crm_call_events");
-    // CRM Collaboration & Event Foundation (impl/crm-collaboration-event-foundation-20260822)
     private static final List<String> CRM_COLLABORATION_TABLES = List.of(
             "crm_entity_participants", "crm_event_outbox");
-
     private static final List<String> CRM_OWNERSHIP_MGMT_TABLES = List.of(
             "crm_shift_templates", "crm_shift_assignments",
             "crm_staff_availability", "crm_staff_skills",
-            "crm_capacity_plans", "crm_workload_assignments",
-            "crm_service_assignments");
-
+            "crm_capacity_plans", "crm_workload_assignments", "crm_service_assignments");
 
     @BeforeAll
     static void requirePostgreSql() {
@@ -286,9 +236,6 @@ class CrmPostgresMigrationTest {
         Assumptions.assumeTrue(postgresAvailable,
                 "PostgreSQL Direct is not available — skipping CrmPostgresMigrationTest. " +
                         "Run with PostgreSQL Direct to exercise PostgreSQL migrations.");
-        // Ensure the disposable test_migration database exists so that flyway.clean()
-        // below only affects this isolated database (not the shared sanad database
-        // that other @SpringBootTest contexts depend on).
         MigrationTestSchemaSupport.ensureDatabase(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"),
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"),
@@ -305,11 +252,8 @@ class CrmPostgresMigrationTest {
         assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(allCrmTables());
 
         Flyway upgrade = flyway(null);
-        // Prefix semantics: the CRM upgrade sequence must run in exactly this
-        // order; later authorized migrations (HRM-G1 V20260908.*) may extend
-        // the pending list forward without violating CRM's contract.
         assertThat(Arrays.stream(upgrade.info().pending()).map(MigrationInfo::getVersion))
-                .startsWith(
+                .containsExactly(
                         MigrationVersion.fromVersion(CRM_CORE_VERSION),
                         MigrationVersion.fromVersion(RECONCILER_VERSION),
                         MigrationVersion.fromVersion(CRM_COMPLETION_VERSION),
@@ -349,8 +293,6 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
-                        // V20260730_2 (disable RLS) removed from Flyway forward path
-                        // under RECOVERY-CRM-022 R1 — skip to re-enable V20260802_1.
                         MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RECONCILE_CUSTOM_FIELD_VERSION),
                         MigrationVersion.fromVersion(CRM_SHIFT_TEMPLATES_VERSION),
@@ -462,7 +404,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
-                        MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION));        upgrade.migrate();
+                        MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
+        upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
     }
@@ -479,9 +423,8 @@ class CrmPostgresMigrationTest {
         assertThat(existingTables(jdbc)).doesNotContainAnyElementsOf(CRM_G2_TABLES);
 
         Flyway completion = flyway(null);
-        // Prefix semantics (see upgradesExistingPlatformThroughCrmRbacAndCompletion).
         assertThat(Arrays.stream(completion.info().pending()).map(MigrationInfo::getVersion))
-                .startsWith(
+                .containsExactly(
                         MigrationVersion.fromVersion(RECONCILER_VERSION),
                         MigrationVersion.fromVersion(CRM_COMPLETION_VERSION),
                         MigrationVersion.fromVersion(TENANT_QUOTA_VERSION),
@@ -520,8 +463,6 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
-                        // V20260730_2 (disable RLS) removed from Flyway forward path
-                        // under RECOVERY-CRM-022 R1 — skip to re-enable V20260802_1.
                         MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RECONCILE_CUSTOM_FIELD_VERSION),
                         MigrationVersion.fromVersion(CRM_SHIFT_TEMPLATES_VERSION),
@@ -633,7 +574,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_CONTRACT_COMPENSATION_VERSION),
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
-                        MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION));        completion.migrate();
+                        MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
+        completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
     }
@@ -647,16 +590,6 @@ class CrmPostgresMigrationTest {
         assertCompletedSchema(jdbc());
     }
 
-    /**
-     * Regression test for the PostgreSQL catalog-reading bug where
-     * information_schema.columns.data_type for a JSONB column was wrongly
-     * asserted to be 'USER-DEFINED'. On PostgreSQL 16, the correct values
-     * for a JSONB column are:
-     *   data_type = 'jsonb'
-     *   udt_name  = 'jsonb'
-     * This test asserts BOTH fields for all 5 JSONB columns created by
-     * V20260722_1..6, and is the canonical guard against future regressions.
-     */
     @Test
     void jsonbColumnsHaveExactPostgresCatalogValues() {
         Flyway flyway = flyway(null);
@@ -664,49 +597,32 @@ class CrmPostgresMigrationTest {
         flyway.migrate();
         flyway.validate();
         JdbcTemplate jdbc = jdbc();
-
-        // The 5 JSONB columns created by V20260722_* migrations.
-        // Each row: {table, column, expectedNullable}
         String[][] jsonbColumns = {
-                {"crm_team_memberships",          "metadata",          "NO"},   // V20260722_1
-                {"crm_territories",               "rule_definition",   "NO"},   // V20260722_3
-                {"crm_assignment_rule_versions",  "match_conditions",  "NO"},   // V20260722_4
-                {"crm_assignments",               "workflow_result",   "YES"},  // V20260722_5 (nullable)
-                {"crm_transfer_requests",         "record_ids",        "NO"},   // V20260722_6
+                {"crm_team_memberships", "metadata", "NO"},
+                {"crm_territories", "rule_definition", "NO"},
+                {"crm_assignment_rule_versions", "match_conditions", "NO"},
+                {"crm_assignments", "workflow_result", "YES"},
+                {"crm_transfer_requests", "record_ids", "NO"},
         };
-
         for (String[] entry : jsonbColumns) {
             String table = entry[0];
             String column = entry[1];
             String expectedNullable = entry[2];
-
-            // Verify data_type = 'jsonb' (the field that was previously mis-asserted as 'USER-DEFINED')
             Long dataTypeCount = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                             "AND table_name=? AND column_name=? AND data_type='jsonb'",
                     Long.class, table, column);
-            assertThat(dataTypeCount)
-                    .as("%s.%s data_type must be 'jsonb' (regression: was wrongly asserted as 'USER-DEFINED' before)",
-                            table, column)
-                    .isEqualTo(1L);
-
-            // Verify udt_name = 'jsonb'
+            assertThat(dataTypeCount).as("%s.%s data_type must be 'jsonb'", table, column).isEqualTo(1L);
             Long udtNameCount = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                             "AND table_name=? AND column_name=? AND udt_name='jsonb'",
                     Long.class, table, column);
-            assertThat(udtNameCount)
-                    .as("%s.%s udt_name must be 'jsonb'", table, column)
-                    .isEqualTo(1L);
-
-            // Verify is_nullable matches expected
+            assertThat(udtNameCount).as("%s.%s udt_name must be 'jsonb'", table, column).isEqualTo(1L);
             Long nullableCount = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
                             "AND table_name=? AND column_name=? AND is_nullable=?",
                     Long.class, table, column, expectedNullable);
-            assertThat(nullableCount)
-                    .as("%s.%s is_nullable must be %s", table, column, expectedNullable)
-                    .isEqualTo(1L);
+            assertThat(nullableCount).as("%s.%s is_nullable must be %s", table, column, expectedNullable).isEqualTo(1L);
         }
     }
 
@@ -749,7 +665,6 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence");
         assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
         assertMigration(jdbc, CRM_RLS_ENABLE_VERSION, "SQL", "enable crm row level security");
-        // V20260730_2 (disable RLS) removed from Flyway forward path under RECOVERY-CRM-022 R1.
         assertMigration(jdbc, CRM_RECONCILE_CUSTOM_FIELD_VERSION, "SQL", "reconcile crm custom field and pipeline audit columns");
         assertMigration(jdbc, CRM_SHIFT_TEMPLATES_VERSION, "SQL", "create crm shift templates");
         assertMigration(jdbc, CRM_SHIFT_ASSIGNMENTS_VERSION, "SQL", "create crm shift assignments");
@@ -767,17 +682,12 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_SEED_DEFAULT_PIPELINE_VERSION, "SQL", "seed default pipeline and accounts");
         assertMigration(jdbc, CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION, "SQL", "add case insensitive tag unique index");
         assertMigration(jdbc, CRM_ACTIVITY_RESULT_VERSION, "SQL", "add activity result column and related type check");
-
-        // G7 Mobile Offline Sync migrations
         assertMigration(jdbc, G7_MOBILE_SYNC_TABLES_VERSION, "SQL", "create mobile sync tables");
         assertMigration(jdbc, G7_MOBILE_SYNC_COLUMNS_VERSION, "SQL", "add sync columns to crm entities");
         assertMigration(jdbc, G7_MOBILE_SYNC_RLS_VERSION, "SQL", "force rls mobile sync tables");
-        // Mission 01: Control Plane Admin + Module Registry + Capabilities
         assertMigration(jdbc, MISSION_01_ADMIN_SEED_VERSION, "SQL", "seed control plane admin and capabilities");
         assertMigration(jdbc, MISSION_01_MODULE_REGISTRY_VERSION, "SQL", "create module registry");
         assertMigration(jdbc, MISSION_01_MODULE_CAPABILITIES_VERSION, "SQL", "create module capabilities and plan entitlements");
-
-        // Senior Management Operating Layer
         assertMigration(jdbc, MGMT_KPI_ENGINE_VERSION, "SQL", "create senior management kpi engine");
         assertMigration(jdbc, MGMT_CAPABILITIES_VERSION, "SQL", "add executive management capabilities");
         assertMigration(jdbc, MGMT_DECISION_RISK_ISSUE_VERSION, "SQL", "create decision risk issue escalation audit");
@@ -831,103 +741,65 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CONTACTS_FORCE_RLS_VERSION, "SQL", "crm contacts force rls");
         assertMigration(jdbc, PARTICIPANT_ROLE_EXCLUSIVITY_VERSION, "SQL", "crm participant role exclusivity");
 
-        assertThat(compareVersionStrings(latestVersion(jdbc), LATEST_MIGRATION_VERSION))
-                .as("CRM completion migrations are applied; later authorized "
-                        + "migrations may extend the terminal state forward")
-                .isGreaterThanOrEqualTo(0);
-        assertThat(existingTables(jdbc)).containsAll(allCrmTables());
+        assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
+        assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
-        // CRM-008B table scope assertions
-        // 13 new tables created + 1 existing table upgraded (crm_assignments) = 14 total scope
         for (String table : CRM_008B_NEW_TABLES) {
             assertThat(existingTables(jdbc)).contains(table);
             assertThat(columnExists(jdbc, table, "tenant_id")).as(table + " tenant_id").isTrue();
         }
-        // crm_assignments is an existing G1 table that was upgraded, not newly created
         assertThat(existingTables(jdbc)).contains("crm_assignments");
-        // Verify owner columns were added to crm_assignments by V20260722_5
         assertThat(columnExists(jdbc, "crm_assignments", "owner_type")).isTrue();
         assertThat(columnExists(jdbc, "crm_assignments", "owner_user_id")).isTrue();
         assertThat(columnExists(jdbc, "crm_assignments", "owner_team_id")).isTrue();
         assertThat(columnExists(jdbc, "crm_assignments", "owner_queue_id")).isTrue();
         assertThat(columnExists(jdbc, "crm_assignments", "record_type")).isTrue();
         assertThat(columnExists(jdbc, "crm_assignments", "record_id")).isTrue();
-        // Verify owner columns were added to 6 CRM tables by V20260722_7
         for (String table : List.of("crm_accounts", "crm_contacts", "crm_leads", "crm_opportunities", "crm_activities", "crm_tasks")) {
             assertThat(columnExists(jdbc, table, "owner_team_id")).as(table + " owner_team_id").isTrue();
             assertThat(columnExists(jdbc, table, "owner_queue_id")).as(table + " owner_queue_id").isTrue();
         }
-        // Verify 20 CRM-008B capabilities were seeded (17 from V20260722.8 + 3 from V20260728.1)
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.ASSIGNMENT.%' " +
                 "OR code LIKE 'CRM.TRANSFER.%' OR code LIKE 'CRM.TEAM.%' OR code LIKE 'CRM.QUEUE.%' " +
                 "OR code LIKE 'CRM.TERRITORY.%' OR code LIKE 'CRM.ASSIGNMENT_RULE.%' " +
-                "OR code = 'CRM.OWNERSHIP_HISTORY.READ'",
-                Long.class)).isEqualTo(20L);
+                "OR code = 'CRM.OWNERSHIP_HISTORY.READ'", Long.class)).isEqualTo(20L);
 
-        // CRM-008B JSONB column assertions (PostgreSQL-native invariants)
         assertThat(jsonbColumnExists(jdbc, "crm_team_memberships", "metadata")).isTrue();
         assertThat(jsonbColumnExists(jdbc, "crm_territories", "rule_definition")).isTrue();
         assertThat(jsonbColumnExists(jdbc, "crm_assignment_rule_versions", "match_conditions")).isTrue();
         assertThat(jsonbColumnExists(jdbc, "crm_transfer_requests", "record_ids")).isTrue();
         assertThat(jsonbColumnExists(jdbc, "crm_assignments", "workflow_result")).isTrue();
 
-        // CRM-008B partial unique index assertions (predicates verified via pg_indexes)
-        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships",
-                "uk_team_memberships_active", "status = 'ACTIVE'")).isTrue();
-        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships",
-                "uk_team_memberships_primary", "status = 'ACTIVE'")).isTrue();
-        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships",
-                "uk_team_memberships_primary", "is_primary = true")).isTrue();
-        assertThat(partialIndexPredicateMatches(jdbc, "crm_queue_memberships",
-                "uk_queue_memberships_active", "status = 'ACTIVE'")).isTrue();
-        assertThat(partialIndexPredicateMatches(jdbc, "crm_territory_assignments",
-                "uk_territory_assignments_active", "status = 'ACTIVE'")).isTrue();
-        assertThat(partialIndexPredicateMatches(jdbc, "crm_territory_assignments",
-                "uk_territory_assignments_active", "role = 'PRIMARY'")).isTrue();
-        assertThat(partialIndexPredicateMatches(jdbc, "crm_assignment_rule_versions",
-                "uk_rule_versions_active", "status = 'ACTIVE'")).isTrue();
-        assertThat(partialIndexPredicateMatches(jdbc, "crm_assignments",
-                "uk_assignments_active_per_record", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships", "uk_team_memberships_active", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships", "uk_team_memberships_primary", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_team_memberships", "uk_team_memberships_primary", "is_primary = true")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_queue_memberships", "uk_queue_memberships_active", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_territory_assignments", "uk_territory_assignments_active", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_territory_assignments", "uk_territory_assignments_active", "role = 'PRIMARY'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_assignment_rule_versions", "uk_rule_versions_active", "status = 'ACTIVE'")).isTrue();
+        assertThat(partialIndexPredicateMatches(jdbc, "crm_assignments", "uk_assignments_active_per_record", "status = 'ACTIVE'")).isTrue();
 
-        // CRM-008B SALES_MANAGER and SALES_REPRESENTATIVE roles must exist
-        // (defined in V20260722_8 for every active tenant)
-        Long activeTenantCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM tenants WHERE status = 'ACTIVE'", Long.class);
+        Long activeTenantCount = jdbc.queryForObject("SELECT COUNT(*) FROM tenants WHERE status = 'ACTIVE'", Long.class);
         if (activeTenantCount != null && activeTenantCount > 0) {
             assertThat(jdbc.queryForObject(
-                    "SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_MANAGER' AND status = 'ACTIVE'",
-                    Long.class)).isEqualTo(activeTenantCount);
+                    "SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_MANAGER' AND status = 'ACTIVE'", Long.class)).isEqualTo(activeTenantCount);
             assertThat(jdbc.queryForObject(
-                    "SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_REPRESENTATIVE' AND status = 'ACTIVE'",
-                    Long.class)).isEqualTo(activeTenantCount);
-
-            // Verify SALES_MANAGER has 11 capabilities, SALES_REPRESENTATIVE has 8
+                    "SELECT COUNT(DISTINCT tenant_id) FROM roles WHERE code = 'SALES_REPRESENTATIVE' AND status = 'ACTIVE'", Long.class)).isEqualTo(activeTenantCount);
             assertThat(jdbc.queryForObject(
                     "SELECT COUNT(*) FROM role_capabilities rc " +
-                    "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
-                    "JOIN access_capabilities c ON c.id = rc.capability_id " +
-                    "WHERE r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' " +
-                    "AND c.code IN (" +
-                    "  'CRM.ASSIGNMENT.READ','CRM.ASSIGNMENT.WRITE'," +
-                    "  'CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TRANSFER.APPROVE'," +
-                    "  'CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM'," +
-                    "  'CRM.TERRITORY.READ','CRM.ASSIGNMENT_RULE.READ'," +
-                    "  'CRM.OWNERSHIP_HISTORY.READ')", Long.class))
-                    .as("SALES_MANAGER must have 11 CRM-008B capabilities per tenant")
+                            "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
+                            "JOIN access_capabilities c ON c.id = rc.capability_id " +
+                            "WHERE r.code = 'SALES_MANAGER' AND r.status = 'ACTIVE' " +
+                            "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.ASSIGNMENT.WRITE','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TRANSFER.APPROVE','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.ASSIGNMENT_RULE.READ','CRM.OWNERSHIP_HISTORY.READ')", Long.class))
                     .isEqualTo(activeTenantCount * 11L);
             assertThat(jdbc.queryForObject(
                     "SELECT COUNT(*) FROM role_capabilities rc " +
-                    "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
-                    "JOIN access_capabilities c ON c.id = rc.capability_id " +
-                    "WHERE r.code = 'SALES_REPRESENTATIVE' AND r.status = 'ACTIVE' " +
-                    "AND c.code IN (" +
-                    "  'CRM.ASSIGNMENT.READ'," +
-                    "  'CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST'," +
-                    "  'CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM'," +
-                    "  'CRM.TERRITORY.READ','CRM.OWNERSHIP_HISTORY.READ')", Long.class))
-                    .as("SALES_REPRESENTATIVE must have 8 CRM-008B capabilities per tenant")
+                            "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id " +
+                            "JOIN access_capabilities c ON c.id = rc.capability_id " +
+                            "WHERE r.code = 'SALES_REPRESENTATIVE' AND r.status = 'ACTIVE' " +
+                            "AND c.code IN ('CRM.ASSIGNMENT.READ','CRM.TRANSFER.READ','CRM.TRANSFER.REQUEST','CRM.TEAM.READ','CRM.QUEUE.READ','CRM.QUEUE.CLAIM','CRM.TERRITORY.READ','CRM.OWNERSHIP_HISTORY.READ')", Long.class))
                     .isEqualTo(activeTenantCount * 8L);
         }
 
@@ -970,36 +842,20 @@ class CrmPostgresMigrationTest {
         assertThat(columnExists(jdbc, "crm_contacts", "source")).isTrue();
 
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(87L); // 79 previous + 1 reporting + 2 portal + 2 executive health - 1 dedup + 2 G8 caller ID + 2 G8 call events (ledger restored)
+                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'", Long.class)).isEqualTo(87L);
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(2L);
+                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'", Long.class)).isEqualTo(2L);
     }
 
     private List<String> allCrmTables() {
         return Stream.of(
-                        CRM_CORE_TABLES,
-                        CRM_COMPLETION_TABLES,
-                        CRM_G2_TABLES,
-                        CRM_TASKS_TABLES,
-                        CRM_NOTES_TABLES,
-                        CRM_G1_REMAINING_TABLES,
-                        CRM_TAGS_TABLES,
-                        CRM_CUSTOMER_MASTER_TABLES,
-                        CRM_CONTACT_RELATIONSHIP_TABLES,
-                        CRM_ADDRESS_COMMUNICATION_TABLES,
-                        CRM_008B_NEW_TABLES,
-                        CRM_009_NEW_TABLES,
-                        CRM_010_NEW_TABLES,
-                        CRM_OWNERSHIP_MGMT_TABLES,
-                        CRM_CASES_TABLES,
-                        CRM_EMAIL_LOGS_TABLES,
-                        CRM_CALL_EVENT_TABLES,
-                        CRM_COLLABORATION_TABLES)
-                .flatMap(List::stream)
-                .sorted()
-                .toList();
+                        CRM_CORE_TABLES, CRM_COMPLETION_TABLES, CRM_G2_TABLES, CRM_TASKS_TABLES,
+                        CRM_NOTES_TABLES, CRM_G1_REMAINING_TABLES, CRM_TAGS_TABLES,
+                        CRM_CUSTOMER_MASTER_TABLES, CRM_CONTACT_RELATIONSHIP_TABLES,
+                        CRM_ADDRESS_COMMUNICATION_TABLES, CRM_008B_NEW_TABLES, CRM_009_NEW_TABLES,
+                        CRM_010_NEW_TABLES, CRM_OWNERSHIP_MGMT_TABLES, CRM_CASES_TABLES,
+                        CRM_EMAIL_LOGS_TABLES, CRM_CALL_EVENT_TABLES, CRM_COLLABORATION_TABLES)
+                .flatMap(List::stream).sorted().toList();
     }
 
     private Flyway flyway(MigrationVersion target) {
@@ -1028,40 +884,19 @@ class CrmPostgresMigrationTest {
     private void assertNoDuplicateVersions(JdbcTemplate jdbc) {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM (SELECT version FROM flyway_schema_history WHERE version IS NOT NULL " +
-                        "GROUP BY version HAVING COUNT(*) > 1) duplicates",
-                Long.class)).isZero();
+                        "GROUP BY version HAVING COUNT(*) > 1) duplicates", Long.class)).isZero();
     }
 
     private String latestVersion(JdbcTemplate jdbc) {
-        // version IS NOT NULL: repeatable migrations (R__*) occupy the highest
-        // installed_rank with a NULL version and must not shadow the terminal
-        // versioned migration.
         return jdbc.queryForObject(
-                "SELECT version FROM flyway_schema_history WHERE success=TRUE "
-                        + "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1",
-                String.class);
-    }
-
-    /** Numeric-aware comparison of Flyway versions like {@code 20260906.1}. */
-    private static int compareVersionStrings(String left, String right) {
-        String[] l = left.split("\\.");
-        String[] r = right.split("\\.");
-        int len = Math.max(l.length, r.length);
-        for (int i = 0; i < len; i++) {
-            int li = i < l.length ? Integer.parseInt(l[i]) : 0;
-            int ri = i < r.length ? Integer.parseInt(r[i]) : 0;
-            if (li != ri) {
-                return Integer.compare(li, ri);
-            }
-        }
-        return 0;
+                "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
+                        "AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
     }
 
     private List<String> existingTables(JdbcTemplate jdbc) {
         return jdbc.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema='public' " +
-                        "AND table_name LIKE 'crm_%' ORDER BY table_name",
-                String.class);
+                        "AND table_name LIKE 'crm_%' ORDER BY table_name", String.class);
     }
 
     private long g1TenantForeignKeyCount(JdbcTemplate jdbc) {
@@ -1069,8 +904,7 @@ class CrmPostgresMigrationTest {
                 "SELECT COUNT(*) FROM pg_constraint constraint_row " +
                         "JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid " +
                         "WHERE constraint_row.contype='f' AND constraint_row.confrelid='tenants'::regclass " +
-                        "AND table_row.relname IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes'," +
-                        "'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index')",
+                        "AND table_row.relname IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index')",
                 Long.class);
         return count == null ? 0L : count;
     }
@@ -1078,78 +912,54 @@ class CrmPostgresMigrationTest {
     private long g1ExplicitIndexCount(JdbcTemplate jdbc) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
-                        "AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes'," +
-                        "'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') " +
-                        "AND indexname LIKE 'idx_crm_%'",
-                Long.class);
+                        "AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') " +
+                        "AND indexname LIKE 'idx_crm_%'", Long.class);
         return count == null ? 0L : count;
     }
 
     private long g1IndexesWithoutTenantPrefix(JdbcTemplate jdbc) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' " +
-                        "AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes'," +
-                        "'crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') " +
-                        "AND indexname LIKE 'idx_crm_%' AND indexdef NOT LIKE '%(tenant_id,%'",
-                Long.class);
+                        "AND tablename IN ('crm_tasks','crm_assignments','crm_transfers','crm_notes','crm_audit_logs','crm_reports','crm_phone_numbers','crm_contact_lookup_index') " +
+                        "AND indexname LIKE 'idx_crm_%' AND indexdef NOT LIKE '%(tenant_id,%'", Long.class);
         return count == null ? 0L : count;
     }
 
     private boolean constraintExists(JdbcTemplate jdbc, String constraint) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.table_constraints " +
-                        "WHERE constraint_schema='public' AND constraint_name=?",
-                Long.class, constraint);
+                        "WHERE constraint_schema='public' AND constraint_name=?", Long.class, constraint);
         return count != null && count == 1L;
     }
 
     private boolean columnExists(JdbcTemplate jdbc, String table, String column) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
-                        "AND table_name=? AND column_name=?",
-                Long.class, table, column);
+                        "AND table_name=? AND column_name=?", Long.class, table, column);
         return count != null && count == 1L;
     }
 
     private boolean jsonbColumnExists(JdbcTemplate jdbc, String table, String column) {
-        // PostgreSQL catalog records JSONB columns as:
-        //   information_schema.columns.data_type = 'jsonb'
-        //   information_schema.columns.udt_name  = 'jsonb'
-        // (NOT 'USER-DEFINED' — that is the old value for some other types).
-        // Assert BOTH fields to prevent regression of the catalog-reading bug.
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' " +
-                        "AND table_name=? AND column_name=? " +
-                        "AND data_type='jsonb' AND udt_name='jsonb'",
+                        "AND table_name=? AND column_name=? AND data_type='jsonb' AND udt_name='jsonb'",
                 Long.class, table, column);
         return count != null && count == 1L;
     }
 
     private boolean partialIndexPredicateMatches(JdbcTemplate jdbc, String table, String indexName, String predicateFragment) {
-        // Use pg_get_expr(pg_index.indpred, pg_index.indrelid) for stable semantic check.
-        // pg_indexes.indexdef representation can vary (e.g. 'ACTIVE'::character varying
-        // vs 'ACTIVE'::text) between PostgreSQL versions; pg_get_expr returns the
-        // canonical predicate expression.
         try {
             String predicate = jdbc.queryForObject(
                     "SELECT pg_get_expr(i.indpred, i.indrelid) " +
-                            "FROM pg_index i " +
-                            "JOIN pg_class c ON c.oid = i.indrelid " +
+                            "FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid " +
                             "JOIN pg_class ci ON ci.oid = i.indexrelid " +
                             "JOIN pg_namespace n ON n.oid = c.relnamespace " +
                             "WHERE n.nspname='public' AND c.relname=? AND ci.relname=?",
                     String.class, table, indexName);
             if (predicate == null) return false;
-            // Semantic token-based check: extract identifiers and values from the
-            // fragment (e.g. "status = 'ACTIVE'" -> ["status", "ACTIVE"]) and
-            // verify each token appears in the predicate independently. This is
-            // robust to cast representation differences.
             String[] tokens = predicateFragment.replaceAll("[=()'\"\\s]+", " ").trim().split("\\s+");
             for (String token : tokens) {
-                if (token.isEmpty()) continue;
-                if (!predicate.contains(token)) {
-                    return false;
-                }
+                if (!token.isEmpty() && !predicate.contains(token)) return false;
             }
             return true;
         } catch (org.springframework.dao.EmptyResultDataAccessException e) {
