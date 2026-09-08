@@ -615,7 +615,6 @@ jobs:
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
       CANON_ROOT: ${{ github.workspace }}/r0c12-canonical-evidence
-      PGHOME: ${{ runner.temp }}/pgsql-16.2
 
     defaults:
       run:
@@ -646,6 +645,7 @@ jobs:
             echo "DISPATCH_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > "$CANON_ROOT/dispatch-binding.txt"
           echo "SHORT_SHA=$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_ENV"
+          echo "PGHOME=$RUNNER_TEMP/pgsql-16.2" >> "$GITHUB_ENV"
           cat "$CANON_ROOT/dispatch-binding.txt"
 
       - name: A6-4 Checkout EXACTLY EXPECTED_SHA
