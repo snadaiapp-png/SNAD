@@ -781,22 +781,32 @@ test("P10 — failing SYSTEM_ACTION opens a real incident; lifecycle OPEN → ac
   const ackRes = await postAs(request, ACTORS.INCIDENT_MANAGER,
     `/api/v1/workflows/incidents/${incident!.id}/acknowledge`, {});
   expect(ackRes.status()).toBe(200);
-  expect(((await ackRes.json()) as IncidentMap).status).toBe("ACKNOWLEDGED");
+  const acknowledged = (await ackRes.json()) as IncidentMap;
+  expect(acknowledged.status).toBe("ACKNOWLEDGED");
 
   const blankResolveRes = await postAs(request, ACTORS.INCIDENT_MANAGER,
-    `/api/v1/workflows/incidents/${incident!.id}/resolve`, { resolution: "" });
+    `/api/v1/workflows/incidents/${incident!.id}/resolve`, {
+      expectedVersion: acknowledged.version,
+      resolution: "",
+    });
   expect(blankResolveRes.status(), "resolve without mandatory reason must be 400").toBe(400);
 
   const resolveRes = await postAs(request, ACTORS.INCIDENT_MANAGER,
     `/api/v1/workflows/incidents/${incident!.id}/resolve`, {
+      expectedVersion: acknowledged.version,
       resolution: "E2E deterministic failure accepted and remediated",
     });
   expect(resolveRes.status()).toBe(200);
-  expect(((await resolveRes.json()) as IncidentMap).status).toBe("RESOLVED");
+  const resolved = (await resolveRes.json()) as IncidentMap;
+  expect(resolved.status).toBe("RESOLVED");
 
-  // Resolving again is a state-machine conflict, not a 500.
+  // Resolving again with the current optimistic version is a state-machine
+  // conflict, not a stale-version conflict and never a 500.
   const repeatRes = await postAs(request, ACTORS.INCIDENT_MANAGER,
-    `/api/v1/workflows/incidents/${incident!.id}/resolve`, { resolution: "again" });
+    `/api/v1/workflows/incidents/${incident!.id}/resolve`, {
+      expectedVersion: resolved.version,
+      resolution: "again",
+    });
   expect(repeatRes.status()).toBe(409);
 });
 
@@ -943,10 +953,12 @@ test("P13 — real application: authenticated Arabic RTL, full operational IA, a
   expect(lang).toBe("ar");
 
   // All operational IA destinations reachable through the real rendered UI.
+  // WorkflowNav exposes these controls as ARIA tabs, so query the accessibility
+  // role rather than their underlying <button> element type.
   for (const tab of WORKFLOW_TABS) {
-    const button = page.getByRole("button", { name: tab }).first();
-    await expect(button, `workflow IA tab ${tab} must exist`).toBeVisible();
-    await button.click();
+    const tabControl = page.getByRole("tab", { name: tab }).first();
+    await expect(tabControl, `workflow IA tab ${tab} must exist`).toBeVisible();
+    await tabControl.click();
   }
 
   // Navigation landmark + accessible names exist for the primary nav.
@@ -984,4 +996,5 @@ interface IncidentMap {
   status: string;
   resolution: string;
   createdAt: string;
+  version: number;
 }
