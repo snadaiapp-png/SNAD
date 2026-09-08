@@ -25,11 +25,11 @@ import java.util.UUID;
  *   <li>Aggregate both into a single {@link #checkAllSlaBreaches(UUID)} call</li>
  * </ul>
  *
- * <p>This service is <strong>idempotent</strong>: calling it multiple times
- * returns the same set of overdue items without side effects (it performs
- * reads only; it does not mutate the workflow state). When SLA enforcement
- * actions are needed (e.g. auto-expire approvals), a separate worker will
- * call the {@link WorkflowApprovalService} to apply the state change.
+ * <p>This service is <strong>idempotent and authoritative-read only</strong>:
+ * every SLA scan reloads current domain state through the authoritative
+ * repositories. Operational read-model snapshots are never authorization or
+ * command-decision evidence. SLA enforcement mutations belong to a separate
+ * command worker that revalidates authoritative state before transition.
  */
 @Service
 public class WorkflowMonitoringService {
@@ -47,11 +47,11 @@ public class WorkflowMonitoringService {
     }
 
     /**
-     * Check all SLA breaches for a tenant. Idempotent.
+     * Check all SLA breaches for a tenant. Idempotent and read-only.
      *
      * @return total number of overdue items (steps + approvals)
      */
-    @Transactional
+    @Transactional(readOnly = true)
     public int checkAllSlaBreaches(UUID tenantId) {
         int steps = checkOverdueSteps(tenantId);
         int approvals = checkOverdueApprovals(tenantId);
@@ -68,7 +68,7 @@ public class WorkflowMonitoringService {
      *
      * @return number of overdue step instances
      */
-    @Transactional
+    @Transactional(readOnly = true)
     public int checkOverdueSteps(UUID tenantId) {
         var inProgress = stepInstanceRepo.findByTenantAndStatus(
                 tenantId, WorkflowStepInstance.Status.IN_PROGRESS, 200);
@@ -78,8 +78,7 @@ public class WorkflowMonitoringService {
                 .toList();
         if (!overdue.isEmpty()) {
             log.warn("Tenant {} has {} overdue workflow step_instances (first: {})",
-                    tenantId, overdue.size(),
-                    overdue.get(0).id());
+                    tenantId, overdue.size(), overdue.get(0).id());
         }
         return overdue.size();
     }
@@ -89,7 +88,7 @@ public class WorkflowMonitoringService {
      *
      * @return number of overdue approval requests
      */
-    @Transactional
+    @Transactional(readOnly = true)
     public int checkOverdueApprovals(UUID tenantId) {
         var pending = approvalRepo.findByTenantAndStatus(
                 tenantId, WorkflowApprovalRequest.Status.PENDING, 200);
@@ -99,8 +98,7 @@ public class WorkflowMonitoringService {
                 .toList();
         if (!overdue.isEmpty()) {
             log.warn("Tenant {} has {} overdue workflow approval_requests (first: {})",
-                    tenantId, overdue.size(),
-                    overdue.get(0).id());
+                    tenantId, overdue.size(), overdue.get(0).id());
         }
         return overdue.size();
     }
