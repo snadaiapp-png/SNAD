@@ -15,7 +15,7 @@ permissions:
 
 concurrency:
   group: workflow-y2-production-orchestrator-contract-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   contract:
