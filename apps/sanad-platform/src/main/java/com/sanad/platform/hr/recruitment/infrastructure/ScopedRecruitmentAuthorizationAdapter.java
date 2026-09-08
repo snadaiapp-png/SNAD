@@ -26,6 +26,8 @@ public class ScopedRecruitmentAuthorizationAdapter implements RecruitmentAuthori
     public static final String CAPABILITY_OPENING_VIEW = "HRM.RECRUITMENT.OPENING.VIEW";
     public static final String CAPABILITY_OPENING_MANAGE = "HRM.RECRUITMENT.OPENING.MANAGE";
     public static final String CAPABILITY_OPENING_PUBLISH = "HRM.RECRUITMENT.OPENING.PUBLISH";
+    public static final String CAPABILITY_CANDIDATE_VIEW = "HRM.RECRUITMENT.CANDIDATE.VIEW";
+    public static final String CAPABILITY_CANDIDATE_MANAGE = "HRM.RECRUITMENT.CANDIDATE.MANAGE";
 
     private final ScopedAuthorizationService scopedAuthorizationService;
 
@@ -48,6 +50,16 @@ public class ScopedRecruitmentAuthorizationAdapter implements RecruitmentAuthori
     @Override
     public void requireOpeningPublish(HrCommandContext ctx, UUID openingId) {
         require(ctx, openingId, CAPABILITY_OPENING_PUBLISH);
+    }
+
+    @Override
+    public void requireCandidateView(HrCommandContext ctx, UUID candidateId) {
+        require(ctx, candidateId, CAPABILITY_CANDIDATE_VIEW);
+    }
+
+    @Override
+    public void requireCandidateManage(HrCommandContext ctx, UUID candidateId) {
+        require(ctx, candidateId, CAPABILITY_CANDIDATE_MANAGE);
     }
 
     private void require(HrCommandContext ctx, UUID openingId, String capability) {

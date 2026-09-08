@@ -24,4 +24,10 @@ public interface RecruitmentAuthorizationPort {
 
     /** OPENING.PUBLISH — approve (PENDING_APPROVAL → OPEN). */
     void requireOpeningPublish(HrCommandContext ctx, UUID openingId);
+
+    /** CANDIDATE.VIEW — candidate reads (masked contact). */
+    void requireCandidateView(HrCommandContext ctx, UUID candidateId);
+
+    /** CANDIDATE.MANAGE — candidate create/update/archive + full contact reads. */
+    void requireCandidateManage(HrCommandContext ctx, UUID candidateId);
 }
