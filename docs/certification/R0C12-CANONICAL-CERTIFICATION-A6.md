@@ -1,7 +1,7 @@
 # R0C-12 Canonical Certification — Amendment #6 (GitHub Actions Facility)
 
 PR #989 · branch `scp/r0c-12-access-check-jwt-correction`
-Certified engineering head (FINAL_CANONICAL_SHA): `cb0bbedf4a8bfab44474aa1a25a22bf6cf2df0b1`
+Certified engineering head (FINAL_CANONICAL_SHA): `47151f470970ee06d93e9224b071ecb2dfd04e60`
 Certification facility: **GITHUB_ACTIONS** (hosted runners; conversation/sandbox lifecycle has zero effect)
 Certification date (UTC): 2026-09-08
 
@@ -11,11 +11,11 @@ Certification date (UTC): 2026-09-08
 
 | Gate | Verdict | Authoritative evidence |
 |------|---------|------------------------|
-| Gate G — Canonical full suite | **PASS** | CI run 34255622382, job "R0C-12 Canonical Gate G", artifact `r0c12-canonical-gate-g-cb0bbed-run-34255622382` |
-| Gate H — Web / frontend | **PASS** | Web CI run 34255637383 (all steps success); PMV run 34255652534 JOB A + JOB E |
-| Gate I — Security | **PASS** | PMV run 34255652534 JOB C/D/E; canonical frozen invariants; manifest result=PASS |
-| PMV final aggregation | **PASS** | PMV run 34255652534 JOB F: `PMV_FINAL_GATE=PASS`, manifest `result=PASS`, `criticalFailures=[]`, `missingChecks=[]` |
-| Main stability | **STABLE** | origin/main = `4b1b71990b33f58968f202f5ba61926844158f20`, ancestor of certified head |
+| Gate G — Canonical full suite | **PASS** | CI run 34262239049, job "R0C-12 Canonical Gate G", artifact `r0c12-canonical-gate-g-47151f4-run-34262239049` |
+| Gate H — Web / frontend | **PASS** | Web CI run 34262255201 (all steps success); PMV run 34262271538 JOB A + JOB E |
+| Gate I — Security | **PASS** | PMV run 34262271538 JOB C/D/E; canonical frozen invariants; manifest result=PASS |
+| PMV final aggregation | **PASS** | PMV run 34262271538 JOB F: `PMV_FINAL_GATE=PASS`, manifest `result=PASS`, `criticalFailures=[]`, `missingChecks=[]` |
+| Main stability | **STABLE** | origin/main = `0454b2ce92c6a4047cbc79d86d33234d7af47861`, ancestor of certified head |
 
 `GATE_G_STATUS=PASS` · `FAILED_CONDITIONS=NONE` · `FINAL_INTEGRATED_GATE_G=PASS` · `CANONICAL_FACILITY=GITHUB_ACTIONS`
 
@@ -26,9 +26,9 @@ Certification date (UTC): 2026-09-08
 Verdict file `A6-GATE-G-VERDICT.txt` (SHA-256 verified within artifact, 450/450 files OK):
 
 ```text
-EXPECTED_SHA=cb0bbedf4a8bfab44474aa1a25a22bf6cf2df0b1
-ACTUAL_SHA=cb0bbedf4a8bfab44474aa1a25a22bf6cf2df0b1
-GITHUB_RUN_ID=34255622382
+EXPECTED_SHA=47151f470970ee06d93e9224b071ecb2dfd04e60
+ACTUAL_SHA=47151f470970ee06d93e9224b071ecb2dfd04e60
+GITHUB_RUN_ID=34262239049
 GITHUB_RUN_ATTEMPT=1
 GITHUB_REF=refs/heads/scp/r0c-12-access-check-jwt-correction
 EXECUTION_FACILITY=GITHUB_ACTIONS
@@ -112,21 +112,27 @@ Single invocation `SPRING_PROFILES_ACTIVE=pg-acceptance`, pristine `pg_acceptanc
 | V15 Java migration absence | `FlywayJavaMigrationsChainConsistencyTest` in canonical frozen evidence | V15 absent, 0F/0E |
 | production smoke fail-open | PMV JOB A "Smoke test — Frontend auth entry route" + PMV JOB C "Smoke test — Backend health" (operational smokes at exact SHA; fail-closed manifest accounting in JOB F) — production infrastructure NOT accessed (PRODUCTION=NOT_AUTHORIZED) | success |
 
-PMV manifest (artifact `verification-manifest-34255652534`): `result=PASS`, `criticalFailures=[]`, `missingChecks=[]`.
+PMV manifest (artifact `verification-manifest-34262271538`): `result=PASS`, `criticalFailures=[]`, `missingChecks=[]`.
 
 ---
 
 ## 5. Certification chain integrity
 
-1. Engineering head `cb0bbedf` = merge(parents `94c5241e` + main `4b1b7199`) — forward-only; no rebase, no force-push at any point of the cycle.
-2. Gate G PASS run 34255622382 completed 18:07:54Z at `cb0bbedf`; Gate H/I runs (34255637383, 34255652534) completed 17:27Z / 18:12:54Z at the same SHA (chronology held across the full cycle; at the previous head `94c5241e` the order was G 16:08:54Z → H/I 17:07Z; drift #4 was then integrated and all three re-certified at `cb0bbedf`).
-3. `git merge-base --is-ancestor origin/main cb0bbedf` = true at certification time (A6-27 FINAL_CERTIFICATION_VALID=YES).
+1. Engineering head `47151f47` lineage (all forward-only merges, `--no-ff`; NO rebase, NO force-push at any point of the cycle):
+   - `62440fd8` = merge(`f6741cbd` + main `05b64dfc`) — drift #3 (Wave 3 typed API + V20260908_1)
+   - `94c5241e` = `62440fd8` + governance fixes (canonical facility authoring corrections)
+   - `cb0bbedf` = merge(`94c5241e` + main `4b1b7199`) — drift #4 (Wave-4 G4 recert)
+   - `b569391c` = docs-only certification evidence commit
+   - `47151f47` = merge(`b569391c` + main `0454b2ce`) — drift #5 (guarded Y2 production release authorization; 4 governance files, no Java, no migrations)
+2. Gate G PASS runs in strict head order: 34244467381 @ `94c5241e` (16:08:54Z) → 34255622382 @ `cb0bbedf` (18:07Z) → **34262239049 @ `47151f47` (19:22:13Z, final)**; Gate H/I PASS after G at each head (Web CI 34262255201 success 18:21Z; PMV 34262271538 all-6-jobs success 19:02Z).
+3. `git merge-base --is-ancestor origin/main 47151f47` = true at certification time (A6-27 FINAL_CERTIFICATION_VALID=YES).
 4. Supporting-only evidence (NOT certification): CI run 34217129677 (PG 16.15, Maven not mechanically bound); d717 local Gate G; A5-13 local attempt (both `UNPROVEN_INFRA_INTERRUPTED`).
-5. Facility shakeout record: five mechanical authoring defects in the governance file were root-caused and fixed in-session (runner-context env, pre-checkout working-directory, checkout `git clean` vs evidence dir, bare-hash sha512, PG bool text-cast probe, stale-dir probe under `set -e`, testsuite-attribute vs testcase-element reconciliation). Every failed run produced fail-closed `UNPROVEN_OR_FAIL` artifacts — no false PASS was possible at any point.
+5. Facility shakeout record: seven mechanical authoring defects in the governance file were root-caused and fixed in-session (runner-context env, pre-checkout working-directory, checkout `git clean` vs evidence dir, bare-hash sha512, PG bool text-cast probe, stale-dir probe under `set -e`, testsuite-attribute vs testcase-element reconciliation). Every failed run produced fail-closed `UNPROVEN_OR_FAIL` artifacts — no false PASS was possible at any point.
 
 ## 6. Artifact index (GitHub Actions, retention ≥ 14 days)
 
-- `r0c12-canonical-gate-g-cb0bbed-run-34255622382` — canonical console (full), frozen surefire XMLs (431), metadata, reconciliation, verdict, acceptance evidence, SHA256SUMS
-- `verification-manifest-34255652534` — PMV final manifest
-- PMV run 34255652534: JOB A/B/C/D/E fragments, secret-scan report, smoke evidence
-- Web CI run 34255637383: vitest diagnostics, Next.js build output
+- `r0c12-canonical-gate-g-47151f4-run-34262239049` — canonical console (full), frozen surefire XMLs (431), metadata, reconciliation, verdict, acceptance evidence, SHA256SUMS
+- `verification-manifest-34262271538` — PMV final manifest
+- PMV run 34262271538: JOB A/B/C/D/E fragments, secret-scan report, smoke evidence
+- Web CI run 34262255201: vitest diagnostics, Next.js build output
+- Prior-cycle equivalents preserved: `r0c12-canonical-gate-g-94c5241-run-34244467381` (@94c5241e), `r0c12-canonical-gate-g-cb0bbed-run-34255622382` (@cb0bbedf)
