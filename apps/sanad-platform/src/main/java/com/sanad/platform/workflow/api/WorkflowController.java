@@ -88,6 +88,16 @@ public class WorkflowController {
                 "message", e.getMessage() != null ? e.getMessage() : "Version conflict"));
     }
 
+    @org.springframework.web.bind.annotation.ExceptionHandler(WorkflowSystemActionFailureException.class)
+    public ResponseEntity<Map<String, Object>> handleSystemActionFailure(WorkflowSystemActionFailureException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "status", 409, "error", "Conflict", "code", "WORKFLOW_SYSTEM_ACTION_FAILED",
+                "failureCategory", e.failureCategory,
+                "incidentId", e.incidentId,
+                "workflowInstanceId", e.workflowInstanceId,
+                "completedWorkItemId", e.completedWorkItemId));
+    }
+
     @org.springframework.web.bind.annotation.ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
@@ -181,25 +191,25 @@ public class WorkflowController {
 
     @PostMapping("/work-items/{id}/claim")
     @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<Map<String, Object>> claimWorkItem(
+    public ResponseEntity<WorkflowDtos.WorkItemResponse> claimWorkItem(
             Authentication auth, @PathVariable UUID id, @RequestBody WorkItemCommandRequest req) {
         var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(toWorkItemMap(workItemService.claim(
+        return ResponseEntity.ok(WorkflowDtos.WorkItemResponse.from(workItemService.claim(
                 tenantId(auth), id, employee.id(), req.expectedVersion())));
     }
 
     @PostMapping("/work-items/{id}/release")
     @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<Map<String, Object>> releaseWorkItem(
+    public ResponseEntity<WorkflowDtos.WorkItemResponse> releaseWorkItem(
             Authentication auth, @PathVariable UUID id, @RequestBody WorkItemCommandRequest req) {
         var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(toWorkItemMap(workItemService.release(
+        return ResponseEntity.ok(WorkflowDtos.WorkItemResponse.from(workItemService.release(
                 tenantId(auth), id, employee.id(), req.expectedVersion())));
     }
 
     @PostMapping("/work-items/{id}/complete")
     @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<Map<String, Object>> completeWorkItem(
+    public ResponseEntity<WorkflowDtos.WorkItemResponse> completeWorkItem(
             Authentication auth, @PathVariable UUID id, @RequestBody WorkItemCommandRequest req) {
         var employee = requireActorEmployee(auth);
         var tenant = tenantId(auth);
@@ -207,22 +217,21 @@ public class WorkflowController {
         var advanced = graphExecutionService.advance(tenant, completed.workflowInstanceId(), null, userId(auth));
         var outcome = graphExecutionService.runCurrentSystemAction(tenant, advanced.id(), userId(auth));
         if (outcome.incidentId() != null) {
-            return ResponseEntity.status(409).body(Map.of(
-                    "status", 409, "error", "Conflict", "code", "WORKFLOW_SYSTEM_ACTION_FAILED",
-                    "failureCategory", String.valueOf(outcome.failureCategory()),
-                    "incidentId", String.valueOf(outcome.incidentId()),
-                    "workflowInstanceId", String.valueOf(outcome.instance().id()),
-                    "completedWorkItemId", String.valueOf(completed.id())));
+            throw new WorkflowSystemActionFailureException(
+                    String.valueOf(outcome.failureCategory()),
+                    String.valueOf(outcome.incidentId()),
+                    String.valueOf(outcome.instance().id()),
+                    String.valueOf(completed.id()));
         }
-        return ResponseEntity.ok(toWorkItemMap(completed));
+        return ResponseEntity.ok(WorkflowDtos.WorkItemResponse.from(completed));
     }
 
     @PostMapping("/work-items/{id}/reassign")
     @RequireCapability("WORKFLOW.REASSIGN")
-    public ResponseEntity<Map<String, Object>> reassignWorkItem(
+    public ResponseEntity<WorkflowDtos.WorkItemResponse> reassignWorkItem(
             Authentication auth, @PathVariable UUID id, @RequestBody WorkItemReassignRequest req) {
         var employee = requireActorEmployee(auth);
-        return ResponseEntity.ok(toWorkItemMap(workItemService.reassign(
+        return ResponseEntity.ok(WorkflowDtos.WorkItemResponse.from(workItemService.reassign(
                 tenantId(auth), id, req.newAssigneeEmployeeId(), employee.id(),
                 req.expectedVersion(), req.reason())));
     }
@@ -304,7 +313,7 @@ public class WorkflowController {
                 .stream().map(this::toIncidentMap).toList());
     }
 
-    public record IncidentResolveRequest(String resolution) {}
+    public record IncidentResolveRequest(long expectedVersion, String resolution) {}
 
     @PostMapping("/incidents/{id}/acknowledge")
     @RequireCapability("WORKFLOW.INCIDENT_MANAGE")
@@ -317,7 +326,7 @@ public class WorkflowController {
     public ResponseEntity<Map<String, Object>> resolveIncident(
             Authentication auth, @PathVariable UUID id, @RequestBody IncidentResolveRequest req) {
         return ResponseEntity.ok(toIncidentMap(incidentService.resolve(
-                tenantId(auth), id, userId(auth), req.resolution())));
+                tenantId(auth), id, userId(auth), req.expectedVersion(), req.resolution())));
     }
 
     @PostMapping("/definitions/{id}/activate")
@@ -587,7 +596,24 @@ public class WorkflowController {
         map.put("workflowInstanceId", i.workflowInstanceId() != null ? i.workflowInstanceId().toString() : "");
         map.put("source", i.source()); map.put("severity", i.severity().name());
         map.put("failureCategory", i.failureCategory() != null ? i.failureCategory() : ""); map.put("status", i.status().name());
-        map.put("resolution", i.resolution() != null ? i.resolution() : ""); map.put("createdAt", i.createdAt().toString()); return map;
+        map.put("resolution", i.resolution() != null ? i.resolution() : ""); map.put("createdAt", i.createdAt().toString());
+        map.put("version", i.version()); return map;
+    }
+
+    private static final class WorkflowSystemActionFailureException extends RuntimeException {
+        private final String failureCategory;
+        private final String incidentId;
+        private final String workflowInstanceId;
+        private final String completedWorkItemId;
+
+        private WorkflowSystemActionFailureException(String failureCategory, String incidentId,
+                                                     String workflowInstanceId, String completedWorkItemId) {
+            super("Workflow system action failed");
+            this.failureCategory = failureCategory;
+            this.incidentId = incidentId;
+            this.workflowInstanceId = workflowInstanceId;
+            this.completedWorkItemId = completedWorkItemId;
+        }
     }
 
     static int safeLimit(int limit) { if (limit < 0) return 50; return Math.min(limit, 200); }

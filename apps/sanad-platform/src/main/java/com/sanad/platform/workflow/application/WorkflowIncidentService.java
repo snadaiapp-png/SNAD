@@ -1,6 +1,7 @@
 package com.sanad.platform.workflow.application;
 
 import com.sanad.platform.workflow.domain.WorkflowIncident;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,11 +33,12 @@ public class WorkflowIncidentService {
         jdbc.update("""
                 INSERT INTO workflow_incidents (
                     id, tenant_id, workflow_instance_id, step_instance_id, source,
-                    severity, failure_category, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                    severity, failure_category, status, version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
                 """, incident.id(), incident.tenantId(), incident.workflowInstanceId(),
                 incident.workflowStepInstanceId(), incident.source(),
-                incident.severity().name(), incident.failureCategory(), incident.status().name());
+                incident.severity().name(), incident.failureCategory(), incident.status().name(),
+                incident.version());
         return incident;
     }
 
@@ -64,9 +66,29 @@ public class WorkflowIncidentService {
         return updated;
     }
 
+    /**
+     * Backward-compatible internal resolution path. External Y2 API callers
+     * must use the expectedVersion overload below.
+     */
     @Transactional
     public WorkflowIncident resolve(UUID tenantId, UUID incidentId, UUID actor, String resolution) {
         var incident = load(tenantId, incidentId);
+        return resolveLoaded(incident, actor, incident.version(), resolution);
+    }
+
+    @Transactional
+    public WorkflowIncident resolve(UUID tenantId, UUID incidentId, UUID actor,
+                                    long expectedVersion, String resolution) {
+        var incident = load(tenantId, incidentId);
+        return resolveLoaded(incident, actor, expectedVersion, resolution);
+    }
+
+    private WorkflowIncident resolveLoaded(WorkflowIncident incident, UUID actor,
+                                            long expectedVersion, String resolution) {
+        if (incident.version() != expectedVersion) {
+            throw new OptimisticLockingFailureException(
+                    "WorkflowIncident " + incident.id() + " was modified by another operator");
+        }
         var updated = incident.resolve(actor, resolution);
         persist(updated);
         return updated;
@@ -78,11 +100,16 @@ public class WorkflowIncidentService {
     }
 
     private void persist(WorkflowIncident incident) {
-        jdbc.update("""
-                UPDATE workflow_incidents SET status = ?, owner = ?, resolution = ?, updated_at = NOW()
-                WHERE id = ? AND tenant_id = ?
-                """, incident.status().name(), incident.owner(), incident.resolution(),
-                incident.id(), incident.tenantId());
+        int affected = jdbc.update("""
+                UPDATE workflow_incidents
+                SET status = ?, owner = ?, resolution = ?, version = ?, updated_at = NOW()
+                WHERE id = ? AND tenant_id = ? AND version = ?
+                """, incident.status().name(), incident.owner(), incident.resolution(), incident.version(),
+                incident.id(), incident.tenantId(), incident.version() - 1);
+        if (affected != 1) {
+            throw new OptimisticLockingFailureException(
+                    "WorkflowIncident " + incident.id() + " was modified by another operator");
+        }
     }
 
     private WorkflowIncident map(java.sql.ResultSet rs) throws java.sql.SQLException {
@@ -98,6 +125,7 @@ public class WorkflowIncidentService {
                 rs.getObject("owner", UUID.class),
                 rs.getString("resolution"),
                 rs.getObject("retry_step_instance_id", UUID.class),
+                rs.getLong("version"),
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant());
     }
