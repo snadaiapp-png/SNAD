@@ -40,9 +40,6 @@ import static com.sanad.platform.security.SecurityContextUtils.userId;
  * and require a {@link RequireCapability WORKFLOW.*} capability.
  *
  * <p>Base path: {@code /api/v1/workflows}
- *
- * <p>Responses use {@link Map}&lt;String,Object&gt; for simplicity, following
- * the same convention as {@code ManagementDecisionController}.
  */
 @RestController
 @RequestMapping("/api/v1/workflows")
@@ -84,13 +81,6 @@ public class WorkflowController {
 
     // ===== Exception Handling =====
 
-    /**
-     * Map controller-thrown AccessDeniedException (actionability denials,
-     * capability denials surfacing inside handler bodies) to HTTP 403.
-     * Without this handler Spring Boot surfaces them as 500, which violates
-     * the fail-closed release contract (P09: a disabled user's stale token
-     * must be DENIED, not errored).
-     */
     @org.springframework.web.bind.annotation.ExceptionHandler(
             org.springframework.security.access.AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(
@@ -101,11 +91,6 @@ public class WorkflowController {
                 "message", ex.getMessage() == null ? "Access denied" : ex.getMessage()));
     }
 
-    /**
-     * Map IllegalStateException (SOD violations, state machine violations) to HTTP 409 CONFLICT
-     * instead of HTTP 500. This ensures business-rule rejections are not treated as
-     * internal server errors in production error sweeps.
-     */
     @org.springframework.web.bind.annotation.ExceptionHandler(
             org.springframework.dao.OptimisticLockingFailureException.class)
     public ResponseEntity<Map<String, Object>> handleOptimisticLock(
@@ -127,11 +112,6 @@ public class WorkflowController {
         ));
     }
 
-    /**
-     * Map IllegalArgumentException (reference integrity violations, missing
-     * entities) to HTTP 400 BAD_REQUEST so callers get a controlled 4xx
-     * instead of a 500 from the global handler.
-     */
     @org.springframework.web.bind.annotation.ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
@@ -176,10 +156,6 @@ public class WorkflowController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /**
-     * AN3 publish-gate preview: runs the structural validator against the
-     * draft and reports stable, language-neutral error codes.
-     */
     @PostMapping("/definitions/{id}/validate")
     @RequireCapability("WORKFLOW.VALIDATE")
     public ResponseEntity<Map<String, Object>> validateDefinition(
@@ -195,11 +171,6 @@ public class WorkflowController {
                         .toList()));
     }
 
-    /**
-     * Side-effect-free simulation (AN3). System actions, notifications, and
-     * sub-workflows are stubbed; the response is explicitly marked
-     * non-production.
-     */
     @PostMapping("/definitions/{id}/simulate")
     @RequireCapability("WORKFLOW.VALIDATE")
     public ResponseEntity<Map<String, Object>> simulateDefinition(
@@ -216,33 +187,28 @@ public class WorkflowController {
 
     // ===== WorkItems (C3/L3) =====
 
-    /**
-     * Every work-item command revalidates the acting user's actionability
-     * (ACTIVE linked employee/user) server-side before touching the item —
-     * assignment never grants authorization (D3/N3).
-     */
     private com.sanad.platform.hr.domain.HrEmployee requireActorEmployee(Authentication auth) {
         return actionabilityService.requireActionableEmployee(tenantId(auth), userId(auth));
     }
 
     @GetMapping("/work-items/mine")
     @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<List<Map<String, Object>>> myWorkItems(
+    public ResponseEntity<List<WorkflowDtos.WorkItemResponse>> myWorkItems(
             Authentication auth, @RequestParam(defaultValue = "50") int limit) {
         var employee = requireActorEmployee(auth);
         return ResponseEntity.ok(workItemService
                 .findMyWork(tenantId(auth), employee.id(), safeLimit(limit))
-                .stream().map(this::toWorkItemMap).toList());
+                .stream().map(WorkflowDtos.WorkItemResponse::from).toList());
     }
 
     @GetMapping("/work-items/pool")
     @RequireCapability("WORKFLOW.TASK_EXECUTE")
-    public ResponseEntity<List<Map<String, Object>>> poolWorkItems(
+    public ResponseEntity<List<WorkflowDtos.WorkItemResponse>> poolWorkItems(
             Authentication auth, @RequestParam(defaultValue = "50") int limit) {
         var employee = requireActorEmployee(auth);
         return ResponseEntity.ok(workItemService
                 .findPoolWork(tenantId(auth), employee.id(), safeLimit(limit))
-                .stream().map(this::toWorkItemMap).toList());
+                .stream().map(WorkflowDtos.WorkItemResponse::from).toList());
     }
 
     public record WorkItemCommandRequest(long expectedVersion, String reason) {}
@@ -276,10 +242,6 @@ public class WorkflowController {
         var employee = requireActorEmployee(auth);
         var tenant = tenantId(auth);
         var completed = workItemService.complete(tenant, id, employee.id(), req.expectedVersion());
-        // Y2 graph contract (P05 release semantics): completing a work item
-        // advances the instance through the graph — creating the next step's
-        // WorkItems or completing the instance at END. A pending SYSTEM_ACTION
-        // step runs immediately; its failure is a controlled 409.
         var advanced = graphExecutionService.advance(
                 tenant, completed.workflowInstanceId(), null, userId(auth));
         var outcome = graphExecutionService.runCurrentSystemAction(
@@ -435,7 +397,6 @@ public class WorkflowController {
                 incidentService.resolve(tenantId(auth), id, userId(auth), req.resolution())));
     }
 
-
     @PostMapping("/definitions/{id}/activate")
     @RequireCapability("WORKFLOW.WRITE")
     public ResponseEntity<Map<String, Object>> activateDefinition(
@@ -468,7 +429,6 @@ public class WorkflowController {
             Authentication auth, @PathVariable UUID id, @RequestBody CreateStepRequest req) {
         var tenant = tenantId(auth);
         var actor = userId(auth);
-        // Validate definition exists and belongs to authenticated tenant
         definitionService.findById(tenant, id)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowDefinition not found: " + id));
@@ -487,7 +447,6 @@ public class WorkflowController {
     public ResponseEntity<List<Map<String, Object>>> listSteps(
             Authentication auth, @PathVariable UUID id) {
         var tenant = tenantId(auth);
-        // Validate definition belongs to tenant
         definitionService.findById(tenant, id)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowDefinition not found: " + id));
@@ -503,13 +462,9 @@ public class WorkflowController {
             Authentication auth, @RequestBody StartWorkflowRequest req) {
         var tenant = tenantId(auth);
         var actor = userId(auth);
-        // Resolve the workflow definition and its first step.
         var def = definitionService.findById(tenant, req.workflowDefinitionId())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowDefinition not found: " + req.workflowDefinitionId()));
-        // Start eligibility is generation-aware (Z3/AA3):
-        // LEGACY definitions use the legacy ACTIVE lifecycle,
-        // Y2 definitions use the PUBLISHED publication state.
         boolean startEligible = switch (def.engineGeneration()) {
             case LEGACY -> def.status() == WorkflowDefinition.Status.ACTIVE;
             case Y2 -> def.publicationState() == WorkflowDefinition.PublicationState.PUBLISHED;
@@ -541,11 +496,6 @@ public class WorkflowController {
         };
         var saved = executionService.startWorkflow(instance, actor);
         if (def.engineGeneration() == WorkflowDefinition.EngineGeneration.Y2) {
-            // Y2 graph contract (P04/P05 release semantics): starting the
-            // instance activates the first real step — creating WorkItems and
-            // approval requests — then executes an initial SYSTEM_ACTION step
-            // when present. A failed action is a controlled 409 with the
-            // incident id, never a silent skip and never a 500.
             var advanced = graphExecutionService.advance(tenant, saved.id(), null, actor);
             var outcome = graphExecutionService.runCurrentSystemAction(tenant, advanced.id(), actor);
             if (outcome.incidentId() != null) {
@@ -584,7 +534,6 @@ public class WorkflowController {
     public ResponseEntity<List<Map<String, Object>>> listStepInstances(
             Authentication auth, @PathVariable UUID id) {
         var tenant = tenantId(auth);
-        // Validate instance belongs to tenant
         executionService.findById(tenant, id)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowInstance not found: " + id));
@@ -671,7 +620,6 @@ public class WorkflowController {
             @RequestBody CreateApprovalRequest req) {
         var tenant = tenantId(auth);
         var actor = userId(auth);
-        // Validate instance exists and belongs to tenant
         executionService.findById(tenant, instanceId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowInstance not found: " + instanceId));
@@ -849,6 +797,7 @@ public class WorkflowController {
                 Map.entry("version", si.version())
         );
     }
+
     private Map<String, Object> toWorkItemMap(WorkflowWorkItem w) {
         Map<String, Object> map = new java.util.HashMap<>();
         map.put("id", w.id());
@@ -879,11 +828,6 @@ public class WorkflowController {
         return map;
     }
 
-    /**
-     * Clamp the client-supplied list limit. Negative values fall back to the
-     * default page size (PostgreSQL rejects a negative LIMIT with
-     * "LIMIT must not be negative"), and the upper bound caps unbounded scans.
-     */
     static int safeLimit(int limit) {
         if (limit < 0) return 50;
         return Math.min(limit, 200);
