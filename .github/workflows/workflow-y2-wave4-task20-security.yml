@@ -84,8 +84,8 @@ jobs:
           echo "::add-mask::$key"
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
 
-      - name: Run Task 20 security suites
+      - name: Run Task 20 security suites and concurrency race matrix
         run: >-
           mvn -B -ntp
-          -Dtest=WorkflowSecurityNegativeTest,WorkflowIdempotencyTest,WorkflowY2TenantIsolationTest,WorkflowBreakGlassTest,WorkflowWorkItemConcurrencyTest,WorkflowApprovalReferenceIntegrityTest,WorkflowParallelExecutionTest,WorkflowDefinitionVersioningTest
+          -Dtest=WorkflowSecurityNegativeTest,WorkflowIdempotencyTest,WorkflowY2TenantIsolationTest,WorkflowBreakGlassTest,WorkflowWorkItemConcurrencyTest,WorkflowApprovalReferenceIntegrityTest,WorkflowParallelExecutionTest,WorkflowDefinitionVersioningTest,WorkflowTask20RaceMatrixTest
           test
