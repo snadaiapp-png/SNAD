@@ -14,6 +14,8 @@ TENANT_ID='77777777-7777-7777-7777-777777777777'
 class Handler(BaseHTTPRequestHandler):
     state={'published': False, 'steps': []}
     immutability_status=409
+    existing_canary=False
+    full_list=False
 
     def log_message(self, *_):
         pass
@@ -36,6 +38,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/actuator/health':
             return self._send(200, {'status':'UP'})
         if path == '/api/v1/workflows/definitions':
+            if self.full_list:
+                return self._send(200, [
+                    {'id':f'{i:08d}-1111-1111-1111-111111111111','code':f'OTHER-{i}'}
+                    for i in range(200)
+                ])
+            if self.existing_canary:
+                return self._send(200, [{'id':DEF_ID,'code':'Y2-PROD-CANARY-aaaaaaaaaaaa','publicationState':'PUBLISHED','engineGeneration':'Y2'}])
             return self._send(200, [])
         if path == f'/api/v1/workflows/definitions/{DEF_ID}':
             return self._send(200, {'id':DEF_ID,'definitionFamilyId':FAMILY_ID,'version':1,'versionLock':1 if self.state['published'] else 0,'publicationState':'PUBLISHED' if self.state['published'] else 'DRAFT','engineGeneration':'Y2' if self.state['published'] else 'LEGACY'})
@@ -47,6 +56,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/v1/auth/login':
             return self._send(200, {'accessToken':'test-token-abcdefghijklmnopqrstuvwxyz','user':{'tenantId':TENANT_ID}})
         if path == '/api/v1/workflows/definitions':
+            if body.get('code') != 'Y2-PROD-CANARY-aaaaaaaaaaaa':
+                return self._send(400, {'status':400,'message':'unexpected canary code'})
             self.state={'published':False,'steps':[]}
             return self._send(200, {'id':DEF_ID,'definitionFamilyId':FAMILY_ID,'version':1,'versionLock':0,'publicationState':'DRAFT','engineGeneration':'LEGACY'})
         if path == f'/api/v1/workflows/definitions/{DEF_ID}/steps':
@@ -73,6 +84,6 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {'status':404,'path':path})
 
 if __name__ == '__main__':
-    p=argparse.ArgumentParser(); p.add_argument('--port',type=int,required=True); p.add_argument('--immutability-status',type=int,default=409)
-    a=p.parse_args(); Handler.immutability_status=a.immutability_status
+    p=argparse.ArgumentParser(); p.add_argument('--port',type=int,required=True); p.add_argument('--immutability-status',type=int,default=409); p.add_argument('--existing-canary',action='store_true'); p.add_argument('--full-list',action='store_true')
+    a=p.parse_args(); Handler.immutability_status=a.immutability_status; Handler.existing_canary=a.existing_canary; Handler.full_list=a.full_list
     ThreadingHTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
