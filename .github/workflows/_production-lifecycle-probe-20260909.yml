@@ -1,20 +1,45 @@
-name: Production Lifecycle Probe Parked
+name: Production Lifecycle Repository Secret Probe Dispatcher
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - ops/production-lifecycle-probe-20260909
+    paths:
+      - '.github/workflows/_production-lifecycle-probe-20260909.yml'
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  parked:
-    name: Operational probe parked — no production mutation
+  dispatch:
+    name: Dispatch repository-level lifecycle input probe
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify probe is parked
+      - name: Verify current main remains exact production SHA
         shell: bash
         run: |
           set -euo pipefail
-          echo 'PRODUCTION_LIFECYCLE_PROBE=PARKED'
-          echo 'No production action is performed by this workflow.'
+          EXPECTED='b0498962f9a5cc1515b32432fdab98480dedcbe3'
+          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$REMOTE_MAIN_SHA" = "$EXPECTED" || {
+            echo '::error::Current main moved from the production target SHA.'
+            exit 1
+          }
+
+      - name: Dispatch branch probe on existing CRM workflow path
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body='{"ref":"ops/production-lifecycle-probe-20260909"}'
+          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/dispatch.json" -w '%{http_code}' \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            --data "$body" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-real-smoke.yml/dispatches")"
+          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::Probe dispatch failed HTTP $code"; exit 1 ;; esac
