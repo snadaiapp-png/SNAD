@@ -1,4 +1,4 @@
-name: Production Lifecycle Probe Scaffold
+name: Production Lifecycle Protected Context Probe
 
 on:
   push:
@@ -9,11 +9,74 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  protected-context:
+    name: Verify exact source and protected production context
     runs-on: ubuntu-latest
+    environment:
+      name: Production
+    timeout-minutes: 10
+    env:
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      SYNTHETIC_INBOX_BASE: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact production source
+        uses: actions/checkout@v4
         with:
           ref: b0498962f9a5cc1515b32432fdab98480dedcbe3
-      - name: Verify exact source
-        run: test "$(git rev-parse HEAD)" = "b0498962f9a5cc1515b32432fdab98480dedcbe3"
+          fetch-depth: 1
+          submodules: false
+
+      - name: Verify exact source and current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED='b0498962f9a5cc1515b32432fdab98480dedcbe3'
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$REMOTE_MAIN_SHA" = "$EXPECTED" || {
+            echo "::error::Current main moved from the production target SHA."
+            exit 1
+          }
+
+      - name: Fail closed on missing protected production context
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in PRODUCTION_BASE_URL RESEND_API_KEY SYNTHETIC_INBOX_BASE CRM_TENANT_B_EMAIL CRM_TENANT_B_PASSWORD; do
+            test -n "${!name:-}" || {
+              echo "::error::$name is required for production lifecycle closure."
+              exit 1
+            }
+            echo "::add-mask::${!name}"
+          done
+          test "${PRODUCTION_BASE_URL%/}" = 'https://sanad-backend-mcrj.onrender.com' || {
+            echo "::error::PRODUCTION_BASE_URL is not the expected Render backend."
+            exit 1
+          }
+          [[ "$SYNTHETIC_INBOX_BASE" == *@* ]] || {
+            echo "::error::SANAD_ADMIN_EMAIL is not a valid mailbox basis."
+            exit 1
+          }
+
+      - name: Verify backend health and readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            "$PRODUCTION_BASE_URL/actuator/health" > "$RUNNER_TEMP/health.json"
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            "$PRODUCTION_BASE_URL/actuator/health/readiness" > "$RUNNER_TEMP/readiness.json"
+          jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null
+          jq -e '.status == "UP"' "$RUNNER_TEMP/readiness.json" >/dev/null
+
+      - name: Verify Resend observation channel is readable
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $RESEND_API_KEY" \
+            'https://api.resend.com/emails?limit=1' > "$RUNNER_TEMP/resend-probe.json"
+          jq -e 'has("data") and (.data | type == "array")' "$RUNNER_TEMP/resend-probe.json" >/dev/null
