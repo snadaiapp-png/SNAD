@@ -94,4 +94,20 @@ public class ExecutiveReadController {
         accessGuard.require(authentication);
         return ResponseEntity.ok(subscriptionDetailService.detail(id));
     }
+
+    /**
+     * R0C-12 G5-R1 — design §8 requires {@code GET /subscriptions/{id}} as the
+     * detail read-model path; this additive alias serves the exact same
+     * read model as {@code /subscriptions/{id}/detail} (kept for the existing
+     * frontend contract). Literal {@code /subscriptions/v2} outranks this
+     * capture (proven by ExecutiveSubscriptionDetailRouteTest).
+     */
+    @GetMapping("/subscriptions/{id}")
+    @RequireCapability("EXECUTIVE_VIEW")
+    public ResponseEntity<SubscriptionDetailService.SubscriptionDetail> subscription(
+            @PathVariable UUID id,
+            Authentication authentication) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(subscriptionDetailService.detail(id));
+    }
 }

@@ -6,12 +6,10 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
-import java.util.Optional;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,14 +30,11 @@ public class UsageController {
 
     private final ControlPlaneAccessGuard accessGuard;
     private final UsageMeteringService usageMeteringService;
-    private final JdbcTemplate jdbc;
 
     public UsageController(ControlPlaneAccessGuard accessGuard,
-                           UsageMeteringService usageMeteringService,
-                           JdbcTemplate jdbc) {
+                           UsageMeteringService usageMeteringService) {
         this.accessGuard = accessGuard;
         this.usageMeteringService = usageMeteringService;
-        this.jdbc = jdbc;
     }
 
     @PostMapping("/events")
@@ -62,12 +57,8 @@ public class UsageController {
             @RequestParam("tenantId") UUID tenantId,
             Authentication authentication) {
         accessGuard.require(authentication);
-        List<String> metrics = jdbc.queryForList(
-                "SELECT code FROM usage_metrics ORDER BY code", String.class);
-        return ResponseEntity.ok(metrics.stream()
-                .map(m -> usageMeteringService.usageSnapshot(tenantId, m))
-                .flatMap(Optional::stream)
-                .toList());
+        // batched read model — fixed statement budget regardless of metric count
+        return ResponseEntity.ok(usageMeteringService.usageSnapshots(tenantId));
     }
 
 }

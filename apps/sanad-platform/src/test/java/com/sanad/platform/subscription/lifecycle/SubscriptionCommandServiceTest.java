@@ -21,12 +21,19 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link SubscriptionCommandService}.
+ *
+ * <p>R0C-8 seam note: the canonical transition UPDATE is a GUARDED write
+ * ({@code WHERE id = ? AND status = <validated fromStatus>}) that fails
+ * closed on zero affected rows — the mocked JdbcTemplate must therefore
+ * stub {@code update(...)} to return 1 row, mirroring the real database
+ * contract for a successfully applied single-row transition.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SubscriptionCommandService — command execution")
@@ -48,6 +55,10 @@ class SubscriptionCommandServiceTest {
     @BeforeEach
     void setUp() {
         service = new SubscriptionCommandService(jdbc, auditService, eventPublisher);
+        // Real-database contract: a guarded single-row UPDATE affects 1 row.
+        // Lenient: tests that never reach the write (illegal/unknown paths)
+        // do not consume this stub.
+        lenient().when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
     }
 
     private void activeSubscriptionRow() {
@@ -70,7 +81,7 @@ class SubscriptionCommandServiceTest {
 
         assertThat(result.toStatus()).isEqualTo("SUSPENDED");
         verify(jdbc).update(contains("UPDATE tenant_subscriptions SET status = 'SUSPENDED'"),
-                eq(SUBSCRIPTION_ID));
+                eq(SUBSCRIPTION_ID), eq("ACTIVE"));
         verify(jdbc).update(contains("INSERT INTO subscription_commands"),
                 any(UUID.class), eq(SUBSCRIPTION_ID), eq(TENANT_ID), eq("SUSPEND"),
                 eq("ACTIVE"), eq("SUSPENDED"), eq("policy violation"),
@@ -109,7 +120,7 @@ class SubscriptionCommandServiceTest {
         assertThatThrownBy(() -> service.execute(SUBSCRIPTION_ID, "RESUME", null, null, null))
                 .isInstanceOf(IllegalStateException.class);
 
-        verify(jdbc, never()).update(contains("UPDATE tenant_subscriptions"), (Object) any());
+        verify(jdbc, never()).update(contains("UPDATE tenant_subscriptions"), any(Object[].class));
         verify(jdbc, never()).update(contains("INSERT INTO subscription_commands"),
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
         verify(eventPublisher, never()).publishEvent(any());
@@ -137,6 +148,6 @@ class SubscriptionCommandServiceTest {
                 service.execute(SUBSCRIPTION_ID, "CANCEL", "customer request", null, null);
 
         assertThat(result.toStatus()).isEqualTo("CANCELLED");
-        verify(jdbc).update(contains("cancelled_at"), eq(SUBSCRIPTION_ID));
+        verify(jdbc).update(contains("cancelled_at"), eq(SUBSCRIPTION_ID), eq("ACTIVE"));
     }
 }

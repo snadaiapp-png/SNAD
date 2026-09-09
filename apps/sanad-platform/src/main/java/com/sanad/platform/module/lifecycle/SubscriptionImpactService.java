@@ -3,6 +3,8 @@ package com.sanad.platform.module.lifecycle;
 import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.module.entitlement.ModuleCapabilityContext;
 import com.sanad.platform.module.registry.*;
+import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,17 +27,34 @@ public class SubscriptionImpactService {
     private final ModuleCapabilityRepository moduleCapabilityRepository;
     private final PlanModuleEntitlementRepository planModuleEntitlementRepository;
     private final JdbcTemplate jdbc;
+    private final SubscriptionResolutionService resolution;
 
+    @Autowired
     public SubscriptionImpactService(EntitlementResolver entitlementResolver,
                                        ModuleRepository moduleRepository,
                                        ModuleCapabilityRepository moduleCapabilityRepository,
                                        PlanModuleEntitlementRepository planModuleEntitlementRepository,
-                                       JdbcTemplate jdbc) {
+                                       JdbcTemplate jdbc,
+                                       SubscriptionResolutionService resolution) {
         this.entitlementResolver = entitlementResolver;
         this.moduleRepository = moduleRepository;
         this.moduleCapabilityRepository = moduleCapabilityRepository;
         this.planModuleEntitlementRepository = planModuleEntitlementRepository;
         this.jdbc = jdbc;
+        this.resolution = resolution;
+    }
+
+    /**
+     * Backward-compatible constructor (tests): self-wires the R0C-10
+     * effective-resolution authority from the same JdbcTemplate.
+     */
+    public SubscriptionImpactService(EntitlementResolver entitlementResolver,
+                                       ModuleRepository moduleRepository,
+                                       ModuleCapabilityRepository moduleCapabilityRepository,
+                                       PlanModuleEntitlementRepository planModuleEntitlementRepository,
+                                       JdbcTemplate jdbc) {
+        this(entitlementResolver, moduleRepository, moduleCapabilityRepository,
+                planModuleEntitlementRepository, jdbc, new SubscriptionResolutionService(jdbc));
     }
 
     /**
@@ -166,12 +185,20 @@ public class SubscriptionImpactService {
         catch (NumberFormatException e) { return 0; }
     }
 
+    /**
+     * R0C-10 MODEL_B convergence: resolve the tenant's unique EFFECTIVE
+     * subscription and keep the legacy ACTIVE lifecycle gate — replacing the
+     * arbitrary {@code status = 'ACTIVE' LIMIT 1} tenant-only selection.
+     * Observable behavior is unchanged; the resolution is now
+     * multiplicity-safe and deterministic.
+     */
     private String getCurrentPlanCode(UUID tenantId) {
         try {
-            return jdbc.queryForObject(
-                    "SELECT p.code FROM tenant_subscriptions s JOIN saas_plans p ON p.id = s.plan_id " +
-                            "WHERE s.tenant_id = ? AND s.status = 'ACTIVE' LIMIT 1",
-                    String.class, tenantId);
+            return resolution.findEffectiveSubscription(tenantId)
+                    .filter(sub -> "ACTIVE".equals(sub.status()))
+                    .map(sub -> jdbc.queryForObject(
+                            "SELECT code FROM saas_plans WHERE id = ?", String.class, sub.planId()))
+                    .orElse("NONE");
         } catch (Exception e) {
             return "NONE";
         }

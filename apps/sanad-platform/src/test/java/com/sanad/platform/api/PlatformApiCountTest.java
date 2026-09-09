@@ -36,13 +36,20 @@ class PlatformApiCountTest {
      *  /api/v2/crm/calls (1), /calls/events (1), /calls/{callId} (1) = 715.
      *  + 2 ERP inventory endpoints (PR #912):
      *  /api/v1/erp/inventory/reservations (1), /movements (1) = 717.
-     *  + 46 Subscription Control Plane + Workflow Y2 endpoints (merged from main;
-     *  main pin at ab2b46e7): SCP closure 29 (746) + Workflow Y2 17 (763).
+     *  + 29 Subscription Control Plane (SCP closure) endpoints — catalog (4),
+     *  plan versions (3), subscription items (3), prices (5), lifecycle/provisioning (6),
+     *  governance (2), executive read models (4), usage metering (2),
+     *  all under /api/v1/executive = 746.
+     *  + 17 Workflow Y2 endpoints (merged from main; main pin at ab2b46e7) = 763.
      *  + 58 HRM-G0 canonical v2 operations (WS5 Task 6; verified pre-HRM total
      *  717 at commit d945f272 lineage, 717 + 46 + 58 = 821):
      *  People (9), Employments (11), Assignments (6), Org Units (4), Jobs (4),
-     *  Positions (6), Contracts (6), Compensation (5), Compliance/Audit (7). */
-    private static final long EXPECTED_TOTAL_OPS = 821;
+     *  Positions (6), Contracts (6), Compensation (5), Compliance/Audit (7).
+     *  + 4 R0C-11 product catalog runtime endpoints (GET /products, GET /products/{id},
+     *  POST /products, PUT /products/{id} — NO DELETE by design) = 825.
+     *  + 1 R0C-12 design-contract detail alias (GET /subscriptions/{id} — additive,
+     *  same read model as /subscriptions/{id}/detail) = 826. */
+    private static final long EXPECTED_TOTAL_OPS = 826;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -59,7 +66,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(75);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(80);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);

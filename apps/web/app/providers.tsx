@@ -8,7 +8,10 @@ import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
 import { CRM_ROOT_ENTRY_COOKIE } from "../proxy";
 
-const PROTECTED_ROOTS = ["/workspace", "/crm", "/control-plane"];
+// R0C-12 G6-R1: /executive added per the authoritative implementation plan
+// (G6.2: "add /executive to PROTECTED_ROOTS if safe") so session loss on any
+// executive route triggers the redirect-with-returnUrl recovery flow.
+export const PROTECTED_ROOTS = ["/workspace", "/crm", "/control-plane", "/executive"];
 
 function hasCrmRootEntryMarker(): boolean {
   return document.cookie

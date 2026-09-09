@@ -266,6 +266,34 @@
   font-size: var(--snad-font-size-xs);
 }
 
+/* ── Responsive navigation (R0C-12 G6-R3) ───────────────────────── */
+.navToggle {
+  display: none;
+  align-items: center;
+  gap: var(--snad-space-2);
+  padding: var(--snad-space-2) var(--snad-space-3);
+  min-height: 2.75rem; /* SDS touch target */
+  border: 1px solid var(--snad-color-border-subtle);
+  border-radius: var(--snad-radius-md);
+  background: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-primary);
+  font-size: var(--snad-font-size-sm);
+  cursor: pointer;
+}
+
+.navToggle:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 2px;
+}
+
+.navSlot {
+  flex: 0 0 15rem;
+}
+
+.navBackdrop {
+  display: none;
+}
+
 /* ── Responsive: tablet ─────────────────────────────────────────── */
 @media (max-width: 64rem) {
   .nav {
@@ -276,6 +304,47 @@
 
   .scpLayout {
     flex-direction: column;
+  }
+
+  .navSlot {
+    flex: 0 0 auto;
+    inline-size: 100%;
+  }
+
+  .navToggle {
+    display: inline-flex;
+  }
+
+  .navSlot[data-open="false"] {
+    display: none;
+  }
+}
+
+/* ── Responsive: mobile — drawer overlay (R0C-12 G6-R3) ────────── */
+@media (max-width: 40rem) {
+  .navSlot[data-open="true"] {
+    position: fixed;
+    inset-block-start: 4.5rem;
+    inset-inline-start: var(--snad-space-3);
+    inline-size: min(17rem, 80vw);
+    z-index: 60;
+  }
+
+  .nav {
+    box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.25);
+    max-block-size: 75vh;
+    overflow-block: auto;
+  }
+
+  .navBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgb(0 0 0 / 0.5);
+    border: none;
+    padding: 0;
+    cursor: pointer;
   }
 }
 

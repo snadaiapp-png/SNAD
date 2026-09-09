@@ -73,6 +73,15 @@ class Crm008bFoundationAcceptanceTest {
     // CRM Contacts Collaboration Integration (impl/crm-contacts-collaboration-20260823):
     //   V20260823.2 - crm participant role exclusivity is the new terminal migration.
     //   Earlier V20260823.1 (crm contacts force rls) precedes it.
+    //
+    // Migration identity reconciliation (Amendment #5 owner Option 2; forward
+    // drift reconciliation of 05b64dfc):
+    //   V20260906_1 = workflow notification dedup unique index (main Task 15
+    //                 T15-D1 remediation; main-authoritative at 20260906.1).
+    //   V20260906_2 = SCP subscription multiplicity MODEL_B (renumbered from
+    //                 V20260906_1 at integration; unmerged on PR #989).
+    //   V20260908_1 = workflow incident optimistic lock (forward-merged from
+    //                 main; current terminal migration).
     private static final String CRM_LATEST_VERSION = "20260908.1"; // Terminal versioned migration: V20260908_1 adds workflow incident optimistic locking
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");

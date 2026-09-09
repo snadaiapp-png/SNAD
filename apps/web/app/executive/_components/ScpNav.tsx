@@ -21,7 +21,12 @@ import styles from "../scp.module.css";
  *   authorized   — the backend answered with an explicit capability map;
  *                  a link is visible only when its capability is exactly
  *                  `true` (fail-closed: missing keys stay hidden).
- *   unauthorized — the backend answered with authenticated=false; no links.
+ *                  When authenticated but NO capability is granted, an
+ *                  explicit "signed in, no access" notice renders instead
+ *                  of an empty nav (AUTHENTICATED_BUT_NO_CAPABILITIES is
+ *                  distinct from AUTHENTICATION_FAILURE).
+ *   unauthorized — the backend answered with authenticated=false (an
+ *                  authentication/session failure); no links.
  *   degraded     — the access-check failed; links are hidden (fail-closed)
  *                  and an explicit error with a retry control is shown.
  *                  A broken capability service is never silently mapped to
@@ -112,6 +117,22 @@ export function ScpNav() {
         <ScpNotice>{t("scp.nav.unauthorized")}</ScpNotice>
       </nav>
     );
+  }
+
+  // AUTHENTICATED_BUT_NO_CAPABILITIES — distinct from an authentication
+  // failure: the backend explicitly said authenticated=true, so the session
+  // is valid; zero capabilities means this role simply has no SCP powers.
+  if (state.phase === "authorized") {
+    const anyVisible = SECTIONS.some((section) =>
+      section.links.some((link) => state.access.capabilities[link.capability] === true),
+    );
+    if (!anyVisible) {
+      return (
+        <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}>
+          <ScpNotice>{t("scp.nav.noAccess")}</ScpNotice>
+        </nav>
+      );
+    }
   }
 
   return (

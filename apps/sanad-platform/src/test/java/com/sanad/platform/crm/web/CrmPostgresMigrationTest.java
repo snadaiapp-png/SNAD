@@ -137,7 +137,7 @@ class CrmPostgresMigrationTest {
     private static final String CONTACTS_FORCE_RLS_VERSION = "20260823.1";
     private static final String PARTICIPANT_ROLE_EXCLUSIVITY_VERSION = "20260823.2";
     private static final String OWNER_EMAIL_CANONICALIZATION_VERSION = "20260828.1";
-    private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260827.1";
+    private static final String HRM_PLATFORM_PREREQUISITES_VERSION = "20260904.2";
     private static final String SCP_APPLICATIONS_CATALOG_VERSION = "20260829.1";
     private static final String SCP_PRODUCTS_PLAN_VERSIONS_VERSION = "20260829.2";
     private static final String SCP_SUBSCRIPTION_ITEMS_VERSION = "20260829.3";
@@ -171,7 +171,14 @@ class CrmPostgresMigrationTest {
     private static final String HR_CONTRACT_COMPENSATION_VERSION = "20260905.16";
     private static final String HRM_V2_CAPABILITIES_VERSION = "20260905.17";
     private static final String Y2_G0_IDENTITY_RECONCILIATION_VERSION = "20260905.18";
+    // Workflow Task 15 remediation (T15-D1): notification intent dedup unique
+    // index (main-authoritative identity at 20260906.1).
     private static final String WF_NOTIFICATION_DEDUP_VERSION = "20260906.1";
+    // R0C-10: subscription multiplicity MODEL_B (renumbered from V20260906_1
+    // to V20260906_2 at Amendment #5 integration).
+    private static final String SCP_MULTIPLICITY_MODEL_B_VERSION = "20260906.2";
+    // Forward drift reconciliation of 05b64dfc: workflow incident optimistic
+    // lock is the terminal migration of the merged ledger.
     private static final String WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION = "20260908.1";
     private static final String LATEST_MIGRATION_VERSION = WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION;
 
@@ -369,7 +376,6 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
-                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
                         MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
@@ -386,6 +392,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
                         MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
@@ -405,6 +412,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
+                        MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -539,7 +547,6 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(COLLABORATION_OUTBOX_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(CONTACTS_FORCE_RLS_VERSION),
                         MigrationVersion.fromVersion(PARTICIPANT_ROLE_EXCLUSIVITY_VERSION),
-                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(OWNER_EMAIL_CANONICALIZATION_VERSION),
                         MigrationVersion.fromVersion(SCP_APPLICATIONS_CATALOG_VERSION),
                         MigrationVersion.fromVersion(SCP_PRODUCTS_PLAN_VERSIONS_VERSION),
@@ -556,6 +563,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_Y2_EVENTS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_BREAK_GLASS_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_PRODUCTION_RECONCILIATION_VERSION),
+                        MigrationVersion.fromVersion(HRM_PLATFORM_PREREQUISITES_VERSION),
                         MigrationVersion.fromVersion(HR_PERSON_IDENTITY_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(EMPLOYMENT_EXPANSION_VERSION),
                         MigrationVersion.fromVersion(STRUCTURE_VERSIONING_VERSION),
@@ -575,6 +583,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HRM_V2_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
+                        MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
         completion.migrate();
         completion.validate();

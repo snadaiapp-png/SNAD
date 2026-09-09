@@ -519,3 +519,745 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           find target/surefire-reports -name "*CommerceOrderPostgresConcurrencyTest.txt" -exec cat {} \; 2>/dev/null >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+# ============================================================
+# R0C-12 — Amendment #6 (v20260908.1): Persistent Canonical
+# Certification Facility — GATE G (MANUAL DISPATCH ONLY)
+# ------------------------------------------------------------
+# OWNER AUTHORIZATION: Amendment #6 (GitHub Actions Canonical
+# Certification Facility). LOCAL_Z_CANONICAL_EXECUTION =
+# FORBIDDEN (sandbox rebuilds killed the d717 and A5-13 local
+# canonical attempts twice; both classified
+# UNPROVEN_INFRA_INTERRUPTED / SUPPORTING_DIAGNOSTIC_EVIDENCE_ONLY).
+#
+# This job is ADDITIVE and MANUAL-ONLY:
+#   - runs exclusively on workflow_dispatch (guarded by `if`)
+#   - existing jobs (Maven Test Suite, CRM Integration Tests,
+#     PostgreSQL Acceptance Tests) and their required check
+#     names are UNCHANGED
+#   - no application/test/migration source changes
+#
+# Canonical contract implemented here (A6-4..A6-21):
+#   - EXACT SHA binding: EXPECTED_SHA=github.sha, checkout of
+#     EXPECTED_SHA, git rev-parse HEAD == EXPECTED_SHA, else
+#     FAIL CLOSED
+#   - EXACT JDK: Eclipse Adoptium / Temurin 21.0.12.1
+#     (java.version verified == 21.0.12.1, else ENVIRONMENT_BLOCKER)
+#   - EXACT Maven: 3.9.16 installed explicitly (archive.apache.org,
+#     sha512-verified; `mvn -version` must contain
+#     "Apache Maven 3.9.16")
+#   - EXACT PostgreSQL: 16.2 built from the official source
+#     release (sha256-verified) incl. contrib btree_gist; the
+#     runner's preinstalled PostgreSQL is a later 16 minor and is
+#     supporting evidence only (A6-1) — it is stopped and NEVER
+#     used by the canonical run. NO Docker / NO Testcontainers /
+#     NO H2. Host-native process execution only.
+#   - Least-privilege provisioning identical to authoritative CI:
+#     bootstrap admin = postgres; application role = sanad
+#     (NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS LOGIN);
+#     databases sanad + test_migration owned by sanad;
+#     crm_contact_rls_test_user under the non-superuser RLS
+#     contract; fresh ephemeral masked
+#     CRM_CUSTOM_FIELD_ENCRYPTION_KEY
+#   - CLEANLINESS: 0 application tables in sanad and
+#     test_migration, STALE_SUREFIRE_XML = 0 before launch
+#   - EXACTLY ONE uninterrupted canonical Maven invocation:
+#     `mvn test -B -ntp -Dsurefire.useFile=false` captured via
+#     tee with pipefail + PIPESTATUS (real MAVEN_EXIT_CODE)
+#   - FREEZE BEFORE ANY SECOND MAVEN: full console + all
+#     TEST-*.xml + metadata frozen and SHA-256 manifested
+#   - XML RECONCILIATION vs Maven console aggregate;
+#     XML_PARSE_ERRORS=0; DUPLICATE_REPORTS=0
+#   - SKIP CLASSIFICATION: every skipped testcase must be a
+#     known profile-gated class covered by the companion
+#     acceptance run (CommerceOrderPostgresConcurrencyTest = 6,
+#     RbacAccessCheckPostgresAcceptanceTest = 15); any unknown
+#     skip => UNEXPLAINED_SKIPS > 0 => GATE G FAIL
+#   - CRITICAL SCP INVARIANTS from frozen evidence:
+#     FinanceModuleIntegrationTest = 11/0F/0E/0S,
+#     AiSecurityNegativeTest = 7/0F/0E,
+#     WorkflowY2CapabilityMigrationTest = 3/0F/0E
+#   - PG-ACCEPTANCE COMPANION after the Gate-G freeze only:
+#     pristine pg_acceptance DB, SPRING_PROFILES_ACTIVE=
+#     pg-acceptance, BOTH gated classes in one explicit
+#     invocation, EXPECTED_ACCEPTANCE_TESTS=21 (Commerce=6,
+#     RBAC=15), 0F/0E/0S
+#   - EVIDENCE MANIFEST + VERDICT files (A6-GATE-G-METADATA.txt,
+#     A6-GATE-G-RECONCILIATION.txt, A6-GATE-G-VERDICT.txt,
+#     A6-PG-ACCEPTANCE-VERDICT.txt, SHA256SUMS.txt) uploaded as a
+#     run/SHA-bound artifact ALWAYS (also on failure;
+#     if-no-files-found: error)
+#   - PROCESS_PERSISTENCE_BINDING=PASS is emitted ONLY when the
+#     test is actually running as a GitHub Actions workflow run
+#     with a valid GITHUB_RUN_ID (the run lifecycle is the
+#     execution authority; a chat restart has no effect)
+#
+# GATE G PASS requires ALL A6-20 conditions true; otherwise
+# GATE_G_STATUS=UNPROVEN_OR_FAIL and the job fails closed.
+# ============================================================
+  r0c12-canonical-gate-g:
+    name: R0C-12 Canonical Gate G
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    permissions:
+      contents: read
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+
+    # NOTE: CANON_ROOT lives under $RUNNER_TEMP (NOT the workspace) —
+    # actions/checkout runs `git clean -ffdx` over the workspace, which
+    # would erase any pre-checkout evidence directory created there.
+
+    # NOTE: no job-level defaults.run.working-directory — the first step runs
+    # BEFORE checkout, so apps/sanad-platform does not exist yet (a job-level
+    # default made bash fail to start on the runner). Steps that need the
+    # repo layout declare `working-directory` explicitly.
+    steps:
+      - name: A6-4/9 Record dispatch binding (manual-only, run-id bound)
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = "workflow_dispatch" || {
+            echo "::error::ENVIRONMENT_BLOCKER=NOT_MANUAL_DISPATCH"
+            exit 1
+          }
+          test -n "${GITHUB_RUN_ID}" && test "${GITHUB_RUN_ID}" -gt 0 || {
+            echo "::error::PROCESS_PERSISTENCE_BINDING=FAIL (no GITHUB_RUN_ID)"
+            exit 1
+          }
+          echo "CANON_ROOT=$RUNNER_TEMP/r0c12-canonical-evidence" >> "$GITHUB_ENV"
+          # GITHUB_ENV writes apply only to SUBSEQUENT steps — define the
+          # same value locally for THIS step (set -u would abort otherwise).
+          export CANON_ROOT="$RUNNER_TEMP/r0c12-canonical-evidence"
+          mkdir -p "$CANON_ROOT"
+          {
+            echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+            echo "GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+            echo "GITHUB_REF=${GITHUB_REF}"
+            echo "GITHUB_SHA=${GITHUB_SHA}"
+            echo "EXPECTED_SHA=${GITHUB_SHA}"
+            echo "EXECUTION_FACILITY=GITHUB_ACTIONS"
+            echo "EVENT_NAME=${GITHUB_EVENT_NAME}"
+            echo "RUNNER_OS=${RUNNER_OS}"
+            echo "DISPATCH_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "$CANON_ROOT/dispatch-binding.txt"
+          echo "SHORT_SHA=$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_ENV"
+          echo "PGHOME=$RUNNER_TEMP/pgsql-16.2" >> "$GITHUB_ENV"
+          cat "$CANON_ROOT/dispatch-binding.txt"
+
+      - name: A6-4 Checkout EXACTLY EXPECTED_SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: A6-4 Verify git HEAD == EXPECTED_SHA (fail closed)
+        run: |
+          set -euo pipefail
+          ACTUAL_GIT_HEAD="$(git rev-parse HEAD)"
+          EXPECTED_SHA="${GITHUB_SHA}"
+          test -z "$(git status --porcelain)" || {
+            echo "::error::GIT_TREE_DIRTY (checkout not pristine)"
+            exit 1
+          }
+          if [ "$ACTUAL_GIT_HEAD" != "$EXPECTED_SHA" ]; then
+            echo "::error::SHA_BINDING_MISMATCH expected=${EXPECTED_SHA} actual=${ACTUAL_GIT_HEAD}"
+            exit 1
+          fi
+          mkdir -p "$CANON_ROOT"
+          {
+            echo "ACTUAL_GIT_HEAD=${ACTUAL_GIT_HEAD}"
+            echo "SHA_BINDING=PASS"
+          } >> "$CANON_ROOT/dispatch-binding.txt"
+          echo "SHA_BINDING=PASS (${ACTUAL_GIT_HEAD})"
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
+
+      - name: A6-8 Install PostgreSQL build prerequisites (host-native)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential bison flex libreadline-dev zlib1g-dev >/dev/null
+          python3 -c "import xml.etree.ElementTree as ET; print('PYTHON_XML_OK')"
+
+      - name: A6-6 Provision EXACT Temurin JDK 21.0.12.1 (fail closed)
+        run: |
+          set -euo pipefail
+          resp="$(curl -fsSL 'https://api.adoptium.net/v3/assets/latest/21/hotspot?os=linux&architecture=x64&image_type=jdk')"
+          link="$(printf '%s' "$resp" | jq -r '.[] | select(.release_name=="jdk-21.0.12.1+1") | .binary.package.link' | head -n1)"
+          if [ -z "$link" ]; then
+            # Fallback to the canonical pinned Temurin release asset
+            # (same exact release: jdk-21.0.12.1+1, Eclipse Adoptium).
+            link="https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz"
+            echo "NOTE: latest-filter empty; using pinned Temurin 21.0.12.1+1 release asset"
+          fi
+          echo "JDK_RELEASE_NAME=jdk-21.0.12.1+1" > "$CANON_ROOT/toolchain.txt"
+          echo "JDK_VENDOR=Eclipse Adoptium / Temurin" >> "$CANON_ROOT/toolchain.txt"
+          mkdir -p "$RUNNER_TEMP/jdk"
+          curl -fsSL "$link" -o "$RUNNER_TEMP/jdk/temurin.tar.gz"
+          tar -xzf "$RUNNER_TEMP/jdk/temurin.tar.gz" -C "$RUNNER_TEMP/jdk"
+          JDK_DIR="$(find "$RUNNER_TEMP/jdk" -maxdepth 1 -type d -name 'jdk-21*' | head -n1)"
+          test -n "$JDK_DIR" || { echo "::error::ENVIRONMENT_BLOCKER=JDK_EXTRACT_FAILED"; exit 1; }
+          echo "JAVA_HOME=$JDK_DIR" >> "$GITHUB_ENV"
+          echo "$JDK_DIR/bin" >> "$GITHUB_PATH"
+          JVER="$("$JDK_DIR/bin/java" -XshowSettings:properties -version 2>&1 | awk -F'= ' '/java.version =/{print $2}')"
+          echo "java.version=${JVER}"
+          if [ "$JVER" != "21.0.12.1" ]; then
+            echo "::error::ENVIRONMENT_BLOCKER=JDK_VERSION_NOT_21.0.12.1 (got ${JVER})"
+            exit 1
+          fi
+          echo "JAVA_VERSION=21.0.12.1" >> "$CANON_ROOT/toolchain.txt"
+
+      - name: A6-7 Provision EXACT Apache Maven 3.9.16 (sha512, fail closed)
+        run: |
+          set -euo pipefail
+          base="https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries"
+          curl -fsSL "$base/apache-maven-3.9.16-bin.tar.gz" -o "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz"
+          curl -fsSL "$base/apache-maven-3.9.16-bin.tar.gz.sha512" -o "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz.sha512"
+          # Apache publishes the Maven .sha512 as a BARE hash (no filename),
+          # which `sha512sum -c` cannot parse — verify by token comparison.
+          msha_expected="$(awk '{print $1}' "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz.sha512")"
+          msha_actual="$(sha512sum "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz" | awk '{print $1}')"
+          if [ -z "$msha_expected" ] || [ "$msha_expected" != "$msha_actual" ]; then
+            echo "::error::ENVIRONMENT_BLOCKER=MAVEN_SHA512_MISMATCH (expected=${msha_expected:0:16}... actual=${msha_actual:0:16}...)"
+            exit 1
+          fi
+          echo "MAVEN_SHA512=VERIFIED"
+          mkdir -p "$RUNNER_TEMP/maven"
+          tar -xzf "$RUNNER_TEMP/apache-maven-3.9.16-bin.tar.gz" -C "$RUNNER_TEMP/maven"
+          MVN_HOME="$RUNNER_TEMP/maven/apache-maven-3.9.16"
+          echo "MAVEN_HOME=$MVN_HOME" >> "$GITHUB_ENV"
+          echo "$MVN_HOME/bin" >> "$GITHUB_PATH"
+          MOUT="$("$MVN_HOME/bin/mvn" -version)"
+          echo "$MOUT"
+          echo "$MOUT" | grep -q 'Apache Maven 3.9.16' || {
+            echo "::error::ENVIRONMENT_BLOCKER=MAVEN_VERSION_NOT_3.9.16"
+            exit 1
+          }
+          echo "MAVEN_VERSION=3.9.16" >> "$CANON_ROOT/toolchain.txt"
+
+      - name: A6-8 Build EXACT PostgreSQL 16.2 from official source + btree_gist
+        run: |
+          set -euo pipefail
+          curl -fsSL https://ftp.postgresql.org/pub/source/v16.2/postgresql-16.2.tar.bz2 -o "$RUNNER_TEMP/postgresql-16.2.tar.bz2"
+          curl -fsSL https://ftp.postgresql.org/pub/source/v16.2/postgresql-16.2.tar.bz2.sha256 -o "$RUNNER_TEMP/postgresql-16.2.tar.bz2.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum -c postgresql-16.2.tar.bz2.sha256) || {
+            echo "::error::ENVIRONMENT_BLOCKER=PG16.2_SHA256_MISMATCH"
+            exit 1
+          }
+          tar -xjf "$RUNNER_TEMP/postgresql-16.2.tar.bz2" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/postgresql-16.2"
+          ./configure --prefix="$PGHOME" > a6-configure.log 2>&1 || { tail -50 a6-configure.log; echo "::error::ENVIRONMENT_BLOCKER=PG_CONFIGURE_FAILED"; exit 1; }
+          make -j"$(nproc)" > a6-make.log 2>&1 || { tail -50 a6-make.log; echo "::error::ENVIRONMENT_BLOCKER=PG_MAKE_FAILED"; exit 1; }
+          make install > a6-make-install.log 2>&1 || { tail -50 a6-make-install.log; echo "::error::ENVIRONMENT_BLOCKER=PG_MAKE_INSTALL_FAILED"; exit 1; }
+          cd contrib/btree_gist
+          make -j"$(nproc)" > a6-btreegist-make.log 2>&1 || { tail -50 a6-btreegist-make.log; echo "::error::ENVIRONMENT_BLOCKER=BTREE_GIST_MAKE_FAILED"; exit 1; }
+          make install >> a6-btreegist-make.log 2>&1
+          PVER="$("$PGHOME/bin/postgres" --version)"
+          echo "postgres --version: ${PVER}"
+          echo "$PVER" | grep -Eq '\(PostgreSQL\) 16\.2(\s|$)' || {
+            echo "::error::ENVIRONMENT_BLOCKER=POSTGRES_VERSION_NOT_16.2 (got ${PVER})"
+            exit 1
+          }
+          echo "POSTGRES_VERSION=16.2" >> "$CANON_ROOT/toolchain.txt"
+
+      - name: A6-8 Start host-native PostgreSQL 16.2 on 5432 (no containers)
+        run: |
+          set -euo pipefail
+          # The runner's preinstalled PostgreSQL (a later 16 minor, supporting
+          # evidence only per A6-1) must NOT serve the canonical run.
+          sudo systemctl stop postgresql || true
+          sudo systemctl disable postgresql || true
+          export PATH="$PGHOME/bin:$PATH"
+          for i in $(seq 1 10); do
+            pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1 || break
+            sleep 2
+          done
+          if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
+            echo "::error::ENVIRONMENT_BLOCKER=PORT_5432_OCCUPIED"
+            exit 1
+          fi
+          initdb -D "$RUNNER_TEMP/pgdata162" -A trust -U postgres --locale=C.UTF-8
+          pg_ctl -D "$RUNNER_TEMP/pgdata162" -l "$RUNNER_TEMP/pgdata162.log" \
+            -o "-p 5432 -c listen_addresses=127.0.0.1 -k $RUNNER_TEMP" -w start
+          pg_isready -h 127.0.0.1 -p 5432
+          "$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -tAc "SELECT version();"
+          echo "PGDATA=$RUNNER_TEMP/pgdata162" >> "$GITHUB_ENV"
+
+      - name: A6-10 Provision least-privilege roles + pristine databases
+        run: |
+          set -euo pipefail
+          export PATH="$PGHOME/bin:$PATH"
+          "$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          -- 1. Application role `sanad` (least-privilege LOGIN).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- 2. The disposable application database, owned by `sanad`.
+          SELECT 'CREATE DATABASE sanad OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
+          ALTER DATABASE sanad OWNER TO sanad;
+
+          -- 3. The disposable `test_migration` database owned by `sanad`.
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+
+          -- 4. CONNECT on the maintenance DB for `sanad`.
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+
+          -- 5. Schema privileges for `sanad` on the `sanad` database.
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+
+          -- Mirror the schema privileges on the test_migration database.
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c sanad
+
+          -- 6. The C2 test RLS user (non-superuser RLS contract).
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+            END IF;
+          END $$;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SQL
+          attrs="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -tAc \
+            "SELECT rolname||'='||CASE WHEN rolsuper THEN 't' ELSE 'f' END||CASE WHEN rolcreatedb THEN 't' ELSE 'f' END||CASE WHEN rolcreaterole THEN 't' ELSE 'f' END||CASE WHEN rolbypassrls THEN 't' ELSE 'f' END||CASE WHEN rolcanlogin THEN 't' ELSE 'f' END FROM pg_roles WHERE rolname IN ('sanad','crm_contact_rls_test_user') ORDER BY rolname;")"
+          echo "$attrs"
+          echo "$attrs" | grep -q '^crm_contact_rls_test_user=fffft$' || {
+            echo "::error::ENVIRONMENT_BLOCKER=RLS_TEST_USER_PRIVILEGE_CONTRACT_VIOLATED"; exit 1;
+          }
+          echo "$attrs" | grep -q '^sanad=fffft$' || {
+            echo "::error::ENVIRONMENT_BLOCKER=SANAD_ROLE_PRIVILEGE_CONTRACT_VIOLATED"; exit 1;
+          }
+          echo "NOSUPERUSER=PASS" >> "$CANON_ROOT/toolchain.txt"
+          echo "NOBYPASSRLS=PASS" >> "$CANON_ROOT/toolchain.txt"
+
+      - name: A6-10 Generate fresh ephemeral CRM encryption key (masked)
+        shell: bash
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          test -n "$key"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: A6-11 Cleanliness gates (0 tables, STALE_SUREFIRE_XML=0)
+        working-directory: apps/sanad-platform
+        run: |
+          set -euo pipefail
+          export PATH="$PGHOME/bin:$PATH"
+          export PGPASSWORD=sanad_pass
+          c1="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U sanad -d sanad -tAc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
+          c2="$("$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U sanad -d test_migration -tAc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
+          echo "APPLICATION_TABLE_COUNT=${c1} TEST_MIGRATION_TABLE_COUNT=${c2}"
+          [ "$c1" = "0" ] && [ "$c2" = "0" ] || {
+            echo "::error::ENVIRONMENT_BLOCKER=DB_NOT_PRISTINE (sanad=${c1} test_migration=${c2})"
+            exit 1
+          }
+          rm -rf target/surefire-reports
+          mkdir -p target/surefire-reports
+          stale="$(find target/surefire-reports -name 'TEST-*.xml' 2>/dev/null | wc -l)"
+          echo "STALE_SUREFIRE_XML=${stale}"
+          [ "$stale" = "0" ] || {
+            echo "::error::ENVIRONMENT_BLOCKER=STALE_SUREFIRE_XML_NONZERO"
+            exit 1
+          }
+          {
+            echo "APPLICATION_TABLE_COUNT=${c1}"
+            echo "TEST_MIGRATION_TABLE_COUNT=${c2}"
+            echo "STALE_SUREFIRE_XML=${stale}"
+          } >> "$CANON_ROOT/toolchain.txt"
+
+      - name: A6-12 CANONICAL GATE G — single uninterrupted Maven invocation
+        working-directory: apps/sanad-platform
+        env:
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
+        run: |
+          set -o pipefail
+          export PATH="$PGHOME/bin:$PATH"
+          stale="$(find target/surefire-reports -name 'TEST-*.xml' 2>/dev/null | wc -l)"
+          [ "$stale" = "0" ] || { echo "::error::STALE_XML_PRE_LAUNCH (${stale})"; exit 1; }
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$CANON_ROOT/GATE_G_START_UTC.txt"
+          echo "GATE_G_START_UTC=$(cat "$CANON_ROOT/GATE_G_START_UTC.txt")"
+          set +e
+          mvn test -B -ntp -Dsurefire.useFile=false 2>&1 | tee "$CANON_ROOT/A6-GATE-G-CONSOLE.log"
+          MAVEN_EXIT_CODE="${PIPESTATUS[0]}"
+          set -e
+          printf '%s' "$MAVEN_EXIT_CODE" > "$CANON_ROOT/MAVEN_EXIT_CODE.txt"
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$CANON_ROOT/GATE_G_END_UTC.txt"
+          echo "MAVEN_EXIT_CODE=${MAVEN_EXIT_CODE}"
+          echo "GATE_G_END_UTC=$(cat "$CANON_ROOT/GATE_G_END_UTC.txt")"
+          # NOTE: no second Maven before the freeze step (A6-13/A6-16).
+
+      - name: A6-13 FREEZE Gate G evidence (BEFORE any second Maven)
+        if: always()
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p "$CANON_ROOT/surefire-frozen"
+          if [ -d apps/sanad-platform/target/surefire-reports ]; then
+            cp -a apps/sanad-platform/target/surefire-reports/. "$CANON_ROOT/surefire-frozen/"
+          fi
+          {
+            echo "FREEZE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "JAVA=$( (java -version 2>&1 | head -n1) || true )"
+            echo "MAVEN=$( (mvn -version 2>/dev/null | head -n1) || true )"
+            echo "POSTGRES=$( ("$PGHOME/bin/postgres" --version 2>/dev/null) || echo unavailable )"
+            echo "GIT_HEAD=$( (git -C "$GITHUB_WORKSPACE" rev-parse HEAD 2>/dev/null) || echo unknown )"
+            echo "DISK=$(df -h "$RUNNER_TEMP" | tail -n1 | awk '{print $4" free"}')"
+            echo "GATE_G_START_UTC=$(cat "$CANON_ROOT/GATE_G_START_UTC.txt" 2>/dev/null || echo n/a)"
+            echo "GATE_G_END_UTC=$(cat "$CANON_ROOT/GATE_G_END_UTC.txt" 2>/dev/null || echo n/a)"
+            echo "MAVEN_EXIT_CODE=$(cat "$CANON_ROOT/MAVEN_EXIT_CODE.txt" 2>/dev/null || echo n/a)"
+          } > "$CANON_ROOT/A6-GATE-G-METADATA.txt"
+          if [ -f "$CANON_ROOT/dispatch-binding.txt" ]; then
+            cat "$CANON_ROOT/dispatch-binding.txt" >> "$CANON_ROOT/A6-GATE-G-METADATA.txt"
+          fi
+          if [ -f "$CANON_ROOT/toolchain.txt" ]; then
+            cat "$CANON_ROOT/toolchain.txt" >> "$CANON_ROOT/A6-GATE-G-METADATA.txt"
+          fi
+          cd "$CANON_ROOT"
+          find . -type f ! -name 'SHA256SUMS.txt' ! -name 'SHA256SUMS-FINAL.txt' -print0 \
+            | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt >/dev/null && echo "FROZEN_EVIDENCE_BINDING=PASS (checksums verified)"
+
+      - name: A6-14/15/18 XML reconciliation + skip classification + invariants
+        if: always()
+        run: |
+          set -euo pipefail
+          export CANON_ROOT
+          python3 <<'PYEOF'
+          import os, re, glob
+          import xml.etree.ElementTree as ET
+          root = os.environ["CANON_ROOT"]
+          xml_dir = os.path.join(root, "surefire-frozen")
+          out_path = os.path.join(root, "A6-GATE-G-RECONCILIATION.txt")
+          files = sorted(glob.glob(os.path.join(xml_dir, "**", "TEST-*.xml"), recursive=True))
+          tests = failures = errors = skipped = parse_errors = duplicate_reports = 0
+          per_class = {}
+          skip_classes = {}
+          seen_keys = set()
+          for f in files:
+              try:
+                  r = ET.parse(f).getroot()
+              except Exception:
+                  parse_errors += 1
+                  continue
+              suites = [r] if r.tag == "testsuite" else (r.findall("testsuite") if r.tag == "testsuites" else [])
+              for s in suites:
+                  cls = (s.get("name") or "").split(".")[-1]
+                  for tc in s.iter("testcase"):
+                      key = ((tc.get("classname") or s.get("name") or "") + "#" + (tc.get("name") or ""))
+                      if key in seen_keys:
+                          duplicate_reports += 1
+                      seen_keys.add(key)
+                      # Element-based counting: the testsuite `tests` attribute is
+                      # unreliable under JUnit 5 nested/display-name containers
+                      # (surefire can emit tests="0" with testcase children --
+                      # canonical run 34237627546: attr sum 3225 vs 3467 testcase
+                      # elements == console aggregate). Elements are the truth.
+                      has_skip = tc.find("skipped") is not None
+                      has_fail = tc.find("failure") is not None
+                      has_err = tc.find("error") is not None
+                      tests += 1
+                      skipped += 1 if has_skip else 0
+                      failures += 1 if has_fail else 0
+                      errors += 1 if has_err else 0
+                      if cls:
+                          a = per_class.setdefault(cls, [0, 0, 0, 0])
+                          a[0] += 1
+                          a[1] += 1 if has_fail else 0
+                          a[2] += 1 if has_err else 0
+                          a[3] += 1 if has_skip else 0
+                      if has_skip:
+                          cn = (tc.get("classname") or s.get("name") or "").split(".")[-1]
+                          skip_classes[cn] = skip_classes.get(cn, 0) + 1
+          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15}
+          unexplained = critical = 0
+          detail = []
+          for cn, n in sorted(skip_classes.items()):
+              if cn in ALLOWED:
+                  detail.append("SKIP_CLASS %s actual=%d expected=%d profile_gated=yes" % (cn, n, ALLOWED[cn]))
+                  if n != ALLOWED[cn]:
+                      critical += abs(n - ALLOWED[cn])
+              else:
+                  detail.append("SKIP_CLASS %s actual=%d expected=0 profile_gated=NO" % (cn, n))
+                  unexplained += n
+          for cn, exp in ALLOWED.items():
+              if cn not in skip_classes:
+                  detail.append("SKIP_CLASS %s actual=0 expected=%d profile_gated=yes(MISSING)" % (cn, exp))
+                  critical += exp
+          pat = re.compile(r"Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)")
+          last = None
+          console_path = os.path.join(root, "A6-GATE-G-CONSOLE.log")
+          if os.path.exists(console_path):
+              with open(console_path, "r", errors="replace") as fh:
+                  for line in fh:
+                      m = pat.search(line)
+                      if m:
+                          last = tuple(int(x) for x in m.groups())
+          ct, cf, ce, cs = last if last else (None, None, None, None)
+          recon_ok = (ct == tests and cf == failures and ce == errors and cs == skipped
+                      and parse_errors == 0 and duplicate_reports == 0)
+          required = {
+              "FinanceModuleIntegrationTest": (11, 0, 0, 0),
+              "AiSecurityNegativeTest": (7, 0, 0, None),
+              "WorkflowY2CapabilityMigrationTest": (3, 0, 0, 0),
+          }
+          inv_ok = True
+          inv_lines = []
+          for cn, (t_, f_, e_, s_) in required.items():
+              a = per_class.get(cn, [0, 0, 0, 0])
+              ok = (a[0] == t_ and a[1] == f_ and a[2] == e_ and (s_ is None or a[3] == s_))
+              if not ok:
+                  inv_ok = False
+              inv_lines.append("INVARIANT %s actual=%d/%dF/%dE/%dS required=%d/%dF/%dE ok=%s"
+                               % (cn, a[0], a[1], a[2], a[3], t_, f_, e_, str(ok).lower()))
+          with open(out_path, "w") as w:
+              w.write("XML_COUNT=%d\n" % len(files))
+              w.write("TESTS=%d\n" % tests)
+              w.write("FAILURES=%d\n" % failures)
+              w.write("ERRORS=%d\n" % errors)
+              w.write("SKIPPED=%d\n" % skipped)
+              w.write("XML_PARSE_ERRORS=%d\n" % parse_errors)
+              w.write("DUPLICATE_REPORTS=%d\n" % duplicate_reports)
+              w.write("CONSOLE_TOTAL=%s\n" % ct)
+              w.write("CONSOLE_FAILURES=%s\n" % cf)
+              w.write("CONSOLE_ERRORS=%s\n" % ce)
+              w.write("CONSOLE_SKIPS=%s\n" % cs)
+              w.write("SUREFIRE_RECONCILIATION=%s\n" % ("PASS" if recon_ok else "FAIL"))
+              w.write("UNEXPLAINED_SKIPS=%d\n" % unexplained)
+              w.write("CRITICAL_SKIPS=%d\n" % critical)
+              w.write("CRITICAL_INVARIANTS=%s\n" % ("PASS" if inv_ok else "FAIL"))
+              for line in detail + inv_lines:
+                  w.write(line + "\n")
+          with open(out_path) as fh:
+              print(fh.read())
+          PYEOF
+
+      - name: A6-16/17 PG-ACCEPTANCE COMPANION (only AFTER Gate-G freeze)
+        if: always()
+        working-directory: apps/sanad-platform
+        env:
+          SPRING_PROFILES_ACTIVE: pg-acceptance
+          PG_ACCEPTANCE_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0
+          PG_ACCEPTANCE_USERNAME: sanad
+          PG_ACCEPTANCE_PASSWORD: sanad_pass
+          CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          export PATH="$PGHOME/bin:$PATH"
+          "$PGHOME/bin/psql" -h 127.0.0.1 -p 5432 -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT pg_terminate_backend(pid)
+          FROM pg_stat_activity
+          WHERE datname = 'pg_acceptance' AND pid <> pg_backend_pid();
+          DROP DATABASE IF EXISTS pg_acceptance;
+          CREATE DATABASE pg_acceptance OWNER sanad;
+          \c pg_acceptance
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+          rm -rf target/surefire-reports
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$CANON_ROOT/ACCEPTANCE_START_UTC.txt"
+          set +e
+          mvn test -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true \
+            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest' \
+            2>&1 | tee "$CANON_ROOT/A6-PG-ACCEPTANCE-CONSOLE.log"
+          ACC_EXIT="${PIPESTATUS[0]}"
+          set -e
+          printf '%s' "$ACC_EXIT" > "$CANON_ROOT/ACCEPTANCE_EXIT_CODE.txt"
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$CANON_ROOT/ACCEPTANCE_END_UTC.txt"
+          mkdir -p "$CANON_ROOT/surefire-acceptance"
+          if [ -d target/surefire-reports ]; then
+            cp -a target/surefire-reports/. "$CANON_ROOT/surefire-acceptance/"
+          fi
+          echo "ACCEPTANCE_EXIT_CODE=${ACC_EXIT}"
+
+      - name: A6-17 Acceptance verdict (21 executed, 0F/0E/0S, 6+15)
+        if: always()
+        run: |
+          set -euo pipefail
+          export CANON_ROOT
+          python3 <<'PYEOF'
+          import os, glob
+          import xml.etree.ElementTree as ET
+          root = os.environ["CANON_ROOT"]
+          out_path = os.path.join(root, "A6-PG-ACCEPTANCE-VERDICT.txt")
+          files = sorted(glob.glob(os.path.join(root, "surefire-acceptance", "**", "TEST-*.xml"), recursive=True))
+          tests = failures = errors = skipped = parse_errors = 0
+          per_class = {}
+          for f in files:
+              try:
+                  r = ET.parse(f).getroot()
+              except Exception:
+                  parse_errors += 1
+                  continue
+              suites = [r] if r.tag == "testsuite" else (r.findall("testsuite") if r.tag == "testsuites" else [])
+              for s in suites:
+                  cls = (s.get("name") or "").split(".")[-1]
+                  for tc in s.iter("testcase"):
+                      # Element-based counting: the testsuite `tests` attribute is
+                      # unreliable under JUnit 5 nested/display-name containers.
+                      has_skip = tc.find("skipped") is not None
+                      has_fail = tc.find("failure") is not None
+                      has_err = tc.find("error") is not None
+                      tests += 1
+                      skipped += 1 if has_skip else 0
+                      failures += 1 if has_fail else 0
+                      errors += 1 if has_err else 0
+                      if cls:
+                          a = per_class.setdefault(cls, [0, 0, 0, 0])
+                          a[0] += 1
+                          a[1] += 1 if has_fail else 0
+                          a[2] += 1 if has_err else 0
+                          a[3] += 1 if has_skip else 0
+          acc_exit = open(os.path.join(root, "ACCEPTANCE_EXIT_CODE.txt")).read().strip() if os.path.exists(os.path.join(root, "ACCEPTANCE_EXIT_CODE.txt")) else "n/a"
+          com = per_class.get("CommerceOrderPostgresConcurrencyTest", [0, 0, 0, 0])
+          rbac = per_class.get("RbacAccessCheckPostgresAcceptanceTest", [0, 0, 0, 0])
+          ok = (tests == 21 and failures == 0 and errors == 0 and skipped == 0
+                and com[0] == 6 and rbac[0] == 15 and acc_exit == "0" and parse_errors == 0)
+          with open(out_path, "w") as w:
+              w.write("ACCEPTANCE_EXIT_CODE=%s\n" % acc_exit)
+              w.write("EXPECTED_ACCEPTANCE_TESTS=21\n")
+              w.write("ACTUAL_ACCEPTANCE_TESTS=%d\n" % tests)
+              w.write("PG_ACCEPTANCE_TESTS=%d\n" % tests)
+              w.write("PG_ACCEPTANCE_FAILURES=%d\n" % failures)
+              w.write("PG_ACCEPTANCE_ERRORS=%d\n" % errors)
+              w.write("PG_ACCEPTANCE_SKIPPED=%d\n" % skipped)
+              w.write("COMMERCE_EXECUTED=%d\n" % com[0])
+              w.write("RBAC_EXECUTED=%d\n" % rbac[0])
+              w.write("XML_COUNT=%d\n" % len(files))
+              w.write("XML_PARSE_ERRORS=%d\n" % parse_errors)
+              w.write("PG_ACCEPTANCE_STATUS=%s\n" % ("PASS" if ok else "FAIL"))
+          with open(out_path) as fh:
+              print(fh.read())
+          PYEOF
+
+      - name: A6-19/20 Assemble canonical verdict (fail-closed contract)
+        if: always()
+        run: |
+          set -euo pipefail
+          export CANON_ROOT
+          python3 <<'PYEOF'
+          import os, re, subprocess
+          root = os.environ["CANON_ROOT"]
+          def kv(path):
+              d = {}
+              try:
+                  with open(path) as fh:
+                      for line in fh:
+                          m = re.match(r"^([A-Za-z0-9_]+)=(.*)$", line.rstrip("\n"))
+                          if m:
+                              d[m.group(1)] = m.group(2)
+              except FileNotFoundError:
+                  pass
+              return d
+          binding = kv(os.path.join(root, "dispatch-binding.txt"))
+          tool = kv(os.path.join(root, "toolchain.txt"))
+          recon = kv(os.path.join(root, "A6-GATE-G-RECONCILIATION.txt"))
+          acc = kv(os.path.join(root, "A6-PG-ACCEPTANCE-VERDICT.txt"))
+          maven_exit = open(os.path.join(root, "MAVEN_EXIT_CODE.txt")).read().strip() if os.path.exists(os.path.join(root, "MAVEN_EXIT_CODE.txt")) else "n/a"
+          ppb = "PASS" if (os.environ.get("GITHUB_ACTIONS") == "true"
+                           and os.environ.get("GITHUB_RUN_ID", "").isdigit()
+                           and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch") else "FAIL"
+          chk = subprocess.run(["sha256sum", "-c", "SHA256SUMS.txt"], cwd=root, capture_output=True)
+          feb = "PASS" if chk.returncode == 0 else "FAIL"
+          expected = binding.get("EXPECTED_SHA", "")
+          actual = binding.get("ACTUAL_GIT_HEAD", "")
+          conds = {
+              "EXPECTED_SHA==ACTUAL_SHA": expected == actual and len(expected) == 40,
+              "PROCESS_PERSISTENCE_BINDING==PASS": ppb == "PASS",
+              "JAVA_VERSION==21.0.12.1": tool.get("JAVA_VERSION") == "21.0.12.1",
+              "MAVEN_VERSION==3.9.16": tool.get("MAVEN_VERSION") == "3.9.16",
+              "POSTGRES_VERSION==16.2": tool.get("POSTGRES_VERSION") == "16.2",
+              "MAVEN_EXIT_CODE==0": maven_exit == "0",
+              "FAILURES==0": recon.get("FAILURES") == "0",
+              "ERRORS==0": recon.get("ERRORS") == "0",
+              "UNEXPLAINED_SKIPS==0": recon.get("UNEXPLAINED_SKIPS") == "0",
+              "CRITICAL_SKIPS==0": recon.get("CRITICAL_SKIPS") == "0",
+              "SUREFIRE_RECONCILIATION==PASS": recon.get("SUREFIRE_RECONCILIATION") == "PASS",
+              "CRITICAL_INVARIANTS==PASS": recon.get("CRITICAL_INVARIANTS") == "PASS",
+              "FROZEN_EVIDENCE_BINDING==PASS": feb == "PASS",
+              "PG_ACCEPTANCE==21/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "21"
+                                           and acc.get("PG_ACCEPTANCE_FAILURES") == "0"
+                                           and acc.get("PG_ACCEPTANCE_ERRORS") == "0"
+                                           and acc.get("PG_ACCEPTANCE_SKIPPED") == "0"),
+          }
+          failed = [k for k, v in conds.items() if not v]
+          status = "PASS" if not failed else "UNPROVEN_OR_FAIL"
+          out_path = os.path.join(root, "A6-GATE-G-VERDICT.txt")
+          with open(out_path, "w") as w:
+              w.write("EXPECTED_SHA=%s\n" % expected)
+              w.write("ACTUAL_SHA=%s\n" % actual)
+              w.write("GITHUB_RUN_ID=%s\n" % binding.get("GITHUB_RUN_ID", ""))
+              w.write("GITHUB_RUN_ATTEMPT=%s\n" % binding.get("GITHUB_RUN_ATTEMPT", ""))
+              w.write("GITHUB_REF=%s\n" % binding.get("GITHUB_REF", ""))
+              w.write("EXECUTION_FACILITY=%s\n" % binding.get("EXECUTION_FACILITY", ""))
+              w.write("PROCESS_PERSISTENCE_BINDING=%s\n" % ppb)
+              w.write("JAVA_VERSION=%s\n" % tool.get("JAVA_VERSION", ""))
+              w.write("MAVEN_VERSION=%s\n" % tool.get("MAVEN_VERSION", ""))
+              w.write("POSTGRES_VERSION=%s\n" % tool.get("POSTGRES_VERSION", ""))
+              w.write("MAVEN_EXIT_CODE=%s\n" % maven_exit)
+              w.write("TESTS=%s\n" % recon.get("TESTS", ""))
+              w.write("FAILURES=%s\n" % recon.get("FAILURES", ""))
+              w.write("ERRORS=%s\n" % recon.get("ERRORS", ""))
+              w.write("SKIPPED=%s\n" % recon.get("SKIPPED", ""))
+              w.write("UNEXPLAINED_SKIPS=%s\n" % recon.get("UNEXPLAINED_SKIPS", ""))
+              w.write("CRITICAL_SKIPS=%s\n" % recon.get("CRITICAL_SKIPS", ""))
+              w.write("XML_COUNT=%s\n" % recon.get("XML_COUNT", ""))
+              w.write("SUREFIRE_RECONCILIATION=%s\n" % recon.get("SUREFIRE_RECONCILIATION", ""))
+              w.write("FROZEN_EVIDENCE_BINDING=%s\n" % feb)
+              w.write("PG_ACCEPTANCE_TESTS=%s\n" % acc.get("PG_ACCEPTANCE_TESTS", ""))
+              w.write("PG_ACCEPTANCE_FAILURES=%s\n" % acc.get("PG_ACCEPTANCE_FAILURES", ""))
+              w.write("PG_ACCEPTANCE_ERRORS=%s\n" % acc.get("PG_ACCEPTANCE_ERRORS", ""))
+              w.write("PG_ACCEPTANCE_SKIPPED=%s\n" % acc.get("PG_ACCEPTANCE_SKIPPED", ""))
+              w.write("CRITICAL_INVARIANTS=%s\n" % recon.get("CRITICAL_INVARIANTS", ""))
+              w.write("FAILED_CONDITIONS=%s\n" % (",".join(failed) if failed else "NONE"))
+              w.write("GATE_G_STATUS=%s\n" % status)
+          with open(out_path) as fh:
+              print(fh.read())
+          PYEOF
+          cd "$CANON_ROOT"
+          find . -type f ! -name 'SHA256SUMS-FINAL.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS-FINAL.txt
+
+      - name: A6-21 Upload canonical evidence artifact (always, error on empty)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r0c12-canonical-gate-g-${{ env.SHORT_SHA }}-run-${{ github.run_id }}
+          path: ${{ env.CANON_ROOT }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: A6-20 Final gate (fail closed on non-PASS)
+        if: always()
+        run: |
+          set -euo pipefail
+          if grep -q '^GATE_G_STATUS=PASS$' "$CANON_ROOT/A6-GATE-G-VERDICT.txt"; then
+            echo "::notice::GATE_G_STATUS=PASS (R0C-12 canonical certification)"
+          else
+            echo "::error::GATE_G_STATUS=UNPROVEN_OR_FAIL — see A6-GATE-G-VERDICT.txt in the run artifact"
+            exit 1
+          fi

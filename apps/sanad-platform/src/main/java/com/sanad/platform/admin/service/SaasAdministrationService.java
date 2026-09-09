@@ -14,6 +14,14 @@ import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionEventResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.SubscriptionResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.UpdatePlanRequest;
 import com.sanad.platform.module.entitlement.SubscriptionEntitlementListener;
+import com.sanad.platform.subscription.change.SubscriptionChangeService;
+import com.sanad.platform.subscription.lifecycle.ExpiredSuccessorGate;
+import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
+import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
+import com.sanad.platform.subscription.item.SubscriptionItemRepository;
+import com.sanad.platform.subscription.pricing.PriceRepository;
+import com.sanad.platform.subscription.pricing.PriceResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -56,14 +64,62 @@ public class SaasAdministrationService {
     private final PlatformAuditService auditService;
     private final ApplicationEventPublisher eventPublisher;
     private final BillingStateService billingStateService;
+    private final SubscriptionChangeService changeService;
+    private final SubscriptionCommandService commandService;
+    private final SubscriptionResolutionService resolution;
+    private final ExpiredSuccessorGate successorGate;
 
+    @Autowired
     public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
                                      ApplicationEventPublisher eventPublisher,
-                                     BillingStateService billingStateService) {
+                                     BillingStateService billingStateService,
+                                     SubscriptionChangeService changeService,
+                                     SubscriptionCommandService commandService,
+                                     SubscriptionResolutionService resolution,
+                                     ExpiredSuccessorGate successorGate) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.eventPublisher = eventPublisher;
         this.billingStateService = billingStateService;
+        this.changeService = changeService;
+        this.commandService = commandService;
+        this.resolution = resolution;
+        this.successorGate = successorGate;
+    }
+
+    /**
+     * Backward-compatible constructor for direct instantiation (tests):
+     * self-wires the canonical authorities from the same JdbcTemplate.
+     * R0C-4 (recovery STAGE-3): every effective PLAN composition change in
+     * this engine is delegated to that authority. R0C-7: every lifecycle
+     * status transition is delegated to the canonical command service.
+     */
+    public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
+                                     ApplicationEventPublisher eventPublisher,
+                                     BillingStateService billingStateService) {
+        this(jdbcTemplate, auditService, eventPublisher, billingStateService,
+                new SubscriptionChangeService(jdbcTemplate,
+                        new SubscriptionItemRepository(jdbcTemplate),
+                        new PriceResolver(new PriceRepository(jdbcTemplate))),
+                new SubscriptionCommandService(jdbcTemplate, auditService, eventPublisher),
+                new SubscriptionResolutionService(jdbcTemplate),
+                new ExpiredSuccessorGate());
+    }
+
+    /**
+     * Backward-compatible constructor (tests) with explicit canonical
+     * collaborators: self-wires the R0C-10 authorities from the same
+     * JdbcTemplate.
+     */
+    public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
+                                     ApplicationEventPublisher eventPublisher,
+                                     BillingStateService billingStateService,
+                                     SubscriptionChangeService changeService,
+                                     SubscriptionCommandService commandService) {
+        this(jdbcTemplate, auditService, eventPublisher, billingStateService,
+                changeService, commandService,
+                new SubscriptionResolutionService(jdbcTemplate),
+                new ExpiredSuccessorGate());
     }
 
     /**
@@ -260,27 +316,81 @@ public class SaasAdministrationService {
             Authentication authentication
     ) {
         ensureTenant(request.tenantId());
-        if (count("SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ?", request.tenantId()) > 0) {
+        // R0C-10 MODEL_B creation guard (replaces the legacy all-history
+        // COUNT(*)-per-tenant guard). Decisions, in order:
+        //   1. effective subscription exists -> CONFLICT (unchanged contract);
+        //   2. no effective subscription, no history -> first creation;
+        //   3. latest historical state (deterministic created_at DESC, id DESC):
+        //      EXPIRED  -> gate OFF: legacy fail-closed rejection (R0C-9 dead
+        //                 end preserved bit-for-bit);
+        //                 gate ON: approved continuation — a NEW row is
+        //                 inserted through the existing creation contract with
+        //                 the trial FORCED OFF (no automatic second trial);
+        //                 the partial unique index is the concurrency backstop;
+        //      CANCELLED-> create-new rejected (resume is the sanctioned path);
+        //      TERMINATED-> re-subscription deferred (fail closed).
+        if (resolution.hasEffectiveSubscription(request.tenantId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
         }
+        boolean successorCreation = false;
+        SubscriptionResolutionService.HistoricalSubscription latest =
+                resolution.findLatestHistorical(request.tenantId()).orElse(null);
+        if (latest != null) {
+            switch (latest.status()) {
+                case "EXPIRED" -> {
+                    if (!successorGate.isEnabled()) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
+                    }
+                    successorCreation = true;
+                }
+                case "CANCELLED" -> throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Tenant has a CANCELLED subscription; resume it instead of creating a new subscription");
+                case "TERMINATED" -> throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Re-subscription after TERMINATED is deferred");
+                default -> throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
+            }
+        }
         PlanResponse plan = activePlan(request.planId());
+        // R0C-4: canonical target version resolution — fail closed BEFORE any
+        // row is written when the plan has no ACTIVE version.
+        UUID planVersionId = changeService.resolveActivePlanVersion(request.planId());
         String billingCycle = normalizeCycle(request.billingCycle());
         validateUsageAgainstPlan(request.tenantId(), request.seatQuantity(), plan);
 
-        int trialDays = request.trialDays() == null ? plan.trialDays() : request.trialDays();
+        // R0C-10 Task E: an EXPIRED successor NEVER silently receives another
+        // trial — the trial decision is forced off for the continuation path,
+        // regardless of plan default or request payload. Trial grants for
+        // successors as a manual/product policy are deferred (out of scope).
+        int trialDays = successorCreation ? 0
+                : (request.trialDays() == null ? plan.trialDays() : request.trialDays());
         Instant now = Instant.now();
         Instant trialEndsAt = trialDays > 0 ? now.plus(Duration.ofDays(trialDays)) : null;
         Instant periodEnd = trialEndsAt != null ? trialEndsAt : nextPeriod(now, billingCycle);
         String status = trialEndsAt == null ? "ACTIVE" : "TRIALING";
         UUID id = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO tenant_subscriptions "
-                        + "(id, tenant_id, plan_id, pending_plan_id, status, billing_cycle, pending_billing_cycle, "
-                        + "seat_quantity, credit_balance_minor, started_at, trial_ends_at, current_period_start, "
-                        + "current_period_end, cancel_at_period_end, cancelled_at, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, NULL, ?, ?, NULL, ?, 0, ?, ?, ?, ?, FALSE, NULL, ?, ?)",
-                id, request.tenantId(), request.planId(), status, billingCycle, request.seatQuantity(),
-                Timestamp.from(now), Timestamp.from(trialEndsAt), Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), Timestamp.from(now));
+        try {
+            jdbcTemplate.update(
+                    "INSERT INTO tenant_subscriptions "
+                            + "(id, tenant_id, plan_id, plan_version_id, pending_plan_id, status, billing_cycle, pending_billing_cycle, "
+                            + "seat_quantity, credit_balance_minor, started_at, trial_ends_at, current_period_start, "
+                            + "current_period_end, cancel_at_period_end, cancelled_at, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, 0, ?, ?, ?, ?, FALSE, NULL, ?, ?)",
+                    id, request.tenantId(), request.planId(), planVersionId, status, billingCycle, request.seatQuantity(),
+                    Timestamp.from(now), trialEndsAt == null ? null : Timestamp.from(trialEndsAt),
+                    Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), Timestamp.from(now));
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // R0C-10 Task J: the partial unique index
+            // uk_tenant_subscriptions_effective is the final concurrency
+            // backstop. A lost creation race is translated into the
+            // repository-standard deterministic domain outcome — the same
+            // CONFLICT a sequential caller would receive. No raw PostgreSQL
+            // constraint details leak to API consumers.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Tenant already has a subscription");
+        }
+        // R0C-4: canonical birth of the initial ACTIVE PLAN item — every
+        // subscription is born inside the canonical composition model.
+        changeService.insertInitialPlanItem(id, request.tenantId(), request.planId(), planVersionId,
+                price(plan, billingCycle), plan.currencyCode(), request.seatQuantity());
         recordEvent(id, request.tenantId(), "SUBSCRIPTION.CREATED", null, request.planId(), "IMMEDIATE", 0,
                 "Subscription created", now, authentication);
         SubscriptionResponse created = getSubscription(id);
@@ -317,19 +427,29 @@ public class SaasAdministrationService {
                     mode, 0, request.reason(), before.currentPeriodEnd(), authentication);
         } else {
             PlanResponse oldPlan = getPlan(before.planId());
+            // R0C-4: canonical target version resolution — fail closed before
+            // any mutation when the target plan has no ACTIVE version.
+            UUID targetVersionId = changeService.resolveActivePlanVersion(targetPlan.id());
             long adjustment = proratedAdjustment(before, oldPlan, targetPlan, targetCycle);
             if (adjustment < 0) {
                 jdbcTemplate.update(
                         "UPDATE tenant_subscriptions SET credit_balance_minor = credit_balance_minor + ?, "
-                                + "plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, pending_billing_cycle = NULL, updated_at = ? "
+                                + "billing_cycle = ?, pending_plan_id = NULL, pending_billing_cycle = NULL, updated_at = ? "
                                 + "WHERE id = ?",
-                        Math.abs(adjustment), targetPlan.id(), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
+                        Math.abs(adjustment), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
             } else {
                 jdbcTemplate.update(
-                        "UPDATE tenant_subscriptions SET plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, "
+                        "UPDATE tenant_subscriptions SET billing_cycle = ?, pending_plan_id = NULL, "
                                 + "pending_billing_cycle = NULL, updated_at = ? WHERE id = ?",
-                        targetPlan.id(), targetCycle, Timestamp.from(Instant.now()), subscriptionId);
+                        targetCycle, Timestamp.from(Instant.now()), subscriptionId);
             }
+            // R0C-4: plan composition (item swap + anchors + command ledger)
+            // flows through the canonical authority — this engine no longer
+            // writes plan_id directly. Billing, proration, invoices, events,
+            // audit and entitlement publishing stay exactly as before.
+            changeService.applyCanonicalPlanCompositionChange(subscriptionId, targetPlan.id(), targetVersionId,
+                    price(targetPlan, targetCycle), targetPlan.currencyCode(), before.seatQuantity(),
+                    request.reason(), before.tenantId(), null);
             if (adjustment > 0) {
                 issueInvoice(getSubscription(subscriptionId), adjustment,
                         "Prorated immediate plan upgrade", before.currentPeriodStart(), before.currentPeriodEnd());
@@ -371,6 +491,13 @@ public class SaasAdministrationService {
                         "UPDATE tenant_subscriptions SET seat_quantity = ?, updated_at = ? WHERE id = ?",
                         newSeats, Timestamp.from(Instant.now()), subscriptionId);
             }
+            // R0C-6: the compatibility-anchored ACTIVE PLAN item quantity is
+            // the item-model mirror of the seat count and must converge in
+            // the SAME transaction (canonical authority owns the operation;
+            // secondary PLAN items are never touched). Fail-closed — a
+            // missing/anchor-mismatched item aborts the seat change before
+            // any billing side effect.
+            changeService.syncAnchoredPlanSeatQuantity(subscriptionId, before.planId(), newSeats);
             if (adjustment > 0) {
                 issueInvoice(getSubscription(subscriptionId), adjustment,
                         "Prorated seat increase", before.currentPeriodStart(), before.currentPeriodEnd());
@@ -394,13 +521,21 @@ public class SaasAdministrationService {
         ensureMutableSubscription(before);
         Instant now = Instant.now();
         if (request.immediate()) {
+            // R0C-7: the status transition flows through the canonical command
+            // authority (validation + status + cancelled_at + command ledger);
+            // the legacy engine keeps its own events, audit, entitlement
+            // publishing and the cancel_at_period_end flag.
+            canonicalTransition(subscriptionId, "CANCEL", request.reason());
             jdbcTemplate.update(
-                    "UPDATE tenant_subscriptions SET status = 'CANCELLED', cancel_at_period_end = FALSE, "
-                            + "cancelled_at = ?, updated_at = ? WHERE id = ?",
-                    Timestamp.from(now), Timestamp.from(now), subscriptionId);
+                    "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, updated_at = ? WHERE id = ?",
+                    Timestamp.from(now), subscriptionId);
             recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.CANCELLED", before.planId(), null,
                     "IMMEDIATE", 0, request.reason(), now, authentication);
         } else {
+            // Scheduling is not a status transition: the canonical no-op
+            // SCHEDULE_CANCELLATION command ledgers the operation (design doc
+            // G3 command list) while the status stays untouched.
+            canonicalTransition(subscriptionId, "SCHEDULE_CANCELLATION", request.reason());
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = TRUE, updated_at = ? WHERE id = ?",
                     Timestamp.from(now), subscriptionId);
@@ -418,17 +553,43 @@ public class SaasAdministrationService {
     @Transactional
     public SubscriptionResponse resumeSubscription(UUID subscriptionId, Authentication authentication) {
         SubscriptionResponse before = getSubscription(subscriptionId);
+        // R0C-10 Task G (P1 defect fix): resume(EXPIRED) was a false success —
+        // the status stayed EXPIRED while a misleading SUBSCRIPTION.RESUMED
+        // change event, a SUBSCRIPTION.RESUME audit row and an entitlement
+        // recalculation were emitted. TERMINATED is equally terminal. Both now
+        // FAIL CLOSED before ANY side effect: no status mutation, no RESUMED
+        // change event, no misleading audit, no entitlement recalculation, no
+        // billing side effect, no provisioning side effect. resume() never
+        // creates a successor (the gated continuation path is createSubscription).
+        if ("EXPIRED".equals(before.status()) || "TERMINATED".equals(before.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Subscription is terminal (" + before.status() + ") and cannot be resumed");
+        }
         Instant now = Instant.now();
         if (!"CANCELLED".equals(before.status())) {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, updated_at = ? WHERE id = ?",
                     Timestamp.from(now), subscriptionId);
         } else {
+            // R0C-10 Task F: CANCELLED resume keeps the R0C-7 revival contract
+            // ONLY while no effective successor exists — a cancelled row may
+            // never resurrect alongside the tenant's effective subscription.
+            if (resolution.hasEffectiveSubscription(before.tenantId())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "An effective subscription already exists for this tenant; the CANCELLED subscription cannot be resumed");
+            }
             PlanResponse plan = activePlan(before.planId());
             validateUsageAgainstPlan(before.tenantId(), before.seatQuantity(), plan);
             Instant periodEnd = nextPeriod(now, before.billingCycle());
+            // R0C-7: the CANCELLED -> ACTIVE revival is the proven legacy
+            // resume contract (renew refuses CANCELLED with "must be resumed
+            // first"); the transition flows through the canonical RESUME
+            // authority which also clears cancelled_at. The legacy engine
+            // keeps the period reset, the resumption invoice and its own
+            // events, audit and entitlement publishing.
+            canonicalTransition(subscriptionId, "RESUME", "Resumed from control plane");
             jdbcTemplate.update(
-                    "UPDATE tenant_subscriptions SET status = 'ACTIVE', cancel_at_period_end = FALSE, cancelled_at = NULL, "
+                    "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, "
                             + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
                     Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
             issueRecurringInvoice(getSubscription(subscriptionId), plan, "Subscription resumed");
@@ -451,9 +612,15 @@ public class SaasAdministrationService {
         }
         Instant now = Instant.now();
         if (before.cancelAtPeriodEnd()) {
+            // R0C-7: the scheduled cancellation application is an actual
+            // CANCELLED status transition and flows through the canonical
+            // CANCEL authority (status + cancelled_at + command ledger);
+            // the legacy engine keeps the flag cleanup, its own event and
+            // the early return wire behavior.
+            canonicalTransition(subscriptionId, "CANCEL", "Scheduled cancellation applied");
             jdbcTemplate.update(
-                    "UPDATE tenant_subscriptions SET status = 'CANCELLED', cancel_at_period_end = FALSE, cancelled_at = ?, updated_at = ? WHERE id = ?",
-                    Timestamp.from(now), Timestamp.from(now), subscriptionId);
+                    "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, updated_at = ? WHERE id = ?",
+                    Timestamp.from(now), subscriptionId);
             recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.CANCELLED", before.planId(), null,
                     "NEXT_CYCLE", 0, "Scheduled cancellation applied", now, authentication);
             return getSubscription(subscriptionId);
@@ -464,11 +631,30 @@ public class SaasAdministrationService {
         PlanResponse plan = activePlan(planId);
         validateUsageAgainstPlan(before.tenantId(), before.seatQuantity(), plan);
         Instant periodEnd = nextPeriod(now, billingCycle);
-        jdbcTemplate.update(
-                "UPDATE tenant_subscriptions SET plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, "
-                        + "pending_billing_cycle = NULL, status = 'ACTIVE', trial_ends_at = NULL, "
-                        + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
-                planId, billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
+        if (before.pendingPlanId() != null) {
+            // R0C-4: a scheduled plan change is applied through the canonical
+            // authority. The legacy engine keeps ownership of billing_cycle,
+            // periods, the renewal invoice, events and audit.
+            // R0C-7: the lifecycle status change (RENEW, e.g. TRIALING -> ACTIVE)
+            // flows through the canonical command authority too.
+            UUID pendingVersionId = changeService.resolveActivePlanVersion(planId);
+            jdbcTemplate.update(
+                    "UPDATE tenant_subscriptions SET billing_cycle = ?, pending_plan_id = NULL, "
+                            + "pending_billing_cycle = NULL, trial_ends_at = NULL, "
+                            + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
+                    billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
+            canonicalTransition(subscriptionId, "RENEW", "Renewal processed");
+            changeService.applyCanonicalPlanCompositionChange(subscriptionId, planId, pendingVersionId,
+                    price(plan, billingCycle), plan.currencyCode(), before.seatQuantity(),
+                    "Scheduled plan change applied at renewal", before.tenantId(), null);
+        } else {
+            jdbcTemplate.update(
+                    "UPDATE tenant_subscriptions SET plan_id = ?, billing_cycle = ?, pending_plan_id = NULL, "
+                            + "pending_billing_cycle = NULL, trial_ends_at = NULL, "
+                            + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
+                    planId, billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
+            canonicalTransition(subscriptionId, "RENEW", "Renewal processed");
+        }
         SubscriptionResponse renewed = getSubscription(subscriptionId);
         issueRecurringInvoice(renewed, plan, "Subscription renewal");
         recordEvent(subscriptionId, before.tenantId(), "SUBSCRIPTION.RENEWED", before.planId(), planId,
@@ -477,6 +663,22 @@ public class SaasAdministrationService {
         auditService.success(authentication, before.tenantId(), "SUBSCRIPTION.RENEW", "TENANT_SUBSCRIPTION",
                 subscriptionId.toString(), "Renewal processed", before, after);
         return after;
+    }
+
+    /**
+     * R0C-7: routes a lifecycle status transition through the canonical
+     * command authority inside the caller's transaction. Canonical
+     * rejections (IllegalStateException from SubscriptionLifecycle) surface
+     * as 409 CONFLICT — the same contract shape as the legacy CANCELLED
+     * guard, e.g. renewing a SUSPENDED subscription (RENEW-from-SUSPENDED is
+     * unit-tested illegal in the canonical table).
+     */
+    private void canonicalTransition(UUID subscriptionId, String command, String reason) {
+        try {
+            commandService.applyCanonicalTransition(subscriptionId, command, reason, null, null);
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
+        }
     }
 
     @Transactional(readOnly = true)
