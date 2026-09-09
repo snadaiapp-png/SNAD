@@ -99,7 +99,15 @@ REPO_MAX_VERSION=$(
   } | while read -r f; do basename "$f" | sed -e 's/^V//' -e 's/__.*//' -e 's/_/./'; done | sort -V | tail -1
 )
 REPO_MAX_VERSION="${REPO_MAX_VERSION:-0}"
-DB_MAX_VERSION=$(run_sql "SELECT COALESCE(max(version), '0') FROM flyway_schema_history WHERE success = TRUE AND type != 'DELETE';")
+# Ledger head MUST be derived by application order (installed_rank DESC), NOT
+# by max(version): `version` is VARCHAR, so a SQL max() is a lexicographic
+# maximum — the canonical ledger contains legacy numeric versions ("9", "14",
+# "15") which sort ABOVE every "2026..." version, making a text max() report
+# the ledger head as "9" (production release 34291484570 failed exactly this
+# way). installed_rank ordering is how Flyway itself defines the applied head;
+# repeatable migrations carry version IS NULL and are excluded like DELETE
+# markers.
+DB_MAX_VERSION=$(run_sql "SELECT COALESCE((SELECT version FROM flyway_schema_history WHERE success = TRUE AND type != 'DELETE' AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1), '0');")
 HIGHEST_VERSION=$(printf '%s\n%s\n' "$DB_MAX_VERSION" "$REPO_MAX_VERSION" | sort -V | tail -1)
 
 if [ "$DB_MAX_VERSION" != "$REPO_MAX_VERSION" ]; then
