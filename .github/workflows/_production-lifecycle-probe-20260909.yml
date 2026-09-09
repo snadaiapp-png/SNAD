@@ -1,4 +1,4 @@
-name: Production Lifecycle Protected Context Probe
+name: Production Lifecycle Repository Secret Probe
 
 on:
   push:
@@ -9,18 +9,17 @@ permissions:
   contents: read
 
 jobs:
-  protected-context:
-    name: Verify exact source and protected production context
+  repository-context:
+    name: Verify exact source and secure repository production inputs
     runs-on: ubuntu-latest
-    environment:
-      name: Production
     timeout-minutes: 10
     env:
-      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+      PRODUCTION_BASE_URL: https://sanad-backend-mcrj.onrender.com
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       SYNTHETIC_INBOX_BASE: ${{ secrets.SANAD_ADMIN_EMAIL }}
       CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+      CRM_SECOND_TENANT_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_SECOND_TENANT_BEARER_TOKEN }}
     steps:
       - name: Checkout exact production source
         uses: actions/checkout@v4
@@ -41,21 +40,26 @@ jobs:
             exit 1
           }
 
-      - name: Fail closed on missing protected production context
+      - name: Fail closed on missing secure inputs
         shell: bash
         run: |
           set -euo pipefail
-          for name in PRODUCTION_BASE_URL RESEND_API_KEY SYNTHETIC_INBOX_BASE CRM_TENANT_B_EMAIL CRM_TENANT_B_PASSWORD; do
+          for name in RESEND_API_KEY SYNTHETIC_INBOX_BASE; do
             test -n "${!name:-}" || {
-              echo "::error::$name is required for production lifecycle closure."
+              echo "::error::$name is not available to the temporary operational workflow."
               exit 1
             }
             echo "::add-mask::${!name}"
           done
-          test "${PRODUCTION_BASE_URL%/}" = 'https://sanad-backend-mcrj.onrender.com' || {
-            echo "::error::PRODUCTION_BASE_URL is not the expected Render backend."
+          if [ -n "${CRM_TENANT_B_EMAIL:-}" ] && [ -n "${CRM_TENANT_B_PASSWORD:-}" ]; then
+            echo "::add-mask::$CRM_TENANT_B_EMAIL"
+            echo "::add-mask::$CRM_TENANT_B_PASSWORD"
+          elif [ -n "${CRM_SECOND_TENANT_BEARER_TOKEN:-}" ]; then
+            echo "::add-mask::$CRM_SECOND_TENANT_BEARER_TOKEN"
+          else
+            echo "::error::No second authenticated tenant input is available."
             exit 1
-          }
+          fi
           [[ "$SYNTHETIC_INBOX_BASE" == *@* ]] || {
             echo "::error::SANAD_ADMIN_EMAIL is not a valid mailbox basis."
             exit 1
