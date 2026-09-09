@@ -43,11 +43,23 @@ jobs:
           grep -Eq '@vitest/mocker|brace-expansion|browserslist|js-yaml|undici' /tmp/full-audit-red.txt
           echo "RED proven: dev-tooling advisories are reproducible"
 
-      - name: Apply non-breaking npm audit remediation
+      - name: Apply conservative full-tree remediation
         working-directory: apps/web
         shell: bash
         run: |
           set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const p = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+          if (pkg.dependencies?.next !== '^16.3.3') throw new Error(`Unexpected Next.js baseline: ${pkg.dependencies?.next}`);
+          if (pkg.overrides?.sharp !== '0.35.4') throw new Error(`Unexpected sharp baseline: ${pkg.overrides?.sharp}`);
+          if (pkg.overrides?.['baseline-browser-mapping'] !== '2.11.21') throw new Error(`Unexpected baseline-browser-mapping baseline: ${pkg.overrides?.['baseline-browser-mapping']}`);
+          pkg.overrides = pkg.overrides || {};
+          pkg.overrides['js-yaml'] = '4.3.2';
+          fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+          NODE
+          npm install --package-lock-only --ignore-scripts
           npm audit fix --package-lock-only --ignore-scripts
 
       - name: Verify locked install
@@ -61,7 +73,7 @@ jobs:
           set -euo pipefail
           npm audit --audit-level=low
           npm audit --omit=dev --audit-level=low
-          npm ls next sharp baseline-browser-mapping vitest @vitest/mocker browserslist js-yaml undici brace-expansion --all
+          npm ls next sharp baseline-browser-mapping js-yaml vitest @vitest/mocker browserslist undici brace-expansion --all
 
       - name: Lint
         working-directory: apps/web
