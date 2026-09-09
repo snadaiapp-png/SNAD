@@ -1,42 +1,20 @@
-name: Production Lifecycle Branch Carrier Dispatcher
+name: Production Lifecycle Probe Parked
 
 on:
-  push:
-    branches:
-      - ops/production-lifecycle-probe-20260909
-    paths:
-      - '.github/workflows/_production-lifecycle-probe-20260909.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
-  dispatch:
-    name: Dispatch operational branch on existing workflow path
+  parked:
+    name: Operational probe parked — no production mutation
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Verify current main remains exact production SHA
+      - name: Verify probe is parked
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED='b0498962f9a5cc1515b32432fdab98480dedcbe3'
-          REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
-          test "$REMOTE_MAIN_SHA" = "$EXPECTED"
-
-      - name: Dispatch branch carrier
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          body='{"ref":"ops/production-lifecycle-probe-20260909"}'
-          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/dispatch.json" -w '%{http_code}' \
-            -X POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            --data "$body" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/auth-tenant-production-acceptance.yml/dispatches")"
-          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::Branch dispatch failed HTTP $code"; exit 1 ;; esac
+          echo 'PRODUCTION_LIFECYCLE_PROBE=PARKED'
+          echo 'No production action is performed by this workflow.'
