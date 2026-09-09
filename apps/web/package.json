@@ -45,6 +45,7 @@
   "overrides": {
     "postcss": "^8.5.12",
     "sharp": "0.35.4",
-    "baseline-browser-mapping": "2.11.21"
+    "baseline-browser-mapping": "2.11.21",
+    "js-yaml": "4.3.2"
   }
 }
