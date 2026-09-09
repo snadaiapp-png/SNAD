@@ -1,4 +1,4 @@
-name: Production Lifecycle Repository Secret Probe
+name: Production Lifecycle Approved Workflow Dispatcher
 
 on:
   push:
@@ -7,80 +7,69 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  repository-context:
-    name: Verify exact source and secure repository production inputs
+  dispatch:
+    name: Dispatch approved main-branch evidence workflows
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      PRODUCTION_BASE_URL: https://sanad-backend-mcrj.onrender.com
-      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      SYNTHETIC_INBOX_BASE: ${{ secrets.SANAD_ADMIN_EMAIL }}
-      CRM_TENANT_B_EMAIL: ${{ secrets.CRM_TENANT_B_EMAIL || secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
-      CRM_TENANT_B_PASSWORD: ${{ secrets.CRM_TENANT_B_PASSWORD || secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
-      CRM_SECOND_TENANT_BEARER_TOKEN: ${{ secrets.CRM_SMOKE_SECOND_TENANT_BEARER_TOKEN }}
     steps:
-      - name: Checkout exact production source
-        uses: actions/checkout@v4
-        with:
-          ref: b0498962f9a5cc1515b32432fdab98480dedcbe3
-          fetch-depth: 1
-          submodules: false
-
-      - name: Verify exact source and current main
+      - name: Verify current main remains exact production SHA
         shell: bash
         run: |
           set -euo pipefail
           EXPECTED='b0498962f9a5cc1515b32432fdab98480dedcbe3'
-          test "$(git rev-parse HEAD)" = "$EXPECTED"
           REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
           test "$REMOTE_MAIN_SHA" = "$EXPECTED" || {
             echo "::error::Current main moved from the production target SHA."
             exit 1
           }
 
-      - name: Fail closed on missing secure inputs
+      - name: Dispatch canonical read-only Workflow Y2 evidence
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for name in RESEND_API_KEY SYNTHETIC_INBOX_BASE; do
-            test -n "${!name:-}" || {
-              echo "::error::$name is not available to the temporary operational workflow."
-              exit 1
-            }
-            echo "::add-mask::${!name}"
-          done
-          if [ -n "${CRM_TENANT_B_EMAIL:-}" ] && [ -n "${CRM_TENANT_B_PASSWORD:-}" ]; then
-            echo "::add-mask::$CRM_TENANT_B_EMAIL"
-            echo "::add-mask::$CRM_TENANT_B_PASSWORD"
-          elif [ -n "${CRM_SECOND_TENANT_BEARER_TOKEN:-}" ]; then
-            echo "::add-mask::$CRM_SECOND_TENANT_BEARER_TOKEN"
-          else
-            echo "::error::No second authenticated tenant input is available."
-            exit 1
-          fi
-          [[ "$SYNTHETIC_INBOX_BASE" == *@* ]] || {
-            echo "::error::SANAD_ADMIN_EMAIL is not a valid mailbox basis."
-            exit 1
-          }
+          body='{"ref":"main"}'
+          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/y2-dispatch.json" -w '%{http_code}' \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            --data "$body" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/workflow-y2-production-evidence.yml/dispatches")"
+          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/y2-dispatch.json"; echo "::error::Y2 dispatch failed HTTP $code"; exit 1 ;; esac
 
-      - name: Verify backend health and readiness
+      - name: Dispatch canonical BFF authentication synthetic
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error --max-time 30 \
-            "$PRODUCTION_BASE_URL/actuator/health" > "$RUNNER_TEMP/health.json"
-          curl --fail-with-body --silent --show-error --max-time 30 \
-            "$PRODUCTION_BASE_URL/actuator/health/readiness" > "$RUNNER_TEMP/readiness.json"
-          jq -e '.status == "UP"' "$RUNNER_TEMP/health.json" >/dev/null
-          jq -e '.status == "UP"' "$RUNNER_TEMP/readiness.json" >/dev/null
+          body='{"ref":"main"}'
+          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/auth-dispatch.json" -w '%{http_code}' \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            --data "$body" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/bff-auth-session-synthetic.yml/dispatches")"
+          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/auth-dispatch.json"; echo "::error::Auth dispatch failed HTTP $code"; exit 1 ;; esac
 
-      - name: Verify Resend observation channel is readable
+      - name: Dispatch canonical CRM real smoke at exact SHA
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error --max-time 20 \
-            -H "Authorization: Bearer $RESEND_API_KEY" \
-            'https://api.resend.com/emails?limit=1' > "$RUNNER_TEMP/resend-probe.json"
-          jq -e 'has("data") and (.data | type == "array")' "$RUNNER_TEMP/resend-probe.json" >/dev/null
+          body='{"ref":"main","inputs":{"base_url":"","expected_sha":"b0498962f9a5cc1515b32432fdab98480dedcbe3"}}'
+          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/crm-dispatch.json" -w '%{http_code}' \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            --data "$body" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-real-smoke.yml/dispatches")"
+          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/crm-dispatch.json"; echo "::error::CRM dispatch failed HTTP $code"; exit 1 ;; esac
