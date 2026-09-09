@@ -1,4 +1,4 @@
-name: Production Lifecycle Branch Carrier Control
+name: Production Lifecycle Branch Carrier Dispatcher
 
 on:
   push:
@@ -9,12 +9,13 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  control:
-    name: Keep operational carrier isolated from unrelated branch changes
+  dispatch:
+    name: Dispatch operational branch on existing workflow path
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Verify current main remains exact production SHA
         shell: bash
@@ -23,3 +24,19 @@ jobs:
           EXPECTED='b0498962f9a5cc1515b32432fdab98480dedcbe3'
           REMOTE_MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
           test "$REMOTE_MAIN_SHA" = "$EXPECTED"
+
+      - name: Dispatch branch carrier
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body='{"ref":"ops/production-lifecycle-probe-20260909"}'
+          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/dispatch.json" -w '%{http_code}' \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            --data "$body" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/auth-tenant-production-acceptance.yml/dispatches")"
+          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::Branch dispatch failed HTTP $code"; exit 1 ;; esac
