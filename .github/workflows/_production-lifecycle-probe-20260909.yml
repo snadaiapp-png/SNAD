@@ -1,4 +1,4 @@
-name: Production Lifecycle Provisioning Dispatcher
+name: Production Lifecycle SCP Diagnose Dispatcher
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   dispatch:
-    name: Dispatch canonical auth-smoke provisioning on main
+    name: Dispatch read-only SCP identity diagnose on main
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -28,21 +28,21 @@ jobs:
             exit 1
           }
 
-      - name: Dispatch existing Production provisioning workflow
+      - name: Dispatch SCP smoke identity diagnose
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          body='{"ref":"main"}'
+          body='{"ref":"main","inputs":{"mode":"diagnose","confirm":"","image_ref":""}}'
           code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/dispatch.json" -w '%{http_code}' \
             -X POST \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             --data "$body" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/provision-auth-smoke-tenants.yml/dispatches")"
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/scp-smoke-identity-reconcile.yml/dispatches")"
           case "$code" in
-            200|204) echo 'PROVISION_DISPATCH=PASS' ;;
-            *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::Provision dispatch failed HTTP $code"; exit 1 ;;
+            200|204) echo 'SCP_DIAGNOSE_DISPATCH=PASS' ;;
+            *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::SCP diagnose dispatch failed HTTP $code"; exit 1 ;;
           esac
