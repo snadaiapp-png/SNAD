@@ -159,13 +159,19 @@ TOKEN="$(jq -r '.accessToken // empty' "$WORK_DIR/login.json")"
 [ -n "$TOKEN" ] || fail "$STAGE" "Login returned no access token"
 echo "::add-mask::$TOKEN"
 
+CANARY_CODE="Y2-PROD-CANARY-${DEPLOYED_COMMIT_SHA:0:12}"
+
 STAGE="workflow-access"
-status="$(request GET '/api/v1/workflows/definitions?limit=1' "$WORK_DIR/access.json" auth)"
+status="$(request GET '/api/v1/workflows/definitions?limit=200' "$WORK_DIR/access.json" auth)"
 expect_status "$status" 200 "workflowDefinitionsRead"
 jq -e 'type == "array"' "$WORK_DIR/access.json" >/dev/null || fail "$STAGE" "Workflow definitions read did not return an array"
+DEFINITION_COUNT="$(jq 'length' "$WORK_DIR/access.json")"
+[ "$DEFINITION_COUNT" -lt 200 ] || fail "preexisting-canary-scan-incomplete" "Cannot prove canary uniqueness because the workflow definition list reached the 200-item API limit"
+if jq -e --arg code "$CANARY_CODE" 'any(.[]; .code == $code)' "$WORK_DIR/access.json" >/dev/null; then
+  fail "preexisting-canary" "A Workflow Y2 production canary already exists for release ${DEPLOYED_COMMIT_SHA:0:12}"
+fi
 
 STAGE="definition-create"
-CANARY_CODE="Y2-PROD-CANARY-${DEPLOYED_COMMIT_SHA:0:8}-$(date -u +%Y%m%d%H%M%S)-$RANDOM"
 create_payload="$(jq -cn --arg code "$CANARY_CODE" '{code:$code,name:"Y2 Production Write Canary",description:"Isolated permanent production canary evidence",module:"GENERAL",triggerType:"MANUAL"}')"
 status="$(request POST '/api/v1/workflows/definitions' "$WORK_DIR/definition.json" auth "$create_payload")"
 expect_status "$status" 200 "definitionCreate"
