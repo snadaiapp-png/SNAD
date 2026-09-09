@@ -45,13 +45,13 @@ jobs:
           tar -xzf /tmp/r0c12-final25.tar.gz -C /tmp/r0c12-final25
 
           cat > /tmp/restore7.sha256 <<'EOF'
-          2b248ecfcdce519c051633513264ea34e7db0fb8fc5c5365542d489bee64e8ad  apps/sanad-platform/src/test/java/com/sanad/platform/module/api/ModuleRegistryUatPostgresAcceptanceTest.java
-          33c811636ac1126352e32ec4b7013c261415bec97faf7d149f48e359ac28d138  apps/web/app/executive/_components/scp-access.test.tsx
-          b4098b45f0ab2b16c0f9667963666970c5ddbd7b4a6b8290135e9d43736098a9  apps/web/app/executive/_components/scp-mutation-gating.test.tsx
-          d5b7eceb51d8534579ec2e1ef2f16fc7dc07931a379021978221a0ead04a48b7  apps/web/app/executive/_components/scp-states.test.tsx
-          16f631357dd5567ff6285dcc4424522789c679510e943fd6eb5fc0bf17124119  apps/web/app/executive/audit/audit-page.test.tsx
-          818977109e89cc1366905fa1563750db29dd624dd55e0eb68e193eaa07022ae2  apps/web/app/executive/subscriptions/[id]/subscription-detail-gating.test.tsx
-          48ea8f12a8ef52326226744944b3e3d8bdef3bf181de69e0d6cfe4dcde2f6bc7  apps/web/lib/api/scp-api.ts
+          abc5c9be203ee292ef8377ce3e20cbd08aa80670d7de9a5fd1fb4ed96158d042  apps/sanad-platform/src/test/java/com/sanad/platform/module/api/ModuleRegistryUatPostgresAcceptanceTest.java
+          339c047d6dd41047ca0abf877dd7ed95a106fca5c3dc50f41004ee35d69819b1  apps/web/app/executive/_components/scp-access.test.tsx
+          9405c9f080ca9818fe7974fbfa99187e500408425b2291c4f90c1b5bc97ee0cb  apps/web/app/executive/_components/scp-mutation-gating.test.tsx
+          627a7b2d3e1494343c2fe9604ad50f35490ae7169517845b3f994f8ea5d97912  apps/web/app/executive/_components/scp-states.test.tsx
+          8f5fd66623b35e66caaca410b0e45d12130fbf3d26922e949c24927168470b66  apps/web/app/executive/audit/audit-page.test.tsx
+          e2dd54ed4a6ff6476d4e745cd61a1befabe7dc5f2a294c0ef24dcb782af938c7  apps/web/app/executive/subscriptions/[id]/subscription-detail-gating.test.tsx
+          2b13b3bf1f0d0425549fda0eee42b4079fe6d3eb8b857b2500c6a94c0d52fa6d  apps/web/lib/api/scp-api.ts
           EOF
           sed -i 's/^          //' /tmp/restore7.sha256
 
@@ -71,6 +71,7 @@ jobs:
           rm -f .github/r0c12-final25.part01
           rm -f .github/r0c12-final25.part02
           rm -f .github/workflows/tmp-r0c12-reconstruct-handoff.yml
+          rm -f .github/r0c12-restore7.trigger
 
           git add -A
 
@@ -78,7 +79,8 @@ jobs:
             .github/r0c12-final25.part00 \
             .github/r0c12-final25.part01 \
             .github/r0c12-final25.part02 \
-            .github/workflows/tmp-r0c12-reconstruct-handoff.yml; do
+            .github/workflows/tmp-r0c12-reconstruct-handoff.yml \
+            .github/r0c12-restore7.trigger; do
             test ! -e "$p"
           done
 
