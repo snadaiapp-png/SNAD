@@ -12,6 +12,7 @@ import {
   ScpStatusPill,
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
+import { scpErrorMessage } from "../_components/scp-errors";
 import styles from "../scp.module.css";
 
 /**
@@ -42,7 +43,7 @@ export default function AuditPage() {
         }),
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setLoading(false);
     }
@@ -106,7 +107,8 @@ export default function AuditPage() {
                     <td data-label={t("scp.audit.when")}>{day(entry.createdAt)}</td>
                     <td data-label={t("scp.audit.action")}>{entry.action}</td>
                     <td data-label={t("scp.audit.resource")}>
-                      {entry.resourceType}:{entry.resourceId.slice(0, 8)}…
+                      {entry.resourceType}:
+                      {entry.resourceId ? `${entry.resourceId.slice(0, 8)}…` : "—"}
                     </td>
                     <td data-label={t("scp.audit.reason")}>{entry.reason ?? "—"}</td>
                     <td data-label={t("scp.audit.result")}>
