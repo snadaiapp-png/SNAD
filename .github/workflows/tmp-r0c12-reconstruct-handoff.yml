@@ -1,0 +1,135 @@
+name: R0C12 One-Shot Exact Handoff Reconstruction
+
+on:
+  push:
+    branches:
+      - fix/r0c12-human-uat-authz-comprehensive
+
+permissions:
+  contents: write
+
+jobs:
+  reconstruct:
+    if: contains(github.event.head_commit.message, '[R0C12_RECONSTRUCT]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout corrective branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/r0c12-human-uat-authz-comprehensive
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reconstruct exact Z handoff and restore RED contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE='b0498962f9a5cc1515b32432fdab98480dedcbe3'
+          EXPECTED_TREE='bc8866b3ef21f56722284151f41d0c0d9e796f85'
+          EXPECTED_ARCHIVE_SHA='0a45127823595a705355e7032854a2843d55c121341d473b811c7247a8eec051'
+          EXPECTED_B64_SHA='e40f8a6e3a947caebc3475bec3b5615e4666663cda4ccfb78316eeecc8f9dca6'
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          RED_FILES=(
+            'apps/sanad-platform/src/test/java/com/sanad/platform/executive/api/PlatformOperationsTenantManagementContractTest.java'
+            'apps/sanad-platform/src/test/java/com/sanad/platform/executive/service/ExecutivePlatformServiceArchiveContractTest.java'
+            'apps/sanad-platform/src/test/java/com/sanad/platform/subscription/rbac/ControlPlaneAccessServiceExecutiveCapabilityContractTest.java'
+            'apps/web/app/executive/tenants/tenant-management.test.tsx'
+          )
+
+          for f in "${RED_FILES[@]}"; do
+            test -f "$f" || { echo "::error::Missing RED contract file: $f"; exit 1; }
+          done
+          tar -czf /tmp/r0c12-red-contracts.tar.gz "${RED_FILES[@]}"
+
+          cat .github/r0c12-final25.part00 .github/r0c12-final25.part01 .github/r0c12-final25.part02 > /tmp/r0c12-final25.b64
+          echo "$EXPECTED_B64_SHA  /tmp/r0c12-final25.b64" | sha256sum -c -
+          base64 -d /tmp/r0c12-final25.b64 > /tmp/r0c12-final25.tar.gz
+          echo "$EXPECTED_ARCHIVE_SHA  /tmp/r0c12-final25.tar.gz" | sha256sum -c -
+
+          rm -rf /tmp/r0c12-final25
+          mkdir -p /tmp/r0c12-final25
+          tar -xzf /tmp/r0c12-final25.tar.gz -C /tmp/r0c12-final25
+          test "$(find /tmp/r0c12-final25 -type f | wc -l)" -eq 25
+
+          cp -a /tmp/r0c12-final25/apps/. apps/
+
+          # Remove implementation that was accidentally introduced before a legitimate RED.
+          git checkout "$BASE" -- apps/sanad-platform/src/main/java/com/sanad/platform/subscription/rbac/ControlPlaneAccessService.java
+          rm -f "${RED_FILES[@]}"
+
+          # Temporary transport/workflow files must never survive the reconstruction commit.
+          rm -f .github/r0c12-final25.part00 .github/r0c12-final25.part01 .github/r0c12-final25.part02
+          rm -f .github/workflows/tmp-r0c12-reconstruct-handoff.yml
+
+          git add -A
+
+          cat > /tmp/expected-25.txt <<'EOF'
+          apps/sanad-platform/src/main/java/com/sanad/platform/module/api/ModuleRegistryController.java
+          apps/sanad-platform/src/main/java/com/sanad/platform/subscription/api/GovernanceController.java
+          apps/sanad-platform/src/main/java/com/sanad/platform/subscription/api/LifecycleController.java
+          apps/sanad-platform/src/main/java/com/sanad/platform/subscription/audit/AuditEntryResponse.java
+          apps/sanad-platform/src/main/java/com/sanad/platform/subscription/audit/AuditQueryService.java
+          apps/sanad-platform/src/main/java/com/sanad/platform/subscription/provisioning/ProvisioningJobResponse.java
+          apps/sanad-platform/src/test/java/com/sanad/platform/module/api/ModuleRegistryUatPostgresAcceptanceTest.java
+          apps/sanad-platform/src/test/java/com/sanad/platform/subscription/ScpFinalModuleAcceptancePostgresTest.java
+          apps/web/app/executive/_components/ScpAccess.tsx
+          apps/web/app/executive/_components/ScpLayout.tsx
+          apps/web/app/executive/_components/ScpNav.tsx
+          apps/web/app/executive/_components/scp-access.test.tsx
+          apps/web/app/executive/_components/scp-errors.ts
+          apps/web/app/executive/_components/scp-mutation-gating.test.tsx
+          apps/web/app/executive/_components/scp-nav.test.tsx
+          apps/web/app/executive/_components/scp-states.test.tsx
+          apps/web/app/executive/audit/audit-page.test.tsx
+          apps/web/app/executive/audit/page.tsx
+          apps/web/app/executive/billing/page.tsx
+          apps/web/app/executive/entitlements/page.tsx
+          apps/web/app/executive/provisioning/page.tsx
+          apps/web/app/executive/subscriptions/[id]/page.tsx
+          apps/web/app/executive/subscriptions/[id]/subscription-detail-gating.test.tsx
+          apps/web/app/executive/usage/page.tsx
+          apps/web/lib/api/scp-api.ts
+          EOF
+          sed -i 's/^          //' /tmp/expected-25.txt
+          sort -o /tmp/expected-25.txt /tmp/expected-25.txt
+          git diff --cached --name-only "$BASE" | sort > /tmp/actual-25.txt
+          diff -u /tmp/expected-25.txt /tmp/actual-25.txt
+          test "$(wc -l < /tmp/actual-25.txt)" -eq 25
+
+          TREE="$(git write-tree)"
+          echo "Reconstructed tree: $TREE"
+          test "$TREE" = "$EXPECTED_TREE" || {
+            echo "::error::RECONSTRUCTION_TREE_MISMATCH expected=$EXPECTED_TREE actual=$TREE"
+            exit 1
+          }
+
+          git commit -m 'chore(r0c12): reconstruct exact Z handoff tree'
+          PURE_SHA="$(git rev-parse HEAD)"
+          PURE_TREE="$(git rev-parse HEAD^{tree})"
+          test "$PURE_TREE" = "$EXPECTED_TREE"
+
+          tar -xzf /tmp/r0c12-red-contracts.tar.gz -C .
+          git add "${RED_FILES[@]}"
+
+          printf '%s\n' "${RED_FILES[@]}" | sort > /tmp/expected-red.txt
+          git diff --cached --name-only | sort > /tmp/actual-red.txt
+          diff -u /tmp/expected-red.txt /tmp/actual-red.txt
+          test "$(wc -l < /tmp/actual-red.txt)" -eq 4
+
+          git commit -m 'test(scp): add tenant-management RED contracts'
+          RED_SHA="$(git rev-parse HEAD)"
+
+          git push origin HEAD:fix/r0c12-human-uat-authz-comprehensive
+
+          {
+            echo '## R0C-12 reconstruction result'
+            echo "- exact handoff archive SHA256: $EXPECTED_ARCHIVE_SHA"
+            echo "- exact reconstructed tree: $PURE_TREE"
+            echo "- pure reconstruction commit: $PURE_SHA"
+            echo "- RED contract head: $RED_SHA"
+            echo '- production authorization: NOT GRANTED'
+          } >> "$GITHUB_STEP_SUMMARY"
