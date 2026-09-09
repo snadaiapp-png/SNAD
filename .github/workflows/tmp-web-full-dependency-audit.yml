@@ -1,0 +1,33 @@
+name: Temporary Web Full Dependency Audit
+
+on:
+  push:
+    branches:
+      - diagnostic/web-full-dependency-audit-20260909
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install locked dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Full dependency audit diagnostics
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set +e
+          npm audit --audit-level=low
+          rc=$?
+          echo "FULL_AUDIT_EXIT=$rc"
+          exit 0
