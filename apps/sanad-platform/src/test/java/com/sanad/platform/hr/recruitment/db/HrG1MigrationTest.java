@@ -31,9 +31,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class HrG1MigrationTest {
 
-    static final String G1_SCHEMA_VERSION = "20260908.1";
-    static final String G1_RLS_VERSION = "20260908.2";
-    static final String G1_SEED_VERSION = "20260908.3";
+    // Repository truth: G1 chain renumbered from 20260908.1-.3 to
+    // 20260908.2-.4 so main's workflow incident optimistic lock keeps
+    // 20260908.1 (forward-only, no out-of-order, no history rewrite).
+    static final String G1_SCHEMA_VERSION = "20260908.2";
+    static final String G1_RLS_VERSION = "20260908.3";
+    static final String G1_SEED_VERSION = "20260908.4";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",

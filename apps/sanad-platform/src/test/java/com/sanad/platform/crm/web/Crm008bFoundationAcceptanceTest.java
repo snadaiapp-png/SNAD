@@ -81,8 +81,11 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260906_2 = SCP subscription multiplicity MODEL_B (renumbered from
     //                 V20260906_1 at integration; unmerged on PR #989).
     //   V20260908_1 = workflow incident optimistic lock (forward-merged from
-    //                 main; current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260908.1"; // Terminal versioned migration: V20260908_1 adds workflow incident optimistic locking
+    //                 main; last main-owned versioned migration).
+    //   V20260908_2..4 = HRM-G1 recruitment & onboarding forward chain
+    //                 (schema, RLS, seed; renumbered from 20260908.1-.3 so
+    //                 main's optimistic lock keeps 20260908.1).
+    private static final String CRM_LATEST_VERSION = "20260908.4"; // Terminal versioned migration: V20260908_4 seeds the G1 onboarding checklist template
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
