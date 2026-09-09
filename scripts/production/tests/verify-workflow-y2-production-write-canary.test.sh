@@ -14,9 +14,12 @@ PY
 }
 
 run_case() {
-  local immutability_status="$1" expected_rc="$2" evidence="$3"
+  local immutability_status="$1" expected_rc="$2" evidence="$3" existing="${4:-false}" full="${5:-false}"
   local port; port="$(free_port)"
-  python3 "$MOCK" --port "$port" --immutability-status "$immutability_status" &
+  local -a mock_args=(--port "$port" --immutability-status "$immutability_status")
+  [ "$existing" = "true" ] && mock_args+=(--existing-canary)
+  [ "$full" = "true" ] && mock_args+=(--full-list)
+  python3 "$MOCK" "${mock_args[@]}" &
   local pid=$!; PIDS+=("$pid")
   for _ in $(seq 1 30); do curl -fsS "http://127.0.0.1:$port/actuator/health" >/dev/null 2>&1 && break; sleep 0.1; done
   set +e
@@ -53,5 +56,13 @@ jq -e '
 FAIL_EVIDENCE="$TMP/fail.json"
 run_case 200 1 "$FAIL_EVIDENCE"
 jq -e '.result == "FAIL" and .failureStage == "published-immutability"' "$FAIL_EVIDENCE" >/dev/null
+
+EXISTING_EVIDENCE="$TMP/existing.json"
+run_case 409 1 "$EXISTING_EVIDENCE" true
+jq -e '.result == "FAIL" and .failureStage == "preexisting-canary"' "$EXISTING_EVIDENCE" >/dev/null
+
+FULL_EVIDENCE="$TMP/full.json"
+run_case 409 1 "$FULL_EVIDENCE" false true
+jq -e '.result == "FAIL" and .failureStage == "preexisting-canary-scan-incomplete"' "$FULL_EVIDENCE" >/dev/null
 
 echo 'verify-workflow-y2-production-write-canary tests: PASS'
