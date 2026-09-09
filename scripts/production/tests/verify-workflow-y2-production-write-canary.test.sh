@@ -17,6 +17,7 @@ run_case() {
   local immutability_status="$1" expected_rc="$2" evidence="$3" existing="${4:-false}" full="${5:-false}"
   local port; port="$(free_port)"
   local -a mock_args=(--port "$port" --immutability-status "$immutability_status")
+  local TEST_CREDENTIAL='test-fixture-credential'
   [ "$existing" = "true" ] && mock_args+=(--existing-canary)
   [ "$full" = "true" ] && mock_args+=(--full-list)
   python3 "$MOCK" "${mock_args[@]}" &
@@ -25,7 +26,7 @@ run_case() {
   set +e
   Y2_CANARY_BASE_URL="http://127.0.0.1:$port" \
   Y2_CANARY_ADMIN_EMAIL='admin@example.test' \
-  Y2_CANARY_ADMIN_PASSWORD='test-password' \
+  Y2_CANARY_ADMIN_PASSWORD="$TEST_CREDENTIAL" \
   Y2_CANARY_ALLOW_HTTP='true' \
   DEPLOYED_COMMIT_SHA='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
   Y2_CANARY_EVIDENCE_FILE="$evidence" \
@@ -51,7 +52,7 @@ jq -e '
   .immutability.addTransitionHttpStatus == 409 and
   (.checks | length >= 10)
 ' "$PASS_EVIDENCE" >/dev/null
-! grep -q 'test-password\|test-token\|admin@example' "$PASS_EVIDENCE"
+! grep -q 'test-fixture-credential\|test-token\|admin@example' "$PASS_EVIDENCE"
 
 FAIL_EVIDENCE="$TMP/fail.json"
 run_case 200 1 "$FAIL_EVIDENCE"
