@@ -1,4 +1,4 @@
-name: Production Lifecycle Approved Workflow Dispatcher
+name: Production Lifecycle CRM Dispatcher
 
 on:
   push:
@@ -10,8 +10,8 @@ permissions:
   actions: write
 
 jobs:
-  dispatch:
-    name: Dispatch approved main-branch evidence workflows
+  dispatch-crm:
+    name: Dispatch canonical CRM real smoke
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -25,38 +25,6 @@ jobs:
             echo "::error::Current main moved from the production target SHA."
             exit 1
           }
-
-      - name: Dispatch canonical read-only Workflow Y2 evidence
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          body='{"ref":"main"}'
-          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/y2-dispatch.json" -w '%{http_code}' \
-            -X POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            --data "$body" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/workflow-y2-production-evidence.yml/dispatches")"
-          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/y2-dispatch.json"; echo "::error::Y2 dispatch failed HTTP $code"; exit 1 ;; esac
-
-      - name: Dispatch canonical BFF authentication synthetic
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          body='{"ref":"main"}'
-          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/auth-dispatch.json" -w '%{http_code}' \
-            -X POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            --data "$body" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/bff-auth-session-synthetic.yml/dispatches")"
-          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/auth-dispatch.json"; echo "::error::Auth dispatch failed HTTP $code"; exit 1 ;; esac
 
       - name: Dispatch canonical CRM real smoke at exact SHA
         shell: bash
