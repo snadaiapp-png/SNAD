@@ -1,4 +1,4 @@
-name: Production Lifecycle CRM G1 Readonly Dispatcher
+name: Production Lifecycle Auth Acceptance Dispatcher
 
 on:
   push:
@@ -10,8 +10,8 @@ permissions:
   actions: write
 
 jobs:
-  dispatch-crm-g1:
-    name: Dispatch canonical CRM G1 Production closure read-only
+  dispatch-auth:
+    name: Dispatch canonical Auth Tenant Production Acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,18 +26,18 @@ jobs:
             exit 1
           }
 
-      - name: Dispatch existing Production-environment CRM G1 closure
+      - name: Dispatch existing Production-environment auth acceptance
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           body='{"ref":"main"}'
-          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/crm-g1-dispatch.json" -w '%{http_code}' \
+          code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/auth-acceptance-dispatch.json" -w '%{http_code}' \
             -X POST \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             --data "$body" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-g1-production-closure.yml/dispatches")"
-          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/crm-g1-dispatch.json"; echo "::error::CRM G1 dispatch failed HTTP $code"; exit 1 ;; esac
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/auth-tenant-production-acceptance.yml/dispatches")"
+          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/auth-acceptance-dispatch.json"; echo "::error::Auth acceptance dispatch failed HTTP $code"; exit 1 ;; esac
