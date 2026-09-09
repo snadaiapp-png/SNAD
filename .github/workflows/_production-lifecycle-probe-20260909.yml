@@ -1,4 +1,4 @@
-name: Production Lifecycle SCP Contract Dispatcher
+name: Production Lifecycle Provisioning Smoke Dispatcher
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   dispatch:
-    name: Dispatch canonical SCP production contract smoke on main
+    name: Dispatch canonical control-plane provisioning smoke on main
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -28,21 +28,21 @@ jobs:
             exit 1
           }
 
-      - name: Dispatch SCP production contract smoke
+      - name: Dispatch control-plane provisioning production smoke
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          body='{"ref":"main","inputs":{"transport":"backend-direct"}}'
+          body='{"ref":"main"}'
           code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/dispatch.json" -w '%{http_code}' \
             -X POST \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             --data "$body" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/scp-production-contract-smoke.yml/dispatches")"
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/control-plane-provisioning-production-smoke.yml/dispatches")"
           case "$code" in
-            200|204) echo 'SCP_CONTRACT_DISPATCH=PASS' ;;
-            *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::SCP contract dispatch failed HTTP $code"; exit 1 ;;
+            200|204) echo 'CONTROL_PLANE_PROVISIONING_DISPATCH=PASS' ;;
+            *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::Provisioning smoke dispatch failed HTTP $code"; exit 1 ;;
           esac
