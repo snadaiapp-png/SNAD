@@ -1,4 +1,4 @@
-name: Production Lifecycle Repository Secret Probe Dispatcher
+name: Production Lifecycle Read-Only Evidence Dispatcher
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   dispatch:
-    name: Dispatch repository-level lifecycle input probe
+    name: Dispatch canonical read-only Y2 production evidence
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -28,18 +28,18 @@ jobs:
             exit 1
           }
 
-      - name: Dispatch branch probe on existing CRM workflow path
+      - name: Dispatch canonical read-only workflow on main
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          body='{"ref":"ops/production-lifecycle-probe-20260909"}'
+          body='{"ref":"main"}'
           code="$(curl -sS --show-error --max-time 30 -o "$RUNNER_TEMP/dispatch.json" -w '%{http_code}' \
             -X POST \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             --data "$body" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/crm-real-smoke.yml/dispatches")"
-          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::Probe dispatch failed HTTP $code"; exit 1 ;; esac
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/workflow-y2-production-evidence.yml/dispatches")"
+          case "$code" in 200|204) ;; *) cat "$RUNNER_TEMP/dispatch.json"; echo "::error::Read-only evidence dispatch failed HTTP $code"; exit 1 ;; esac
