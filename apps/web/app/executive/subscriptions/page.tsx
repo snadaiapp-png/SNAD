@@ -34,6 +34,7 @@ function SubscriptionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tenantIdParam = searchParams.get("tenantId") ?? "";
+  const intentParam = searchParams.get("intent") ?? "";
 
   const [page, setPage] = useState<PageResponse<SubscriptionRow> | null>(null);
   const [error, setError] = useState("");
@@ -138,39 +139,39 @@ function SubscriptionsContent() {
                 </tr>
               </thead>
               <tbody>
-                {page.content.map((subscription) => (
-                  <tr key={subscription.id}>
-                    <td data-label={t("scp.subscriptions.tenant")}>{subscription.tenantName}</td>
-                    <td data-label={t("scp.subscriptions.plan")}>
-                      {subscription.planName || "—"}
-                      {subscription.planVersion ? (
-                        <span className={styles.appCardMeta}> · {subscription.planVersion}</span>
-                      ) : null}
-                    </td>
-                    <td data-label={t("scp.subscriptions.items")}>{subscription.itemCount}</td>
-                    <td data-label={t("scp.subscriptions.cycle")}>{subscription.billingCycle}</td>
-                    <td data-label={t("scp.subscriptions.amount")}>
-                      {money(subscription.monthlyPriceMinor, subscription.currencyCode)}
-                    </td>
-                    <td data-label={t("scp.subscriptions.status")}>
-                      <ScpStatusPill value={subscription.status} />
-                      {subscription.trial ? (
-                        <span className={styles.appCardMeta}> · {t("scp.subscriptions.trial")}</span>
-                      ) : null}
-                    </td>
-                    <td data-label={t("scp.subscriptions.nextBilling")}>
-                      <NextBilling value={subscription} />
-                    </td>
-                    <td data-label={t("scp.common.actions")}>
-                      <Link
-                        href={`/executive/subscriptions/${subscription.id}`}
-                        onClick={() => router.prefetch(`/executive/subscriptions/${subscription.id}`)}
-                      >
-                        {t("scp.subscriptions.details")}
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {page.content.map((subscription) => {
+                  const detailHref = `/executive/subscriptions/${subscription.id}${intentParam === "upgrade" ? "?intent=upgrade" : ""}`;
+                  return (
+                    <tr key={subscription.id}>
+                      <td data-label={t("scp.subscriptions.tenant")}>{subscription.tenantName}</td>
+                      <td data-label={t("scp.subscriptions.plan")}>
+                        {subscription.planName || "—"}
+                        {subscription.planVersion ? (
+                          <span className={styles.appCardMeta}> · {subscription.planVersion}</span>
+                        ) : null}
+                      </td>
+                      <td data-label={t("scp.subscriptions.items")}>{subscription.itemCount}</td>
+                      <td data-label={t("scp.subscriptions.cycle")}>{subscription.billingCycle}</td>
+                      <td data-label={t("scp.subscriptions.amount")}>
+                        {money(subscription.monthlyPriceMinor, subscription.currencyCode)}
+                      </td>
+                      <td data-label={t("scp.subscriptions.status")}>
+                        <ScpStatusPill value={subscription.status} />
+                        {subscription.trial ? (
+                          <span className={styles.appCardMeta}> · {t("scp.subscriptions.trial")}</span>
+                        ) : null}
+                      </td>
+                      <td data-label={t("scp.subscriptions.nextBilling")}>
+                        <NextBilling value={subscription} />
+                      </td>
+                      <td data-label={t("scp.common.actions")}>
+                        <Link href={detailHref} onClick={() => router.prefetch(detailHref)}>
+                          {intentParam === "upgrade" ? "متابعة الترقية" : t("scp.subscriptions.details")}
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -182,7 +183,6 @@ function SubscriptionsContent() {
 }
 
 function NextBilling({ value }: { value: SubscriptionRow }) {
-  // period end lives on the detail view; the grid keeps the renewal contract light
   return value.cancelAtPeriodEnd ? (
     <span className={styles.appCardMeta}>{value.status}</span>
   ) : (
