@@ -1,0 +1,19 @@
+name: Production Lifecycle Probe Scaffold
+
+on:
+  push:
+    branches:
+      - ops/production-lifecycle-probe-20260909
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b0498962f9a5cc1515b32432fdab98480dedcbe3
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "b0498962f9a5cc1515b32432fdab98480dedcbe3"
