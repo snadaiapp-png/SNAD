@@ -101,7 +101,7 @@ class WorkflowApprovalSelfApprovalAuthorizationTest {
                 tenantId, request.id(), actorId, request.version(), "authorized self approval");
 
         assertThat(approved.status()).isEqualTo(WorkflowApprovalRequest.Status.APPROVED);
-        assertThat(approved.approvedBy()).isEqualTo(actorId);
+        assertThat(approved.actedBy()).isEqualTo(actorId);
         verify(authorizationReadPort)
                 .findActiveUserIdsByCapability(tenantId, SELF_APPROVAL_OVERRIDE);
     }
@@ -137,7 +137,7 @@ class WorkflowApprovalSelfApprovalAuthorizationTest {
                 tenantId, request.id(), approverId, request.version(), "normal approval");
 
         assertThat(approved.status()).isEqualTo(WorkflowApprovalRequest.Status.APPROVED);
-        assertThat(approved.approvedBy()).isEqualTo(approverId);
+        assertThat(approved.actedBy()).isEqualTo(approverId);
         verify(authorizationReadPort, never())
                 .findActiveUserIdsByCapability(any(UUID.class), any(String.class));
     }
