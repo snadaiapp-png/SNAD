@@ -8,8 +8,8 @@
  * absent capability as allowed — so a broken capability service silently
  * rendered as "full access" (fail-open).
  *
- * These tests pin the corrected semantics:
- *   checking     → transient optimistic render (request in flight)
+ * These tests pin the corrected semantics through the shared ScpAccessProvider:
+ *   checking     → transient optimistic nav render (request in flight)
  *   authorized   → a link is visible only when its capability is exactly true
  *   unauthorized → authenticated=false renders a notice, no links
  *   degraded     → request failure hides links (fail-closed) and shows an
@@ -38,6 +38,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
+import { ScpAccessProvider } from "./ScpAccess";
 import { ScpNav } from "./ScpNav";
 
 type Deferred<T> = {
@@ -93,6 +94,14 @@ const ALL_LINK_LABELS = [
   "scp.nav.audit",
 ];
 
+function renderNav() {
+  return render(
+    <ScpAccessProvider>
+      <ScpNav />
+    </ScpAccessProvider>,
+  );
+}
+
 async function settle() {
   await act(async () => {
     await Promise.resolve();
@@ -105,7 +114,7 @@ describe("ScpNav — capability state machine", () => {
     const pending = deferred<typeof FULL_ACCESS>();
     accessCheckMock.mockReturnValueOnce(pending.promise);
 
-    render(<ScpNav />);
+    renderNav();
 
     // checking — transient optimistic render, aria-busy signals pending check
     expect(accessCheckMock).toHaveBeenCalledTimes(1);
@@ -135,14 +144,13 @@ describe("ScpNav — capability state machine", () => {
       },
     });
 
-    render(<ScpNav />);
+    renderNav();
     await settle();
 
     expect(screen.getByText("scp.nav.overview")).toBeInTheDocument();
     expect(screen.queryByText("scp.nav.applications")).not.toBeInTheDocument();
     expect(screen.queryByText("scp.nav.billing")).not.toBeInTheDocument();
     expect(screen.getByText("scp.nav.audit")).toBeInTheDocument();
-    // At least one capability granted — NOT the no-access state.
     expect(screen.queryByText("scp.nav.noAccess")).not.toBeInTheDocument();
   });
 
@@ -152,11 +160,10 @@ describe("ScpNav — capability state machine", () => {
       capabilities: { "subscription.read": true },
     });
 
-    render(<ScpNav />);
+    renderNav();
     await settle();
 
     expect(screen.getByText("scp.nav.overview")).toBeInTheDocument();
-    // absent keys are NOT treated as granted
     expect(screen.queryByText("scp.nav.applications")).not.toBeInTheDocument();
     expect(screen.queryByText("scp.nav.plans")).not.toBeInTheDocument();
     expect(screen.queryByText("scp.nav.audit")).not.toBeInTheDocument();
@@ -165,7 +172,7 @@ describe("ScpNav — capability state machine", () => {
   it("degraded — access-check failure hides all links and shows an explicit error with retry", async () => {
     accessCheckMock.mockRejectedValueOnce(new Error("network down"));
 
-    render(<ScpNav />);
+    renderNav();
     await settle();
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -181,7 +188,7 @@ describe("ScpNav — capability state machine", () => {
       .mockRejectedValueOnce(new Error("network down"))
       .mockResolvedValueOnce(FULL_ACCESS);
 
-    render(<ScpNav />);
+    renderNav();
     await settle();
     expect(screen.getByRole("alert")).toBeInTheDocument();
 
@@ -199,7 +206,7 @@ describe("ScpNav — capability state machine", () => {
       capabilities: {},
     });
 
-    render(<ScpNav />);
+    renderNav();
     await settle();
 
     expect(screen.getByText("scp.nav.unauthorized")).toBeInTheDocument();
@@ -214,10 +221,9 @@ describe("ScpNav — capability state machine", () => {
       capabilities: {},
     });
 
-    render(<ScpNav />);
+    renderNav();
     await settle();
 
-    // AUTHENTICATED_BUT_NO_CAPABILITIES — NOT an authentication failure.
     expect(screen.getByText("scp.nav.noAccess")).toBeInTheDocument();
     expect(screen.queryByText("scp.nav.unauthorized")).not.toBeInTheDocument();
     for (const label of ALL_LINK_LABELS) {
@@ -226,7 +232,6 @@ describe("ScpNav — capability state machine", () => {
   });
 
   it("authenticated-no-access — all capabilities explicitly false (never mapped to authentication failure)", async () => {
-    // Every distinct capability the nav gates a link on, explicitly false.
     const allFalse: Record<string, boolean> = {
       "subscription.read": false,
       "catalog.read": false,
@@ -239,7 +244,7 @@ describe("ScpNav — capability state machine", () => {
     };
     accessCheckMock.mockResolvedValueOnce({ authenticated: true, capabilities: allFalse });
 
-    render(<ScpNav />);
+    renderNav();
     await settle();
 
     expect(screen.getByText("scp.nav.noAccess")).toBeInTheDocument();

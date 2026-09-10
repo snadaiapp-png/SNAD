@@ -40,6 +40,18 @@ public class PlatformOperationsCommandController {
         return ResponseEntity.ok(adminService.createTenant(request, authentication));
     }
 
+    @PatchMapping("/tenants/{tenantId}")
+    @RequireCapability("EXECUTIVE_MANAGE")
+    public ResponseEntity<AdminDtos.TenantResponse> updateTenant(
+            Authentication authentication,
+            @PathVariable String tenantId,
+            @Valid @RequestBody AdminDtos.UpdateTenantRequest request
+    ) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(adminService.updateTenant(
+                java.util.UUID.fromString(tenantId), request, authentication));
+    }
+
     @PatchMapping("/tenants/{tenantId}/status")
     @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<AdminDtos.TenantResponse> changeTenantStatus(

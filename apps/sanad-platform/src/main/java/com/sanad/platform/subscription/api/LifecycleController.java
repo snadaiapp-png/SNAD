@@ -4,6 +4,7 @@ import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.subscription.change.SubscriptionChangeService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
+import com.sanad.platform.subscription.provisioning.ProvisioningJobResponse;
 import com.sanad.platform.subscription.provisioning.ProvisioningJobRunner;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -107,20 +108,37 @@ public class LifecycleController {
 
     @GetMapping("/provisioning/jobs")
     @RequireCapability("EXECUTIVE_VIEW")
-    public ResponseEntity<List<Map<String, Object>>> listJobs(
+    public ResponseEntity<List<ProvisioningJobResponse>> listJobs(
             @RequestParam(name = "tenantId", required = false) UUID tenantId,
             @RequestParam(name = "status", required = false) String status,
             Authentication authentication) {
         accessGuard.require(authentication);
-        List<Map<String, Object>> jobs = jdbc.queryForList(
+        // R0C-12 Blocker B-class: typed RowMapper instead of a raw JDBC
+        // snake_case Map — the console contract is camelCase (ProvisioningJobResponse).
+        List<ProvisioningJobResponse> jobs = jdbc.query(
                 "SELECT id, tenant_id, subscription_id, action, status, attempts, "
                         + "started_at, completed_at, error_code, created_at "
                         + "FROM provisioning_jobs "
                         + "WHERE (?::uuid IS NULL OR tenant_id = ?::uuid) "
                         + "AND (?::varchar IS NULL OR status = ?::varchar) "
                         + "ORDER BY created_at DESC LIMIT 200",
+                (rs, rowNum) -> new ProvisioningJobResponse(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getObject("subscription_id", UUID.class),
+                        rs.getString("action"),
+                        rs.getString("status"),
+                        rs.getInt("attempts"),
+                        toInstant(rs.getTimestamp("started_at")),
+                        toInstant(rs.getTimestamp("completed_at")),
+                        rs.getString("error_code"),
+                        toInstant(rs.getTimestamp("created_at"))),
                 tenantId, tenantId, status, status);
         return ResponseEntity.ok(jobs);
+    }
+
+    private static java.time.Instant toInstant(java.sql.Timestamp timestamp) {
+        return timestamp == null ? null : timestamp.toInstant();
     }
 
     @PostMapping("/provisioning/jobs/{jobId}/retry")

@@ -13,6 +13,8 @@ import {
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
 import styles from "../scp.module.css";
+import { useScpAccess } from "../_components/ScpAccess";
+import { scpErrorMessage } from "../_components/scp-errors";
 
 /**
  * Provisioning jobs — observability over subscription activation with a
@@ -21,6 +23,11 @@ import styles from "../scp.module.css";
 export default function ProvisioningPage() {
   const { t } = useI18n();
   const { day } = useScpFormat();
+  // R0C-12 Blocker F — retry is an EXECUTIVE_MANAGE write (backend
+  // authority); gate on that exact authority, not the one-way granular mirror.
+  // Job status stays fully visible to read-only viewers.
+  const { has } = useScpAccess();
+  const canRetry = has("EXECUTIVE_MANAGE");
   const [jobs, setJobs] = useState<ProvisioningJob[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -33,7 +40,7 @@ export default function ProvisioningPage() {
     try {
       setJobs(await scpApi.provisioningJobs(status ? { status } : {}));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setLoading(false);
     }
@@ -50,7 +57,7 @@ export default function ProvisioningPage() {
       await scpApi.retryProvisioningJob(jobId);
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setBusyId("");
     }
@@ -118,7 +125,7 @@ export default function ProvisioningPage() {
                       </a>
                     </td>
                     <td data-label={t("scp.common.actions")}>
-                      {job.status === "FAILED" || job.status === "RETRYING" ? (
+                      {canRetry && (job.status === "FAILED" || job.status === "RETRYING") ? (
                         <Button
                           variant="secondary"
                           size="sm"

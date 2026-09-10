@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { scpApi, type AccessCheckV2 } from "@/lib/api/scp-api";
 import { ScpError, ScpNotice } from "./ScpStates";
+import { useScpAccess } from "./ScpAccess";
 import styles from "../scp.module.css";
 
 /**
@@ -15,11 +14,13 @@ import styles from "../scp.module.css";
  * appear by editing this list — and new *applications* never require nav
  * changes at all (the catalog drives that surface).
  *
- * Capability state machine (explicit, never fail-open):
+ * Capability state machine (explicit, never fail-open) — R0C-12 Blocker C:
+ * the state now comes from the ONE shared ScpAccessProvider (a single
+ * access-check/v2 fetch per console session, shared with every page's
+ * mutation gates) instead of a nav-private request:
  *   checking     — the access-check request is in flight; links render
  *                  optimistically for this transient window only.
- *   authorized   — the backend answered with an explicit capability map;
- *                  a link is visible only when its capability is exactly
+ *   authorized   — a link is visible only when its capability is exactly
  *                  `true` (fail-closed: missing keys stay hidden).
  *                  When authenticated but NO capability is granted, an
  *                  explicit "signed in, no access" notice renders instead
@@ -61,57 +62,26 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
-type NavAccessState =
-  | { phase: "checking" }
-  | { phase: "authorized"; access: AccessCheckV2 }
-  | { phase: "unauthorized" }
-  | { phase: "degraded" };
-
 export function ScpNav() {
   const pathname = usePathname();
   const { t } = useI18n();
-  const [state, setState] = useState<NavAccessState>({ phase: "checking" });
-  const mountedRef = useRef(true);
-
-  const check = useCallback(async () => {
-    setState({ phase: "checking" });
-    try {
-      const result = await scpApi.accessCheckV2();
-      if (!mountedRef.current) return;
-      if (!result.authenticated) {
-        setState({ phase: "unauthorized" });
-        return;
-      }
-      setState({ phase: "authorized", access: result });
-    } catch {
-      // An unavailable capability service must not read as "all allowed".
-      if (mountedRef.current) setState({ phase: "degraded" });
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    void check();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [check]);
+  const { phase, capabilities, refresh } = useScpAccess();
 
   const visible = (capability: string): boolean => {
-    if (state.phase === "checking") return true; // transient optimistic render
-    if (state.phase !== "authorized") return false; // fail-closed
-    return state.access.capabilities[capability] === true;
+    if (phase === "checking") return true; // transient optimistic render
+    if (phase !== "authorized") return false; // fail-closed
+    return capabilities[capability] === true;
   };
 
-  if (state.phase === "degraded") {
+  if (phase === "degraded") {
     return (
       <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}>
-        <ScpError message={t("scp.nav.degraded")} onRetry={() => void check()} />
+        <ScpError message={t("scp.nav.degraded")} onRetry={() => refresh()} />
       </nav>
     );
   }
 
-  if (state.phase === "unauthorized") {
+  if (phase === "unauthorized") {
     return (
       <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}>
         <ScpNotice>{t("scp.nav.unauthorized")}</ScpNotice>
@@ -122,9 +92,9 @@ export function ScpNav() {
   // AUTHENTICATED_BUT_NO_CAPABILITIES — distinct from an authentication
   // failure: the backend explicitly said authenticated=true, so the session
   // is valid; zero capabilities means this role simply has no SCP powers.
-  if (state.phase === "authorized") {
+  if (phase === "authorized") {
     const anyVisible = SECTIONS.some((section) =>
-      section.links.some((link) => state.access.capabilities[link.capability] === true),
+      section.links.some((link) => capabilities[link.capability] === true),
     );
     if (!anyVisible) {
       return (
@@ -139,7 +109,7 @@ export function ScpNav() {
     <nav
       className={styles.nav}
       aria-label={t("scp.nav.ariaLabel")}
-      aria-busy={state.phase === "checking" ? "true" : undefined}
+      aria-busy={phase === "checking" ? "true" : undefined}
     >
       {SECTIONS.map((section) => {
         const links = section.links.filter((link) => visible(link.capability));

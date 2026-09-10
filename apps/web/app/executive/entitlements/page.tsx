@@ -17,6 +17,8 @@ import {
   ScpStatusPill,
 } from "../_components/ScpStates";
 import styles from "../scp.module.css";
+import { useScpAccess } from "../_components/ScpAccess";
+import { scpErrorMessage } from "../_components/scp-errors";
 
 function ModuleEntitlements({ module }: { module: TenantEntitlementResponse }) {
   const { t } = useI18n();
@@ -74,6 +76,10 @@ function ModuleEntitlements({ module }: { module: TenantEntitlementResponse }) {
  */
 export default function EntitlementsPage() {
   const { t } = useI18n();
+  // R0C-12 Blocker C — recalculate is an EXECUTIVE_MANAGE write (backend
+  // authority); hide the control unless entitlement.manage is granted.
+  const { has } = useScpAccess();
+  const canRecalculate = has("EXECUTIVE_MANAGE");
   const [tenantId, setTenantId] = useState("");
   const [tenantQuery, setTenantQuery] = useState("");
   const [matches, setMatches] = useState<TenantRow[]>([]);
@@ -88,7 +94,7 @@ export default function EntitlementsPage() {
     try {
       setModules(await executiveApi.modules());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setLoading(false);
     }
@@ -119,7 +125,7 @@ export default function EntitlementsPage() {
     try {
       setEntitlements(await executiveApi.tenantEntitlements(tenantId));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -132,7 +138,7 @@ export default function EntitlementsPage() {
       await executiveApi.recalculateEntitlements(tenantId);
       await loadEntitlements();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -188,9 +194,11 @@ export default function EntitlementsPage() {
           <Button variant="primary" size="sm" disabled={!tenantId || busy} onClick={() => void loadEntitlements()}>
             {t("scp.entitlements.view")}
           </Button>
-          <Button variant="secondary" size="sm" disabled={!tenantId || busy} onClick={() => void recalculate()}>
-            {t("scp.entitlements.recalculate")}
-          </Button>
+          {canRecalculate ? (
+            <Button variant="secondary" size="sm" disabled={!tenantId || busy} onClick={() => void recalculate()}>
+              {t("scp.entitlements.recalculate")}
+            </Button>
+          ) : null}
         </div>
       </div>
 

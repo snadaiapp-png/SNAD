@@ -3,6 +3,7 @@ package com.sanad.platform.executive.service;
 import com.sanad.platform.admin.api.AdminDtos.DashboardResponse;
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.api.AdminDtos.CreateTenantRequest;
+import com.sanad.platform.admin.api.AdminDtos.UpdateTenantRequest;
 import com.sanad.platform.admin.api.AdminDtos.ChangeTenantStatusRequest;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
@@ -29,10 +30,10 @@ public class ExecutivePlatformService {
     private static final Set<String> TENANT_STATUSES = Set.of(
             "PENDING", "TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED", "ARCHIVED");
     private static final Map<String, Set<String>> TENANT_TRANSITIONS = Map.of(
-            "PENDING", Set.of("TRIAL", "ACTIVE", "CANCELLED"),
-            "TRIAL", Set.of("ACTIVE", "PAST_DUE", "CANCELLED"),
+            "PENDING", Set.of("TRIAL", "ACTIVE", "CANCELLED", "ARCHIVED"),
+            "TRIAL", Set.of("ACTIVE", "PAST_DUE", "CANCELLED", "ARCHIVED"),
             "ACTIVE", Set.of("PAST_DUE", "SUSPENDED", "CANCELLED", "ARCHIVED"),
-            "PAST_DUE", Set.of("ACTIVE", "SUSPENDED", "CANCELLED"),
+            "PAST_DUE", Set.of("ACTIVE", "SUSPENDED", "CANCELLED", "ARCHIVED"),
             "SUSPENDED", Set.of("ACTIVE", "CANCELLED", "ARCHIVED"),
             "CANCELLED", Set.of("ARCHIVED"),
             "ARCHIVED", Set.of()
@@ -127,21 +128,53 @@ public class ExecutivePlatformService {
     }
 
     @Transactional
+    public TenantResponse updateTenant(UUID tenantId, UpdateTenantRequest request, Authentication authentication) {
+        TenantResponse before = getTenant(tenantId);
+        if ("ARCHIVED".equals(before.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Archived tenant cannot be modified");
+        }
+
+        jdbcTemplate.update(
+                "UPDATE tenants SET "
+                        + "name = COALESCE(?, name), "
+                        + "legal_name = COALESCE(?, legal_name), "
+                        + "billing_email = COALESCE(?, billing_email), "
+                        + "country_code = COALESCE(?, country_code), "
+                        + "locale = COALESCE(?, locale), "
+                        + "timezone = COALESCE(?, timezone), "
+                        + "currency_code = COALESCE(?, currency_code), "
+                        + "updated_at = NOW() WHERE id = ?",
+                trimToNull(request.name()), trimToNull(request.legalName()), trimToNull(request.billingEmail()),
+                trimToNull(request.countryCode()), trimToNull(request.locale()), trimToNull(request.timezone()),
+                trimToNull(request.currencyCode()), tenantId);
+
+        TenantResponse after = getTenant(tenantId);
+        auditService.success(authentication, tenantId, "UPDATE_TENANT", "TENANT", tenantId.toString(),
+                "Executive tenant profile update", before, after);
+        return after;
+    }
+
+    @Transactional
     public TenantResponse changeTenantStatus(UUID tenantId, ChangeTenantStatusRequest request, Authentication authentication) {
         TenantResponse before = getTenant(tenantId);
+        String targetStatus = normalizedTenantStatus(request.status());
+        if (targetStatus == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported tenant status: " + request.status());
+        }
         Set<String> allowed = TENANT_TRANSITIONS.getOrDefault(before.status(), Set.of());
-        if (!allowed.contains(request.status())) {
+        if (!allowed.contains(targetStatus)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Cannot transition from " + before.status() + " to " + request.status());
+                    "Cannot transition from " + before.status() + " to " + targetStatus);
         }
         jdbcTemplate.update(
                 "UPDATE tenants SET status = ?, suspension_reason = ?, updated_at = NOW() WHERE id = ?",
-                request.status(),
-                "SUSPENDED".equals(request.status()) || "CANCELLED".equals(request.status()) ? request.reason() : null,
+                targetStatus,
+                Set.of("SUSPENDED", "CANCELLED", "ARCHIVED").contains(targetStatus) ? request.reason() : null,
                 tenantId);
+        TenantResponse after = getTenant(tenantId);
         auditService.success(authentication, tenantId, "CHANGE_TENANT_STATUS", "TENANT", tenantId.toString(),
-                before.status() + " -> " + request.status(), before, getTenant(tenantId));
-        return getTenant(tenantId);
+                request.reason(), before, after);
+        return after;
     }
 
     public record AccessCheck(boolean authenticated, boolean canRead, boolean canWrite) {}
@@ -178,5 +211,11 @@ public class ExecutivePlatformService {
         if (value == null) return null;
         String upper = value.trim().toUpperCase();
         return TENANT_STATUSES.contains(upper) ? upper : null;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

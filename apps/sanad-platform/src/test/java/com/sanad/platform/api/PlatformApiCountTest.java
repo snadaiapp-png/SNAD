@@ -48,8 +48,11 @@ class PlatformApiCountTest {
      *  + 4 R0C-11 product catalog runtime endpoints (GET /products, GET /products/{id},
      *  POST /products, PUT /products/{id} — NO DELETE by design) = 825.
      *  + 1 R0C-12 design-contract detail alias (GET /subscriptions/{id} — additive,
-     *  same read model as /subscriptions/{id}/detail) = 826. */
-    private static final long EXPECTED_TOTAL_OPS = 826;
+     *  same read model as /subscriptions/{id}/detail) = 826.
+     *  + 1 R0C-12 tenant-management profile update (PATCH /tenants/{tenantId},
+     *  EXECUTIVE_MANAGE — the governed GREEN implementation of the R0C12 human-UAT
+     *  contract; /api/v1/executive group 80 → 81) = 827. */
+    private static final long EXPECTED_TOTAL_OPS = 827;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -66,7 +69,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(80);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(81);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);

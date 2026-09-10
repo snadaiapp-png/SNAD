@@ -4,6 +4,7 @@ import com.sanad.platform.module.dto.*;
 import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.module.entitlement.ModuleCapabilityContext;
 import com.sanad.platform.module.registry.*;
+import com.sanad.platform.security.SecurityContextUtils;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
 import org.slf4j.Logger;
@@ -179,9 +180,11 @@ public class ModuleRegistryController {
 
         // Audit: record the entitlement change
         // Extract actor tenant/user from authentication details
-        java.util.Map<String, Object> details = (java.util.Map<String, Object>) authentication.getDetails();
-        UUID actorTenantId = details != null ? (UUID) details.get("tenant_id") : null;
-        UUID actorUserId = details != null ? (UUID) details.get("user_id") : null;
+        // Canonical identity extraction (R0C-12 Blocker A): the real
+        // JwtAuthenticationFilter stores tenant_id/user_id as String values;
+        // SecurityContextUtils accepts String and UUID shapes and fails closed.
+        UUID actorTenantId = SecurityContextUtils.tenantId(authentication);
+        UUID actorUserId = SecurityContextUtils.userId(authentication);
         String correlationId = java.util.UUID.randomUUID().toString();
 
         auditWriter.writePlanEntitlementChanged(
@@ -266,9 +269,11 @@ public class ModuleRegistryController {
         entitlementResolver.recalculateEntitlements(tenantId);
 
         // Audit the recalculation
-        java.util.Map<String, Object> details = (java.util.Map<String, Object>) authentication.getDetails();
-        UUID actorTenantId = details != null ? (UUID) details.get("tenant_id") : null;
-        UUID actorUserId = details != null ? (UUID) details.get("user_id") : null;
+        // Canonical identity extraction (R0C-12 Blocker A): the real
+        // JwtAuthenticationFilter stores tenant_id/user_id as String values;
+        // SecurityContextUtils accepts String and UUID shapes and fails closed.
+        UUID actorTenantId = SecurityContextUtils.tenantId(authentication);
+        UUID actorUserId = SecurityContextUtils.userId(authentication);
         // Count enabled modules for audit record
         int moduleCount = moduleRepository.findAllEnabled().size();
         auditWriter.writeEntitlementsRecalculated(
@@ -307,9 +312,11 @@ public class ModuleRegistryController {
         accessGuard.require(authentication);
 
         // Extract actor from authentication
-        java.util.Map<String, Object> details = (java.util.Map<String, Object>) authentication.getDetails();
-        UUID actorTenantId = details != null ? (UUID) details.get("tenant_id") : null;
-        UUID actorUserId = details != null ? (UUID) details.get("user_id") : null;
+        // Canonical identity extraction (R0C-12 Blocker A): the real
+        // JwtAuthenticationFilter stores tenant_id/user_id as String values;
+        // SecurityContextUtils accepts String and UUID shapes and fails closed.
+        UUID actorTenantId = SecurityContextUtils.tenantId(authentication);
+        UUID actorUserId = SecurityContextUtils.userId(authentication);
 
         // Audit: MODULE_RESET_PREVIEWED (if preview was called)
         String correlationId = java.util.UUID.randomUUID().toString();

@@ -69,6 +69,22 @@ public final class AdminDtos {
     ) {
     }
 
+    /**
+     * Safe tenant-profile patch. Subdomain is intentionally excluded because
+     * it is a routing identity and must not be mutated through routine account
+     * administration.
+     */
+    public record UpdateTenantRequest(
+            @Size(max = 200) String name,
+            @Size(max = 250) String legalName,
+            @Email @Size(max = 255) String billingEmail,
+            @Pattern(regexp = "^[A-Z]{2}$") String countryCode,
+            @Size(max = 10) String locale,
+            @Size(max = 64) String timezone,
+            @Pattern(regexp = "^[A-Z]{3}$") String currencyCode
+    ) {
+    }
+
     public record ChangeTenantStatusRequest(
             @NotNull String status,
             @NotBlank @Size(max = 500) String reason

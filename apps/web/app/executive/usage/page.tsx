@@ -11,6 +11,7 @@ import {
   ScpSkeleton,
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
+import { scpErrorMessage } from "../_components/scp-errors";
 import { UsagePeriodLabel } from "./UsagePeriodLabel";
 import styles from "../scp.module.css";
 
@@ -49,7 +50,7 @@ export default function UsagePage() {
     try {
       setUsage(await scpApi.usage(tenantId));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
