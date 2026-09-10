@@ -1,39 +1,22 @@
-name: R0C12 Canonical Contract Bootstrap
+name: R0C12 Canonical Contract Object Probe
 
 "on": push
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch:
+  probe:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: fix/r0c12-canonical-human-uat-contract
           fetch-depth: 0
-
-      - name: Patch canonical Gate G contract
-        run: python3 scripts/r0c12-canonical-contract-patch.py
-
-      - name: Verify scope and commit correction
+      - name: Reproduce patched object identity
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/_r0c12-canonical-contract-bootstrap.yml
-          git rm scripts/r0c12-canonical-contract-patch.py
+          python3 scripts/r0c12-canonical-contract-patch.py
+          echo "PATCHED_CI_BLOB=$(git hash-object .github/workflows/ci.yml)"
           git diff --check
-          git diff -- .github/workflows/ci.yml
-          changed="$(git status --short | awk '{print $2}' | sort)"
-          expected="$(printf '%s\n' '.github/workflows/_r0c12-canonical-contract-bootstrap.yml' '.github/workflows/ci.yml' 'scripts/r0c12-canonical-contract-patch.py' | sort)"
-          test "$changed" = "$expected" || {
-            echo "::error::OUT_OF_SCOPE_FILES"
-            printf 'Changed files:\n%s\n' "$changed"
-            exit 1
-          }
-          git config user.name sanad-ci-corrective
-          git config user.email sanad.ai.app@gmail.com
-          git add -A
-          git commit -m 'fix(ci): include human UAT in canonical Gate G companion'
-          git push origin HEAD:fix/r0c12-canonical-human-uat-contract
