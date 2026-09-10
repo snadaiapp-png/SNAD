@@ -1,105 +1,41 @@
 name: R0C12 Canonical Contract Bootstrap
 
-on:
-  push:
-    branches:
-      - fix/r0c12-canonical-human-uat-contract
-    paths:
-      - '.github/workflows/_r0c12-canonical-contract-bootstrap.yml'
+on: push
 
 permissions:
   contents: write
 
 jobs:
-  patch-canonical-contract:
+  patch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout corrective branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: fix/r0c12-canonical-human-uat-contract
           fetch-depth: 0
 
-      - name: Apply fail-closed G11 contract correction
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
+      - name: Patch canonical Gate G contract
+        run: python3 scripts/r0c12-canonical-contract-patch.py
 
-          path = Path('.github/workflows/ci.yml')
-          text = path.read_text()
-
-          replacements = [
-              (
-                  '          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15}',
-                  '          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15, "ModuleRegistryUatPostgresAcceptanceTest": 10}'
-              ),
-              (
-                  "            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest' \\",
-                  "            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest' \\",
-              ),
-              (
-                  '      - name: A6-17 Acceptance verdict (21 executed, 0F/0E/0S, 6+15)',
-                  '      - name: A6-17 Acceptance verdict (31 executed, 0F/0E/0S, 6+15+10)'
-              ),
-              (
-                  '          rbac = per_class.get("RbacAccessCheckPostgresAcceptanceTest", [0, 0, 0, 0])\n          ok = (tests == 21 and failures == 0 and errors == 0 and skipped == 0\n                and com[0] == 6 and rbac[0] == 15 and acc_exit == "0" and parse_errors == 0)',
-                  '          rbac = per_class.get("RbacAccessCheckPostgresAcceptanceTest", [0, 0, 0, 0])\n          module_uat = per_class.get("ModuleRegistryUatPostgresAcceptanceTest", [0, 0, 0, 0])\n          ok = (tests == 31 and failures == 0 and errors == 0 and skipped == 0\n                and com[0] == 6 and rbac[0] == 15 and module_uat[0] == 10\n                and acc_exit == "0" and parse_errors == 0)'
-              ),
-              (
-                  '              w.write("EXPECTED_ACCEPTANCE_TESTS=21\\n")',
-                  '              w.write("EXPECTED_ACCEPTANCE_TESTS=31\\n")'
-              ),
-              (
-                  '              w.write("RBAC_EXECUTED=%d\\n" % rbac[0])',
-                  '              w.write("RBAC_EXECUTED=%d\\n" % rbac[0])\n              w.write("MODULE_REGISTRY_UAT_EXECUTED=%d\\n" % module_uat[0])'
-              ),
-              (
-                  '              "PG_ACCEPTANCE==21/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "21"',
-                  '              "PG_ACCEPTANCE==31/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "31"'
-              ),
-              (
-                  '#     acceptance run (CommerceOrderPostgresConcurrencyTest = 6,\n#     RbacAccessCheckPostgresAcceptanceTest = 15); any unknown',
-                  '#     acceptance run (CommerceOrderPostgresConcurrencyTest = 6,\n#     RbacAccessCheckPostgresAcceptanceTest = 15,\n#     ModuleRegistryUatPostgresAcceptanceTest = 10); any unknown'
-              ),
-              (
-                  '#     pg-acceptance, BOTH gated classes in one explicit\n#     invocation, EXPECTED_ACCEPTANCE_TESTS=21 (Commerce=6,\n#     RBAC=15), 0F/0E/0S',
-                  '#     pg-acceptance, ALL THREE gated classes in one explicit\n#     invocation, EXPECTED_ACCEPTANCE_TESTS=31 (Commerce=6,\n#     RBAC=15, ModuleRegistryHumanUAT=10), 0F/0E/0S'
-              ),
-          ]
-
-          for old, new in replacements:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'FAIL_CLOSED replacement count={count}; expected=1; pattern={old[:100]!r}')
-              text = text.replace(old, new, 1)
-
-          path.write_text(text)
-          PY
-
-          grep -F 'ModuleRegistryUatPostgresAcceptanceTest": 10' .github/workflows/ci.yml
-          grep -F "-Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest'" .github/workflows/ci.yml
-          grep -F 'EXPECTED_ACCEPTANCE_TESTS=31' .github/workflows/ci.yml
-          grep -F 'MODULE_REGISTRY_UAT_EXECUTED=%d' .github/workflows/ci.yml
-          grep -F 'PG_ACCEPTANCE==31/0/0/0' .github/workflows/ci.yml
-
-      - name: Enforce CI-only scope and commit
+      - name: Verify scope and commit correction
         shell: bash
         run: |
           set -euo pipefail
           git rm .github/workflows/_r0c12-canonical-contract-bootstrap.yml
+          git rm scripts/r0c12-canonical-contract-patch.py
+          git diff --check
+          git diff -- .github/workflows/ci.yml
           changed="$(git status --short | awk '{print $2}' | sort)"
           expected=".github/workflows/_r0c12-canonical-contract-bootstrap.yml
-.github/workflows/ci.yml"
+.github/workflows/ci.yml
+scripts/r0c12-canonical-contract-patch.py"
           test "$changed" = "$expected" || {
             echo "::error::OUT_OF_SCOPE_FILES"
-            printf 'Changed:\n%s\n' "$changed"
+            printf 'Changed files:\n%s\n' "$changed"
             exit 1
           }
-          git diff --check
-          git config user.name 'snad-ci-corrective'
-          git config user.email 'snad.ai.app@gmail.com'
-          git add .github/workflows/ci.yml .github/workflows/_r0c12-canonical-contract-bootstrap.yml
+          git config user.name sanad-ci-corrective
+          git config user.email sanad.ai.app@gmail.com
+          git add -A
           git commit -m 'fix(ci): include human UAT in canonical Gate G companion'
           git push origin HEAD:fix/r0c12-canonical-human-uat-contract
