@@ -18,6 +18,8 @@ export interface WorkflowDefinitionResponse {
   definitionFamilyId: string;
   engineGeneration: "LEGACY" | "Y2" | string;
   publicationState: "DRAFT" | "PUBLISHED" | "RETIRED" | string;
+  classification?: "BUSINESS" | "SYSTEM_CANARY" | string;
+  updatedAt?: string | null;
 }
 
 export interface WorkflowInstanceResponse {
@@ -132,6 +134,10 @@ export const workflowApi = {
 
   getDefinition: (id: string) =>
     apiClient.get<WorkflowDefinitionResponse>(`${BASE}/definitions/${id}`),
+
+  // R0.G5 — family version history (tenant fail-closed, server authoritative).
+  listDefinitionVersions: (id: string) =>
+    apiClient.get<WorkflowDefinitionResponse[]>(`${BASE}/definitions/${id}/versions`),
 
   createDefinition: (data: CreateDefinitionRequest) =>
     apiClient.post<WorkflowDefinitionResponse>(`${BASE}/definitions`, data),
