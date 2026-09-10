@@ -563,6 +563,7 @@ public class WorkflowController {
         map.put("definitionFamilyId", d.definitionFamilyId() != null ? d.definitionFamilyId().toString() : "");
         map.put("engineGeneration", d.engineGeneration() != null ? d.engineGeneration().name() : "");
         map.put("publicationState", d.publicationState() != null ? d.publicationState().name() : "");
+        map.put("updatedAt", d.updatedAt() != null ? d.updatedAt().toString() : null);
         // R0.G8 — system canaries are release infrastructure: expose a derived
         // classification so the product workspace can separate them from
         // business workflows (historical canaries are never mutated).
