@@ -15,6 +15,8 @@ import com.sanad.platform.workflow.domain.WorkflowStep;
 import com.sanad.platform.workflow.domain.WorkflowStepInstance;
 import com.sanad.platform.workflow.domain.WorkflowStepInstanceRepository;
 import com.sanad.platform.workflow.domain.WorkflowTransition;
+import com.sanad.platform.workflow.domain.WorkflowTransitionAudit;
+import com.sanad.platform.workflow.domain.WorkflowTransitionAuditRepository;
 import com.sanad.platform.workflow.domain.WorkflowWorkItem;
 import com.sanad.platform.workflow.domain.WorkflowWorkItemCandidate;
 import org.slf4j.Logger;
@@ -53,6 +55,8 @@ public class WorkflowGraphExecutionService {
     private final WorkflowApprovalRequestRepository approvalRepo;
     private final WorkflowSystemActionService systemActionService;
     private final WorkflowSystemActionAdapterRegistry adapterRegistry;
+    private final WorkflowBusinessTimeService businessTimeService;
+    private final WorkflowTransitionAuditRepository auditRepo;
     private final HrEmployeeRepository employeeRepo;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
@@ -67,6 +71,8 @@ public class WorkflowGraphExecutionService {
             WorkflowApprovalRequestRepository approvalRepo,
             WorkflowSystemActionService systemActionService,
             WorkflowSystemActionAdapterRegistry adapterRegistry,
+            WorkflowBusinessTimeService businessTimeService,
+            WorkflowTransitionAuditRepository auditRepo,
             HrEmployeeRepository employeeRepo,
             org.springframework.jdbc.core.JdbcTemplate jdbc,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
@@ -79,6 +85,8 @@ public class WorkflowGraphExecutionService {
         this.approvalRepo = approvalRepo;
         this.systemActionService = systemActionService;
         this.adapterRegistry = adapterRegistry;
+        this.businessTimeService = businessTimeService;
+        this.auditRepo = auditRepo;
         this.employeeRepo = employeeRepo;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
@@ -139,9 +147,9 @@ public class WorkflowGraphExecutionService {
         WorkflowInstance updated = instance.advanceToStep(nextStep.stepKey());
 
         if (nextStep.stepType() == WorkflowStep.StepType.PARALLEL_FORK) {
-            Instant forkDue = slaDueAt(nextStep);
             stepInstanceRepo.save(WorkflowStepInstance.create(
-                    tenantId, instanceId, nextStep.id(), nextStep.stepKey(), forkDue, null, null));
+                    tenantId, instanceId, nextStep.id(), nextStep.stepKey(),
+                    slaSnapshot(tenantId, nextStep), null, null));
             return openForkBranches(tenantId, updated, nextStep);
         }
 
@@ -167,12 +175,9 @@ public class WorkflowGraphExecutionService {
             return saved;
         }
 
-        Instant dueAt = nextStep.slaHours() != null
-                ? Instant.now().plus(Duration.ofHours(nextStep.slaHours()))
-                : null;
         WorkflowStepInstance nextStepInstance = stepInstanceRepo.save(WorkflowStepInstance.create(
-                tenantId, instanceId, nextStep.id(), nextStep.stepKey(), dueAt,
-                null, nextStep.requiredRole()));
+                tenantId, instanceId, nextStep.id(), nextStep.stepKey(),
+                slaSnapshot(tenantId, nextStep), null, nextStep.requiredRole()));
 
         if (nextStep.stepType() == WorkflowStep.StepType.HUMAN_TASK
                 || nextStep.stepType() == WorkflowStep.StepType.APPROVAL) {
@@ -219,17 +224,11 @@ public class WorkflowGraphExecutionService {
 
         var config = readConfiguration(step);
         var adapter = adapterRegistry.require(config.path("adapter").asText(null));
-        var input = new java.util.HashMap<String, Object>();
-        var inputNode = config.path("input");
-        if (inputNode.isObject()) {
-            inputNode.fields().forEachRemaining(e -> input.put(e.getKey(), e.getValue().isTextual()
-                    ? e.getValue().asText() : objectMapper.convertValue(e.getValue(), Object.class)));
-        }
 
         stepInstanceRepo.save(current.start());
         String idempotencyKey = "instance:" + instanceId + ":step:" + current.id();
         var result = systemActionService.execute(tenantId, instanceId, current.id(), adapter,
-                input, instance.correlationId(), null, idempotencyKey, null);
+                readActionInput(config), instance.correlationId(), null, idempotencyKey, null);
         if (result.success()) {
             var finished = reloadStepInstance(instanceId, current.id()).complete(
                     "System action executed: " + result.externalReference());
@@ -252,6 +251,111 @@ public class WorkflowGraphExecutionService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException(
                         "Step instance disappeared: " + stepInstanceId));
+    }
+
+    /** Typed input map from a SYSTEM_ACTION step's configuration JSON. */
+    private java.util.Map<String, Object> readActionInput(
+            com.fasterxml.jackson.databind.JsonNode config) {
+        var input = new java.util.HashMap<String, Object>();
+        var inputNode = config.path("input");
+        if (inputNode.isObject()) {
+            inputNode.fields().forEachRemaining(e -> input.put(e.getKey(), e.getValue().isTextual()
+                    ? e.getValue().asText() : objectMapper.convertValue(e.getValue(), Object.class)));
+        }
+        return input;
+    }
+
+    // ===== Y2 two-phase cancellation (P3) =====
+
+    /**
+     * Cancels a Y2 instance through the durable two-phase lifecycle
+     * ACTIVE -> CANCELLING -> CANCELLED. Phase 1 pins the cancellation
+     * evidence and enters CANCELLING; every completed SYSTEM_ACTION step of
+     * the instance is then compensated through its registered adapter
+     * (idempotent per step). When all compensations reconcile, the instance
+     * finalizes to CANCELLED. Any compensation failure opens a governed
+     * incident (via the system-action service) and holds the instance in
+     * CANCELLING — the platform never pretends a distributed side effect was
+     * undone. Re-entering cancel on a CANCELLING instance retries the
+     * idempotent compensations and finalizes when the path is clear.
+     * LEGACY instances are rejected: their direct cancellation remains on
+     * the legacy runtime, and no instance is ever served by both engines.
+     */
+    @Transactional
+    public WorkflowInstance cancel(UUID tenantId, UUID instanceId, UUID actorUserId, String reason) {
+        var instance = instanceRepo.findById(tenantId, instanceId)
+                .orElseThrow(() -> new IllegalArgumentException("WorkflowInstance not found: " + instanceId));
+        if (instance.engineGeneration() != WorkflowInstance.EngineGeneration.Y2) {
+            throw new IllegalStateException(
+                    "LEGACY instances must cancel through the legacy runtime, not the Y2 graph");
+        }
+        WorkflowInstance cancelling;
+        if (instance.status() == WorkflowInstance.Status.RUNNING
+                || instance.status() == WorkflowInstance.Status.PAUSED) {
+            cancelling = instanceRepo.save(instance.markCancelling(actorUserId, reason));
+            audit(actorUserId, cancelling, WorkflowTransitionAudit.Action.CANCEL,
+                    instance.status().name(), cancelling.status().name());
+        } else if (instance.status() == WorkflowInstance.Status.CANCELLING) {
+            cancelling = instance;
+        } else if (instance.status() == WorkflowInstance.Status.CANCELLED) {
+            // Idempotent replay of an already-finalized cancellation.
+            return instance;
+        } else {
+            throw new IllegalStateException("Cannot cancel instance in status " + instance.status());
+        }
+
+        boolean allCompensated = compensateCommittedSideEffects(tenantId, instance);
+        if (!allCompensated) {
+            // Durable CANCELLING with governed incidents; re-run cancel after
+            // remediation to finish the lifecycle.
+            return instanceRepo.findById(tenantId, instanceId).orElse(cancelling);
+        }
+        var finalized = instanceRepo.save(cancelling.finalizeCancel());
+        audit(actorUserId, finalized, WorkflowTransitionAudit.Action.CANCEL,
+                WorkflowInstance.Status.CANCELLING.name(), WorkflowInstance.Status.CANCELLED.name());
+        log.info("Y2 instance cancelled: tenant={} instance={} actor={}",
+                tenantId, instanceId, actorUserId);
+        return finalized;
+    }
+
+    /**
+     * Runs compensation for every completed SYSTEM_ACTION step of the
+     * instance. Returns true only when every compensatable side effect
+     * reconciled; failures are captured as incidents by the system-action
+     * service and reported through the returned flag.
+     */
+    private boolean compensateCommittedSideEffects(UUID tenantId, WorkflowInstance instance) {
+        Map<UUID, WorkflowStep> steps = stepsById(instance.definitionVersionId());
+        List<WorkflowStepInstance> completedActions = stepInstanceRepo.findByInstance(instance.id()).stream()
+                .filter(si -> si.status() == WorkflowStepInstance.Status.COMPLETED)
+                .filter(si -> {
+                    WorkflowStep step = steps.get(si.workflowStepId());
+                    return step != null && step.stepType() == WorkflowStep.StepType.SYSTEM_ACTION;
+                })
+                .toList();
+        boolean allCompensated = true;
+        for (WorkflowStepInstance si : completedActions) {
+            WorkflowStep step = steps.get(si.workflowStepId());
+            var config = readConfiguration(step);
+            var adapter = adapterRegistry.require(config.path("adapter").asText(null));
+            String compensationKey = "cancel:" + instance.id() + ":step:" + si.id();
+            var result = systemActionService.compensate(tenantId, instance.id(), si.id(), adapter,
+                    readActionInput(config), compensationKey);
+            if (!result.success()) {
+                allCompensated = false;
+                log.warn("Y2 cancellation compensation failed: tenant={} instance={} step={} incident={}",
+                        tenantId, instance.id(), step.stepKey(), result.incidentId());
+            }
+        }
+        return allCompensated;
+    }
+
+    private void audit(UUID actorUserId, WorkflowInstance instance,
+                       WorkflowTransitionAudit.Action action, String fromState, String toState) {
+        auditRepo.save(WorkflowTransitionAudit.create(
+                instance.tenantId(), instance.id(), null,
+                actorUserId, action, fromState, toState,
+                instance.correlationId(), null));
     }
 
     // ===== Controlled parallelism (R3) =====
@@ -426,7 +530,8 @@ public class WorkflowGraphExecutionService {
                 .filter(si -> si.stepKey().equals(joinStep.stepKey()))
                 .findFirst()
                 .orElseGet(() -> stepInstanceRepo.save(WorkflowStepInstance.create(
-                        tenantId, instance.id(), joinStep.id(), joinStep.stepKey(), null, null, null)));
+                        tenantId, instance.id(), joinStep.id(), joinStep.stepKey(),
+                        new WorkflowStepInstance.SlaSnapshot(null, null, null, null), null, null)));
 
         // T14-D2: a REAL arrival must complete its own branch token — the arriving
         // transition's source step identifies the fork branch that owns the chain.
@@ -530,7 +635,7 @@ public class WorkflowGraphExecutionService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Child definition has no START step"));
         stepInstanceRepo.save(WorkflowStepInstance.create(tenantId, child.id(), start.id(),
-                start.stepKey(), slaDueAt(start), null, null));
+                start.stepKey(), slaSnapshot(tenantId, start), null, null));
         log.info("Child workflow started: tenant={} parent={} child={} childDefinition={}",
                 tenantId, parent.id(), child.id(), childDefinition.id());
         // WAIT_FOR_COMPLETION: the parent's CALL_WORKFLOW step stays PENDING;
@@ -583,8 +688,34 @@ public class WorkflowGraphExecutionService {
         }
     }
 
-    private Instant slaDueAt(WorkflowStep step) {
-        return step.slaHours() != null ? Instant.now().plus(Duration.ofHours(step.slaHours())) : null;
+    /**
+     * Activation-time SLA policy resolution (V3). WALL_CLOCK/CALENDAR_TIME
+     * keep the legacy-compatible elapsed-hour due; BUSINESS_TIME resolves the
+     * due instant through the pinned tenant business calendar and fails
+     * closed when the calendar reference is missing or unknown. The resolved
+     * snapshot (due, mode, calendar, hours) is persisted with the step
+     * instance so later definition/calendar edits never change historical
+     * evidence.
+     */
+    private WorkflowStepInstance.SlaSnapshot slaSnapshot(UUID tenantId, WorkflowStep step) {
+        String mode = step.slaMode() == null || step.slaMode().isBlank()
+                ? "WALL_CLOCK" : step.slaMode();
+        if ("BUSINESS_TIME".equals(mode)) {
+            if (step.slaHours() == null) {
+                return new WorkflowStepInstance.SlaSnapshot(null, mode, step.slaCalendarId(), null);
+            }
+            if (step.slaCalendarId() == null) {
+                throw new IllegalStateException("BUSINESS_TIME SLA step '" + step.stepKey()
+                        + "' has no pinned business calendar - failing closed");
+            }
+            Instant due = businessTimeService.addBusinessDuration(
+                    tenantId, step.slaCalendarId(), Instant.now(), Duration.ofHours(step.slaHours()));
+            return new WorkflowStepInstance.SlaSnapshot(due, mode, step.slaCalendarId(), step.slaHours());
+        }
+        Instant due = step.slaHours() != null
+                ? Instant.now().plus(Duration.ofHours(step.slaHours()))
+                : null;
+        return new WorkflowStepInstance.SlaSnapshot(due, mode, step.slaCalendarId(), step.slaHours());
     }
 
     private boolean outcomeMatches(WorkflowTransition transition, String outcome) {
