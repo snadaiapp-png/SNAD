@@ -24,5 +24,8 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install test dependency
+        run: pip install pytest -q
+
       - name: Verify gitlink metadata integrity
         run: python3 -m pytest tests/ci/test_repository_gitlinks.py -q
