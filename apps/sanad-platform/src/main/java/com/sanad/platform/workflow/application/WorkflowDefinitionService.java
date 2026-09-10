@@ -149,13 +149,52 @@ public class WorkflowDefinitionService {
      * Creates the next DRAFT version in the same definition family from a
      * published source version. The source version stays PUBLISHED and keeps
      * serving the instances pinned to it.
+     *
+     * <p>R0.G2 — the draft is a COMPLETE editable copy of the published
+     * business graph: every step and every transition is cloned with a NEW
+     * id, transitions are rewritten through a deterministic
+     * OLD_STEP_ID → NEW_STEP_ID mapping, and no runtime state (instances,
+     * work items, approvals, attempts, incidents, branch tokens, timers,
+     * notification delivery state, transition audit) is copied. The whole
+     * operation is atomic: definition, steps and transitions either commit
+     * together or roll back entirely.</p>
      */
     @Transactional
     public WorkflowDefinition createNextDraft(UUID tenantId, UUID sourceDefinitionId, UUID actorUserId) {
         var source = load(tenantId, sourceDefinitionId);
         var draft = defRepo.save(source.nextDraft(actorUserId));
-        log.info("WorkflowDefinition next draft: tenant={} family={} sourceVersion={} draftId={} draftVersion={} actor={}",
-                tenantId, source.definitionFamilyId(), source.version(), draft.id(), draft.version(), actorUserId);
+        var now = java.time.Instant.now();
+        // Deep-clone the graph. A corrupted source transition (endpoints
+        // equal/missing from the source step set) fails the compact record
+        // constructor, which aborts this transaction — no partial draft
+        // survives (FAILED_COPY_ROLLS_BACK).
+        java.util.Map<UUID, UUID> stepIdMap = new java.util.HashMap<>();
+        for (var step : defRepo.findSteps(sourceDefinitionId)) {
+            var clone = new com.sanad.platform.workflow.domain.WorkflowStep(
+                    UUID.randomUUID(), step.tenantId(), draft.id(), step.stepKey(), step.name(),
+                    step.stepType(), step.sequenceOrder(), step.configuration(), step.slaHours(),
+                    step.requiredCapability(), step.requiredRole(), 0, now, now);
+            defRepo.saveStep(clone);
+            stepIdMap.put(step.id(), clone.id());
+        }
+        for (var transition : defRepo.findTransitions(sourceDefinitionId)) {
+            var from = stepIdMap.get(transition.fromStepId());
+            var to = stepIdMap.get(transition.toStepId());
+            if (from == null || to == null) {
+                throw new IllegalArgumentException(
+                        "Source transition " + transition.transitionKey()
+                                + " references steps outside the source definition graph");
+            }
+            var clone = new com.sanad.platform.workflow.domain.WorkflowTransition(
+                    UUID.randomUUID(), transition.tenantId(), draft.id(), from, to,
+                    transition.transitionKey(), transition.outcome(), transition.conditionAst(),
+                    transition.priority(), transition.metadata(), now, now);
+            defRepo.saveTransition(clone);
+        }
+        log.info("WorkflowDefinition next draft: tenant={} family={} sourceVersion={} draftId={} draftVersion={} "
+                        + "clonedSteps={} clonedTransitions={} actor={}",
+                tenantId, source.definitionFamilyId(), source.version(), draft.id(), draft.version(),
+                stepIdMap.size(), defRepo.findTransitions(draft.id()).size(), actorUserId);
         return draft;
     }
 
