@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -57,6 +58,8 @@ class WorkflowApprovalSelfApprovalAuthorizationTest {
                         WorkflowApprovalPolicy.SelfApproval.ALLOW));
 
         when(approvalRepo.findById(tenantId, request.id())).thenReturn(Optional.of(request));
+        when(approvalRepo.save(any(WorkflowApprovalRequest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(instanceRepo.findById(tenantId, instanceId)).thenReturn(Optional.empty());
 
         var service = new WorkflowApprovalService(
