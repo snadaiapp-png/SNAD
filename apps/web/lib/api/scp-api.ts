@@ -281,20 +281,21 @@ export interface ProvisioningJob {
   createdAt: string;
 }
 
+/**
+ * R0C-12 Blocker B: full typed audit contract — mirrors the backend
+ * AuditEntryResponse record exactly (camelCase JSON keys; nullable columns
+ * map to null, never to absent keys or snake_case names).
+ */
 export interface AuditEntry {
   id: string;
-  /** Null for system-initiated rows (no authenticated actor tenant). */
   actorTenantId: string | null;
-  /** Null for system-initiated rows (no authenticated actor user). */
   actorUserId: string | null;
-  /** Null when the audited action has no distinct target tenant. */
   targetTenantId: string | null;
   action: string;
   resourceType: string;
-  resourceId: string;
+  resourceId: string | null;
   reason: string | null;
   result: string;
-  /** Null when the backend emitted the row without a correlation id. */
   correlationId: string | null;
   createdAt: string;
 }

@@ -24,10 +24,10 @@ export default function ProvisioningPage() {
   const { t } = useI18n();
   const { day } = useScpFormat();
   // R0C-12 Blocker F — retry is an EXECUTIVE_MANAGE write (backend
-  // authority); gate on that exact authority, not the one-way granular mirror.
+  // authority); hide the control unless provisioning.retry is granted.
   // Job status stays fully visible to read-only viewers.
   const { has } = useScpAccess();
-  const canRetry = has("EXECUTIVE_MANAGE");
+  const canRetry = has("provisioning.retry");
   const [jobs, setJobs] = useState<ProvisioningJob[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
