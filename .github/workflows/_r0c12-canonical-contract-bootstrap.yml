@@ -1,6 +1,6 @@
 name: R0C12 Canonical Contract Bootstrap
 
-on: push
+"on": push
 
 permissions:
   contents: write
@@ -26,9 +26,7 @@ jobs:
           git diff --check
           git diff -- .github/workflows/ci.yml
           changed="$(git status --short | awk '{print $2}' | sort)"
-          expected=".github/workflows/_r0c12-canonical-contract-bootstrap.yml
-.github/workflows/ci.yml
-scripts/r0c12-canonical-contract-patch.py"
+          expected="$(printf '%s\n' '.github/workflows/_r0c12-canonical-contract-bootstrap.yml' '.github/workflows/ci.yml' 'scripts/r0c12-canonical-contract-patch.py' | sort)"
           test "$changed" = "$expected" || {
             echo "::error::OUT_OF_SCOPE_FILES"
             printf 'Changed files:\n%s\n' "$changed"
