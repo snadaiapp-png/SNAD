@@ -283,11 +283,19 @@ export interface ProvisioningJob {
 
 export interface AuditEntry {
   id: string;
+  /** Null for system-initiated rows (no authenticated actor tenant). */
+  actorTenantId: string | null;
+  /** Null for system-initiated rows (no authenticated actor user). */
+  actorUserId: string | null;
+  /** Null when the audited action has no distinct target tenant. */
+  targetTenantId: string | null;
   action: string;
   resourceType: string;
   resourceId: string;
   reason: string | null;
   result: string;
+  /** Null when the backend emitted the row without a correlation id. */
+  correlationId: string | null;
   createdAt: string;
 }
 

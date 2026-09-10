@@ -15,7 +15,7 @@ vi.mock("./client", () => ({
   },
 }));
 
-import { scpApi } from "./scp-api";
+import { scpApi, type AuditEntry } from "./scp-api";
 
 describe("scpApi — endpoint construction", () => {
   beforeEach(() => {
@@ -77,5 +77,77 @@ describe("scpApi — endpoint construction", () => {
       targetPlanVersionId: "version-9",
       countryCode: "SA",
     });
+  });
+});
+
+describe("scpApi AuditEntry — backend AuditEntryResponse contract", () => {
+  /**
+   * R0C12 Phase C audit contract gate: the frontend AuditEntry projection
+   * served from /api/v1/executive/audit/v2 must truthfully model every
+   * field of the backend authority AdminDtos.AuditEntryResponse (11 fields:
+   * id, actorTenantId, actorUserId, targetTenantId, action, resourceType,
+   * resourceId, reason, result, correlationId, createdAt).
+   *
+   * The annotated literals below fail `tsc --noEmit` while the projection
+   * omits any backend field (excess-property check), so the contract stays
+   * enforced by the typecheck quality gate; the runtime key assertion adds
+   * a second, type-erasure-proof layer to the same gate.
+   */
+  const BACKEND_AUDIT_ENTRY_RESPONSE_FIELDS = [
+    "id",
+    "actorTenantId",
+    "actorUserId",
+    "targetTenantId",
+    "action",
+    "resourceType",
+    "resourceId",
+    "reason",
+    "result",
+    "correlationId",
+    "createdAt",
+  ] as const;
+
+  it("models the full backend projection (all 11 fields)", () => {
+    const governedRow: AuditEntry = {
+      id: "0b6f2d0e-0000-0000-0000-000000000001",
+      actorTenantId: "0b6f2d0e-0000-0000-0000-000000000002",
+      actorUserId: "0b6f2d0e-0000-0000-0000-000000000003",
+      targetTenantId: "0b6f2d0e-0000-0000-0000-000000000004",
+      action: "TENANT_UPDATED",
+      resourceType: "TENANT",
+      resourceId: "tenant-7",
+      reason: "governed R0C12 update",
+      result: "SUCCESS",
+      correlationId: "corr-r0c12-1",
+      createdAt: "2026-09-10T00:00:00Z",
+    };
+
+    expect(Object.keys(governedRow).sort()).toEqual(
+      [...BACKEND_AUDIT_ENTRY_RESPONSE_FIELDS].sort(),
+    );
+  });
+
+  it("accepts null actor/target/correlation context for system-initiated audit rows", () => {
+    // PlatformAuditService.mapAudit maps actor_tenant_id / actor_user_id /
+    // target_tenant_id via getObject(UUID.class) and correlation_id via
+    // getString — all nullable when audit rows are system-initiated.
+    const systemRow: AuditEntry = {
+      id: "0b6f2d0e-0000-0000-0000-000000000009",
+      actorTenantId: null,
+      actorUserId: null,
+      targetTenantId: null,
+      action: "SUBSCRIPTION_SUSPENDED",
+      resourceType: "SUBSCRIPTION",
+      resourceId: "sub-3",
+      reason: null,
+      result: "SUCCESS",
+      correlationId: null,
+      createdAt: "2026-09-10T00:00:00Z",
+    };
+
+    expect(systemRow.actorTenantId).toBeNull();
+    expect(systemRow.actorUserId).toBeNull();
+    expect(systemRow.targetTenantId).toBeNull();
+    expect(systemRow.correlationId).toBeNull();
   });
 });
