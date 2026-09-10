@@ -1,0 +1,149 @@
+name: Workflow Y2 Production Write Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Exact immutable backend release SHA currently live on Render'
+        required: true
+        type: string
+      confirm:
+        description: "Type 'run-y2-canary' to authorize the isolated production write canary"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-y2-production-write-canary
+  cancel-in-progress: false
+
+jobs:
+  production-write-canary:
+    name: Verify Workflow Y2 write path in production
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha }}
+      CONFIRM: ${{ inputs.confirm }}
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      Y2_CANARY_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      Y2_CANARY_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Checkout exact current main control surface
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Guard authorization, source relationship, and backend immutability
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$CONFIRM" = "run-y2-canary" ] || {
+            echo "::error::confirm must equal run-y2-canary"
+            exit 1
+          }
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::release_sha must be a full lowercase 40-hex SHA"
+            exit 1
+          }
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "::error::Production write canary must be dispatched from main"
+            exit 1
+          }
+          remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          [ "$remote_main" = "$GITHUB_SHA" ] || {
+            echo "::error::Workflow checkout is not exact current main"
+            exit 1
+          }
+          git cat-file -e "${RELEASE_SHA}^{commit}"
+          git merge-base --is-ancestor "$RELEASE_SHA" HEAD || {
+            echo "::error::release_sha is not an ancestor of current main"
+            exit 1
+          }
+          git diff --quiet "$RELEASE_SHA" HEAD -- apps/sanad-platform || {
+            echo "::error::Backend source differs between deployed release_sha and current main"
+            exit 1
+          }
+          for name in PRODUCTION_BASE_URL RENDER_API_KEY RENDER_SERVICE_ID Y2_CANARY_ADMIN_EMAIL Y2_CANARY_ADMIN_PASSWORD; do
+            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
+          done
+          [[ "$PRODUCTION_BASE_URL" == https://* ]] || {
+            echo "::error::PRODUCTION_BASE_URL must use HTTPS"
+            exit 1
+          }
+          echo "Source guard: PASS"
+
+      - name: Verify exact immutable Render image is live
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_IMAGE="ghcr.io/snadaiapp-png/snad-backend:${RELEASE_SHA}"
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=50" \
+            > "$RUNNER_TEMP/render-deploys.json"
+
+          jq --arg expected "$EXPECTED_IMAGE" '
+            [if type == "array" then .[] else (.deploys // .items // [])[] end
+              | (.deploy // .)
+              | select(.status == "live" and (.image.ref // .imageRef) == $expected)]
+            | sort_by(.finishedAt // .updatedAt // .createdAt)
+            | reverse
+            | first // empty
+          ' "$RUNNER_TEMP/render-deploys.json" > "$RUNNER_TEMP/render-live.json"
+
+          live_id="$(jq -r '.id // empty' "$RUNNER_TEMP/render-live.json")"
+          test -n "$live_id" || {
+            echo "::error::No live Render deployment matches exact image $EXPECTED_IMAGE"
+            exit 1
+          }
+          jq --arg releaseSha "$RELEASE_SHA" '
+            {deploymentId:.id,status:.status,releaseSha:$releaseSha,imageRef:(.image.ref // .imageRef)}
+          ' "$RUNNER_TEMP/render-live.json" > render-y2-canary-image-evidence.json
+          echo "Exact deployed image: VERIFIED"
+
+      - name: Execute isolated Workflow Y2 production write canary
+        shell: bash
+        env:
+          Y2_CANARY_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+          DEPLOYED_COMMIT_SHA: ${{ inputs.release_sha }}
+          Y2_CANARY_EVIDENCE_FILE: workflow-y2-production-write-canary.json
+        run: |
+          set -euo pipefail
+          bash scripts/production/verify-workflow-y2-production-write-canary.sh
+
+      - name: Upload sanitized canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-y2-production-write-canary-${{ github.run_id }}
+          path: |
+            workflow-y2-production-write-canary.json
+            render-y2-canary-image-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Record production canary summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## Workflow Y2 Production Write Canary"
+            echo "- Release SHA: $RELEASE_SHA"
+            echo "- Exact Render image: VERIFIED"
+            echo "- Production login: PASS"
+            echo "- DRAFT → validate → simulate → PUBLISHED(Y2): PASS"
+            echo "- START → END instance completion: PASS"
+            echo "- Exact version pinning: PASS"
+            echo "- Published graph immutability (409/409): PASS"
+            echo "- Direct DB writes: NONE"
+            echo "- Redeploy: NONE"
+          } >> "$GITHUB_STEP_SUMMARY"
