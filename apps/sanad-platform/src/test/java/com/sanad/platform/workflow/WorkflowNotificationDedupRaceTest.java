@@ -50,12 +50,20 @@ class WorkflowNotificationDedupRaceTest {
         try {
             Flyway.configure()
                     .dataSource(url, user, pass)
-                    .locations("classpath:db/migration")
+                    // Canonical Spring configuration (application.yml): the
+                    // vendor reconciliation migrations (20260718.x...) live in
+                    // db/vendor/postgresql — a single-location scan fails
+                    // validation against the applied history and would skip
+                    // this PostgreSQL Direct contract silently.
+                    .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                     .cleanDisabled(true)
                     .load()
                     .migrate();
             postgresAvailable = true;
         } catch (Exception unavailable) {
+            // Diagnosability: an opaque skip hides environment defects — print
+            // the reason before degrading to the assumption gate.
+            System.err.println("[WorkflowNotificationDedupRaceTest] PostgreSQL Direct unavailable, skipping: " + unavailable);
             postgresAvailable = false;
         }
         org.junit.jupiter.api.Assumptions.assumeTrue(postgresAvailable,
