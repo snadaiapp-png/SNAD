@@ -75,7 +75,7 @@ write outside it is a design violation and blocks merge.
 | **Job** | `hr_jobs`, `hr_job_versions` | Job Opening references `hr_jobs`/`hr_job_versions` for the requisitioned role; opening never forks the job model | **None** (read-only reference) | Recruitment-side job catalog | Effective-dated read at publication | Inherited | n/a |
 | **Position** | `hr_positions`, `hr_position_versions`; occupancy derived from assignments | Offer may target a position; occupancy is **derived**, never directly set by G1 | **None** (occupancy re-check is read-only inside conversion) | Recruitment-side occupancy counter as truth | Read + occupancy re-check inside conversion transaction | Inherited | Occupancy re-check result recorded in conversion audit |
 | **Assignment** | `hr_employee_assignments` | Created **only** by hire conversion via G0 assignment services | One assignment row per conversion, G0 service-mediated | Parallel assignment ledger | G0 assignment service | Tenant-scoped | Audit + G0 `HRM.ASSIGNMENT.CREATED` audit code |
-| **Contract** | `hr_employment_contracts`, `hr_employment_contract_versions` | Offer terms **project** into a versioned contract at conversion; G1 never writes contract tables directly | Conversion-time contract + version, G0 contract service-mediated | Offer-as-contract tables | G0 contract service | Tenant-scoped | Audit; `HRM.CONTRACT.CREATE/ACTIVATE` codes unchanged |
+| **Contract** | `hr_employment_contracts`, `hr_employment_contract_versions` | When the G0 Contract authority and tenant policy require it, offer terms **project** into a versioned contract at conversion; otherwise NO contract write; G1 never writes contract tables directly | Conversion-time contract + version **only when required**, G0 contract service-mediated | Offer-as-contract tables | G0 contract service | Tenant-scoped | Audit; `HRM.CONTRACT.CREATE/ACTIVATE` codes unchanged |
 | **Compensation** | `hr_compensation_packages`, `hr_compensation_components` | Offer compensation draft mirrors into the G0 aggregate at conversion; reads of offer compensation are sensitive-read audited | Conversion-time package/components via G0 compensation services | Recruitment pay table | G0 compensation service | Tenant-scoped | Sensitive-read audit (`HRM.COMPENSATION.VIEW` semantics) on offer reads |
 | **Compliance** | `hr_compliance_decisions`, `hr_compliance_rules`, `hr_country_packs`, `CountryPolicyResolver`, `ComplianceEngine` | Publishing an opening (and any statutory recruitment action) resolves through the same resolver/engine; unknown/absent pack ⇒ fail closed with a decision row | New compliance decision rows **written by the resolver** (G1 passes parameters, not verdicts) | G1-side statutory rule engine | `CountryPolicyResolver`/`ComplianceEngine` only | Decisions tenant-scoped | Every decision persisted, fail-closed, no silent pass |
 | **IAM** | `hr_iam_access_bindings`, `HrmIamAccessPolicy`, `IamEmploymentAccessPort`, `HrmIamEventConsumer` | All G1 capability checks flow through the G0 access policy; IAM lifecycle boundary consumed, never bypassed | **None** (no IAM writes from G1) | G1 role store, implicit account activation, recruitment-side permission cache | Capability checks via G0 policy; account provisioning stays an explicit IAM-side contract | Bindings tenant-scoped | Access-denied events auditable at G0 layer |
@@ -412,8 +412,11 @@ BEGIN
     intent from offer). If offer targeted a position: occupancy re-check inside
     the transaction (re-read assignments for the position); over-occupancy ⇒
     abort (fail closed).
- 7. Contract: create versioned contract (+version) via G0 contract services
-    from the offer version terms; activate per tenant onboarding policy.
+ 7. Contract: inspect the G0 Contract authority and applicable tenant policy;
+    create/update the versioned contract (+version) from the offer version
+    terms ONLY when required by the G0 contract service contract and policy,
+    through the G0 service boundary; if not required, NO contract write
+    occurs. Activation follows tenant onboarding policy.
  8. Compensation: mirror offer compensation draft into hr_compensation_packages/
     components via G0 compensation services.
  9. Onboarding: create HrOnboardingPlan (+checklist instance + tasks) for the
@@ -484,7 +487,11 @@ yields an empty result set / denied write — **fail closed by construction**.
 - Test/acceptance path: **HOST_NATIVE_POSTGRESQL_DIRECT_ONLY** — host-native
   PostgreSQL started directly on the runner (G0 JOB C pattern: `psql --version`
   + `pg_isready` proofs, least-privilege provisioning, role-contract assertion).
-  **Docker, Testcontainers, and service containers are forbidden.**
+  **On the governed PostgreSQL acceptance path, Docker, Testcontainers, and
+  service containers are forbidden** (`POSTGRESQL_MODE = HOST_NATIVE_DIRECT`,
+  `DOCKER_USED_ON_GOVERNED_PG_PATH = NO`,
+  `TESTCONTAINERS_USED_ON_GOVERNED_PG_PATH = NO`); this is a path-scoped
+  acceptance rule, not a global prohibition outside that path.
 - No superuser data paths, no `BYPASSRLS` escape hatches, no role impersonation
   in G1 code or tests.
 - Admin/HR-operational roles are application capabilities (§9), NOT database
@@ -790,7 +797,8 @@ Y2-linked transitions apply events idempotently by `(entity, transition_seq)`.
 ## 16. Test strategy (design-level matrix — PostgreSQL Direct only)
 
 Environment: **host-native PostgreSQL Direct only** (G0 JOB C pattern; Docker /
-Testcontainers / service containers forbidden). Definition of done for the G1
+Testcontainers / service containers forbidden on this governed PostgreSQL
+acceptance path — path-scoped rule, not a global prohibition). Definition of done for the G1
 stage: `FAILURES = 0, ERRORS = 0, UNEXPLAINED_SKIPS = 0` on the exact verified
 SHA, evidence file + certificate per G0 discipline.
 

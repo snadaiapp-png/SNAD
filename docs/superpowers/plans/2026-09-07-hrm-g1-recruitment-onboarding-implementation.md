@@ -21,8 +21,13 @@ LEGAL_REVIEW                         = PENDING_HUMAN
 
 ```text
 POSTGRESQL_ONLY        = TRUE     POSTGRESQL_MODE = HOST_NATIVE_DIRECT
-DOCKER                 = FORBIDDEN   TESTCONTAINERS = FORBIDDEN
-CONTAINERIZED_PG       = FORBIDDEN   SERVICE_CONTAINERS_IN_TESTS = FORBIDDEN
+DOCKER_USED_ON_GOVERNED_PG_PATH  = NO
+TESTCONTAINERS_USED_ON_GOVERNED_PG_PATH = NO
+CONTAINERIZED_PG_ON_GOVERNED_PATH = FORBIDDEN
+SERVICE_CONTAINERS_ON_GOVERNED_PATH = FORBIDDEN
+SCOPE_NOTE             = the container rules above are path-scoped to the governed
+                         PostgreSQL acceptance path used by G1 tasks/tests;
+                         they are not a global prohibition outside that path
 PRODUCTION_MUTATION    = FORBIDDEN   PRODUCTION_DATABASE = DO_NOT_TOUCH
 FLYWAY                 = append-only migrations, NO repair, NO history edit
 CI_ROLE_CONTRACT       = NOSUPERUSER NOBYPASSRLS (asserted, extended to G1 tables)
@@ -231,8 +236,10 @@ DONE_DEFINITION    : workflow + integration tests green; no PII in work items
 
 ```text
 OBJECTIVE          : §7 atomic/idempotent conversion command + ledger + Person/
-                     Employment/Assignment/Contract/Compensation writes THROUGH
-                     G0 services + onboarding plan creation + Hire Approval link
+                     Employment/Assignment writes + Contract/Compensation
+                     writes ONLY WHEN REQUIRED by the G0 authority and tenant
+                     policy, all THROUGH G0 services + onboarding plan
+                     creation + Hire Approval link
                      (§11.3, policy default OFF) + HIRE_COMPLETED event.
 DEPENDENCIES       : G1-T4 (candidate identity), G1-T7 (offer ACCEPTED), G0
                      services (existing); SEQUENTIAL (the critical boundary)

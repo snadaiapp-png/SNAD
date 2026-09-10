@@ -126,7 +126,24 @@ class HrRlsFailClosedIntegrationTest {
                 "hr_person_identifiers",
                 "hr_person_private",
                 "hr_position_versions",
-                "hr_positions"
+                "hr_positions",
+                // G1 recruitment & onboarding tables (V20260907/V20260908 chain)
+                // — tenant-scoped and FORCE-RLS covered like every other HR table.
+                "hr_job_openings",
+                "hr_job_opening_periods",
+                "hr_applications",
+                "hr_application_stage_periods",
+                "hr_candidates",
+                "hr_offers",
+                "hr_offer_versions",
+                "hr_interviews",
+                "hr_interview_participants",
+                "hr_interview_feedback",
+                "hr_hire_conversions",
+                "hr_onboarding_plans",
+                "hr_onboarding_checklists",
+                "hr_onboarding_tasks",
+                "hr_onboarding_checklist_templates"
         );
     }
 
@@ -889,6 +906,136 @@ class HrRlsFailClosedIntegrationTest {
         }
     }
 
+    // --- G1 recruitment & onboarding seed helpers (tenant-consistent chains) ---
+
+    private UUID insertG1JobOpening(UUID tenantId) throws Exception {
+        UUID orgId = seedOrganization(tenantId);
+        UUID jobId = UUID.randomUUID();
+        UUID orgUnitId = UUID.randomUUID();
+        UUID openingId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_jobs (id, tenant_id, organization_id, stable_code, created_at) " +
+                "VALUES (?, ?, ?, 'JOB-RLS', NOW())")) {
+            ps.setObject(1, jobId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, orgId);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_org_units (id, tenant_id, organization_id, stable_code, created_at) " +
+                "VALUES (?, ?, ?, 'OU-RLS', NOW())")) {
+            ps.setObject(1, orgUnitId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, orgId);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_job_openings (id, tenant_id, opening_number, job_id, org_unit_id, requested_headcount) " +
+                "VALUES (?, ?, 'OPEN-RLS', ?, ?, 1)")) {
+            ps.setObject(1, openingId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, jobId);
+            ps.setObject(4, orgUnitId);
+            ps.executeUpdate();
+        }
+        return openingId;
+    }
+
+    private UUID insertG1Candidate(UUID tenantId) throws Exception {
+        UUID candidateId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_candidates (id, tenant_id, candidate_number, display_name) " +
+                "VALUES (?, ?, 'CAND-RLS', 'RLS Candidate')")) {
+            ps.setObject(1, candidateId);
+            ps.setObject(2, tenantId);
+            ps.executeUpdate();
+        }
+        return candidateId;
+    }
+
+    private UUID insertG1Application(UUID tenantId) throws Exception {
+        UUID candidateId = insertG1Candidate(tenantId);
+        UUID openingId = insertG1JobOpening(tenantId);
+        UUID applicationId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_applications (id, tenant_id, candidate_id, job_opening_id) " +
+                "VALUES (?, ?, ?, ?)")) {
+            ps.setObject(1, applicationId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, candidateId);
+            ps.setObject(4, openingId);
+            ps.executeUpdate();
+        }
+        return applicationId;
+    }
+
+    private UUID insertG1Interview(UUID tenantId) throws Exception {
+        UUID applicationId = insertG1Application(tenantId);
+        UUID interviewId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_interviews (id, tenant_id, application_id, planned_at, mode) " +
+                "VALUES (?, ?, ?, NOW(), 'ONSITE')")) {
+            ps.setObject(1, interviewId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, applicationId);
+            ps.executeUpdate();
+        }
+        return interviewId;
+    }
+
+    private UUID insertG1Participant(UUID tenantId, UUID interviewId) throws Exception {
+        UUID participantId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_interview_participants (tenant_id, interview_id, user_id) " +
+                "VALUES (?, ?, ?)")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, interviewId);
+            ps.setObject(3, participantId);
+            ps.executeUpdate();
+        }
+        return participantId;
+    }
+
+    private UUID insertG1Offer(UUID tenantId) throws Exception {
+        UUID applicationId = insertG1Application(tenantId);
+        UUID offerId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_offers (id, tenant_id, application_id, offer_number) " +
+                "VALUES (?, ?, ?, 'OFF-RLS')")) {
+            ps.setObject(1, offerId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, applicationId);
+            ps.executeUpdate();
+        }
+        return offerId;
+    }
+
+    private UUID insertG1OnboardingPlan(UUID tenantId) throws Exception {
+        UUID employmentId = insertHrEmployee(tenantId);
+        UUID planId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_onboarding_plans (id, tenant_id, plan_number, employment_id) " +
+                "VALUES (?, ?, 'PLAN-RLS', ?)")) {
+            ps.setObject(1, planId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, employmentId);
+            ps.executeUpdate();
+        }
+        return planId;
+    }
+
+    private UUID insertG1Checklist(UUID tenantId) throws Exception {
+        UUID planId = insertG1OnboardingPlan(tenantId);
+        UUID checklistId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_onboarding_checklists (tenant_id, plan_id) VALUES (?, ?)")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, planId);
+            ps.executeUpdate();
+        }
+        return checklistId;
+    }
+
     // --- Generic seed dispatch ---
 
     private void seedRow(String table, UUID tenantId) throws Exception {
@@ -927,6 +1074,100 @@ class HrRlsFailClosedIntegrationTest {
             case "hr_employment_contract_versions" -> insertHrEmploymentContractVersionRow(tenantId);
             case "hr_compensation_packages" -> insertHrCompensationPackageRow(tenantId);
             case "hr_compensation_components" -> insertHrCompensationComponentRow(tenantId);
+            case "hr_job_openings" -> insertG1JobOpening(tenantId);
+            case "hr_job_opening_periods" -> {
+                UUID openingId = insertG1JobOpening(tenantId);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_job_opening_periods (tenant_id, opening_id, state) VALUES (?, ?, 'DRAFT')")) {
+                    ps.setObject(1, tenantId);
+                    ps.setObject(2, openingId);
+                    ps.executeUpdate();
+                }
+            }
+            case "hr_candidates" -> insertG1Candidate(tenantId);
+            case "hr_applications" -> insertG1Application(tenantId);
+            case "hr_application_stage_periods" -> {
+                UUID applicationId = insertG1Application(tenantId);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_application_stage_periods (tenant_id, application_id, stage) VALUES (?, ?, 'APPLIED')")) {
+                    ps.setObject(1, tenantId);
+                    ps.setObject(2, applicationId);
+                    ps.executeUpdate();
+                }
+            }
+            case "hr_interviews" -> insertG1Interview(tenantId);
+            case "hr_interview_participants" -> {
+                UUID interviewId = insertG1Interview(tenantId);
+                insertG1Participant(tenantId, interviewId);
+            }
+            case "hr_interview_feedback" -> {
+                UUID interviewId = insertG1Interview(tenantId);
+                UUID participantId = insertG1Participant(tenantId, interviewId);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_interview_feedback (tenant_id, interview_id, participant_id, scorecard) " +
+                        "VALUES (?, ?, ?, '{\"overall\": 3}'::jsonb)")) {
+                    ps.setObject(1, tenantId);
+                    ps.setObject(2, interviewId);
+                    ps.setObject(3, participantId);
+                    ps.executeUpdate();
+                }
+            }
+            case "hr_offers" -> insertG1Offer(tenantId);
+            case "hr_offer_versions" -> {
+                UUID offerId = insertG1Offer(tenantId);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_offer_versions (tenant_id, offer_id, version_number) VALUES (?, ?, 1)")) {
+                    ps.setObject(1, tenantId);
+                    ps.setObject(2, offerId);
+                    ps.executeUpdate();
+                }
+            }
+            case "hr_hire_conversions" -> {
+                UUID applicationId = insertG1Application(tenantId);
+                UUID offerId = UUID.randomUUID();
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_offers (id, tenant_id, application_id, offer_number) " +
+                        "VALUES (?, ?, ?, 'OFF-RLS')")) {
+                    ps.setObject(1, offerId);
+                    ps.setObject(2, tenantId);
+                    ps.setObject(3, applicationId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_hire_conversions (tenant_id, offer_id, application_id) VALUES (?, ?, ?)")) {
+                    ps.setObject(1, tenantId);
+                    ps.setObject(2, offerId);
+                    ps.setObject(3, applicationId);
+                    ps.executeUpdate();
+                }
+            }
+            case "hr_onboarding_checklist_templates" -> {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_onboarding_checklist_templates (tenant_id, code, name) VALUES (?, 'TPL-RLS', 'RLS Template')")) {
+                    ps.setObject(1, tenantId);
+                    ps.executeUpdate();
+                }
+            }
+            case "hr_onboarding_plans" -> insertG1OnboardingPlan(tenantId);
+            case "hr_onboarding_checklists" -> insertG1Checklist(tenantId);
+            case "hr_onboarding_tasks" -> {
+                UUID planId = insertG1OnboardingPlan(tenantId);
+                UUID checklistId = UUID.randomUUID();
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_onboarding_checklists (id, tenant_id, plan_id) VALUES (?, ?, ?)")) {
+                    ps.setObject(1, checklistId);
+                    ps.setObject(2, tenantId);
+                    ps.setObject(3, planId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_onboarding_tasks (tenant_id, plan_id, checklist_id, title) VALUES (?, ?, ?, 'RLS Task')")) {
+                    ps.setObject(1, tenantId);
+                    ps.setObject(2, planId);
+                    ps.setObject(3, checklistId);
+                    ps.executeUpdate();
+                }
+            }
             default -> throw new IllegalArgumentException("No seed for table: " + table);
         }
     }

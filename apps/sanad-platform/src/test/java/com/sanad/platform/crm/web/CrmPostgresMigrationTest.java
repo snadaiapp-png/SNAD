@@ -178,9 +178,15 @@ class CrmPostgresMigrationTest {
     // to V20260906_2 at Amendment #5 integration).
     private static final String SCP_MULTIPLICITY_MODEL_B_VERSION = "20260906.2";
     // Forward drift reconciliation of 05b64dfc: workflow incident optimistic
-    // lock is the terminal migration of the merged ledger.
+    // lock is the last main-owned migration before the HRM-G1 forward chain.
     private static final String WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION = "20260908.1";
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION;
+    // HRM-G1 recruitment & onboarding forward chain: renumbered from
+    // 20260908.1-.3 to 20260908.2-.4 so main's workflow incident optimistic
+    // lock keeps 20260908.1 (no out-of-order, no gap).
+    private static final String HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION = "20260908.2";
+    private static final String HR_G1_RLS_POLICIES_VERSION = "20260908.3";
+    private static final String HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION = "20260908.4";
+    private static final String LATEST_MIGRATION_VERSION = HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -413,7 +419,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_RLS_POLICIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -584,7 +593,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_RLS_POLICIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

@@ -68,6 +68,34 @@ class HrModuleBoundaryArchitectureTest {
                 .check(importedClasses);
     }
 
+    // ------------------------------------------------------------------
+    // HRM-G1-T1: boundary architecture extended to the new recruitment and
+    // onboarding packages. The "..hr.." rules above already cover them
+    // transitively; these explicit rules pin the G1 packages so drift
+    // (e.g., recruitment reaching into CRM integration internals) fails at
+    // test time regardless of future rule restructuring above.
+    // ------------------------------------------------------------------
+
+    @Test
+    void hrRecruitmentMustNotDependOnOtherModuleImplementations() {
+        noClasses().that().resideInAPackage("..hr.recruitment..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..crm.idempotency..", "..crm.integration..",
+                        "..accounting.infrastructure..", "..erp.infrastructure..",
+                        "..payroll.infrastructure..")
+                .check(importedClasses);
+    }
+
+    @Test
+    void hrOnboardingMustNotDependOnOtherModuleImplementations() {
+        noClasses().that().resideInAPackage("..hr.onboarding..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..crm.idempotency..", "..crm.integration..",
+                        "..accounting.infrastructure..", "..erp.infrastructure..",
+                        "..payroll.infrastructure..")
+                .check(importedClasses);
+    }
+
     @Test
     void hrProductionSqlMustNotTouchOtherModulesTables() throws IOException {
         Path hrMain = Path.of("src/main/java/com/sanad/platform/hr");

@@ -242,6 +242,12 @@ class CrmFlywayHistoryAssertionTest {
             // from V20260906_1 to V20260906_2 at Amendment #5 integration.
             , "20260906.2"   // scp subscription multiplicity model b
             , "20260908.1"   // workflow incident optimistic lock
+            // HRM-G1 recruitment & onboarding forward chain: renumbered from
+            // 20260908.1-.3 to 20260908.2-.4 so main's workflow incident
+            // optimistic lock keeps 20260908.1 (no out-of-order, no gap).
+            , "20260908.2"   // hr g1 recruitment + onboarding schema
+            , "20260908.3"   // hr g1 fail-closed RLS policies
+            , "20260908.4"   // hr g1 onboarding checklist template seed
     );
 
 
