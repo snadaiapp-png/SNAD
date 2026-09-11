@@ -18,6 +18,11 @@ import org.springframework.stereotype.Component;
 public class DisabledBillingPaymentProvider implements BillingPaymentProvider {
 
     @Override
+    public String providerCode() {
+        return "DISABLED";
+    }
+
+    @Override
     public ProviderCustomer ensureProviderCustomer(EnsureCustomerCommand command) {
         throw disabled();
     }

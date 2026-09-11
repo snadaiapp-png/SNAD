@@ -3,10 +3,14 @@ package com.sanad.platform.subscription.billing.infrastructure;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.subscription.billing.domain.BillingPaymentProvider;
+import com.sanad.platform.subscription.billing.domain.ProviderEventVerificationException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -18,10 +22,9 @@ import java.util.concurrent.ConcurrentMap;
 /**
  * Explicit non-production sandbox adapter for the R0C13 provider-neutral port.
  *
- * <p>This adapter performs no network calls and contains no provider
- * credentials. It exists to prove the TEST-mode contract deterministically
- * before a real PSP sandbox adapter is introduced. It can only load when the
- * mode property is explicitly TEST and the active profile is not prod.</p>
+ * <p>No network calls and no committed provider credentials. TEST webhook
+ * verification uses an environment-supplied ephemeral HMAC key. The adapter
+ * can only load when mode=TEST is explicit and the active profile is not prod.</p>
  */
 @Component
 @Profile("!prod")
@@ -32,10 +35,27 @@ import java.util.concurrent.ConcurrentMap;
 public class TestBillingPaymentProvider implements BillingPaymentProvider {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final byte[] webhookSecret;
     private final ConcurrentMap<String, ProviderCustomer> customers = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, StoredIntent> intentsByIdempotency = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, StoredIntent> intentsByReference = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, StoredRefund> refundsByIdempotency = new ConcurrentHashMap<>();
+
+    public TestBillingPaymentProvider(
+            @Value("${sanad.subscription.billing.provider.test-webhook-secret:}")
+            String webhookSecret
+    ) {
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            throw new IllegalStateException(
+                    "R0C13 TEST provider requires an ephemeral test webhook secret");
+        }
+        this.webhookSecret = webhookSecret.getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public String providerCode() {
+        return "TEST";
+    }
 
     @Override
     public ProviderCustomer ensureProviderCustomer(EnsureCustomerCommand command) {
@@ -118,15 +138,19 @@ public class TestBillingPaymentProvider implements BillingPaymentProvider {
     @Override
     public ProviderEventEnvelope verifyAndParseEvent(byte[] payload, String signatureHeader) {
         if (payload == null || payload.length == 0) {
-            throw new IllegalArgumentException("provider event payload must not be empty");
+            throw new ProviderEventVerificationException(
+                    ProviderEventVerificationException.Reason.MALFORMED_PAYLOAD,
+                    "provider event payload must not be empty");
         }
-        String digest = sha256Hex(payload);
-        String expected = "test-sha256=" + digest;
+
+        String expected = "test-hmac-sha256=" + hmacSha256Hex(payload);
         if (signatureHeader == null
                 || !MessageDigest.isEqual(
                         expected.getBytes(StandardCharsets.UTF_8),
                         signatureHeader.trim().getBytes(StandardCharsets.UTF_8))) {
-            throw new IllegalArgumentException("TEST provider event signature verification failed");
+            throw new ProviderEventVerificationException(
+                    ProviderEventVerificationException.Reason.INVALID_SIGNATURE,
+                    "TEST provider event signature verification failed");
         }
 
         try {
@@ -151,11 +175,18 @@ public class TestBillingPaymentProvider implements BillingPaymentProvider {
                         updated);
             }
 
-            return new ProviderEventEnvelope(eventId, eventType, paymentRef, digest);
-        } catch (IllegalArgumentException e) {
+            return new ProviderEventEnvelope(
+                    eventId, eventType, paymentRef, sha256Hex(payload));
+        } catch (ProviderEventVerificationException e) {
             throw e;
+        } catch (IllegalArgumentException e) {
+            throw new ProviderEventVerificationException(
+                    ProviderEventVerificationException.Reason.MALFORMED_PAYLOAD,
+                    "TEST provider event payload is invalid", e);
         } catch (Exception e) {
-            throw new IllegalArgumentException("TEST provider event payload is invalid", e);
+            throw new ProviderEventVerificationException(
+                    ProviderEventVerificationException.Reason.MALFORMED_PAYLOAD,
+                    "TEST provider event payload is invalid", e);
         }
     }
 
@@ -166,6 +197,16 @@ public class TestBillingPaymentProvider implements BillingPaymentProvider {
                     "TEST provider payment reference not found for tenant");
         }
         return stored;
+    }
+
+    private String hmacSha256Hex(byte[] payload) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(webhookSecret, "HmacSHA256"));
+            return HexFormat.of().formatHex(mac.doFinal(payload));
+        } catch (Exception e) {
+            throw new IllegalStateException("HMAC-SHA256 is unavailable", e);
+        }
     }
 
     private static PaymentStatus statusFromEvent(String eventType, PaymentStatus current) {

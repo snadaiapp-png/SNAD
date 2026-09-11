@@ -13,6 +13,9 @@ import java.util.UUID;
  */
 public interface BillingPaymentProvider {
 
+    /** Stable uppercase provider identifier used only for trusted stored bindings. */
+    String providerCode();
+
     ProviderCustomer ensureProviderCustomer(EnsureCustomerCommand command);
 
     PaymentIntent createPaymentIntent(CreatePaymentIntentCommand command);
