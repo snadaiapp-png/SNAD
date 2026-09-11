@@ -169,7 +169,7 @@ class R0C13G05WebhookPostgresTest {
                 .contains(providerPaymentRef)
                 .doesNotContain(otherTenantId.toString())
                 .doesNotContain("PAN_SHOULD_NOT_PERSIST")
-                .doesNotContain("123")
+                .doesNotContain("CVC_SHOULD_NOT_PERSIST")
                 .doesNotContain("SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST");
     }
 
@@ -415,7 +415,7 @@ class R0C13G05WebhookPostgresTest {
             boolean includeSensitiveFields
     ) {
         String sensitive = includeSensitiveFields
-                ? ",\"card_number\":\"PAN_SHOULD_NOT_PERSIST\",\"cvc\":\"123\","
+                ? ",\"card_number\":\"PAN_SHOULD_NOT_PERSIST\",\"cvc\":\"CVC_SHOULD_NOT_PERSIST\","
                     + "\"secret\":\"SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST\",\"authorization\":\"Bearer SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST\""
                 : "";
         return (
