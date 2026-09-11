@@ -18,8 +18,11 @@
 -- ============================================================
 
 ALTER TABLE modules
-    ADD COLUMN entitlement_policy VARCHAR(30)
+    ADD COLUMN IF NOT EXISTS entitlement_policy VARCHAR(30)
     NOT NULL DEFAULT 'DEFAULT_COMPATIBILITY';
+
+ALTER TABLE modules
+    DROP CONSTRAINT IF EXISTS ck_modules_entitlement_policy;
 
 ALTER TABLE modules
     ADD CONSTRAINT ck_modules_entitlement_policy
