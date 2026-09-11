@@ -3,6 +3,8 @@
 - **Date:** 2026-09-11
 - **Design:** `docs/superpowers/specs/2026-09-11-r0c13-revenue-billing-integration-closure-design.md`
 - **Starting production baseline:** `16509abed344ce5d6635eb3660512e3e9011584b`
+- **Implementation repository baseline (R13-S0 re-anchor):** `15d50fa03b748a9190b9ee7380d746f91d55b34e`
+- **Pre-R0C13 repository Flyway head:** `20260910.1`
 - **Authority:** Issue #1017
 - **Execution rule:** sequential fail-closed workstreams; no later workstream starts while the current mandatory gate is RED
 - **Database acceptance:** PostgreSQL Direct / host-native only; Docker/Testcontainers are forbidden for governed database acceptance
@@ -10,7 +12,7 @@
 
 ## 0. Global execution rules
 
-1. Re-lock current `main` before creating the implementation branch. Baseline drift requires re-anchoring before any work.
+1. R13-S0 re-anchored implementation to protected `main=15d50fa03b748a9190b9ee7380d746f91d55b34e`. Re-lock current `main` before creating the implementation branch; any later drift requires another explicit re-anchor before work.
 2. TDD for every behavioral increment: RED -> GREEN -> regression -> self-review.
 3. No migration is edited after it has been merged/applied; remediation is forward-only.
 4. No `flyway repair`, manual `flyway_schema_history` changes, `outOfOrder=true`, or direct production DDL.
@@ -26,7 +28,7 @@
 ## S1 — Exact-baseline forensic lock & RED contracts
 
 ### Goal
-Freeze the implementation starting point and prove the integration gaps before implementation.
+Freeze the implementation starting point (initial R13-S0 re-anchor: `15d50fa03b748a9190b9ee7380d746f91d55b34e`) and prove the integration gaps before implementation.
 
 ### Required work
 - capture exact main SHA/tree;
