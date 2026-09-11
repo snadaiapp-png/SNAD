@@ -23,8 +23,9 @@ import java.util.UUID;
  *
  * <p>Order is fail-closed: verify signature first, resolve tenant only from a
  * stored provider-payment binding under a short-lived provider-scoped SELECT
- * policy, switch to normal tenant RLS, then atomically persist inbox + audit +
- * outbox + processed marker. Raw webhook payload bytes are never stored.</p>
+ * policy, switch to normal tenant RLS, then atomically persist inbox, invoke
+ * the G06 settlement authority, persist audit/outbox, and mark processed.
+ * Raw webhook payload bytes are never stored.</p>
  */
 @Service
 public class BillingWebhookService {
@@ -37,19 +38,22 @@ public class BillingWebhookService {
     private final BillingWebhookResolutionContext webhookResolutionContext;
     private final TenantRlsTransactionContext tenantRlsContext;
     private final PlatformAuditWriter auditWriter;
+    private final BillingSettlementService settlementService;
 
     public BillingWebhookService(
             BillingPaymentProvider provider,
             JdbcTemplate jdbc,
             BillingWebhookResolutionContext webhookResolutionContext,
             TenantRlsTransactionContext tenantRlsContext,
-            PlatformAuditWriter auditWriter
+            PlatformAuditWriter auditWriter,
+            BillingSettlementService settlementService
     ) {
         this.provider = provider;
         this.jdbc = jdbc;
         this.webhookResolutionContext = webhookResolutionContext;
         this.tenantRlsContext = tenantRlsContext;
         this.auditWriter = auditWriter;
+        this.settlementService = settlementService;
     }
 
     @Transactional
@@ -105,6 +109,16 @@ public class BillingWebhookService {
             }
             return new WebhookReceipt(envelope.providerEventId(), true);
         }
+
+        // G06 convergence runs in this same transaction. Any Finance, SCP
+        // projection or canonical lifecycle failure rolls the inbox back and
+        // leaves the signed provider event retryable.
+        settlementService.handleVerifiedProviderEvent(
+                binding.tenantId(),
+                binding.paymentAttemptId(),
+                binding.billingInvoiceId(),
+                envelope.providerPaymentRef(),
+                envelope.eventType());
 
         String idempotencyKey =
                 outboxIdempotencyKey(providerCode, envelope.providerEventId());
