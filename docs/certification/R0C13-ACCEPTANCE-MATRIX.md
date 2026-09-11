@@ -7,8 +7,8 @@
 - **Issue:** #1017
 - **Design:** `docs/superpowers/specs/2026-09-11-r0c13-revenue-billing-integration-closure-design.md`
 - **Plan:** `docs/superpowers/plans/2026-09-11-r0c13-revenue-billing-integration-closure-implementation.md`
-- **Current stage:** R13-G05 FINAL CERTIFICATION
-- **Implementation:** G01-G05 IMPLEMENTED; G05 CERTIFICATION EVIDENCE RECORDED
+- **Current stage:** R13-G05 FINAL CERTIFICATION — G02/G03/G04 LEDGER BACKFILLED
+- **Implementation:** G01-G05 IMPLEMENTED; G02-G05 DIRECT EVIDENCE RECORDED; G06 NOT STARTED
 
 ## Acceptance vocabulary
 
@@ -25,13 +25,13 @@ No inferred PASS is permitted.
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
 | R13-AC-001 | Starting production baseline is `16509abed...`; implementation repository baseline is re-anchored to `15d50fa0...`; no R0C13 implementation precedes protected scope approval | branch/compare/commit evidence | S0/G01 | PASS |
-| R13-AC-002 | Finance remains source of truth for accounting invoices/payments/ledger | architecture tests + code review | G03 | NOT_STARTED |
-| R13-AC-003 | No parallel GL/accounting model introduced | schema/code scan | G03 | NOT_STARTED |
+| R13-AC-002 | Finance remains source of truth for accounting invoices/payments/ledger | `R0C13ArchitectureBoundaryTest.r0c13BillingMustNotWriteFinanceTablesDirectly` + Finance-owned `SubscriptionFinanceAdapter`; G03 suite 6/0/0/0 and Finance regression 11/0/0/0; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
+| R13-AC-003 | No parallel GL/accounting model introduced | G02 schema foundation + `R0C13ArchitectureBoundaryTest.r0c13FinanceAdapterMustNotWriteJournalOrLedgerTables`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
 | R13-AC-004 | `billing_invoices` remains compatible with existing dunning | regression tests | G03/G06 | NOT_STARTED |
 | R13-AC-005 | `BillingStateService` remains sole billing-state authority | writer scan + tests | G06 | NOT_STARTED |
 | R13-AC-006 | `SubscriptionCommandService` remains lifecycle single writer | writer scan + tests | G06 | NOT_STARTED |
 | R13-AC-007 | Commerce `PaymentGatewayPort` contract remains unchanged | API diff + commerce tests | G04/G08 | NOT_STARTED |
-| R13-AC-008 | SaaS billing provider contract uses integer minor units | domain tests/static scan | G04 | NOT_STARTED |
+| R13-AC-008 | SaaS billing provider contract uses integer minor units | `R0C13G04BillingProviderContractTest.testAdapterUsesMinorUnitsAndIdempotentReferences` + `R0C13ArchitectureBoundaryTest.providerDomainMustNotUseBigDecimalForChargeOrRefundMoney`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G04 | PASS |
 | R13-AC-009 | R0C13 implementation is additive/backward-compatible | API/schema diff | G08 | NOT_STARTED |
 | R13-AC-010 | LIVE payment collection is outside automatic engineering closure | config/governance evidence | G04/G11 | NOT_STARTED |
 
@@ -39,30 +39,30 @@ No inferred PASS is permitted.
 
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
-| R13-DB-001 | All new tenant-scoped tables have `tenant_id NOT NULL` | migration inspection + PG catalog query | G02 | NOT_STARTED |
-| R13-DB-002 | New tenant tables ENABLE and FORCE RLS | PG catalog query | G02 | NOT_STARTED |
-| R13-DB-003 | own-tenant access succeeds | PostgreSQL Direct test | G02 | NOT_STARTED |
-| R13-DB-004 | cross-tenant read denied | PostgreSQL Direct test | G02 | NOT_STARTED |
-| R13-DB-005 | cross-tenant write denied | PostgreSQL Direct test | G02 | NOT_STARTED |
-| R13-DB-006 | no-tenant context fails closed | PostgreSQL Direct test | G02 | NOT_STARTED |
+| R13-DB-001 | All new tenant-scoped tables have `tenant_id NOT NULL` | `R0C13G02SchemaPostgresTest.allG02TablesAreTenantScopedAndForceRls`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02 | PASS |
+| R13-DB-002 | New tenant tables ENABLE and FORCE RLS | `R0C13G02SchemaPostgresTest.allG02TablesAreTenantScopedAndForceRls`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02 | PASS |
+| R13-DB-003 | own-tenant access succeeds | `R0C13G02SchemaPostgresTest.ownTenantCanInsertProviderBinding`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02 | PASS |
+| R13-DB-004 | cross-tenant read denied | `R0C13G02SchemaPostgresTest.wrongTenantCannotReadOrWriteAnotherTenantsRow`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02 | PASS |
+| R13-DB-005 | cross-tenant write denied | `R0C13G02SchemaPostgresTest.wrongTenantCannotReadOrWriteAnotherTenantsRow`; SQLSTATE 42501; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02 | PASS |
+| R13-DB-006 | no-tenant context fails closed | `R0C13G02SchemaPostgresTest.noTenantContextFailsClosedForReadsAndWrites`; zero visible rows + write SQLSTATE 42501; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02 | PASS |
 | R13-DB-007 | provider event id uniqueness is DB-enforced | `R0C13G02SchemaPostgresTest.providerEventAndOutboxIdempotencyAreDatabaseEnforced`; CI `34613965153`, Maven job `103311137936`, artifact `10270828975` | G02/G05 | PASS |
 | R13-DB-008 | idempotency key uniqueness is DB-enforced | `R0C13G02SchemaPostgresTest.providerEventAndOutboxIdempotencyAreDatabaseEnforced`; CI `34613965153`, Maven job `103311137936`, artifact `10270828975` | G02/G05 | PASS |
-| R13-DB-009 | same-tenant FK prevents mismatched linkage | PostgreSQL Direct test | G02/G03 | NOT_STARTED |
+| R13-DB-009 | same-tenant FK prevents mismatched linkage | `R0C13G03FinanceIntegrationPostgresTest.sameTenantForeignKeyRejectsCrossTenantFinanceInvoice` + `crossTenantBillingInvoiceCannotBeLinked`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02/G03 | PASS |
 | R13-DB-010 | Flyway fresh chain succeeds without repair/out-of-order | canonical PG Direct evidence | G02/G08 | NOT_STARTED |
-| R13-DB-011 | destructive DDL against R0C12 billing/finance tables = 0 | migration diff scan | G02 | NOT_STARTED |
-| R13-DB-012 | cardholder/secret columns = 0 | schema scan | G02/G09 | NOT_STARTED |
+| R13-DB-011 | destructive DDL against R0C12 billing/finance tables = 0 | `R0C13ArchitectureBoundaryTest.r0c13FoundationMigrationMustNotDestructivelyAlterLegacyBillingOrFinance`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02 | PASS |
+| R13-DB-012 | cardholder/secret columns = 0 | `R0C13G02SchemaPostgresTest.g02SchemaContainsNoCardholderOrSecretColumns`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G02/G09 | PASS |
 
 ## C. Finance integration acceptance
 
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
-| R13-FIN-001 | one billing invoice maps to at most one Finance invoice | DB unique constraint + PG test | G03 | NOT_STARTED |
-| R13-FIN-002 | integration replay creates no duplicate Finance invoice | unit + PG test | G03 | NOT_STARTED |
-| R13-FIN-003 | settlement replay creates no duplicate Finance payment | unit + PG test | G03 | NOT_STARTED |
+| R13-FIN-001 | one billing invoice maps to at most one Finance invoice | DB unique linkage + `R0C13G03FinanceIntegrationPostgresTest.replayCreatesExactlyOneFinanceInvoiceAndOneLine`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
+| R13-FIN-002 | integration replay creates no duplicate Finance invoice | `R0C13G03FinanceIntegrationPostgresTest.replayCreatesExactlyOneFinanceInvoiceAndOneLine`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
+| R13-FIN-003 | settlement replay creates no duplicate Finance payment | `R0C13G03FinanceIntegrationPostgresTest.settlementReplayCreatesExactlyOneCompletedFinancePayment`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
 | R13-FIN-004 | amount mismatch fails closed | test | G03/G06 | NOT_STARTED |
 | R13-FIN-005 | currency mismatch fails closed | test | G03/G06 | NOT_STARTED |
-| R13-FIN-006 | cross-tenant invoice/payment link fails | PG test | G03 | NOT_STARTED |
-| R13-FIN-007 | subscription package does not write Finance journal tables directly | ArchUnit/static scan | G03 | NOT_STARTED |
+| R13-FIN-006 | cross-tenant invoice/payment link fails | `R0C13G03FinanceIntegrationPostgresTest.crossTenantBillingInvoiceCannotBeLinked` + `sameTenantForeignKeyRejectsCrossTenantFinanceInvoice`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
+| R13-FIN-007 | subscription package does not write Finance journal tables directly | `R0C13ArchitectureBoundaryTest.r0c13BillingMustNotWriteFinanceTablesDirectly` + `r0c13FinanceAdapterMustNotWriteJournalOrLedgerTables`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
 | R13-FIN-008 | Finance regression suite remains green | FinanceModuleIntegrationTest + full suite | G03/G08 | NOT_STARTED |
 | R13-FIN-009 | provider settlement is reflected in authoritative Finance payment before lifecycle recovery | integration test | G06 | NOT_STARTED |
 
@@ -70,11 +70,11 @@ No inferred PASS is permitted.
 
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
-| R13-PAY-001 | provider contract is domain-neutral | interface/code review | G04 | NOT_STARTED |
-| R13-PAY-002 | DISABLED is production-safe default | config tests | G04 | NOT_STARTED |
-| R13-PAY-003 | DISABLED refuses create/verify/refund | tests | G04 | NOT_STARTED |
-| R13-PAY-004 | TEST requires explicit configuration | context/config test | G04 | NOT_STARTED |
-| R13-PAY-005 | LIVE cannot start without separate authority/config gate | startup/fail-closed test | G04/G11 | NOT_STARTED |
+| R13-PAY-001 | provider contract is domain-neutral | `BillingPaymentProvider` + `R0C13ArchitectureBoundaryTest.r0c13BillingMustNotReuseCommercePaymentGatewayPort`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G04 | PASS |
+| R13-PAY-002 | DISABLED is production-safe default | `R0C13G04BillingProviderContractTest.providerModeGuardDefaultsDisabledAndRejectsTestInProdAndAllLive` + architecture config guard; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G04 | PASS |
+| R13-PAY-003 | DISABLED refuses create/verify/refund | `R0C13G04BillingProviderContractTest.disabledAdapterRefusesEveryProviderOperation`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G04 | PASS |
+| R13-PAY-004 | TEST requires explicit configuration | `R0C13G04BillingProviderContractTest.disabledAndTestBeansRequireExplicitModeProperty` + mode-guard test; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G04 | PASS |
+| R13-PAY-005 | LIVE cannot start without separate authority/config gate | `R0C13G04BillingProviderContractTest.providerModeGuardDefaultsDisabledAndRejectsTestInProdAndAllLive` + `R0C13ArchitectureBoundaryTest.r0c13LiveProviderModeMustFailClosedAtStartup`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G04/G11 | PASS |
 | R13-PAY-006 | no simulated provider activates by default | Spring context + production config scan | G04/G08 | NOT_STARTED |
 | R13-PAY-007 | provider secret is never logged or returned | log/API security tests | G09 | NOT_STARTED |
 | R13-PAY-008 | raw PAN/CVC/card data storage = 0 | schema/source scan | G09 | NOT_STARTED |
@@ -109,6 +109,31 @@ No inferred PASS is permitted.
 - **R0C13ArchitectureBoundaryTest:** 16 / 0 / 0 / 0
 - **Sensitive evidence sentinel scan:** 0 hits for `PAN_SHOULD_NOT_PERSIST`, `CVC_SHOULD_NOT_PERSIST`, and `SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST`
 - **Main drift after the certification run:** one Workflow release-authorization evidence file only; re-anchored by `600ed98c22c52ef57dbe600a64239b49e0083b5d` with no Billing/Finance/Commerce/migration overlap.
+
+
+## E.2 G02-G04 exact-head evidence normalization
+
+The repository-wide audit found that G02/G03/G04 had successful implementation/test evidence but their
+acceptance rows had not been carried into this ledger. The rows marked PASS above were backfilled
+**only** where the predicate is directly proven on the exact normalization head.
+
+- **Normalization code head:** `9388c140f42844ae4949565d4dbb6286a53c7b46`
+- **Protected main:** `81f5ec0a2e13a5eb12204439e00a85da25b842fd`
+- **Compile Diagnostics:** `34623561479` — SUCCESS
+- **CI:** `34623561685` — SUCCESS
+- **Maven Test Suite:** `103343100356` — SUCCESS
+- **PostgreSQL Acceptance:** `103343100450` — SUCCESS, host-native PostgreSQL
+- **CRM Integration:** `103343100072` — SUCCESS
+- **Surefire artifact:** `10273874809`
+- **Aggregate:** 3328 tests / 0 failures / 0 errors / 31 skipped
+- **R0C13G02SchemaPostgresTest:** 8 / 0 / 0 / 0
+- **R0C13G03FinanceIntegrationPostgresTest:** 6 / 0 / 0 / 0
+- **R0C13G04BillingProviderContractTest:** 6 / 0 / 0 / 0
+- **R0C13G05WebhookPostgresTest:** 9 / 0 / 0 / 0
+- **R0C13ArchitectureBoundaryTest:** 17 / 0 / 0 / 0
+- **FinanceModuleIntegrationTest:** 11 / 0 / 0 / 0
+- **Sensitive G05 sentinel scan:** 0 hits.
+- **Not promoted here:** predicates whose complete acceptance evidence belongs to G06/G07/G08/G09/G10/G11 remain `NOT_STARTED`.
 
 ## F. Lifecycle / dunning / reconciliation acceptance
 
