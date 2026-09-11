@@ -51,8 +51,12 @@ class PlatformApiCountTest {
      *  same read model as /subscriptions/{id}/detail) = 826.
      *  + 1 R0C-12 tenant-management profile update (PATCH /tenants/{tenantId},
      *  EXECUTIVE_MANAGE — the governed GREEN implementation of the R0C12 human-UAT
-     *  contract; /api/v1/executive group 80 → 81) = 827. */
-    private static final long EXPECTED_TOTAL_OPS = 827;
+     *  contract; /api/v1/executive group 80 → 81) = 827.
+     *  + 1 Workflow R0 definition version-history endpoint
+     *  (GET /api/v1/workflows/definitions/{id}/versions, WORKFLOW.VIEW-gated;
+     *  reviewed R0 corrective scope, old-R0 commit ebbd3d32, transplanted onto
+     *  post-Wave-2 main) = 828. */
+    private static final long EXPECTED_TOTAL_OPS = 828;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
