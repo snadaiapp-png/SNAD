@@ -4,7 +4,7 @@ package com.sanad.platform.subscription.billing.domain;
  * Provider-neutral failure raised when a webhook cannot be cryptographically
  * verified or its signed envelope is malformed.
  */
-public class ProviderEventVerificationException extends RuntimeException {
+public class ProviderEventVerificationException extends IllegalArgumentException {
 
     public enum Reason {
         INVALID_SIGNATURE,

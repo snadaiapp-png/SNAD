@@ -12,6 +12,7 @@ import org.springframework.mock.env.MockEnvironment;
 import java.nio.charset.StandardCharsets;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.UUID;
 
@@ -128,6 +129,8 @@ class R0C13G04BillingProviderContractTest {
                         + "\"tenantId\":\"UNTRUSTED-MUST-NOT-BE-RETURNED\"}")
                 .getBytes(StandardCharsets.UTF_8);
         String signature = testHmac(webhookSecret, payload);
+        String digest = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(payload));
 
         var envelope = provider.verifyAndParseEvent(payload, signature);
 
