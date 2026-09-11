@@ -23,7 +23,10 @@ public class BillingProviderModeGuard implements EnvironmentPostProcessor {
             ConfigurableEnvironment environment,
             SpringApplication application
     ) {
-        String mode = environment.getProperty(MODE_PROPERTY, "DISABLED");
+        String mode = environment.getProperty(MODE_PROPERTY);
+        if (mode == null || mode.isBlank()) {
+            mode = environment.getProperty("R0C13_PROVIDER_MODE", "DISABLED");
+        }
         mode = mode == null ? "DISABLED" : mode.trim().toUpperCase(Locale.ROOT);
 
         switch (mode) {

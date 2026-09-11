@@ -35,6 +35,8 @@ class R0C13ArchitectureBoundaryTest {
             Path.of("src/main/java/com/sanad/platform/subscription/billing/config/BillingProviderModeGuard.java");
     private static final Path COMMERCE_PAYMENT_PORT =
             Path.of("src/main/java/com/sanad/platform/commerce/domain/PaymentGatewayPort.java");
+    private static final Path SPRING_FACTORIES =
+            Path.of("src/main/resources/META-INF/spring.factories");
 
     private static final Pattern DIRECT_FINANCE_SQL = Pattern.compile(
             "(?is)\\b(?:insert\\s+into|update|delete\\s+from)\\s+"
@@ -129,6 +131,13 @@ class R0C13ArchitectureBoundaryTest {
                 .contains("@Profile(\"!prod\")")
                 .contains("havingValue = \"TEST\"")
                 .contains("matchIfMissing = false");
+    }
+
+    @Test
+    void r0c13ProviderModeGuardMustBeRegisteredAsEarlyStartupGuard() throws IOException {
+        String factories = Files.readString(SPRING_FACTORIES);
+        assertThat(factories)
+                .contains("com.sanad.platform.subscription.billing.config.BillingProviderModeGuard");
     }
 
     @Test
