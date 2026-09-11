@@ -168,9 +168,9 @@ class R0C13G05WebhookPostgresTest {
                 .contains(eventId)
                 .contains(providerPaymentRef)
                 .doesNotContain(otherTenantId.toString())
-                .doesNotContain("4111111111111111")
+                .doesNotContain("PAN_SHOULD_NOT_PERSIST")
                 .doesNotContain("123")
-                .doesNotContain("never-store-this");
+                .doesNotContain("SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST");
     }
 
     @Test
@@ -291,10 +291,10 @@ class R0C13G05WebhookPostgresTest {
 
         for (String persisted : new String[]{eventText, outboxText, auditText}) {
             assertThat(persisted)
-                    .doesNotContain("4111111111111111")
+                    .doesNotContain("PAN_SHOULD_NOT_PERSIST")
                     .doesNotContain("\"card_number\"")
                     .doesNotContain("\"cvc\"")
-                    .doesNotContain("never-store-this")
+                    .doesNotContain("SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST")
                     .doesNotContain("\"authorization\"");
         }
     }
@@ -415,8 +415,8 @@ class R0C13G05WebhookPostgresTest {
             boolean includeSensitiveFields
     ) {
         String sensitive = includeSensitiveFields
-                ? ",\"card_number\":\"4111111111111111\",\"cvc\":\"123\","
-                    + "\"secret\":\"never-store-this\",\"authorization\":\"Bearer never-store-this\""
+                ? ",\"card_number\":\"PAN_SHOULD_NOT_PERSIST\",\"cvc\":\"123\","
+                    + "\"secret\":\"SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST\",\"authorization\":\"Bearer SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST\""
                 : "";
         return (
                 "{\"eventId\":\"" + eventId + "\","
