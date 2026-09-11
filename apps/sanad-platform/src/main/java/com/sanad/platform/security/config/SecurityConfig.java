@@ -75,6 +75,10 @@ public class SecurityConfig {
                                 "/api/v1/auth/reset-password",
                                 "/actuator/health",
                                 "/actuator/health/**",
+                                // R0C13 provider webhook: intentionally JWT-free.
+                                // The controller rejects the request unless the configured
+                                // provider adapter verifies the raw-body signature first.
+                                "/api/v1/billing/provider/webhook",
                                 // One-time, token-gated Control Plane admin bootstrap.
                                 // The endpoint itself enforces CONTROL_PLANE_BOOTSTRAP_ENABLED
                                 // and a constant-time check against CONTROL_PLANE_BOOTSTRAP_TOKEN;

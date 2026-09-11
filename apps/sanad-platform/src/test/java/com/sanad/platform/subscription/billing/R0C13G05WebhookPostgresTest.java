@@ -439,7 +439,15 @@ class R0C13G05WebhookPostgresTest {
     }
 
     private static String outboxKey(String eventId) {
-        return "PROVIDER_EVENT:TEST:" + eventId;
+        try {
+            String material = "TEST:" + eventId;
+            String digest = HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(material.getBytes(StandardCharsets.UTF_8)));
+            return "PROVIDER_EVENT:TEST:" + digest;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static String compact(UUID id) {

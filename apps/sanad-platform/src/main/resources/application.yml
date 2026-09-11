@@ -129,6 +129,9 @@ sanad:
         # R0C13 production-safe default. TEST must be explicit and is rejected
         # in prod; LIVE is fail-closed until a separate activation gate.
         mode: ${R0C13_PROVIDER_MODE:DISABLED}
+        # TEST-only HMAC material. Empty unless TEST is explicitly selected.
+        # Never commit or log a value; CI/tests generate ephemeral runtime keys.
+        test-webhook-secret: ${R0C13_TEST_WEBHOOK_SECRET:}
   tenancy:
     domains:
       # No permanent hard-coded public domain. The base-domain value comes

@@ -10,7 +10,8 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.util.HexFormat;
 import java.util.UUID;
 
@@ -60,7 +61,8 @@ class R0C13G04BillingProviderContractTest {
 
     @Test
     void testAdapterUsesMinorUnitsAndIdempotentReferences() {
-        BillingPaymentProvider provider = new TestBillingPaymentProvider();
+        BillingPaymentProvider provider = new TestBillingPaymentProvider(
+                "g04-" + UUID.randomUUID());
         UUID tenant = UUID.randomUUID();
         UUID invoice = UUID.randomUUID();
 
@@ -95,7 +97,8 @@ class R0C13G04BillingProviderContractTest {
 
     @Test
     void testAdapterFailsClosedOnIdempotencyMismatch() {
-        BillingPaymentProvider provider = new TestBillingPaymentProvider();
+        BillingPaymentProvider provider = new TestBillingPaymentProvider(
+                "g04-" + UUID.randomUUID());
         UUID tenant = UUID.randomUUID();
         UUID invoice = UUID.randomUUID();
         String customer = provider.ensureProviderCustomer(
@@ -116,18 +119,17 @@ class R0C13G04BillingProviderContractTest {
 
     @Test
     void testAdapterVerifiesSignedEventAndEnvelopeCarriesNoTenantIdentity() throws Exception {
-        TestBillingPaymentProvider provider = new TestBillingPaymentProvider();
+        String webhookSecret = "g04-" + UUID.randomUUID() + "-" + UUID.randomUUID();
+        TestBillingPaymentProvider provider = new TestBillingPaymentProvider(webhookSecret);
         byte[] payload = (
                 "{\"eventId\":\"evt_test_001\","
                         + "\"eventType\":\"payment.succeeded\","
                         + "\"paymentRef\":\"test_pi_001\","
                         + "\"tenantId\":\"UNTRUSTED-MUST-NOT-BE-RETURNED\"}")
                 .getBytes(StandardCharsets.UTF_8);
-        String digest = HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-256").digest(payload));
+        String signature = testHmac(webhookSecret, payload);
 
-        var envelope = provider.verifyAndParseEvent(
-                payload, "test-sha256=" + digest);
+        var envelope = provider.verifyAndParseEvent(payload, signature);
 
         assertThat(envelope.providerEventId()).isEqualTo("evt_test_001");
         assertThat(envelope.eventType()).isEqualTo("payment.succeeded");
@@ -135,7 +137,7 @@ class R0C13G04BillingProviderContractTest {
         assertThat(envelope.payloadSha256()).isEqualTo(digest);
         assertThat(envelope.toString()).doesNotContain("UNTRUSTED-MUST-NOT-BE-RETURNED");
 
-        assertThatThrownBy(() -> provider.verifyAndParseEvent(payload, "test-sha256=deadbeef"))
+        assertThatThrownBy(() -> provider.verifyAndParseEvent(payload, "test-hmac-sha256=deadbeef"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("signature");
     }
@@ -154,7 +156,10 @@ class R0C13G04BillingProviderContractTest {
                 });
 
         contextRunner
-                .withPropertyValues("sanad.subscription.billing.provider.mode=TEST")
+                .withPropertyValues(
+                        "sanad.subscription.billing.provider.mode=TEST",
+                        "sanad.subscription.billing.provider.test-webhook-secret="
+                                + "g04-" + UUID.randomUUID())
                 .run(context -> {
                     assertThat(context).hasSingleBean(BillingPaymentProvider.class);
                     assertThat(context.getBean(BillingPaymentProvider.class))
@@ -168,6 +173,21 @@ class R0C13G04BillingProviderContractTest {
 
         MockEnvironment defaultEnvironment = new MockEnvironment();
         guard.postProcessEnvironment(defaultEnvironment, new SpringApplication(Object.class));
+
+        MockEnvironment missingTestSecret = new MockEnvironment()
+                .withProperty("sanad.subscription.billing.provider.mode", "TEST");
+        assertThatThrownBy(() ->
+                guard.postProcessEnvironment(
+                        missingTestSecret, new SpringApplication(Object.class)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("webhook secret");
+
+        MockEnvironment validTest = new MockEnvironment()
+                .withProperty("sanad.subscription.billing.provider.mode", "TEST")
+                .withProperty(
+                        "sanad.subscription.billing.provider.test-webhook-secret",
+                        "g04-" + UUID.randomUUID());
+        guard.postProcessEnvironment(validTest, new SpringApplication(Object.class));
 
         MockEnvironment prodTest = new MockEnvironment()
                 .withProperty("sanad.subscription.billing.provider.mode", "TEST");
@@ -192,5 +212,11 @@ class R0C13G04BillingProviderContractTest {
                 guard.postProcessEnvironment(unknown, new SpringApplication(Object.class)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Unsupported");
+    }
+
+    private static String testHmac(String secret, byte[] payload) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        return "test-hmac-sha256=" + HexFormat.of().formatHex(mac.doFinal(payload));
     }
 }

@@ -17,6 +17,8 @@ public class BillingProviderModeGuard implements EnvironmentPostProcessor {
 
     public static final String MODE_PROPERTY =
             "sanad.subscription.billing.provider.mode";
+    public static final String TEST_WEBHOOK_SECRET_PROPERTY =
+            "sanad.subscription.billing.provider.test-webhook-secret";
 
     @Override
     public void postProcessEnvironment(
@@ -37,6 +39,12 @@ public class BillingProviderModeGuard implements EnvironmentPostProcessor {
                 if (isProd(environment)) {
                     throw new IllegalStateException(
                             "R0C13 billing provider TEST mode is forbidden in the prod profile");
+                }
+                String testWebhookSecret =
+                        environment.getProperty(TEST_WEBHOOK_SECRET_PROPERTY);
+                if (testWebhookSecret == null || testWebhookSecret.isBlank()) {
+                    throw new IllegalStateException(
+                            "R0C13 TEST provider requires an ephemeral test webhook secret");
                 }
             }
             case "LIVE" -> throw new IllegalStateException(
