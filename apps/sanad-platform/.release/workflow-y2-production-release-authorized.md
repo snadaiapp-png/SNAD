@@ -51,13 +51,13 @@ The protected squash merge that authorizes deployment MUST include the exact com
 - Runtime application code change in this authorization PR: `NONE`
 - Database migration change in this authorization PR: `NONE`
 - Security/RBAC semantic change in this authorization PR: `NONE`
-- Owner production authorization: `PENDING_EXPLICIT_OWNER_GRANT`
+- Owner production authorization: `GRANTED_EXPLICITLY_2026-09-11`
 - Independent human review: `REQUIRED`
 - R0C-13: `FORBIDDEN`
 
 This authorization PR is intentionally inert and exists only to create a protected, reviewable G16 release-control merge under `apps/sanad-platform/**`.
 
-Before squash merge, the owner must explicitly authorize production cutover for the exact certified source baseline and this authorization PR exact head. The merge must remain fail-closed if the source baseline, PR head, required checks, or independent approval changes.
+Owner production authorization has been explicitly granted for R0C12 only, bound to certified source baseline `e658320cb4655717222345fbf8f9fb89ce1b4006` and PR #1016, conditional on all required checks passing, independent human approval, protected squash merge with the exact `PRODUCTION-RELEASE-AUTHORIZED` marker, and rollback enabled. R0C13 is explicitly not authorized. The merge remains fail-closed if the source baseline, PR head, required checks, or independent approval changes.
 
 The protected squash merge that grants G16 MUST include the exact commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker the Workflow Y2 Production Release Orchestrator must fail closed.
 
