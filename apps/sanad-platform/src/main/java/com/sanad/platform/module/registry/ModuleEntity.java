@@ -27,6 +27,7 @@ public final class ModuleEntity {
     private int displayOrder;
     private String version;
     private boolean enabled;
+    private String entitlementPolicy = "DEFAULT_COMPATIBILITY";
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -99,5 +100,13 @@ public final class ModuleEntity {
                 ", status='" + status + '\'' +
                 ", enabled=" + enabled +
                 '}';
+    }
+
+    public String getEntitlementPolicy() {
+        return entitlementPolicy == null ? "DEFAULT_COMPATIBILITY" : entitlementPolicy;
+    }
+
+    public void setEntitlementPolicy(String entitlementPolicy) {
+        this.entitlementPolicy = entitlementPolicy;
     }
 }

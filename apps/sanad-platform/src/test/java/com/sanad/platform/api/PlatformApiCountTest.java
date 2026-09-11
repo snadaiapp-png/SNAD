@@ -55,8 +55,11 @@ class PlatformApiCountTest {
      *  + 1 Workflow R0 definition version-history endpoint
      *  (GET /api/v1/workflows/definitions/{id}/versions, WORKFLOW.VIEW-gated;
      *  reviewed R0 corrective scope, old-R0 commit ebbd3d32, transplanted onto
-     *  post-Wave-2 main) = 828. */
-    private static final long EXPECTED_TOTAL_OPS = 828;
+     *  post-Wave-2 main) = 828.
+     *  + 1 Workflow R1 dynamic Designer module catalog
+     *  (GET /api/v1/workflows/catalog/modules, WORKFLOW.VIEW + paid entitlement
+     *  gated; R1 GATE R1.10 replaces the static frontend module list) = 829. */
+    private static final long EXPECTED_TOTAL_OPS = 829;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;

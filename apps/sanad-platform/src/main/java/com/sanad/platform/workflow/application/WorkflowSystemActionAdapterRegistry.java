@@ -29,6 +29,13 @@ public class WorkflowSystemActionAdapterRegistry {
                         Function.identity()));
     }
 
+    /** R1: deterministic read view of all registered adapters (sorted by type). */
+    public java.util.List<WorkflowSystemActionAdapter> list() {
+        return adaptersByType.values().stream()
+                .sorted(java.util.Comparator.comparing(a -> a.type().toUpperCase(java.util.Locale.ROOT)))
+                .collect(java.util.stream.Collectors.toUnmodifiableList());
+    }
+
     public WorkflowSystemActionAdapter require(String adapterCode) {
         if (adapterCode == null || adapterCode.isBlank()) {
             throw new IllegalStateException(
