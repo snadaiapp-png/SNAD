@@ -5,6 +5,7 @@ import com.sanad.platform.finance.domain.FinanceInvoiceRepository;
 import com.sanad.platform.finance.domain.FinancePayment;
 import com.sanad.platform.finance.domain.FinancePaymentRepository;
 import com.sanad.platform.subscription.billing.domain.SubscriptionFinancePort;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -37,21 +38,25 @@ public class SubscriptionFinanceAdapter implements SubscriptionFinancePort {
     private final JdbcTemplate jdbc;
     private final FinanceInvoiceRepository invoiceRepository;
     private final FinancePaymentRepository paymentRepository;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
     public SubscriptionFinanceAdapter(
             JdbcTemplate jdbc,
             FinanceInvoiceRepository invoiceRepository,
-            FinancePaymentRepository paymentRepository
+            FinancePaymentRepository paymentRepository,
+            TenantRlsTransactionContext tenantRlsContext
     ) {
         this.jdbc = jdbc;
         this.invoiceRepository = invoiceRepository;
         this.paymentRepository = paymentRepository;
+        this.tenantRlsContext = tenantRlsContext;
     }
 
     @Override
     @Transactional
     public FinanceInvoiceLink ensureInvoice(UUID tenantId, UUID billingInvoiceId) {
         requireIds(tenantId, billingInvoiceId);
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
         BillingInvoiceSnapshot billing = loadBillingInvoice(tenantId, billingInvoiceId);
         validateBillingAmounts(billing);
 
@@ -108,6 +113,7 @@ public class SubscriptionFinanceAdapter implements SubscriptionFinancePort {
             String currencyCode
     ) {
         requireIds(tenantId, billingInvoiceId);
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
         if (settlementId == null) {
             throw new IllegalArgumentException("settlementId must not be null");
         }

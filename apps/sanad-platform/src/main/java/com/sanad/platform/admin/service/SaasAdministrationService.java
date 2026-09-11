@@ -18,6 +18,7 @@ import com.sanad.platform.subscription.change.SubscriptionChangeService;
 import com.sanad.platform.subscription.lifecycle.ExpiredSuccessorGate;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
+import com.sanad.platform.subscription.billing.domain.SubscriptionFinancePort;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
@@ -68,8 +69,34 @@ public class SaasAdministrationService {
     private final SubscriptionCommandService commandService;
     private final SubscriptionResolutionService resolution;
     private final ExpiredSuccessorGate successorGate;
+    private final SubscriptionFinancePort subscriptionFinancePort;
 
     @Autowired
+    public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
+                                     ApplicationEventPublisher eventPublisher,
+                                     BillingStateService billingStateService,
+                                     SubscriptionChangeService changeService,
+                                     SubscriptionCommandService commandService,
+                                     SubscriptionResolutionService resolution,
+                                     ExpiredSuccessorGate successorGate,
+                                     SubscriptionFinancePort subscriptionFinancePort) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.auditService = auditService;
+        this.eventPublisher = eventPublisher;
+        this.billingStateService = billingStateService;
+        this.changeService = changeService;
+        this.commandService = commandService;
+        this.resolution = resolution;
+        this.successorGate = successorGate;
+        this.subscriptionFinancePort = java.util.Objects.requireNonNull(
+                subscriptionFinancePort, "subscriptionFinancePort");
+    }
+
+    /**
+     * Backward-compatible direct-instantiation constructor used by legacy tests.
+     * Production Spring wiring always uses the @Autowired constructor above and
+     * therefore cannot omit the R0C13 Finance port.
+     */
     public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
                                      ApplicationEventPublisher eventPublisher,
                                      BillingStateService billingStateService,
@@ -85,6 +112,7 @@ public class SaasAdministrationService {
         this.commandService = commandService;
         this.resolution = resolution;
         this.successorGate = successorGate;
+        this.subscriptionFinancePort = null;
     }
 
     /**
@@ -869,6 +897,14 @@ public class SaasAdministrationService {
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET credit_balance_minor = credit_balance_minor - ?, updated_at = ? WHERE id = ?",
                     credit, Timestamp.from(now), subscription.id());
+        }
+        // R0C13 / G03: production Spring wiring requires this port. It joins
+        // the current transaction, so any Finance/linkage failure rolls back
+        // the billing invoice and related subscription credit mutation.
+        // Legacy direct-instantiation constructors intentionally leave the
+        // port null only to preserve historical isolated unit-test wiring.
+        if (subscriptionFinancePort != null) {
+            subscriptionFinancePort.ensureInvoice(subscription.tenantId(), invoiceId);
         }
     }
 

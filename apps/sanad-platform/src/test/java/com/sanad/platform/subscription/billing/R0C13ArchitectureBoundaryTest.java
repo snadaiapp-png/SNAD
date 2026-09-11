@@ -26,6 +26,8 @@ class R0C13ArchitectureBoundaryTest {
     private static final Path PROD_CONFIG = Path.of("src/main/resources/application-prod.yml");
     private static final Path FINANCE_ADAPTER =
             Path.of("src/main/java/com/sanad/platform/finance/integration/SubscriptionFinanceAdapter.java");
+    private static final Path SAAS_ADMIN_SERVICE =
+            Path.of("src/main/java/com/sanad/platform/admin/service/SaasAdministrationService.java");
 
     private static final Pattern DIRECT_FINANCE_SQL = Pattern.compile(
             "(?is)\\b(?:insert\\s+into|update|delete\\s+from)\\s+"
@@ -92,6 +94,14 @@ class R0C13ArchitectureBoundaryTest {
                 .doesNotContain("finance_journal_entries")
                 .doesNotContain("finance_journal_lines")
                 .doesNotContain("INSERT INTO finance_accounts");
+    }
+
+    @Test
+    void billingInvoiceIssuanceMustJoinFinancePortInProductionPath() throws IOException {
+        String source = Files.readString(SAAS_ADMIN_SERVICE);
+        assertThat(source)
+                .contains("SubscriptionFinancePort subscriptionFinancePort")
+                .contains("subscriptionFinancePort.ensureInvoice(subscription.tenantId(), invoiceId)");
     }
 
     @Test

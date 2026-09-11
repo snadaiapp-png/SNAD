@@ -92,10 +92,8 @@ class R0C13G03FinanceIntegrationPostgresTest {
 
     @Test
     void replayCreatesExactlyOneFinanceInvoiceAndOneLine() {
-        var first = inTenant(tenantId,
-                () -> financePort.ensureInvoice(tenantId, billingInvoiceId));
-        var second = inTenant(tenantId,
-                () -> financePort.ensureInvoice(tenantId, billingInvoiceId));
+        var first = financePort.ensureInvoice(tenantId, billingInvoiceId);
+        var second = financePort.ensureInvoice(tenantId, billingInvoiceId);
 
         assertThat(second.financeInvoiceId()).isEqualTo(first.financeInvoiceId());
         assertThat(second.externalReference()).isEqualTo("SCP_INVOICE:" + billingInvoiceId);
@@ -124,12 +122,10 @@ class R0C13G03FinanceIntegrationPostgresTest {
     void settlementReplayCreatesExactlyOneCompletedFinancePayment() {
         UUID settlementId = UUID.randomUUID();
 
-        var first = inTenant(tenantId,
-                () -> financePort.recordSettlement(
-                        tenantId, billingInvoiceId, settlementId, 10_350L, "SAR"));
-        var second = inTenant(tenantId,
-                () -> financePort.recordSettlement(
-                        tenantId, billingInvoiceId, settlementId, 10_350L, "SAR"));
+        var first = financePort.recordSettlement(
+                tenantId, billingInvoiceId, settlementId, 10_350L, "SAR");
+        var second = financePort.recordSettlement(
+                tenantId, billingInvoiceId, settlementId, 10_350L, "SAR");
 
         assertThat(second.financePaymentId()).isEqualTo(first.financePaymentId());
         assertThat(inTenant(tenantId, () -> scalarLong(
@@ -155,16 +151,16 @@ class R0C13G03FinanceIntegrationPostgresTest {
     @Test
     void settlementAmountAndCurrencyMismatchFailClosedWithoutDuplicatePayment() {
         UUID settlementId = UUID.randomUUID();
-        inTenant(tenantId, () -> financePort.recordSettlement(
-                tenantId, billingInvoiceId, settlementId, 10_350L, "SAR"));
+        financePort.recordSettlement(
+                tenantId, billingInvoiceId, settlementId, 10_350L, "SAR");
 
-        assertThatThrownBy(() -> inTenant(tenantId, () -> financePort.recordSettlement(
-                tenantId, billingInvoiceId, settlementId, 10_349L, "SAR")))
+        assertThatThrownBy(() -> financePort.recordSettlement(
+                tenantId, billingInvoiceId, settlementId, 10_349L, "SAR"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("amount mismatch");
 
-        assertThatThrownBy(() -> inTenant(tenantId, () -> financePort.recordSettlement(
-                tenantId, billingInvoiceId, settlementId, 10_350L, "USD")))
+        assertThatThrownBy(() -> financePort.recordSettlement(
+                tenantId, billingInvoiceId, settlementId, 10_350L, "USD"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("currency mismatch");
 
@@ -177,8 +173,7 @@ class R0C13G03FinanceIntegrationPostgresTest {
     void crossTenantBillingInvoiceCannotBeLinked() {
         UUID otherTenant = seedTenant();
 
-        assertThatThrownBy(() -> inTenant(otherTenant,
-                () -> financePort.ensureInvoice(otherTenant, billingInvoiceId)))
+        assertThatThrownBy(() -> financePort.ensureInvoice(otherTenant, billingInvoiceId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Billing invoice not found");
 
@@ -229,8 +224,7 @@ class R0C13G03FinanceIntegrationPostgresTest {
             return null;
         });
 
-        assertThatThrownBy(() -> inTenant(tenantId,
-                () -> financePort.ensureInvoice(tenantId, targetBillingInvoice)))
+        assertThatThrownBy(() -> financePort.ensureInvoice(tenantId, targetBillingInvoice))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         assertThat(inTenant(tenantId, () -> scalarLong(
