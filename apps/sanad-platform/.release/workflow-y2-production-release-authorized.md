@@ -37,3 +37,32 @@ The protected squash merge that authorizes deployment MUST include the exact com
 - The protected squash merge MUST include the exact commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`; without that marker the production orchestrator fails closed.
 - Production deployment must occur exclusively through `production-release.yml` with `rollback_on_failure=true`.
 - No manual Render deployment, no Flyway history mutation, no `flyway repair`, and no out-of-order migration execution are authorized.
+
+
+## R0C-12 G16 Human Production Authority Candidate — 2026-09-11
+
+- Certified source baseline SHA: `e658320cb4655717222345fbf8f9fb89ce1b4006`
+- G01–G13 certification: `PASS`
+- G14 immutable image publication run: `34507878015`
+- G14 candidate image digest: `sha256:27aeba95ad278656e95cbaafe4ead8a2131bbc9a679136a1c05615e9698a2eeb`
+- G15 production preflight run: `34544777756`
+- G15 operational readiness: `PASS`
+- Current production deployment remains on the pre-existing live image; this authorization candidate performs no production deployment.
+- Runtime application code change in this authorization PR: `NONE`
+- Database migration change in this authorization PR: `NONE`
+- Security/RBAC semantic change in this authorization PR: `NONE`
+- Owner production authorization: `GRANTED_EXPLICITLY_2026-09-11`
+- Independent human review: `REQUIRED`
+- R0C-13: `FORBIDDEN`
+
+This authorization PR is intentionally inert and exists only to create a protected, reviewable G16 release-control merge under `apps/sanad-platform/**`.
+
+Owner production authorization has been explicitly granted for R0C12 only, bound to certified source baseline `e658320cb4655717222345fbf8f9fb89ce1b4006` and PR #1016, conditional on all required checks passing, independent human approval, protected squash merge with the exact `PRODUCTION-RELEASE-AUTHORIZED` marker, and rollback enabled. R0C13 is explicitly not authorized. The merge remains fail-closed if the source baseline, PR head, required checks, or independent approval changes.
+
+The protected squash merge that grants G16 MUST include the exact commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker the Workflow Y2 Production Release Orchestrator must fail closed.
+
+After an authorized protected merge, the resulting new exact-main SHA becomes the release SHA. Only the canonical chain is permitted:
+
+`Publish Render Backend Image` → immutable exact-SHA image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → post-deploy verification.
+
+No manual Render deployment, no direct production DDL, no Flyway history mutation, no `flyway repair`, no out-of-order migration execution, no branch-protection bypass, no force push, and no R0C-13 action are authorized by this candidate.
