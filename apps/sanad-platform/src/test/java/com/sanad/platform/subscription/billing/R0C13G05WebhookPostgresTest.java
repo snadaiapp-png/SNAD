@@ -518,7 +518,7 @@ class R0C13G05WebhookPostgresTest {
                 : "";
         return (
                 "{\"eventId\":\"" + eventId + "\","
-                        + "\"eventType\":\"payment.succeeded\","
+                        + "\"eventType\":\"payment.pending\","
                         + "\"paymentRef\":\"" + paymentRef + "\","
                         + "\"tenantId\":\"" + untrustedTenant + "\"" + sensitive + "}")
                 .getBytes(StandardCharsets.UTF_8);
