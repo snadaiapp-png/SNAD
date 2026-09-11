@@ -2,10 +2,25 @@
 
 - **Date:** 2026-09-11
 - **Starting production baseline:** `16509abed344ce5d6635eb3660512e3e9011584b`
+- **Implementation repository baseline (re-anchored after protected main drift):** `15d50fa03b748a9190b9ee7380d746f91d55b34e`
 - **Authority:** Issue #1017 — owner authorization granted for R0C13 only
 - **Stage:** R13-S0.2 — scope/architecture definition
 - **Implementation status:** NOT STARTED
 - **Live payment collection:** NOT AUTHORIZED; separate human activation gate required
+
+## 0.1 Protected-main re-anchor evidence
+
+After this scope PR was opened, protected `main` advanced by exactly one commit from the production baseline to `15d50fa03b748a9190b9ee7380d746f91d55b34e` via Workflow Y2 Wave 2 PR #1015.
+
+The compare `16509abed344ce5d6635eb3660512e3e9011584b...${impl}` is confined to Workflow Y2 application/domain/infrastructure, its forward-only migration `V20260910_1__workflow_y2_sla_and_cancellation_hardening.sql`, and related Workflow/CRM test-harness migration sentinels. It does **not** modify Billing, Finance, Commerce payment contracts, or any R0C13 scope artifact.
+
+Therefore:
+- the **starting production baseline** remains `16509abed344ce5d6635eb3660512e3e9011584b` as the last R0C12 production-verified image;
+- the **R0C13 implementation repository baseline** is re-anchored to `15d50fa03b748a9190b9ee7380d746f91d55b34e`;
+- the effective pre-R0C13 Flyway repository head is now `20260910.1`;
+- R0C13 scope/architecture is unchanged;
+- R13-G01 must lock `15d50fa03b748a9190b9ee7380d746f91d55b34e` (or a later explicitly re-anchored protected-main SHA) before implementation;
+- exact-head CI and independent review must be repeated after this re-anchor.
 
 ## 1. Objective
 
@@ -358,7 +373,8 @@ R13-S0.2 is complete when:
 - this architecture/scope specification is protected-reviewed;
 - the implementation plan exists;
 - the acceptance matrix exists;
-- all three are bound to starting baseline `16509abed344ce5d6635eb3660512e3e9011584b`;
-- no implementation code/migration/runtime configuration has been changed by the scope-definition PR.
+- all three preserve starting production baseline `16509abed344ce5d6635eb3660512e3e9011584b` and explicitly re-anchor implementation to protected-main SHA `15d50fa03b748a9190b9ee7380d746f91d55b34e`;
+- no implementation code/migration/runtime configuration has been changed by the scope-definition PR;
+- exact-head checks and independent review are green after the re-anchor commit.
 
 Only after R13-S0 closes may R0C13 implementation start.
