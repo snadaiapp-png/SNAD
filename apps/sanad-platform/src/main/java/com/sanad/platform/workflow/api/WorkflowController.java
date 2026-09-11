@@ -249,11 +249,15 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.TASK_EXECUTE")
     public ResponseEntity<WorkflowDtos.WorkItemResponse> completeWorkItem(
             Authentication auth, @PathVariable UUID id, @RequestBody WorkItemCommandRequest req) {
+        // R1 GATE R1.6 (DRAIN_EXISTING): work-item completion is a RUNTIME
+        // mutation on an already-running instance — governed by RBAC alone,
+        // never by the paid entitlement, so a downgrade can never kill an
+        // in-flight business process. (The three requireWorkflowEnabled calls
+        // previously placed here were removed: they contradicted the R1.6
+        // policy above, broke the cross-tenant 409 contract that claim/
+        // release/reassign follow, and were accidentally triplicated.)
         var employee = requireActorEmployee(auth);
         var tenant = tenantId(auth);
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
         var completed = workItemService.complete(tenant, id, employee.id(), req.expectedVersion());
         var advanced = graphExecutionService.advance(tenant, completed.workflowInstanceId(), null, userId(auth));
         var outcome = graphExecutionService.runCurrentSystemAction(tenant, advanced.id(), userId(auth));
