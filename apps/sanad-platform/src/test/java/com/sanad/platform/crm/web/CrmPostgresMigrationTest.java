@@ -180,7 +180,13 @@ class CrmPostgresMigrationTest {
     // Forward drift reconciliation of 05b64dfc: workflow incident optimistic
     // lock is the terminal migration of the merged ledger.
     private static final String WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION = "20260908.1";
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION;
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only Wave-2 migration added
+    // after prior sentinel baseline: V20260910_1 (workflow Y2 SLA modes, SLA
+    // escalation, and two-phase cancellation hardening) extends the merged
+    // ledger; the sentinel still validates the entire sequence exactly and the
+    // expected head remains explicit (20260910.1).
+    private static final String WORKFLOW_Y2_SLA_CANCELLATION_VERSION = "20260910.1";
+    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_SLA_CANCELLATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -413,7 +419,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -584,7 +591,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(Y2_G0_IDENTITY_RECONCILIATION_VERSION),
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

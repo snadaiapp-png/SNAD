@@ -242,6 +242,11 @@ class CrmFlywayHistoryAssertionTest {
             // from V20260906_1 to V20260906_2 at Amendment #5 integration.
             , "20260906.2"   // scp subscription multiplicity model b
             , "20260908.1"   // workflow incident optimistic lock
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only Wave-2 migration
+            // added after prior sentinel baseline (V20260910_1: workflow Y2 SLA
+            // modes, SLA escalation, two-phase cancellation hardening). The
+            // expected head remains explicit — the sentinel is not weakened.
+            , "20260910.1"   // workflow y2 SLA modes + two-phase cancellation hardening
     );
 
 
