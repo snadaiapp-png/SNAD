@@ -140,24 +140,61 @@ class R0C13G02SchemaPostgresTest {
     }
 
     @Test
-    void noTenantContextFailsClosedForWrites() throws SQLException {
+    void noTenantContextFailsClosedForReadsAndWrites() throws SQLException {
         UUID tenant = seedTenant();
+        setTenant(tenant);
+        insertProviderCustomer(tenant, "STRIPE", "cus_noctx_visible_" + compact(tenant));
+        assertThat(countProviderCustomers()).isEqualTo(1);
+
         clearTenant();
+        assertThat(countProviderCustomers())
+                .as("R0C13 tenant-scoped rows must be invisible without app.tenant_id")
+                .isZero();
+
         Throwable thrown = catchThrowable(() ->
-                insertProviderCustomer(tenant, "STRIPE", "cus_noctx_" + compact(tenant)));
+                insertProviderCustomer(tenant, "STRIPE", "cus_noctx_write_" + compact(tenant)));
         assertThat(thrown).isInstanceOf(SQLException.class);
         assertThat(((SQLException) thrown).getSQLState()).isEqualTo("42501");
     }
 
     @Test
-    void wrongTenantCannotWriteAnotherTenantsRow() throws SQLException {
+    void wrongTenantCannotReadOrWriteAnotherTenantsRow() throws SQLException {
         UUID tenantA = seedTenant();
         UUID tenantB = seedTenant();
+
+        setTenant(tenantA);
+        insertProviderCustomer(tenantA, "STRIPE", "cus_cross_" + compact(tenantA));
+        assertThat(countProviderCustomers()).isEqualTo(1);
+
         setTenant(tenantB);
+        assertThat(countProviderCustomers())
+                .as("tenant B must not read tenant A's provider binding")
+                .isZero();
+
         Throwable thrown = catchThrowable(() ->
-                insertProviderCustomer(tenantA, "STRIPE", "cus_cross_" + compact(tenantA)));
+                insertProviderCustomer(tenantA, "STRIPE", "cus_cross_write_" + compact(tenantA)));
         assertThat(thrown).isInstanceOf(SQLException.class);
         assertThat(((SQLException) thrown).getSQLState()).isEqualTo("42501");
+    }
+
+    @Test
+    void g02SchemaContainsNoCardholderOrSecretColumns() throws SQLException {
+        String tables = G02_TABLES.stream()
+                .map(name -> "'" + name + "'")
+                .collect(java.util.stream.Collectors.joining(","));
+        String sql = "SELECT COUNT(*) FROM information_schema.columns "
+                + "WHERE table_schema = 'public' "
+                + "AND table_name IN (" + tables + ") "
+                + "AND lower(column_name) IN "
+                + "('card_number','pan','cvc','cvv','track_data','pin',"
+                + "'secret','api_key','token','authorization')";
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getLong(1))
+                    .as("R0C13 billing tables must not introduce cardholder/secret columns")
+                    .isZero();
+        }
     }
 
     @Test

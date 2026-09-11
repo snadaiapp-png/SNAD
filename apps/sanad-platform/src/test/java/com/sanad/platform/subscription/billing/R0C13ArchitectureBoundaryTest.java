@@ -41,6 +41,8 @@ class R0C13ArchitectureBoundaryTest {
             Path.of("src/main/java/com/sanad/platform/security/config/SecurityConfig.java");
     private static final Path BILLING_WEBHOOK_SERVICE =
             Path.of("src/main/java/com/sanad/platform/subscription/billing/application/BillingWebhookService.java");
+    private static final Path G02_FOUNDATION_MIGRATION =
+            Path.of("src/main/resources/db/migration/V20260911_1__r0c13_subscription_billing_foundation.sql");
     private static final Path G05_WEBHOOK_MIGRATION =
             Path.of("src/main/resources/db/migration/V20260911_2__r0c13_verified_webhook_resolution.sql");
 
@@ -51,6 +53,23 @@ class R0C13ArchitectureBoundaryTest {
     private static final Pattern DIRECT_SUBSCRIPTION_STATE_SQL = Pattern.compile(
             "(?is)\\bupdate\\s+tenant_subscriptions\\s+set\\s+"
                     + "(?:status|billing_state)\\b");
+
+    @Test
+    void r0c13FoundationMigrationMustNotDestructivelyAlterLegacyBillingOrFinance() throws IOException {
+        String migration = Files.readString(G02_FOUNDATION_MIGRATION).toLowerCase(Locale.ROOT);
+        assertThat(migration)
+                .doesNotContain("drop table billing_invoices")
+                .doesNotContain("drop table finance_")
+                .doesNotContain("truncate billing_invoices")
+                .doesNotContain("truncate finance_")
+                .doesNotContain("delete from billing_invoices")
+                .doesNotContain("delete from finance_")
+                .doesNotContain("alter table billing_invoices drop")
+                .doesNotContain("alter table finance_invoices drop")
+                .doesNotContain("alter table finance_payments drop")
+                .doesNotContain("alter table finance_journal_entries drop")
+                .doesNotContain("alter table finance_journal_lines drop");
+    }
 
     @Test
     void r0c13BillingMustNotWriteFinanceTablesDirectly() throws IOException {
