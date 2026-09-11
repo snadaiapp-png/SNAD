@@ -60,7 +60,7 @@ export function WorkflowInstances() {
                   <td style={cellStyle}>{instance.businessEntityType}</td>
                   <td style={cellStyle}>{instance.businessEntityId.slice(0, 8)}…</td>
                   <td style={cellStyle}>{instance.currentStepKey || "—"}</td>
-                  <td style={cellStyle}>v{instance.workflowVersion}.{instance.version}</td>
+                  <td style={cellStyle}>v{instance.workflowVersion}</td>
                   <td style={cellStyle}>{instance.status}</td>
                 </tr>
               ))}

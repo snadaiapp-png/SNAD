@@ -140,6 +140,22 @@ public class WorkflowController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    /**
+     * R0.G5 — version history for one definition family. The requested
+     * definition must exist in the caller's tenant (fail-closed); the whole
+     * family's versions are then returned oldest-first.
+     */
+    @GetMapping("/definitions/{id}/versions")
+    @RequireCapability("WORKFLOW.VIEW")
+    public ResponseEntity<List<Map<String, Object>>> definitionVersions(
+            Authentication auth, @PathVariable UUID id) {
+        var definition = definitionService.findById(tenantId(auth), id)
+                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
+        return ResponseEntity.ok(definitionService
+                .findVersions(tenantId(auth), definition.definitionFamilyId())
+                .stream().map(this::toDefinitionMap).toList());
+    }
+
     @PostMapping("/definitions/{id}/validate")
     @RequireCapability("WORKFLOW.VALIDATE")
     public ResponseEntity<Map<String, Object>> validateDefinition(Authentication auth, @PathVariable UUID id) {
@@ -546,7 +562,15 @@ public class WorkflowController {
         map.put("version", d.version()); map.put("versionLock", d.versionLock()); map.put("createdBy", d.createdBy());
         map.put("definitionFamilyId", d.definitionFamilyId() != null ? d.definitionFamilyId().toString() : "");
         map.put("engineGeneration", d.engineGeneration() != null ? d.engineGeneration().name() : "");
-        map.put("publicationState", d.publicationState() != null ? d.publicationState().name() : ""); return map;
+        map.put("publicationState", d.publicationState() != null ? d.publicationState().name() : "");
+        map.put("updatedAt", d.updatedAt() != null ? d.updatedAt().toString() : null);
+        // R0.G8 — system canaries are release infrastructure: expose a derived
+        // classification so the product workspace can separate them from
+        // business workflows (historical canaries are never mutated).
+        map.put("classification",
+                com.sanad.platform.workflow.domain.WorkflowCanaryPolicy.isSystemCanary(d.code())
+                        ? "SYSTEM_CANARY" : "BUSINESS");
+        return map;
     }
 
     private Map<String, Object> toInstanceMap(WorkflowInstance i) {
