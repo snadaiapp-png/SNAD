@@ -50,6 +50,7 @@ public class WorkflowSlaScheduler {
     private static final int MAX_TENANTS_PER_TICK = 200;
 
     private final WorkflowMonitoringService monitoringService;
+    private final WorkflowSlaEscalationService escalationService;
     private final JdbcTemplate jdbc;
     private final boolean schedulerEnabled;
     private final long schedulingIntervalSeconds;
@@ -65,11 +66,13 @@ public class WorkflowSlaScheduler {
     @Autowired
     public WorkflowSlaScheduler(
             WorkflowMonitoringService monitoringService,
+            WorkflowSlaEscalationService escalationService,
             JdbcTemplate jdbc,
             @Value("${scheduling.enabled:false}") boolean schedulerEnabled,
             @Value("${sanad.workflow.sla.interval-ms:300000}") long schedulingIntervalMs,
             MeterRegistry meterRegistry) {
         this.monitoringService = monitoringService;
+        this.escalationService = escalationService;
         this.jdbc = jdbc;
         this.schedulerEnabled = schedulerEnabled;
         this.schedulingIntervalSeconds = Math.max(1, (schedulingIntervalMs + 999) / 1000);
@@ -160,14 +163,20 @@ public class WorkflowSlaScheduler {
     }
 
     /**
-     * Check SLA breaches for a single tenant in its own transaction.
-     *
-     * <p>Uses {@link Propagation#REQUIRES_NEW} to ensure failures in one tenant's check
-     * do not pollute the transaction state of other tenants.
+     * Check SLA breaches for a single tenant in its own transaction, then
+     * run the escalation command worker for the same tenant (V3/G3/AF3):
+     * overdue Y2 work items receive an idempotent SLA_BREACH incident and an
+     * IN_APP SLA_BREACHED intent. The escalation never mutates the work item
+     * (B1 dominance). Failures in one tenant's check do not pollute the
+     * transaction state of other tenants.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int checkTenant(UUID tenantId) {
-        return monitoringService.checkAllSlaBreaches(tenantId);
+        int breaches = monitoringService.checkAllSlaBreaches(tenantId);
+        if (breaches > 0) {
+            escalationService.escalateTenant(tenantId);
+        }
+        return breaches;
     }
 
     /** Result of a single scheduler tick. Used for test assertions. */

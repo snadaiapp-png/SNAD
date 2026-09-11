@@ -81,8 +81,12 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260906_2 = SCP subscription multiplicity MODEL_B (renumbered from
     //                 V20260906_1 at integration; unmerged on PR #989).
     //   V20260908_1 = workflow incident optimistic lock (forward-merged from
-    //                 main; current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260908.1"; // Terminal versioned migration: V20260908_1 adds workflow incident optimistic locking
+    //                 main).
+    // Wave-2 closure (TEST_ALIGNMENT_REASON = legitimate forward-only Wave-2
+    // migration added after prior sentinel baseline):
+    //   V20260910_1 = workflow Y2 SLA modes, SLA escalation, and two-phase
+    //                 cancellation hardening (current terminal migration).
+    private static final String CRM_LATEST_VERSION = "20260910.1"; // Terminal versioned migration: V20260910_1 adds workflow Y2 SLA/cancellation hardening
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

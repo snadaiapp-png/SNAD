@@ -2,11 +2,13 @@ package com.sanad.platform.workflow;
 
 import com.sanad.platform.workflow.application.WorkflowNotificationService;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
@@ -38,8 +40,20 @@ class WorkflowNotificationDedupRaceTest {
 
     private static JdbcTemplate jdbc;
     private static TransactionTemplate tx;
+    private static PlatformTransactionManager transactionManager;
     private static WorkflowNotificationService notifications;
     private static boolean postgresAvailable;
+
+    /** W.3 TEST-HYGIENE — tenants seeded by the current test, swept @AfterEach. */
+    private final java.util.List<UUID> createdTenants = new java.util.ArrayList<>();
+
+    @AfterEach
+    void sweepFixtures() {
+        for (UUID tenantId : createdTenants) {
+            WorkflowTenantFixtureSweeper.sweepTenant(jdbc, transactionManager, tenantId);
+        }
+        createdTenants.clear();
+    }
 
     @BeforeAll
     static void setup() {
@@ -50,12 +64,20 @@ class WorkflowNotificationDedupRaceTest {
         try {
             Flyway.configure()
                     .dataSource(url, user, pass)
-                    .locations("classpath:db/migration")
+                    // Canonical Spring configuration (application.yml): the
+                    // vendor reconciliation migrations (20260718.x...) live in
+                    // db/vendor/postgresql — a single-location scan fails
+                    // validation against the applied history and would skip
+                    // this PostgreSQL Direct contract silently.
+                    .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                     .cleanDisabled(true)
                     .load()
                     .migrate();
             postgresAvailable = true;
         } catch (Exception unavailable) {
+            // Diagnosability: an opaque skip hides environment defects — print
+            // the reason before degrading to the assumption gate.
+            System.err.println("[WorkflowNotificationDedupRaceTest] PostgreSQL Direct unavailable, skipping: " + unavailable);
             postgresAvailable = false;
         }
         org.junit.jupiter.api.Assumptions.assumeTrue(postgresAvailable,
@@ -63,7 +85,8 @@ class WorkflowNotificationDedupRaceTest {
 
         DataSource dataSource = new DriverManagerDataSource(url, user, pass);
         jdbc = new JdbcTemplate(dataSource);
-        tx = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        transactionManager = new DataSourceTransactionManager(dataSource);
+        tx = new TransactionTemplate(transactionManager);
         notifications = new WorkflowNotificationService(jdbc);
     }
 
@@ -98,6 +121,7 @@ class WorkflowNotificationDedupRaceTest {
                 ) VALUES (?, ?, ?, 1, 'TEST', gen_random_uuid(), 'RUNNING', ?, NOW(), 'Y2',
                           CAST('{}' AS jsonb), 1, 0, ?, ?)
                 """, instance, tenant, definition, user, now, now);
+        createdTenants.add(tenant);
         return new Fixture(tenant, user, definition, instance);
     }
 

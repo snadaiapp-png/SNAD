@@ -278,13 +278,14 @@ class WorkflowApprovalReferenceIntegrityTest {
         // Use WorkflowStepInstance.create() then it returns a record with id().
         var created = WorkflowStepInstance.create(
                 tenantId, instanceId, stepId, "step_" + stepInstanceId.toString().substring(0, 4),
-                null, null, null);
+                new WorkflowStepInstance.SlaSnapshot(null, null, null, null), null, null);
         // Replace the auto-generated id with the requested one by constructing a new record
         return new WorkflowStepInstance(
                 stepInstanceId, created.tenantId(), created.workflowInstanceId(),
                 created.workflowStepId(), created.stepKey(), created.status(),
                 created.assignedUserId(), created.assignedRole(),
                 created.startedAt(), created.completedAt(), created.dueAt(),
+                created.slaMode(), created.slaCalendarId(), created.slaHours(),
                 created.attemptCount(), created.result(),
                 created.version(), created.createdAt(), created.updatedAt());
     }
@@ -293,7 +294,7 @@ class WorkflowApprovalReferenceIntegrityTest {
         WorkflowStep.StepType stepType = WorkflowStep.StepType.ACTION;
         return new WorkflowStep(
                 stepId, tenantA, defId, stepKey, "Step " + stepKey, stepType,
-                1, null, null, null, null,
+                1, null, null, null, null, null, null,
                 0, java.time.Instant.now(), java.time.Instant.now());
     }
 }

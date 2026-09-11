@@ -39,6 +39,9 @@ public class JdbcWorkflowStepInstanceRepository implements WorkflowStepInstanceR
             rs.getTimestamp("started_at") != null ? rs.getTimestamp("started_at").toInstant() : null,
             rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null,
             rs.getTimestamp("due_at") != null ? rs.getTimestamp("due_at").toInstant() : null,
+            rs.getString("sla_mode"),
+            rs.getObject("sla_calendar_id", UUID.class),
+            rs.getObject("sla_hours", Integer.class),
             rs.getInt("attempt_count"),
             rs.getString("result"),
             rs.getLong("version"),
@@ -59,8 +62,9 @@ public class JdbcWorkflowStepInstanceRepository implements WorkflowStepInstanceR
                 INSERT INTO workflow_step_instances
                     (id, tenant_id, workflow_instance_id, workflow_step_id, step_key, status,
                      assigned_user_id, assigned_role, started_at, completed_at, due_at,
+                     sla_mode, sla_calendar_id, sla_hours,
                      attempt_count, result, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.id(), s.tenantId(), s.workflowInstanceId(), s.workflowStepId(),
                 s.stepKey(), s.status().name(),
@@ -68,6 +72,7 @@ public class JdbcWorkflowStepInstanceRepository implements WorkflowStepInstanceR
                 s.startedAt() != null ? Timestamp.from(s.startedAt()) : null,
                 s.completedAt() != null ? Timestamp.from(s.completedAt()) : null,
                 s.dueAt() != null ? Timestamp.from(s.dueAt()) : null,
+                s.slaMode(), s.slaCalendarId(), s.slaHours(),
                 s.attemptCount(),
                 s.result(),
                 s.version(),
@@ -80,7 +85,8 @@ public class JdbcWorkflowStepInstanceRepository implements WorkflowStepInstanceR
         int affected = jdbc.update("""
                 UPDATE workflow_step_instances SET
                     status = ?, assigned_user_id = ?, assigned_role = ?, started_at = ?,
-                    completed_at = ?, due_at = ?, attempt_count = ?, result = ?,
+                    completed_at = ?, due_at = ?, sla_mode = ?, sla_calendar_id = ?,
+                    sla_hours = ?, attempt_count = ?, result = ?,
                     version = ?, updated_at = ?
                 WHERE id = ? AND tenant_id = ? AND version = ?
                 """,
@@ -89,6 +95,7 @@ public class JdbcWorkflowStepInstanceRepository implements WorkflowStepInstanceR
                 s.startedAt() != null ? Timestamp.from(s.startedAt()) : null,
                 s.completedAt() != null ? Timestamp.from(s.completedAt()) : null,
                 s.dueAt() != null ? Timestamp.from(s.dueAt()) : null,
+                s.slaMode(), s.slaCalendarId(), s.slaHours(),
                 s.attemptCount(),
                 s.result(),
                 s.version(), Timestamp.from(s.updatedAt()),
