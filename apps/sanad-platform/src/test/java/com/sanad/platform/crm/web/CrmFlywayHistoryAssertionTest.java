@@ -247,6 +247,14 @@ class CrmFlywayHistoryAssertionTest {
             // modes, SLA escalation, two-phase cancellation hardening). The
             // expected head remains explicit — the sentinel is not weakened.
             , "20260910.1"   // workflow y2 SLA modes + two-phase cancellation hardening
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only R1 migrations
+            // added after prior sentinel baseline (V20260911_1..3: module
+            // entitlement policy, attachments + external participation
+            // foundation, workflow journey/time governance). The expected head
+            // remains explicit — the sentinel is not weakened.
+            , "20260911.1"   // R1 module entitlement policy (WORKFLOW EXPLICIT_OPT_IN)
+            , "20260911.2"   // R1 attachments + external participation foundation
+            , "20260911.3"   // R1 workflow journey/time governance
     );
 
 
