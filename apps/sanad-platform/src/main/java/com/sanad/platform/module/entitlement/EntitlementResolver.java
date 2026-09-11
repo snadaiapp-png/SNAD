@@ -188,8 +188,16 @@ public class EntitlementResolver {
         boolean moduleEnabled = planEntitlements.stream()
                 .anyMatch(PlanModuleEntitlementEntity::isModuleEnabled);
         // If no plan entitlements exist, fall back to the module's default enabled flag
+        // unless the module declares an explicit paid opt-in policy (R1 GATE R1.2):
+        // ACTIVE SUBSCRIPTION + NO EXPLICIT PLAN ENTITLEMENT ROW = MODULE DISABLED.
         if (planEntitlements.isEmpty()) {
-            moduleEnabled = module.isEnabled();
+            if ("EXPLICIT_OPT_IN".equals(module.getEntitlementPolicy())) {
+                log.debug("Module {} is EXPLICIT_OPT_IN and plan {} has no entitlement row -> denied",
+                        module.getCode(), planId);
+                moduleEnabled = false;
+            } else {
+                moduleEnabled = module.isEnabled();
+            }
         }
 
         if (!moduleEnabled) {
