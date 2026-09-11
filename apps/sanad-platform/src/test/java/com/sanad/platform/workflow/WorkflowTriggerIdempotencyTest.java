@@ -57,6 +57,7 @@ class WorkflowTriggerIdempotencyTest {
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Trigger User', 'ACTIVE', 'dummy', ?, ?)",
                 startUserId, tenantId, "wf-trg-" + startUserId.toString().substring(0, 8) + "@test", now, now);
+        grantWorkflowEntitlement();
         definitionId = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO workflow_definitions (
@@ -150,5 +151,37 @@ class WorkflowTriggerIdempotencyTest {
                 tenantId, instanceId);
         assertThat(workflowRow.get("status")).isEqualTo("RUNNING");
         assertThat(((Number) workflowRow.get("version")).longValue()).isZero();
+    }
+
+    /**
+     * R1 GATE R1.2 alignment: WORKFLOW is EXPLICIT_OPT_IN, so trigger
+     * consumption (NO_EVENT_TRIGGER_START) requires an explicit paid
+     * entitlement. This suite predates R1 and verifies trigger IDEMPOTENCY
+     * semantics, not the entitlement contract — the fixture therefore grants
+     * the entitlement (same pattern as WorkflowEntitlementEnforcementTest)
+     * so the idempotency assertions run under an entitled tenant. No
+     * assertion is weakened.
+     */
+    private void grantWorkflowEntitlement() {
+        UUID planId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO saas_plans (id, code, name, status, currency_code, monthly_price_minor,
+                     annual_price_minor, trial_days, max_users, max_organizations, storage_mb,
+                     created_at, updated_at)
+                VALUES (?,?,?,?, 'SAR', 0, 0, 0, 10, 1, 0, NOW(), NOW())
+                """, planId, "WFTRG_" + UUID.randomUUID().toString().substring(0, 8),
+                "Trigger idempotency plan", "ACTIVE");
+        jdbc.update("""
+                INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
+                     seat_quantity, credit_balance_minor, started_at, current_period_start,
+                     current_period_end, cancel_at_period_end, created_at, updated_at)
+                VALUES (?,?,?, 'ACTIVE', 'MONTHLY', 5, 0, NOW(), NOW(),
+                        NOW() + INTERVAL '30 days', false, NOW(), NOW())
+                """, UUID.randomUUID(), tenantId, planId);
+        jdbc.update("""
+                INSERT INTO plan_module_entitlements (id, plan_id, module_id, module_enabled,
+                     capability_code, created_at, updated_at)
+                SELECT ?, ?, id, true, NULL, NOW(), NOW() FROM modules WHERE code = 'WORKFLOW'
+                """, UUID.randomUUID(), planId);
     }
 }

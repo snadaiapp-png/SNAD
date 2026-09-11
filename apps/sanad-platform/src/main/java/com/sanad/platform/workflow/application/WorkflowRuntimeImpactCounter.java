@@ -39,7 +39,7 @@ public class WorkflowRuntimeImpactCounter {
         // been provisioned yet means zero such runtime objects exist — an honest
         // zero, not a failure. Core Workflow tables above are strict.
         m.put("ACTIVE_TIMERS", countOptional(tenantId, "workflow_timers",
-                "SELECT COUNT(*) FROM workflow_timers WHERE tenant_id = ? AND status IN ('RUNNING','PAUSED')"));
+                "SELECT COUNT(*) FROM workflow_timers WHERE tenant_id = ? AND state IN ('RUNNING','PAUSED')"));
         m.put("PENDING_EXTERNAL_ACTIONS", countOptional(tenantId, "workflow_external_actions",
                 "SELECT COUNT(*) FROM workflow_external_actions WHERE tenant_id = ? AND status IN ('PENDING','VIEWED')"));
         m.put("OPEN_INCIDENTS", count(tenantId,
