@@ -422,7 +422,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
+                        MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -594,7 +595,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
-                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
+                        MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
