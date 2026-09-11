@@ -22,6 +22,7 @@ import java.util.*;
 @Service
 public class SubscriptionImpactService {
 
+    private final org.springframework.beans.factory.ObjectProvider<com.sanad.platform.workflow.application.WorkflowRuntimeImpactCounter> workflowRuntimeImpactCounter;
     private final EntitlementResolver entitlementResolver;
     private final ModuleRepository moduleRepository;
     private final ModuleCapabilityRepository moduleCapabilityRepository;
@@ -35,7 +36,9 @@ public class SubscriptionImpactService {
                                        ModuleCapabilityRepository moduleCapabilityRepository,
                                        PlanModuleEntitlementRepository planModuleEntitlementRepository,
                                        JdbcTemplate jdbc,
-                                       SubscriptionResolutionService resolution) {
+                                       SubscriptionResolutionService resolution,
+            org.springframework.beans.factory.ObjectProvider<com.sanad.platform.workflow.application.WorkflowRuntimeImpactCounter> workflowRuntimeImpactCounter) {
+        this.workflowRuntimeImpactCounter = workflowRuntimeImpactCounter;
         this.entitlementResolver = entitlementResolver;
         this.moduleRepository = moduleRepository;
         this.moduleCapabilityRepository = moduleCapabilityRepository;
@@ -54,7 +57,7 @@ public class SubscriptionImpactService {
                                        PlanModuleEntitlementRepository planModuleEntitlementRepository,
                                        JdbcTemplate jdbc) {
         this(entitlementResolver, moduleRepository, moduleCapabilityRepository,
-                planModuleEntitlementRepository, jdbc, new SubscriptionResolutionService(jdbc));
+                planModuleEntitlementRepository, jdbc, new SubscriptionResolutionService(jdbc), null);
     }
 
     /**
@@ -84,13 +87,35 @@ public class SubscriptionImpactService {
 
         boolean isUpgrade = isUpgrade(currentPlanCode, targetPlanCode);
 
+        // R1 GATE R1.6 — surface live Workflow runtime counts so a removal or
+        // downgrade preview shows exactly what DRAIN_EXISTING must respect.
+        Map<String, Long> workflowImpact = null;
+        com.sanad.platform.workflow.application.WorkflowRuntimeImpactCounter counter =
+                workflowRuntimeImpactCounter != null ? workflowRuntimeImpactCounter.getIfAvailable() : null;
+        if (counter != null) {
+            try {
+                workflowImpact = counter.countRuntime(tenantId);
+            } catch (Exception e) {
+                // Preview must never fail because runtime accounting failed;
+                // a null section means "unavailable", never "empty".
+                workflowImpact = null;
+            }
+        }
+
+        String safetyNote =
+                "NO DATA WILL BE DELETED. Only entitlements, limits, and capabilities will change. "
+                + "Workflow removal policy: NO_NEW_DEFINITIONS, NO_NEW_STARTS, NO_NEW_TRIGGERS, "
+                + "NO_NEW_EXTERNAL_ACTIONS, PRESERVE_HISTORY/JOURNEY/AUDIT; active runtime "
+                + "DRAIN_EXISTING (see workflowRuntimeImpact).";
+
         return new SubscriptionImpactPreview(
                 tenantId,
                 currentPlanCode,
                 targetPlanCode,
                 isUpgrade ? "UPGRADE" : "DOWNGRADE",
                 moduleImpacts,
-                "NO DATA WILL BE DELETED. Only entitlements, limits, and capabilities will change.",
+                safetyNote,
+                workflowImpact,
                 Instant.now()
         );
     }
@@ -238,6 +263,7 @@ public class SubscriptionImpactService {
             String changeType,             // UPGRADE | DOWNGRADE
             List<ModuleImpact> moduleImpacts,
             String dataSafetyNote,
+            Map<String, Long> workflowRuntimeImpact, // R1 GATE R1.6; null = unavailable
             Instant previewGeneratedAt
     ) {}
 

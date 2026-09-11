@@ -6,6 +6,7 @@ import com.sanad.platform.workflow.application.WorkflowActionabilityService;
 import com.sanad.platform.workflow.application.WorkflowBreakGlassService;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
+import com.sanad.platform.workflow.application.WorkflowEntitlementGuard;
 import com.sanad.platform.workflow.application.WorkflowGraphExecutionService;
 import com.sanad.platform.workflow.application.WorkflowIncidentService;
 import com.sanad.platform.workflow.application.WorkflowWorkItemService;
@@ -46,6 +47,7 @@ public class WorkflowController {
     private final WorkflowActionabilityService actionabilityService;
     private final WorkflowBreakGlassService breakGlassService;
     private final WorkflowGraphExecutionService graphExecutionService;
+    private final WorkflowEntitlementGuard workflowEntitlementGuard;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
@@ -57,7 +59,8 @@ public class WorkflowController {
             WorkflowIncidentService incidentService,
             WorkflowActionabilityService actionabilityService,
             WorkflowBreakGlassService breakGlassService,
-            WorkflowGraphExecutionService graphExecutionService) {
+            WorkflowGraphExecutionService graphExecutionService,
+            WorkflowEntitlementGuard workflowEntitlementGuard) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
@@ -68,6 +71,7 @@ public class WorkflowController {
         this.actionabilityService = actionabilityService;
         this.breakGlassService = breakGlassService;
         this.graphExecutionService = graphExecutionService;
+        this.workflowEntitlementGuard = workflowEntitlementGuard;
     }
 
     @org.springframework.web.bind.annotation.ExceptionHandler(
@@ -229,6 +233,9 @@ public class WorkflowController {
             Authentication auth, @PathVariable UUID id, @RequestBody WorkItemCommandRequest req) {
         var employee = requireActorEmployee(auth);
         var tenant = tenantId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
         var completed = workItemService.complete(tenant, id, employee.id(), req.expectedVersion());
         var advanced = graphExecutionService.advance(tenant, completed.workflowInstanceId(), null, userId(auth));
         var outcome = graphExecutionService.runCurrentSystemAction(tenant, advanced.id(), userId(auth));
@@ -368,6 +375,13 @@ public class WorkflowController {
     public ResponseEntity<Map<String, Object>> addStep(
             Authentication auth, @PathVariable UUID id, @RequestBody CreateStepRequest req) {
         var tenant = tenantId(auth); var actor = userId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
         definitionService.findById(tenant, id)
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
         var step = WorkflowStep.create(tenant, id, req.stepKey(), req.name(),
@@ -390,6 +404,7 @@ public class WorkflowController {
     public ResponseEntity<Map<String, Object>> startWorkflow(
             Authentication auth, @RequestBody StartWorkflowRequest req) {
         var tenant = tenantId(auth); var actor = userId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
         var def = definitionService.findById(tenant, req.workflowDefinitionId())
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + req.workflowDefinitionId()));
         boolean startEligible = switch (def.engineGeneration()) {
