@@ -7,6 +7,7 @@ import com.sanad.platform.workflow.application.WorkflowBreakGlassService;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
 import com.sanad.platform.workflow.application.WorkflowEntitlementGuard;
+import com.sanad.platform.workflow.application.WorkflowModuleCatalogService;
 import com.sanad.platform.workflow.application.WorkflowGraphExecutionService;
 import com.sanad.platform.workflow.application.WorkflowIncidentService;
 import com.sanad.platform.workflow.application.WorkflowWorkItemService;
@@ -48,6 +49,7 @@ public class WorkflowController {
     private final WorkflowBreakGlassService breakGlassService;
     private final WorkflowGraphExecutionService graphExecutionService;
     private final WorkflowEntitlementGuard workflowEntitlementGuard;
+    private final WorkflowModuleCatalogService moduleCatalogService;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
@@ -60,7 +62,8 @@ public class WorkflowController {
             WorkflowActionabilityService actionabilityService,
             WorkflowBreakGlassService breakGlassService,
             WorkflowGraphExecutionService graphExecutionService,
-            WorkflowEntitlementGuard workflowEntitlementGuard) {
+            WorkflowEntitlementGuard workflowEntitlementGuard,
+            WorkflowModuleCatalogService moduleCatalogService) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
@@ -72,6 +75,7 @@ public class WorkflowController {
         this.breakGlassService = breakGlassService;
         this.graphExecutionService = graphExecutionService;
         this.workflowEntitlementGuard = workflowEntitlementGuard;
+        this.moduleCatalogService = moduleCatalogService;
     }
 
     @org.springframework.web.bind.annotation.ExceptionHandler(
@@ -158,6 +162,20 @@ public class WorkflowController {
         return ResponseEntity.ok(definitionService
                 .findVersions(tenantId(auth), definition.definitionFamilyId())
                 .stream().map(this::toDefinitionMap).toList());
+    }
+
+    /**
+     * R1 GATE R1.10 — authoritative dynamic Designer/Definitions module catalog.
+     * Replaces the static frontend module list: derives from the module registry
+     * + integration registry + tenant entitlements (fail closed on Workflow
+     * entitlement; DESIGN-time NEW PRODUCT USE).
+     */
+    @GetMapping("/catalog/modules")
+    @RequireCapability("WORKFLOW.VIEW")
+    public ResponseEntity<Map<String, Object>> moduleCatalog(Authentication auth) {
+        var tenant = tenantId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        return ResponseEntity.ok(moduleCatalogService.effectiveCatalog(tenant));
     }
 
     @PostMapping("/definitions/{id}/validate")
