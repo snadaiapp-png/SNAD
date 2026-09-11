@@ -2,6 +2,8 @@
 
 - **Date:** 2026-09-11
 - **Starting production baseline:** `16509abed344ce5d6635eb3660512e3e9011584b`
+- **Implementation repository baseline (R13-S0 re-anchor):** `15d50fa03b748a9190b9ee7380d746f91d55b34e`
+- **Pre-R0C13 repository Flyway head:** `20260910.1`
 - **Issue:** #1017
 - **Design:** `docs/superpowers/specs/2026-09-11-r0c13-revenue-billing-integration-closure-design.md`
 - **Plan:** `docs/superpowers/plans/2026-09-11-r0c13-revenue-billing-integration-closure-implementation.md`
@@ -22,7 +24,7 @@ No inferred PASS is permitted.
 
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
-| R13-AC-001 | Exact starting baseline is `16509abed...` and no implementation precedes scope approval | branch/commit evidence | S0/G01 | PASS |
+| R13-AC-001 | Starting production baseline is `16509abed...`; implementation repository baseline is re-anchored to `15d50fa0...`; no R0C13 implementation precedes protected scope approval | branch/compare/commit evidence | S0/G01 | PASS |
 | R13-AC-002 | Finance remains source of truth for accounting invoices/payments/ledger | architecture tests + code review | G03 | NOT_STARTED |
 | R13-AC-003 | No parallel GL/accounting model introduced | schema/code scan | G03 | NOT_STARTED |
 | R13-AC-004 | `billing_invoices` remains compatible with existing dunning | regression tests | G03/G06 | NOT_STARTED |
