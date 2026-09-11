@@ -66,3 +66,35 @@ After an authorized protected merge, the resulting new exact-main SHA becomes th
 `Publish Render Backend Image` → immutable exact-SHA image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → post-deploy verification.
 
 No manual Render deployment, no direct production DDL, no Flyway history mutation, no `flyway repair`, no out-of-order migration execution, no branch-protection bypass, no force push, and no R0C-13 action are authorized by this candidate.
+
+
+
+## R0C-12 Final Production Alignment Authority — 2026-09-11
+
+- Certified engineering main SHA: `5b02335a4f3936da3f535c07b0017e128f58265e`
+- Certified engineering TREE_SHA: `50a3596e36b55fb67758096ccd1fd5da56238c3d`
+- Canonical Gate G run: `34589848973` — `PASS`
+- Canonical Gate G acceptance: `31/31`, `0F/0E/0S`
+- Engineering PR: `#1021` — `MERGED`
+- Post-Merge Main Verification run: `34593816585` — `PASS`
+- Main CI run: `34593816490` — `PASS`
+- Engineering exact-SHA image publication run: `34593816498` — `PASS`
+- Current production remains on the previously authorized live image until this authorization PR is protected-merged and the canonical production release succeeds.
+- Runtime application code change in this authorization PR: `NONE`
+- Database migration change in this authorization PR: `NONE`
+- Security/RBAC semantic change in this authorization PR: `NONE`
+- Owner final production/commercial alignment authorization: `GRANTED_EXPLICITLY_2026-09-11`
+- Independent human review: `REQUIRED`
+- R0C-13 implementation/release authorization: `FORBIDDEN`
+
+This authorization PR is intentionally inert and changes only this release-control marker. It exists to create the protected release-control main commit required by the canonical production orchestrator.
+
+Owner authority is explicitly granted for final R0C12 production alignment and commercial closure, bound to certified engineering main `5b02335a4f3936da3f535c07b0017e128f58265e`, conditional on exact-head required checks passing, independent write-access approval, protected squash merge, rollback enabled, and final production verification.
+
+The protected squash merge MUST contain the exact immutable commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker, production release remains fail-closed.
+
+Only the canonical release chain is authorized:
+
+`Publish Render Backend Image` → immutable exact-main image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → Render exact-image verification → readiness → Flyway invariants → security boundary → SCP production smoke → Vercel Control Plane/BFF → sanitized release evidence.
+
+No manual Render deployment, no direct production DDL, no Flyway history mutation, no `flyway repair`, no out-of-order migration execution, no force push, no branch-protection bypass, and no R0C-13 production action are authorized.

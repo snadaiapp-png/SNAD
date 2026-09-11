@@ -100,8 +100,10 @@ describe("workflow Y2 operational IA (Task 17)", () => {
   it("keeps legacy activation out of the Y2 publication lifecycle", () => {
     const definitions = readRequired("components/workflow-definitions.tsx");
 
+    // R0.G5: the workspace groups families; LEGACY activation is offered
+    // only for LEGACY + DRAFT family heads (unchanged lifecycle invariant).
     expect(definitions).toContain(
-      'definition.engineGeneration === "LEGACY" && definition.publicationState === "DRAFT" && definition.status === "DRAFT"',
+      'family.latest.engineGeneration === "LEGACY"\n    && family.latest.publicationState === "DRAFT"\n    && family.latest.status === "DRAFT"',
     );
     expect(definitions).toContain("workflowApi.activateDefinition");
     expect(definitions).toContain("فتح المصمم");

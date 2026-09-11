@@ -97,7 +97,7 @@ export function WorkflowIncidents() {
           <article key={incident.id} style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
             <strong>{incident.source}</strong>{" "}
             <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
-              {incident.severity} · {incident.status} · {incident.failureCategory} · إصدار {incident.version}
+              {incident.severity} · {incident.status} · {incident.failureCategory} · مرجع المزامنة #{incident.version}
             </span>
             <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {incident.status === "OPEN" && (
