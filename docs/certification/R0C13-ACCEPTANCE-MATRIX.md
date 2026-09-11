@@ -7,8 +7,8 @@
 - **Issue:** #1017
 - **Design:** `docs/superpowers/specs/2026-09-11-r0c13-revenue-billing-integration-closure-design.md`
 - **Plan:** `docs/superpowers/plans/2026-09-11-r0c13-revenue-billing-integration-closure-implementation.md`
-- **Current stage:** R13-S0.2
-- **Implementation:** NOT STARTED
+- **Current stage:** R13-G05 FINAL CERTIFICATION
+- **Implementation:** G01-G05 IMPLEMENTED; G05 CERTIFICATION EVIDENCE RECORDED
 
 ## Acceptance vocabulary
 
@@ -45,8 +45,8 @@ No inferred PASS is permitted.
 | R13-DB-004 | cross-tenant read denied | PostgreSQL Direct test | G02 | NOT_STARTED |
 | R13-DB-005 | cross-tenant write denied | PostgreSQL Direct test | G02 | NOT_STARTED |
 | R13-DB-006 | no-tenant context fails closed | PostgreSQL Direct test | G02 | NOT_STARTED |
-| R13-DB-007 | provider event id uniqueness is DB-enforced | concurrent/replay PG test | G02/G05 | NOT_STARTED |
-| R13-DB-008 | idempotency key uniqueness is DB-enforced | concurrent/replay PG test | G02/G05 | NOT_STARTED |
+| R13-DB-007 | provider event id uniqueness is DB-enforced | `R0C13G02SchemaPostgresTest.providerEventAndOutboxIdempotencyAreDatabaseEnforced`; CI `34613965153`, Maven job `103311137936`, artifact `10270828975` | G02/G05 | PASS |
+| R13-DB-008 | idempotency key uniqueness is DB-enforced | `R0C13G02SchemaPostgresTest.providerEventAndOutboxIdempotencyAreDatabaseEnforced`; CI `34613965153`, Maven job `103311137936`, artifact `10270828975` | G02/G05 | PASS |
 | R13-DB-009 | same-tenant FK prevents mismatched linkage | PostgreSQL Direct test | G02/G03 | NOT_STARTED |
 | R13-DB-010 | Flyway fresh chain succeeds without repair/out-of-order | canonical PG Direct evidence | G02/G08 | NOT_STARTED |
 | R13-DB-011 | destructive DDL against R0C12 billing/finance tables = 0 | migration diff scan | G02 | NOT_STARTED |
@@ -83,15 +83,32 @@ No inferred PASS is permitted.
 
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
-| R13-WH-001 | invalid signature causes zero domain mutation | integration test | G05 | NOT_STARTED |
-| R13-WH-002 | valid signed event is accepted exactly once | integration test | G05 | NOT_STARTED |
-| R13-WH-003 | duplicate event is side-effect-free | concurrent PG test | G05 | NOT_STARTED |
-| R13-WH-004 | tenant identity resolves from trusted binding, not body input | negative test | G05 | NOT_STARTED |
-| R13-WH-005 | unknown provider customer/reference is rejected | negative test | G05 | NOT_STARTED |
-| R13-WH-006 | processing failure remains retryable | failure-injection test | G05 | NOT_STARTED |
-| R13-WH-007 | required mutation + audit + outbox is atomic | PG transaction test | G05 | NOT_STARTED |
-| R13-WH-008 | billing outbox has deterministic typed/versioned events | contract tests | G05 | NOT_STARTED |
-| R13-WH-009 | no secret/raw sensitive provider payload in evidence | artifact scan | G05/G09 | NOT_STARTED |
+| R13-WH-001 | invalid signature causes zero domain mutation | `R0C13G05WebhookPostgresTest.invalidSignatureIsHttpRejectedWithZeroSideEffects`; 9-test G05 suite PASS on `b61e7907...` | G05 | PASS |
+| R13-WH-002 | valid signed event is accepted exactly once | `verifiedWebhookResolvesTenantOnlyFromStoredProviderBinding` + `concurrentDuplicateWebhooksCommitExactlyOnce`; CI `34613965153` | G05 | PASS |
+| R13-WH-003 | duplicate event is side-effect-free | `duplicateWebhookIsSideEffectFreeAndReplayMismatchFailsClosed` + six-way `concurrentDuplicateWebhooksCommitExactlyOnce`; artifact `10270828975` | G05 | PASS |
+| R13-WH-004 | tenant identity resolves from trusted binding, not body input | `verifiedWebhookResolvesTenantOnlyFromStoredProviderBinding` + `verifiedProviderResolutionPolicyIsSelectOnlyAndFailClosedWithoutWebhookContext` | G05 | PASS |
+| R13-WH-005 | unknown provider customer/reference is rejected | `signedUnknownProviderReferenceIsRejectedWithZeroSideEffects` | G05 | PASS |
+| R13-WH-006 | processing failure remains retryable | `outboxFailureRollsBackInboxAndAuditThenRetrySucceeds` | G05 | PASS |
+| R13-WH-007 | required mutation + audit + outbox is atomic | `outboxFailureRollsBackInboxAndAuditThenRetrySucceeds`; rollback proves inbox/audit/outbox transactionality | G05 | PASS |
+| R13-WH-008 | billing outbox has deterministic typed/versioned events | `billingOutboxContractIsDeterministicTypedAndVersioned` | G05 | PASS |
+| R13-WH-009 | no secret/raw sensitive provider payload in evidence | `rawPayloadCardAndSecretFieldsAreNeverPersisted` + architecture guard + Surefire artifact `10270828975` sentinel scan: 0 hits for PAN/CVC/secret sentinels | G05/G09 | PASS |
+
+
+## E.1 G05 exact-head certification evidence
+
+- **Certified code head:** `b61e7907f66cb1d1e51341cac53df94d9bf4f21e`
+- **Protected main at certification run:** `a244d02aacd1789214e0e0de3cc6ffc936b5db93`
+- **CI run:** `34613965153` — SUCCESS
+- **Compile Diagnostics:** `34613965021` — SUCCESS
+- **Maven Test Suite job:** `103311137936` — SUCCESS
+- **PostgreSQL Acceptance job:** `103311137636` — SUCCESS, host-native PostgreSQL
+- **CRM Integration job:** `103311138058` — SUCCESS
+- **Surefire artifact:** `10270828975`
+- **Surefire aggregate:** 3326 tests / 0 failures / 0 errors / 31 skipped
+- **R0C13G05WebhookPostgresTest:** 9 / 0 / 0 / 0
+- **R0C13ArchitectureBoundaryTest:** 16 / 0 / 0 / 0
+- **Sensitive evidence sentinel scan:** 0 hits for `PAN_SHOULD_NOT_PERSIST`, `CVC_SHOULD_NOT_PERSIST`, and `SENSITIVE_SENTINEL_SHOULD_NOT_PERSIST`
+- **Main drift after the certification run:** one Workflow release-authorization evidence file only; re-anchored by `600ed98c22c52ef57dbe600a64239b49e0083b5d` with no Billing/Finance/Commerce/migration overlap.
 
 ## F. Lifecycle / dunning / reconciliation acceptance
 
@@ -120,7 +137,7 @@ No inferred PASS is permitted.
 | R13-SEC-005 | BILLING.PROVIDER_ADMIN protects provider diagnostics/admin | auth tests | G07 | NOT_STARTED |
 | R13-SEC-006 | existing EXECUTIVE_BILLING callers remain compatible | regression tests | G07/G08 | NOT_STARTED |
 | R13-SEC-007 | cross-tenant API access denied | API + PG tests | G07 | NOT_STARTED |
-| R13-SEC-008 | webhook path has signature auth, not tenant JWT dependency | API tests | G05/G07 | NOT_STARTED |
+| R13-SEC-008 | webhook path has signature auth, not tenant JWT dependency | `R0C13ArchitectureBoundaryTest.webhookIngressMustBeJwtFreeButSignatureGuarded` + invalid-signature HTTP test | G05/G07 | PASS |
 | R13-WEB-001 | all new strings have Arabic/English parity | i18n gate | G07 | NOT_STARTED |
 | R13-WEB-002 | SDS/logo/brand governance passes | web CI | G07/G08 | NOT_STARTED |
 | R13-WEB-003 | no card/payment-secret UI fields exist | source/UI tests | G07/G09 | NOT_STARTED |
