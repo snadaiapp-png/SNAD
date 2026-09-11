@@ -100,20 +100,20 @@ class R0C13G03FinanceIntegrationPostgresTest {
         assertThat(second.financeInvoiceId()).isEqualTo(first.financeInvoiceId());
         assertThat(second.externalReference()).isEqualTo("SCP_INVOICE:" + billingInvoiceId);
 
-        assertThat(scalarLong(
+        assertThat(inTenant(tenantId, () -> scalarLong(
                 "SELECT COUNT(*) FROM finance_invoices WHERE tenant_id = ? AND external_reference = ?",
-                tenantId, "SCP_INVOICE:" + billingInvoiceId)).isEqualTo(1L);
-        assertThat(scalarLong(
+                tenantId, "SCP_INVOICE:" + billingInvoiceId))).isEqualTo(1L);
+        assertThat(inTenant(tenantId, () -> scalarLong(
                 "SELECT COUNT(*) FROM finance_invoice_lines WHERE tenant_id = ? AND invoice_id = ?",
-                tenantId, first.financeInvoiceId())).isEqualTo(1L);
-        assertThat(scalarLong(
+                tenantId, first.financeInvoiceId()))).isEqualTo(1L);
+        assertThat(inTenant(tenantId, () -> scalarLong(
                 "SELECT COUNT(*) FROM subscription_billing_finance_links WHERE tenant_id = ? AND billing_invoice_id = ?",
-                tenantId, billingInvoiceId)).isEqualTo(1L);
+                tenantId, billingInvoiceId))).isEqualTo(1L);
 
-        var amounts = jdbc.queryForMap(
+        var amounts = inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT subtotal, tax_amount, total_amount, currency FROM finance_invoices "
                         + "WHERE tenant_id = ? AND id = ?",
-                tenantId, first.financeInvoiceId());
+                tenantId, first.financeInvoiceId()));
         assertThat((BigDecimal) amounts.get("subtotal")).isEqualByComparingTo("90.00");
         assertThat((BigDecimal) amounts.get("tax_amount")).isEqualByComparingTo("13.50");
         assertThat((BigDecimal) amounts.get("total_amount")).isEqualByComparingTo("103.50");
@@ -132,14 +132,14 @@ class R0C13G03FinanceIntegrationPostgresTest {
                         tenantId, billingInvoiceId, settlementId, 10_350L, "SAR"));
 
         assertThat(second.financePaymentId()).isEqualTo(first.financePaymentId());
-        assertThat(scalarLong(
+        assertThat(inTenant(tenantId, () -> scalarLong(
                 "SELECT COUNT(*) FROM finance_payments WHERE tenant_id = ? AND payment_number = ?",
-                tenantId, first.paymentNumber())).isEqualTo(1L);
+                tenantId, first.paymentNumber()))).isEqualTo(1L);
 
-        var payment = jdbc.queryForMap(
+        var payment = inTenant(tenantId, () -> jdbc.queryForMap(
                 "SELECT amount, currency, status, invoice_id, reference_type, reference_id "
                         + "FROM finance_payments WHERE tenant_id = ? AND id = ?",
-                tenantId, first.financePaymentId());
+                tenantId, first.financePaymentId()));
         assertThat((BigDecimal) payment.get("amount")).isEqualByComparingTo("103.50");
         assertThat(payment.get("currency")).isEqualTo("SAR");
         assertThat(payment.get("status")).isEqualTo("COMPLETED");
@@ -147,9 +147,9 @@ class R0C13G03FinanceIntegrationPostgresTest {
         assertThat(payment.get("reference_type")).isEqualTo("SCP_SETTLEMENT");
         assertThat(payment.get("reference_id")).isEqualTo(settlementId);
 
-        assertThat(jdbc.queryForObject(
+        assertThat(inTenant(tenantId, () -> jdbc.queryForObject(
                 "SELECT status FROM finance_invoices WHERE tenant_id = ? AND id = ?",
-                String.class, tenantId, first.financeInvoiceId())).isEqualTo("PAID");
+                String.class, tenantId, first.financeInvoiceId()))).isEqualTo("PAID");
     }
 
     @Test
@@ -168,9 +168,9 @@ class R0C13G03FinanceIntegrationPostgresTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("currency mismatch");
 
-        assertThat(scalarLong(
+        assertThat(inTenant(tenantId, () -> scalarLong(
                 "SELECT COUNT(*) FROM finance_payments WHERE tenant_id = ?",
-                tenantId)).isEqualTo(1L);
+                tenantId))).isEqualTo(1L);
     }
 
     @Test
@@ -182,9 +182,9 @@ class R0C13G03FinanceIntegrationPostgresTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Billing invoice not found");
 
-        assertThat(scalarLong(
+        assertThat(inTenant(otherTenant, () -> scalarLong(
                 "SELECT COUNT(*) FROM subscription_billing_finance_links WHERE tenant_id = ?",
-                otherTenant)).isZero();
+                otherTenant))).isZero();
     }
 
     @Test
@@ -233,13 +233,13 @@ class R0C13G03FinanceIntegrationPostgresTest {
                 () -> financePort.ensureInvoice(tenantId, targetBillingInvoice)))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
-        assertThat(scalarLong(
+        assertThat(inTenant(tenantId, () -> scalarLong(
                 "SELECT COUNT(*) FROM finance_invoices WHERE tenant_id = ? AND external_reference = ?",
-                tenantId, targetExternalRef)).isZero();
-        assertThat(scalarLong(
+                tenantId, targetExternalRef))).isZero();
+        assertThat(inTenant(tenantId, () -> scalarLong(
                 "SELECT COUNT(*) FROM subscription_billing_finance_links "
                         + "WHERE tenant_id = ? AND billing_invoice_id = ?",
-                tenantId, targetBillingInvoice)).isZero();
+                tenantId, targetBillingInvoice))).isZero();
     }
 
     private UUID seedTenant() {
