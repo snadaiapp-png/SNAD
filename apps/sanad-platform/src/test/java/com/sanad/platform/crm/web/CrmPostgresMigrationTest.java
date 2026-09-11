@@ -186,7 +186,9 @@ class CrmPostgresMigrationTest {
     // ledger; the sentinel still validates the entire sequence exactly and the
     // expected head remains explicit (20260910.1).
     private static final String WORKFLOW_Y2_SLA_CANCELLATION_VERSION = "20260910.1";
-    private static final String LATEST_MIGRATION_VERSION = WORKFLOW_Y2_SLA_CANCELLATION_VERSION;
+    // R0C13 / R13-G02 additive subscription-billing persistence foundation.
+    private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260911.1";
+    private static final String LATEST_MIGRATION_VERSION = R0C13_BILLING_FOUNDATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",

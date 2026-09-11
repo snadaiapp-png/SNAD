@@ -247,6 +247,9 @@ class CrmFlywayHistoryAssertionTest {
             // modes, SLA escalation, two-phase cancellation hardening). The
             // expected head remains explicit — the sentinel is not weakened.
             , "20260910.1"   // workflow y2 SLA modes + two-phase cancellation hardening
+            // TEST_ALIGNMENT_REASON = R0C13 R13-G02 forward-only additive
+            // persistence foundation; historical migrations remain immutable.
+            , "20260911.1"   // r0c13 subscription billing persistence foundation
     );
 
 
