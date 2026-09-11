@@ -19,8 +19,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class R0C13ArchitectureBoundaryTest {
 
+    private static final Path MAIN_JAVA_ROOT = Path.of("src/main/java");
     private static final Path BILLING_ROOT =
             Path.of("src/main/java/com/sanad/platform/subscription/billing");
+    private static final Path BILLING_STATE_SERVICE =
+            Path.of("src/main/java/com/sanad/platform/admin/service/BillingStateService.java");
+    private static final Path SUBSCRIPTION_COMMAND_SERVICE =
+            Path.of("src/main/java/com/sanad/platform/subscription/lifecycle/SubscriptionCommandService.java");
     private static final Path COMMERCE_SIMULATED =
             Path.of("src/main/java/com/sanad/platform/commerce/application/SimulatedPaymentAdapter.java");
     private static final Path PROD_CONFIG = Path.of("src/main/resources/application-prod.yml");
@@ -69,6 +74,39 @@ class R0C13ArchitectureBoundaryTest {
                 .doesNotContain("alter table finance_payments drop")
                 .doesNotContain("alter table finance_journal_entries drop")
                 .doesNotContain("alter table finance_journal_lines drop");
+    }
+
+    @Test
+    void g06BillingAndLifecycleWritersMustRemainUnique() throws IOException {
+        java.util.List<Path> billingStateWriters = new java.util.ArrayList<>();
+        java.util.List<Path> lifecycleStatusWriters = new java.util.ArrayList<>();
+
+        for (SourceFile source : productionJavaSources()) {
+            String normalized = source.content().replaceAll("\\s+", " ");
+            if (normalized.contains("UPDATE tenant_subscriptions SET billing_state")) {
+                billingStateWriters.add(source.path());
+            }
+            if (normalized.contains("UPDATE tenant_subscriptions SET status")) {
+                lifecycleStatusWriters.add(source.path());
+            }
+        }
+
+        assertThat(billingStateWriters)
+                .containsExactly(BILLING_STATE_SERVICE);
+        assertThat(lifecycleStatusWriters)
+                .containsExactly(SUBSCRIPTION_COMMAND_SERVICE);
+    }
+
+    @Test
+    void g06DunningCadenceAndGraceSemanticsMustRemainUnchanged() throws IOException {
+        String source = Files.readString(BILLING_STATE_SERVICE);
+        assertThat(source)
+                .contains("PAST_DUE_GRACE_HOURS = 24L * 3L")
+                .contains("SUSPEND_GRACE_HOURS = 24L * 7L")
+                .contains("sanad.tenancy.billing.dunning-interval-ms:3600000")
+                .contains("status NOT IN ('CANCELLED','EXPIRED','TERMINATED')")
+                .contains("billing_invoices")
+                .contains("subscription_id = ?");
     }
 
     @Test
@@ -231,6 +269,23 @@ class R0C13ArchitectureBoundaryTest {
         assertThat(prod)
                 .contains("provider: ${SANAD_COMMERCE_PAYMENT_PROVIDER:}")
                 .doesNotContain("provider: simulated");
+    }
+
+    private static Iterable<SourceFile> productionJavaSources() throws IOException {
+        try (Stream<Path> files = Files.walk(MAIN_JAVA_ROOT)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .map(path -> {
+                        try {
+                            return new SourceFile(path, Files.readString(path));
+                        } catch (IOException e) {
+                            throw new java.io.UncheckedIOException(e);
+                        }
+                    })
+                    .toList();
+        } catch (java.io.UncheckedIOException e) {
+            throw e.getCause();
+        }
     }
 
     private static Iterable<SourceFile> billingProductionSources() throws IOException {
