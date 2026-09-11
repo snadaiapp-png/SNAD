@@ -308,7 +308,7 @@ export function WorkflowDefinitions() {
                 fontSize: 11,
                 padding: "2px 8px",
                 borderRadius: 999,
-                background: "var(--snad-color-warning-bg, #fff7e6)",
+                background: "var(--snad-color-warning-soft)",
                 border: "1px solid var(--snad-color-warning)",
               }}
             >

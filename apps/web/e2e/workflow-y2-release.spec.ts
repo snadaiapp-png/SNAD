@@ -365,28 +365,13 @@ test("P04 — running instance pins its exact version; newer family publish neve
     definitionFamilyId: draftBody.definitionFamilyId, engineGeneration: draftBody.engineGeneration,
     publicationState: draftBody.publicationState, steps: {},
   };
-  for (let i = 0; i < 3; i++) {
-    const keys = ["start", "task", "end"];
-    const types = ["START", "ACTION", "END"];
-    const stepRes = await postAs(request, ACTORS.DESIGNER,
-      `/api/v1/workflows/definitions/${v2.defId}/steps`, {
-        stepKey: keys[i], name: keys[i], stepType: types[i], sequenceOrder: i + 1, configuration: "{}",
-      });
-    expect(stepRes.status()).toBe(200);
-    v2.steps[keys[i]] = (await stepRes.json()) as { id: string };
-  }
-  const t1 = await postAs(request, ACTORS.DESIGNER,
-    `/api/v1/workflows/definitions/${v2.defId}/transitions`, {
-      fromStepId: v2.steps.start.id, toStepId: v2.steps.task.id,
-      transitionKey: "task", outcome: "SUCCESS", priority: 10,
-    });
-  expect(t1.status()).toBe(200);
-  const t2 = await postAs(request, ACTORS.DESIGNER,
-    `/api/v1/workflows/definitions/${v2.defId}/transitions`, {
-      fromStepId: v2.steps.task.id, toStepId: v2.steps.end.id,
-      transitionKey: "end", outcome: "SUCCESS", priority: 10,
-    });
-  expect(t2.status()).toBe(200);
+  // R0 corrective semantics (post-Wave-2 reconciliation): createNextDraft
+  // deep-clones the published graph — every step receives a new ID,
+  // transitions are remapped, concurrency state is fresh. The draft is
+  // therefore already a complete, valid v2 graph; re-adding the cloned
+  // stepKeys would violate uk_wf_steps_def_key. The test intent (publish a
+  // newer family version while v1 serves a running instance) is preserved
+  // by publishing the cloned draft directly.
   const v2pub = await publishDefinition(request, v2);
   expect(v2pub.publicationState).toBe("PUBLISHED");
   expect(v2pub.engineGeneration).toBe("Y2");
@@ -419,7 +404,7 @@ test("P05 — DIRECT HUMAN_TASK is generated, assigned, completed, and advances 
   const wf = await buildDraft(request, ACTORS.DESIGNER, "P05", [
     { key: "start", type: "START" },
     { key: "human-task", type: "HUMAN_TASK",
-      config: { assignment: { type: "USER", employeeId: emp1EmployeeId } } },
+      config: { assignment: { type: "EMPLOYEE", employeeId: emp1EmployeeId } } },
     { key: "end", type: "END" },
   ]);
   await publishDefinition(request, wf);
@@ -662,7 +647,7 @@ test("P09 — disabled user cannot act; work preserved without auto-transfer; ex
   const wf = await buildDraft(request, ACTORS.DESIGNER, "P09", [
     { key: "start", type: "START" },
     { key: "human-task", type: "HUMAN_TASK",
-      config: { assignment: { type: "USER", employeeId: emp1EmployeeId } } },
+      config: { assignment: { type: "EMPLOYEE", employeeId: emp1EmployeeId } } },
     { key: "end", type: "END" },
   ]);
   await publishDefinition(request, wf);
