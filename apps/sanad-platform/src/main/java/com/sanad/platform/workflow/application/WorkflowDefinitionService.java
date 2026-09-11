@@ -170,10 +170,15 @@ public class WorkflowDefinitionService {
         // survives (FAILED_COPY_ROLLS_BACK).
         java.util.Map<UUID, UUID> stepIdMap = new java.util.HashMap<>();
         for (var step : defRepo.findSteps(sourceDefinitionId)) {
+            // Post-Wave-2 reconciliation: the step record gained slaMode/slaCalendarId
+            // (Y2 SLA modes). A faithful draft clone carries the full SLA policy
+            // configuration forward, while concurrency state stays fresh
+            // (new id, version=0, new timestamps) per the R0 clone invariant.
             var clone = new com.sanad.platform.workflow.domain.WorkflowStep(
                     UUID.randomUUID(), step.tenantId(), draft.id(), step.stepKey(), step.name(),
                     step.stepType(), step.sequenceOrder(), step.configuration(), step.slaHours(),
-                    step.requiredCapability(), step.requiredRole(), 0, now, now);
+                    step.requiredCapability(), step.requiredRole(),
+                    step.slaMode(), step.slaCalendarId(), 0, now, now);
             defRepo.saveStep(clone);
             stepIdMap.put(step.id(), clone.id());
         }
