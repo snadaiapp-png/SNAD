@@ -23,9 +23,16 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -266,6 +273,97 @@ class R0C13G05WebhookPostgresTest {
         assertThat(policy.get("qual").toString())
                 .contains("app.billing_webhook_verified")
                 .contains("app.billing_provider");
+    }
+
+    @Test
+    void signedUnknownProviderReferenceIsRejectedWithZeroSideEffects() throws Exception {
+        String eventId = "evt_unknown_" + compact(UUID.randomUUID());
+        String unknownPaymentRef = "test_pi_unknown_" + compact(UUID.randomUUID());
+        byte[] payload = payload(eventId, unknownPaymentRef, otherTenantId, false);
+
+        mockMvc.perform(post("/api/v1/billing/provider/webhook")
+                        .contentType("application/json")
+                        .header("X-Billing-Signature", sign(payload))
+                        .content(payload))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("TRUSTED_BINDING_NOT_FOUND"));
+
+        assertThat(tenantCount("subscription_billing_provider_events", tenantId)).isZero();
+        assertThat(tenantCount("subscription_billing_provider_events", otherTenantId)).isZero();
+        assertThat(tenantCount("subscription_billing_outbox", tenantId)).isZero();
+        assertThat(tenantCount("subscription_billing_outbox", otherTenantId)).isZero();
+        assertThat(auditCount(eventId)).isZero();
+    }
+
+    @Test
+    void concurrentDuplicateWebhooksCommitExactlyOnce() throws Exception {
+        String eventId = "evt_concurrent_" + compact(UUID.randomUUID());
+        byte[] payload = payload(eventId, providerPaymentRef, otherTenantId, false);
+        String signature = sign(payload);
+
+        int callers = 6;
+        ExecutorService pool = Executors.newFixedThreadPool(callers);
+        CountDownLatch ready = new CountDownLatch(callers);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<BillingWebhookService.WebhookReceipt>> futures = new ArrayList<>();
+
+        try {
+            for (int i = 0; i < callers; i++) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    if (!start.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("concurrent webhook start barrier timed out");
+                    }
+                    return webhookService.receive(payload, signature);
+                }));
+            }
+
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            int duplicateReceipts = 0;
+            for (Future<BillingWebhookService.WebhookReceipt> future : futures) {
+                if (future.get(30, TimeUnit.SECONDS).duplicate()) {
+                    duplicateReceipts++;
+                }
+            }
+
+            assertThat(duplicateReceipts).isEqualTo(callers - 1);
+            assertThat(tenantCount("subscription_billing_provider_events", tenantId)).isEqualTo(1L);
+            assertThat(tenantCount("subscription_billing_outbox", tenantId)).isEqualTo(1L);
+            assertThat(auditCount(eventId)).isEqualTo(1L);
+        } finally {
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void billingOutboxContractIsDeterministicTypedAndVersioned() {
+        String eventId = "evt_outbox_" + compact(UUID.randomUUID());
+        byte[] payload = payload(eventId, providerPaymentRef, otherTenantId, false);
+
+        webhookService.receive(payload, sign(payload));
+
+        var row = inTenant(tenantId, () -> jdbc.queryForMap(
+                "SELECT event_type, event_version, aggregate_type, aggregate_id, "
+                        + "idempotency_key, status, payload_metadata::text AS payload_metadata "
+                        + "FROM subscription_billing_outbox "
+                        + "WHERE tenant_id = ? AND idempotency_key = ?",
+                tenantId,
+                outboxKey(eventId)));
+
+        assertThat(row.get("event_type"))
+                .isEqualTo(BillingWebhookService.OUTBOX_EVENT_TYPE);
+        assertThat(((Number) row.get("event_version")).intValue()).isEqualTo(1);
+        assertThat(row.get("aggregate_type")).isEqualTo("BILLING_INVOICE");
+        assertThat(row.get("aggregate_id")).isEqualTo(billingInvoiceId);
+        assertThat(row.get("idempotency_key")).isEqualTo(outboxKey(eventId));
+        assertThat(row.get("status")).isEqualTo("READY");
+        assertThat(row.get("payload_metadata").toString())
+                .contains("\"provider\": \"TEST\"")
+                .contains(eventId)
+                .contains(providerPaymentRef);
     }
 
     @Test
