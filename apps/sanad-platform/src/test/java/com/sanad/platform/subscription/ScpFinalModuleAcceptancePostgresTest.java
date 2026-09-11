@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.admin.service.PlatformAuditWriter;
 import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
-import com.sanad.platform.subscription.audit.AuditEntryResponse;
 import com.sanad.platform.subscription.audit.AuditQueryService;
 import com.sanad.platform.subscription.catalog.ProductCatalogService;
 import com.sanad.platform.subscription.catalog.ProductEntity;
@@ -515,7 +514,9 @@ class ScpFinalModuleAcceptancePostgresTest {
                     subscriptionId.toString(), "audit battery row " + i, null,
                     Map.of("row", i), UUID.randomUUID().toString(), java.time.Instant.now());
         }
-        PageResponse<AuditEntryResponse> page = auditService.query(
+        // R0C-12 Blocker B: the audit read model now returns the typed
+        // AuditEntryResponse contract (camelCase JSON), not a raw JDBC Map.
+        PageResponse<com.sanad.platform.subscription.audit.AuditEntryResponse> page = auditService.query(
                 tenantId, "TEST_COMMAND", "subscription", 0, 2, "created_at", "DESC");
         assertThat(page.page()).isEqualTo(0);
         assertThat(page.size()).isEqualTo(2);
@@ -523,7 +524,7 @@ class ScpFinalModuleAcceptancePostgresTest {
         assertThat(page.totalPages()).isEqualTo(2);
         assertThat(page.content()).hasSize(2);
         // injection attempt falls back to the whitelisted sort
-        PageResponse<AuditEntryResponse> safe = auditService.query(
+        PageResponse<com.sanad.platform.subscription.audit.AuditEntryResponse> safe = auditService.query(
                 tenantId, null, null, 0, 10, "1; DROP TABLE platform_audit_logs;--", "ASC");
         assertThat(safe.totalElements()).isGreaterThanOrEqualTo(3L);
     }

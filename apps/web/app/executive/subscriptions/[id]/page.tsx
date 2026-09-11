@@ -45,13 +45,17 @@ export default function SubscriptionDetailPage() {
   const { money, day, number } = useScpFormat();
   // R0C-12 Blocker C — unified, fail-closed mutation gating. The backend
   // enforces EXECUTIVE_MANAGE on every lifecycle command and on plan changes;
-  // Gate against the exact backend authority. Granular subscription.*
-  // grants are co-granted from EXECUTIVE_MANAGE for current admin roles, but
-  // the reverse implication is not guaranteed; using them would permit a
-  // false-enabled button for a granular-only role that the backend rejects.
-  const { has } = useScpAccess();
-  const canManageLifecycle = has("EXECUTIVE_MANAGE");
-  const canChangePlan = has("EXECUTIVE_MANAGE");
+  // the granular subscription.* write codes are co-granted with
+  // EXECUTIVE_MANAGE (V20260830_2), so requiring ALL of them identifies the
+  // same population without ever false-enabling a control.
+  const { has, hasAll } = useScpAccess();
+  const canManageLifecycle = hasAll([
+    "subscription.create",
+    "subscription.change_plan",
+    "subscription.cancel",
+    "subscription.suspend",
+  ]);
+  const canChangePlan = has("subscription.change_plan");
 
   const [detail, setDetail] = useState<SubscriptionDetail | null>(null);
   const [items, setItems] = useState<SubscriptionItem[] | null>(null);
