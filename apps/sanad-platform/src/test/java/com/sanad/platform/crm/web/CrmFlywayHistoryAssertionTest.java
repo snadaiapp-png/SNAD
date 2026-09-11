@@ -250,6 +250,7 @@ class CrmFlywayHistoryAssertionTest {
             // TEST_ALIGNMENT_REASON = R0C13 R13-G02 forward-only additive
             // persistence foundation; historical migrations remain immutable.
             , "20260911.1"   // r0c13 subscription billing persistence foundation
+            , "20260911.2"   // r0c13 verified provider-webhook SELECT-only RLS resolution
     );
 
 

@@ -37,6 +37,12 @@ class R0C13ArchitectureBoundaryTest {
             Path.of("src/main/java/com/sanad/platform/commerce/domain/PaymentGatewayPort.java");
     private static final Path SPRING_FACTORIES =
             Path.of("src/main/resources/META-INF/spring.factories");
+    private static final Path SECURITY_CONFIG =
+            Path.of("src/main/java/com/sanad/platform/security/config/SecurityConfig.java");
+    private static final Path BILLING_WEBHOOK_SERVICE =
+            Path.of("src/main/java/com/sanad/platform/subscription/billing/application/BillingWebhookService.java");
+    private static final Path G05_WEBHOOK_MIGRATION =
+            Path.of("src/main/resources/db/migration/V20260911_2__r0c13_verified_webhook_resolution.sql");
 
     private static final Pattern DIRECT_FINANCE_SQL = Pattern.compile(
             "(?is)\\b(?:insert\\s+into|update|delete\\s+from)\\s+"
@@ -156,6 +162,41 @@ class R0C13ArchitectureBoundaryTest {
                 .contains("BigDecimal amount")
                 .doesNotContain("BillingPaymentProvider")
                 .doesNotContain("billingInvoiceId");
+    }
+
+    @Test
+    void webhookIngressMustBeJwtFreeButSignatureGuarded() throws IOException {
+        String security = Files.readString(SECURITY_CONFIG);
+        String service = Files.readString(BILLING_WEBHOOK_SERVICE);
+        assertThat(security)
+                .contains("\"/api/v1/billing/provider/webhook\"")
+                .contains("permitAll()");
+        assertThat(service)
+                .contains("provider.verifyAndParseEvent(payload, signatureHeader)")
+                .contains("@Transactional");
+    }
+
+    @Test
+    void webhookTenantResolutionMustUseSelectOnlyVerifiedProviderRlsContext() throws IOException {
+        String migration = Files.readString(G05_WEBHOOK_MIGRATION);
+        assertThat(migration)
+                .contains("FOR SELECT")
+                .contains("app.billing_webhook_verified")
+                .contains("app.billing_provider")
+                .doesNotContain("BYPASSRLS")
+                .doesNotContain("DISABLE ROW LEVEL SECURITY");
+    }
+
+    @Test
+    void webhookPersistenceMustNeverStoreRawPayloadOrCardFields() throws IOException {
+        String service = Files.readString(BILLING_WEBHOOK_SERVICE);
+        assertThat(service)
+                .doesNotContain("raw_payload")
+                .doesNotContain("payload_body")
+                .doesNotContain("card_number")
+                .doesNotContain("\"cvc\"")
+                .doesNotContain("\"cvv\"")
+                .contains("payloadSha256");
     }
 
     @Test

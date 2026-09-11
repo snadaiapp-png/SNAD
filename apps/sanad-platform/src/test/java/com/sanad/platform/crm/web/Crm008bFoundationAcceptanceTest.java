@@ -86,7 +86,7 @@ class Crm008bFoundationAcceptanceTest {
     // migration added after prior sentinel baseline):
     //   V20260910_1 = workflow Y2 SLA modes, SLA escalation, and two-phase
     //                 cancellation hardening (current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260911.1"; // Terminal versioned migration: V20260911_1 adds R0C13 billing persistence foundation
+    private static final String CRM_LATEST_VERSION = "20260911.2"; // Terminal versioned migration: V20260911_2 adds verified provider-webhook resolution policy
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

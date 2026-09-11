@@ -85,14 +85,14 @@ class R0C13G02SchemaPostgresTest {
     }
 
     @Test
-    void freshFlywayChainEndsAtR0c13Foundation() throws SQLException {
+    void freshFlywayChainIncludesG02FoundationAndEndsAtCurrentR0c13Head() throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement(
                 "SELECT version FROM flyway_schema_history "
                         + "WHERE success = TRUE AND version IS NOT NULL "
                         + "ORDER BY installed_rank DESC LIMIT 1");
              ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).isTrue();
-            assertThat(rs.getString(1)).isEqualTo("20260911.1");
+            assertThat(rs.getString(1)).isEqualTo("20260911.2");
         }
     }
 
