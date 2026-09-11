@@ -2,4 +2,5 @@ org.springframework.boot.env.EnvironmentPostProcessor=\
 com.sanad.platform.config.RenderDatabaseUrlConverter,\
 com.sanad.platform.config.ProductionDatasourceGuard,\
 com.sanad.platform.config.ProductionSecurityGuard,\
+com.sanad.platform.subscription.billing.config.BillingProviderModeGuard,\
 com.sanad.platform.config.ProductionMockGuard

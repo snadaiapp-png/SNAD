@@ -28,6 +28,13 @@ class R0C13ArchitectureBoundaryTest {
             Path.of("src/main/java/com/sanad/platform/finance/integration/SubscriptionFinanceAdapter.java");
     private static final Path SAAS_ADMIN_SERVICE =
             Path.of("src/main/java/com/sanad/platform/admin/service/SaasAdministrationService.java");
+    private static final Path BASE_CONFIG = Path.of("src/main/resources/application.yml");
+    private static final Path BILLING_TEST_PROVIDER =
+            Path.of("src/main/java/com/sanad/platform/subscription/billing/infrastructure/TestBillingPaymentProvider.java");
+    private static final Path BILLING_MODE_GUARD =
+            Path.of("src/main/java/com/sanad/platform/subscription/billing/config/BillingProviderModeGuard.java");
+    private static final Path COMMERCE_PAYMENT_PORT =
+            Path.of("src/main/java/com/sanad/platform/commerce/domain/PaymentGatewayPort.java");
 
     private static final Pattern DIRECT_FINANCE_SQL = Pattern.compile(
             "(?is)\\b(?:insert\\s+into|update|delete\\s+from)\\s+"
@@ -102,6 +109,44 @@ class R0C13ArchitectureBoundaryTest {
         assertThat(source)
                 .contains("SubscriptionFinancePort subscriptionFinancePort")
                 .contains("subscriptionFinancePort.ensureInvoice(subscription.tenantId(), invoiceId)");
+    }
+
+    @Test
+    void r0c13ProviderMustDefaultDisabledAndNeverDefaultTestOrLive() throws IOException {
+        String base = Files.readString(BASE_CONFIG);
+        String prod = Files.readString(PROD_CONFIG);
+        assertThat(base).contains("mode: ${R0C13_PROVIDER_MODE:DISABLED}");
+        assertThat(prod).contains("mode: ${R0C13_PROVIDER_MODE:DISABLED}");
+        assertThat(base).doesNotContain("R0C13_PROVIDER_MODE:TEST");
+        assertThat(prod).doesNotContain("R0C13_PROVIDER_MODE:TEST");
+        assertThat(prod).doesNotContain("R0C13_PROVIDER_MODE:LIVE");
+    }
+
+    @Test
+    void r0c13TestProviderMustBeExplicitAndNonProductionOnly() throws IOException {
+        String source = Files.readString(BILLING_TEST_PROVIDER);
+        assertThat(source)
+                .contains("@Profile(\"!prod\")")
+                .contains("havingValue = \"TEST\"")
+                .contains("matchIfMissing = false");
+    }
+
+    @Test
+    void r0c13LiveProviderModeMustFailClosedAtStartup() throws IOException {
+        String source = Files.readString(BILLING_MODE_GUARD);
+        assertThat(source)
+                .contains("case \"LIVE\" -> throw new IllegalStateException")
+                .contains("Live payment collection requires a separate human activation gate");
+    }
+
+    @Test
+    void commercePaymentContractMustRemainItsOwnLegacyBoundedContext() throws IOException {
+        String source = Files.readString(COMMERCE_PAYMENT_PORT);
+        assertThat(source)
+                .contains("UUID orderId")
+                .contains("BigDecimal amount")
+                .doesNotContain("BillingPaymentProvider")
+                .doesNotContain("billingInvoiceId");
     }
 
     @Test

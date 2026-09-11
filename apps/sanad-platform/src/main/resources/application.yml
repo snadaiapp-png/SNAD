@@ -123,6 +123,12 @@ sanad:
       admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
       admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SNAD Admin}
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
+  subscription:
+    billing:
+      provider:
+        # R0C13 production-safe default. TEST must be explicit and is rejected
+        # in prod; LIVE is fail-closed until a separate activation gate.
+        mode: ${R0C13_PROVIDER_MODE:DISABLED}
   tenancy:
     domains:
       # No permanent hard-coded public domain. The base-domain value comes
