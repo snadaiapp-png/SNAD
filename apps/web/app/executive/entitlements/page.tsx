@@ -79,7 +79,7 @@ export default function EntitlementsPage() {
   // R0C-12 Blocker C — recalculate is an EXECUTIVE_MANAGE write (backend
   // authority); hide the control unless entitlement.manage is granted.
   const { has } = useScpAccess();
-  const canRecalculate = has("EXECUTIVE_MANAGE");
+  const canRecalculate = has("entitlement.manage");
   const [tenantId, setTenantId] = useState("");
   const [tenantQuery, setTenantQuery] = useState("");
   const [matches, setMatches] = useState<TenantRow[]>([]);
