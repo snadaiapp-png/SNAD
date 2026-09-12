@@ -255,6 +255,14 @@ class CrmFlywayHistoryAssertionTest {
             , "20260911.1"   // R1 module entitlement policy (WORKFLOW EXPLICIT_OPT_IN)
             , "20260911.2"   // R1 attachments + external participation foundation
             , "20260911.3"   // R1 workflow journey/time governance
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only R2 migrations
+            // added after prior sentinel baseline (V20260912_1..3: workflow
+            // notification foundation, external portal feedback, analytics
+            // projections). The expected head remains explicit — the sentinel
+            // is not weakened.
+            , "20260912.1"   // R2 workflow notification foundation
+            , "20260912.2"   // R2 workflow external portal feedback
+            , "20260912.3"   // R2 workflow analytics projections
     );
 
 
