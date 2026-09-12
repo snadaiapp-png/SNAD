@@ -176,6 +176,7 @@ export interface SubscriptionRow {
   itemCount: number;
   trial: boolean;
   cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: string | null;
 }
 
 export interface SubscriptionQuery extends PageQuery {
