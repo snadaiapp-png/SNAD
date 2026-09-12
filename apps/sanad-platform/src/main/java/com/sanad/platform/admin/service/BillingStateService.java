@@ -3,11 +3,18 @@ package com.sanad.platform.admin.service;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle;
 import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -79,6 +86,8 @@ import java.util.UUID;
 @Service
 public class BillingStateService {
 
+    private static final Logger log = LoggerFactory.getLogger(BillingStateService.class);
+
     /** Hours of grace after the invoice due_at before transitioning CURRENT → PAST_DUE. */
     private static final long PAST_DUE_GRACE_HOURS = 24L * 3L;     // 3 days
 
@@ -89,25 +98,55 @@ public class BillingStateService {
     private final PlatformAuditService auditService;
     private final SubscriptionCommandService commandService;
     private final SubscriptionResolutionService resolution;
+    private final TransactionTemplate isolatedTransaction;
 
     @Autowired
     public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
                                SubscriptionCommandService commandService,
+                               SubscriptionResolutionService resolution,
+                               PlatformTransactionManager transactionManager) {
+        this(jdbc, auditService, commandService, resolution,
+                requiresNewTemplate(transactionManager));
+    }
+
+    /**
+     * Backward-compatible constructor (tests/direct PostgreSQL harnesses).
+     * Uses a transaction manager bound to the JdbcTemplate datasource so the
+     * same per-tenant REQUIRES_NEW isolation contract is exercised outside a
+     * full Spring context.
+     */
+    public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
+                               SubscriptionCommandService commandService,
                                SubscriptionResolutionService resolution) {
-        this.jdbc = jdbc;
-        this.auditService = auditService;
-        this.commandService = commandService;
-        this.resolution = resolution;
+        this(jdbc, auditService, commandService, resolution,
+                requiresNewTemplate(new DataSourceTransactionManager(
+                        java.util.Objects.requireNonNull(jdbc.getDataSource(), "JdbcTemplate datasource required"))));
     }
 
     /**
      * Backward-compatible constructor (tests): self-wires the R0C-10
-     * effective-resolution authority from the same JdbcTemplate
-     * (mirrors the SaasAdministrationService convention).
+     * effective-resolution authority from the same JdbcTemplate.
      */
     public BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
                                SubscriptionCommandService commandService) {
         this(jdbc, auditService, commandService, new SubscriptionResolutionService(jdbc));
+    }
+
+    private BillingStateService(JdbcTemplate jdbc, PlatformAuditService auditService,
+                                SubscriptionCommandService commandService,
+                                SubscriptionResolutionService resolution,
+                                TransactionTemplate isolatedTransaction) {
+        this.jdbc = jdbc;
+        this.auditService = auditService;
+        this.commandService = commandService;
+        this.resolution = resolution;
+        this.isolatedTransaction = isolatedTransaction;
+    }
+
+    private static TransactionTemplate requiresNewTemplate(PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
     }
 
     /**
@@ -161,7 +200,6 @@ public class BillingStateService {
      *
      * @return the number of subscriptions evaluated
      */
-    @Transactional
     public int runDunningCycleOnce() {
         List<UUID> tenantIds = jdbc.queryForList(
                 "SELECT tenant_id FROM tenant_subscriptions "
@@ -171,12 +209,15 @@ public class BillingStateService {
         int evaluated = 0;
         for (UUID tenantId : tenantIds) {
             try {
-                evaluateAndTransition(tenantId);
+                // Each tenant is committed or rolled back independently. PostgreSQL
+                // marks a transaction aborted after many SQL errors, so catching an
+                // exception inside one shared transaction cannot provide isolation.
+                isolatedTransaction.executeWithoutResult(
+                        ignored -> evaluateAndTransition(tenantId));
                 evaluated++;
             } catch (Exception e) {
-                // log and continue — one tenant's failure must not abort the cycle
-                //noinspection CallToPrintStackTrace
-                e.printStackTrace();
+                log.error("Dunning evaluation failed for tenant {}; continuing with the next tenant",
+                        tenantId, e);
             }
         }
         return evaluated;
@@ -194,6 +235,18 @@ public class BillingStateService {
                                 : System.getenv().getOrDefault("SANAD_DUNNING_ENABLED", "false")));
         if (!enabled) return;
         runDunningCycleOnce();
+    }
+
+    /**
+     * Re-evaluate billing after an invoice/payment transaction has already
+     * committed. The new transaction is required because an afterCommit
+     * callback still runs before Spring releases the original transactional
+     * resources; REQUIRED would otherwise risk participating in a completed
+     * transaction.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public String evaluateAndTransitionAfterCommit(UUID tenantId) {
+        return evaluateAndTransition(tenantId);
     }
 
     // ============================================================
