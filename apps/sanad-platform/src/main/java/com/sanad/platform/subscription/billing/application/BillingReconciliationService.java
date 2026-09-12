@@ -182,7 +182,7 @@ public class BillingReconciliationService {
                         + "expected_amount_minor, observed_amount_minor, expected_currency, "
                         + "observed_currency, details_metadata, state, created_at, resolved_at) "
                         + "VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, "
-                        + "jsonb_build_object('paymentState', ?, 'billingStatus', ?, 'financeStatus', ?), "
+                        + "jsonb_build_object('paymentState', CAST(? AS text), 'billingStatus', CAST(? AS text), 'financeStatus', CAST(? AS text)), "
                         + "?, ?, ?)",
                 UUID.randomUUID(),
                 tenantId,

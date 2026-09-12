@@ -1,5 +1,5 @@
 -- ============================================================================
--- V20260911_1__r0c13_subscription_billing_foundation.sql
+-- V20260912_1__r0c13_subscription_billing_foundation.sql
 -- R0C13 / R13-G02 — additive persistence foundation.
 -- Forward-only; no destructive DDL, data rewrite, provider activation,
 -- Finance writer replacement, or subscription lifecycle writer replacement.

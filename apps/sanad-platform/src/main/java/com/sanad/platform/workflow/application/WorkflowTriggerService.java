@@ -25,12 +25,18 @@ public class WorkflowTriggerService {
     private final JdbcTemplate jdbc;
     private final WorkflowInstanceRepository instanceRepo;
 
-    public WorkflowTriggerService(JdbcTemplate jdbc, WorkflowInstanceRepository instanceRepo) {
-        this.jdbc = jdbc;
-        this.instanceRepo = instanceRepo;
-    }
+
 
     public record TriggerConsumeResult(UUID instanceId, boolean duplicate) {}
+
+    private final WorkflowEntitlementGuard entitlementGuard;
+
+    public WorkflowTriggerService(JdbcTemplate jdbc, WorkflowInstanceRepository instanceRepo,
+                                  WorkflowEntitlementGuard entitlementGuard) {
+        this.jdbc = jdbc;
+        this.instanceRepo = instanceRepo;
+        this.entitlementGuard = entitlementGuard;
+    }
 
     /**
      * Consumes a domain event for one published definition. Replays return
@@ -44,6 +50,9 @@ public class WorkflowTriggerService {
                                                    int definitionVersion,
                                                    String firstStepKey,
                                                    UUID startedBy) {
+        // R1 GATE R1.5 — NO_EVENT_TRIGGER_START: Workflow-off tenants never consume
+        // source-module events into Workflow runtime (fail closed).
+        entitlementGuard.requireWorkflowEnabled(event.tenantId());
         UUID inboxId = UUID.randomUUID();
         int inserted = jdbc.update("""
                 INSERT INTO workflow_event_inbox (

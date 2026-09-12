@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260911_2: R0C13 R13-G05 verified webhook resolution
+-- V20260912_2: R0C13 R13-G05 verified webhook resolution
 --
 -- Adds one narrowly-scoped SELECT policy to the existing FORCE-RLS
 -- payment-attempt table. The policy is usable only inside a transaction

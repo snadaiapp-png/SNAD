@@ -56,9 +56,12 @@ class PlatformApiCountTest {
      *  (GET /api/v1/workflows/definitions/{id}/versions, WORKFLOW.VIEW-gated;
      *  reviewed R0 corrective scope, old-R0 commit ebbd3d32, transplanted onto
      *  post-Wave-2 main) = 828.
+     *  + 1 Workflow R1 dynamic Designer module catalog
+     *  (GET /api/v1/workflows/catalog/modules, WORKFLOW.VIEW + paid entitlement
+     *  gated; R1 GATE R1.10 replaces the static frontend module list) = 829.
      *  + 1 R0C13 R13-G05 signed provider webhook ingress
-     *  (POST /api/v1/billing/provider/webhook) = 829. */
-    private static final long EXPECTED_TOTAL_OPS = 829;
+     *  (POST /api/v1/billing/provider/webhook) = 830. */
+    private static final long EXPECTED_TOTAL_OPS = 830;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -88,8 +91,7 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
-        assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();
-        assertThat(has(paths, "/api/v1/billing/provider/webhook", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();\n        assertThat(has(paths, "/api/v1/workflows/catalog/modules", "get")).isTrue();\n        assertThat(has(paths, "/api/v1/billing/provider/webhook", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/master", "get")).isTrue();

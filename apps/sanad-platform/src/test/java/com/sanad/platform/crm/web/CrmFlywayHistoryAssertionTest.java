@@ -247,10 +247,18 @@ class CrmFlywayHistoryAssertionTest {
             // modes, SLA escalation, two-phase cancellation hardening). The
             // expected head remains explicit — the sentinel is not weakened.
             , "20260910.1"   // workflow y2 SLA modes + two-phase cancellation hardening
-            // TEST_ALIGNMENT_REASON = R0C13 R13-G02 forward-only additive
-            // persistence foundation; historical migrations remain immutable.
-            , "20260911.1"   // r0c13 subscription billing persistence foundation
-            , "20260911.2"   // r0c13 verified provider-webhook SELECT-only RLS resolution
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only R1 migrations
+            // added after prior sentinel baseline (V20260911_1..3: module
+            // entitlement policy, attachments + external participation
+            // foundation, workflow journey/time governance). The expected head
+            // remains explicit — the sentinel is not weakened.
+            , "20260911.1"   // R1 module entitlement policy (WORKFLOW EXPLICIT_OPT_IN)
+            , "20260911.2"   // R1 attachments + external participation foundation
+            , "20260911.3"   // R1 workflow journey/time governance
+            // TEST_ALIGNMENT_REASON = R0C13 branch re-anchored after R1 claimed
+            // 20260911.1..3 on protected main; R0C13 migration semantics unchanged.
+            , "20260912.1"   // r0c13 subscription billing persistence foundation
+            , "20260912.2"   // r0c13 verified provider-webhook SELECT-only RLS resolution
     );
 
 

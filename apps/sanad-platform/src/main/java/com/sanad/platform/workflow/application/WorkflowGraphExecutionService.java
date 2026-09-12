@@ -60,6 +60,7 @@ public class WorkflowGraphExecutionService {
     private final HrEmployeeRepository employeeRepo;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final WorkflowDomainActionAuthorizer domainActionAuthorizer;
 
     public WorkflowGraphExecutionService(
             WorkflowInstanceRepository instanceRepo,
@@ -75,7 +76,9 @@ public class WorkflowGraphExecutionService {
             WorkflowTransitionAuditRepository auditRepo,
             HrEmployeeRepository employeeRepo,
             org.springframework.jdbc.core.JdbcTemplate jdbc,
-            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            WorkflowDomainActionAuthorizer domainActionAuthorizer) {
+        this.domainActionAuthorizer = domainActionAuthorizer;
         this.instanceRepo = instanceRepo;
         this.stepInstanceRepo = stepInstanceRepo;
         this.definitionRepo = definitionRepo;
@@ -224,6 +227,9 @@ public class WorkflowGraphExecutionService {
 
         var config = readConfiguration(step);
         var adapter = adapterRegistry.require(config.path("adapter").asText(null));
+        // R1 GATES R1.12/R1.13 — source-module entitlement + live actor
+        // capability revalidation at action time (assignment != authorization).
+        domainActionAuthorizer.authorizeExecution(tenantId, adapter, actorUserId);
 
         stepInstanceRepo.save(current.start());
         String idempotencyKey = "instance:" + instanceId + ":step:" + current.id();

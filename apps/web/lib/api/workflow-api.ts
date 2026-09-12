@@ -127,7 +127,28 @@ export interface CreateWorkflowTransitionRequest {
 
 const BASE = "/api/v1/workflows";
 
+/** R1 GATE R1.10 — backend-authoritative dynamic module catalog entry. */
+export interface WorkflowModuleCatalogEntry {
+  moduleCode: string;
+  displayName: string;
+  moduleVersion: string;
+  status: string;
+  actionable: boolean;
+  entities: { entityType: string; displayName: string; sourceTable: string; deepLinkTemplate: string }[];
+  events: unknown[];
+  triggers: unknown[];
+  actions: unknown[];
+  queries: unknown[];
+  capabilities: unknown[];
+  deepLinks: unknown[];
+  attachmentCapabilities: unknown[];
+}
+
 export const workflowApi = {
+  // ===== Designer module catalog (R1: dynamic, replaces static frontend list) =====
+  moduleCatalog: () =>
+    apiClient.get<{ modules: WorkflowModuleCatalogEntry[] }>(`${BASE}/catalog/modules`),
+
   // ===== Definitions =====
   listDefinitions: (limit = 50) =>
     apiClient.get<WorkflowDefinitionResponse[]>(`${BASE}/definitions?limit=${limit}`),

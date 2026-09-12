@@ -5,6 +5,7 @@ import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import {
   workflowApi,
   type WorkflowDefinitionResponse,
+  type WorkflowModuleCatalogEntry,
 } from "@/lib/api/workflow-api";
 import { describeWorkflowError } from "@/lib/workflow/error-messages";
 
@@ -89,6 +90,23 @@ export function WorkflowDefinitions() {
   const [name, setName] = useState("");
   const [module, setModule] = useState("GENERAL");
   const [triggerType, setTriggerType] = useState("MANUAL");
+
+  // R1 GATE R1.10 — backend-authoritative dynamic module catalog. The static
+  // production module list is removed; the catalog derives from the module
+  // registry + integration registry + tenant entitlements. Non-actionable
+  // entries render disabled; a catalog load failure surfaces an explicit
+  // error state (no silent static fallback).
+  const [catalogModules, setCatalogModules] = useState<WorkflowModuleCatalogEntry[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!showCreate) return () => { cancelled = true; };
+    workflowApi.moduleCatalog()
+      .then((data) => { if (!cancelled) { setCatalogModules(data.modules); setCatalogError(null); } })
+      .catch(() => { if (!cancelled) setCatalogError("تعذر تحميل كتالوج الوحدات"); });
+    return () => { cancelled = true; };
+  }, [showCreate]);
 
   // Workspace filters (R0.G5).
   const [search, setSearch] = useState("");
@@ -231,11 +249,22 @@ export function WorkflowDefinitions() {
           <input aria-label="رمز التعريف" placeholder="الرمز" value={code} onChange={(event) => setCode(event.target.value)} />
           <input aria-label="اسم التعريف" placeholder="الاسم" value={name} onChange={(event) => setName(event.target.value)} />
           <select aria-label="الوحدة" value={module} onChange={(event) => setModule(event.target.value)}>
-            <option value="GENERAL">عام</option>
-            <option value="MANAGEMENT">الإدارة</option>
-            <option value="CRM">إدارة العملاء</option>
-            <option value="FINANCE">المالية</option>
-            <option value="HR">الموارد البشرية</option>
+            {catalogError ? (
+              <option value="GENERAL">عام</option>
+            ) : (
+              <>
+                <option value="GENERAL">عام</option>
+                {catalogModules.map((entry) => (
+                  <option
+                    key={entry.moduleCode}
+                    value={entry.moduleCode}
+                    disabled={entry.actionable === false}
+                  >
+                    {entry.displayName}
+                  </option>
+                ))}
+              </>
+            )}
           </select>
           <select aria-label="نوع المشغل" value={triggerType} onChange={(event) => setTriggerType(event.target.value)}>
             <option value="MANUAL">يدوي</option>

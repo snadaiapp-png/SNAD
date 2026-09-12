@@ -186,9 +186,19 @@ class CrmPostgresMigrationTest {
     // ledger; the sentinel still validates the entire sequence exactly and the
     // expected head remains explicit (20260910.1).
     private static final String WORKFLOW_Y2_SLA_CANCELLATION_VERSION = "20260910.1";
-    // R0C13 / R13-G02 additive subscription-billing persistence foundation.
-    private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260911.1";
-    private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260911.2";
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only R1 migrations added
+    // after prior sentinel baseline: V20260911_1 (module entitlement policy,
+    // WORKFLOW EXPLICIT_OPT_IN), V20260911_2 (attachments + external
+    // participation foundation), and V20260911_3 (workflow journey/time
+    // governance) extend the merged ledger; the sentinel still validates the
+    // entire sequence exactly and the expected head remains explicit
+    // (20260911.3).
+    private static final String R1_MODULE_ENTITLEMENT_POLICY_VERSION = "20260911.1";
+    private static final String R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION = "20260911.2";
+    private static final String R1_JOURNEY_TIME_GOVERNANCE_VERSION = "20260911.3";
+    // R0C13 re-anchor after protected-main R1 migration namespace claim.
+    private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.1";
+    private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.2";
     private static final String LATEST_MIGRATION_VERSION = R0C13_VERIFIED_WEBHOOK_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
@@ -424,6 +434,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
+                        MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
+                        MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION));
         upgrade.migrate();
@@ -598,6 +611,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
+                        MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
+                        MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION));
         completion.migrate();

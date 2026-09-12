@@ -27,16 +27,19 @@ public class WorkflowWorkItemService {
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowWorkItemService.class);
 
+    private final WorkflowAttachmentService attachmentService;
     private final WorkflowWorkItemRepository workItemRepo;
     private final HrEmployeeRepository employeeRepo;
     private final WorkflowNotificationService notificationService;
 
     public WorkflowWorkItemService(WorkflowWorkItemRepository workItemRepo,
                                    HrEmployeeRepository employeeRepo,
-                                   WorkflowNotificationService notificationService) {
+                                   WorkflowNotificationService notificationService,
+                                   WorkflowAttachmentService attachmentService) {
         this.workItemRepo = workItemRepo;
         this.employeeRepo = employeeRepo;
         this.notificationService = notificationService;
+        this.attachmentService = attachmentService;
     }
 
     @Transactional
