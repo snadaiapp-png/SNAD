@@ -46,7 +46,8 @@ public class SubscriptionDetailService {
                                    t.country_code AS "countryCode", s.status, s.billing_cycle AS "billingCycle", s.seat_quantity AS "seatQuantity",
                                    s.plan_id AS "planId", p.name AS "planName", p.code AS "planCode",
                                    pv.version_number AS "planVersion",
-                                   s.credit_balance_minor AS "creditBalanceMinor", p.currency_code AS "currencyCode",
+                                   s.credit_balance_minor AS "creditBalanceMinor",
+                                   COALESCE(pv.currency_code, p.currency_code) AS "currencyCode",
                                    s.started_at AS "startedAt", s.trial_ends_at AS "trialEndsAt",
                                    s.current_period_start AS "currentPeriodStart", s.current_period_end AS "currentPeriodEnd",
                                    s.cancel_at_period_end AS "cancelAtPeriodEnd", s.cancelled_at AS "cancelledAt", s.created_at AS "createdAt"
