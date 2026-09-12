@@ -1022,6 +1022,7 @@ export const en: TranslationDictionary = {
   "scp.subscriptions.amount": "Monthly amount",
   "scp.subscriptions.status": "Status",
   "scp.subscriptions.nextBilling": "Next billing",
+  "scp.subscriptions.cancelsAtPeriodEnd": "Cancels at period end · {date}",
   "scp.subscriptions.trial": "Trial",
   "scp.subscriptions.details": "Details",
   "scp.detail.title": "Subscription detail",
