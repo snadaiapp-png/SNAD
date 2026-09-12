@@ -7,11 +7,13 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const getMock = vi.fn();
 const postMock = vi.fn();
+const patchMock = vi.fn();
 
 vi.mock("./client", () => ({
   apiClient: {
     get: (...args: unknown[]) => getMock(...args),
     post: (...args: unknown[]) => postMock(...args),
+    patch: (...args: unknown[]) => patchMock(...args),
   },
 }));
 
@@ -23,6 +25,8 @@ describe("scpApi — endpoint construction", () => {
     getMock.mockResolvedValue({});
     postMock.mockReset();
     postMock.mockResolvedValue({});
+    patchMock.mockReset();
+    patchMock.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -68,6 +72,27 @@ describe("scpApi — endpoint construction", () => {
     expect(postMock).toHaveBeenCalledWith(
       "/api/v1/executive/subscriptions/sub-1/lifecycle/SUSPEND",
       { reason: "policy violation" },
+    );
+  });
+
+  it("uses governed renewal and cancelled-resume routes for side-effectful mutations", async () => {
+    await scpApi.renewSubscription("sub-1");
+    await scpApi.resumeCancelledSubscription("sub-1");
+
+    expect(postMock).toHaveBeenCalledWith(
+      "/api/v1/executive/subscriptions/sub-1/renew",
+      {},
+    );
+    expect(patchMock).toHaveBeenCalledWith(
+      "/api/v1/executive/subscriptions/sub-1/resume",
+    );
+  });
+
+  it("posts provisioning through the activation-owning route", async () => {
+    await scpApi.provision("sub-1");
+    expect(postMock).toHaveBeenCalledWith(
+      "/api/v1/executive/subscriptions/sub-1/provision",
+      {},
     );
   });
 
