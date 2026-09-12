@@ -81,6 +81,10 @@ public class SecurityConfig {
                                 "/api/v1/workflows/external/portal/view",
                                 "/api/v1/workflows/external/portal/respond",
                                 "/api/v1/workflows/external/portal/otp",
+                                // R0C13 provider webhook: intentionally JWT-free.
+                                // The controller rejects the request unless the configured
+                                // provider adapter verifies the raw-body signature first.
+                                "/api/v1/billing/provider/webhook",
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 // One-time, token-gated Control Plane admin bootstrap.

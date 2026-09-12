@@ -263,6 +263,10 @@ class CrmFlywayHistoryAssertionTest {
             , "20260912.1"   // R2 workflow notification foundation
             , "20260912.2"   // R2 workflow external portal feedback
             , "20260912.3"   // R2 workflow analytics projections
+            // R0C13 forward-only continuation after the R2 ledger claim.
+            , "20260912.4"   // r0c13 subscription billing persistence foundation
+            , "20260912.5"   // r0c13 verified provider-webhook SELECT-only RLS resolution
+            , "20260912.6"   // r0c13 G07 provider-unavailable reconciliation classification
     );
 
 

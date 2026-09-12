@@ -25,6 +25,12 @@ sanad:
   # The default CommerceFinanceAdapter (no-op) is replaced by a real adapter
   # that creates finance_invoices linked to commerce_orders via external_reference.
   # The simulated adapter is gated behind havingValue=simulated / matchIfMissing=false.
+  subscription:
+    billing:
+      provider:
+        # R0C13 deploys production with payment collection disabled.
+        # Setting LIVE is rejected by BillingProviderModeGuard.
+        mode: ${R0C13_PROVIDER_MODE:DISABLED}
   commerce:
     payment:
       provider: ${SANAD_COMMERCE_PAYMENT_PROVIDER:}  # unset → DefaultNoOpPaymentAdapter (no auto-PAID)

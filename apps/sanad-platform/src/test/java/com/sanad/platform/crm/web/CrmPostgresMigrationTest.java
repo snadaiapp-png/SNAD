@@ -205,7 +205,10 @@ class CrmPostgresMigrationTest {
     private static final String R2_NOTIFICATION_FOUNDATION_VERSION = "20260912.1";
     private static final String R2_EXTERNAL_PORTAL_FEEDBACK_VERSION = "20260912.2";
     private static final String R2_ANALYTICS_PROJECTIONS_VERSION = "20260912.3";
-    private static final String LATEST_MIGRATION_VERSION = R2_ANALYTICS_PROJECTIONS_VERSION;
+    private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.4";
+    private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.5";
+    private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.6";
+    private static final String LATEST_MIGRATION_VERSION = R0C13_G07_PROVIDER_UNAVAILABLE_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -445,7 +448,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
                         MigrationVersion.fromVersion(R2_NOTIFICATION_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R2_EXTERNAL_PORTAL_FEEDBACK_VERSION),
-                        MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION));
+                        MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
+                        MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -623,7 +629,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
                         MigrationVersion.fromVersion(R2_NOTIFICATION_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R2_EXTERNAL_PORTAL_FEEDBACK_VERSION),
-                        MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION));
+                        MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
+                        MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
