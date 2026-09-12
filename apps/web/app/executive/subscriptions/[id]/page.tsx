@@ -101,12 +101,35 @@ export default function SubscriptionDetailPage() {
     setNotice("");
     setError("");
     try {
-      const result: CommandResult = await scpApi.lifecycleCommand(
-        subscriptionId,
-        command as Parameters<typeof scpApi.lifecycleCommand>[1],
-        commandReason || command,
-      );
-      setNotice(t("scp.detail.commandApplied", { command: result.command, from: result.fromStatus, to: result.toStatus }));
+      const currentStatus = String(detail?.overview.status ?? "");
+
+      // Commands with provisioning/billing/period side effects must use their
+      // owning governed APIs. The generic lifecycle endpoint is intentionally
+      // state-machine-only and now rejects these bypasses server-side as well.
+      if (command === "ACTIVATE") {
+        const outcome = await scpApi.provision(subscriptionId);
+        if (outcome.status !== "SUCCEEDED") {
+          throw new Error(t("scp.detail.provisionFailed"));
+        }
+        setNotice(t("scp.detail.governedActionApplied", { command }));
+      } else if (command === "RENEW") {
+        await scpApi.renewSubscription(subscriptionId);
+        setNotice(t("scp.detail.governedActionApplied", { command }));
+      } else if (command === "RESUME" && currentStatus === "CANCELLED") {
+        await scpApi.resumeCancelledSubscription(subscriptionId);
+        setNotice(t("scp.detail.governedActionApplied", { command }));
+      } else {
+        const result: CommandResult = await scpApi.lifecycleCommand(
+          subscriptionId,
+          command as Parameters<typeof scpApi.lifecycleCommand>[1],
+          commandReason || command,
+        );
+        setNotice(t("scp.detail.commandApplied", {
+          command: result.command,
+          from: result.fromStatus,
+          to: result.toStatus,
+        }));
+      }
       await load();
     } catch (reason) {
       setError(scpErrorMessage(reason));
