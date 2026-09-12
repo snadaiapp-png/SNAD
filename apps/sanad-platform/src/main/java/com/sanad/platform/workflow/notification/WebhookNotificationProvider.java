@@ -170,7 +170,7 @@ public class WebhookNotificationProvider implements WorkflowChannelProvider {
                 || address.isMulticastAddress();
     }
 
-    static String hmacSha256Hex(String secret, String message) {
+    public static String hmacSha256Hex(String secret, String message) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8),
