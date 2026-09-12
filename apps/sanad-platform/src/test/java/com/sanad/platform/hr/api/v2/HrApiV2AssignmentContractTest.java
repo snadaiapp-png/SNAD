@@ -376,7 +376,7 @@ class HrApiV2AssignmentContractTest {
                         .with(authentication(principal()))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(validCreateBody().replace("100", "80")))
+                        .content(validCreateBody(80)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("HRM_IDEMPOTENCY_CONFLICT"));
     }
@@ -404,11 +404,15 @@ class HrApiV2AssignmentContractTest {
     private UUID personId;
 
     private String validCreateBody() {
+        return validCreateBody(100);
+    }
+
+    private String validCreateBody(int allocationPercent) {
         return """
                 {"employmentId":"%s","organizationId":"%s","orgUnitId":"%s","positionId":"%s",
-                 "assignmentType":"PRIMARY","occupancyMode":"OCCUPYING","allocationPercent":100,
+                 "assignmentType":"PRIMARY","occupancyMode":"OCCUPYING","allocationPercent":%d,
                  "effectiveFrom":"2026-09-01"}
-                """.formatted(employmentId, orgId, orgUnitId, positionId);
+                """.formatted(employmentId, orgId, orgUnitId, positionId, allocationPercent);
     }
 
     private StructureIds seedStructure() {
