@@ -44,13 +44,12 @@ public class PriceResolver {
                                           String billingInterval, Instant at) {
         List<PriceEntity> candidates = repository.findEffective(
                 planVersionId, productId, billingInterval, at);
+        // Pricing is jurisdiction/currency-sensitive. The governed fallback
+        // chain is exact country -> GLOBAL only. Falling through to an
+        // arbitrary third-country price can silently charge a tenant using
+        // another market's amount/currency, so absence must fail closed.
         return pick(candidates, countryCode, at)
-                .or(() -> pick(candidates, GLOBAL, at))
-                .or(() -> candidates.stream()
-                        // last resort: any window-valid price regardless of country annotation
-                        .filter(p -> inWindow(p, at))
-                        .max(Comparator.comparing(PriceEntity::getEffectiveFrom,
-                                Comparator.nullsFirst(Comparator.naturalOrder()))));
+                .or(() -> pick(candidates, GLOBAL, at));
     }
 
     private Optional<PriceEntity> pick(List<PriceEntity> candidates, String countryCode, Instant at) {
