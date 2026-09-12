@@ -9,13 +9,17 @@ import com.sanad.platform.subscription.provisioning.ProvisioningJobRunner;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -28,6 +32,23 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/executive")
 public class LifecycleController {
+
+    /**
+     * Commands that are safe to execute as pure operator lifecycle transitions.
+     *
+     * <p>Commands with additional business invariants are deliberately excluded:
+     * ACTIVATE is owned by provisioning; RENEW by the renewal/invoicing path;
+     * START_TRIAL by a trial-period authority; SCHEDULE_CANCELLATION by the
+     * cancellation service; and billing-derived commands by BillingStateService.
+     * Keeping them off this generic route prevents state-only transitions from
+     * bypassing required financial/provisioning side effects.</p>
+     */
+    private static final Set<String> DIRECT_OPERATOR_COMMANDS = Set.of(
+            "PAUSE", "RESUME", "SUSPEND", "CANCEL", "EXPIRE", "TERMINATE");
+
+    private static final Set<String> GOVERNED_ROUTE_COMMANDS = Set.of(
+            "ACTIVATE", "START_TRIAL", "RENEW", "SCHEDULE_CANCELLATION",
+            "MARK_PAST_DUE", "ENTER_GRACE", "REQUEST_ACTIVATION", "PAYMENT_RECEIVED");
 
     public record LifecycleCommandRequest(@NotBlank String reason) {
     }
@@ -67,7 +88,38 @@ public class LifecycleController {
             @Valid @RequestBody LifecycleCommandRequest request,
             Authentication authentication) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(commandService.execute(id, command.toUpperCase(), request.reason()));
+        String normalized = command == null ? "" : command.trim().toUpperCase(Locale.ROOT);
+        requireDirectOperatorCommand(id, normalized);
+        return ResponseEntity.ok(commandService.execute(id, normalized, request.reason()));
+    }
+
+    private void requireDirectOperatorCommand(UUID subscriptionId, String command) {
+        if (GOVERNED_ROUTE_COMMANDS.contains(command)) {
+            String owner = switch (command) {
+                case "ACTIVATE" -> "provisioning (/subscriptions/{id}/provision)";
+                case "RENEW" -> "renewal/invoicing (/subscriptions/{id}/renew)";
+                case "SCHEDULE_CANCELLATION" -> "cancellation service (/subscriptions/{id}/cancel)";
+                case "START_TRIAL" -> "trial-period authority";
+                case "MARK_PAST_DUE", "ENTER_GRACE", "PAYMENT_RECEIVED" -> "BillingStateService";
+                case "REQUEST_ACTIVATION" -> "activation orchestration";
+                default -> "governed service";
+            };
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Lifecycle command " + command + " is not allowed on the generic endpoint; use " + owner);
+        }
+        if (!DIRECT_OPERATOR_COMMANDS.contains(command)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unknown or unsupported direct lifecycle command: " + command);
+        }
+        if ("RESUME".equals(command)) {
+            String status = jdbc.queryForObject(
+                    "SELECT status FROM tenant_subscriptions WHERE id = ?", String.class, subscriptionId);
+            if ("CANCELLED".equals(status)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "CANCELLED subscriptions must use the governed resume endpoint "
+                                + "(/subscriptions/{id}/resume) so period and billing side effects are preserved");
+            }
+        }
     }
 
     @PostMapping("/subscriptions/{id}/change-preview")

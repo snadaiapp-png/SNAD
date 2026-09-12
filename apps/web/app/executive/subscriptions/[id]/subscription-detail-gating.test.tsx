@@ -14,9 +14,13 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
 const accessCheckMock = vi.fn();
+const lifecycleCommandMock = vi.fn();
+const provisionMock = vi.fn();
+const renewSubscriptionMock = vi.fn();
+const resumeCancelledSubscriptionMock = vi.fn();
 
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: {
@@ -36,7 +40,10 @@ vi.mock("@/lib/api/scp-api", () => ({
     planVersions: vi.fn().mockResolvedValue([]),
     previewChange: vi.fn(),
     executeChange: vi.fn(),
-    lifecycleCommand: vi.fn(),
+    lifecycleCommand: (...args: unknown[]) => lifecycleCommandMock(...args),
+    provision: (...args: unknown[]) => provisionMock(...args),
+    renewSubscription: (...args: unknown[]) => renewSubscriptionMock(...args),
+    resumeCancelledSubscription: (...args: unknown[]) => resumeCancelledSubscriptionMock(...args),
   },
 }));
 
@@ -104,6 +111,16 @@ const READ_ONLY_MAP = {
 
 beforeEach(() => {
   accessCheckMock.mockReset();
+  lifecycleCommandMock.mockReset();
+  lifecycleCommandMock.mockResolvedValue({
+    subscriptionId: "s-1", command: "SUSPEND", fromStatus: "ACTIVE", toStatus: "SUSPENDED",
+  });
+  provisionMock.mockReset();
+  provisionMock.mockResolvedValue({ jobId: "j-1", status: "SUCCEEDED", skippedSteps: [] });
+  renewSubscriptionMock.mockReset();
+  renewSubscriptionMock.mockResolvedValue({});
+  resumeCancelledSubscriptionMock.mockReset();
+  resumeCancelledSubscriptionMock.mockResolvedValue({});
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
@@ -149,6 +166,38 @@ describe("Subscription detail — mutation capability gating (Blocker C)", () =>
       const button = screen.getByRole("button", { name: command });
       expect(button).toBeEnabled();
     }
+  });
+
+  it("P0: ACTIVATE uses provisioning and never the generic lifecycle route", async () => {
+    accessCheckMock.mockResolvedValueOnce(ADMIN_MAP);
+    render(
+      <ScpAccessProvider>
+        <SubscriptionDetailPage />
+      </ScpAccessProvider>,
+    );
+    await settle();
+
+    fireEvent.click(screen.getByRole("button", { name: "ACTIVATE" }));
+    await settle();
+
+    expect(provisionMock).toHaveBeenCalledWith("s-1");
+    expect(lifecycleCommandMock).not.toHaveBeenCalledWith("s-1", "ACTIVATE", expect.anything());
+  });
+
+  it("P0: RENEW uses the renewal/invoicing route and never generic lifecycle", async () => {
+    accessCheckMock.mockResolvedValueOnce(ADMIN_MAP);
+    render(
+      <ScpAccessProvider>
+        <SubscriptionDetailPage />
+      </ScpAccessProvider>,
+    );
+    await settle();
+
+    fireEvent.click(screen.getByRole("button", { name: "RENEW" }));
+    await settle();
+
+    expect(renewSubscriptionMock).toHaveBeenCalledWith("s-1");
+    expect(lifecycleCommandMock).not.toHaveBeenCalledWith("s-1", "RENEW", expect.anything());
   });
 
   it("FAIL-CLOSED: while the access check is in flight no mutation control is enabled", async () => {
