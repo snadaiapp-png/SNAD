@@ -544,6 +544,30 @@ class ScpFinalModuleAcceptancePostgresTest {
     // ---------------------------------------------------------------
 
     @Test
+    @DisplayName("PV-02: pinned plan-version currency is authoritative in grid and detail read models")
+    void pinnedPlanVersionCurrencyIsAuthoritative() {
+        UUID tenantId = seedTenant("SA");
+        UUID planId = seedPlan("pv02-" + UUID.randomUUID().toString().substring(0, 8));
+        UUID versionId = seedPlanVersion(planId, 1);
+        jdbc.update("UPDATE plan_versions SET currency_code = 'USD', monthly_price_minor = 12345 WHERE id = ?",
+                versionId);
+        UUID subscriptionId = UUID.randomUUID();
+        seedSubscription(subscriptionId, tenantId, planId, versionId, "ACTIVE");
+
+        SubscriptionGridQueryService.SubscriptionRow gridRow = gridService.search(
+                        tenantId, "ACTIVE", null, null, false, 0, 20, "created_at", "DESC")
+                .content().stream()
+                .filter(row -> subscriptionId.equals(row.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(gridRow.monthlyPriceMinor()).isEqualTo(12345L);
+        assertThat(gridRow.currencyCode()).isEqualTo("USD");
+
+        SubscriptionDetailService.SubscriptionDetail detail = detailService.detail(subscriptionId);
+        assertThat(detail.overview().get("currencyCode")).isEqualTo("USD");
+    }
+
+    @Test
     @DisplayName("PV-01: activating v2 retires v1 and never mutates subscriber anchors")
     void planVersionPinning() {
         UUID tenantId = seedTenant("SA");
