@@ -21,6 +21,22 @@ public interface SubscriptionFinancePort {
             String currencyCode
     );
 
+    /**
+     * R13-G07.0 additive Finance-owned refund authority. Finance transitions
+     * its own authoritative settlement payment COMPLETED -> REFUNDED; the
+     * subscription bounded context never writes Finance tables directly.
+     * Full-refund semantics only in G07.0 — partial refunds have no
+     * accounting model yet and must fail closed. Implementations must be
+     * idempotent and tenant-safe.
+     */
+    RefundLink recordRefund(
+            UUID tenantId,
+            UUID billingInvoiceId,
+            UUID settlementId,
+            long amountMinor,
+            String currencyCode
+    );
+
     record FinanceInvoiceLink(
             UUID billingInvoiceId,
             UUID financeInvoiceId,
@@ -29,6 +45,13 @@ public interface SubscriptionFinancePort {
     ) {}
 
     record SettlementLink(
+            UUID billingInvoiceId,
+            UUID financeInvoiceId,
+            UUID financePaymentId,
+            String paymentNumber
+    ) {}
+
+    record RefundLink(
             UUID billingInvoiceId,
             UUID financeInvoiceId,
             UUID financePaymentId,

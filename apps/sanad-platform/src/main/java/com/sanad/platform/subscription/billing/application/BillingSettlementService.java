@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -30,19 +31,22 @@ public class BillingSettlementService {
     private final SubscriptionFinancePort financePort;
     private final BillingStateService billingStateService;
     private final TenantRlsTransactionContext tenantRlsContext;
+    private final BillingOutbox outbox;
 
     public BillingSettlementService(
             JdbcTemplate jdbc,
             BillingPaymentProvider provider,
             SubscriptionFinancePort financePort,
             BillingStateService billingStateService,
-            TenantRlsTransactionContext tenantRlsContext
+            TenantRlsTransactionContext tenantRlsContext,
+            BillingOutbox outbox
     ) {
         this.jdbc = jdbc;
         this.provider = provider;
         this.financePort = financePort;
         this.billingStateService = billingStateService;
         this.tenantRlsContext = tenantRlsContext;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -72,9 +76,9 @@ public class BillingSettlementService {
 
         return switch (eventType) {
             case "payment.succeeded" -> settleSuccess(tenantId, attempt);
-            case "payment.failed" -> recordFailure(attempt, "FAILED");
-            case "payment.cancelled" -> recordFailure(attempt, "CANCELLED");
-            case "payment.refunded" -> recordFailure(attempt, "REFUNDED");
+            case "payment.failed" -> recordFailure(tenantId, attempt, "FAILED");
+            case "payment.cancelled" -> recordFailure(tenantId, attempt, "CANCELLED");
+            case "payment.refunded" -> refundSucceededAttempt(tenantId, attempt);
             default -> new SettlementResult(
                     attempt.id(), attempt.billingInvoiceId(), null, null,
                     attempt.state(), null, false);
@@ -127,6 +131,21 @@ public class BillingSettlementService {
         markBillingProjectionPaid(tenantId, invoice, attempt.providerPaymentRef());
         markAttemptSucceeded(tenantId, attempt.id());
 
+        // R13-G07.0: typed/versioned billing fact for the real settlement
+        // transition. Idempotent per attempt; joins this same transaction.
+        outbox.emit(
+                tenantId,
+                BillingOutbox.TYPE_PAYMENT_SUCCEEDED,
+                attempt.id(),
+                "PAYMENT_SUCCEEDED:" + attempt.id(),
+                Map.of(
+                        "billingInvoiceId", attempt.billingInvoiceId(),
+                        "financeInvoiceId", finance.financeInvoiceId(),
+                        "financePaymentId", finance.financePaymentId(),
+                        "providerPaymentRef", attempt.providerPaymentRef(),
+                        "amountMinor", attempt.amountMinor(),
+                        "currencyCode", attempt.currencyCode()));
+
         // Canonical convergence only after Finance is authoritative and the SCP
         // invoice projection is paid. BillingStateService remains the sole
         // billing_state writer and delegates lifecycle status to the canonical
@@ -143,7 +162,73 @@ public class BillingSettlementService {
                 true);
     }
 
-    private SettlementResult recordFailure(AttemptSnapshot attempt, String targetState) {
+    /**
+     * R13-G07.0 explicit refund transition path.
+     *
+     * <p>A verified provider refund is NOT a generic failure. Convergence
+     * order is deliberate and transactional: Finance authoritative refund
+     * first, then the local payment-attempt projection REFUNDED, then the
+     * REFUND_RECORDED outbox fact. A replayed refund (attempt already
+     * REFUNDED) is an idempotent no-op. A refund for an attempt that never
+     * succeeded is an anomaly and fails closed.</p>
+     */
+    private SettlementResult refundSucceededAttempt(UUID tenantId, AttemptSnapshot attempt) {
+        if ("REFUNDED".equals(attempt.state())) {
+            return new SettlementResult(
+                    attempt.id(), attempt.billingInvoiceId(), null, null,
+                    attempt.state(), null, false);
+        }
+        if (!"SUCCEEDED".equals(attempt.state())) {
+            throw new IllegalStateException(
+                    "Verified payment.refunded event cannot be applied to a payment attempt in state "
+                            + attempt.state());
+        }
+
+        SubscriptionFinancePort.RefundLink refund = financePort.recordRefund(
+                tenantId,
+                attempt.billingInvoiceId(),
+                attempt.id(),
+                attempt.amountMinor(),
+                attempt.currencyCode());
+
+        markAttemptRefunded(tenantId, attempt.id());
+
+        outbox.emit(
+                tenantId,
+                BillingOutbox.TYPE_REFUND_RECORDED,
+                attempt.id(),
+                "REFUND_RECORDED:" + attempt.id(),
+                Map.of(
+                        "billingInvoiceId", attempt.billingInvoiceId(),
+                        "financeInvoiceId", refund.financeInvoiceId(),
+                        "financePaymentId", refund.financePaymentId(),
+                        "providerPaymentRef", attempt.providerPaymentRef(),
+                        "amountMinor", attempt.amountMinor(),
+                        "currencyCode", attempt.currencyCode()));
+
+        return new SettlementResult(
+                attempt.id(),
+                attempt.billingInvoiceId(),
+                null,
+                refund.financePaymentId(),
+                "REFUNDED",
+                null,
+                false);
+    }
+
+    private void markAttemptRefunded(UUID tenantId, UUID paymentAttemptId) {
+        int updated = jdbc.update(
+                "UPDATE subscription_billing_payment_attempts "
+                        + "SET state = 'REFUNDED', updated_at = ? "
+                        + "WHERE tenant_id = ? AND id = ? AND state = 'SUCCEEDED'",
+                Timestamp.from(Instant.now()), tenantId, paymentAttemptId);
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "Payment attempt cannot transition to REFUNDED from its current state");
+        }
+    }
+
+    private SettlementResult recordFailure(UUID tenantId, AttemptSnapshot attempt, String targetState) {
         // Never allow a late failure/cancel event to downgrade a completed or
         // refunded payment attempt. The signed provider event remains durable
         // in the inbox even when the attempt state is already terminal.
@@ -157,6 +242,20 @@ public class BillingSettlementService {
                 "UPDATE subscription_billing_payment_attempts "
                         + "SET state = ?, updated_at = ? WHERE id = ? AND tenant_id = ?",
                 targetState, Timestamp.from(Instant.now()), attempt.id(), attempt.tenantId());
+
+        if ("FAILED".equals(targetState)) {
+            outbox.emit(
+                    attempt.tenantId(),
+                    BillingOutbox.TYPE_PAYMENT_FAILED,
+                    attempt.id(),
+                    "PAYMENT_FAILED:" + attempt.id(),
+                    Map.of(
+                            "billingInvoiceId", attempt.billingInvoiceId(),
+                            "providerPaymentRef", attempt.providerPaymentRef(),
+                            "amountMinor", attempt.amountMinor(),
+                            "currencyCode", attempt.currencyCode()));
+        }
+
         return new SettlementResult(
                 attempt.id(), attempt.billingInvoiceId(), null, null,
                 targetState, null, false);

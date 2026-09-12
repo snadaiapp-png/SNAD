@@ -191,6 +191,71 @@ public class SubscriptionFinanceAdapter implements SubscriptionFinancePort {
                 billingInvoiceId, invoice.id(), payment.id(), payment.paymentNumber());
     }
 
+    /**
+     * R13-G07.0 Finance-owned refund authority. The authoritative refund
+     * state is the Finance settlement payment itself
+     * (COMPLETED -> REFUNDED via the Finance domain transition). The invoice
+     * projection stays PAID — G07.0 intentionally introduces no refund
+     * accounting model (no credit note, no partial refund, no parallel
+     * ledger). Replays are idempotent: an already-REFUNDED settlement
+     * payment returns the same link without a duplicate transition.
+     */
+    @Override
+    @Transactional
+    public RefundLink recordRefund(
+            UUID tenantId,
+            UUID billingInvoiceId,
+            UUID settlementId,
+            long amountMinor,
+            String currencyCode
+    ) {
+        requireIds(tenantId, billingInvoiceId);
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
+        if (settlementId == null) {
+            throw new IllegalArgumentException("settlementId must not be null");
+        }
+
+        BillingInvoiceSnapshot billing = loadBillingInvoice(tenantId, billingInvoiceId);
+        validateBillingAmounts(billing);
+        String normalizedCurrency = normalizeCurrency(currencyCode);
+
+        // G07.0 full-refund semantics only
+        if (amountMinor != billing.totalMinor()) {
+            throw new IllegalStateException(
+                    "Finance refund must be a full refund: expected "
+                            + billing.totalMinor() + " minor units but got " + amountMinor);
+        }
+
+        FinanceInvoiceLink link = ensureInvoice(tenantId, billingInvoiceId);
+        FinanceInvoice invoice = loadFinanceInvoice(tenantId, link.financeInvoiceId());
+
+        String paymentNumber = paymentNumber(settlementId);
+        UUID existingPaymentId = findPaymentIdByNumber(tenantId, paymentNumber);
+        if (existingPaymentId == null) {
+            throw new IllegalStateException(
+                    "Finance refund requires an existing settlement payment: " + paymentNumber);
+        }
+        FinancePayment payment = paymentRepository.findById(tenantId, existingPaymentId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Finance settlement payment disappeared during refund: " + existingPaymentId));
+        assertPaymentMatches(
+                payment, invoice.id(), settlementId,
+                minorToMajor(amountMinor, normalizedCurrency), normalizedCurrency);
+
+        if (payment.status() == FinancePayment.Status.REFUNDED) {
+            return new RefundLink(
+                    billingInvoiceId, invoice.id(), payment.id(), payment.paymentNumber());
+        }
+        if (payment.status() != FinancePayment.Status.COMPLETED) {
+            throw new IllegalStateException(
+                    "Finance refund is only allowed from a COMPLETED settlement payment, got "
+                            + payment.status());
+        }
+        FinancePayment refunded = paymentRepository.save(payment.refund());
+        return new RefundLink(
+                billingInvoiceId, invoice.id(), refunded.id(), refunded.paymentNumber());
+    }
+
     private FinanceInvoice createFinanceInvoice(
             BillingInvoiceSnapshot billing,
             String externalReference
