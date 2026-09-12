@@ -1026,6 +1026,8 @@ export const en: TranslationDictionary = {
   "scp.subscriptions.details": "Details",
   "scp.detail.title": "Subscription detail",
   "scp.detail.commandApplied": "Command {command} applied: {from} to {to}",
+  "scp.detail.governedActionApplied": "{command} completed through its governed workflow",
+  "scp.detail.provisionFailed": "Provisioning did not complete successfully; review the provisioning job before retrying",
   "scp.detail.noVersionForPlan": "This plan has no versions",
   "scp.detail.changeExecuted": "Plan change executed",
   "scp.detail.seats": "Seats",
