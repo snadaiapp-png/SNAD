@@ -303,10 +303,11 @@ class WorkflowR2NotificationFoundationTest {
                         null, null, "EMAIL", "r2-terminal-" + fx.instance(),
                         null, null, null, null, null, null, null, null, null, null)));
         // retryable: stub provider that fails transiently twice then succeeds
+        // (channel WEBHOOK so the flaky custom provider receives the intent)
         UUID retryable = tx.execute(s -> notifications.enqueue(fx.tenant(),
                 new WorkflowNotificationService.NotificationIntentRequest(
                         "TASK_ASSIGNED", fx.instance(), null, null, fx.user(),
-                        null, null, "IN_APP", "r2-retry-" + fx.instance(),
+                        null, null, "WEBHOOK", "r2-retry-" + fx.instance(),
                         null, null, null, null, null, null, null, null, null, null)));
         WorkflowChannelProvider flaky = new WorkflowChannelProvider() {
             private final AtomicInteger calls = new AtomicInteger();
@@ -334,7 +335,8 @@ class WorkflowR2NotificationFoundationTest {
             }
         };
         WorkflowNotificationDispatcher custom = new WorkflowNotificationDispatcher(
-                jdbc, new WorkflowChannelRegistry(List.of(inApp, flaky)), true);
+                jdbc, new WorkflowChannelRegistry(
+                        List.of(inApp, flaky, stubEmailProvider())), true);
         custom.dispatchBatch();
         Map<String, Object> terminalRow = jdbc.queryForMap("""
                 SELECT delivery_status, failure_category FROM workflow_notification_intents
@@ -355,6 +357,10 @@ class WorkflowR2NotificationFoundationTest {
                  WHERE tenant_id = ? AND id = ?
                 """, fx.tenant(), retryable);
         custom.dispatchBatch();
+        jdbc.update("""
+                UPDATE workflow_notification_intents SET next_attempt_at = NOW() - INTERVAL '1s'
+                 WHERE tenant_id = ? AND id = ?
+                """, fx.tenant(), retryable);
         custom.dispatchBatch();
         Map<String, Object> delivered = jdbc.queryForMap("""
                 SELECT delivery_status, attempt_count FROM workflow_notification_intents
