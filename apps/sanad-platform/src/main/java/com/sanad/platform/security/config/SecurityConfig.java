@@ -73,6 +73,14 @@ public class SecurityConfig {
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/forgot-password",
                                 "/api/v1/auth/reset-password",
+                                // R2 Secure External Action Portal: token-gated
+                                // (opaque one-time token IS the capability; no
+                                // SNAD session). The portal service enforces
+                                // rate limits, replay protection, expiry,
+                                // revocation, and audit logging server-side.
+                                "/api/v1/workflows/external/portal/view",
+                                "/api/v1/workflows/external/portal/respond",
+                                "/api/v1/workflows/external/portal/otp",
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 // One-time, token-gated Control Plane admin bootstrap.
