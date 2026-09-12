@@ -31,7 +31,7 @@ import java.util.UUID;
 public class BillingWebhookService {
 
     public static final String OUTBOX_EVENT_TYPE =
-            "BILLING.PROVIDER_EVENT_RECEIVED.v1";
+            BillingOutbox.TYPE_PROVIDER_EVENT_RECEIVED;
 
     private final BillingPaymentProvider provider;
     private final JdbcTemplate jdbc;
@@ -39,6 +39,7 @@ public class BillingWebhookService {
     private final TenantRlsTransactionContext tenantRlsContext;
     private final PlatformAuditWriter auditWriter;
     private final BillingSettlementService settlementService;
+    private final BillingOutbox outbox;
 
     public BillingWebhookService(
             BillingPaymentProvider provider,
@@ -46,7 +47,8 @@ public class BillingWebhookService {
             BillingWebhookResolutionContext webhookResolutionContext,
             TenantRlsTransactionContext tenantRlsContext,
             PlatformAuditWriter auditWriter,
-            BillingSettlementService settlementService
+            BillingSettlementService settlementService,
+            BillingOutbox outbox
     ) {
         this.provider = provider;
         this.jdbc = jdbc;
@@ -54,6 +56,7 @@ public class BillingWebhookService {
         this.tenantRlsContext = tenantRlsContext;
         this.auditWriter = auditWriter;
         this.settlementService = settlementService;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -123,30 +126,21 @@ public class BillingWebhookService {
         String idempotencyKey =
                 outboxIdempotencyKey(providerCode, envelope.providerEventId());
 
-        jdbc.update(
-                "INSERT INTO subscription_billing_outbox "
-                        + "(event_id, tenant_id, event_type, event_version, aggregate_type, "
-                        + "aggregate_id, idempotency_key, payload_metadata, status, available_at, created_at) "
-                        + "VALUES (?, ?, ?, 1, 'BILLING_INVOICE', ?, ?, "
-                        + "jsonb_build_object("
-                        + "'provider', ?, "
-                        + "'providerEventId', ?, "
-                        + "'providerPaymentRef', ?, "
-                        + "'eventType', ?, "
-                        + "'payloadSha256', ?"
-                        + "), 'READY', ?, ?)",
-                UUID.randomUUID(),
+        // R13-G07.0: the G05 provider-event-accepted fact is now emitted
+        // through the reusable typed/versioned outbox boundary. Same
+        // idempotency key, same sanitized metadata, same transaction.
+        outbox.emit(
                 binding.tenantId(),
-                OUTBOX_EVENT_TYPE,
+                BillingOutbox.TYPE_PROVIDER_EVENT_RECEIVED,
                 binding.billingInvoiceId(),
                 idempotencyKey,
-                providerCode,
-                envelope.providerEventId(),
-                envelope.providerPaymentRef(),
-                envelope.eventType(),
-                envelope.payloadSha256(),
-                Timestamp.from(Instant.now()),
-                Timestamp.from(Instant.now()));
+                Map.of(
+                        "provider", providerCode,
+                        "providerEventId", envelope.providerEventId(),
+                        "providerPaymentRef", envelope.providerPaymentRef(),
+                        "eventType", envelope.eventType(),
+                        "payloadSha256", envelope.payloadSha256()),
+                BillingOutbox.ConflictPolicy.FAIL_ON_CONFLICT);
 
         auditWriter.writeSuccess(
                 null,
