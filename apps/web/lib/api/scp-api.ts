@@ -268,6 +268,12 @@ export interface UsageSnapshot {
   critical: boolean;
 }
 
+export interface ProvisioningJobOutcome {
+  jobId: string;
+  status: string;
+  skippedSteps: string[];
+}
+
 export interface ProvisioningJob {
   id: string;
   tenantId: string;
@@ -365,6 +371,17 @@ export const scpApi = {
       { reason },
     ),
 
+  renewSubscription: (subscriptionId: string) =>
+    apiClient.post<Record<string, unknown>, Record<string, never>>(
+      `${root}/subscriptions/${subscriptionId}/renew`,
+      {},
+    ),
+
+  resumeCancelledSubscription: (subscriptionId: string) =>
+    apiClient.patch<Record<string, unknown>>(
+      `${root}/subscriptions/${subscriptionId}/resume`,
+    ),
+
   previewChange: (subscriptionId: string, targetPlanVersionId: string, countryCode: string) =>
     apiClient.post<ChangePreview, { targetPlanVersionId: string; countryCode: string }>(
       `${root}/subscriptions/${subscriptionId}/change-preview`,
@@ -387,7 +404,7 @@ export const scpApi = {
     }),
 
   provision: (subscriptionId: string) =>
-    apiClient.post<ProvisioningJob & Record<string, unknown>, Record<string, never>>(
+    apiClient.post<ProvisioningJobOutcome, Record<string, never>>(
       `${root}/subscriptions/${subscriptionId}/provision`,
       {},
     ),
@@ -396,7 +413,7 @@ export const scpApi = {
     apiClient.get<ProvisioningJob[]>(`${root}/provisioning/jobs${qs(query)}`),
 
   retryProvisioningJob: (jobId: string) =>
-    apiClient.post<ProvisioningJob & Record<string, unknown>, Record<string, never>>(
+    apiClient.post<ProvisioningJobOutcome, Record<string, never>>(
       `${root}/provisioning/jobs/${jobId}/retry`,
       {},
     ),
