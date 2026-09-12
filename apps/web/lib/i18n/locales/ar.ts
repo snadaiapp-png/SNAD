@@ -1030,6 +1030,8 @@ export const ar: TranslationDictionary = {
   "scp.subscriptions.details": "التفاصيل",
   "scp.detail.title": "تفاصيل الاشتراك",
   "scp.detail.commandApplied": "نُفذ الأمر {command}: {from} ← {to}",
+  "scp.detail.governedActionApplied": "اكتمل {command} عبر المسار التشغيلي المعتمد",
+  "scp.detail.provisionFailed": "لم يكتمل التجهيز بنجاح؛ راجع مهمة التجهيز قبل إعادة المحاولة",
   "scp.detail.noVersionForPlan": "لا توجد إصدارات لهذه الخطة",
   "scp.detail.changeExecuted": "نُفذ تغيير الخطة",
   "scp.detail.seats": "المقاعد",
