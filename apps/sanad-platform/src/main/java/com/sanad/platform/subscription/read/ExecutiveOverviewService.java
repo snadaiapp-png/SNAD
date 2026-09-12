@@ -56,11 +56,12 @@ public class ExecutiveOverviewService {
         // MRR per currency: monthly price for MONTHLY cycles, annual/12 for ANNUAL.
         // Derived from plan_versions (versioned contracts); money = minor units.
         List<Map<String, Object>> mrrRows = jdbc.queryForList("""
-                        SELECT p.currency_code,
+                        SELECT COALESCE(pv.currency_code, p.currency_code) AS currency_code,
                                COALESCE(SUM(
                                    CASE s.billing_cycle
-                                       WHEN 'ANNUAL' THEN pv.annual_price_minor / 12
-                                       ELSE pv.monthly_price_minor
+                                       WHEN 'ANNUAL'
+                                           THEN (pv.annual_price_minor * s.seat_quantity) / 12
+                                       ELSE pv.monthly_price_minor * s.seat_quantity
                                    END), 0) AS mrr_minor
                         FROM tenant_subscriptions s
                         JOIN plan_versions pv ON pv.id = COALESCE(s.plan_version_id, (
@@ -69,7 +70,7 @@ public class ExecutiveOverviewService {
                                 ORDER BY pv2.version_number DESC LIMIT 1))
                         JOIN saas_plans p ON p.id = s.plan_id
                         WHERE s.status IN ('ACTIVE', 'PAST_DUE', 'GRACE_PERIOD')
-                        GROUP BY p.currency_code
+                        GROUP BY COALESCE(pv.currency_code, p.currency_code)
                         """);
 
         Map<String, Long> mrrByCurrency = new java.util.LinkedHashMap<>();
