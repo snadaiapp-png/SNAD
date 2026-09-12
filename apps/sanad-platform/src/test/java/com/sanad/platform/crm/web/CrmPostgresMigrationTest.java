@@ -440,7 +440,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
-                        MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION));
+                        MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
+                        // TEST_ALIGNMENT_REASON = R13-G07.0 corrective claims
+                        // 20260912.3 (PROVIDER_UNAVAILABLE classification);
+                        // the pending-list sentinel remains exhaustive.
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -617,7 +621,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
-                        MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION));
+                        MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
+                        // TEST_ALIGNMENT_REASON = R13-G07.0 corrective claims
+                        // 20260912.3 (PROVIDER_UNAVAILABLE classification);
+                        // the pending-list sentinel remains exhaustive.
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
