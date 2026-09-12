@@ -101,8 +101,9 @@ public class UsageMeteringService {
 
     /**
      * Batched tenant usage read model — exactly three statements regardless of
-     * metric count (latest MONTHLY aggregates, metric catalog, batched
-     * entitlement limits). Never 1 + 3N per metric.
+     * metric count (current UTC-month aggregates, metric catalog, batched
+     * entitlement limits). A previous month's aggregate is never presented as
+     * current usage after a monthly reset. Never 1 + 3N per metric.
      */
     @Transactional(readOnly = true)
     public List<UsageSnapshot> usageSnapshots(UUID tenantId) {
@@ -111,10 +112,9 @@ public class UsageMeteringService {
                         SELECT u.metric_code, u.total, u.period_start
                         FROM usage_aggregates u
                         WHERE u.tenant_id = ? AND u.period_type = 'MONTHLY'
-                          AND u.period_start = (
-                              SELECT MAX(i.period_start) FROM usage_aggregates i
-                              WHERE i.tenant_id = u.tenant_id AND i.metric_code = u.metric_code
-                                AND i.period_type = 'MONTHLY')
+                          AND u.period_start =
+                              ((date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))
+                               AT TIME ZONE 'UTC')
                         ORDER BY u.metric_code
                         """, tenantId);
         if (aggRows.isEmpty()) {
