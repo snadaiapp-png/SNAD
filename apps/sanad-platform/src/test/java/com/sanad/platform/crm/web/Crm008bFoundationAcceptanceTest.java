@@ -94,7 +94,7 @@ class Crm008bFoundationAcceptanceTest {
     //                 migration).
     // R0C13 re-anchor: protected main owns 20260911.1..3 (R1); unmerged
     // R0C13 migration identities continue forward at 20260912.1..2.
-    private static final String CRM_LATEST_VERSION = "20260912.2"; // Terminal versioned migration: V20260912_2 adds R0C13 verified provider-webhook resolution
+    private static final String CRM_LATEST_VERSION = "20260912.3"; // Terminal versioned migration: V20260912_3 adds R13-G07.0 PROVIDER_UNAVAILABLE reconciliation classification
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

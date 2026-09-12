@@ -28,15 +28,18 @@ public class BillingReconciliationService {
     private final JdbcTemplate jdbc;
     private final BillingPaymentProvider provider;
     private final TenantRlsTransactionContext tenantRlsContext;
+    private final BillingOutbox outbox;
 
     public BillingReconciliationService(
             JdbcTemplate jdbc,
             BillingPaymentProvider provider,
-            TenantRlsTransactionContext tenantRlsContext
+            TenantRlsTransactionContext tenantRlsContext,
+            BillingOutbox outbox
     ) {
         this.jdbc = jdbc;
         this.provider = provider;
         this.tenantRlsContext = tenantRlsContext;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -123,6 +126,25 @@ public class BillingReconciliationService {
                         + "WHERE tenant_id = ? AND id = ? AND state = 'RUNNING'",
                 Timestamp.from(Instant.now()), total, matched, discrepancies, tenantId, runId);
 
+        if (discrepancies > 0) {
+            // R13-G07.0: a completed run that produced exception evidence is a
+            // real production transition and emits exactly one typed/versioned
+            // billing fact, idempotent per run.
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("totalItems", total);
+            metadata.put("matched", matched);
+            metadata.put("discrepancies", discrepancies);
+            for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+                metadata.put("count." + entry.getKey(), entry.getValue());
+            }
+            outbox.emit(
+                    tenantId,
+                    BillingOutbox.TYPE_RECONCILIATION_EXCEPTION,
+                    runId,
+                    "RECONCILIATION_EXCEPTION:" + runId,
+                    metadata);
+        }
+
         return new ReconciliationResult(runId, false, total, Map.copyOf(counts));
     }
 
@@ -136,8 +158,16 @@ public class BillingReconciliationService {
             providerState = provider.queryPaymentState(
                     new BillingPaymentProvider.QueryPaymentStateQuery(
                             tenantId, attempt.providerPaymentRef()));
-        } catch (IllegalArgumentException | IllegalStateException e) {
+        } catch (IllegalArgumentException e) {
+            // The provider rejected the stored reference as unknown: a genuine
+            // missing-provider-reference discrepancy (TEST provider semantics,
+            // unchanged).
             return Classification.MISSING_PROVIDER_REFERENCE;
+        } catch (IllegalStateException e) {
+            // R13-G07.0: provider infrastructure unavailability (e.g. DISABLED
+            // mode) must fail closed with an explicit sanitized classification
+            // and must NOT fabricate MISSING_PROVIDER_REFERENCE evidence.
+            return Classification.PROVIDER_UNAVAILABLE;
         }
 
         if (providerState.amountMinor() != attempt.amountMinor()
@@ -236,6 +266,7 @@ public class BillingReconciliationService {
         MATCHED,
         MISSING_FINANCE_INVOICE,
         MISSING_PROVIDER_REFERENCE,
+        PROVIDER_UNAVAILABLE,
         AMOUNT_MISMATCH,
         CURRENCY_MISMATCH,
         PROVIDER_PAID_FINANCE_PENDING,

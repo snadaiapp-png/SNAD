@@ -92,7 +92,8 @@ class R0C13G02SchemaPostgresTest {
                         + "ORDER BY installed_rank DESC LIMIT 1");
              ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).isTrue();
-            assertThat(rs.getString(1)).isEqualTo("20260912.2");
+            // R13-G07.0: the Flyway head moved forward to 20260912.3
+            assertThat(rs.getString(1)).isEqualTo("20260912.3");
         }
     }
 

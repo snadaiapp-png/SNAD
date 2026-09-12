@@ -199,7 +199,9 @@ class CrmPostgresMigrationTest {
     // R0C13 re-anchor after protected-main R1 migration namespace claim.
     private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.1";
     private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.2";
-    private static final String LATEST_MIGRATION_VERSION = R0C13_VERIFIED_WEBHOOK_VERSION;
+    // R13-G07.0 corrective: PROVIDER_UNAVAILABLE reconciliation classification.
+    private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.3";
+    private static final String LATEST_MIGRATION_VERSION = R0C13_G07_PROVIDER_UNAVAILABLE_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",

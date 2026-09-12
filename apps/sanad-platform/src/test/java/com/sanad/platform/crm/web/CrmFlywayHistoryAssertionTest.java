@@ -259,6 +259,11 @@ class CrmFlywayHistoryAssertionTest {
             // 20260911.1..3 on protected main; R0C13 migration semantics unchanged.
             , "20260912.1"   // r0c13 subscription billing persistence foundation
             , "20260912.2"   // r0c13 verified provider-webhook SELECT-only RLS resolution
+            // TEST_ALIGNMENT_REASON = R13-G07.0 corrective claims 20260912.3:
+            // PROVIDER_UNAVAILABLE reconciliation classification (fail-closed
+            // DISABLED-mode semantics). The expected head remains explicit —
+            // the sentinel is not weakened.
+            , "20260912.3"   // r0c13 G07.0 provider-unavailable reconciliation classification
     );
 
 
