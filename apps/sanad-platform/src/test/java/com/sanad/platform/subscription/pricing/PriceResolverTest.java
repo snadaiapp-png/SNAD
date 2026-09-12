@@ -78,6 +78,18 @@ class PriceResolverTest {
     }
 
     @Test
+    @DisplayName("fails closed when only another country's price exists")
+    void doesNotFallBackAcrossCountries() {
+        when(repository.findEffective(eq(VERSION_ID), eq(null), eq("MONTHLY"), any()))
+                .thenReturn(List.of(price("AE", 4900L)));
+
+        Optional<PriceEntity> resolved =
+                resolver.resolveForPlanVersion(VERSION_ID, "SA", "MONTHLY", NOW);
+
+        assertThat(resolved).isEmpty();
+    }
+
+    @Test
     @DisplayName("skips prices whose effective window has not started")
     void skipsNotYetEffective() {
         PriceEntity future = price("SA", 9900L);
