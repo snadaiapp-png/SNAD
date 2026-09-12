@@ -17,6 +17,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
 const accessCheckMock = vi.fn();
+const plansMock = vi.fn();
 
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: {
@@ -42,7 +43,7 @@ vi.mock("@/lib/api/scp-api", () => ({
 
 vi.mock("@/lib/api/executive-api", () => ({
   executiveApi: {
-    plans: vi.fn().mockResolvedValue([]),
+    plans: (...args: unknown[]) => plansMock(...args),
   },
 }));
 
@@ -104,6 +105,8 @@ const READ_ONLY_MAP = {
 
 beforeEach(() => {
   accessCheckMock.mockReset();
+  plansMock.mockReset();
+  plansMock.mockResolvedValue([]);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
@@ -149,6 +152,39 @@ describe("Subscription detail — mutation capability gating (Blocker C)", () =>
       const button = screen.getByRole("button", { name: command });
       expect(button).toBeEnabled();
     }
+  });
+
+  it("loads selectable plans on entry so plan change is reachable before preview", async () => {
+    accessCheckMock.mockResolvedValueOnce(ADMIN_MAP);
+    plansMock.mockResolvedValueOnce([
+      {
+        id: "plan-growth",
+        code: "GROWTH",
+        name: "Growth",
+        status: "ACTIVE",
+        currencyCode: "SAR",
+        monthlyPriceMinor: 29900,
+        annualPriceMinor: 299000,
+        trialDays: 14,
+        maxUsers: 25,
+        maxOrganizations: 5,
+        storageMb: 10240,
+        entitlements: [],
+        description: null,
+        createdAt: "2026-09-01T00:00:00Z",
+        updatedAt: "2026-09-01T00:00:00Z",
+      },
+    ]);
+
+    render(
+      <ScpAccessProvider>
+        <SubscriptionDetailPage />
+      </ScpAccessProvider>,
+    );
+    await settle();
+
+    expect(plansMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("option", { name: "Growth (GROWTH)" })).toBeInTheDocument();
   });
 
   it("FAIL-CLOSED: while the access check is in flight no mutation control is enabled", async () => {
