@@ -140,6 +140,22 @@ class UsageMeteringServiceTest {
     }
 
     @Test
+    @DisplayName("usage read model: SQL is pinned to the current UTC month, never latest historical month")
+    void usageReadModelUsesCurrentUtcMonth() {
+        when(jdbc.queryForList(
+                contains("FROM usage_aggregates u"), eq(TENANT_ID)))
+                .thenReturn(List.of());
+
+        assertThat(service.usageSnapshots(TENANT_ID)).isEmpty();
+
+        verify(jdbc).queryForList(
+                org.mockito.ArgumentMatchers.argThat(sql ->
+                        sql.contains("date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC')")
+                                && !sql.contains("MAX(i.period_start)")),
+                eq(TENANT_ID));
+    }
+
+    @Test
     @DisplayName("usage read model: no aggregates yields empty, not fabricated zero")
     void missingMetricIsEmpty() {
         when(jdbc.queryForList(contains("FROM usage_aggregates u"), eq(TENANT_ID)))
