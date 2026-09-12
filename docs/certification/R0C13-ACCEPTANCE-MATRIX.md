@@ -1,14 +1,14 @@
 # R0C13 — Revenue/Billing Integration Closure — Acceptance Matrix
 
-- **Date:** 2026-09-11
+- **Date:** 2026-09-12
 - **Starting production baseline:** `16509abed344ce5d6635eb3660512e3e9011584b`
 - **Implementation repository baseline (R13-S0 re-anchor):** `15d50fa03b748a9190b9ee7380d746f91d55b34e`
 - **Pre-R0C13 repository Flyway head:** `20260910.1`
 - **Issue:** #1017
 - **Design:** `docs/superpowers/specs/2026-09-11-r0c13-revenue-billing-integration-closure-design.md`
 - **Plan:** `docs/superpowers/plans/2026-09-11-r0c13-revenue-billing-integration-closure-implementation.md`
-- **Current stage:** R13-G05 FINAL CERTIFICATION — G02/G03/G04 LEDGER BACKFILLED
-- **Implementation:** G01-G05 IMPLEMENTED; G02-G05 DIRECT EVIDENCE RECORDED; G06 NOT STARTED
+- **Current stage:** R13-G06 FINAL CERTIFICATION — DIRECT EVIDENCE BACKFILLED
+- **Implementation:** G01-G06 IMPLEMENTED; G02-G06 DIRECT EVIDENCE RECORDED; G07 NOT STARTED
 
 ## Acceptance vocabulary
 
@@ -27,9 +27,9 @@ No inferred PASS is permitted.
 | R13-AC-001 | Starting production baseline is `16509abed...`; implementation repository baseline is re-anchored to `15d50fa0...`; no R0C13 implementation precedes protected scope approval | branch/compare/commit evidence | S0/G01 | PASS |
 | R13-AC-002 | Finance remains source of truth for accounting invoices/payments/ledger | `R0C13ArchitectureBoundaryTest.r0c13BillingMustNotWriteFinanceTablesDirectly` + Finance-owned `SubscriptionFinanceAdapter`; G03 suite 6/0/0/0 and Finance regression 11/0/0/0; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
 | R13-AC-003 | No parallel GL/accounting model introduced | G02 schema foundation + `R0C13ArchitectureBoundaryTest.r0c13FinanceAdapterMustNotWriteJournalOrLedgerTables`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
-| R13-AC-004 | `billing_invoices` remains compatible with existing dunning | regression tests | G03/G06 | NOT_STARTED |
-| R13-AC-005 | `BillingStateService` remains sole billing-state authority | writer scan + tests | G06 | NOT_STARTED |
-| R13-AC-006 | `SubscriptionCommandService` remains lifecycle single writer | writer scan + tests | G06 | NOT_STARTED |
+| R13-AC-004 | `billing_invoices` remains compatible with existing dunning | `R0C13G06SettlementReconciliationPostgresTest.providerFailureLeavesInvoiceOpenAndDunningOwnedStateUnchanged` + `R0C13ArchitectureBoundaryTest.g06DunningCadenceAndGraceSemanticsMustRemainUnchanged`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G03/G06 | PASS |
+| R13-AC-005 | `BillingStateService` remains sole billing-state authority | `R0C13ArchitectureBoundaryTest.g06BillingAndLifecycleWritersMustRemainUnique` + `BillingStateServiceIntegrationTest` 8/0/0/0; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-AC-006 | `SubscriptionCommandService` remains lifecycle single writer | `R0C13ArchitectureBoundaryTest.g06BillingAndLifecycleWritersMustRemainUnique` + `LifecycleSingleWriterPostgresTest` 19/0/0/0; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
 | R13-AC-007 | Commerce `PaymentGatewayPort` contract remains unchanged | API diff + commerce tests | G04/G08 | NOT_STARTED |
 | R13-AC-008 | SaaS billing provider contract uses integer minor units | `R0C13G04BillingProviderContractTest.testAdapterUsesMinorUnitsAndIdempotentReferences` + `R0C13ArchitectureBoundaryTest.providerDomainMustNotUseBigDecimalForChargeOrRefundMoney`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G04 | PASS |
 | R13-AC-009 | R0C13 implementation is additive/backward-compatible | API/schema diff | G08 | NOT_STARTED |
@@ -59,12 +59,12 @@ No inferred PASS is permitted.
 | R13-FIN-001 | one billing invoice maps to at most one Finance invoice | DB unique linkage + `R0C13G03FinanceIntegrationPostgresTest.replayCreatesExactlyOneFinanceInvoiceAndOneLine`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
 | R13-FIN-002 | integration replay creates no duplicate Finance invoice | `R0C13G03FinanceIntegrationPostgresTest.replayCreatesExactlyOneFinanceInvoiceAndOneLine`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
 | R13-FIN-003 | settlement replay creates no duplicate Finance payment | `R0C13G03FinanceIntegrationPostgresTest.settlementReplayCreatesExactlyOneCompletedFinancePayment`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
-| R13-FIN-004 | amount mismatch fails closed | test | G03/G06 | NOT_STARTED |
-| R13-FIN-005 | currency mismatch fails closed | test | G03/G06 | NOT_STARTED |
+| R13-FIN-004 | amount mismatch fails closed | `R0C13G06SettlementReconciliationPostgresTest.amountAndCurrencyMismatchFailClosedBeforeFinanceOrLifecycleMutation`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G03/G06 | PASS |
+| R13-FIN-005 | currency mismatch fails closed | `R0C13G06SettlementReconciliationPostgresTest.amountAndCurrencyMismatchFailClosedBeforeFinanceOrLifecycleMutation`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G03/G06 | PASS |
 | R13-FIN-006 | cross-tenant invoice/payment link fails | `R0C13G03FinanceIntegrationPostgresTest.crossTenantBillingInvoiceCannotBeLinked` + `sameTenantForeignKeyRejectsCrossTenantFinanceInvoice`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
 | R13-FIN-007 | subscription package does not write Finance journal tables directly | `R0C13ArchitectureBoundaryTest.r0c13BillingMustNotWriteFinanceTablesDirectly` + `r0c13FinanceAdapterMustNotWriteJournalOrLedgerTables`; exact head `9388c140f42844ae4949565d4dbb6286a53c7b46`; CI `34623561685`; Maven `103343100356`; PostgreSQL Direct `103343100450`; CRM `103343100072`; Surefire `10273874809` | G03 | PASS |
 | R13-FIN-008 | Finance regression suite remains green | FinanceModuleIntegrationTest + full suite | G03/G08 | NOT_STARTED |
-| R13-FIN-009 | provider settlement is reflected in authoritative Finance payment before lifecycle recovery | integration test | G06 | NOT_STARTED |
+| R13-FIN-009 | provider settlement is reflected in authoritative Finance payment before lifecycle recovery | `R0C13G06SettlementReconciliationPostgresTest.providerSuccessSettlesFinanceThenProjectionThenCanonicalLifecycle` + `R0C13G06RequiredContractsRedTest.settlementMustConvergeFinanceBeforeCanonicalBillingRecovery`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
 
 ## D. Provider integration acceptance
 
@@ -139,17 +139,46 @@ acceptance rows had not been carried into this ledger. The rows marked PASS abov
 
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
-| R13-LC-001 | provider code never writes subscription status directly | writer scan + ArchUnit | G06 | NOT_STARTED |
-| R13-LC-002 | provider code never writes billing_state directly | writer scan + ArchUnit | G06 | NOT_STARTED |
-| R13-LC-003 | successful settlement can recover valid PAST_DUE/SUSPENDED through canonical path | PG integration test | G06 | NOT_STARTED |
-| R13-LC-004 | terminal subscription cannot be resurrected by late payment | PG negative test | G06 | NOT_STARTED |
-| R13-LC-005 | historical subscription invoice cannot dunn/recover successor | R0C10 regression | G06/G08 | NOT_STARTED |
-| R13-LC-006 | existing dunning cadence/grace semantics unchanged | regression tests | G06 | NOT_STARTED |
-| R13-LC-007 | reconciliation detects amount mismatch | reconciliation test | G06 | NOT_STARTED |
-| R13-LC-008 | reconciliation detects currency mismatch | reconciliation test | G06 | NOT_STARTED |
-| R13-LC-009 | reconciliation detects missing Finance/provider linkage | tests | G06 | NOT_STARTED |
-| R13-LC-010 | reconciliation is read-only by default | transaction/write-count proof | G06 | NOT_STARTED |
-| R13-LC-011 | repair action requires explicit capability + audit | API/security test | G06/G07 | NOT_STARTED |
+| R13-LC-001 | provider code never writes subscription status directly | `R0C13ArchitectureBoundaryTest.r0c13BillingMustNotWriteSubscriptionLifecycleOrBillingStateDirectly` + `g06BillingAndLifecycleWritersMustRemainUnique`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-002 | provider code never writes billing_state directly | `R0C13ArchitectureBoundaryTest.r0c13BillingMustNotWriteSubscriptionLifecycleOrBillingStateDirectly` + `g06BillingAndLifecycleWritersMustRemainUnique`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-003 | successful settlement can recover valid PAST_DUE/SUSPENDED through canonical path | G06 `providerSuccessSettlesFinanceThenProjectionThenCanonicalLifecycle` proves PAST_DUE recovery; `BillingStateServiceIntegrationTest.evaluateAndTransition_recoversToCurrentWhenAllInvoicesPaid` + `SubscriptionLifecycleTest` PAYMENT_RECEIVED SUSPENDED→ACTIVE prove suspended canonical recovery; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-004 | terminal subscription cannot be resurrected by late payment | `R0C13G06SettlementReconciliationPostgresTest.lateSuccessfulPaymentCannotResurrectTerminalSubscription`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-005 | historical subscription invoice cannot dunn/recover successor | `R0C13G06SettlementReconciliationPostgresTest.historicalSubscriptionPaymentCannotDunnOrRecoverSuccessor`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06/G08 | PASS |
+| R13-LC-006 | existing dunning cadence/grace semantics unchanged | `R0C13ArchitectureBoundaryTest.g06DunningCadenceAndGraceSemanticsMustRemainUnchanged` + `BillingStateServiceIntegrationTest` 8/0/0/0; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-007 | reconciliation detects amount mismatch | `R0C13G06SettlementReconciliationPostgresTest.reconciliationDetectsAmountCurrencyAndMissingProviderReference`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-008 | reconciliation detects currency mismatch | `R0C13G06SettlementReconciliationPostgresTest.reconciliationDetectsAmountCurrencyAndMissingProviderReference`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-009 | reconciliation detects missing Finance/provider linkage | `reconciliationDetectsMissingFinanceAndIsReadOnlyReplaySafe` + `reconciliationDetectsAmountCurrencyAndMissingProviderReference`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-010 | reconciliation is read-only by default | `R0C13G06SettlementReconciliationPostgresTest.reconciliationDetectsMissingFinanceAndIsReadOnlyReplaySafe` + `R0C13G06RequiredContractsRedTest.reconciliationMustBeReadOnlyOutsideItsEvidenceTables`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06 | PASS |
+| R13-LC-011 | repair action requires explicit capability + audit | Deferred by approved G06 design: G06 exposes no repair API/action; capability + audit acceptance belongs to G07 | G06/G07 | NOT_STARTED |
+
+
+## F.1 G06 exact-head implementation evidence
+
+G06 implementation was proven on exact tested head
+`a7b637318425f771bae71fdddeb64accd5678313` before the final documentation/main re-anchor.
+
+- **CI:** `34662026186` — SUCCESS
+- **Compile Diagnostics:** `34662025960` — SUCCESS
+- **Maven:** `103466325831` — SUCCESS
+- **PostgreSQL Direct:** `103466325979` — SUCCESS
+- **CRM Integration:** `103466325898` — SUCCESS
+- **Surefire artifact:** `10288467878`
+- **Aggregate:** 3403 tests / 0 failures / 0 errors / 31 skipped
+- **R0C13G06SettlementReconciliationPostgresTest:** 10 / 0 / 0 / 0
+- **R0C13G06RequiredContractsRedTest:** 4 / 0 / 0 / 0
+- **R0C13ArchitectureBoundaryTest:** 19 / 0 / 0 / 0
+- **BillingStateServiceIntegrationTest:** 8 / 0 / 0 / 0
+- **LifecycleSingleWriterPostgresTest:** 19 / 0 / 0 / 0
+- **SubscriptionLifecycleTest:** 43 / 0 / 0 / 0
+- **Sensitive sentinel leakage:** 0
+- **G06 rows promoted here:** 18 direct predicates.
+- **Not promoted:** `R13-LC-011` remains `NOT_STARTED` because repair capability + audit is a G07 surface and no repair action/API is introduced by G06.
+
+The final certification head additionally incorporates protected-main commit
+`56827d76b3383c17e81ed545dbff2cc51f4cf7cb`, whose only drift file is the
+unrelated HR test `HrApiV2AssignmentContractTest.java`. Final G06 closure still
+requires exact-head CI success on the combined certification commit; no PASS is
+inferred from this parent evidence alone.
 
 ## G. RBAC / API / UI acceptance
 
@@ -172,8 +201,8 @@ acceptance rows had not been carried into this ledger. The rows marked PASS abov
 
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
-| R13-FI-001 | concurrent duplicate webhooks yield one settlement | PG concurrency test | G06/G09 | NOT_STARTED |
-| R13-FI-002 | webhook/reconciliation race converges deterministically | PG concurrency test | G06/G09 | NOT_STARTED |
+| R13-FI-001 | concurrent duplicate webhooks yield one settlement | `R0C13G06SettlementReconciliationPostgresTest.concurrentDuplicateSuccessWebhookCreatesExactlyOneSettlement` (6 callers → one Finance settlement); exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06/G09 | PASS |
+| R13-FI-002 | webhook/reconciliation race converges deterministically | `R0C13G06SettlementReconciliationPostgresTest.webhookAndReconciliationRaceConvergesDeterministicallyToMatched`; exact tested head `a7b637318425f771bae71fdddeb64accd5678313`; CI `34662026186`; Maven `103466325831`; PostgreSQL Direct `103466325979`; CRM `103466325898`; Surefire `10288467878`; aggregate 3403 / 0F / 0E / 31S | G06/G09 | PASS |
 | R13-FI-003 | Finance failure after provider success does not falsely activate subscription | failure injection | G09 | NOT_STARTED |
 | R13-FI-004 | outbox failure rolls back required local mutation | failure injection | G09 | NOT_STARTED |
 | R13-FI-005 | audit failure rolls back required privileged mutation | failure injection | G09 | NOT_STARTED |
