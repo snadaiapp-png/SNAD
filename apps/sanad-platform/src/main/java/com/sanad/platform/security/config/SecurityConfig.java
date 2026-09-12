@@ -73,12 +73,20 @@ public class SecurityConfig {
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/forgot-password",
                                 "/api/v1/auth/reset-password",
-                                "/actuator/health",
-                                "/actuator/health/**",
+                                // R2 Secure External Action Portal: token-gated
+                                // (opaque one-time token IS the capability; no
+                                // SNAD session). The portal service enforces
+                                // rate limits, replay protection, expiry,
+                                // revocation, and audit logging server-side.
+                                "/api/v1/workflows/external/portal/view",
+                                "/api/v1/workflows/external/portal/respond",
+                                "/api/v1/workflows/external/portal/otp",
                                 // R0C13 provider webhook: intentionally JWT-free.
                                 // The controller rejects the request unless the configured
                                 // provider adapter verifies the raw-body signature first.
                                 "/api/v1/billing/provider/webhook",
+                                "/actuator/health",
+                                "/actuator/health/**",
                                 // One-time, token-gated Control Plane admin bootstrap.
                                 // The endpoint itself enforces CONTROL_PLANE_BOOTSTRAP_ENABLED
                                 // and a constant-time check against CONTROL_PLANE_BOOTSTRAP_TOKEN;

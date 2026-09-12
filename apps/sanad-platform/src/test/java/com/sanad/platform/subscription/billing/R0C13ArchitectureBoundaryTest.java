@@ -47,9 +47,9 @@ class R0C13ArchitectureBoundaryTest {
     private static final Path BILLING_WEBHOOK_SERVICE =
             Path.of("src/main/java/com/sanad/platform/subscription/billing/application/BillingWebhookService.java");
     private static final Path G02_FOUNDATION_MIGRATION =
-            Path.of("src/main/resources/db/migration/V20260912_1__r0c13_subscription_billing_foundation.sql");
+            Path.of("src/main/resources/db/migration/V20260912_4__r0c13_subscription_billing_foundation.sql");
     private static final Path G05_WEBHOOK_MIGRATION =
-            Path.of("src/main/resources/db/migration/V20260912_2__r0c13_verified_webhook_resolution.sql");
+            Path.of("src/main/resources/db/migration/V20260912_5__r0c13_verified_webhook_resolution.sql");
 
     private static final Pattern DIRECT_FINANCE_SQL = Pattern.compile(
             "(?is)\\b(?:insert\\s+into|update|delete\\s+from)\\s+"

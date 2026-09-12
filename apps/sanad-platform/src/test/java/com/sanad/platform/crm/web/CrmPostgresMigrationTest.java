@@ -196,11 +196,18 @@ class CrmPostgresMigrationTest {
     private static final String R1_MODULE_ENTITLEMENT_POLICY_VERSION = "20260911.1";
     private static final String R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION = "20260911.2";
     private static final String R1_JOURNEY_TIME_GOVERNANCE_VERSION = "20260911.3";
-    // R0C13 re-anchor after protected-main R1 migration namespace claim.
-    private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.1";
-    private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.2";
-    // R13-G07.0 corrective: PROVIDER_UNAVAILABLE reconciliation classification.
-    private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.3";
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only R2 migrations added
+    // after prior sentinel baseline: V20260912_1 (workflow notification
+    // foundation), V20260912_2 (workflow external portal feedback), and
+    // V20260912_3 (workflow analytics projections) extend the merged ledger;
+    // the sentinel still validates the entire sequence exactly and the
+    // expected head remains explicit (20260912.3).
+    private static final String R2_NOTIFICATION_FOUNDATION_VERSION = "20260912.1";
+    private static final String R2_EXTERNAL_PORTAL_FEEDBACK_VERSION = "20260912.2";
+    private static final String R2_ANALYTICS_PROJECTIONS_VERSION = "20260912.3";
+    private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.4";
+    private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.5";
+    private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.6";
     private static final String LATEST_MIGRATION_VERSION = R0C13_G07_PROVIDER_UNAVAILABLE_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
@@ -439,11 +446,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
                         MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
+                        MigrationVersion.fromVersion(R2_NOTIFICATION_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R2_EXTERNAL_PORTAL_FEEDBACK_VERSION),
+                        MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
-                        // TEST_ALIGNMENT_REASON = R13-G07.0 corrective claims
-                        // 20260912.3 (PROVIDER_UNAVAILABLE classification);
-                        // the pending-list sentinel remains exhaustive.
                         MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -620,11 +627,11 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
                         MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
+                        MigrationVersion.fromVersion(R2_NOTIFICATION_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R2_EXTERNAL_PORTAL_FEEDBACK_VERSION),
+                        MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
-                        // TEST_ALIGNMENT_REASON = R13-G07.0 corrective claims
-                        // 20260912.3 (PROVIDER_UNAVAILABLE classification);
-                        // the pending-list sentinel remains exhaustive.
                         MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
         completion.migrate();
         completion.validate();

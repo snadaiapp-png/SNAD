@@ -90,11 +90,17 @@ class Crm008bFoundationAcceptanceTest {
     //   migrations added after the Wave-2 baseline):
     //   V20260911_1 = module entitlement policy (WORKFLOW EXPLICIT_OPT_IN).
     //   V20260911_2 = attachments + external participation foundation.
-    //   V20260911_3 = workflow journey/time governance (current terminal
-    //                 migration).
-    // R0C13 re-anchor: protected main owns 20260911.1..3 (R1); unmerged
-    // R0C13 migration identities continue forward at 20260912.1..2.
-    private static final String CRM_LATEST_VERSION = "20260912.3"; // Terminal versioned migration: V20260912_3 adds R13-G07.0 PROVIDER_UNAVAILABLE reconciliation classification
+    //   V20260911_3 = workflow journey/time governance.
+    // R2 closure (TEST_ALIGNMENT_REASON = legitimate forward-only R2
+    //   migrations added after the R1 baseline):
+    //   V20260912_1 = workflow notification foundation.
+    //   V20260912_2 = workflow external portal feedback.
+    //   V20260912_3 = workflow analytics projections.
+    // R0C13 closure continues the same forward-only ledger:
+    //   V20260912_4 = subscription billing persistence foundation.
+    //   V20260912_5 = verified provider-webhook resolution.
+    //   V20260912_6 = provider-unavailable reconciliation classification (current terminal migration).
+    private static final String CRM_LATEST_VERSION = "20260912.6"; // Terminal versioned migration: V20260912_6 adds R0C13 G07 provider-unavailable reconciliation classification
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");

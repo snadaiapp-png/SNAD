@@ -47,12 +47,32 @@ final class WorkflowTenantFixtureSweeper {
      * test can assert zero residue for every swept table.
      */
     static final List<String> SWEPT_TABLES = List.of(
+            // R2 experience layer (notification/portal/analytics/feedback) —
+            // children of instances/actions/participants where applicable;
+            // swept before their FK parents below.
+            "workflow_user_notifications",
+            "workflow_portal_otp_challenges",
+            "workflow_portal_access_log",
+            "workflow_customer_feedback",
+            "workflow_analytics_step_facts",
+            "workflow_analytics_process_facts",
+            "workflow_webhook_endpoints",
+            "workflow_notification_policies",
             // Workflow runtime children
             "workflow_transition_audit",
             "workflow_execution_attempts",
             "workflow_work_item_candidates",
             "workflow_work_items",
             "workflow_notification_intents",
+            "workflow_external_actions",
+            "workflow_external_participants",
+            // workflow_journey is DB-enforced append-only (R1.35): row-level
+            // DELETE is forbidden by the immutability trigger. Harness cleanup
+            // follows the WorkflowJourneyTimeGovernanceTest precedent
+            // (TRUNCATE bypasses row-level triggers; DB is a disposable,
+            // freshly-migrated per-run fixture surface — see below).
+            "workflow_responsibility_segments",
+            "workflow_timers",
             "workflow_approval_requests",
             "workflow_incidents",
             "workflow_event_inbox",
@@ -96,6 +116,11 @@ final class WorkflowTenantFixtureSweeper {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+            // Journey (append-only, trigger-guarded): TRUNCATE is the only
+            // harness-legal cleanup — same precedent as
+            // WorkflowJourneyTimeGovernanceTest @AfterEach. The test database
+            // is disposable and freshly migrated for every run.
+            jdbc.execute("TRUNCATE workflow_journey");
             for (String table : SWEPT_TABLES) {
                 jdbc.update("DELETE FROM " + table + " WHERE tenant_id = ?", tenantId);
             }

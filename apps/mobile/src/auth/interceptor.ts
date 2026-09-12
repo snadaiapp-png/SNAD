@@ -90,15 +90,15 @@ export class AuthInterceptor {
 
   /**
    * Attempt to refresh the access token.
+   *
+   * R2-I: delegates to TokenManager.refreshSession() which performs the
+   * REAL HTTP refresh (POST /api/v1/auth/refresh, X-SANAD-Refresh-Token
+   * header + {refreshToken} body) with single-flight semantics —
+   * concurrent callers share one round-trip and rotation is persisted.
    */
   private async attemptRefresh(): Promise<boolean> {
     try {
-      const refreshToken = await this.tokenManager.getRefreshToken();
-      if (!refreshToken) return false;
-
-      // Call refresh endpoint (actual implementation would use fetch)
-      // For now, we trust the TokenManager to handle this
-      return true;
+      return await this.tokenManager.refreshSession();
     } catch {
       return false;
     }

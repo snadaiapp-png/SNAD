@@ -255,15 +255,18 @@ class CrmFlywayHistoryAssertionTest {
             , "20260911.1"   // R1 module entitlement policy (WORKFLOW EXPLICIT_OPT_IN)
             , "20260911.2"   // R1 attachments + external participation foundation
             , "20260911.3"   // R1 workflow journey/time governance
-            // TEST_ALIGNMENT_REASON = R0C13 branch re-anchored after R1 claimed
-            // 20260911.1..3 on protected main; R0C13 migration semantics unchanged.
-            , "20260912.1"   // r0c13 subscription billing persistence foundation
-            , "20260912.2"   // r0c13 verified provider-webhook SELECT-only RLS resolution
-            // TEST_ALIGNMENT_REASON = R13-G07.0 corrective claims 20260912.3:
-            // PROVIDER_UNAVAILABLE reconciliation classification (fail-closed
-            // DISABLED-mode semantics). The expected head remains explicit —
-            // the sentinel is not weakened.
-            , "20260912.3"   // r0c13 G07.0 provider-unavailable reconciliation classification
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only R2 migrations
+            // added after prior sentinel baseline (V20260912_1..3: workflow
+            // notification foundation, external portal feedback, analytics
+            // projections). The expected head remains explicit — the sentinel
+            // is not weakened.
+            , "20260912.1"   // R2 workflow notification foundation
+            , "20260912.2"   // R2 workflow external portal feedback
+            , "20260912.3"   // R2 workflow analytics projections
+            // R0C13 forward-only continuation after the R2 ledger claim.
+            , "20260912.4"   // r0c13 subscription billing persistence foundation
+            , "20260912.5"   // r0c13 verified provider-webhook SELECT-only RLS resolution
+            , "20260912.6"   // r0c13 G07 provider-unavailable reconciliation classification
     );
 
 

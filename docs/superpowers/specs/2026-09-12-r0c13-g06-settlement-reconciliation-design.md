@@ -90,8 +90,8 @@ No exception swallowing is permitted across the settlement convergence boundary.
 
 The protected main moved during G06 and introduced Flyway `20260911.1..3`. R0C13 migrations were not merged to protected main, so their repository identities are re-anchored without changing migration semantics to:
 
-- `V20260912_1__r0c13_subscription_billing_foundation.sql`
-- `V20260912_2__r0c13_verified_webhook_resolution.sql`
+- `V20260912_4__r0c13_subscription_billing_foundation.sql`
+- `V20260912_5__r0c13_verified_webhook_resolution.sql`
 
 All Flyway sentinels must assert the exact combined sequence. No `flyway repair`, out-of-order execution, history mutation, or production DDL is authorized.
 

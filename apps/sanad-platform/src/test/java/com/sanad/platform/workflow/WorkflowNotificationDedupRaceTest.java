@@ -87,7 +87,8 @@ class WorkflowNotificationDedupRaceTest {
         jdbc = new JdbcTemplate(dataSource);
         transactionManager = new DataSourceTransactionManager(dataSource);
         tx = new TransactionTemplate(transactionManager);
-        notifications = new WorkflowNotificationService(jdbc);
+        notifications = new WorkflowNotificationService(jdbc,
+                new com.fasterxml.jackson.databind.ObjectMapper());
     }
 
     /** Tenant + user + published Y2 definition + one running instance. */

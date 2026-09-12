@@ -59,9 +59,18 @@ class PlatformApiCountTest {
      *  + 1 Workflow R1 dynamic Designer module catalog
      *  (GET /api/v1/workflows/catalog/modules, WORKFLOW.VIEW + paid entitlement
      *  gated; R1 GATE R1.10 replaces the static frontend module list) = 829.
-     *  + 1 R0C13 R13-G05 signed provider webhook ingress
-     *  (POST /api/v1/billing/provider/webhook) = 830. */
-    private static final long EXPECTED_TOTAL_OPS = 830;
+     *  + 24 Workflow R2 experience-intelligence endpoints (PR #1026; STALE_GATE_ASSUMPTION
+     *  per CI 34698941545, expected 829 was 853): notifications (9: GET feed,
+     *  GET unread-count, POST {id}/read, POST read-all, GET policies,
+     *  POST policies, GET webhook-endpoints, POST webhook-endpoints,
+     *  POST webhook-endpoints/{id}/status), external portal (4: POST view,
+     *  POST respond, POST otp, GET status), analytics (8: GET dashboards
+     *  service/employee/executive/bottleneck/sla/customer, POST rebuild,
+     *  GET metrics/employee/{employeeId}), ai-context (1: GET
+     *  instance/{instanceId}), customer feedback (2: POST + GET) = 853.
+     *  + 1 R0C13 signed provider webhook ingress
+     *  (POST /api/v1/billing/provider/webhook) = 854. */
+    private static final long EXPECTED_TOTAL_OPS = 854;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
