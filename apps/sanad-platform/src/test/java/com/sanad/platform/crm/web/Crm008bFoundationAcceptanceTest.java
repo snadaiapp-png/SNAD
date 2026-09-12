@@ -90,9 +90,14 @@ class Crm008bFoundationAcceptanceTest {
     //   migrations added after the Wave-2 baseline):
     //   V20260911_1 = module entitlement policy (WORKFLOW EXPLICIT_OPT_IN).
     //   V20260911_2 = attachments + external participation foundation.
-    //   V20260911_3 = workflow journey/time governance (current terminal
+    //   V20260911_3 = workflow journey/time governance.
+    // R2 closure (TEST_ALIGNMENT_REASON = legitimate forward-only R2
+    //   migrations added after the R1 baseline):
+    //   V20260912_1 = workflow notification foundation.
+    //   V20260912_2 = workflow external portal feedback.
+    //   V20260912_3 = workflow analytics projections (current terminal
     //                 migration).
-    private static final String CRM_LATEST_VERSION = "20260911.3"; // Terminal versioned migration: V20260911_3 adds R1 workflow journey/time governance
+    private static final String CRM_LATEST_VERSION = "20260912.3"; // Terminal versioned migration: V20260912_3 adds R2 workflow analytics projections
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
