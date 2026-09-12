@@ -21,6 +21,8 @@ import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
@@ -53,6 +55,8 @@ import java.util.UUID;
 /** SaaS administration engine for plans, entitlements, subscriptions, upgrades, and invoices. */
 @Service
 public class SaasAdministrationService {
+
+    private static final Logger log = LoggerFactory.getLogger(SaasAdministrationService.class);
 
     private static final Set<String> PLAN_STATUSES = Set.of("ACTIVE", "INACTIVE", "ARCHIVED");
     private static final Set<String> SUBSCRIPTION_STATUSES = Set.of(
@@ -120,6 +124,33 @@ public class SaasAdministrationService {
                 changeService, commandService,
                 new SubscriptionResolutionService(jdbcTemplate),
                 new ExpiredSuccessorGate());
+    }
+
+    /**
+     * Run billing-state recovery only after the invoice payment is durable.
+     * BillingStateService uses REQUIRES_NEW for this callback because Spring
+     * invokes afterCommit before the original transactional resources are
+     * fully cleaned up.
+     */
+    private void scheduleBillingReevaluationAfterCommit(UUID tenantId) {
+        Runnable reevaluate = () -> {
+            try {
+                billingStateService.evaluateAndTransitionAfterCommit(tenantId);
+            } catch (Exception e) {
+                log.error("Invoice payment committed but billing-state re-evaluation failed for tenant {}",
+                        tenantId, e);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    reevaluate.run();
+                }
+            });
+        } else {
+            reevaluate.run();
+        }
     }
 
     /**
@@ -709,13 +740,11 @@ public class SaasAdministrationService {
         InvoiceResponse after = getInvoice(invoiceId);
         auditService.success(authentication, before.tenantId(), "INVOICE.MARK.PAID", "BILLING_INVOICE",
                 invoiceId.toString(), request.reason(), before, after);
-        // Trigger billing-state re-evaluation — successful payment may transition
-        // PAST_DUE → CURRENT or SUSPENDED → CURRENT.
-        try {
-            billingStateService.evaluateAndTransition(before.tenantId());
-        } catch (Exception ignored) {
-            // best-effort — invoice is already paid; do not roll back
-        }
+        // Billing recovery is intentionally AFTER COMMIT. Running the
+        // BillingStateService inside this transaction would join the payment
+        // transaction; a downstream runtime/SQL failure could mark it
+        // rollback-only even if caught here and undo the successful payment.
+        scheduleBillingReevaluationAfterCommit(before.tenantId());
         return after;
     }
 
