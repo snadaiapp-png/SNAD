@@ -97,7 +97,7 @@ class WorkflowR2AnalyticsTest {
     }
 
     private record Fixture(UUID tenant, UUID user, UUID employee, UUID instance,
-                           UUID stepInstance, UUID workItem, UUID segment,
+                           UUID stepId, UUID stepInstance, UUID workItem, UUID segment,
                            UUID timer) {}
 
     /**
@@ -113,6 +113,7 @@ class WorkflowR2AnalyticsTest {
         UUID employee = UUID.randomUUID();
         UUID definition = UUID.randomUUID();
         UUID instance = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
         UUID stepInstance = UUID.randomUUID();
         UUID workItem = UUID.randomUUID();
         UUID segment = UUID.randomUUID();
@@ -126,6 +127,18 @@ class WorkflowR2AnalyticsTest {
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
                         + "created_at,updated_at) VALUES (?, ?, ?, 'R2 An', 'ACTIVE', 'dummy', ?, ?)",
                 user, tenant, "r2-an-" + user.toString().substring(0, 8) + "@test", now, now);
+        // hr_employees is FORCE RLS (fail-closed): seed under the tenant GUC,
+        // identical to the platform seeding path (tenantTx + set_config).
+        tx.executeWithoutResult(status -> {
+            jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
+            jdbc.update("""
+                    INSERT INTO hr_employees (
+                        id, tenant_id, user_id, employee_number, first_name, last_name,
+                        display_name, employment_type, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'R2', 'Fixture', 'R2 Fixture', 'FULL_TIME', 'ACTIVE', ?, NOW())
+                    """, employee, tenant, user,
+                    "R2-" + employee.toString().substring(0, 8), now);
+        });
         jdbc.update("""
                 INSERT INTO workflow_definitions (
                     id, tenant_id, definition_family_id, code, name, module, version, status,
@@ -134,6 +147,13 @@ class WorkflowR2AnalyticsTest {
                 ) VALUES (?, ?, ?, 'WF-R2-AN', 'R2Analytics', 'GENERAL', 1, 'ACTIVE',
                           'EVENT', ?, 0, 'Y2', 'PUBLISHED', 1, ?, ?)
                 """, definition, tenant, definition, user, now, now);
+        jdbc.update("""
+                INSERT INTO workflow_steps (
+                    id, tenant_id, workflow_definition_id, step_key, name, step_type,
+                    sequence_order, configuration, sla_hours, version, created_at, updated_at)
+                VALUES (?, ?, ?, 'review-step', 'Review step', 'HUMAN_TASK', 1,
+                        CAST('{}' AS jsonb), NULL, 0, ?, NOW())
+                """, stepId, tenant, definition, Timestamp.from(start));
         jdbc.update("""
                 INSERT INTO workflow_instances (
                     id, tenant_id, workflow_definition_id, workflow_version, business_entity_type,
@@ -146,8 +166,8 @@ class WorkflowR2AnalyticsTest {
                 INSERT INTO workflow_step_instances (
                     id, tenant_id, workflow_instance_id, workflow_step_id, step_key,
                     status, version, created_at, updated_at)
-                VALUES (?, ?, ?, gen_random_uuid(), 'review-step', 'IN_PROGRESS', 0, ?, NOW())
-                """, stepInstance, tenant, instance, Timestamp.from(start));
+                VALUES (?, ?, ?, ?, 'review-step', 'IN_PROGRESS', 0, ?, NOW())
+                """, stepInstance, tenant, instance, stepId, Timestamp.from(start));
         jdbc.update("""
                 INSERT INTO workflow_work_items (
                     id, tenant_id, workflow_instance_id, workflow_step_instance_id, type,
@@ -190,7 +210,7 @@ class WorkflowR2AnalyticsTest {
         appendJourney(tenant, instance, "TASK_REASSIGNED", "tr:" + instance, start);
         appendJourney(tenant, instance, "TIMEOUT_EVENT", "te:" + timer, start);
         createdTenants.add(tenant);
-        return new Fixture(tenant, user, employee, instance, stepInstance,
+        return new Fixture(tenant, user, employee, instance, stepId, stepInstance,
                 workItem, segment, timer);
     }
 
@@ -244,7 +264,8 @@ class WorkflowR2AnalyticsTest {
         projectionService.projectInstance(fx.tenant(), fx.instance());
         Map<String, Object> rebuilt = jdbc.queryForMap("""
                 SELECT sla_breach_count, timeout_count, reassignment_count,
-                       customer_wait_seconds, employee_responsibility_seconds
+                       customer_wait_seconds, employee_responsibility_seconds,
+                       derived_from_event_id
                   FROM workflow_analytics_process_facts
                  WHERE tenant_id = ? AND workflow_instance_id = ?
                 """, fx.tenant(), fx.instance());
@@ -316,19 +337,21 @@ class WorkflowR2AnalyticsTest {
         jdbc.update("""
                 INSERT INTO workflow_timers (
                     id, tenant_id, scope, scope_id, purpose, state, policy,
-                    due_at, workflow_instance_id, created_at, updated_at)
+                    due_at, workflow_instance_id, work_item_id, created_at, updated_at)
                 VALUES (?, ?, 'WORK_ITEM', ?, 'EXECUTION_DEADLINE', 'RUNNING',
-                        'WARN_ONLY', NOW() + INTERVAL '1 hour', ?, NOW(), NOW())
-                """, warningTimer, fx.tenant(), fx.workItem(), fx.instance());
+                        'WARN_ONLY', NOW() + INTERVAL '1 hour', ?, ?, NOW(), NOW())
+                """, warningTimer, fx.tenant(), fx.workItem(), fx.instance(),
+                fx.workItem());
         // REMINDER window: due in 48 hours (inside 72h reminder window)
         UUID reminderTimer = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO workflow_timers (
                     id, tenant_id, scope, scope_id, purpose, state, policy,
-                    due_at, workflow_instance_id, created_at, updated_at)
+                    due_at, workflow_instance_id, work_item_id, created_at, updated_at)
                 VALUES (?, ?, 'WORK_ITEM', ?, 'EXECUTION_DEADLINE', 'RUNNING',
-                        'MONITOR_ONLY', NOW() + INTERVAL '48 hours', ?, NOW(), NOW())
-                """, reminderTimer, fx.tenant(), fx.workItem(), fx.instance());
+                        'MONITOR_ONLY', NOW() + INTERVAL '48 hours', ?, ?, NOW(), NOW())
+                """, reminderTimer, fx.tenant(), fx.workItem(), fx.instance(),
+                fx.workItem());
         int enqueued = tx.execute(s -> timerWorker.runScan());
         assertThat(enqueued).isGreaterThanOrEqualTo(2);
         // dedup: repeated scan collapses to the same intents (no spam)

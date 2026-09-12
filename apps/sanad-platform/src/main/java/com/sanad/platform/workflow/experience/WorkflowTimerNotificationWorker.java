@@ -96,6 +96,14 @@ public class WorkflowTimerNotificationWorker {
     /** Reminder (T-72h), warning (T-24h), breach (due passed) stages. */
     private int scanTenant(UUID tenantId) {
         int enqueued = 0;
+        // Recipient resolution reads hr_employees, which is FORCE RLS
+        // (fail-closed): establish the transaction-local tenant GUC exactly
+        // like the platform seeding path. workflow_* tables are non-FORCE
+        // RLS and unaffected for the schema owner; the GUC is re-established
+        // per tenant so a multi-tenant scan can never leak hr rows across
+        // tenants.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         List<Map<String, Object>> timers = jdbc.queryForList("""
                 SELECT id, state, policy, due_at, breached_at, workflow_instance_id,
                        work_item_id, external_action_id, correlation_id
@@ -157,6 +165,10 @@ public class WorkflowTimerNotificationWorker {
         int enqueued = 0;
         for (Map<String, Object> action : actions) {
             UUID actionId = (UUID) action.get("id");
+            boolean replay = !jdbc.queryForList("""
+                    SELECT id FROM workflow_notification_intents
+                     WHERE tenant_id = ? AND deduplication_key = ?
+                    """, UUID.class, tenantId, "wf-ext-rem:" + actionId).isEmpty();
             try {
                 notifications.enqueue(tenantId, new WorkflowNotificationService
                         .NotificationIntentRequest(
@@ -171,6 +183,9 @@ public class WorkflowTimerNotificationWorker {
                         null, "ar", "HIGH", null,
                         null, actionId, "wf-ext-rem:" + actionId,
                         Map.of("externalActionId", actionId.toString())));
+                if (replay) {
+                    continue;
+                }
                 journeyService.append(tenantId, new WorkflowJourneyService.JourneyEvent(
                         "REMINDER_SENT", (UUID) action.get("workflow_instance_id"),
                         null, null, actionId, null, null, null, null, null, null,
@@ -195,11 +210,26 @@ public class WorkflowTimerNotificationWorker {
         UUID instanceId = (UUID) timer.get("workflow_instance_id");
         UUID workItemId = (UUID) timer.get("work_item_id");
         UUID externalActionId = (UUID) timer.get("external_action_id");
+        // Journey evidence is recorded exactly once per stage: the replay
+        // path (dedup hit on an existing intent) must NOT re-append evidence
+        // — uk_wf_journey_event_key would reject the duplicate and abort the
+        // whole tenant scan. Repeated scans therefore stay silent no-ops.
+        boolean replay = !jdbc.queryForList("""
+                SELECT id FROM workflow_notification_intents
+                 WHERE tenant_id = ? AND deduplication_key = ?
+                """, UUID.class, tenantId, dedupKey).isEmpty();
+        // WORK_ITEM timers notify the item's responsible user (claimant
+        // first, then assignee) resolved through hr_employees — the same
+        // resolution contract as the R1 SLA escalation service. Unresolvable
+        // recipients stay null and the dispatcher fails the intent closed
+        // (INVALID_RECIPIENT); the durable intent + journey evidence remain.
+        UUID recipientUserId = workItemId == null ? null
+                : resolveWorkItemRecipient(tenantId, workItemId);
         notifications.enqueue(tenantId, new WorkflowNotificationService
                 .NotificationIntentRequest(
                 notificationEventType,
                 instanceId, workItemId, externalActionId,
-                null, null, null,
+                recipientUserId, null, null,
                 "IN_APP",
                 dedupKey,
                 title,
@@ -208,6 +238,9 @@ public class WorkflowTimerNotificationWorker {
                 null, timerId, dedupKey,
                 Map.of("timerId", timerId.toString(),
                         "recipientType", recipientType)));
+        if (replay) {
+            return 0;
+        }
         journeyService.append(tenantId, new WorkflowJourneyService.JourneyEvent(
                 journeyEventType, instanceId, null, workItemId, externalActionId,
                 null, null, null, null, null, null, null,
@@ -216,6 +249,21 @@ public class WorkflowTimerNotificationWorker {
                 timerId, timerId,
                 journeyEventType.toLowerCase() + ":" + timerId, Map.of()));
         return 1;
+    }
+
+    /** Responsible user for a work item: claimant first, then assignee. */
+    private UUID resolveWorkItemRecipient(UUID tenantId, UUID workItemId) {
+        List<UUID> users = jdbc.query("""
+                SELECT he.user_id
+                  FROM workflow_work_items wi
+                  JOIN hr_employees he
+                    ON he.tenant_id = wi.tenant_id
+                   AND he.id = COALESCE(wi.claimed_by_employee_id, wi.assignee_employee_id)
+                 WHERE wi.tenant_id = ? AND wi.id = ?
+                 LIMIT 1
+                """, (rs, n) -> rs.getObject("user_id", java.util.UUID.class),
+                tenantId, workItemId);
+        return users.isEmpty() ? null : users.get(0);
     }
 
     private long reminderWindowSeconds() {

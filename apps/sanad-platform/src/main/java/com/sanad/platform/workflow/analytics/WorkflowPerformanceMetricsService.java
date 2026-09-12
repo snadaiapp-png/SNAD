@@ -48,8 +48,8 @@ public class WorkflowPerformanceMetricsService {
         }
         Map<String, Object> stats = jdbc.queryForMap("""
                 SELECT COUNT(*) AS segments,
-                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type IN ('ASSIGNED','CLAIMED'))), 0) AS responsibility_seconds,
+                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type IN ('ASSIGNED','CLAIMED')), 0) AS responsibility_seconds,
                        COUNT(*) FILTER (WHERE seg.segment_type = 'CLAIMED') AS claimed_segments,
                        COUNT(*) FILTER (WHERE seg.segment_type = 'ASSIGNED') AS assigned_segments
                   FROM workflow_responsibility_segments seg

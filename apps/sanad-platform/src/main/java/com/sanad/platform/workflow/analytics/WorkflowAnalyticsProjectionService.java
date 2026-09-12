@@ -106,13 +106,21 @@ public class WorkflowAnalyticsProjectionService {
                     system_wait_seconds, queue_wait_seconds,
                     employee_responsibility_seconds, calendar_id, sla_mode,
                     derived_at, derived_from_event_id, created_at, updated_at)
-                SELECT ?, ?, i.id, i.workflow_definition_id, i.definition_family_id,
-                       d.version, i.source_module, i.source_entity_type,
-                       i.source_entity_id, i.status, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                SELECT ?, ?, i.id, i.workflow_definition_id, d.definition_family_id,
+                       i.workflow_version, wi.source_module, wi.source_entity_type,
+                       wi.source_entity_id, i.status, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                        ?, ?, ?, ?, ?, ?, NOW(), ?, NOW(), NOW()
                   FROM workflow_instances i
                   LEFT JOIN workflow_definitions d
-                    ON d.tenant_id = i.tenant_id AND d.id = i.definition_version_id
+                    ON d.tenant_id = i.tenant_id AND d.id = i.workflow_definition_id
+                  LEFT JOIN LATERAL (
+                       SELECT w.source_module, w.source_entity_type,
+                              w.source_entity_id
+                         FROM workflow_work_items w
+                        WHERE w.tenant_id = i.tenant_id
+                          AND w.workflow_instance_id = i.id
+                        ORDER BY w.created_at
+                        LIMIT 1) wi ON TRUE
                  WHERE i.tenant_id = ? AND i.id = ?
                 ON CONFLICT (tenant_id, workflow_instance_id) DO UPDATE SET
                     status = EXCLUDED.status,
@@ -137,7 +145,7 @@ public class WorkflowAnalyticsProjectionService {
                     projection_revision = workflow_analytics_process_facts.projection_revision + 1,
                     updated_at = NOW()
                 """,
-                UUID.randomUUID(), tenantId, instanceId,
+                UUID.randomUUID(), tenantId,
                 startedAt, completedAt, processDuration,
                 breachCount,
                 completedAt != null && breachCount == 0,
@@ -227,7 +235,6 @@ public class WorkflowAnalyticsProjectionService {
                     seconds((Number) segmentStats.get("system_wait")),
                     slaBreached,
                     slaBreached && "COMPLETED".equals(workItem.get("status")),
-                    false,
                     false);
         }
     }
@@ -235,14 +242,14 @@ public class WorkflowAnalyticsProjectionService {
     /** Instance-level wait/responsibility aggregation (bounded, set-based). */
     private Map<String, Object> segmentStats(UUID tenantId, UUID instanceId) {
         return jdbc.queryForMap("""
-                SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type = 'EXTERNAL_WAIT')), 0) AS customer_wait,
-                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type = 'SYSTEM_WAIT')), 0) AS system_wait,
-                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type = 'QUEUE')), 0) AS queue_wait,
-                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type IN ('ASSIGNED','CLAIMED'))), 0) AS employee_resp
+                SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type = 'EXTERNAL_WAIT'), 0) AS customer_wait,
+                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type = 'SYSTEM_WAIT'), 0) AS system_wait,
+                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type = 'QUEUE'), 0) AS queue_wait,
+                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type IN ('ASSIGNED','CLAIMED')), 0) AS employee_resp
                   FROM workflow_responsibility_segments seg
                  WHERE seg.tenant_id = ? AND seg.work_item_id IN (
                        SELECT id FROM workflow_work_items
@@ -252,14 +259,14 @@ public class WorkflowAnalyticsProjectionService {
 
     private Map<String, Object> stepSegmentStats(UUID tenantId, UUID stepInstanceId) {
         return jdbc.queryForMap("""
-                SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type = 'EXTERNAL_WAIT')), 0) AS customer_wait,
-                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type = 'SYSTEM_WAIT')), 0) AS system_wait,
-                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type = 'QUEUE')), 0) AS queue_wait,
-                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT
-                         FILTER (WHERE seg.segment_type IN ('ASSIGNED','CLAIMED'))), 0) AS employee_resp
+                SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type = 'EXTERNAL_WAIT'), 0) AS customer_wait,
+                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type = 'SYSTEM_WAIT'), 0) AS system_wait,
+                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type = 'QUEUE'), 0) AS queue_wait,
+                       COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg.ended_at, NOW()) - seg.started_at))::BIGINT)
+                         FILTER (WHERE seg.segment_type IN ('ASSIGNED','CLAIMED')), 0) AS employee_resp
                   FROM workflow_responsibility_segments seg
                  WHERE seg.tenant_id = ? AND seg.work_item_id IN (
                        SELECT id FROM workflow_work_items
