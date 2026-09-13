@@ -920,6 +920,9 @@ test("P13 — real application: authenticated Arabic RTL, full operational IA, a
   await page.locator('[role="alert"]').first().waitFor({ state: "visible", timeout: 15_000 });
 
   // Keyboard activation for the primary interaction: Enter submits the form.
+  // A failed authentication attempt may reset the controlled login fields,
+  // so re-enter the complete valid credential set before asserting success.
+  await page.locator("#login-email").fill(ACTORS.DESIGNER);
   await page.locator("#login-password").fill(E2E_PASSWORD);
   await page.locator("#login-password").press("Enter");
   // The form leaves the screen once authentication succeeds (redirect to the
