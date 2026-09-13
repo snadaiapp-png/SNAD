@@ -17,9 +17,10 @@ PY
 
 run_mock() {
   local sha="$1"
+  local catalog_status="${2:-200}"
   local port
   port="$(free_port)"
-  python3 "$MOCK" --port "$port" --release-sha "$sha" >/dev/null 2>&1 &
+  python3 "$MOCK" --port "$port" --release-sha "$sha" --catalog-status "$catalog_status" >/dev/null 2>&1 &
   local pid=$!
   PIDS+=("$pid")
   for _ in $(seq 1 30); do
@@ -49,6 +50,7 @@ jq -e '
   and .releaseSha == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   and .transport == "vercel-bff"
   and (.checks | length >= 9)
+  and all(.checks[]; .result == "PASS")
 ' "$PASS_EVIDENCE" >/dev/null
 ! grep -q "$TEST_CREDENTIAL\|test-token\|admin@example.test" "$PASS_EVIDENCE"
 
@@ -69,5 +71,30 @@ rc=$?
 set -e
 [ "$rc" -ne 0 ]
 jq -e '.result == "FAIL" and .failureStage == "vercel-release-identity"' "$FAIL_EVIDENCE" >/dev/null
+
+ENTITLEMENT_PORT="$(run_mock aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 403)"
+ENTITLEMENT_EVIDENCE="$TMP/entitlement-fail.json"
+set +e
+WORKFLOW_VERCEL_ALLOW_HTTP='true' \
+WORKFLOW_VERCEL_RELEASE_ATTEMPTS='1' \
+WORKFLOW_VERCEL_RELEASE_DELAY_SECONDS='0' \
+WORKFLOW_RUNTIME_ADMIN_PASSWORD="$TEST_CREDENTIAL" \
+WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
+WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
+VERCEL_BASE_URL="http://127.0.0.1:$ENTITLEMENT_PORT" \
+VERCEL_EXPECTED_SHA='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+WORKFLOW_VERCEL_EVIDENCE_FILE="$ENTITLEMENT_EVIDENCE" \
+bash "$SCRIPT"
+rc=$?
+set -e
+[ "$rc" -ne 0 ]
+jq -e '
+  .result == "FAIL"
+  and .failureStage == "workflowModuleCatalog"
+  and ([.checks[] | select(.route == "workflowModuleCatalog")] | length) == 1
+  and ([.checks[] | select(.route == "workflowModuleCatalog")][0].httpStatus == 403)
+  and ([.checks[] | select(.route == "workflowModuleCatalog")][0].result == "FAIL")
+' "$ENTITLEMENT_EVIDENCE" >/dev/null
+! grep -q "$TEST_CREDENTIAL\|test-token\|admin@example.test" "$ENTITLEMENT_EVIDENCE"
 
 echo "verify-workflow-vercel-production-runtime tests: PASS"
