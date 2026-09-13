@@ -1,0 +1,138 @@
+name: Workflow Y2 Production Entitlement Remediation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/workflow-y2-production-entitlement-remediation.yml"
+      - "scripts/production/remediate-workflow-production-entitlement.sh"
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'remediate-workflow-entitlement' to authorize the narrow production entitlement repair"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-y2-production-entitlement-remediation
+  cancel-in-progress: false
+
+jobs:
+  remediate-production-entitlement:
+    name: Repair control-plane Workflow entitlement
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      CONFIRM: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm || 'auto-main-remediation' }}
+      WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      WORKFLOW_RUNTIME_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      WORKFLOW_RUNTIME_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Checkout exact current main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Guard protected-main remediation authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch)
+              [ "$CONFIRM" = "remediate-workflow-entitlement" ] || {
+                echo "::error::confirm must equal remediate-workflow-entitlement"
+                exit 1
+              }
+              ;;
+            push)
+              [ "$CONFIRM" = "auto-main-remediation" ] || {
+                echo "::error::automatic main remediation confirmation is invalid"
+                exit 1
+              }
+              ;;
+            *)
+              echo "::error::Unsupported remediation event: $GITHUB_EVENT_NAME"
+              exit 1
+              ;;
+          esac
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "::error::Production remediation must execute from protected main"
+            exit 1
+          }
+          remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          [ "$remote_main" = "$GITHUB_SHA" ] || {
+            echo "::error::Remediation checkout is not exact current main"
+            exit 1
+          }
+          for name in WEB_PRODUCTION_BASE_URL RENDER_API_KEY RENDER_SERVICE_ID WORKFLOW_RUNTIME_ADMIN_EMAIL WORKFLOW_RUNTIME_ADMIN_PASSWORD; do
+            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
+          done
+          [[ "$WEB_PRODUCTION_BASE_URL" == https://* ]] || {
+            echo "::error::WEB_PRODUCTION_BASE_URL must use HTTPS"
+            exit 1
+          }
+
+      - name: Resolve SANAD_CONTROL_PLANE_TENANT_ID without exposing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H 'Accept: application/json' \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > "$RUNNER_TEMP/render-env.json"
+          test "$(jq 'length' "$RUNNER_TEMP/render-env.json")" -lt 100 || {
+            echo "::error::Cannot prove complete Render environment pagination"
+            exit 1
+          }
+          jq '[.[]? | (.envVar // .)]' "$RUNNER_TEMP/render-env.json" > "$RUNNER_TEMP/render-env-normalized.json"
+          tenant_id="$(jq -r '.[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value // empty' "$RUNNER_TEMP/render-env-normalized.json")"
+          [[ "$tenant_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
+            echo "::error::SANAD_CONTROL_PLANE_TENANT_ID is missing or invalid"
+            exit 1
+          }
+          echo "::add-mask::$tenant_id"
+          echo "WORKFLOW_RUNTIME_TENANT_ID=$tenant_id" >> "$GITHUB_ENV"
+
+      - name: Remediate exact production Workflow entitlement
+        shell: bash
+        env:
+          VERCEL_BASE_URL: ${{ env.WEB_PRODUCTION_BASE_URL }}
+          WORKFLOW_ENTITLEMENT_REMEDIATION_EVIDENCE_FILE: workflow-production-entitlement-remediation.json
+        run: |
+          set -euo pipefail
+          bash scripts/production/remediate-workflow-production-entitlement.sh
+
+      - name: Upload sanitized remediation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-production-entitlement-remediation-${{ github.run_id }}
+          path: workflow-production-entitlement-remediation.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Record remediation summary
+        if: success()
+        shell: bash
+        run: |
+          mutation="$(jq -r '.mutationPerformed' workflow-production-entitlement-remediation.json)"
+          {
+            echo "## Workflow Y2 — Production Entitlement Remediation"
+            echo "- Protected main SHA: $GITHUB_SHA"
+            echo "- Target: control-plane tenant ACTIVE plan / WORKFLOW only"
+            echo "- Authorization: EXECUTIVE_VIEW + EXECUTIVE_MANAGE + WORKFLOW.VIEW"
+            echo "- Direct SQL: NONE"
+            echo "- Mutation performed: $mutation"
+            echo "- Effective entitlement verification: PASS"
+            echo "- Workflow module catalog verification: PASS"
+            echo "- Result: PASS"
+          } >> "$GITHUB_STEP_SUMMARY"
