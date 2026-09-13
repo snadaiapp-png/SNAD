@@ -189,8 +189,8 @@ Make provider callbacks secure, durable, replay-safe and auditable.
 HTTP request
  -> signature validation
  -> provider event id extraction
- -> durable inbox insert
- -> trusted provider-reference resolution
+ -> trusted provider-reference resolution under verified-provider SELECT-only RLS context
+ -> tenant-scoped durable inbox insert
  -> transactional domain processing
  -> Finance/SCP convergence
  -> audit + billing outbox
@@ -204,6 +204,16 @@ HTTP request
 - processing failure leaves event retryable;
 - audit/outbox failure causes rollback where the mutation requires evidence;
 - raw secret/card data is never stored.
+
+### FORCE-RLS ordering clarification
+The R0C13 inbox is tenant-scoped (`tenant_id NOT NULL`) and all R0C13 tenant tables use
+`ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY`. Therefore no durable tenant-scoped
+inbox write is permitted before a trusted tenant is resolved. G05 first verifies the provider
+signature, opens a transaction-local **SELECT-only** verified-provider resolution context,
+resolves the globally unique stored provider-payment binding, immediately clears that context,
+then applies the normal tenant RLS context before inserting the durable inbox row. Tenant identity
+from the webhook body is never trusted. This ordering is the governed implementation of the
+"durable inbox + trusted binding" requirement and does not authorize BYPASSRLS or unscoped writes.
 
 ### Gate R13-G05
 ```text

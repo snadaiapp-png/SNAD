@@ -67,8 +67,10 @@ class PlatformApiCountTest {
      *  POST respond, POST otp, GET status), analytics (8: GET dashboards
      *  service/employee/executive/bottleneck/sla/customer, POST rebuild,
      *  GET metrics/employee/{employeeId}), ai-context (1: GET
-     *  instance/{instanceId}), customer feedback (2: POST + GET) = 853. */
-    private static final long EXPECTED_TOTAL_OPS = 853;
+     *  instance/{instanceId}), customer feedback (2: POST + GET) = 853.
+     *  + 1 R0C13 signed provider webhook ingress
+     *  (POST /api/v1/billing/provider/webhook) = 854. */
+    private static final long EXPECTED_TOTAL_OPS = 854;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -99,6 +101,8 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/executive/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/workflows/catalog/modules", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/billing/provider/webhook", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/master", "get")).isTrue();
