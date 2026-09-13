@@ -43,13 +43,12 @@ export default function UsagePage() {
     return () => clearTimeout(handle);
   }, [tenantQuery]);
 
-  const load = useCallback(async (selectedTenantId?: string) => {
-    const targetTenantId = selectedTenantId || tenantId;
-    if (!targetTenantId) return;
+  const load = useCallback(async () => {
+    if (!tenantId) return;
     setBusy(true);
     setError("");
     try {
-      setUsage(await scpApi.usage(targetTenantId));
+      setUsage(await scpApi.usage(tenantId));
     } catch (reason) {
       setError(scpErrorMessage(reason));
     } finally {
@@ -85,7 +84,6 @@ export default function UsagePage() {
                     setTenantId(tenant.id);
                     setTenantQuery(tenant.name);
                     setMatches([]);
-                    void load(tenant.id);
                   }}
                 >
                   {tenant.name} · {tenant.code}
