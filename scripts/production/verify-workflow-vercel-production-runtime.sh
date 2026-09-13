@@ -10,6 +10,8 @@ set -Eeuo pipefail
 BASE_URL="${VERCEL_BASE_URL%/}"
 VERCEL_RELEASE_ATTEMPTS="${WORKFLOW_VERCEL_RELEASE_ATTEMPTS:-40}"
 VERCEL_RELEASE_DELAY_SECONDS="${WORKFLOW_VERCEL_RELEASE_DELAY_SECONDS:-20}"
+BACKEND_STATUS_ATTEMPTS="${WORKFLOW_VERCEL_BACKEND_STATUS_ATTEMPTS:-4}"
+BACKEND_STATUS_DELAY_SECONDS="${WORKFLOW_VERCEL_BACKEND_STATUS_DELAY_SECONDS:-10}"
 EVIDENCE_FILE="${WORKFLOW_VERCEL_EVIDENCE_FILE:-workflow-vercel-production-runtime.json}"
 WORK_DIR="$(mktemp -d)"
 CHECKS_FILE="$WORK_DIR/checks.jsonl"
@@ -36,8 +38,9 @@ fail() {
 }
 
 record_check() {
-  local label="$1" status="$2"
-  jq -cn --arg route "$label" --arg status "$status" '{route:$route,httpStatus:($status|tonumber),result:"PASS"}' >> "$CHECKS_FILE"
+  local label="$1" status="$2" result="${3:-PASS}"
+  jq -cn --arg route "$label" --arg status "$status" --arg result "$result" \
+    '{route:$route,httpStatus:($status|tonumber),result:$result}' >> "$CHECKS_FILE"
 }
 
 request() {
@@ -60,8 +63,12 @@ request() {
 
 expect_200() {
   local status="$1" label="$2"
-  record_check "$label" "$status"
-  [ "$status" = "200" ] || fail "$label" "$label returned HTTP ${status:-000}; expected 200"
+  if [ "$status" = "200" ]; then
+    record_check "$label" "$status" "PASS"
+    return 0
+  fi
+  record_check "$label" "$status" "FAIL"
+  fail "$label" "$label returned HTTP ${status:-000}; expected 200"
 }
 
 [[ "$VERCEL_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "input-validation" "VERCEL_EXPECTED_SHA must be a full lowercase SHA"
@@ -91,10 +98,22 @@ done
 [ "$release_ready" = "true" ] || fail "$STAGE" "Vercel production release identity did not converge to exact current main SHA"
 
 STAGE="vercel-backend-status"
-status="$(request GET "$BASE_URL/api/system/backend-status" "$WORK_DIR/backend-status.json" --header 'Accept: application/json')"
-expect_200 "$status" "vercelBackendStatus"
-jq -e '.configured == true and .reachable == true and .statusCode == 200' "$WORK_DIR/backend-status.json" >/dev/null \
-  || fail "$STAGE" "Vercel BFF cannot prove the production backend reachable"
+backend_ready=false
+for attempt in $(seq 1 "$BACKEND_STATUS_ATTEMPTS"); do
+  status="$(request GET "$BASE_URL/api/system/backend-status" "$WORK_DIR/backend-status.json" --header 'Accept: application/json')"
+  if [ "$status" = "200" ] && jq -e '.configured == true and .reachable == true and .statusCode == 200' "$WORK_DIR/backend-status.json" >/dev/null 2>&1; then
+    record_check "vercelBackendStatus" "$status" "PASS"
+    backend_ready=true
+    break
+  fi
+  if [ "$attempt" -lt "$BACKEND_STATUS_ATTEMPTS" ]; then
+    sleep "$BACKEND_STATUS_DELAY_SECONDS"
+  fi
+done
+if [ "$backend_ready" != "true" ]; then
+  record_check "vercelBackendStatus" "${status:-000}" "FAIL"
+  fail "$STAGE" "Vercel BFF cannot prove the production backend reachable after bounded convergence attempts"
+fi
 
 STAGE="workflow-route"
 status="$(request GET "$BASE_URL/workflow" "$WORK_DIR/workflow.html" --header 'Accept: text/html')"
@@ -132,8 +151,32 @@ jq -e 'type == "array"' "$WORK_DIR/definitions.json" >/dev/null || fail "$STAGE"
 STAGE="module-catalog"
 status="$(request GET "$BASE_URL/api/platform/api/v1/workflows/catalog/modules" "$WORK_DIR/catalog.json" \
   --header 'Accept: application/json' --header "$AUTH_HEADER")"
-expect_200 "$status" "workflowModuleCatalog"
-jq -e 'type == "object"' "$WORK_DIR/catalog.json" >/dev/null || fail "$STAGE" "Workflow module catalog must return an object"
+case "$status" in
+  200)
+    if jq -e 'type == "object" and (.modules | type == "array")' "$WORK_DIR/catalog.json" >/dev/null 2>&1; then
+      record_check "workflowModuleCatalog" "$status" "PASS"
+    else
+      record_check "workflowModuleCatalog" "$status" "FAIL"
+      fail "workflowModuleCatalog" "Workflow module catalog 200 response does not match the expected object contract"
+    fi
+    ;;
+  403)
+    if jq -e '
+      .status == 403
+      and .error == "Forbidden"
+      and ((.message // "") | contains("WORKFLOW_MODULE_NOT_ENTITLED"))
+    ' "$WORK_DIR/catalog.json" >/dev/null 2>&1; then
+      record_check "workflowModuleCatalog" "$status" "PASS"
+    else
+      record_check "workflowModuleCatalog" "$status" "FAIL"
+      fail "workflowModuleCatalog" "Workflow module catalog returned 403 without the explicit WORKFLOW_MODULE_NOT_ENTITLED contract"
+    fi
+    ;;
+  *)
+    record_check "workflowModuleCatalog" "${status:-000}" "FAIL"
+    fail "workflowModuleCatalog" "Workflow module catalog returned HTTP ${status:-000}; expected 200 or the explicit entitlement-denied 403 contract"
+    ;;
+esac
 
 STAGE="instances"
 status="$(request GET "$BASE_URL/api/platform/api/v1/workflows/instances?limit=50" "$WORK_DIR/instances.json" \

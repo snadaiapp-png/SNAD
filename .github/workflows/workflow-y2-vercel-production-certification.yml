@@ -191,7 +191,7 @@ jobs:
             echo "- Workflow route on Vercel: PASS"
             echo "- Vercel BFF backend reachability: PASS"
             echo "- Auth login + /auth/me through Vercel BFF: PASS"
-            echo "- Workflow definitions/catalog/instances/monitoring/notifications through Vercel BFF: PASS"
+            echo "- Workflow definitions/catalog entitlement enforcement/instances/monitoring/notifications through Vercel BFF: PASS"
             echo "- Side-effect-free validate/simulate POST through Vercel BFF: PASS"
             echo "- Production business-state mutation: NONE"
             echo "- Result: PASS"
