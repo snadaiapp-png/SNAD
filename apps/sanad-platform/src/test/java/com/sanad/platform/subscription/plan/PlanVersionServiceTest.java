@@ -128,8 +128,8 @@ class PlanVersionServiceTest {
     @DisplayName("createDraft: version number is max+1 for the plan")
     void createDraft_assignsIncrementingVersionNumber() {
         when(jdbc.queryForObject(
-                eq("SELECT COUNT(*) FROM saas_plans WHERE id = ?"), eq(Long.class), eq(PLAN_ID)))
-                .thenReturn(1L);
+                eq("SELECT id FROM saas_plans WHERE id = ? FOR UPDATE"), eq(UUID.class), eq(PLAN_ID)))
+                .thenReturn(PLAN_ID);
         when(jdbc.queryForObject(
                 eq("SELECT COALESCE(MAX(version_number), 0) FROM plan_versions WHERE plan_id = ?"),
                 eq(Integer.class), eq(PLAN_ID))).thenReturn(1);
@@ -139,6 +139,8 @@ class PlanVersionServiceTest {
 
         assertThat(draft.getVersionNumber()).isEqualTo(2);
         assertThat(draft.getStatus()).isEqualTo("DRAFT");
+        verify(jdbc).queryForObject(
+                "SELECT id FROM saas_plans WHERE id = ? FOR UPDATE", UUID.class, PLAN_ID);
         verify(repository).insert(draft);
     }
 
@@ -146,8 +148,8 @@ class PlanVersionServiceTest {
     @DisplayName("createDraft: rejects unknown plan")
     void createDraft_rejectsUnknownPlan() {
         when(jdbc.queryForObject(
-                eq("SELECT COUNT(*) FROM saas_plans WHERE id = ?"), eq(Long.class), eq(PLAN_ID)))
-                .thenReturn(0L);
+                eq("SELECT id FROM saas_plans WHERE id = ? FOR UPDATE"), eq(UUID.class), eq(PLAN_ID)))
+                .thenThrow(new org.springframework.dao.EmptyResultDataAccessException(1));
 
         assertThatThrownBy(() -> service.createDraft(
                 PLAN_ID, "SAR", 100L, 1000L, 0, 5, 1, 1024L))
