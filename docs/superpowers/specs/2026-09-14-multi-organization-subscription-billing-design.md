@@ -342,6 +342,8 @@ Reuse `user_role_assignments`. Add a non-null `scope_mode` column with explicit 
 
 A database CHECK constraint enforces the valid `scope_mode` / `organization_id` shape. Backfill is deterministic: existing grants with `organization_id IS NULL` become `TENANT`; existing organization-bound grants become `ORGANIZATION_ONLY`. No existing grant is silently widened to descendant access.
 
+Because PostgreSQL ordinary UNIQUE semantics treat NULL values as distinct, active-grant uniqueness must not rely only on the existing nullable `organization_id` unique constraint. Add explicit partial unique indexes so one active tenant-wide grant exists per `(tenant_id,user_id,role_id)`, and one active organization-scoped grant exists per `(tenant_id,user_id,role_id,organization_id,scope_mode)`. Revoked history remains retainable.
+
 `ORGANIZATION_TREE` dynamically covers descendants according to `organization_hierarchy`. General-purpose negative/deny roles are out of scope; denial derives from absence of grant or suspended/inactive commercial/resource state.
 
 `CapabilityEvaluationService` remains an RBAC evaluator. A higher-level `ScopedAuthorizationService` combines RBAC with entitlement and resource ownership. This keeps authorization concerns testable and prevents commercial logic from being embedded in role evaluation.
@@ -544,6 +546,8 @@ Creating or moving an organization uses an impact/confirmation flow when the cha
 ### 12.4 Applications UX
 
 Executive Applications manages the SNAD catalog with create/edit/archive/restore. No physical delete is exposed for referenced applications.
+
+The baseline application CHECK currently permits `ACTIVE|INACTIVE|DEPRECATED`. To support the approved UI lifecycle without breaking history, implementation widens the catalog status constraint additively to permit `DRAFT` and `ARCHIVED` while preserving `DEPRECATED`. New archive actions target `ARCHIVED`; existing `DEPRECATED` rows remain readable and are not silently rewritten. New sales/assignments require an explicitly sellable/active catalog state.
 
 Tenant Workspace Applications shows application assignments across organizations and routes paid changes through Commercial Preview → Confirm.
 
