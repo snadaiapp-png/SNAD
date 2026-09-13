@@ -10,6 +10,8 @@ EMAIL = "admin@example.test"
 
 class Handler(BaseHTTPRequestHandler):
     release_sha = EXPECTED_SHA
+    allow_anonymous_me = False
+    backend_status_down = False
 
     def log_message(self, *_):
         pass
@@ -46,13 +48,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/system/backend-status":
             return self._send(200, {
                 "configured": True,
-                "reachable": True,
-                "statusCode": 200,
+                "reachable": not self.backend_status_down,
+                "statusCode": 503 if self.backend_status_down else 200,
                 "checkedAt": "2026-09-13T00:00:00Z",
             })
         if path == "/workflow":
             return self._send(200, "<html><body>workflow</body></html>", "text/html")
         if path == "/api/platform/api/v1/auth/me":
+            authorization = self.headers.get("Authorization", "")
+            if not authorization and not self.allow_anonymous_me:
+                return self._send(401, {"status": 401, "message": "Authentication required"})
             return self._send(200, {
                 "id": "99999999-9999-9999-9999-999999999999",
                 "tenantId": "77777777-7777-7777-7777-777777777777",
@@ -103,6 +108,10 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--release-sha", default=EXPECTED_SHA)
+    p.add_argument("--allow-anonymous-me", action="store_true")
+    p.add_argument("--backend-status-down", action="store_true")
     a = p.parse_args()
     Handler.release_sha = a.release_sha
+    Handler.allow_anonymous_me = a.allow_anonymous_me
+    Handler.backend_status_down = a.backend_status_down
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
