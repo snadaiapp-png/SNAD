@@ -53,6 +53,7 @@ vi.mock("@/lib/i18n/I18nProvider", () => ({
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "s-1" }),
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
@@ -134,7 +135,7 @@ describe("Subscription detail — mutation capability gating (Blocker C)", () =>
     );
     await settle();
     for (const command of ["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"]) {
-      expect(screen.queryByRole("button", { name: command })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: `scp.detail.lifecycle.${command}` })).not.toBeInTheDocument();
     }
     // plan-change confirm control must not exist either
     expect(screen.queryByRole("button", { name: "scp.detail.confirmChange" })).not.toBeInTheDocument();
@@ -149,7 +150,7 @@ describe("Subscription detail — mutation capability gating (Blocker C)", () =>
     );
     await settle();
     for (const command of ["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"]) {
-      const button = screen.getByRole("button", { name: command });
+      const button = screen.getByRole("button", { name: `scp.detail.lifecycle.${command}` });
       expect(button).toBeEnabled();
     }
   });
@@ -196,7 +197,7 @@ describe("Subscription detail — mutation capability gating (Blocker C)", () =>
     );
     await settle();
     for (const command of ["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"]) {
-      expect(screen.queryByRole("button", { name: command })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: `scp.detail.lifecycle.${command}` })).not.toBeInTheDocument();
     }
   });
 });
