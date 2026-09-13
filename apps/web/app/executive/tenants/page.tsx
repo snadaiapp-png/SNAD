@@ -42,6 +42,38 @@ const EMPTY_EDIT = {
   currencyCode: "",
 };
 
+
+const SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
+const COUNTRY_PATTERN = /^[A-Z]{2}$/;
+const CURRENCY_PATTERN = /^[A-Z]{3}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateCreateTenant(form: typeof EMPTY_CREATE): string {
+  if (!form.name.trim()) return "اسم الحساب مطلوب.";
+  if (!SUBDOMAIN_PATTERN.test(form.subdomain.trim().toLowerCase())) {
+    return "النطاق الفرعي غير صالح. استخدم أحرفًا إنجليزية صغيرة وأرقامًا وشرطة (-) فقط، بدون شرطة في البداية أو النهاية.";
+  }
+  if (!EMAIL_PATTERN.test(form.adminEmail.trim())) {
+    return "بريد المسؤول غير صالح.";
+  }
+  if (!form.adminDisplayName.trim()) return "اسم المسؤول مطلوب.";
+  return "";
+}
+
+function validateEditTenant(form: typeof EMPTY_EDIT): string {
+  if (!form.name.trim()) return "اسم الحساب مطلوب.";
+  if (form.billingEmail.trim() && !EMAIL_PATTERN.test(form.billingEmail.trim())) {
+    return "بريد الفوترة غير صالح.";
+  }
+  if (form.countryCode.trim() && !COUNTRY_PATTERN.test(form.countryCode.trim().toUpperCase())) {
+    return "رمز الدولة يجب أن يتكون من حرفين إنجليزيين، مثل SA.";
+  }
+  if (form.currencyCode.trim() && !CURRENCY_PATTERN.test(form.currencyCode.trim().toUpperCase())) {
+    return "رمز العملة يجب أن يتكون من ثلاثة أحرف إنجليزية، مثل SAR.";
+  }
+  return "";
+}
+
 /**
  * Tenant directory and management surface. All mutation controls are gated by
  * the exact broad backend authority EXECUTIVE_MANAGE. Deletion is a soft
@@ -63,6 +95,7 @@ export default function TenantsPage() {
   const [status, setStatus] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
   const [dialog, setDialog] = useState<TenantDialog>(null);
+  const [dialogError, setDialogError] = useState("");
   const [reason, setReason] = useState("");
   const [createForm, setCreateForm] = useState(EMPTY_CREATE);
   const [editForm, setEditForm] = useState(EMPTY_EDIT);
@@ -93,17 +126,28 @@ export default function TenantsPage() {
   }, [load]);
 
   async function createTenant() {
+    const validationError = validateCreateTenant(createForm);
+    if (validationError) {
+      setDialogError(validationError);
+      return;
+    }
     setBusy(true);
+    setDialogError("");
     setError("");
     setNotice("");
     try {
-      await executiveApi.createTenant(createForm);
+      await executiveApi.createTenant({
+        name: createForm.name.trim(),
+        subdomain: createForm.subdomain.trim().toLowerCase(),
+        adminEmail: createForm.adminEmail.trim().toLowerCase(),
+        adminDisplayName: createForm.adminDisplayName.trim(),
+      });
       setDialog(null);
       setCreateForm(EMPTY_CREATE);
       setNotice("تم إنشاء الحساب بنجاح.");
       await load();
     } catch (reasonValue) {
-      setError(scpErrorMessage(reasonValue));
+      setDialogError(scpErrorMessage(reasonValue));
     } finally {
       setBusy(false);
     }
@@ -111,6 +155,7 @@ export default function TenantsPage() {
 
   async function openEdit(tenantId: string) {
     setBusy(true);
+    setDialogError("");
     setError("");
     try {
       const tenant: ManagedTenant = await executiveApi.tenant(tenantId);
@@ -132,24 +177,42 @@ export default function TenantsPage() {
   }
 
   async function updateTenant(tenantId: string) {
+    const validationError = validateEditTenant(editForm);
+    if (validationError) {
+      setDialogError(validationError);
+      return;
+    }
     setBusy(true);
+    setDialogError("");
     setError("");
     setNotice("");
     try {
-      await executiveApi.updateTenant(tenantId, editForm);
+      await executiveApi.updateTenant(tenantId, {
+        name: editForm.name.trim(),
+        legalName: editForm.legalName.trim() || undefined,
+        billingEmail: editForm.billingEmail.trim().toLowerCase() || undefined,
+        countryCode: editForm.countryCode.trim().toUpperCase() || undefined,
+        locale: editForm.locale.trim() || undefined,
+        timezone: editForm.timezone.trim() || undefined,
+        currencyCode: editForm.currencyCode.trim().toUpperCase() || undefined,
+      });
       setDialog(null);
       setNotice("تم تحديث بيانات الحساب.");
       await load();
     } catch (reasonValue) {
-      setError(scpErrorMessage(reasonValue));
+      setDialogError(scpErrorMessage(reasonValue));
     } finally {
       setBusy(false);
     }
   }
 
   async function applyStatus(tenantId: string, targetStatus: string) {
-    if (!reason.trim()) return;
+    if (!reason.trim()) {
+      setDialogError("سبب الإجراء مطلوب.");
+      return;
+    }
     setBusy(true);
+    setDialogError("");
     setError("");
     setNotice("");
     try {
@@ -165,7 +228,7 @@ export default function TenantsPage() {
       );
       await load();
     } catch (reasonValue) {
-      setError(scpErrorMessage(reasonValue));
+      setDialogError(scpErrorMessage(reasonValue));
     } finally {
       setBusy(false);
     }
@@ -183,7 +246,7 @@ export default function TenantsPage() {
     <ScpPage title={t("scp.tenants.title")} subtitle={t("scp.tenants.subtitle")}>
       {canManage ? (
         <div className={styles.filters}>
-          <Button type="button" variant="primary" size="sm" onClick={() => setDialog({ kind: "create" })}>
+          <Button type="button" variant="primary" size="sm" onClick={() => { setDialogError(""); setDialog({ kind: "create" }); }}>
             إنشاء حساب جديد
           </Button>
         </div>
@@ -275,16 +338,16 @@ export default function TenantsPage() {
                                 تحديث
                               </Button>
                               {canFreeze ? (
-                                <Button type="button" variant="secondary" size="sm" onClick={() => { setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "SUSPENDED" }); }}>
+                                <Button type="button" variant="secondary" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "SUSPENDED" }); }}>
                                   تجميد
                                 </Button>
                               ) : null}
                               {canReactivate ? (
-                                <Button type="button" variant="secondary" size="sm" onClick={() => { setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ACTIVE" }); }}>
+                                <Button type="button" variant="secondary" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ACTIVE" }); }}>
                                   إعادة التفعيل
                                 </Button>
                               ) : null}
-                              <Button type="button" variant="danger" size="sm" onClick={() => { setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ARCHIVED" }); }}>
+                              <Button type="button" variant="danger" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ARCHIVED" }); }}>
                                 حذف الحساب
                               </Button>
                               <Link href={`/executive/subscriptions?tenantId=${tenant.id}&intent=upgrade`}>
@@ -319,10 +382,11 @@ export default function TenantsPage() {
         }
       >
         <div className={styles.filters}>
-          <Input aria-label="اسم الحساب" placeholder="اسم الحساب" value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} />
-          <Input aria-label="النطاق الفرعي" placeholder="subdomain" value={createForm.subdomain} onChange={(e) => setCreateForm({ ...createForm, subdomain: e.target.value.toLowerCase() })} />
-          <Input type="email" aria-label="بريد المسؤول" placeholder="admin@example.com" value={createForm.adminEmail} onChange={(e) => setCreateForm({ ...createForm, adminEmail: e.target.value })} />
-          <Input aria-label="اسم المسؤول" placeholder="اسم المسؤول" value={createForm.adminDisplayName} onChange={(e) => setCreateForm({ ...createForm, adminDisplayName: e.target.value })} />
+          <Input label="اسم الحساب" aria-label="اسم الحساب" required placeholder="مثال: شركة ألف" value={createForm.name} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, name: e.target.value }); }} />
+          <Input label="النطاق الفرعي" aria-label="النطاق الفرعي" required placeholder="acme" hint="سيستخدم كهوية توجيه للنطاق الافتراضي." value={createForm.subdomain} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, subdomain: e.target.value.toLowerCase().replace(/\s+/g, "") }); }} />
+          <Input type="email" label="بريد المسؤول" aria-label="بريد المسؤول" required placeholder="admin@example.com" value={createForm.adminEmail} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, adminEmail: e.target.value }); }} />
+          <Input label="اسم المسؤول" aria-label="اسم المسؤول" required placeholder="اسم المسؤول" value={createForm.adminDisplayName} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, adminDisplayName: e.target.value }); }} />
+          {dialogError ? <ScpError message={dialogError} /> : null}
         </div>
       </Modal>
 
@@ -341,14 +405,15 @@ export default function TenantsPage() {
         }
       >
         <div className={styles.filters}>
-          <Input aria-label="اسم الحساب" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
-          <Input aria-label="الاسم القانوني" value={editForm.legalName} onChange={(e) => setEditForm({ ...editForm, legalName: e.target.value })} />
-          <Input type="email" aria-label="بريد الفوترة" value={editForm.billingEmail} onChange={(e) => setEditForm({ ...editForm, billingEmail: e.target.value })} />
-          <Input aria-label="الدولة" value={editForm.countryCode} maxLength={2} onChange={(e) => setEditForm({ ...editForm, countryCode: e.target.value.toUpperCase() })} />
-          <Input aria-label="اللغة" value={editForm.locale} onChange={(e) => setEditForm({ ...editForm, locale: e.target.value })} />
-          <Input aria-label="المنطقة الزمنية" value={editForm.timezone} onChange={(e) => setEditForm({ ...editForm, timezone: e.target.value })} />
-          <Input aria-label="العملة" value={editForm.currencyCode} maxLength={3} onChange={(e) => setEditForm({ ...editForm, currencyCode: e.target.value.toUpperCase() })} />
+          <Input label="اسم الحساب" aria-label="اسم الحساب" required value={editForm.name} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, name: e.target.value }); }} />
+          <Input label="الاسم القانوني" aria-label="الاسم القانوني" value={editForm.legalName} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, legalName: e.target.value }); }} />
+          <Input type="email" label="بريد الفوترة" aria-label="بريد الفوترة" value={editForm.billingEmail} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, billingEmail: e.target.value }); }} />
+          <Input label="رمز الدولة" aria-label="الدولة" hint="رمز ISO من حرفين، مثل SA." value={editForm.countryCode} maxLength={2} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, countryCode: e.target.value.toUpperCase() }); }} />
+          <Input label="اللغة" aria-label="اللغة" hint="مثال: ar-SA" value={editForm.locale} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, locale: e.target.value }); }} />
+          <Input label="المنطقة الزمنية" aria-label="المنطقة الزمنية" hint="مثال: Asia/Riyadh" value={editForm.timezone} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, timezone: e.target.value }); }} />
+          <Input label="رمز العملة" aria-label="العملة" hint="رمز ISO من ثلاثة أحرف، مثل SAR." value={editForm.currencyCode} maxLength={3} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, currencyCode: e.target.value.toUpperCase() }); }} />
           <p className={styles.appCardMeta}>النطاق الفرعي غير قابل للتعديل من هذه العملية لحماية هوية التوجيه.</p>
+          {dialogError ? <ScpError message={dialogError} /> : null}
         </div>
       </Modal>
 
@@ -374,7 +439,8 @@ export default function TenantsPage() {
         {dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED" ? (
           <p>سيتم تحويل الحساب إلى ARCHIVED فقط. لن يتم حذف السجل أو الفواتير أو علاقات التدقيق.</p>
         ) : null}
-        <Input aria-label="سبب الإجراء" placeholder="اكتب سبب الإجراء" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} />
+        <Input label="سبب الإجراء" aria-label="سبب الإجراء" required placeholder="اكتب سبب الإجراء" value={reason} maxLength={500} onChange={(e) => { setDialogError(""); setReason(e.target.value); }} />
+        {dialogError ? <ScpError message={dialogError} /> : null}
       </Modal>
     </ScpPage>
   );
