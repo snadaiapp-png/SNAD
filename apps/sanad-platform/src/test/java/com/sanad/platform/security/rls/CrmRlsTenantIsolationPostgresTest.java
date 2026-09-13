@@ -73,6 +73,17 @@ class CrmRlsTenantIsolationPostgresTest {
     // See .github/workflows/ci.yml lines 181-185 for the bootstrap CREATE ROLE.
     private static final String RLS_USER = "crm_contact_rls_test_user";
     private static final String RLS_PASSWORD = "rls_contact_test_pass";
+    private static final String[] POST_BASELINE_CRM_TABLES = {
+            "crm_capacity_plans",
+            "crm_cases",
+            "crm_email_logs",
+            "crm_service_assignments",
+            "crm_shift_assignments",
+            "crm_shift_templates",
+            "crm_staff_availability",
+            "crm_staff_skills",
+            "crm_workload_assignments"
+    };
 
     @BeforeEach
     void migrateAndSeed() {
@@ -153,6 +164,74 @@ class CrmRlsTenantIsolationPostgresTest {
         assertThat(policyCount)
                 .as("tenant_isolation policy should exist on all CRM tables")
                 .isGreaterThan(0L);
+    }
+
+    @Test
+    void postBaselineCrmTablesHaveRlsAndTenantIsolationPolicy() {
+        for (String table : POST_BASELINE_CRM_TABLES) {
+            Boolean rlsEnabled = jdbc.queryForObject("""
+                    SELECT c.relrowsecurity
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'public' AND c.relname = ?
+                    """, Boolean.class, table);
+
+            Integer policyCount = jdbc.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM pg_policies
+                    WHERE schemaname = 'public'
+                      AND tablename = ?
+                      AND policyname = 'tenant_isolation'
+                      AND cmd = 'ALL'
+                      AND qual LIKE '%app.tenant_id%'
+                      AND with_check LIKE '%app.tenant_id%'
+                    """, Integer.class, table);
+
+            assertThat(rlsEnabled)
+                    .as(table + " must have RLS enabled")
+                    .isTrue();
+            assertThat(policyCount)
+                    .as(table + " must have tenant_isolation USING + WITH CHECK")
+                    .isEqualTo(1);
+        }
+    }
+
+    @Test
+    void crmCasesTenantContextFiltersCrossTenantRows() throws SQLException {
+        UUID tenantA = tenantId("rls-a");
+        UUID tenantB = tenantId("rls-b");
+        seedCase(tenantA, "Case A");
+        seedCase(tenantB, "Case B");
+
+        try (Connection conn = rawConnection()) {
+            conn.setAutoCommit(false);
+            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+
+            assertThat(countCases(conn))
+                    .as("Tenant A must only see its own CRM cases")
+                    .isEqualTo(1L);
+            assertThat(countCasesBySubject(conn, "Case B"))
+                    .as("Tenant A must not see Tenant B CRM case")
+                    .isZero();
+
+            conn.commit();
+        }
+    }
+
+    @Test
+    void crmCasesCrossTenantInsertIsBlockedByWithCheck() throws SQLException {
+        UUID tenantA = tenantId("rls-a");
+        UUID tenantB = tenantId("rls-b");
+
+        try (Connection conn = rawConnection()) {
+            conn.setAutoCommit(false);
+            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+
+            assertThatThrownBy(() -> insertCase(conn, tenantB, "Cross Tenant Case"))
+                    .isInstanceOf(SQLException.class);
+
+            conn.rollback();
+        }
     }
 
     @Test
@@ -350,6 +429,43 @@ class CrmRlsTenantIsolationPostgresTest {
     private UUID tenantId(String subdomain) {
         return jdbc.queryForObject(
                 "SELECT id FROM tenants WHERE subdomain = ?", UUID.class, subdomain);
+    }
+
+    private void seedCase(UUID tenantId, String subject) {
+        jdbc.update("""
+                INSERT INTO crm_cases (id, tenant_id, subject)
+                VALUES (?, ?, ?)
+                """, UUID.randomUUID(), tenantId, subject);
+    }
+
+    private void insertCase(Connection conn, UUID tenantId, String subject) throws SQLException {
+        try (var ps = conn.prepareStatement("""
+                INSERT INTO crm_cases (id, tenant_id, subject)
+                VALUES (?, ?, ?)
+                """)) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setString(3, subject);
+            ps.executeUpdate();
+        }
+    }
+
+    private long countCases(Connection conn) throws SQLException {
+        try (var rs = conn.createStatement().executeQuery("SELECT COUNT(*) FROM crm_cases")) {
+            rs.next();
+            return rs.getLong(1);
+        }
+    }
+
+    private long countCasesBySubject(Connection conn, String subject) throws SQLException {
+        try (var ps = conn.prepareStatement(
+                "SELECT COUNT(*) FROM crm_cases WHERE subject = ?")) {
+            ps.setString(1, subject);
+            try (var rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
+            }
+        }
     }
 
     private void seedAccount(UUID tenantId, String name) {
