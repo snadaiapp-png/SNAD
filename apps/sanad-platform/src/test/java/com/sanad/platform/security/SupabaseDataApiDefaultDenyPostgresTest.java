@@ -109,6 +109,23 @@ class SupabaseDataApiDefaultDenyPostgresTest {
     }
 
     @Test
+    void relocatableBtreeGistIsNotLeftInPublicWhenExtensionsSchemaExists() {
+        Integer unsafe = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_extension e
+                JOIN pg_namespace n ON n.oid = e.extnamespace
+                WHERE e.extname = 'btree_gist'
+                  AND e.extrelocatable
+                  AND n.nspname = 'public'
+                  AND EXISTS (
+                      SELECT 1 FROM pg_namespace WHERE nspname = 'extensions'
+                  )
+                """, new MapSqlParameterSource(), Integer.class);
+
+        assertThat(unsafe).isZero();
+    }
+
+    @Test
     void supabaseDataApiRolesHaveNoTableDmlWhenPresent() {
         Integer exposed = jdbc.queryForObject("""
                 WITH api_roles AS (
