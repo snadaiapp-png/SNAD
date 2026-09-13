@@ -1,0 +1,48 @@
+name: Workflow Y2 Production Certification Tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/workflow-y2-production-certification.yml"
+      - ".github/workflows/workflow-y2-production-entitlement-remediation.yml"
+      - ".github/workflows/workflow-y2-production-certification-tests.yml"
+      - "scripts/production/verify-workflow-vercel-production-runtime.sh"
+      - "scripts/production/remediate-workflow-production-entitlement.sh"
+      - "scripts/production/tests/mock_workflow_vercel_runtime.py"
+      - "scripts/production/tests/verify-workflow-vercel-production-runtime.test.sh"
+      - "scripts/production/tests/test_workflow_y2_vercel_production_certification.py"
+      - "scripts/production/tests/test_workflow_y2_production_entitlement_remediation.py"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/workflow-y2-production-certification.yml"
+      - ".github/workflows/workflow-y2-production-entitlement-remediation.yml"
+      - ".github/workflows/workflow-y2-production-certification-tests.yml"
+      - "scripts/production/verify-workflow-vercel-production-runtime.sh"
+      - "scripts/production/remediate-workflow-production-entitlement.sh"
+      - "scripts/production/tests/mock_workflow_vercel_runtime.py"
+      - "scripts/production/tests/verify-workflow-vercel-production-runtime.test.sh"
+      - "scripts/production/tests/test_workflow_y2_vercel_production_certification.py"
+      - "scripts/production/tests/test_workflow_y2_production_entitlement_remediation.py"
+
+permissions:
+  contents: read
+
+jobs:
+  targeted-contract-tests:
+    name: Workflow production contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax
+        run: |
+          bash -n scripts/production/verify-workflow-vercel-production-runtime.sh
+          bash -n scripts/production/remediate-workflow-production-entitlement.sh
+      - name: Run certification behavioral harness
+        run: bash scripts/production/tests/verify-workflow-vercel-production-runtime.test.sh
+      - name: Run Python contract tests
+        run: |
+          python3 scripts/production/tests/test_workflow_y2_vercel_production_certification.py
+          python3 scripts/production/tests/test_workflow_y2_production_entitlement_remediation.py
