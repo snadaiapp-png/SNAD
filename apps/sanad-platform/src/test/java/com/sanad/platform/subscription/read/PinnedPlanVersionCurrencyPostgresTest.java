@@ -1,6 +1,5 @@
 package com.sanad.platform.subscription.read;
 
-import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,11 +31,8 @@ class PinnedPlanVersionCurrencyPostgresTest {
         String password = System.getenv().getOrDefault("PG_ACCEPTANCE_PASSWORD",
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
 
-        MigrationTestSchemaSupport.ensureDatabase(baseUrl, user, password);
-        String isolatedUrl = MigrationTestSchemaSupport.getIsolatedJdbcUrl(baseUrl);
-
         Flyway flyway = Flyway.configure()
-                .dataSource(isolatedUrl, user, password)
+                .dataSource(baseUrl, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
@@ -45,7 +41,7 @@ class PinnedPlanVersionCurrencyPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, user, password);
+        DriverManagerDataSource ds = new DriverManagerDataSource(baseUrl, user, password);
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
         gridService = new SubscriptionGridQueryService(jdbc);
