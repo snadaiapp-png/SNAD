@@ -10,6 +10,7 @@ EMAIL = "admin@example.test"
 
 class Handler(BaseHTTPRequestHandler):
     release_sha = EXPECTED_SHA
+    catalog_status = 200
 
     def log_message(self, *_):
         pass
@@ -73,6 +74,12 @@ class Handler(BaseHTTPRequestHandler):
                 "engineGeneration": "Y2",
             }])
         if path == "/api/platform/api/v1/workflows/catalog/modules":
+            if self.catalog_status == 403:
+                return self._send(403, {
+                    "status": 403,
+                    "error": "Forbidden",
+                    "message": "WORKFLOW_MODULE_NOT_ENTITLED: paid Workflow entitlement is not active for this tenant",
+                })
             return self._send(200, {"modules": []})
         if path == "/api/platform/api/v1/workflows/instances":
             return self._send(200, [])
@@ -103,6 +110,8 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--release-sha", default=EXPECTED_SHA)
+    p.add_argument("--catalog-status", type=int, choices=(200, 403), default=200)
     a = p.parse_args()
     Handler.release_sha = a.release_sha
+    Handler.catalog_status = a.catalog_status
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
