@@ -21,7 +21,7 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
             "secrets.SANAD_ADMIN_PASSWORD",
             "secrets.RENDER_API_KEY",
             "secrets.RENDER_SERVICE_ID",
-            'git diff --quiet "$BACKEND_RELEASE_SHA" HEAD -- apps/sanad-platform',
+            'git diff --quiet "$live_sha" HEAD -- apps/sanad-platform',
             "verify-workflow-vercel-production-runtime.sh",
             "workflow-vercel-production-certification-${{ github.run_id }}",
         ]
@@ -34,6 +34,26 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
             self.assertNotIn(needle, lowered, f"forbidden certification behavior: {needle}")
         self.assertNotIn("-X POST", text, "certification workflow must not mutate Render via API")
         self.assertNotIn("--request POST", text, "certification workflow must not mutate Render via API")
+        self.assertNotIn(
+            "github.event.before",
+            text,
+            "push certification must not infer the live backend SHA from the previous Git commit",
+        )
+        self.assertIn(
+            r"^ghcr\.io/snadaiapp-png/snad-backend:([0-9a-f]{40})$",
+            text,
+            "certification must resolve the immutable live backend image from Render",
+        )
+        self.assertIn(
+            'echo "BACKEND_RELEASE_SHA=$live_sha" >> "$GITHUB_ENV"',
+            text,
+            "resolved live Render SHA must become the certification backend identity",
+        )
+        self.assertIn(
+            '[ "$BACKEND_RELEASE_SHA_INPUT" = "$live_sha" ]',
+            text,
+            "manual dispatch must fail closed if its pinned backend SHA is not the live Render SHA",
+        )
 
     def test_runtime_probe_uses_vercel_bff_and_exact_release_identity(self):
         text = SCRIPT.read_text()
