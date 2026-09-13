@@ -86,7 +86,8 @@ public class SubscriptionGridQueryService {
                         SELECT s.id, s.tenant_id, t.name AS tenant_name, t.country_code,
                                s.status, s.billing_cycle, s.seat_quantity,
                                s.plan_id, p.name AS plan_name, p.code AS plan_code,
-                               pv.version_number AS plan_version, p.currency_code,
+                               pv.version_number AS plan_version,
+                               COALESCE(pv.currency_code, p.currency_code) AS currency_code,
                                CASE s.billing_cycle WHEN 'ANNUAL' THEN pv.annual_price_minor / 12
                                                     ELSE pv.monthly_price_minor END AS monthly_price_minor,
                                (SELECT COUNT(*) FROM subscription_items si
