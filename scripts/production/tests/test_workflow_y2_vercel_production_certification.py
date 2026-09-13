@@ -21,7 +21,7 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
             "secrets.SANAD_ADMIN_PASSWORD",
             "secrets.RENDER_API_KEY",
             "secrets.RENDER_SERVICE_ID",
-            'git diff --quiet "$BACKEND_RELEASE_SHA" HEAD -- apps/sanad-platform',
+            'git diff --quiet "$live_sha" HEAD -- apps/sanad-platform',
             "verify-workflow-vercel-production-runtime.sh",
             "workflow-vercel-production-certification-${{ github.run_id }}",
         ]
