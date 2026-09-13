@@ -8,6 +8,8 @@ set -Eeuo pipefail
 : "${WORKFLOW_RUNTIME_TENANT_ID:?WORKFLOW_RUNTIME_TENANT_ID is required}"
 
 BASE_URL="${VERCEL_BASE_URL%/}"
+VERCEL_RELEASE_ATTEMPTS="${WORKFLOW_VERCEL_RELEASE_ATTEMPTS:-40}"
+VERCEL_RELEASE_DELAY_SECONDS="${WORKFLOW_VERCEL_RELEASE_DELAY_SECONDS:-20}"
 EVIDENCE_FILE="${WORKFLOW_VERCEL_EVIDENCE_FILE:-workflow-vercel-production-runtime.json}"
 WORK_DIR="$(mktemp -d)"
 CHECKS_FILE="$WORK_DIR/checks.jsonl"
@@ -73,7 +75,7 @@ esac
 
 STAGE="vercel-release-identity"
 release_ready=false
-for attempt in $(seq 1 40); do
+for attempt in $(seq 1 "$VERCEL_RELEASE_ATTEMPTS"); do
   status="$(request GET "$BASE_URL/api/system/release" "$WORK_DIR/release.json" --header 'Accept: application/json')"
   if [ "$status" = "200" ] && jq -e --arg sha "$VERCEL_EXPECTED_SHA" '
     .service == "SNAD Web"
@@ -84,7 +86,7 @@ for attempt in $(seq 1 40); do
     release_ready=true
     break
   fi
-  sleep 20
+  sleep "$VERCEL_RELEASE_DELAY_SECONDS"
 done
 [ "$release_ready" = "true" ] || fail "$STAGE" "Vercel production release identity did not converge to exact current main SHA"
 
