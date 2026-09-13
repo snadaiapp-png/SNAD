@@ -62,6 +62,8 @@ public class SubscriptionChangeService {
             Long currentMonthlyMinor,
             Long targetMonthlyMinor,
             Long deltaMonthlyMinor,
+            String currentCurrencyCode,
+            String targetCurrencyCode,
             String currencyCode,
             List<String> warnings) {
     }
@@ -73,6 +75,9 @@ public class SubscriptionChangeService {
     public ChangePreview preview(UUID subscriptionId, UUID targetPlanVersionId,
                                  String clientCountryCode, Instant at) {
         SubscriptionContext ctx = requireSubscription(subscriptionId);
+        // A subscription may only move to an explicitly ACTIVE contract version.
+        // Never let the UI or a direct API caller fall back to DRAFT/RETIRED.
+        requireActiveTargetVersion(targetPlanVersionId);
         String billingInterval = ctx.billingCycle() != null ? ctx.billingCycle() : "MONTHLY";
         // P0-A: tenant's authoritative country wins; the client-supplied value
         // is intentionally NOT used for pricing (authority NONE).
@@ -94,19 +99,32 @@ public class SubscriptionChangeService {
         Optional<SubscriptionItemEntity> planItem = ctx.planId() != null
                 ? itemRepository.findActiveBySubscriptionIdAndPlanId(subscriptionId, ctx.planId())
                 : Optional.empty();
-        long currentMonthly = planItem.map(i -> nvl(i.getUnitAmountMinor())).orElse(0L);
+        long currentMonthly = planItem
+                .map(i -> Math.multiplyExact(nvl(i.getUnitAmountMinor()), Math.max(1, i.getQuantity())))
+                .orElse(0L);
+        String currentCurrency = planItem.map(SubscriptionItemEntity::getCurrencyCode).orElse(null);
 
         List<String> warnings = new ArrayList<>();
         Long targetMonthly = null;
         Long delta = null;
+        String targetCurrency = null;
+        String commonCurrency = null;
         if (planItem.isPresent()) {
-            UUID versionId = planItem.get().getPlanVersionId() != null
-                    ? planItem.get().getPlanVersionId() : targetPlanVersionId;
             Optional<PriceEntity> price = priceResolver.resolveForPlanVersion(
                     targetPlanVersionId, pricingCountry, billingInterval, at);
             if (price.isPresent()) {
+                targetCurrency = price.get().getCurrencyCode();
                 targetMonthly = compute(price.get(), planItem.get().getQuantity());
-                delta = targetMonthly - currentMonthly;
+                if (currentCurrency == null || targetCurrency == null) {
+                    warnings.add("Currency metadata is missing; change cannot be compared safely");
+                } else if (!currentCurrency.equals(targetCurrency)) {
+                    warnings.add("Currency mismatch (current=" + currentCurrency
+                            + ", target=" + targetCurrency
+                            + "); FX conversion is not configured, so delta is unavailable");
+                } else {
+                    commonCurrency = currentCurrency;
+                    delta = Math.subtractExact(targetMonthly, currentMonthly);
+                }
             } else {
                 warnings.add("No effective price found for target version (country=" + pricingCountry
                         + ", interval=" + billingInterval + "); change cannot be priced");
@@ -118,8 +136,7 @@ public class SubscriptionChangeService {
 
         return new ChangePreview(subscriptionId, targetPlanVersionId, ctx.status(),
                 lines, currentMonthly, targetMonthly, delta,
-                planItem.map(SubscriptionItemEntity::getCurrencyCode).orElse(null),
-                warnings);
+                currentCurrency, targetCurrency, commonCurrency, warnings);
     }
 
     /**
@@ -147,18 +164,11 @@ public class SubscriptionChangeService {
                 .orElseThrow(() -> new IllegalStateException(
                         "No ACTIVE PLAN item matching the compatibility anchor (plan " + ctx.planId() + ")"));
 
-        Map<String, Object> versionRow;
-        try {
-            versionRow = jdbc.queryForMap(
-                    "SELECT pv.plan_id, pv.currency_code FROM plan_versions pv WHERE pv.id = ?",
-                    targetPlanVersionId);
-        } catch (EmptyResultDataAccessException e) {
-            throw new IllegalArgumentException("Unknown plan version: " + targetPlanVersionId);
-        }
+        TargetVersionContext target = requireActiveTargetVersion(targetPlanVersionId);
 
         applyCanonicalPlanCompositionChange(subscriptionId,
-                (UUID) versionRow.get("plan_id"), targetPlanVersionId,
-                preview.targetMonthlyMinor(), (String) versionRow.get("currency_code"),
+                target.planId(), targetPlanVersionId,
+                preview.targetMonthlyMinor(), preview.targetCurrencyCode(),
                 currentPlanItem.getQuantity(), reason, actorTenantId, actorUserId);
 
         return new ChangeResult(subscriptionId, "EXECUTED", reason);
@@ -353,6 +363,30 @@ public class SubscriptionChangeService {
      */
     record SubscriptionContext(UUID tenantId, UUID planId, String status,
                                 String billingCycle, String tenantCountryCode) {
+    }
+
+    record TargetVersionContext(UUID planId, String status, String currencyCode) {
+    }
+
+    private TargetVersionContext requireActiveTargetVersion(UUID targetPlanVersionId) {
+        if (targetPlanVersionId == null) {
+            throw new IllegalArgumentException("targetPlanVersionId is required");
+        }
+        Map<String, Object> row;
+        try {
+            row = jdbc.queryForMap(
+                    "SELECT plan_id, status, currency_code FROM plan_versions WHERE id = ?",
+                    targetPlanVersionId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalArgumentException("Unknown plan version: " + targetPlanVersionId);
+        }
+        String status = (String) row.get("status");
+        if (!"ACTIVE".equals(status)) {
+            throw new IllegalStateException(
+                    "Target plan version must be ACTIVE (current: " + status + ")");
+        }
+        return new TargetVersionContext(
+                (UUID) row.get("plan_id"), status, (String) row.get("currency_code"));
     }
 
     /**
