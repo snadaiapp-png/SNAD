@@ -69,7 +69,14 @@ Write-Host "-> Installing Windows service: $ServiceName"
 & $NssmExe set $ServiceName AppRestartDelay 10000
 
 # 7. Set environment variables
-& $NssmExe set $ServiceName AppEnvironmentExtra "SPRING_PROFILES_ACTIVE=prod" "DATABASE_URL=jdbc:postgresql://localhost:5432/sanad" "DATABASE_USERNAME=sanad_backend" "DATABASE_PASSWORD=Snad@2026!Backend" "FLYWAY_ENABLED=true" "JPA_DDL_AUTO=validate" "SERVER_PORT=8080"
+$DatabaseUrl = $env:DATABASE_URL
+$DatabaseUsername = $env:DATABASE_USERNAME
+$DatabasePassword = $env:DATABASE_PASSWORD
+if ([string]::IsNullOrWhiteSpace($DatabaseUrl) -or [string]::IsNullOrWhiteSpace($DatabaseUsername) -or [string]::IsNullOrWhiteSpace($DatabasePassword)) {
+    Write-Host "ERROR: DATABASE_URL, DATABASE_USERNAME, and DATABASE_PASSWORD must be supplied via the process environment." -ForegroundColor Red
+    exit 1
+}
+& $NssmExe set $ServiceName AppEnvironmentExtra "SPRING_PROFILES_ACTIVE=prod" "DATABASE_URL=$DatabaseUrl" "DATABASE_USERNAME=$DatabaseUsername" "DATABASE_PASSWORD=$DatabasePassword" "FLYWAY_ENABLED=true" "JPA_DDL_AUTO=validate" "SERVER_PORT=8080"
 
 # 8. Start service
 Write-Host "-> Starting service..."
