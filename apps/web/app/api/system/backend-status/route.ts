@@ -6,8 +6,11 @@ import { checkBackendIntegration } from "@/lib/api";
  * Health checks must always reflect the current backend state, never
  * a stale cached response.
  */
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+// Keep this above the 125s production Render cold-start health budget.
+export const maxDuration = 150;
 
 /**
  * Public backend-status endpoint.
