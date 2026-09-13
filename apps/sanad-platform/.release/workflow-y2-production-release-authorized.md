@@ -131,3 +131,31 @@ Only the canonical path is authorized:
 `Publish Render Backend Image` → exact immutable image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → Render exact-image verification → readiness → Flyway invariants → security boundary → SCP production contract smoke → Vercel Control Plane/BFF → sanitized release evidence.
 
 No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, or R0C-13 production action is authorized.
+
+
+## Workflow FIC Final Production Alignment Authority — 2026-09-13
+
+- Historical Workflow FIC certified SHA: `b2da8ebed5b0f4e1734bc4ebc9c983aabca428f0`
+- Current production-alignment source base: `a7fd5c0428ea6c774ff52e564cd791f9d1faf3a3`
+- Corrected FIC evidence: `docs/certification/WORKFLOW-FIC-FINAL-EVIDENCE-CORRECTED.md`
+- Owner final production deployment authorization: `GRANTED_EXPLICITLY_2026-09-13`
+- Independent human review with repository write access: `REQUIRED`
+- Release-control PR exact-head required checks: `REQUIRED_PASS`
+- Pre-merge current-main drift guard: `REQUIRED_PASS`
+- Runtime application behavior change in this authorization change: `NONE`
+- Database migration change in this authorization change: `NONE`
+- Security/RBAC semantic change in this authorization change: `NONE`
+- Rollback on failure: `REQUIRED=true`
+- `LIVE_AUTONOMOUS_AI=OFF`
+
+This authorization is intentionally limited to the protected canonical production deployment path. It does not rewrite the historical FIC SHA and does not fabricate unresolved external/commercial evidence.
+
+The protected squash merge MUST contain the exact immutable commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker, the production orchestrator must fail closed.
+
+Only the canonical release chain is authorized:
+
+`Publish Render Backend Image` → exact immutable SHA image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → exact-image Render verification → readiness → Flyway runtime invariants → security boundary → SCP production smoke → Vercel Control Plane/BFF → sanitized release evidence.
+
+No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, or autonomous AI activation is authorized.
+
+If the release-control PR head, current `main`, required CI, independent approval, or exact-image evidence changes before merge, this authorization fails closed and must be re-evaluated.
