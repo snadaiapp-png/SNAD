@@ -120,7 +120,9 @@ export function Modal({
   // supply an inline onClose; coupling that identity to the effect caused the
   // modal to refocus its panel after each character and steal focus from inputs.
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // ESC key handler. Stable across parent rerenders unless ESC policy changes.
   const handleKeyDown = useCallback(
