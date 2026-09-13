@@ -45,6 +45,8 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
             "/api/platform/api/v1/auth/me",
             "/api/platform/api/v1/workflows/definitions",
             "/api/platform/api/v1/workflows/catalog/modules",
+            "WORKFLOW_MODULE_NOT_ENTITLED",
+            "WORKFLOW_VERCEL_BACKEND_STATUS_ATTEMPTS",
             "/api/platform/api/v1/workflows/instances",
             "/api/platform/api/v1/workflows/monitoring/health",
             "/api/platform/api/v1/workflows/notifications",

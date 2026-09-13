@@ -10,6 +10,9 @@ EMAIL = "admin@example.test"
 
 class Handler(BaseHTTPRequestHandler):
     release_sha = EXPECTED_SHA
+    catalog_mode = "enabled"
+    backend_status_failures = 0
+    backend_status_requests = 0
 
     def log_message(self, *_):
         pass
@@ -44,6 +47,14 @@ class Handler(BaseHTTPRequestHandler):
                 "environment": "production",
             })
         if path == "/api/system/backend-status":
+            Handler.backend_status_requests += 1
+            if Handler.backend_status_requests <= Handler.backend_status_failures:
+                return self._send(200, {
+                    "configured": True,
+                    "reachable": False,
+                    "statusCode": None,
+                    "checkedAt": "2026-09-13T00:00:00Z",
+                })
             return self._send(200, {
                 "configured": True,
                 "reachable": True,
@@ -73,6 +84,18 @@ class Handler(BaseHTTPRequestHandler):
                 "engineGeneration": "Y2",
             }])
         if path == "/api/platform/api/v1/workflows/catalog/modules":
+            if self.catalog_mode == "not-entitled":
+                return self._send(403, {
+                    "status": 403,
+                    "error": "Forbidden",
+                    "message": "WORKFLOW_MODULE_NOT_ENTITLED",
+                })
+            if self.catalog_mode == "wrong-forbidden":
+                return self._send(403, {
+                    "status": 403,
+                    "error": "Forbidden",
+                    "message": "OTHER_DENIAL",
+                })
             return self._send(200, {"modules": []})
         if path == "/api/platform/api/v1/workflows/instances":
             return self._send(200, [])
@@ -103,6 +126,11 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--release-sha", default=EXPECTED_SHA)
+    p.add_argument("--catalog-mode", choices=["enabled", "not-entitled", "wrong-forbidden"], default="enabled")
+    p.add_argument("--backend-status-failures", type=int, default=0)
     a = p.parse_args()
     Handler.release_sha = a.release_sha
+    Handler.catalog_mode = a.catalog_mode
+    Handler.backend_status_failures = max(0, a.backend_status_failures)
+    Handler.backend_status_requests = 0
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
