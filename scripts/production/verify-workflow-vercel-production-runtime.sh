@@ -72,13 +72,21 @@ case "$BASE_URL" in
 esac
 
 STAGE="vercel-release-identity"
-status="$(request GET "$BASE_URL/api/system/release" "$WORK_DIR/release.json" --header 'Accept: application/json')"
-expect_200 "$status" "vercelReleaseIdentity"
-jq -e --arg sha "$VERCEL_EXPECTED_SHA" '
-  .service == "SNAD Web"
-  and .commitSha == $sha
-  and (.environment == "production" or .environment == "prod")
-' "$WORK_DIR/release.json" >/dev/null || fail "$STAGE" "Vercel release identity does not match exact current main production SHA"
+release_ready=false
+for attempt in $(seq 1 40); do
+  status="$(request GET "$BASE_URL/api/system/release" "$WORK_DIR/release.json" --header 'Accept: application/json')"
+  if [ "$status" = "200" ] && jq -e --arg sha "$VERCEL_EXPECTED_SHA" '
+    .service == "SNAD Web"
+    and .commitSha == $sha
+    and (.environment == "production" or .environment == "prod")
+  ' "$WORK_DIR/release.json" >/dev/null 2>&1; then
+    record_check "vercelReleaseIdentity" "$status"
+    release_ready=true
+    break
+  fi
+  sleep 20
+done
+[ "$release_ready" = "true" ] || fail "$STAGE" "Vercel production release identity did not converge to exact current main SHA"
 
 STAGE="vercel-backend-status"
 status="$(request GET "$BASE_URL/api/system/backend-status" "$WORK_DIR/backend-status.json" --header 'Accept: application/json')"
