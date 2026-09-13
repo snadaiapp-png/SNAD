@@ -206,6 +206,36 @@ class ExecutiveReadModelsTest {
         assertThat(bound).allSatisfy(v -> assertThat(v).isNotInstanceOf(List.class));
     }
 
+    @Test
+    @DisplayName("tenant directory: latest subscription status has deterministic id tie-breaker")
+    void tenantDirectoryLatestStatusIsDeterministic() {
+        stubTenantCount();
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        tenantDirectory.search(null, null, null, 0, 20, "name", "ASC");
+
+        verify(jdbc).queryForList(
+                contains("ORDER BY s.created_at DESC, s.id DESC LIMIT 1"),
+                any(Object[].class));
+    }
+
+    @Test
+    @DisplayName("subscription grid: legacy rows without plan_version_id fall back to parent plan prices")
+    void subscriptionGridLegacyPriceFallbackIsExplicit() {
+        when(jdbc.queryForObject(contains("SELECT COUNT(*) FROM tenant_subscriptions"),
+                eq(Long.class), any(Object[].class))).thenReturn(0L);
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        subscriptionGrid.search(null, null, null, null, false, 0, 20, null, null);
+
+        verify(jdbc).queryForList(
+                contains("COALESCE(pv.monthly_price_minor, p.monthly_price_minor)"),
+                any(Object[].class));
+        verify(jdbc).queryForList(
+                contains("COALESCE(pv.annual_price_minor, p.annual_price_minor)"),
+                any(Object[].class));
+    }
+
     private void stubCounts() {
         lenient().when(jdbc.queryForObject(anyString(), eq(Long.class)))
                 .thenReturn(0L);

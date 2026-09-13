@@ -28,4 +28,4 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Run targeted repair regressions
-        run: mvn test -B -ntp -Dtest=PriceResolverStrictFallbackTest -Dsurefire.useFile=false
+        run: mvn test -B -ntp -Dtest=PriceResolverStrictFallbackTest,PriceResolverTest,PriceRepositoryTest,SubscriptionChangeServiceTest,LifecycleControllerActorTest,SubscriptionCommandServiceTest,PlanVersionServiceTest,ExecutiveReadModelsTest -Dsurefire.useFile=false
