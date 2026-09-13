@@ -64,4 +64,4 @@ jobs:
           mvn test -B -ntp
           -Dsurefire.useFile=false
           -DfailIfNoTests=true
-          -Dtest=ScpFinalModuleAcceptancePostgresTest#pinnedPlanVersionCurrencyIsAuthoritative
+          -Dtest=PinnedPlanVersionCurrencyPostgresTest
