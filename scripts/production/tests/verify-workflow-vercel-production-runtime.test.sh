@@ -19,7 +19,7 @@ run_mock() {
   local sha="$1"
   local port
   port="$(free_port)"
-  python3 "$MOCK" --port "$port" --release-sha "$sha" &
+  python3 "$MOCK" --port "$port" --release-sha "$sha" >/dev/null 2>&1 &
   local pid=$!
   PIDS+=("$pid")
   for _ in $(seq 1 30); do
