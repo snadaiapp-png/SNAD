@@ -115,17 +115,23 @@ export function Modal({
 
   const modalRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  // Keep the latest callback without making focus-management effects depend on
+  // callback identity. Parent forms rerender on every keystroke and commonly
+  // supply an inline onClose; coupling that identity to the effect caused the
+  // modal to refocus its panel after each character and steal focus from inputs.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  // ESC key handler.
+  // ESC key handler. Stable across parent rerenders unless ESC policy changes.
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (!closeOnEsc) return;
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
     },
-    [closeOnEsc, onClose],
+    [closeOnEsc],
   );
 
   // Focus management + body scroll lock.
