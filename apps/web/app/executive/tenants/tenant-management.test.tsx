@@ -2,13 +2,27 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const tenantsMock = vi.fn();
+const createTenantMock = vi.fn();
+const tenantMock = vi.fn();
+const updateTenantMock = vi.fn();
+const changeTenantStatusMock = vi.fn();
 const hasMock = vi.fn();
 
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: { tenants: (...args: unknown[]) => tenantsMock(...args) },
+}));
+
+vi.mock("@/lib/api/executive-api", () => ({
+  executiveApi: {
+    createTenant: (...args: unknown[]) => createTenantMock(...args),
+    tenant: (...args: unknown[]) => tenantMock(...args),
+    updateTenant: (...args: unknown[]) => updateTenantMock(...args),
+    changeTenantStatus: (...args: unknown[]) => changeTenantStatusMock(...args),
+  },
 }));
 
 vi.mock("../_components/ScpAccess", () => ({
@@ -55,6 +69,10 @@ const PAGE = {
 
 beforeEach(() => {
   tenantsMock.mockResolvedValue(PAGE);
+  createTenantMock.mockReset();
+  tenantMock.mockReset();
+  updateTenantMock.mockReset();
+  changeTenantStatusMock.mockReset();
   hasMock.mockReset();
 });
 
@@ -75,6 +93,24 @@ describe("Executive tenant management controls", () => {
       "/executive/subscriptions?tenantId=11111111-1111-1111-1111-111111111111&intent=upgrade",
     );
     expect(hasMock).toHaveBeenCalledWith("EXECUTIVE_MANAGE");
+  });
+
+  it("validates tenant creation locally and keeps invalid payloads away from the API", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "إنشاء حساب جديد" }));
+    await user.type(screen.getByLabelText("اسم الحساب"), "شركة اختبار");
+    await user.type(screen.getByLabelText("النطاق الفرعي"), "bad_domain");
+    await user.type(screen.getByLabelText("بريد المسؤول"), "not-an-email");
+    await user.type(screen.getByLabelText("اسم المسؤول"), "مدير النظام");
+
+    await user.click(screen.getByRole("button", { name: "إنشاء" }));
+
+    expect(createTenantMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/النطاق الفرعي|البريد/i);
   });
 
   it("granular-only/read-only user never receives mutation controls", async () => {
