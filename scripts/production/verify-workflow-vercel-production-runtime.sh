@@ -37,7 +37,10 @@ fail() {
 
 record_check() {
   local label="$1" status="$2"
-  jq -cn --arg route "$label" --arg status "$status" '{route:$route,httpStatus:($status|tonumber),result:"PASS"}' >> "$CHECKS_FILE"
+  local result="FAIL"
+  [ "$status" = "200" ] && result="PASS"
+  jq -cn --arg route "$label" --arg status "$status" --arg result "$result" \
+    '{route:$route,httpStatus:($status|tonumber),result:$result}' >> "$CHECKS_FILE"
 }
 
 request() {
