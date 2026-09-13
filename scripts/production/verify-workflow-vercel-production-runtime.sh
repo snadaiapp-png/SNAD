@@ -90,11 +90,28 @@ for attempt in $(seq 1 "$VERCEL_RELEASE_ATTEMPTS"); do
 done
 [ "$release_ready" = "true" ] || fail "$STAGE" "Vercel production release identity did not converge to exact current main SHA"
 
+STAGE="vercel-bff-reachability-auth-boundary"
+status="$(request GET "$BASE_URL/api/platform/api/v1/auth/me" "$WORK_DIR/anonymous-me.json" --header 'Accept: application/json')"
+case "$status" in
+  401|403)
+    record_check "vercelBffReachabilityAuthBoundary" "$status"
+    ;;
+  200)
+    fail "$STAGE" "Unauthenticated /auth/me unexpectedly succeeded; refusing to certify a broken authentication boundary"
+    ;;
+  000|502|503|504)
+    fail "$STAGE" "Vercel BFF cannot reach the production backend (HTTP $status)"
+    ;;
+  *)
+    fail "$STAGE" "Unexpected unauthenticated /auth/me response through Vercel BFF: HTTP $status"
+    ;;
+esac
+
 STAGE="vercel-backend-status"
 status="$(request GET "$BASE_URL/api/system/backend-status" "$WORK_DIR/backend-status.json" --header 'Accept: application/json')"
 expect_200 "$status" "vercelBackendStatus"
 jq -e '.configured == true and .reachable == true and .statusCode == 200' "$WORK_DIR/backend-status.json" >/dev/null \
-  || fail "$STAGE" "Vercel BFF cannot prove the production backend reachable"
+  || fail "$STAGE" "Vercel backend-status did not converge to a healthy production backend after canonical BFF reachability succeeded"
 
 STAGE="workflow-route"
 status="$(request GET "$BASE_URL/workflow" "$WORK_DIR/workflow.html" --header 'Accept: text/html')"
@@ -182,6 +199,6 @@ jq -n \
   '{schema:$schema,result:$result,failureStage:null,releaseSha:$releaseSha,transport:"vercel-bff",baseUrl:$baseUrl,workflowDefinitionId:$workflowDefinitionId,checks:$checks[0]}' \
   > "$EVIDENCE_FILE"
 
-jq -e '.result == "PASS" and (.checks | length >= 9)' "$EVIDENCE_FILE" >/dev/null || fail "evidence" "Vercel Workflow runtime evidence did not resolve to PASS"
+jq -e '.result == "PASS" and (.checks | length >= 13)' "$EVIDENCE_FILE" >/dev/null || fail "evidence" "Vercel Workflow runtime evidence did not resolve to PASS"
 
 echo "Workflow Vercel production runtime certification: PASSED"
