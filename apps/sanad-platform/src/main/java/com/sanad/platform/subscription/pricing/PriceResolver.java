@@ -45,12 +45,7 @@ public class PriceResolver {
         List<PriceEntity> candidates = repository.findEffective(
                 planVersionId, productId, billingInterval, at);
         return pick(candidates, countryCode, at)
-                .or(() -> pick(candidates, GLOBAL, at))
-                .or(() -> candidates.stream()
-                        // last resort: any window-valid price regardless of country annotation
-                        .filter(p -> inWindow(p, at))
-                        .max(Comparator.comparing(PriceEntity::getEffectiveFrom,
-                                Comparator.nullsFirst(Comparator.naturalOrder()))));
+                .or(() -> pick(candidates, GLOBAL, at));
     }
 
     private Optional<PriceEntity> pick(List<PriceEntity> candidates, String countryCode, Instant at) {
