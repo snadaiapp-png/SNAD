@@ -102,8 +102,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          IMAGE_PREFIX="ghcr.io/snadaiapp-png/snad-backend:"
-
           curl --fail-with-body --silent --show-error --max-time 45 \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H 'Accept: application/json' \
