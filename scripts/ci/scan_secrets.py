@@ -29,6 +29,10 @@ RULES = [
     ("webhook-secret", r'webhook[_-]?secret[_=:"\s]+["\']([a-zA-Z0-9_\-]{16,})["\']', "MEDIUM", "Webhook Secret"),
     ("generic-api-key", r'api[_-]?key[_=:"\s]+["\']([a-zA-Z0-9_\-]{20,})["\']', "MEDIUM", "Generic API Key"),
     ("generic-password", r'(?i)password\s*[:=]\s*["\']([^"\']{8,})["\']', "MEDIUM", "Hardcoded Password"),
+    ("prod-password-yaml", r'(?i)\b[A-Z0-9_]*PASSWORD\s*:\s*["\']?([^$<{][^#\s"\']{7,})["\']?', "CRITICAL", "Hardcoded password in production configuration"),
+    ("prod-password-shell", r'(?i)\b[A-Z0-9_]*PASSWORD\s*=\s*["\']?([^$<{][^#\s"\']{7,})["\']?', "CRITICAL", "Hardcoded password assignment in production configuration"),
+    ("prod-password-set-var", r'(?i)set_var\s+["\'][A-Z0-9_]*PASSWORD["\']\s+["\']([^$<{][^"\']{7,})["\']', "CRITICAL", "Hardcoded password passed to production environment"),
+    ("prod-password-json", r'(?i)["\']password["\']\s*:\s*["\']([^$<{][^"\']{7,})["\']', "CRITICAL", "Hardcoded password in production request payload"),
     ("google-api-key", r'AIza[0-9A-Za-z_\-]{35}', "HIGH", "Google API Key"),
     ("slack-token", r'xox[baprs]-[a-zA-Z0-9-]{10,}', "HIGH", "Slack Token"),
     ("stripe-key", r'sk_(live|test)_[a-zA-Z0-9]{24,}', "HIGH", "Stripe Secret Key"),
@@ -57,6 +61,12 @@ MAX_FILE_SIZE = 2_000_000
 ALLOWLIST_FILE = "scripts/ci/secret-scan-allowlist.json"
 
 VALID_RULE_IDS = {r[0] for r in RULES}
+PRODUCTION_LITERAL_RULE_IDS = {
+    "prod-password-yaml",
+    "prod-password-shell",
+    "prod-password-set-var",
+    "prod-password-json",
+}
 REQUIRED_ALLOWLIST_FIELDS = {"ruleId", "path", "fingerprint", "reason", "owner", "approvalReference", "expirationDate"}
 
 # A source-level reference to an external secret is not itself a hardcoded
@@ -74,11 +84,29 @@ SAFE_GENERIC_PASSWORD_INDIRECTION = (
 
 def is_safe_source_indirection(rule_id: str, secret_sample: str) -> bool:
     """Return True only for approved non-literal password source references."""
-    if rule_id != "generic-password":
+    if rule_id != "generic-password" and rule_id not in PRODUCTION_LITERAL_RULE_IDS:
         return False
     candidate = secret_sample.strip()
     return any(pattern.fullmatch(candidate) for pattern in SAFE_GENERIC_PASSWORD_INDIRECTION)
 
+
+
+def is_production_sensitive_path(rel_path: str, content: str) -> bool:
+    """Scope literal-password rules to executable production surfaces only."""
+    normalized = PurePosixPath(rel_path).as_posix()
+    if normalized.startswith("scripts/production/tests/"):
+        return False
+    if normalized.startswith("scripts/production/"):
+        return True
+    if normalized.startswith(".github/workflows/"):
+        return bool(re.search(r"(?im)^\s*environment:\s*Production\s*$", content))
+    return False
+
+
+def rule_applies_to_file(rule_id: str, rel_path: str, content: str) -> bool:
+    if rule_id not in PRODUCTION_LITERAL_RULE_IDS:
+        return True
+    return is_production_sensitive_path(rel_path, content)
 
 def load_allowlist(repo_root: Path):
     """Load and validate allowlist. Fail-closed on any error."""
@@ -169,6 +197,8 @@ def scan_file(filepath: Path, rules: list, scan_errors: list, repo_root: Path = 
     lines = content.splitlines()
     for i, line in enumerate(lines, 1):
         for rule_id, pattern, severity, description in rules:
+            if not rule_applies_to_file(rule_id, rel_path, content):
+                continue
             try:
                 matches = re.finditer(pattern, line)
                 for match in matches:
@@ -237,7 +267,10 @@ def scan_repository(repo_root: Path):
                         line_num = 0
                         for line in fh:
                             line_num += 1
+                            rel_path = str(f.relative_to(repo_root))
                             for rule_id, pattern, severity, description in RULES:
+                                if rule_id in PRODUCTION_LITERAL_RULE_IDS and not is_production_sensitive_path(rel_path, ''):
+                                    continue
                                 try:
                                     for match in re.finditer(pattern, line):
                                         secret_value = match.group(0)
