@@ -10,7 +10,7 @@
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
 
-DO $$
+DO $snad$
 DECLARE
     api_role TEXT;
     fn RECORD;
@@ -73,11 +73,11 @@ BEGIN
         END IF;
     END LOOP;
 END
-$;
+$snad$;
 
 -- Pin application-function search_path to prevent object-shadowing attacks.
 -- Extension-owned functions are intentionally excluded.
-DO $
+DO $snad$
 DECLARE
     fn RECORD;
 BEGIN
@@ -100,12 +100,12 @@ BEGIN
         );
     END LOOP;
 END
-$;
+$snad$;
 
 -- Supabase creates btree_gist in public by default in some project generations.
 -- Move it only when the provider-managed extensions schema exists and the
 -- extension is relocatable. Local PostgreSQL without that schema is unchanged.
-DO $
+DO $snad$
 BEGIN
     IF EXISTS (
         SELECT 1
@@ -121,7 +121,7 @@ BEGIN
         ALTER EXTENSION btree_gist SET SCHEMA extensions;
     END IF;
 END
-$;
+$snad$;
 
 -- Future objects created by the Flyway owner are fail-closed by default.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
@@ -131,7 +131,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
-DO $$
+DO $snad$
 DECLARE
     api_role TEXT;
 BEGIN
@@ -153,4 +153,4 @@ BEGIN
         END IF;
     END LOOP;
 END
-$$;
+$snad$;
