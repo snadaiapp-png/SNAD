@@ -5,6 +5,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -17,6 +19,7 @@ import java.util.UUID;
 public class ApplicationCatalogService {
 
     public static final String STATUS_ACTIVE = "ACTIVE";
+    private static final Set<String> ALLOWED_STATUSES = Set.of("ACTIVE", "INACTIVE", "DEPRECATED");
     public static final String PROVISIONING_IMMEDIATE = "IMMEDIATE";
 
     private final ApplicationRepository repository;
@@ -56,17 +59,39 @@ public class ApplicationCatalogService {
         ApplicationEntity existing = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown application: " + id));
         existing.setName(changes.getName());
-        existing.setLocalizedName(changes.getLocalizedName());
-        existing.setDescription(changes.getDescription());
-        existing.setCategory(changes.getCategory());
-        existing.setStatus(changes.getStatus() == null ? existing.getStatus() : changes.getStatus());
-        existing.setVersion(changes.getVersion());
+        if (changes.getLocalizedName() != null) {
+            existing.setLocalizedName(changes.getLocalizedName());
+        }
+        if (changes.getDescription() != null) {
+            existing.setDescription(changes.getDescription());
+        }
+        if (changes.getCategory() != null && !changes.getCategory().isBlank()) {
+            existing.setCategory(changes.getCategory());
+        }
+        if (changes.getStatus() != null) {
+            String status = changes.getStatus().trim().toUpperCase(Locale.ROOT);
+            if (!ALLOWED_STATUSES.contains(status)) {
+                throw new IllegalArgumentException("Unsupported application status: " + changes.getStatus());
+            }
+            existing.setStatus(status);
+        }
+        // Version is not part of the public ApplicationRequest contract; never
+        // erase the persisted version merely because a UI update omits it.
+        if (changes.getVersion() != null) {
+            existing.setVersion(changes.getVersion());
+        }
         existing.setDisplayOrder(changes.getDisplayOrder());
-        existing.setIconKey(changes.getIconKey());
+        if (changes.getIconKey() != null) {
+            existing.setIconKey(changes.getIconKey());
+        }
         existing.setProvisioningMode(changes.getProvisioningMode() == null
                 ? existing.getProvisioningMode() : changes.getProvisioningMode());
-        existing.setSupportedCountries(changes.getSupportedCountries());
-        existing.setDependencies(changes.getDependencies());
+        if (changes.getSupportedCountries() != null) {
+            existing.setSupportedCountries(changes.getSupportedCountries());
+        }
+        if (changes.getDependencies() != null) {
+            existing.setDependencies(changes.getDependencies());
+        }
         existing.setUpdatedAt(Instant.now());
         repository.update(existing);
         return existing;
