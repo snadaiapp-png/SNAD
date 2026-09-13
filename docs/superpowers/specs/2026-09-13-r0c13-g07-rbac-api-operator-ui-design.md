@@ -498,7 +498,7 @@ G07 does not authorize or implement:
 This G07 design is ready for implementation planning when:
 
 - the re-anchored baseline remains exact or is re-audited if main moves;
-- no placeholder/TBD remains;
+- no unresolved design marker remains;
 - every approved RBAC/API/UI/refund/repair/readiness decision is represented;
 - no LIVE-payment authority is introduced;
 - user reviews and approves this written spec.
