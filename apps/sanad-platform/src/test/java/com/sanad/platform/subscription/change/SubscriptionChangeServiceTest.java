@@ -57,6 +57,7 @@ class SubscriptionChangeServiceTest {
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID SUBSCRIPTION_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID ANCHOR_PLAN_ID = UUID.fromString("c2000000-0000-0000-0000-000000000001");
+    private static final UUID TARGET_PLAN_ID = UUID.fromString("c2000000-0000-0000-0000-000000000002");
     private static final UUID CURRENT_VERSION = UUID.fromString("d1000000-0000-0000-0000-000000000001");
     private static final UUID TARGET_VERSION = UUID.fromString("d1000000-0000-0000-0000-000000000002");
     private static final Instant NOW = Instant.parse("2026-08-29T00:00:00Z");
@@ -104,6 +105,13 @@ class SubscriptionChangeServiceTest {
                         TENANT_ID, ANCHOR_PLAN_ID, "ACTIVE", "MONTHLY", "SA"))
                 .when(jdbc).queryForObject(contains("JOIN tenants"),
                         ArgumentMatchers.<RowMapper<Object>>any(), eq(SUBSCRIPTION_ID));
+        lenient().when(jdbc.queryForMap(
+                        eq("SELECT plan_id, status, currency_code FROM plan_versions WHERE id = ?"),
+                        eq(TARGET_VERSION)))
+                .thenReturn(Map.of(
+                        "plan_id", TARGET_PLAN_ID,
+                        "status", "ACTIVE",
+                        "currency_code", "SAR"));
     }
 
     private void stubPlanItem(SubscriptionItemEntity planItem) {
@@ -207,9 +215,6 @@ class SubscriptionChangeServiceTest {
         stubPlanItem(current);
         when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
                 .thenReturn(Optional.of(price(TARGET_VERSION, 39900L)));
-        when(jdbc.queryForMap(contains("SELECT pv.plan_id, pv.currency_code FROM plan_versions"),
-                eq(TARGET_VERSION)))
-                .thenReturn(Map.of("plan_id", UUID.randomUUID(), "currency_code", "SAR"));
 
         SubscriptionChangeService.ChangeResult result =
                 service.execute(SUBSCRIPTION_ID, TARGET_VERSION, "SA", "upgrade", null, null);
@@ -224,6 +229,65 @@ class SubscriptionChangeServiceTest {
                 eq("ACTIVE"), eq("ACTIVE"),
                 contains("TARGET_VERSION=" + TARGET_VERSION),
                 isNull(), isNull(), isNull());
+    }
+
+    @Test
+    @DisplayName("preview: current amount reflects anchored seat quantity")
+    void previewUsesAnchoredQuantityForCurrentAmount() {
+        activeSubscriptionRow();
+        SubscriptionItemEntity seats = planItem(CURRENT_VERSION, 1_000L);
+        seats.setQuantity(3);
+        stubPlanItem(seats);
+        PriceEntity perUser = price(TARGET_VERSION, 0L);
+        perUser.setPriceModel("PER_USER");
+        perUser.setUnitAmountMinor(1_500L);
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
+                .thenReturn(Optional.of(perUser));
+
+        SubscriptionChangeService.ChangePreview preview =
+                service.preview(SUBSCRIPTION_ID, TARGET_VERSION, "AE", NOW);
+
+        assertThat(preview.currentMonthlyMinor()).isEqualTo(3_000L);
+        assertThat(preview.targetMonthlyMinor()).isEqualTo(4_500L);
+        assertThat(preview.deltaMonthlyMinor()).isEqualTo(1_500L);
+    }
+
+    @Test
+    @DisplayName("preview: cross-currency change has no numeric delta and is blocking")
+    void previewFailsClosedOnCrossCurrencyDelta() {
+        activeSubscriptionRow();
+        stubPlanItem(planItem(CURRENT_VERSION, 29_900L));
+        PriceEntity usd = price(TARGET_VERSION, 39_900L);
+        usd.setCurrencyCode("USD");
+        when(priceResolver.resolveForPlanVersion(eq(TARGET_VERSION), eq("SA"), eq("MONTHLY"), any()))
+                .thenReturn(Optional.of(usd));
+
+        SubscriptionChangeService.ChangePreview preview =
+                service.preview(SUBSCRIPTION_ID, TARGET_VERSION, "SA", NOW);
+
+        assertThat(preview.currentCurrencyCode()).isEqualTo("SAR");
+        assertThat(preview.targetCurrencyCode()).isEqualTo("USD");
+        assertThat(preview.currencyCode()).isNull();
+        assertThat(preview.deltaMonthlyMinor()).isNull();
+        assertThat(preview.warnings()).anyMatch(w -> w.contains("Currency mismatch"));
+    }
+
+    @Test
+    @DisplayName("preview: DRAFT target version is rejected before pricing")
+    void previewRejectsNonActiveTargetVersion() {
+        activeSubscriptionRow();
+        stubPlanItem(planItem(CURRENT_VERSION, 29_900L));
+        when(jdbc.queryForMap(
+                eq("SELECT plan_id, status, currency_code FROM plan_versions WHERE id = ?"),
+                eq(TARGET_VERSION)))
+                .thenReturn(Map.of(
+                        "plan_id", TARGET_PLAN_ID,
+                        "status", "DRAFT",
+                        "currency_code", "SAR"));
+
+        assertThatThrownBy(() -> service.preview(SUBSCRIPTION_ID, TARGET_VERSION, "SA", NOW))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ACTIVE");
     }
 
     @Test
