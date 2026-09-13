@@ -35,6 +35,24 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
         self.assertNotIn("-X POST", text, "certification workflow must not mutate Render via API")
         self.assertNotIn("--request POST", text, "certification workflow must not mutate Render via API")
 
+    def test_push_resolves_backend_sha_from_current_live_render_image(self):
+        text = WORKFLOW.read_text()
+        self.assertNotIn(
+            "github.event.before",
+            text,
+            "push certification must not confuse previous main SHA with live backend image SHA",
+        )
+        required = [
+            "Resolve exact immutable backend image currently live",
+            "ghcr.io/snadaiapp-png/snad-backend:",
+            'select(.status == "live")',
+            'startswith($image_prefix)',
+            'BACKEND_RELEASE_SHA=$backend_release_sha',
+            '"$GITHUB_ENV"',
+        ]
+        for needle in required:
+            self.assertIn(needle, text, f"missing live backend resolution contract: {needle}")
+
     def test_runtime_probe_uses_vercel_bff_and_exact_release_identity(self):
         text = SCRIPT.read_text()
         required = [
