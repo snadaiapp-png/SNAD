@@ -11,16 +11,17 @@ trap 'for p in "${PIDS[@]:-}"; do kill "$p" 2>/dev/null || true; done; rm -rf "$
 free_port() {
   python3 - <<'PY'
 import socket
-s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()
+s=socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()
 PY
 }
 
 run_mock() {
   local sha="$1"
   local catalog_status="${2:-200}"
+  local catalog_denials="${3:-0}"
   local port
   port="$(free_port)"
-  python3 "$MOCK" --port "$port" --release-sha "$sha" --catalog-status "$catalog_status" >/dev/null 2>&1 &
+  python3 "$MOCK" --port "$port" --release-sha "$sha" --catalog-status "$catalog_status" --catalog-denials "$catalog_denials" >/dev/null 2>&1 &
   local pid=$!
   PIDS+=("$pid")
   for _ in $(seq 1 30); do
@@ -78,6 +79,8 @@ set +e
 WORKFLOW_VERCEL_ALLOW_HTTP='true' \
 WORKFLOW_VERCEL_RELEASE_ATTEMPTS='1' \
 WORKFLOW_VERCEL_RELEASE_DELAY_SECONDS='0' \
+WORKFLOW_VERCEL_ENTITLEMENT_ATTEMPTS='2' \
+WORKFLOW_VERCEL_ENTITLEMENT_DELAY_SECONDS='0' \
 WORKFLOW_RUNTIME_ADMIN_PASSWORD="$TEST_CREDENTIAL" \
 WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
 WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
@@ -96,5 +99,26 @@ jq -e '
   and ([.checks[] | select(.route == "workflowModuleCatalog")][0].result == "FAIL")
 ' "$ENTITLEMENT_EVIDENCE" >/dev/null
 ! grep -q "$TEST_CREDENTIAL\|test-token\|admin@example.test" "$ENTITLEMENT_EVIDENCE"
+
+CONVERGE_PORT="$(run_mock aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 200 2)"
+CONVERGE_EVIDENCE="$TMP/entitlement-converge.json"
+WORKFLOW_VERCEL_ALLOW_HTTP='true' \
+WORKFLOW_VERCEL_RELEASE_ATTEMPTS='1' \
+WORKFLOW_VERCEL_RELEASE_DELAY_SECONDS='0' \
+WORKFLOW_VERCEL_ENTITLEMENT_ATTEMPTS='3' \
+WORKFLOW_VERCEL_ENTITLEMENT_DELAY_SECONDS='0' \
+WORKFLOW_RUNTIME_ADMIN_PASSWORD="$TEST_CREDENTIAL" \
+WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
+WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
+VERCEL_BASE_URL="http://127.0.0.1:$CONVERGE_PORT" \
+VERCEL_EXPECTED_SHA='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+WORKFLOW_VERCEL_EVIDENCE_FILE="$CONVERGE_EVIDENCE" \
+bash "$SCRIPT"
+jq -e '
+  .result == "PASS"
+  and ([.checks[] | select(.route == "workflowModuleCatalog")] | length) == 1
+  and ([.checks[] | select(.route == "workflowModuleCatalog")][0].httpStatus == 200)
+  and ([.checks[] | select(.route == "workflowModuleCatalog")][0].result == "PASS")
+' "$CONVERGE_EVIDENCE" >/dev/null
 
 echo "verify-workflow-vercel-production-runtime tests: PASS"
