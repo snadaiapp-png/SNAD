@@ -63,7 +63,13 @@ expect_200() {
 }
 
 [[ "$VERCEL_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "input-validation" "VERCEL_EXPECTED_SHA must be a full lowercase SHA"
-[[ "$BASE_URL" == https://* ]] || fail "input-validation" "VERCEL_BASE_URL must use HTTPS"
+case "$BASE_URL" in
+  https://*) ;;
+  http://127.0.0.1:*|http://localhost:*)
+    [ "${WORKFLOW_VERCEL_ALLOW_HTTP:-false}" = "true" ] || fail "input-validation" "HTTP is allowed only for explicit local tests"
+    ;;
+  *) fail "input-validation" "VERCEL_BASE_URL must use HTTPS" ;;
+esac
 
 STAGE="vercel-release-identity"
 status="$(request GET "$BASE_URL/api/system/release" "$WORK_DIR/release.json" --header 'Accept: application/json')"
