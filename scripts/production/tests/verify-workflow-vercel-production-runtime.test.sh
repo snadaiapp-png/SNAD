@@ -17,9 +17,10 @@ PY
 
 run_mock() {
   local sha="$1"
+  shift
   local port
   port="$(free_port)"
-  python3 "$MOCK" --port "$port" --release-sha "$sha" >/dev/null 2>&1 &
+  python3 "$MOCK" --port "$port" --release-sha "$sha" "$@" >/dev/null 2>&1 &
   local pid=$!
   PIDS+=("$pid")
   for _ in $(seq 1 30); do
@@ -48,7 +49,7 @@ jq -e '
   and .result == "PASS"
   and .releaseSha == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   and .transport == "vercel-bff"
-  and (.checks | length >= 9)
+  and (.checks | length >= 13)
 ' "$PASS_EVIDENCE" >/dev/null
 ! grep -q "$TEST_CREDENTIAL\|test-token\|admin@example.test" "$PASS_EVIDENCE"
 
@@ -69,5 +70,41 @@ rc=$?
 set -e
 [ "$rc" -ne 0 ]
 jq -e '.result == "FAIL" and .failureStage == "vercel-release-identity"' "$FAIL_EVIDENCE" >/dev/null
+
+INSECURE_PORT="$(run_mock aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --allow-anonymous-me)"
+INSECURE_EVIDENCE="$TMP/insecure.json"
+set +e
+WORKFLOW_VERCEL_ALLOW_HTTP='true' \
+WORKFLOW_VERCEL_RELEASE_ATTEMPTS='1' \
+WORKFLOW_VERCEL_RELEASE_DELAY_SECONDS='0' \
+WORKFLOW_RUNTIME_ADMIN_PASSWORD="$TEST_CREDENTIAL" \
+WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
+WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
+VERCEL_BASE_URL="http://127.0.0.1:$INSECURE_PORT" \
+VERCEL_EXPECTED_SHA='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+WORKFLOW_VERCEL_EVIDENCE_FILE="$INSECURE_EVIDENCE" \
+bash "$SCRIPT"
+rc=$?
+set -e
+[ "$rc" -ne 0 ]
+jq -e '.result == "FAIL" and .failureStage == "vercel-bff-reachability-auth-boundary"' "$INSECURE_EVIDENCE" >/dev/null
+
+DOWN_PORT="$(run_mock aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --backend-status-down)"
+DOWN_EVIDENCE="$TMP/down.json"
+set +e
+WORKFLOW_VERCEL_ALLOW_HTTP='true' \
+WORKFLOW_VERCEL_RELEASE_ATTEMPTS='1' \
+WORKFLOW_VERCEL_RELEASE_DELAY_SECONDS='0' \
+WORKFLOW_RUNTIME_ADMIN_PASSWORD="$TEST_CREDENTIAL" \
+WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
+WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
+VERCEL_BASE_URL="http://127.0.0.1:$DOWN_PORT" \
+VERCEL_EXPECTED_SHA='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+WORKFLOW_VERCEL_EVIDENCE_FILE="$DOWN_EVIDENCE" \
+bash "$SCRIPT"
+rc=$?
+set -e
+[ "$rc" -ne 0 ]
+jq -e '.result == "FAIL" and .failureStage == "vercel-backend-status"' "$DOWN_EVIDENCE" >/dev/null
 
 echo "verify-workflow-vercel-production-runtime tests: PASS"
