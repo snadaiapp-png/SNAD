@@ -14,30 +14,29 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
 const accessCheckMock = vi.fn();
 const plansMock = vi.fn();
+const subscriptionDetailMock = vi.fn();
+const lifecycleCommandMock = vi.fn();
+const provisionMock = vi.fn();
+const renewSubscriptionMock = vi.fn();
+const resumeCancelledSubscriptionMock = vi.fn();
 
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: {
     accessCheckV2: (...args: unknown[]) => accessCheckMock(...args),
-    subscriptionDetail: vi.fn().mockResolvedValue({
-      id: "s-1",
-      overview: { tenantId: "t-1", status: "ACTIVE", currencyCode: "SAR" },
-      items: [],
-      entitlements: [],
-      invoices: [],
-      changes: [],
-      provisioningJobs: [],
-      audit: [],
-    }),
+    subscriptionDetail: (...args: unknown[]) => subscriptionDetailMock(...args),
     subscriptionItems: vi.fn().mockResolvedValue([]),
     usage: vi.fn().mockResolvedValue([]),
     planVersions: vi.fn().mockResolvedValue([]),
     previewChange: vi.fn(),
     executeChange: vi.fn(),
-    lifecycleCommand: vi.fn(),
+    lifecycleCommand: (...args: unknown[]) => lifecycleCommandMock(...args),
+    provision: (...args: unknown[]) => provisionMock(...args),
+    renewSubscription: (...args: unknown[]) => renewSubscriptionMock(...args),
+    resumeCancelledSubscription: (...args: unknown[]) => resumeCancelledSubscriptionMock(...args),
   },
 }));
 
@@ -108,6 +107,27 @@ beforeEach(() => {
   accessCheckMock.mockReset();
   plansMock.mockReset();
   plansMock.mockResolvedValue([]);
+  subscriptionDetailMock.mockReset();
+  subscriptionDetailMock.mockResolvedValue({
+    id: "s-1",
+    overview: { tenantId: "t-1", status: "ACTIVE", currencyCode: "SAR" },
+    items: [],
+    entitlements: [],
+    invoices: [],
+    changes: [],
+    provisioningJobs: [],
+    audit: [],
+  });
+  lifecycleCommandMock.mockReset();
+  lifecycleCommandMock.mockResolvedValue({
+    subscriptionId: "s-1", command: "SUSPEND", fromStatus: "ACTIVE", toStatus: "SUSPENDED",
+  });
+  provisionMock.mockReset();
+  provisionMock.mockResolvedValue({ jobId: "j-1", status: "SUCCEEDED", skippedSteps: [] });
+  renewSubscriptionMock.mockReset();
+  renewSubscriptionMock.mockResolvedValue({});
+  resumeCancelledSubscriptionMock.mockReset();
+  resumeCancelledSubscriptionMock.mockResolvedValue({});
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
@@ -152,6 +172,65 @@ describe("Subscription detail — mutation capability gating (Blocker C)", () =>
     for (const command of ["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"]) {
       const button = screen.getByRole("button", { name: `scp.detail.lifecycle.${command}` });
       expect(button).toBeEnabled();
+    }
+  });
+
+  it("ACTIVATE uses provisioning and never the generic lifecycle route", async () => {
+    accessCheckMock.mockResolvedValueOnce(ADMIN_MAP);
+    subscriptionDetailMock.mockResolvedValue({
+      id: "s-1",
+      overview: { tenantId: "t-1", status: "PENDING_ACTIVATION", currencyCode: "SAR" },
+      items: [], entitlements: [], invoices: [], changes: [], provisioningJobs: [], audit: [],
+    });
+
+    render(
+      <ScpAccessProvider>
+        <SubscriptionDetailPage />
+      </ScpAccessProvider>,
+    );
+    await settle();
+
+    fireEvent.click(screen.getByRole("button", { name: "scp.detail.lifecycle.ACTIVATE" }));
+    await settle();
+
+    expect(provisionMock).toHaveBeenCalledWith("s-1");
+    expect(lifecycleCommandMock).not.toHaveBeenCalledWith("s-1", "ACTIVATE", expect.anything());
+  });
+
+  it("RENEW uses the governed renewal route and never the generic lifecycle route", async () => {
+    accessCheckMock.mockResolvedValueOnce(ADMIN_MAP);
+
+    render(
+      <ScpAccessProvider>
+        <SubscriptionDetailPage />
+      </ScpAccessProvider>,
+    );
+    await settle();
+
+    fireEvent.click(screen.getByRole("button", { name: "scp.detail.lifecycle.RENEW" }));
+    await settle();
+
+    expect(renewSubscriptionMock).toHaveBeenCalledWith("s-1");
+    expect(lifecycleCommandMock).not.toHaveBeenCalledWith("s-1", "RENEW", expect.anything());
+  });
+
+  it("terminal subscriptions expose no lifecycle mutation buttons", async () => {
+    accessCheckMock.mockResolvedValueOnce(ADMIN_MAP);
+    subscriptionDetailMock.mockResolvedValue({
+      id: "s-1",
+      overview: { tenantId: "t-1", status: "TERMINATED", currencyCode: "SAR" },
+      items: [], entitlements: [], invoices: [], changes: [], provisioningJobs: [], audit: [],
+    });
+
+    render(
+      <ScpAccessProvider>
+        <SubscriptionDetailPage />
+      </ScpAccessProvider>,
+    );
+    await settle();
+
+    for (const command of ["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"]) {
+      expect(screen.queryByRole("button", { name: `scp.detail.lifecycle.${command}` })).not.toBeInTheDocument();
     }
   });
 
