@@ -153,6 +153,27 @@ describe("checkBackendIntegration", () => {
     );
   });
 
+  it("uses a single 125s production health attempt so Render cold-starts are not false negatives", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(new AbortController().signal);
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: vi.fn().mockResolvedValue({ status: "UP" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await checkBackendIntegration(new ApiClient({ baseUrl: "/api/platform" }));
+
+    expect(timeoutSpy).toHaveBeenCalledWith(125_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      configured: true,
+      reachable: true,
+      statusCode: 200,
+      targetHost: "sanad-backend-mcrj.onrender.com",
+    });
+  });
+
   it("extracts hostname without scheme, path, or credentials", async () => {
     const client = new ApiClient({ baseUrl: "https://sanad-backend-mcrj.onrender.com" });
     vi.spyOn(client, "get").mockResolvedValue({ status: "UP" });

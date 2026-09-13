@@ -10,15 +10,28 @@ interface ActuatorHealthResponse { status: string; }
 const DEFAULT_HEALTH_TIMEOUT_MS = 15_000;
 const MIN_HEALTH_TIMEOUT_MS = 1_000;
 const MAX_HEALTH_TIMEOUT_MS = 25_000;
+// Render production cold-starts have been observed near 100 seconds.
+// Keep the production health budget aligned with the BFF auth budget so
+// /api/system/backend-status cannot fail before the actual BFF would.
+const PRODUCTION_HEALTH_TIMEOUT_MS = 125_000;
 const SERVER_HEALTH_MAX_ATTEMPTS = 2;
 const SERVER_HEALTH_RETRY_DELAY_MS = 250;
 const PRODUCTION_BACKEND_URL = "https://sanad-backend-mcrj.onrender.com";
 
 function healthTimeoutMs(): number {
+  if (process.env.VERCEL_ENV === "production") return PRODUCTION_HEALTH_TIMEOUT_MS;
+
   const raw = process.env.BACKEND_REQUEST_TIMEOUT_MS || "";
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return DEFAULT_HEALTH_TIMEOUT_MS;
   return Math.min(MAX_HEALTH_TIMEOUT_MS, Math.max(MIN_HEALTH_TIMEOUT_MS, parsed));
+}
+
+function serverHealthMaxAttempts(): number {
+  // One long production request is intentionally safer than splitting the
+  // cold-start budget into short attempts that can all expire before Render
+  // finishes waking the JVM.
+  return process.env.VERCEL_ENV === "production" ? 1 : SERVER_HEALTH_MAX_ATTEMPTS;
 }
 
 /**
@@ -98,13 +111,14 @@ async function checkDirectBackendOnce(baseUrl: string): Promise<{ statusCode: nu
 async function checkDirectBackend(baseUrl: string): Promise<{ statusCode: number; body: ActuatorHealthResponse }> {
   let lastError: unknown;
 
-  for (let attempt = 1; attempt <= SERVER_HEALTH_MAX_ATTEMPTS; attempt += 1) {
+  const maxAttempts = serverHealthMaxAttempts();
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const result = await checkDirectBackendOnce(baseUrl);
-      if (result.statusCode < 500 || attempt === SERVER_HEALTH_MAX_ATTEMPTS) return result;
+      if (result.statusCode < 500 || attempt === maxAttempts) return result;
     } catch (err) {
       lastError = err;
-      if (attempt === SERVER_HEALTH_MAX_ATTEMPTS) throw err;
+      if (attempt === maxAttempts) throw err;
     }
 
     await sleep(SERVER_HEALTH_RETRY_DELAY_MS);

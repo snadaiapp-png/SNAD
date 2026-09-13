@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("@/lib/api", () => ({ checkBackendIntegration: vi.fn() }));
-const { GET } = await import("./route");
+const { GET, maxDuration, runtime } = await import("./route");
 const { checkBackendIntegration } = await import("@/lib/api");
 
 describe("GET /api/system/backend-status", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("uses a Node.js runtime window long enough for the production cold-start budget", () => {
+    expect(runtime).toBe("nodejs");
+    expect(maxDuration).toBe(150);
+  });
 
   it("returns the minimal healthy contract without exposing targetHost", async () => {
     vi.mocked(checkBackendIntegration).mockResolvedValue({
