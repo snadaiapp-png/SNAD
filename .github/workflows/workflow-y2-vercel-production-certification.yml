@@ -36,10 +36,9 @@ jobs:
     timeout-minutes: 20
 
     env:
-      # On the protected main push created by this certification-only PR,
-      # github.event.before is the already-live backend SHA. Manual dispatches
-      # retain an explicit pinned backend SHA input.
-      BACKEND_RELEASE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_release_sha || github.event.before }}
+      # Push certification resolves the exact live backend identity from Render.
+      # Manual dispatch keeps an explicit pin and must match that live identity.
+      BACKEND_RELEASE_SHA_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_release_sha || '' }}
       CONFIRM: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm || 'auto-main-certification' }}
       WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -75,10 +74,12 @@ jobs:
               exit 1
               ;;
           esac
-          [[ "$BACKEND_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "::error::backend_release_sha must be a full lowercase 40-hex SHA"
-            exit 1
-          }
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            [[ "$BACKEND_RELEASE_SHA_INPUT" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "::error::backend_release_sha must be a full lowercase 40-hex SHA"
+              exit 1
+            }
+          fi
           [ "$GITHUB_REF" = "refs/heads/main" ] || {
             echo "::error::Vercel production certification must be dispatched from main"
             exit 1
@@ -86,15 +87,6 @@ jobs:
           remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
           [ "$remote_main" = "$GITHUB_SHA" ] || {
             echo "::error::Workflow checkout is not exact current main"
-            exit 1
-          }
-          git cat-file -e "${BACKEND_RELEASE_SHA}^{commit}"
-          git merge-base --is-ancestor "$BACKEND_RELEASE_SHA" HEAD || {
-            echo "::error::backend_release_sha is not an ancestor of current main"
-            exit 1
-          }
-          git diff --quiet "$BACKEND_RELEASE_SHA" HEAD -- apps/sanad-platform || {
-            echo "::error::Backend source differs between live backend SHA and current Vercel main"
             exit 1
           }
           for name in WEB_PRODUCTION_BASE_URL RENDER_API_KEY RENDER_SERVICE_ID WORKFLOW_RUNTIME_ADMIN_EMAIL WORKFLOW_RUNTIME_ADMIN_PASSWORD; do
@@ -106,35 +98,66 @@ jobs:
           }
           echo "Source parity and authorization guard: PASS"
 
-      - name: Verify exact immutable backend image remains live
+      - name: Resolve exact live backend image and verify source parity
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED_IMAGE="ghcr.io/snadaiapp-png/snad-backend:${BACKEND_RELEASE_SHA}"
+          IMAGE_PREFIX="ghcr.io/snadaiapp-png/snad-backend:"
+
           curl --fail-with-body --silent --show-error --max-time 45 \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H 'Accept: application/json' \
             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=50" \
             > "$RUNNER_TEMP/render-deploys.json"
 
-          jq --arg expected "$EXPECTED_IMAGE" '
+          jq '
             [if type == "array" then .[] else (.deploys // .items // [])[] end
               | (.deploy // .)
-              | select(.status == "live" and (.image.ref // .imageRef) == $expected)]
+              | select(.status == "live")]
             | sort_by(.finishedAt // .updatedAt // .createdAt)
             | reverse
             | first // empty
           ' "$RUNNER_TEMP/render-deploys.json" > "$RUNNER_TEMP/render-live.json"
 
           live_id="$(jq -r '.id // empty' "$RUNNER_TEMP/render-live.json")"
+          live_image_ref="$(jq -r '(.image.ref // .imageRef) // empty' "$RUNNER_TEMP/render-live.json")"
           test -n "$live_id" || {
-            echo "::error::No live Render deployment matches exact image $EXPECTED_IMAGE"
+            echo "::error::Render API returned no live backend deployment"
             exit 1
           }
-          jq --arg backendReleaseSha "$BACKEND_RELEASE_SHA" '
-            {deploymentId:.id,status:.status,backendReleaseSha:$backendReleaseSha,imageRef:(.image.ref // .imageRef)}
+          [[ "$live_image_ref" =~ ^ghcr\.io/snadaiapp-png/snad-backend:([0-9a-f]{40})$ ]] || {
+            echo "::error::Live Render image is not an immutable SNAD backend SHA image"
+            exit 1
+          }
+          live_sha="${BASH_REMATCH[1]}"
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            [ "$BACKEND_RELEASE_SHA_INPUT" = "$live_sha" ] || {
+              echo "::error::Pinned backend_release_sha does not match the exact live Render backend image"
+              exit 1
+            }
+          fi
+
+          git cat-file -e "${live_sha}^{commit}"
+          git merge-base --is-ancestor "$live_sha" HEAD || {
+            echo "::error::Live Render backend SHA is not an ancestor of current main"
+            exit 1
+          }
+          git diff --quiet "$live_sha" HEAD -- apps/sanad-platform || {
+            echo "::error::Backend source differs between live Render SHA and current main"
+            exit 1
+          }
+
+          echo "BACKEND_RELEASE_SHA=$live_sha" >> "$GITHUB_ENV"
+          jq --arg backendReleaseSha "$live_sha" '
+            {
+              deploymentId:.id,
+              status:.status,
+              backendReleaseSha:$backendReleaseSha,
+              imageRef:(.image.ref // .imageRef)
+            }
           ' "$RUNNER_TEMP/render-live.json" > render-vercel-workflow-backend-evidence.json
-          echo "Exact backend image: VERIFIED"
+          echo "Exact live backend image and source parity: VERIFIED"
 
       - name: Resolve production tenant identity without exposing it
         shell: bash
