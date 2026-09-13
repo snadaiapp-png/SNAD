@@ -73,7 +73,7 @@ public class TenantDirectoryQueryService {
                                t.created_at,
                                (SELECT COUNT(*) FROM tenant_subscriptions s WHERE s.tenant_id = t.id) AS subscription_count,
                                (SELECT s.status FROM tenant_subscriptions s WHERE s.tenant_id = t.id
-                                ORDER BY s.created_at DESC LIMIT 1) AS subscription_status
+                                ORDER BY s.created_at DESC, s.id DESC LIMIT 1) AS subscription_status
                         FROM tenants t
                         """ + where
                         + " ORDER BY t." + sortColumn + " " + sortDirection

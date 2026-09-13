@@ -232,6 +232,9 @@ export interface ChangePreview {
   currentMonthlyMinor: number | null;
   targetMonthlyMinor: number | null;
   deltaMonthlyMinor: number | null;
+  currentCurrencyCode: string | null;
+  targetCurrencyCode: string | null;
+  /** Present only when current and target currencies are identical. */
   currencyCode: string | null;
   warnings: string[];
 }
@@ -253,6 +256,12 @@ export interface CommandResult {
   command: string;
   fromStatus: string;
   toStatus: string;
+}
+
+export interface ChangeResult {
+  subscriptionId: string;
+  status: string;
+  reason: string | null;
 }
 
 // ── Usage / provisioning / audit ─────────────────────────────────────
@@ -280,6 +289,12 @@ export interface ProvisioningJob {
   completedAt: string | null;
   errorCode: string | null;
   createdAt: string;
+}
+
+export interface ProvisioningJobOutcome {
+  jobId: string;
+  status: string;
+  skippedSteps: string[];
 }
 
 /**
@@ -366,29 +381,27 @@ export const scpApi = {
       { reason },
     ),
 
-  previewChange: (subscriptionId: string, targetPlanVersionId: string, countryCode: string) =>
-    apiClient.post<ChangePreview, { targetPlanVersionId: string; countryCode: string }>(
+  previewChange: (subscriptionId: string, targetPlanVersionId: string) =>
+    apiClient.post<ChangePreview, { targetPlanVersionId: string }>(
       `${root}/subscriptions/${subscriptionId}/change-preview`,
-      { targetPlanVersionId, countryCode },
+      { targetPlanVersionId },
     ),
 
   executeChange: (
     subscriptionId: string,
     targetPlanVersionId: string,
-    countryCode: string,
     reason: string,
   ) =>
     apiClient.post<
-      CommandResult,
-      { targetPlanVersionId: string; countryCode: string; reason: string }
+      ChangeResult,
+      { targetPlanVersionId: string; reason: string }
     >(`${root}/subscriptions/${subscriptionId}/changes`, {
       targetPlanVersionId,
-      countryCode,
       reason,
     }),
 
   provision: (subscriptionId: string) =>
-    apiClient.post<ProvisioningJob & Record<string, unknown>, Record<string, never>>(
+    apiClient.post<ProvisioningJobOutcome, Record<string, never>>(
       `${root}/subscriptions/${subscriptionId}/provision`,
       {},
     ),
@@ -397,7 +410,7 @@ export const scpApi = {
     apiClient.get<ProvisioningJob[]>(`${root}/provisioning/jobs${qs(query)}`),
 
   retryProvisioningJob: (jobId: string) =>
-    apiClient.post<ProvisioningJob & Record<string, unknown>, Record<string, never>>(
+    apiClient.post<ProvisioningJobOutcome, Record<string, never>>(
       `${root}/provisioning/jobs/${jobId}/retry`,
       {},
     ),

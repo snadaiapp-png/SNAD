@@ -32,7 +32,7 @@ public class LifecycleController {
     public record LifecycleCommandRequest(@NotBlank String reason) {
     }
 
-    public record ChangePreviewRequest(UUID targetPlanVersionId, String countryCode) {
+    public record ChangePreviewRequest(@NotNull UUID targetPlanVersionId, String countryCode) {
     }
 
     public record ExecuteChangeRequest(
@@ -67,7 +67,11 @@ public class LifecycleController {
             @Valid @RequestBody LifecycleCommandRequest request,
             Authentication authentication) {
         accessGuard.require(authentication);
-        return ResponseEntity.ok(commandService.execute(id, command.toUpperCase(), request.reason()));
+        UUID actorTenantId = principalUuid(authentication, "tenant_id");
+        UUID actorUserId = principalUuid(authentication, "user_id");
+        return ResponseEntity.ok(commandService.execute(
+                id, command.toUpperCase(), request.reason(),
+                actorTenantId, actorUserId, authentication));
     }
 
     @PostMapping("/subscriptions/{id}/change-preview")
@@ -90,10 +94,12 @@ public class LifecycleController {
             @Valid @RequestBody ExecuteChangeRequest request,
             Authentication authentication) {
         accessGuard.require(authentication);
+        UUID actorTenantId = principalUuid(authentication, "tenant_id");
+        UUID actorUserId = principalUuid(authentication, "user_id");
         return ResponseEntity.ok(changeService.execute(
                 id, request.targetPlanVersionId(),
                 request.countryCode() == null ? "GLOBAL" : request.countryCode(),
-                request.reason(), null, null));
+                request.reason(), actorTenantId, actorUserId));
     }
 
     @PostMapping("/subscriptions/{id}/provision")
@@ -148,6 +154,21 @@ public class LifecycleController {
             Authentication authentication) {
         accessGuard.require(authentication);
         return ResponseEntity.ok(provisioningRunner.run(jobId));
+    }
+
+    private static UUID principalUuid(Authentication authentication, String key) {
+        if (authentication == null || !(authentication.getDetails() instanceof Map<?, ?> details)) {
+            return null;
+        }
+        Object value = details.get(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.toString());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private UUID enqueueJob(UUID subscriptionId, String action) {

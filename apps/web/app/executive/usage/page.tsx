@@ -84,7 +84,6 @@ export default function UsagePage() {
                     setTenantId(tenant.id);
                     setTenantQuery(tenant.name);
                     setMatches([]);
-                    void load();
                   }}
                 >
                   {tenant.name} · {tenant.code}

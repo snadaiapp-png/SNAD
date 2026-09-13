@@ -71,12 +71,36 @@ describe("scpApi — endpoint construction", () => {
     );
   });
 
-  it("posts change previews to the change-preview route", async () => {
-    await scpApi.previewChange("sub-1", "version-9", "SA");
+  it("posts change previews without client pricing-country authority", async () => {
+    await scpApi.previewChange("sub-1", "version-9");
     expect(postMock).toHaveBeenCalledWith("/api/v1/executive/subscriptions/sub-1/change-preview", {
       targetPlanVersionId: "version-9",
-      countryCode: "SA",
     });
+  });
+
+  it("posts plan changes with the backend ChangeResult contract", async () => {
+    postMock.mockResolvedValueOnce({
+      subscriptionId: "sub-1",
+      status: "EXECUTED",
+      reason: "upgrade",
+    });
+    const result = await scpApi.executeChange("sub-1", "version-9", "upgrade");
+    expect(postMock).toHaveBeenCalledWith("/api/v1/executive/subscriptions/sub-1/changes", {
+      targetPlanVersionId: "version-9",
+      reason: "upgrade",
+    });
+    expect(result.status).toBe("EXECUTED");
+  });
+
+  it("models provisioning mutations as JobOutcome, not ProvisioningJob rows", async () => {
+    postMock.mockResolvedValueOnce({ jobId: "job-1", status: "SUCCEEDED", skippedSteps: [] });
+    const result = await scpApi.provision("sub-1");
+    expect(postMock).toHaveBeenCalledWith(
+      "/api/v1/executive/subscriptions/sub-1/provision",
+      {},
+    );
+    expect(result.jobId).toBe("job-1");
+    expect(result.skippedSteps).toEqual([]);
   });
 });
 

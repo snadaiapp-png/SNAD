@@ -39,9 +39,13 @@ public class PlanVersionService {
                                          long monthlyPriceMinor, long annualPriceMinor,
                                          int trialDays, int maxUsers, int maxOrganizations,
                                          long storageMb) {
-        Long planCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM saas_plans WHERE id = ?", Long.class, planId);
-        if (planCount == null || planCount == 0) {
+        // Serialize version-number allocation per parent plan. Without this row lock,
+        // two concurrent drafts can both observe the same MAX(version_number) and race
+        // into the unique constraint instead of receiving deterministic numbering.
+        try {
+            jdbc.queryForObject(
+                    "SELECT id FROM saas_plans WHERE id = ? FOR UPDATE", UUID.class, planId);
+        } catch (EmptyResultDataAccessException e) {
             throw new IllegalArgumentException("Unknown plan: " + planId);
         }
         if (currencyCode == null || !currencyCode.matches("^[A-Z]{3}$")) {
