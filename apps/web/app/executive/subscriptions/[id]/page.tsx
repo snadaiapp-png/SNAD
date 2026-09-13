@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   scpApi,
   type ChangePreview,
@@ -40,7 +40,15 @@ import {
  */
 export default function SubscriptionDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const subscriptionId = params.id;
+  const tenantIdParam = searchParams.get("tenantId") ?? "";
+  const intentParam = searchParams.get("intent") ?? "";
+  const backParams = new URLSearchParams();
+  if (tenantIdParam) backParams.set("tenantId", tenantIdParam);
+  if (intentParam === "upgrade") backParams.set("intent", "upgrade");
+  const backQuery = backParams.toString();
+  const subscriptionsHref = `/executive/subscriptions${backQuery ? `?${backQuery}` : ""}`;
   const { t } = useI18n();
   const { money, day, number } = useScpFormat();
   // R0C-12 Blocker C — unified, fail-closed mutation gating. The backend
@@ -136,15 +144,13 @@ export default function SubscriptionDetailPage() {
     setNotice("");
     try {
       const versions: PlanVersion[] = await scpApi.planVersions(changePlanId);
-      const active = versions.find((version) => version.status === "ACTIVE") ?? versions[0];
+      const active = versions.find((version) => version.status === "ACTIVE");
       if (!active) {
-        setNotice(t("scp.detail.noVersionForPlan"));
+        setNotice(t("scp.detail.noActiveVersionForPlan"));
         return;
       }
-      const overview = detail?.overview ?? {};
-      const country = String(overview.tenantCountry ?? overview.countryCode ?? "GLOBAL");
       setChangePreview(
-        await scpApi.previewChange(subscriptionId, active.id, country),
+        await scpApi.previewChange(subscriptionId, active.id),
       );
     } catch (reason) {
       setError(scpErrorMessage(reason));
@@ -158,12 +164,9 @@ export default function SubscriptionDetailPage() {
     setBusy(true);
     setError("");
     try {
-      const overview = detail?.overview ?? {};
-      const country = String(overview.tenantCountry ?? overview.countryCode ?? "GLOBAL");
       await scpApi.executeChange(
         subscriptionId,
         changePreview.targetPlanVersionId,
-        country,
         "Executive plan change",
       );
       setChangePreview(null);
@@ -192,7 +195,7 @@ export default function SubscriptionDetailPage() {
       title={`${t("scp.detail.title")} — ${String(overview.tenantName ?? overview.tenantCode ?? subscriptionId)}`}
       subtitle={String(overview.planName ?? "")}
     >
-      <Link href="/executive/subscriptions" className={styles.appCardMeta}>
+      <Link href={subscriptionsHref} className={styles.appCardMeta}>
         ← {t("scp.subscriptions.title")}
       </Link>
 
@@ -388,7 +391,7 @@ export default function SubscriptionDetailPage() {
                   disabled={busy}
                   onClick={() => void runCommand(command)}
                 >
-                  {command}
+                  {t(`scp.detail.lifecycle.${command}`)}
                 </Button>
               ),
             )}
@@ -420,11 +423,13 @@ export default function SubscriptionDetailPage() {
         {changePreview ? (
           <div>
             <p className={styles.pageSubtitle}>
-              {t("scp.detail.currentTotal")}: {money(changePreview.currentMonthlyMinor, changePreview.currencyCode)}
+              {t("scp.detail.currentTotal")}: {money(changePreview.currentMonthlyMinor, changePreview.currentCurrencyCode ?? changePreview.currencyCode)}
               {" · "}
-              {t("scp.detail.targetTotal")}: {money(changePreview.targetMonthlyMinor, changePreview.currencyCode)}
+              {t("scp.detail.targetTotal")}: {money(changePreview.targetMonthlyMinor, changePreview.targetCurrencyCode ?? changePreview.currencyCode)}
               {" · "}
-              {t("scp.detail.delta")}: {money(changePreview.deltaMonthlyMinor, changePreview.currencyCode)}
+              {t("scp.detail.delta")}: {changePreview.deltaMonthlyMinor === null
+                ? "—"
+                : money(changePreview.deltaMonthlyMinor, changePreview.currencyCode)}
             </p>
             {changePreview.warnings.length > 0 ? (
               <ul>
