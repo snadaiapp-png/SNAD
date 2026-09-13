@@ -10,6 +10,8 @@ set -Eeuo pipefail
 BASE_URL="${VERCEL_BASE_URL%/}"
 VERCEL_RELEASE_ATTEMPTS="${WORKFLOW_VERCEL_RELEASE_ATTEMPTS:-40}"
 VERCEL_RELEASE_DELAY_SECONDS="${WORKFLOW_VERCEL_RELEASE_DELAY_SECONDS:-20}"
+VERCEL_ENTITLEMENT_ATTEMPTS="${WORKFLOW_VERCEL_ENTITLEMENT_ATTEMPTS:-30}"
+VERCEL_ENTITLEMENT_DELAY_SECONDS="${WORKFLOW_VERCEL_ENTITLEMENT_DELAY_SECONDS:-10}"
 EVIDENCE_FILE="${WORKFLOW_VERCEL_EVIDENCE_FILE:-workflow-vercel-production-runtime.json}"
 WORK_DIR="$(mktemp -d)"
 CHECKS_FILE="$WORK_DIR/checks.jsonl"
@@ -133,8 +135,19 @@ expect_200 "$status" "workflowDefinitions"
 jq -e 'type == "array"' "$WORK_DIR/definitions.json" >/dev/null || fail "$STAGE" "Workflow definitions must return an array"
 
 STAGE="module-catalog"
-status="$(request GET "$BASE_URL/api/platform/api/v1/workflows/catalog/modules" "$WORK_DIR/catalog.json" \
-  --header 'Accept: application/json' --header "$AUTH_HEADER")"
+status="000"
+for attempt in $(seq 1 "$VERCEL_ENTITLEMENT_ATTEMPTS"); do
+  status="$(request GET "$BASE_URL/api/platform/api/v1/workflows/catalog/modules" "$WORK_DIR/catalog.json" \
+    --header 'Accept: application/json' --header "$AUTH_HEADER")"
+  [ "$status" = "200" ] && break
+  if [ "$status" = "403" ] && jq -e '.message? | strings | startswith("WORKFLOW_MODULE_NOT_ENTITLED")' "$WORK_DIR/catalog.json" >/dev/null 2>&1; then
+    if [ "$attempt" -lt "$VERCEL_ENTITLEMENT_ATTEMPTS" ]; then
+      sleep "$VERCEL_ENTITLEMENT_DELAY_SECONDS"
+      continue
+    fi
+  fi
+  break
+done
 expect_200 "$status" "workflowModuleCatalog"
 jq -e 'type == "object"' "$WORK_DIR/catalog.json" >/dev/null || fail "$STAGE" "Workflow module catalog must return an object"
 
@@ -185,6 +198,6 @@ jq -n \
   '{schema:$schema,result:$result,failureStage:null,releaseSha:$releaseSha,transport:"vercel-bff",baseUrl:$baseUrl,workflowDefinitionId:$workflowDefinitionId,checks:$checks[0]}' \
   > "$EVIDENCE_FILE"
 
-jq -e '.result == "PASS" and (.checks | length >= 9)' "$EVIDENCE_FILE" >/dev/null || fail "evidence" "Vercel Workflow runtime evidence did not resolve to PASS"
+jq -e '.result == "PASS" and (.checks | length >= 9) and all(.checks[]; .result == "PASS")' "$EVIDENCE_FILE" >/dev/null || fail "evidence" "Vercel Workflow runtime evidence did not resolve to PASS"
 
 echo "Workflow Vercel production runtime certification: PASSED"
