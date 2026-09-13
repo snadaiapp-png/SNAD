@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { scpApi, type PageResponse, type SubscriptionRow } from "@/lib/api/scp-api";
@@ -42,26 +42,33 @@ function SubscriptionsContent() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
+  const requestGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++requestGeneration.current;
     setLoading(true);
     setError("");
     try {
-      setPage(
-        await scpApi.subscriptions({
-          tenantId: tenantIdParam || undefined,
-          status: status || undefined,
-          search: search || undefined,
-          page: pageIndex,
-          size: 20,
-          sort: "created_at",
-          direction: "DESC",
-        }),
-      );
+      const result = await scpApi.subscriptions({
+        tenantId: tenantIdParam || undefined,
+        status: status || undefined,
+        search: search || undefined,
+        page: pageIndex,
+        size: 20,
+        sort: "created_at",
+        direction: "DESC",
+      });
+      if (generation === requestGeneration.current) {
+        setPage(result);
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (generation === requestGeneration.current) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) {
+        setLoading(false);
+      }
     }
   }, [tenantIdParam, status, search, pageIndex]);
 
@@ -140,7 +147,11 @@ function SubscriptionsContent() {
               </thead>
               <tbody>
                 {page.content.map((subscription) => {
-                  const detailHref = `/executive/subscriptions/${subscription.id}${intentParam === "upgrade" ? "?intent=upgrade" : ""}`;
+                  const detailParams = new URLSearchParams();
+                  if (tenantIdParam) detailParams.set("tenantId", tenantIdParam);
+                  if (intentParam === "upgrade") detailParams.set("intent", "upgrade");
+                  const detailQuery = detailParams.toString();
+                  const detailHref = `/executive/subscriptions/${subscription.id}${detailQuery ? `?${detailQuery}` : ""}`;
                   return (
                     <tr key={subscription.id}>
                       <td data-label={t("scp.subscriptions.tenant")}>{subscription.tenantName}</td>
@@ -166,7 +177,7 @@ function SubscriptionsContent() {
                       </td>
                       <td data-label={t("scp.common.actions")}>
                         <Link href={detailHref} onClick={() => router.prefetch(detailHref)}>
-                          {intentParam === "upgrade" ? "متابعة الترقية" : t("scp.subscriptions.details")}
+                          {intentParam === "upgrade" ? t("scp.subscriptions.continueUpgrade") : t("scp.subscriptions.details")}
                         </Link>
                       </td>
                     </tr>
