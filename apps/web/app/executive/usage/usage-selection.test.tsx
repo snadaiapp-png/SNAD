@@ -58,6 +58,9 @@ describe("UsagePage — tenant selection correctness", () => {
 
     const tenantButton = await screen.findByRole("button", { name: "Acme · acme" });
     fireEvent.click(tenantButton);
+    expect(usageMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "scp.usage.load" }));
 
     await waitFor(() => expect(usageMock).toHaveBeenCalledWith("tenant-1"));
   });
