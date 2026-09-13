@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/workflow-y2-vercel-production-certification.yml"
+      - "scripts/production/ensure-workflow-runtime-tenant.sh"
       - "scripts/production/verify-workflow-vercel-production-runtime.sh"
       - "scripts/production/tests/mock_workflow_vercel_runtime.py"
       - "scripts/production/tests/verify-workflow-vercel-production-runtime.test.sh"
@@ -17,7 +18,7 @@ on:
         required: true
         type: string
       confirm:
-        description: "Type 'run-vercel-workflow-certification' to authorize read-only Vercel production certification"
+        description: "Type 'run-vercel-workflow-certification' to authorize dedicated runtime-tenant provisioning and Vercel certification"
         required: true
         type: string
 
@@ -44,8 +45,11 @@ jobs:
       WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      WORKFLOW_RUNTIME_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
-      WORKFLOW_RUNTIME_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+      CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+      WORKFLOW_RUNTIME_ADMIN_EMAIL: ${{ secrets.IDENTITY_B_EMAIL }}
+      WORKFLOW_RUNTIME_ADMIN_PASSWORD: ${{ secrets.IDENTITY_B_PASSWORD }}
+      WORKFLOW_RUNTIME_TENANT_ID: ${{ secrets.IDENTITY_B_TENANT_ID }}
 
     steps:
       - name: Checkout exact current main
@@ -97,13 +101,21 @@ jobs:
             echo "::error::Backend source differs between live backend SHA and current Vercel main"
             exit 1
           }
-          for name in WEB_PRODUCTION_BASE_URL RENDER_API_KEY RENDER_SERVICE_ID WORKFLOW_RUNTIME_ADMIN_EMAIL WORKFLOW_RUNTIME_ADMIN_PASSWORD; do
+          for name in \
+            WEB_PRODUCTION_BASE_URL RENDER_API_KEY RENDER_SERVICE_ID \
+            CONTROL_PLANE_ADMIN_EMAIL CONTROL_PLANE_ADMIN_PASSWORD \
+            WORKFLOW_RUNTIME_ADMIN_EMAIL WORKFLOW_RUNTIME_ADMIN_PASSWORD WORKFLOW_RUNTIME_TENANT_ID; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
+          [[ "$WORKFLOW_RUNTIME_TENANT_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
+            echo "::error::WORKFLOW_RUNTIME_TENANT_ID is missing or invalid"
+            exit 1
+          }
           [[ "$WEB_PRODUCTION_BASE_URL" == https://* ]] || {
             echo "::error::WEB_PRODUCTION_BASE_URL must use HTTPS"
             exit 1
           }
+          echo "::add-mask::$WORKFLOW_RUNTIME_TENANT_ID"
           echo "Source parity and authorization guard: PASS"
 
       - name: Verify exact immutable backend image remains live
@@ -136,7 +148,7 @@ jobs:
           ' "$RUNNER_TEMP/render-live.json" > render-vercel-workflow-backend-evidence.json
           echo "Exact backend image: VERIFIED"
 
-      - name: Resolve production tenant identity without exposing it
+      - name: Resolve Control Plane tenant identity without exposing it
         shell: bash
         run: |
           set -euo pipefail
@@ -156,7 +168,16 @@ jobs:
             exit 1
           }
           echo "::add-mask::$tenant_id"
-          echo "WORKFLOW_RUNTIME_TENANT_ID=$tenant_id" >> "$GITHUB_ENV"
+          echo "CONTROL_PLANE_TENANT_ID=$tenant_id" >> "$GITHUB_ENV"
+
+      - name: Ensure dedicated Workflow runtime tenant is entitled
+        shell: bash
+        env:
+          WORKFLOW_RUNTIME_PLAN_CODE: STARTER
+          WORKFLOW_RUNTIME_PROVISION_EVIDENCE_FILE: workflow-runtime-tenant-provisioning.json
+        run: |
+          set -euo pipefail
+          bash scripts/production/ensure-workflow-runtime-tenant.sh
 
       - name: Certify Workflow module through Vercel production
         shell: bash
@@ -174,6 +195,7 @@ jobs:
         with:
           name: workflow-vercel-production-certification-${{ github.run_id }}
           path: |
+            workflow-runtime-tenant-provisioning.json
             workflow-vercel-production-runtime.json
             render-vercel-workflow-backend-evidence.json
           if-no-files-found: warn
@@ -188,11 +210,14 @@ jobs:
             echo "- Vercel exact main SHA: $GITHUB_SHA"
             echo "- Backend live SHA: $BACKEND_RELEASE_SHA"
             echo "- Vercel production release identity: PASS"
+            echo "- Dedicated Workflow runtime identity: IDENTITY_B"
+            echo "- Runtime tenant provisioning: PASS (idempotent; create-only when subscription history is empty)"
+            echo "- WORKFLOW explicit entitlement: PASS"
             echo "- Workflow route on Vercel: PASS"
             echo "- Vercel BFF backend reachability: PASS"
             echo "- Auth login + /auth/me through Vercel BFF: PASS"
             echo "- Workflow definitions/catalog/instances/monitoring/notifications through Vercel BFF: PASS"
             echo "- Side-effect-free validate/simulate POST through Vercel BFF: PASS"
-            echo "- Production business-state mutation: NONE"
+            echo "- Certification probe business-state mutation: NONE"
             echo "- Result: PASS"
           } >> "$GITHUB_STEP_SUMMARY"
