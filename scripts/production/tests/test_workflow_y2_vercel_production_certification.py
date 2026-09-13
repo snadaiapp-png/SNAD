@@ -40,6 +40,8 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
         required = [
             "/api/system/release",
             "/api/system/backend-status",
+            "vercelBffReachabilityAuthBoundary",
+            "401|403",
             "/workflow",
             "/api/platform/api/v1/auth/login",
             "/api/platform/api/v1/auth/me",
@@ -66,6 +68,8 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stdout)
         self.assertIn("verify-workflow-vercel-production-runtime tests: PASS", result.stdout)
+        self.assertIn("broken authentication boundary", SCRIPT.read_text())
+        self.assertIn("backend-status did not converge", SCRIPT.read_text())
 
 if __name__ == "__main__":
     unittest.main()
