@@ -11,6 +11,8 @@ EMAIL = "admin@example.test"
 class Handler(BaseHTTPRequestHandler):
     release_sha = EXPECTED_SHA
     catalog_status = 200
+    catalog_denials = 0
+    catalog_calls = 0
 
     def log_message(self, *_):
         pass
@@ -74,7 +76,8 @@ class Handler(BaseHTTPRequestHandler):
                 "engineGeneration": "Y2",
             }])
         if path == "/api/platform/api/v1/workflows/catalog/modules":
-            if self.catalog_status == 403:
+            type(self).catalog_calls += 1
+            if self.catalog_status == 403 or type(self).catalog_calls <= self.catalog_denials:
                 return self._send(403, {
                     "status": 403,
                     "error": "Forbidden",
@@ -111,7 +114,10 @@ if __name__ == "__main__":
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--release-sha", default=EXPECTED_SHA)
     p.add_argument("--catalog-status", type=int, choices=(200, 403), default=200)
+    p.add_argument("--catalog-denials", type=int, default=0)
     a = p.parse_args()
     Handler.release_sha = a.release_sha
     Handler.catalog_status = a.catalog_status
+    Handler.catalog_denials = a.catalog_denials
+    Handler.catalog_calls = 0
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
