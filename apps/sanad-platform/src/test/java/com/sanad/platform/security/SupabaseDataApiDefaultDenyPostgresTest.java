@@ -85,6 +85,30 @@ class SupabaseDataApiDefaultDenyPostgresTest {
     }
 
     @Test
+    void applicationFunctionsUsePinnedSearchPath() {
+        Integer mutable = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_proc p
+                JOIN pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname = 'public'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM pg_depend d
+                      WHERE d.classid = 'pg_proc'::regclass
+                        AND d.objid = p.oid
+                        AND d.deptype = 'e'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM unnest(COALESCE(p.proconfig, ARRAY[]::TEXT[])) cfg
+                      WHERE cfg LIKE 'search_path=%'
+                  )
+                """, new MapSqlParameterSource(), Integer.class);
+
+        assertThat(mutable).isZero();
+    }
+
+    @Test
     void supabaseDataApiRolesHaveNoTableDmlWhenPresent() {
         Integer exposed = jdbc.queryForObject("""
                 WITH api_roles AS (
