@@ -102,6 +102,27 @@ BEGIN
 END
 $;
 
+-- Supabase creates btree_gist in public by default in some project generations.
+-- Move it only when the provider-managed extensions schema exists and the
+-- extension is relocatable. Local PostgreSQL without that schema is unchanged.
+DO $
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_extension e
+        JOIN pg_namespace n ON n.oid = e.extnamespace
+        WHERE e.extname = 'btree_gist'
+          AND e.extrelocatable
+          AND n.nspname = 'public'
+    )
+    AND EXISTS (
+        SELECT 1 FROM pg_namespace WHERE nspname = 'extensions'
+    ) THEN
+        ALTER EXTENSION btree_gist SET SCHEMA extensions;
+    END IF;
+END
+$;
+
 -- Future objects created by the Flyway owner are fail-closed by default.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     REVOKE ALL ON TABLES FROM PUBLIC;
