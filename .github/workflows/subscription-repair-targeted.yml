@@ -1,6 +1,8 @@
 name: Subscription Repair Targeted
 
 on:
+  push:
+    branches: [fix/subscription-module-comprehensive-repair-v2]
   pull_request:
     branches: [main]
   workflow_dispatch:
