@@ -87,6 +87,7 @@ export interface ApplicationInput {
   localizedName?: string;
   description?: string;
   category?: string;
+  status?: "ACTIVE" | "INACTIVE" | "DEPRECATED";
   iconKey?: string;
   provisioningMode?: string;
   supportedCountries?: string[];
@@ -343,6 +344,9 @@ export const scpApi = {
 
   createApplication: (body: ApplicationInput) =>
     apiClient.post<ScpApplication, ApplicationInput>(`${root}/applications`, body),
+
+  updateApplication: (applicationId: string, body: ApplicationInput) =>
+    apiClient.put<ScpApplication, ApplicationInput>(`${root}/applications/${applicationId}`, body),
 
   planVersions: (planId: string) =>
     apiClient.get<PlanVersion[]>(`${root}/plans/${planId}/versions`),
