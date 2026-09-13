@@ -126,6 +126,8 @@ class ExecutiveReadModelsTest {
         row.put("item_count", 2);
         row.put("trial", false);
         row.put("cancel_at_period_end", false);
+        row.put("current_period_end", java.sql.Timestamp.from(
+                java.time.Instant.parse("2026-10-01T00:00:00Z")));
         when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of(row));
 
         PageResponse<SubscriptionGridQueryService.SubscriptionRow> page =
@@ -137,6 +139,8 @@ class ExecutiveReadModelsTest {
         assertThat(page.content().get(0).monthlyPriceMinor()).isEqualTo(29_900L);
         assertThat(page.content().get(0).planVersion()).isEqualTo("v2");
         assertThat(page.content().get(0).itemCount()).isEqualTo(2);
+        assertThat(page.content().get(0).currentPeriodEnd())
+                .isEqualTo(java.time.Instant.parse("2026-10-01T00:00:00Z"));
     }
 
     @Test

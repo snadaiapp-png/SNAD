@@ -96,6 +96,21 @@ export default function SubscriptionDetailPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    let active = true;
+    executiveApi
+      .plans()
+      .then((result) => {
+        if (active) setPlans(result);
+      })
+      .catch((reason) => {
+        if (active) setError(scpErrorMessage(reason));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   async function runCommand(command: string) {
     setBusy(true);
     setNotice("");
@@ -120,9 +135,6 @@ export default function SubscriptionDetailPage() {
     setBusy(true);
     setNotice("");
     try {
-      if (!plans) {
-        setPlans(await executiveApi.plans());
-      }
       const versions: PlanVersion[] = await scpApi.planVersions(changePlanId);
       const active = versions.find((version) => version.status === "ACTIVE") ?? versions[0];
       if (!active) {
