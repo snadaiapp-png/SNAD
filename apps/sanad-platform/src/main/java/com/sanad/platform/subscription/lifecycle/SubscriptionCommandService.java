@@ -5,6 +5,7 @@ import com.sanad.platform.module.entitlement.SubscriptionEntitlementListener;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -138,12 +139,19 @@ public class SubscriptionCommandService {
 
     @Transactional
     public CommandResult execute(UUID subscriptionId, String command, String reason) {
-        return execute(subscriptionId, command, reason, null, null);
+        return execute(subscriptionId, command, reason, null, null, null);
     }
 
     @Transactional
     public CommandResult execute(UUID subscriptionId, String command, String reason,
                                  UUID actorTenantId, UUID actorUserId) {
+        return execute(subscriptionId, command, reason, actorTenantId, actorUserId, null);
+    }
+
+    @Transactional
+    public CommandResult execute(UUID subscriptionId, String command, String reason,
+                                 UUID actorTenantId, UUID actorUserId,
+                                 Authentication authentication) {
         // R0C-7: the public command path IS the canonical primitive plus the
         // lifecycle-owned platform audit and entitlement event — the
         // transition SQL exists exactly once (applyCanonicalTransition).
@@ -155,7 +163,7 @@ public class SubscriptionCommandService {
         CommandResult result =
                 applyCanonicalTransition(subscriptionId, command, reason, actorTenantId, actorUserId);
 
-        auditService.success(null, tenantId, "SUBSCRIPTION_" + command,
+        auditService.success(authentication, tenantId, "SUBSCRIPTION_" + command,
                 "subscription", subscriptionId.toString(), reason, fromStatus, result.toStatus());
 
         publishEntitlementEventAfterCommit(command, tenantId, subscriptionId, planId);

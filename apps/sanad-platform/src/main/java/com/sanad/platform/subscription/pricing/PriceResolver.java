@@ -44,6 +44,8 @@ public class PriceResolver {
                                           String billingInterval, Instant at) {
         List<PriceEntity> candidates = repository.findEffective(
                 planVersionId, productId, billingInterval, at);
+        // Contract is deliberately fail-closed: exact country -> GLOBAL only.
+        // A price for a different country must never be treated as a generic fallback.
         return pick(candidates, countryCode, at)
                 .or(() -> pick(candidates, GLOBAL, at));
     }
