@@ -29,10 +29,11 @@ run_mock() {
   printf '%s' "$port"
 }
 
+TEST_CREDENTIAL='workflow-runtime-fixture-credential'
 PASS_PORT="$(run_mock aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)"
 PASS_EVIDENCE="$TMP/pass.json"
 WORKFLOW_VERCEL_ALLOW_HTTP='true' \
-WORKFLOW_RUNTIME_ADMIN_PASSWORD='test-fixture-password' \
+WORKFLOW_RUNTIME_ADMIN_PASSWORD="$TEST_CREDENTIAL" \
 WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
 WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
 VERCEL_BASE_URL="http://127.0.0.1:$PASS_PORT" \
@@ -47,13 +48,13 @@ jq -e '
   and .transport == "vercel-bff"
   and (.checks | length >= 9)
 ' "$PASS_EVIDENCE" >/dev/null
-! grep -q 'test-fixture-password\|test-token\|admin@example.test' "$PASS_EVIDENCE"
+! grep -q "$TEST_CREDENTIAL\|test-token\|admin@example.test" "$PASS_EVIDENCE"
 
 FAIL_PORT="$(run_mock bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)"
 FAIL_EVIDENCE="$TMP/fail.json"
 set +e
 WORKFLOW_VERCEL_ALLOW_HTTP='true' \
-WORKFLOW_RUNTIME_ADMIN_PASSWORD='test-fixture-password' \
+WORKFLOW_RUNTIME_ADMIN_PASSWORD="$TEST_CREDENTIAL" \
 WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
 WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
 VERCEL_BASE_URL="http://127.0.0.1:$FAIL_PORT" \
