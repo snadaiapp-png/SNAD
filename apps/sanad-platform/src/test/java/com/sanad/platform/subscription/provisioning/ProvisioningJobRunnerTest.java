@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
@@ -141,6 +142,49 @@ class ProvisioningJobRunnerTest {
         verify(commandService, never()).applyCanonicalTransition(
                 any(), any(), any(), any(), any());
         verify(jdbc, never()).update(contains("UPDATE tenant_subscriptions SET status = 'ACTIVE'"), (Object) any());
+    }
+
+    @Test
+    @DisplayName("failed prerequisite stops pipeline before VALIDATE can activate")
+    void failedPrerequisiteCannotActivateSubscription() {
+        jobRow("PENDING", 0);
+        noCompletedSteps();
+        when(jdbc.queryForObject(
+                contains("SELECT COUNT(*) FROM subscription_items"), eq(Integer.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(0);
+
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
+
+        assertThat(outcome.status()).isEqualTo("RETRYING");
+        verify(commandService, never()).applyCanonicalTransition(
+                any(), any(), any(), any(), any());
+        verify(jdbc, never()).queryForObject(
+                contains("SELECT status FROM tenant_subscriptions"), eq(String.class),
+                eq(SUBSCRIPTION_ID));
+    }
+
+    @Test
+    @DisplayName("retry rewrites previously failed keyed step instead of inserting a duplicate")
+    void retryUsesConflictSafeStepUpsert() {
+        jobRow("RETRYING", 1);
+        noCompletedSteps();
+        when(jdbc.queryForObject(
+                contains("SELECT COUNT(*) FROM subscription_items"), eq(Integer.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(1);
+        when(jdbc.<UUID>queryForObject(
+                contains("SELECT plan_id FROM tenant_subscriptions"), eq(UUID.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(
+                UUID.fromString("c3000000-0000-0000-0000-000000000001"));
+        when(jdbc.queryForObject(
+                contains("SELECT status FROM tenant_subscriptions"), eq(String.class),
+                eq(SUBSCRIPTION_ID))).thenReturn("ACTIVE");
+
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
+
+        assertThat(outcome.status()).isEqualTo("SUCCEEDED");
+        verify(jdbc, atLeastOnce()).update(
+                contains("ON CONFLICT (job_id, step_key)"),
+                any(), eq(JOB_ID), any(), any(), any(), any());
     }
 
     @Test
