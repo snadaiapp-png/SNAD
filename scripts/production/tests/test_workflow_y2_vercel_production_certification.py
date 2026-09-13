@@ -40,7 +40,7 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
             "push certification must not infer the live backend SHA from the previous Git commit",
         )
         self.assertIn(
-            r"^ghcr\\.io/snadaiapp-png/snad-backend:([0-9a-f]{40})$",
+            r"^ghcr\.io/snadaiapp-png/snad-backend:([0-9a-f]{40})$",
             text,
             "certification must resolve the immutable live backend image from Render",
         )
