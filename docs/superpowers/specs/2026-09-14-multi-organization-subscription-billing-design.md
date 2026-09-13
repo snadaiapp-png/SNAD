@@ -334,11 +334,13 @@ Any missing factor denies access.
 
 ### 6.2 RBAC hierarchy
 
-Reuse `user_role_assignments`. Add explicit role-grant scope semantics:
+Reuse `user_role_assignments`. Add a non-null `scope_mode` column with explicit role-grant semantics:
 
-- `TENANT`
-- `ORGANIZATION_ONLY`
-- `ORGANIZATION_TREE`
+- `TENANT` — requires `organization_id IS NULL`.
+- `ORGANIZATION_ONLY` — requires `organization_id IS NOT NULL` and matches only that organization.
+- `ORGANIZATION_TREE` — requires `organization_id IS NOT NULL` and dynamically covers that organization plus descendants in `organization_hierarchy`.
+
+A database CHECK constraint enforces the valid `scope_mode` / `organization_id` shape. Backfill is deterministic: existing grants with `organization_id IS NULL` become `TENANT`; existing organization-bound grants become `ORGANIZATION_ONLY`. No existing grant is silently widened to descendant access.
 
 `ORGANIZATION_TREE` dynamically covers descendants according to `organization_hierarchy`. General-purpose negative/deny roles are out of scope; denial derives from absence of grant or suspended/inactive commercial/resource state.
 
@@ -458,18 +460,20 @@ The same commercial pattern applies to additional websites, stores, POS location
 
 ## 10. Global domain registry and routing
 
-Introduce `domain_routes` as the platform-wide hostname claim authority.
+Introduce `domain_routes` as the **platform-scoped routing index and hostname claim authority**.
 
-Each route contains:
+Each route contains only the minimum routing identity needed before tenant context exists:
 
-- tenant id
 - globally unique normalized hostname
+- tenant id
 - route type (tenant application / website / store)
 - exactly one typed owner reference
 - optional organization id
 - status
 
 Do not rely on a weak polymorphic foreign key. CHECK constraints require the owner column matching the route type.
+
+`domain_routes` is an explicit exception to ordinary tenant-table RLS because the Host resolver must discover `tenant_id` *from the hostname* before a tenant session context exists. It MUST NOT be exposed through tenant-facing generic CRUD. Database privileges are deny-by-default: only the internal routing component/service identity receives the minimum read/claim operations required by the routing lifecycle. Detailed domain metadata remains in the tenant-scoped domain tables and is still protected by tenant isolation. The routing index must not contain secrets or customer-private configuration beyond identifiers required to route.
 
 Before backfill, scan all existing tenant/website/store domain registries. If the same hostname maps to different owners, the migration/cutover fails closed; no automatic winner is chosen.
 
@@ -604,6 +608,8 @@ Every new relationship between tenant-owned rows uses `(tenant_id, resource_id)`
 ### 14.2 RLS
 
 All new tenant-owned tables enable and FORCE PostgreSQL RLS with fail-closed `app.tenant_id` semantics.
+
+The platform-scoped `domain_routes` routing index is the deliberate exception defined in §10: it is privilege-isolated rather than tenant-GUC isolated because it is queried before tenant identity is known.
 
 Existing tables that already use RLS are verified for fail-closed behavior.
 
