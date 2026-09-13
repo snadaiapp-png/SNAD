@@ -1,6 +1,15 @@
 name: Workflow Y2 Vercel Production Certification
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/workflow-y2-vercel-production-certification.yml"
+      - "scripts/production/verify-workflow-vercel-production-runtime.sh"
+      - "scripts/production/tests/mock_workflow_vercel_runtime.py"
+      - "scripts/production/tests/verify-workflow-vercel-production-runtime.test.sh"
+      - "scripts/production/tests/test_workflow_y2_vercel_production_certification.py"
   workflow_dispatch:
     inputs:
       backend_release_sha:
@@ -27,8 +36,11 @@ jobs:
     timeout-minutes: 20
 
     env:
-      BACKEND_RELEASE_SHA: ${{ inputs.backend_release_sha }}
-      CONFIRM: ${{ inputs.confirm }}
+      # On the protected main push created by this certification-only PR,
+      # github.event.before is the already-live backend SHA. Manual dispatches
+      # retain an explicit pinned backend SHA input.
+      BACKEND_RELEASE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_release_sha || github.event.before }}
+      CONFIRM: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm || 'auto-main-certification' }}
       WEB_PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
@@ -45,10 +57,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [ "$CONFIRM" = "run-vercel-workflow-certification" ] || {
-            echo "::error::confirm must equal run-vercel-workflow-certification"
-            exit 1
-          }
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch)
+              [ "$CONFIRM" = "run-vercel-workflow-certification" ] || {
+                echo "::error::confirm must equal run-vercel-workflow-certification"
+                exit 1
+              }
+              ;;
+            push)
+              [ "$CONFIRM" = "auto-main-certification" ] || {
+                echo "::error::automatic main certification confirmation is invalid"
+                exit 1
+              }
+              ;;
+            *)
+              echo "::error::Unsupported certification event: $GITHUB_EVENT_NAME"
+              exit 1
+              ;;
+          esac
           [[ "$BACKEND_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             echo "::error::backend_release_sha must be a full lowercase 40-hex SHA"
             exit 1
