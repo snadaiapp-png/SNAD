@@ -159,3 +159,37 @@ Only the canonical release chain is authorized:
 No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, or autonomous AI activation is authorized.
 
 If the release-control PR head, current `main`, required CI, independent approval, or exact-image evidence changes before merge, this authorization fails closed and must be re-evaluated.
+
+
+## Current-Main Subscription Correctness Production Authority — 2026-09-13
+
+- Current protected main SHA: `cc9cdb0254aca0919e2818f71ebb8173ab922934`
+- Runtime backend source change SHA: `381ca82efd692411bd9cac6936996731524d1e04`
+- Backend-changing PR: `#1047` — comprehensive subscription correctness repair
+- Backend source PR independent review: `APPROVED`
+- Backend source PR required CI: `PASS`
+- Immutable backend image publication run for `381ca82...`: `34771630651` — `PASS`
+- Production release orchestrator run `34771697684`: `FAIL_CLOSED` before dispatch because the exact main commit did not contain `PRODUCTION-RELEASE-AUTHORIZED`
+- Workflow production-certification correction PR: `#1052`
+- Workflow certification correction independent review: `APPROVED`
+- Workflow certification correction required CI: `PASS`
+- Current Render production backend remains on the previously authorized immutable image until this release-control PR is protected-merged and the canonical release succeeds.
+- Runtime application code change in this authorization PR: `NONE`
+- Database migration change in this authorization PR: `NONE`
+- Security/RBAC semantic change in this authorization PR: `NONE`
+- Owner production authorization: `GRANTED_EXPLICITLY_2026-09-13`
+- Independent human review with repository write access: `REQUIRED`
+- Exact-head required checks: `REQUIRED_PASS`
+- Rollback on failure: `REQUIRED=true`
+
+This authorization PR is intentionally inert and changes only this release-control marker. It exists to create the protected, reviewable exact-main release commit required by the canonical production orchestrator after the backend-changing subscription repair was merged without a production authorization marker.
+
+The protected squash merge MUST contain the exact immutable commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker, the production orchestrator must remain fail-closed.
+
+Only the canonical release chain is authorized:
+
+`Publish Render Backend Image` → exact immutable SHA image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → exact-image Render verification → readiness → Flyway/runtime invariants → security boundary → subscription/SCP production smoke → Vercel Control Plane/BFF → sanitized release evidence.
+
+No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, or subscription/entitlement state fabrication is authorized.
+
+If the release-control PR head, current `main`, required CI, independent approval, immutable-image evidence, or production target changes before merge, this authorization fails closed and must be re-evaluated.
