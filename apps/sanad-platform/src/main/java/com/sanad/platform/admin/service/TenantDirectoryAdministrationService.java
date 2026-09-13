@@ -251,8 +251,11 @@ public class TenantDirectoryAdministrationService {
         // index bounds this at one row — the deterministic ordering is
         // defensive so the lookup stays well-defined under multiplicity.
         List<LimitSnapshot> rows = jdbcTemplate.query(
-                "SELECT p.max_users, p.max_organizations FROM tenant_subscriptions s "
+                "SELECT COALESCE(pv.max_users, p.max_users) AS max_users, "
+                        + "COALESCE(pv.max_organizations, p.max_organizations) AS max_organizations "
+                        + "FROM tenant_subscriptions s "
                         + "JOIN saas_plans p ON p.id = s.plan_id "
+                        + "LEFT JOIN plan_versions pv ON pv.id = s.plan_version_id "
                         + "WHERE s.tenant_id = ? AND s.status IN ('TRIALING', 'ACTIVE', 'PAST_DUE') "
                         + "ORDER BY s.created_at DESC, s.id DESC",
                 (rs, rowNum) -> new LimitSnapshot(rs.getInt("max_users"), rs.getInt("max_organizations")),

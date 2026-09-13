@@ -1026,6 +1026,7 @@ export const ar: TranslationDictionary = {
   "scp.subscriptions.amount": "المبلغ الشهري",
   "scp.subscriptions.status": "الحالة",
   "scp.subscriptions.nextBilling": "الفوترة القادمة",
+  "scp.subscriptions.cancelsAtPeriodEnd": "إلغاء عند نهاية الدورة · {date}",
   "scp.subscriptions.trial": "تجربة",
   "scp.subscriptions.details": "التفاصيل",
   "scp.detail.title": "تفاصيل الاشتراك",

@@ -183,10 +183,20 @@ function SubscriptionsContent() {
 }
 
 function NextBilling({ value }: { value: SubscriptionRow }) {
+  const { t } = useI18n();
+  const { day } = useScpFormat();
+
+  if (!value.currentPeriodEnd) {
+    return <span>—</span>;
+  }
+
+  const periodEnd = day(value.currentPeriodEnd);
   return value.cancelAtPeriodEnd ? (
-    <span className={styles.appCardMeta}>{value.status}</span>
+    <span className={styles.appCardMeta}>
+      {t("scp.subscriptions.cancelsAtPeriodEnd", { date: periodEnd })}
+    </span>
   ) : (
-    <span>—</span>
+    <span>{periodEnd}</span>
   );
 }
 
