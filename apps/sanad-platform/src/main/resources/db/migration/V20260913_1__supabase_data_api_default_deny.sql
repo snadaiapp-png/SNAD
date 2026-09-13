@@ -73,7 +73,34 @@ BEGIN
         END IF;
     END LOOP;
 END
-$$;
+$;
+
+-- Pin application-function search_path to prevent object-shadowing attacks.
+-- Extension-owned functions are intentionally excluded.
+DO $
+DECLARE
+    fn RECORD;
+BEGIN
+    FOR fn IN
+        SELECT p.oid::regprocedure AS signature
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend d
+              WHERE d.classid = 'pg_proc'::regclass
+                AND d.objid = p.oid
+                AND d.deptype = 'e'
+          )
+    LOOP
+        EXECUTE format(
+            'ALTER FUNCTION %s SET search_path TO pg_catalog, public, pg_temp',
+            fn.signature
+        );
+    END LOOP;
+END
+$;
 
 -- Future objects created by the Flyway owner are fail-closed by default.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
