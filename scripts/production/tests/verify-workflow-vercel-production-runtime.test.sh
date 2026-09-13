@@ -31,6 +31,7 @@ run_mock() {
 
 PASS_PORT="$(run_mock aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)"
 PASS_EVIDENCE="$TMP/pass.json"
+WORKFLOW_VERCEL_ALLOW_HTTP='true' \
 WORKFLOW_RUNTIME_ADMIN_PASSWORD='test-fixture-password' \
 WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
 WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
@@ -51,6 +52,7 @@ jq -e '
 FAIL_PORT="$(run_mock bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)"
 FAIL_EVIDENCE="$TMP/fail.json"
 set +e
+WORKFLOW_VERCEL_ALLOW_HTTP='true' \
 WORKFLOW_RUNTIME_ADMIN_PASSWORD='test-fixture-password' \
 WORKFLOW_RUNTIME_ADMIN_EMAIL='admin@example.test' \
 WORKFLOW_RUNTIME_TENANT_ID='77777777-7777-7777-7777-777777777777' \
