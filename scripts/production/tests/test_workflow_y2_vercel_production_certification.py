@@ -28,10 +28,12 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
         for needle in required:
             self.assertIn(needle, text, f"missing Vercel certification contract: {needle}")
 
-        forbidden = ["flyway repair", "docker ", "testcontainers", "psql ", "render deploy"]
+        forbidden = ["flyway repair", "docker ", "testcontainers", "psql "]
         lowered = text.lower()
         for needle in forbidden:
             self.assertNotIn(needle, lowered, f"forbidden certification behavior: {needle}")
+        self.assertNotIn("-X POST", text, "certification workflow must not mutate Render via API")
+        self.assertNotIn("--request POST", text, "certification workflow must not mutate Render via API")
 
     def test_runtime_probe_uses_vercel_bff_and_exact_release_identity(self):
         text = SCRIPT.read_text()
