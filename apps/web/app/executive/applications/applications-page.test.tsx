@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiHttpError } from "@/lib/api/errors";
 
 const applicationsMock = vi.fn();
 const createApplicationMock = vi.fn();
@@ -130,4 +131,40 @@ describe("ApplicationsPage governed mutations", () => {
     expect(screen.queryByRole("button", { name: "scp.applications.archive" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "scp.applications.restore" })).not.toBeInTheDocument();
   });
+  it("never renders raw backend internals for catalog mutation failures", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    createApplicationMock.mockRejectedValue(
+      new ApiHttpError("Request failed", {
+        status: 500,
+        error: "Internal Server Error",
+        message: "duplicate key value violates unique constraint uk_applications_code",
+        path: "/api/v1/executive/applications",
+        requestId: "req-app-safe-error",
+        body: null,
+      }),
+    );
+
+    render(<ApplicationsPage />);
+    await waitFor(() => expect(screen.getByText("المؤسسات")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "scp.applications.create" }));
+    await user.type(screen.getByLabelText("scp.applications.code"), "NEWAPP");
+    await user.type(screen.getByLabelText("scp.applications.name"), "New App");
+    await user.click(screen.getByRole("button", { name: "scp.applications.submit" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toMatch(/duplicate key|constraint|uk_applications_code/i);
+  });
+
+  it("exposes application description in the edit form so existing metadata is actually editable", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+
+    render(<ApplicationsPage />);
+    await waitFor(() => expect(screen.getByText("المؤسسات")).toBeInTheDocument());
+    await user.click(screen.getAllByRole("button", { name: "scp.applications.edit" })[0]);
+
+    expect(screen.getByLabelText("scp.applications.description")).toHaveValue(APP.description);
+  });
+
 });
