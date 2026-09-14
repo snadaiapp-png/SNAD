@@ -65,7 +65,6 @@ describe("R0.G4 — My Tasks partial-failure resilience", () => {
   it("fetches mine and pool independently with failure isolation", () => {
     expect(myTasks).toContain("const loadMine");
     expect(myTasks).toContain("const loadPool");
-    // The forbidden coupled-fetch pattern is gone.
     expect(myTasks).not.toContain("Promise.all([\n      workflowApi.listMyWorkItems");
     expect(myTasks).toContain("loadMine()");
     expect(myTasks).toContain("loadPool()");
@@ -109,13 +108,14 @@ describe("R0.G5 — Definitions workspace", () => {
 
 describe("R0.G6 — Designer semantics", () => {
   const designer = readRequired("definitions/[id]/components/workflow-designer.tsx");
+  const canvas = readRequired("definitions/[id]/components/workflow-canvas.tsx");
   const inspector = readRequired("definitions/[id]/components/step-inspector.tsx");
   const designerCss = readRequired("definitions/[id]/components/workflow-designer.module.css");
 
   it("labels every canvas edge with its outcome (SOURCE -> OUTCOME -> DESTINATION)", () => {
-    expect(designer).toContain("data-testid={`edge-label-${transition.transitionKey}`}");
-    expect(designer).toContain("{transition.outcome || transition.transitionKey}");
-    expect(designer).toContain("markerEnd");
+    expect(canvas).toContain("data-testid={`edge-label-${transition.transitionKey}`}");
+    expect(canvas).toContain("{transition.outcome || transition.transitionKey}");
+    expect(canvas).toContain("markerEnd");
   });
 
   it("mirrors the node grid for RTL presentation", () => {
@@ -123,9 +123,10 @@ describe("R0.G6 — Designer semantics", () => {
   });
 
   it("gives fork/join nodes a distinct visual treatment", () => {
-    expect(designer).toContain("PARALLEL_FORK");
-    expect(designer).toContain("PARALLEL_JOIN");
-    expect(designer).toContain('borderStyle: "dashed"');
+    expect(canvas).toContain("PARALLEL_FORK");
+    expect(canvas).toContain("PARALLEL_JOIN");
+    expect(canvas).toContain('" ∥"');
+    expect(canvas).toContain("isParallel(step)");
   });
 
   it("filters outcome vocabulary by step type and includes TIMEOUT", () => {
