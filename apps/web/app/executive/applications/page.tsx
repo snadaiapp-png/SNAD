@@ -18,6 +18,7 @@ import {
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
 import { useScpAccess } from "../_components/ScpAccess";
+import { scpErrorMessage } from "../_components/scp-errors";
 import styles from "../scp.module.css";
 
 /**
@@ -83,7 +84,7 @@ export default function ApplicationsPage() {
     try {
       setApplications(await scpApi.applications());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setLoading(false);
     }
@@ -147,7 +148,7 @@ export default function ApplicationsPage() {
       closeForms();
       await load();
     } catch (reason) {
-      setFormError(reason instanceof Error ? reason.message : String(reason));
+      setFormError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -164,7 +165,7 @@ export default function ApplicationsPage() {
       closeForms();
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -209,6 +210,12 @@ export default function ApplicationsPage() {
             <Input value={form.localizedName}
               onChange={(event) => setForm((f) => ({ ...f, localizedName: event.target.value }))}
               maxLength={200} />
+          </label>
+          <label>
+            <span>{t("scp.applications.description")}</span>
+            <Input value={form.description}
+              onChange={(event) => setForm((f) => ({ ...f, description: event.target.value }))}
+              maxLength={1000} />
           </label>
           <label>
             <span>{t("scp.applications.category")}</span>
