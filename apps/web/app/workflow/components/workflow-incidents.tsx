@@ -125,7 +125,7 @@ export function WorkflowIncidents() {
 
       {!loading && !error && ordered.length === 0 ? (
         <WorkflowEmptyState
-          title="لا توجد حوادث مفتوحة"
+          title="لا توجد حوادث مفتوحة."
           description="تظهر هنا أعطال التنفيذ أو الحالات التي تتطلب استجابة تشغيلية."
         />
       ) : (
@@ -141,7 +141,7 @@ export function WorkflowIncidents() {
                       <StatusBadge value={incident.severity} />
                       <StatusBadge value={incident.status} />
                       <span>{incident.failureCategory}</span>
-                      <span>مرجع المزامنة #{incident.version}</span>
+                      {incident.version != null ? <span>مرجع المزامنة #{incident.version}</span> : null}
                     </div>
                   </div>
                   <span className={styles.mono}>#{incident.id.slice(0, 8)}…</span>
@@ -149,7 +149,7 @@ export function WorkflowIncidents() {
 
                 <div className={styles.cardMeta}>
                   <span>الإنشاء: {formatWorkflowDate(incident.createdAt)}</span>
-                  <span>المثيل: <span className={styles.mono}>{incident.workflowInstanceId.slice(0, 8)}…</span></span>
+                  {incident.workflowInstanceId ? <span>المثيل: <span className={styles.mono}>{incident.workflowInstanceId.slice(0, 8)}…</span></span> : null}
                 </div>
 
                 {incident.resolution ? (
