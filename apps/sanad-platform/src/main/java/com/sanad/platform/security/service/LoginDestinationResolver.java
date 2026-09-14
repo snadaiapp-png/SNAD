@@ -57,6 +57,7 @@ public class LoginDestinationResolver {
     public static final String EXECUTIVE = "/executive";
     public static final String FINANCE = "/finance";
     public static final String ERP = "/erp";
+    public static final String WORKFLOW = "/workflow";
 
     private final UserRoleGrantRepository roleGrantRepository;
     private final RoleRepository roleRepository;
@@ -107,6 +108,9 @@ public class LoginDestinationResolver {
         }
         if (hasAnyCapability(effective.capabilities, ERP_CAPABILITY_PREFIXES)) {
             destinations.add(ERP);
+        }
+        if (hasAnyCapability(effective.capabilities, WORKFLOW_CAPABILITY_PREFIXES)) {
+            destinations.add(WORKFLOW);
         }
         // System Health destination: requires EXECUTIVE_* or SYSTEM_HEALTH_* capabilities
         // OR control-plane authority (admins can access system health)
@@ -242,6 +246,9 @@ public class LoginDestinationResolver {
     };
     private static final String[] ERP_CAPABILITY_PREFIXES = {
             "ERP", "INVENTORY", "PURCHASE"
+    };
+    private static final String[] WORKFLOW_CAPABILITY_PREFIXES = {
+            "WORKFLOW"
     };
     /** System Health capability prefixes (both dot and underscore versions supported). */
     private static final String[] SYSTEM_HEALTH_CAPABILITY_PREFIXES = {
