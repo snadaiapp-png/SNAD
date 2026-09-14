@@ -35,7 +35,7 @@ const transition = (
   priority: 0,
 });
 
-describe("SANAD workflow stage semantics", () => {
+describe("SNAD workflow stage semantics", () => {
   it("maps START to the start presentation", () => {
     expect(
       deriveWorkflowStagePresentation(step("START"), {
@@ -88,7 +88,7 @@ describe("SANAD workflow stage semantics", () => {
   });
 });
 
-describe("SANAD workflow transition progress semantics", () => {
+describe("SNAD workflow transition progress semantics", () => {
   it("marks explicitly active transitions as COMPLETED", () => {
     expect(
       deriveTransitionProgressState(transition("t1", "start", "a"), {
