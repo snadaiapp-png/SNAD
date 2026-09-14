@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   workflowApi,
   type WorkflowDefinitionResponse,
@@ -12,34 +12,39 @@ import { describeWorkflowError } from "@/lib/workflow/error-messages";
 export function PublishPanel({
   definition,
   editable,
-  graphRevision,
+  latestValidation,
+  simulation,
+  onValidationChange,
+  onSimulationChange,
+  onInvalidateEvidence,
   onPublished,
   onReload,
+  onActivity,
 }: {
   definition: WorkflowDefinitionResponse;
   editable: boolean;
-  graphRevision: number;
+  latestValidation: WorkflowValidationResponse | null;
+  simulation: WorkflowSimulationResponse | null;
+  onValidationChange: (value: WorkflowValidationResponse | null) => void;
+  onSimulationChange: (value: WorkflowSimulationResponse | null) => void;
+  onInvalidateEvidence: () => void;
   onPublished: () => Promise<void>;
   onReload: () => Promise<void>;
+  onActivity: (message: string) => void;
 }) {
-  const [latestValidation, setLatestValidation] = useState<WorkflowValidationResponse | null>(null);
-  const [simulation, setSimulation] = useState<WorkflowSimulationResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLatestValidation(null);
-    setSimulation(null);
-  }, [definition.id, graphRevision]);
 
   const validate = async () => {
     setBusy(true);
     setError(null);
-    setSimulation(null);
+    onSimulationChange(null);
     try {
-      setLatestValidation(await workflowApi.validateDefinition(definition.id));
+      const result = await workflowApi.validateDefinition(definition.id);
+      onValidationChange(result);
+      onActivity(result.valid ? "اكتمل تحقق الخادم بنجاح." : "اكتمل تحقق الخادم مع موانع نشر.");
     } catch (cause: unknown) {
-      setLatestValidation(null);
+      onValidationChange(null);
       setError(describeWorkflowError(cause, "فشل التحقق من تعريف سير العمل"));
     } finally {
       setBusy(false);
@@ -51,7 +56,9 @@ export function PublishPanel({
     setBusy(true);
     setError(null);
     try {
-      setSimulation(await workflowApi.simulateDefinition(definition.id));
+      const result = await workflowApi.simulateDefinition(definition.id);
+      onSimulationChange(result);
+      onActivity("اكتملت محاكاة غير إنتاجية للرسم الحالي.");
     } catch (cause: unknown) {
       setError(describeWorkflowError(cause, "فشلت محاكاة تعريف سير العمل"));
     } finally {
@@ -60,20 +67,21 @@ export function PublishPanel({
   };
 
   const publish = async () => {
-    if (!latestValidation?.valid || !editable) return;
+    const canPublish = editable && latestValidation?.valid === true && !busy;
+    if (!canPublish) return;
     setBusy(true);
     setError(null);
     try {
       await workflowApi.publishDefinition(definition.id, definition.versionLock);
-      setLatestValidation(null);
-      setSimulation(null);
+      onInvalidateEvidence();
+      onActivity("نُشر التعريف بنجاح وأصبحت أدلة المسودة السابقة غير صالحة.");
       await onPublished();
     } catch (cause: unknown) {
       const status = (cause as { status?: number })?.status;
       if (status === 409) {
-        setLatestValidation(null);
-        setSimulation(null);
+        onInvalidateEvidence();
         setError("تغير التعريف بالتزامن. أُعيد تحميل النسخة الأحدث، وأصبح التحقق السابق غير صالح للنشر.");
+        onActivity("تعارض 409: أُبطلت الأدلة وأُعيد تحميل حقيقة الخادم.");
         await onReload();
       } else {
         setError(describeWorkflowError(cause, "فشل نشر تعريف سير العمل"));
@@ -82,6 +90,8 @@ export function PublishPanel({
       setBusy(false);
     }
   };
+
+  const canPublish = editable && latestValidation?.valid === true && !busy;
 
   return (
     <section aria-label="التحقق والمحاكاة والنشر" style={panelStyle}>
@@ -94,7 +104,7 @@ export function PublishPanel({
         </button>
         <button
           type="button"
-          disabled={!latestValidation?.valid || busy || !editable}
+          disabled={!canPublish}
           onClick={() => void publish()}
           title={!latestValidation?.valid ? "النشر يتطلب آخر تحقق صالح من الخادم" : undefined}
         >
@@ -109,14 +119,7 @@ export function PublishPanel({
           {latestValidation.valid ? (
             <strong>التحقق من الخادم: صالح للنشر ✓</strong>
           ) : (
-            <>
-              <strong>التحقق من الخادم: غير صالح</strong>
-              <ul>
-                {latestValidation.errors.map((item, index) => (
-                  <li key={`${item.code}-${item.stepId}-${index}`}>{item.code}: {item.message}</li>
-                ))}
-              </ul>
-            </>
+            <strong>التحقق من الخادم: غير صالح — راجع مركز التشخيص.</strong>
           )}
         </div>
       )}
@@ -124,19 +127,14 @@ export function PublishPanel({
       {simulation && (
         <div role="status" style={simulationStyle}>
           <strong>محاكاة غير إنتاجية</strong>
-          <p style={{ margin: "4px 0" }}>
-            هذه المعاينة لا تنفذ آثارًا جانبية في الوحدات المصدرية ولا تستبدل التفويض وقت التنفيذ.
-          </p>
+          <p style={{ margin: "4px 0" }}>لا تنفذ آثارًا جانبية؛ التفاصيل متاحة في مركز التشخيص.</p>
           <span>الخطوات التي تمت زيارتها: {simulation.visitedStepIds.length}</span>
-          {simulation.notes.length > 0 && (
-            <ul>{simulation.notes.map((note, index) => <li key={`${index}-${note}`}>{note}</li>)}</ul>
-          )}
         </div>
       )}
 
       {!editable && (
         <p style={{ marginBottom: 0, color: "var(--snad-color-text-secondary)" }}>
-          النسخة المنشورة للقراءة فقط؛ أنشئ مسودة تالية قبل أي تعديل أو نشر جديد.
+          النسخة المنشورة أو المتقاعدة للقراءة فقط؛ أنشئ مسودة تالية قبل أي تعديل أو نشر جديد.
         </p>
       )}
     </section>
