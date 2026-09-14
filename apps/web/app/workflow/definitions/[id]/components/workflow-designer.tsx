@@ -72,6 +72,10 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
     () => steps.find((step) => step.id === selectedStepId) ?? null,
     [selectedStepId, steps],
   );
+  const selectedTransition = useMemo(
+    () => transitions.find((transition) => transition.id === selectedTransitionId) ?? null,
+    [selectedTransitionId, transitions],
+  );
   const progressContext = useMemo(() => ({
     visitedStepIds: [] as string[],
     currentStepId: null as string | null,
@@ -250,6 +254,7 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
         <StepInspector
           draft={draft}
           selectedStep={selectedStep}
+          selectedTransition={selectedTransition}
           steps={steps}
           editable={Boolean(editable)}
           busy={busy}
@@ -273,8 +278,6 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
 function buildPositions(steps: WorkflowStepResponse[], current: Record<string, NodePosition>) {
   const next: Record<string, NodePosition> = {};
   steps.forEach((step, index) => {
-    // R0.G6 — RTL presentation: later steps flow right-to-left, matching
-    // the reading direction of the surrounding interface.
     next[step.id] = current[step.id] ?? {
       x: 24 + (3 - (index % 4)) * 190,
       y: 24 + Math.floor(index / 4) * 104,
