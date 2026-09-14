@@ -129,20 +129,44 @@ public class WorkflowDefinitionService {
             var digest = java.security.MessageDigest.getInstance("SHA-256");
             var payload = new StringBuilder();
             defRepo.findSteps(def.id()).stream()
-                    .sorted(java.util.Comparator.comparing(WorkflowStep::stepKey))
-                    .forEach(s -> payload.append(s.stepKey()).append(':')
-                            .append(s.stepType()).append(':')
-                            .append(s.sequenceOrder()).append(';'));
+                    .sorted(java.util.Comparator.comparing(WorkflowStep::stepKey)
+                            .thenComparing(WorkflowStep::id))
+                    .forEach(s -> {
+                        appendChecksumField(payload, s.id());
+                        appendChecksumField(payload, s.stepKey());
+                        appendChecksumField(payload, s.name());
+                        appendChecksumField(payload, s.stepType());
+                        appendChecksumField(payload, s.sequenceOrder());
+                        appendChecksumField(payload, s.configuration());
+                        appendChecksumField(payload, s.slaHours());
+                        appendChecksumField(payload, s.requiredCapability());
+                        appendChecksumField(payload, s.requiredRole());
+                        appendChecksumField(payload, s.slaMode());
+                        appendChecksumField(payload, s.slaCalendarId());
+                    });
             defRepo.findTransitions(def.id()).stream()
-                    .sorted(java.util.Comparator.comparing(WorkflowTransition::transitionKey))
-                    .forEach(t -> payload.append(t.transitionKey()).append("->")
-                            .append(t.toStepId()).append(':')
-                            .append(t.outcome()).append(';'));
+                    .sorted(java.util.Comparator.comparing(WorkflowTransition::transitionKey)
+                            .thenComparing(WorkflowTransition::id))
+                    .forEach(t -> {
+                        appendChecksumField(payload, t.id());
+                        appendChecksumField(payload, t.fromStepId());
+                        appendChecksumField(payload, t.toStepId());
+                        appendChecksumField(payload, t.transitionKey());
+                        appendChecksumField(payload, t.outcome());
+                        appendChecksumField(payload, t.conditionAst());
+                        appendChecksumField(payload, t.priority());
+                        appendChecksumField(payload, t.metadata());
+                    });
             var hash = digest.digest(payload.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
             return java.util.HexFormat.of().formatHex(hash);
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
+    }
+
+    private static void appendChecksumField(StringBuilder payload, Object value) {
+        var normalized = value == null ? "<null>" : value.toString();
+        payload.append(normalized.length()).append(':').append(normalized).append('|');
     }
 
     /**
