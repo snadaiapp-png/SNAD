@@ -118,6 +118,8 @@ export const executiveApi = {
     apiClient.patch<ManagedTenant, { status: string; reason: string }>(`${root}/tenants/${tenantId}/status`, { status, reason }),
   plans: () => apiClient.get<SaasPlan[]>(`${root}/plans`),
   subscriptions: () => apiClient.get<TenantSubscription[]>(`${root}/subscriptions`),
+  cancelSubscription: (subscriptionId: string, body: { immediate: boolean; reason: string }) =>
+    apiClient.patch<TenantSubscription, typeof body>(`${root}/subscriptions/${subscriptionId}/cancel`, body),
   invoices: (tenantId: string) =>
     apiClient.get<BillingInvoice[]>(`${root}/billing/invoices?tenantId=${encodeURIComponent(tenantId)}`),
   organizations: (tenantId: string) => apiClient.get<ManagedOrganization[]>(`${root}/tenants/${tenantId}/organizations`),
