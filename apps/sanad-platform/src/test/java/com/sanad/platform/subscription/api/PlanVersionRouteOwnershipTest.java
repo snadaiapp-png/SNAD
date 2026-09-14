@@ -35,7 +35,6 @@ class PlanVersionRouteOwnershipTest {
         version.setStatus("DRAFT");
 
         when(planVersionService.findVersion(versionId)).thenReturn(Optional.of(version));
-        when(planVersionService.activate(versionId)).thenReturn(version);
         PlanVersionController controller =
                 new PlanVersionController(accessGuard, planVersionService, auditService);
 
