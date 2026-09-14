@@ -124,6 +124,7 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.WRITE")
     public ResponseEntity<Map<String, Object>> createDefinition(
             Authentication auth, @RequestBody CreateDefinitionRequest req) {
+        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
         var def = WorkflowDefinition.create(
                 tenantId(auth), req.code(), req.name(), req.description(), req.module(),
                 req.triggerType() != null ? WorkflowDefinition.TriggerType.valueOf(req.triggerType())
@@ -181,6 +182,7 @@ public class WorkflowController {
     @PostMapping("/definitions/{id}/validate")
     @RequireCapability("WORKFLOW.VALIDATE")
     public ResponseEntity<Map<String, Object>> validateDefinition(Authentication auth, @PathVariable UUID id) {
+        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
         var validation = definitionService.validate(tenantId(auth), id);
         return ResponseEntity.ok(Map.of(
                 "valid", validation.valid(),
@@ -195,6 +197,7 @@ public class WorkflowController {
     public ResponseEntity<Map<String, Object>> simulateDefinition(
             Authentication auth, @PathVariable UUID id,
             @RequestBody(required = false) Map<String, Object> context) {
+        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
         var result = simulationService.simulate(tenantId(auth), id, context != null ? context : Map.of());
         return ResponseEntity.ok(Map.of(
                 "valid", result.valid(), "simulated", result.simulated(),
@@ -287,6 +290,7 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.PUBLISH")
     public ResponseEntity<Map<String, Object>> publishDefinition(
             Authentication auth, @PathVariable UUID id, @RequestBody PublishDefinitionRequest req) {
+        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
         var def = definitionService.findById(tenantId(auth), id)
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
         if (def.versionLock() != req.expectedVersion()) {
@@ -299,6 +303,7 @@ public class WorkflowController {
     @PostMapping("/definitions/{id}/next-draft")
     @RequireCapability("WORKFLOW.DESIGN")
     public ResponseEntity<Map<String, Object>> nextDraft(Authentication auth, @PathVariable UUID id) {
+        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
         return ResponseEntity.ok(toDefinitionMap(definitionService.createNextDraft(tenantId(auth), id, userId(auth))));
     }
 
@@ -323,6 +328,7 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.DESIGN")
     public ResponseEntity<Map<String, Object>> createTransition(
             Authentication auth, @PathVariable UUID id, @RequestBody CreateTransitionRequest req) {
+        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
         var saved = definitionService.addTransition(tenantId(auth), id, req.fromStepId(), req.toStepId(),
                 req.transitionKey(), req.outcome(), req.conditionAst(), req.priority(), req.metadata(), userId(auth));
         Map<String, Object> map = new java.util.HashMap<>();
@@ -377,6 +383,7 @@ public class WorkflowController {
     @PostMapping("/definitions/{id}/activate")
     @RequireCapability("WORKFLOW.WRITE")
     public ResponseEntity<Map<String, Object>> activateDefinition(Authentication auth, @PathVariable UUID id) {
+        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
         return ResponseEntity.ok(toDefinitionMap(definitionService.activate(tenantId(auth), id, userId(auth))));
     }
 
@@ -397,12 +404,6 @@ public class WorkflowController {
     public ResponseEntity<Map<String, Object>> addStep(
             Authentication auth, @PathVariable UUID id, @RequestBody CreateStepRequest req) {
         var tenant = tenantId(auth); var actor = userId(auth);
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
-        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
         workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
         definitionService.findById(tenant, id)
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
