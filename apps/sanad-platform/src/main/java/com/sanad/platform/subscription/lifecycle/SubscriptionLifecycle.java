@@ -1,5 +1,6 @@
 package com.sanad.platform.subscription.lifecycle;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -11,9 +12,13 @@ import java.util.Set;
  * <p>Statuses: DRAFT, PENDING_ACTIVATION, PENDING_PAYMENT, TRIAL, ACTIVE,
  * PAST_DUE, GRACE_PERIOD, PAUSED, SUSPENDED, CANCELLED, EXPIRED, TERMINATED.
  * The legacy value TRIALING maps to TRIAL (and is accepted everywhere TRIAL
- * is, so existing rows and callers keep working).
+ * is, so existing rows and callers keep working).</p>
  */
 public final class SubscriptionLifecycle {
+
+    /** Commands that may be issued directly by an operator through the generic lifecycle surface. */
+    public static final List<String> DIRECT_OPERATOR_COMMANDS =
+            List.of("PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE");
 
     /** Command → allowed (fromStatus → toStatus) transitions. */
     public static final Map<String, Map<String, String>> COMMANDS = Map.ofEntries(
@@ -32,11 +37,6 @@ public final class SubscriptionLifecycle {
                     "TRIALING", "PAUSED")),
             Map.entry("RESUME", Map.of(
                     "PAUSED", "ACTIVE",
-                    // R0C-7: canonical representation of the proven legacy revival
-                    // semantics — renew refuses CANCELLED with "must be resumed
-                    // first" (original paired behavior, #201) and the design doc
-                    // keeps legacy commands as backward-compatible aliases over
-                    // this state machine.
                     "CANCELLED", "ACTIVE")),
             Map.entry("SUSPEND", Map.of(
                     "ACTIVE", "SUSPENDED",
@@ -54,8 +54,6 @@ public final class SubscriptionLifecycle {
                     "PAST_DUE", "CANCELLED",
                     "GRACE_PERIOD", "CANCELLED",
                     "PAUSED", "CANCELLED",
-                    // R0C-7: the legacy mutable domain includes SUSPENDED — a
-                    // suspended subscription must remain cancellable.
                     "SUSPENDED", "CANCELLED")),
             Map.entry("RENEW", Map.of(
                     "ACTIVE", "ACTIVE",
@@ -83,14 +81,10 @@ public final class SubscriptionLifecycle {
             Map.entry("ENTER_GRACE", Map.of(
                     "PAST_DUE", "GRACE_PERIOD")),
             Map.entry("SCHEDULE_CANCELLATION", Map.of(
-                    // stays in the current status; cancellation happens at period end
                     "ACTIVE", "ACTIVE",
                     "TRIAL", "TRIAL",
                     "TRIALING", "TRIALING",
                     "PAST_DUE", "PAST_DUE",
-                    // R0C-7: legacy no-op scheduling covers the full legacy
-                    // mutable domain (suspended subscriptions may schedule
-                    // their cancellation; application happens after recovery).
                     "SUSPENDED", "SUSPENDED")),
             Map.entry("REQUEST_ACTIVATION", Map.of(
                     "DRAFT", "PENDING_ACTIVATION",
@@ -99,10 +93,6 @@ public final class SubscriptionLifecycle {
                     "PENDING_PAYMENT", "PENDING_ACTIVATION",
                     "PAST_DUE", "ACTIVE",
                     "GRACE_PERIOD", "ACTIVE",
-                    // R0C-7: canonical representation of the proven billing
-                    // recovery semantics (SUSPENDED billing state recovers to
-                    // CURRENT when all overdue invoices are paid — the legacy
-                    // mirror reactivated the subscription to ACTIVE).
                     "SUSPENDED", "ACTIVE"))
     );
 
@@ -127,7 +117,7 @@ public final class SubscriptionLifecycle {
         if (table == null) {
             throw new IllegalArgumentException("Unknown subscription command: " + command);
         }
-        String from = normalize(fromStatus);
+        normalize(fromStatus);
         if (!STATUSES.contains(fromStatus)) {
             throw new IllegalArgumentException("Unknown subscription status: " + fromStatus);
         }
@@ -142,6 +132,20 @@ public final class SubscriptionLifecycle {
     public static boolean isLegal(String command, String fromStatus) {
         Map<String, String> table = COMMANDS.get(command);
         return table != null && table.containsKey(fromStatus);
+    }
+
+    /**
+     * Direct lifecycle controls that may be rendered for a human operator in the supplied state.
+     * CANCELLED→RESUME is deliberately omitted because that revival path has governed period/billing side effects.
+     */
+    public static List<String> directOperatorActionsForStatus(String status) {
+        if (status == null || !STATUSES.contains(status)) {
+            return List.of();
+        }
+        return DIRECT_OPERATOR_COMMANDS.stream()
+                .filter(command -> isLegal(command, status))
+                .filter(command -> !("RESUME".equals(command) && "CANCELLED".equals(status)))
+                .toList();
     }
 
     public static String normalize(String status) {
