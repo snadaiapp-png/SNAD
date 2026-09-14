@@ -4,6 +4,7 @@ import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.subscription.change.SubscriptionChangeService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
+import com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle;
 import com.sanad.platform.subscription.provisioning.ProvisioningJobResponse;
 import com.sanad.platform.subscription.provisioning.ProvisioningJobRunner;
 import jakarta.validation.Valid;
@@ -22,29 +23,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * Executive API for subscription lifecycle commands, item-aware change
- * previews, and provisioning jobs.
- *
- * <p>Subscription status is NEVER written directly by callers — the frontend
- * invokes commands and the backend enforces transition legality.
- */
+/** Executive API for lifecycle commands, item-aware change previews, and provisioning jobs. */
 @RestController
 @RequestMapping("/api/v1/executive")
 public class LifecycleController {
-
-    /**
-     * Commands that are safe to execute as pure operator lifecycle transitions.
-     *
-     * <p>Commands with additional business invariants are deliberately excluded:
-     * ACTIVATE is owned by provisioning; RENEW by the renewal/invoicing path;
-     * EXPIRE by the expiration runtime; START_TRIAL by a trial-period authority;
-     * SCHEDULE_CANCELLATION by the cancellation service; and billing-derived
-     * commands by BillingStateService. Keeping them off this generic route
-     * prevents state-only transitions from bypassing required side effects.</p>
-     */
-    private static final Set<String> DIRECT_OPERATOR_COMMANDS = Set.of(
-            "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE");
 
     private static final Set<String> GOVERNED_ROUTE_COMMANDS = Set.of(
             "ACTIVATE", "START_TRIAL", "RENEW", "EXPIRE", "SCHEDULE_CANCELLATION",
@@ -112,7 +94,7 @@ public class LifecycleController {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Lifecycle command " + command + " is not allowed on the generic endpoint; use " + owner);
         }
-        if (!DIRECT_OPERATOR_COMMANDS.contains(command)) {
+        if (!SubscriptionLifecycle.DIRECT_OPERATOR_COMMANDS.contains(command)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Unknown or unsupported direct lifecycle command: " + command);
         }
