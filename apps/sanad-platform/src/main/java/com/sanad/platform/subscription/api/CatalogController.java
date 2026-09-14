@@ -106,6 +106,7 @@ public class CatalogController {
         entity.setLocalizedName(request.localizedName());
         entity.setDescription(request.description());
         entity.setCategory(request.category());
+        entity.setStatus(request.status());
         entity.setIconKey(request.iconKey());
         entity.setProvisioningMode(request.provisioningMode());
         entity.setSupportedCountries(request.supportedCountries());

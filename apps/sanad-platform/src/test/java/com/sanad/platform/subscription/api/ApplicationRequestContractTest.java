@@ -18,10 +18,9 @@ class ApplicationRequestContractTest {
 
     @Test
     void applicationRequestStatusPatternAdmitsTheWidenedLifecycle() throws Exception {
-        java.lang.reflect.RecordComponent status = Arrays.stream(ScpDtos.ApplicationRequest.class.getRecordComponents())
-                .filter(component -> component.getName().equals("status"))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("ApplicationRequest must expose status"));
+        // jakarta @Pattern does not target RECORD_COMPONENT — the constraint is
+        // propagated to the record's backing field.
+        java.lang.reflect.Field status = ScpDtos.ApplicationRequest.class.getDeclaredField("status");
         Pattern pattern = status.getAnnotation(Pattern.class);
         assertThat(pattern).as("status must be pattern-constrained").isNotNull();
         for (String allowed : new String[]{"ACTIVE", "INACTIVE", "DEPRECATED", "DRAFT", "ARCHIVED"}) {

@@ -63,6 +63,11 @@ export interface TenantQuery extends PageQuery {
 }
 
 // ── Applications catalog ─────────────────────────────────────────────
+// Governed catalog lifecycle — mirrors backend ALLOWED_STATUSES and the
+// ck_applications_status CHECK after V20260914_1 (additive widening: the
+// legacy ACTIVE/INACTIVE/DEPRECATED trio is preserved, DRAFT/ARCHIVED added).
+export type ApplicationStatus = "ACTIVE" | "INACTIVE" | "DEPRECATED" | "DRAFT" | "ARCHIVED";
+
 export interface ScpApplication {
   id: string;
   code: string;
@@ -70,7 +75,7 @@ export interface ScpApplication {
   localizedName: string | null;
   description: string | null;
   category: string;
-  status: string;
+  status: ApplicationStatus;
   version: string | null;
   displayOrder: number;
   iconKey: string | null;
@@ -87,6 +92,7 @@ export interface ApplicationInput {
   localizedName?: string;
   description?: string;
   category?: string;
+  status?: ApplicationStatus;
   iconKey?: string;
   provisioningMode?: string;
   supportedCountries?: string[];
@@ -343,6 +349,9 @@ export const scpApi = {
 
   createApplication: (body: ApplicationInput) =>
     apiClient.post<ScpApplication, ApplicationInput>(`${root}/applications`, body),
+
+  updateApplication: (applicationId: string, body: ApplicationInput) =>
+    apiClient.put<ScpApplication, ApplicationInput>(`${root}/applications/${applicationId}`, body),
 
   planVersions: (planId: string) =>
     apiClient.get<PlanVersion[]>(`${root}/plans/${planId}/versions`),

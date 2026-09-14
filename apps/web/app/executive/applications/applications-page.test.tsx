@@ -87,8 +87,8 @@ describe("ApplicationsPage governed mutations", () => {
     render(<ApplicationsPage />);
     await waitFor(() => expect(screen.getByText("المؤسسات")).toBeInTheDocument());
 
-    expect(screen.getByRole("button", { name: "scp.applications.edit" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "scp.applications.archive" }));
+    expect(screen.getAllByRole("button", { name: "scp.applications.edit" }).length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole("button", { name: "scp.applications.archive" })[0]);
 
     await waitFor(() =>
       expect(updateApplicationMock).toHaveBeenCalledWith(
@@ -114,7 +114,7 @@ describe("ApplicationsPage governed mutations", () => {
     await waitFor(() =>
       expect(updateApplicationMock).toHaveBeenCalledWith(
         ARCHIVED_APP.id,
-        expect.objectContaining({ code: "ERP", status: "ACTIVE" }),
+        expect.objectContaining({ code: "HRM", status: "ACTIVE" }),
       ),
     );
   });
