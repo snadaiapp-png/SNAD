@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiHttpError } from "@/lib/api/errors";
 
 const tenantSearchMock = vi.fn();
 const invoicesMock = vi.fn();
@@ -45,4 +46,28 @@ describe("Billing tenant context", () => {
     await user.click(screen.getByRole("button", { name: "scp.billing.load" }));
     await waitFor(() => expect(invoicesMock).toHaveBeenCalledWith("tenant-1"));
   });
+  it("surfaces tenant-search failures instead of misrepresenting them as an empty result", async () => {
+    const user = userEvent.setup();
+    tenantSearchMock.mockRejectedValue(
+      new ApiHttpError("Request failed", {
+        status: 500,
+        error: "Internal Server Error",
+        message: "relation tenants does not exist",
+        path: "/api/v1/executive/tenants/v2",
+        requestId: "req-billing-search",
+        body: null,
+      }),
+    );
+
+    render(<BillingPage />);
+    await user.type(
+      screen.getByRole("searchbox", { name: "scp.entitlements.searchTenant" }),
+      "Acme",
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toMatch(/relation tenants|does not exist/i);
+    expect(invoicesMock).not.toHaveBeenCalled();
+  });
+
 });
