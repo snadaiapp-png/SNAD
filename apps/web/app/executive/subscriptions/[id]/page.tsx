@@ -117,6 +117,15 @@ export default function SubscriptionDetailPage() {
     setNotice("");
     setError("");
     try {
+      if (command === "CANCEL") {
+        await executiveApi.cancelSubscription(subscriptionId, {
+          immediate: true,
+          reason: commandReason || command,
+        });
+        setNotice(t("scp.detail.commandApplied", { command, from: detail?.overview.status ?? "", to: "CANCELLED" }));
+        await load();
+        return;
+      }
       const result: CommandResult = await scpApi.lifecycleCommand(
         subscriptionId,
         command as Parameters<typeof scpApi.lifecycleCommand>[1],
