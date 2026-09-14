@@ -450,7 +450,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
                         MigrationVersion.fromVersion(HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(HR_G1_RLS_POLICIES_VERSION),
-                        MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION));
+                        MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
                         MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
                         MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
@@ -634,7 +634,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
                         MigrationVersion.fromVersion(HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(HR_G1_RLS_POLICIES_VERSION),
-                        MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION));
+                        MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
                         MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
                         MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
