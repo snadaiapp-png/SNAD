@@ -409,13 +409,13 @@ class R0C13G06SettlementReconciliationPostgresTest {
         // writer and reconciliation writer may take FK KEY SHARE row locks on
         // the same subscription_billing_payment_attempts tuples in opposing
         // order; PostgreSQL may then abort exactly one participant with
-        // SQLSTATE 40P01 (deadlock detected). Production semantics are
-        // abort-and-retry — both participants are idempotent (provider-event
-        // idempotency / run idempotency key) and the system converges, which
-        // is what this test certifies. The race below therefore retries an
-        // aborted participant within a bounded budget instead of requiring
-        // lock-order luck on the first attempt; every convergence assertion
-        // is unchanged.
+        // SQLSTATE 40P01 (deadlock detected). The production contract is
+        // rollback + safe external retry/redelivery: webhook events and
+        // reconciliation runs are idempotent, but these service methods do
+        // NOT claim an in-method retry loop. The harness retries an aborted
+        // participant within a bounded budget to model that external retry
+        // boundary and certify eventual convergence; every convergence
+        // assertion below remains unchanged.
         String raceKey = "g06-race-first-" + compact(UUID.randomUUID());
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -687,14 +687,14 @@ class R0C13G06SettlementReconciliationPostgresTest {
     }
 
     /**
-     * Bounded abort-and-retry for the G06 race participants. PostgreSQL may
+     * Bounded retry used only by this concurrency harness. PostgreSQL may
      * abort exactly one concurrent writer with SQLSTATE 40P01 (deadlock
      * detected) when webhook and reconciliation acquire FK KEY SHARE row
-     * locks in opposing order. Both participants are idempotent (provider
-     * event idempotency / reconciliation run idempotency key), mirroring the
-     * production retryable-failure doctrine (§12.8): an aborted participant
-     * is retried within budget and the system converges. Everything outside
-     * PessimisticLockingFailureException still fails the test immediately.
+     * locks in opposing order. Production relies on transaction rollback plus
+     * idempotent external webhook redelivery / reconciliation rerun; it does
+     * not promise an in-method retry loop. This helper models that external
+     * retry boundary. Everything outside PessimisticLockingFailureException
+     * still fails the test immediately.
      */
     private static <T> Callable<T> withDeadlockRetry(Callable<T> operation) {
         return () -> {
