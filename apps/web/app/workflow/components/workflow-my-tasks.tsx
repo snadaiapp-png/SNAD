@@ -6,14 +6,20 @@ import {
   type WorkflowWorkItemResponse,
 } from "@/lib/api/workflow-api";
 import { describeWorkflowError } from "@/lib/workflow/error-messages";
+import styles from "../workflow.module.css";
+import {
+  StatusBadge,
+  WorkflowEmptyState,
+  WorkflowSectionHeader,
+  formatPriority,
+  formatWorkflowDate,
+} from "./workflow-ui";
 
 /**
  * R0.G4 — My Tasks partial-failure resilience.
  *
  * MINE (direct assignments) and POOL (work pool) are independent datasets
- * with independent loading/data/error state and independent retry. One
- * endpoint failing must never destroy or withhold the other dataset, and
- * the access state shown must be precise about WHICH dataset was denied.
+ * with independent loading/data/error state and independent retry.
  */
 type DatasetState = {
   loading: boolean;
@@ -48,13 +54,13 @@ function DatasetErrorBanner({
     <div
       role="alert"
       data-testid={testId}
-      style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}
+      className={`${styles.alert} ${styles.alertError}`}
     >
-      <p style={{ color: "var(--snad-color-error)", margin: 0 }}>
+      <span>
         {denied
           ? `لا تملك صلاحية الوصول إلى ${scope}.`
           : state.error}
-      </p>
+      </span>
       <button type="button" onClick={onRetry}>
         {retryLabel}
       </button>
@@ -143,12 +149,25 @@ export function WorkflowMyTasks() {
 
   return (
     <div dir="rtl">
-      <h2 style={{ marginTop: 0, fontSize: 20 }}>مهامي</h2>
+      <WorkflowSectionHeader
+        eyebrow="صندوق العمل"
+        title="مهامي"
+        description="مهامك المباشرة والمهام المتاحة للاستلام من تجمع العمل، مع الأولوية والموعد والحالة."
+        actions={
+          <button
+            type="button"
+            disabled={anyLoading}
+            onClick={() => void Promise.allSettled([loadMine(), loadPool()])}
+          >
+            {anyLoading ? "جارٍ التحديث…" : "تحديث المهام"}
+          </button>
+        }
+      />
 
       {anyLoading && (
-        <p role="status" data-testid="tasks-loading">
+        <p role="status" data-testid="tasks-loading" className={styles.cardMeta}>
           {mine.loading && pool.loading
-            ? "جارٍ التحميل…"
+            ? "جارٍ تحميل المهام…"
             : mine.loading
               ? "جارٍ تحميل المهام المباشرة…"
               : "جارٍ تحميل تجمع المهام…"}
@@ -156,57 +175,92 @@ export function WorkflowMyTasks() {
       )}
 
       {bothDenied && (
-        <div role="alert" data-testid="both-denied">
-          <p style={{ color: "var(--snad-color-error)", margin: 0 }}>
-            حسابك لا يملك صلاحية الوصول إلى مهام سير العمل — تكلّم مع مالك النظام لمنح صلاحية
-            WORKFLOW.TASK_EXECUTE.
-          </p>
+        <div role="alert" data-testid="both-denied" className={`${styles.alert} ${styles.alertWarning}`}>
+          <div>
+            <strong>الوصول إلى مهام سير العمل غير متاح لهذا الحساب.</strong>
+            <div>
+              اطلب من مسؤول المؤسسة منح صلاحية <code>WORKFLOW.TASK_EXECUTE</code>.
+              لم تُخفَ بيانات متاحة؛ الخادم رفض مجموعتي المهام مباشرة.
+            </div>
+          </div>
         </div>
       )}
 
-      {conflict && <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>}
+      {conflict && (
+        <div role="alert" className={`${styles.alert} ${styles.alertWarning}`}>{conflict}</div>
+      )}
       {commandError && (
-        <p role="alert" style={{ color: "var(--snad-color-error)" }}>
-          {commandError}
-        </p>
+        <div role="alert" className={`${styles.alert} ${styles.alertError}`}>{commandError}</div>
       )}
 
-      <h3>مهامي المباشرة</h3>
-      <DatasetErrorBanner
-        state={mine}
-        scope="المهام المباشرة"
-        testId="error-mine"
-        retryLabel="إعادة محاولة المهام المباشرة"
-        onRetry={() => void loadMine()}
-      />
-      {!mine.loading && !mine.error && mine.data.length === 0 && <p>لا توجد مهام مباشرة.</p>}
-      {mine.data.map((workItem) => (
-        <WorkItemCard
-          key={workItem.id}
-          workItem={workItem}
-          busy={actioningId === workItem.id}
-          onComplete={() => void complete(workItem)}
-          onRelease={() => void release(workItem)}
-        />
-      ))}
+      <div className={styles.cardsGrid}>
+        <section className={styles.subsection} aria-labelledby="direct-tasks-title">
+          <div className={styles.subsectionTitleRow}>
+            <h3 id="direct-tasks-title" className={styles.subsectionTitle}>مهامي المباشرة</h3>
+            <span className={styles.count}>{mine.data.length}</span>
+          </div>
 
-      <h3 style={{ marginTop: 24 }}>تجمع المهام (Work Pool)</h3>
-      <DatasetErrorBanner
-        state={pool}
-        scope="تجمع المهام"
-        testId="error-pool"
-        retryLabel="إعادة محاولة تجمع المهام"
-        onRetry={() => void loadPool()}
-      />
-      {!pool.loading && !pool.error && pool.data.length === 0 && <p>لا توجد مهام متاحة في التجمع.</p>}
-      {pool.data.map((workItem) => (
-        <WorkItemCard
-          key={workItem.id}
-          workItem={workItem}
-          busy={actioningId === workItem.id}
-          onClaim={() => void claim(workItem)}
-        />
-      ))}
+          {!bothDenied && (
+            <DatasetErrorBanner
+              state={mine}
+              scope="المهام المباشرة"
+              testId="error-mine"
+              retryLabel="إعادة محاولة المهام المباشرة"
+              onRetry={() => void loadMine()}
+            />
+          )}
+
+          {!mine.loading && !mine.error && mine.data.length === 0 ? (
+            <WorkflowEmptyState
+              title="لا توجد مهام مباشرة"
+              description="أي مهمة تُسند إليك مباشرة ستظهر هنا مع موعدها وأولويتها."
+            />
+          ) : (
+            mine.data.map((workItem) => (
+              <WorkItemCard
+                key={workItem.id}
+                workItem={workItem}
+                busy={actioningId === workItem.id}
+                onComplete={() => void complete(workItem)}
+                onRelease={() => void release(workItem)}
+              />
+            ))
+          )}
+        </section>
+
+        <section className={styles.subsection} aria-labelledby="pool-tasks-title">
+          <div className={styles.subsectionTitleRow}>
+            <h3 id="pool-tasks-title" className={styles.subsectionTitle}>تجمع المهام</h3>
+            <span className={styles.count}>{pool.data.length}</span>
+          </div>
+
+          {!bothDenied && (
+            <DatasetErrorBanner
+              state={pool}
+              scope="تجمع المهام"
+              testId="error-pool"
+              retryLabel="إعادة محاولة تجمع المهام"
+              onRetry={() => void loadPool()}
+            />
+          )}
+
+          {!pool.loading && !pool.error && pool.data.length === 0 ? (
+            <WorkflowEmptyState
+              title="لا توجد مهام متاحة للاستلام"
+              description="المهام المشتركة المؤهلة لك ستظهر هنا ويمكن استلامها بشكل ذري من الخادم."
+            />
+          ) : (
+            pool.data.map((workItem) => (
+              <WorkItemCard
+                key={workItem.id}
+                workItem={workItem}
+                busy={actioningId === workItem.id}
+                onClaim={() => void claim(workItem)}
+              />
+            ))
+          )}
+        </section>
+      </div>
     </div>
   );
 }
@@ -225,18 +279,34 @@ function WorkItemCard({
   onRelease?: () => void;
 }) {
   return (
-    <article style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
-      <strong>{workItem.title}</strong>{" "}
-      <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
-        {workItem.status} · مرجع المزامنة #{workItem.version}
-      </span>
-      <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <article className={styles.taskCard}>
+      <div className={styles.cardHeader}>
+        <div>
+          <h4 className={styles.cardTitle}>{workItem.title}</h4>
+          <div className={styles.cardMeta}>
+            <StatusBadge value={workItem.status} />
+            <span>الأولوية: {formatPriority(workItem.priority)}</span>
+            <span>مرجع المزامنة #{workItem.version}</span>
+          </div>
+        </div>
+        <span className={styles.mono}>{workItem.id.slice(0, 8)}…</span>
+      </div>
+
+      <div className={styles.cardMeta}>
+        <span>الاستحقاق: {formatWorkflowDate(workItem.dueAt)}</span>
+        <span>النمط: {workItem.assignmentMode === "WORK_POOL" ? "تجمع عمل" : "إسناد مباشر"}</span>
+      </div>
+
+      {workItem.status === "ASSIGNEE_UNAVAILABLE" && (
+        <div className={`${styles.alert} ${styles.alertWarning}`}>
+          غير متاحة — يلزم إعادة تعيين مصرّح بها
+        </div>
+      )}
+
+      <div className={styles.cardActions}>
         {onClaim && <button type="button" disabled={busy} onClick={onClaim}>استلام</button>}
         {onComplete && <button type="button" disabled={busy} onClick={onComplete}>إكمال</button>}
-        {onRelease && <button type="button" disabled={busy} onClick={onRelease}>إفلات</button>}
-        {workItem.status === "ASSIGNEE_UNAVAILABLE" && (
-          <span style={{ color: "var(--snad-color-warning)" }}>غير متاحة — يلزم إعادة تعيين مصرّح بها</span>
-        )}
+        {onRelease && <button type="button" disabled={busy} onClick={onRelease}>إعادة إلى التجمع</button>}
       </div>
     </article>
   );

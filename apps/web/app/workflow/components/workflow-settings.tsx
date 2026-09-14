@@ -1,33 +1,58 @@
 "use client";
 
+import styles from "../workflow.module.css";
+import { WorkflowSectionHeader } from "./workflow-ui";
+
 /**
- * Settings (design decision AP3): Y2 operating policy summary. V1 is
- * read-only — capability and SLA governance stay server-authoritative;
- * editing arrives with the governance UI wave.
+ * Read-only Y2 operating policy summary. Capability and SLA governance remain
+ * server-authoritative until a dedicated governance editor is introduced.
  */
 export function WorkflowSettings() {
   const policies = [
-    { name: "سياسة الموافقة الذاتية", value: "مرفوضة افتراضيًا (DENY) — استثناء يتطلب WORKFLOW.SELF_APPROVAL_OVERRIDE" },
-    { name: "سياسات التجميع", value: "ANY_ONE و ALL — التسبيب (QUORUM) مؤجل" },
-    { name: "تسليم الأحداث", value: "At-least-once مع inbox مُكرر الإسناد — لا exactly-once" },
-    { name: "حوكمة الإصدارات", value: "مسودة ← تحقق ← نشر غير قابل للتحريف" },
-    { name: "المحركات", value: "LEGACY للمثيلات الجارية، Y2 لكل بدء جديد بعد القطع" },
+    {
+      name: "الموافقة الذاتية",
+      value: <>مرفوضة افتراضيًا <code>DENY</code></>,
+      description: <>السماح الاستثنائي يتطلب صلاحية <code>WORKFLOW.SELF_APPROVAL_OVERRIDE</code>.</>,
+    },
+    {
+      name: "سياسات التجميع",
+      value: <><code>ANY_ONE</code> أو <code>ALL</code></>,
+      description: "إما موافقة واحدة كافية، أو اشتراط موافقة جميع الأطراف. سياسة النصاب ليست مفعّلة حاليًا.",
+    },
+    {
+      name: "تسليم الأحداث",
+      value: <>تسليم <code>At-least-once</code></>,
+      description: "قد يصل الحدث أكثر من مرة؛ تمنع طبقة inbox المعالجة المكررة بدل افتراض exactly-once.",
+    },
+    {
+      name: "حوكمة الإصدارات",
+      value: "مسودة ← تحقق ← نشر",
+      description: "التعريف المنشور غير قابل للتعديل في مكانه؛ التغيير يبدأ من مسودة إصدار جديدة.",
+    },
+    {
+      name: "استراتيجية المحرك",
+      value: <><code>LEGACY</code> + <code>Y2</code></>,
+      description: "المثيلات الجارية تكمل بمحركها الأصلي، بينما تتبع البدايات الجديدة سياسة القطع المعتمدة.",
+    },
   ];
+
   return (
     <div dir="rtl">
-      <h3>سياسات التشغيل</h3>
-      <table style={{ borderCollapse: "collapse", width: "100%" }}>
-        <tbody>
-          {policies.map((policy) => (
-            <tr key={policy.name}>
-              <td style={{ border: "1px solid var(--snad-color-border-default)", padding: 8, fontWeight: 600, width: 220 }}>
-                {policy.name}
-              </td>
-              <td style={{ border: "1px solid var(--snad-color-border-default)", padding: 8 }}>{policy.value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <WorkflowSectionHeader
+        eyebrow="الحوكمة"
+        title="سياسات التشغيل"
+        description="مرجع مبسّط للسياسات الحاكمة التي يفرضها الخادم. هذه الشاشة للقراءة فقط ولا تمنح صلاحيات."
+      />
+
+      <div className={styles.policyGrid}>
+        {policies.map((policy) => (
+          <article key={policy.name} className={styles.policyCard}>
+            <h3 className={styles.cardTitle}>{policy.name}</h3>
+            <div className={styles.policyValue}>{policy.value}</div>
+            <div className={styles.policyDescription}>{policy.description}</div>
+          </article>
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,12 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import {
   workflowApi,
   type WorkflowApprovalResponse,
 } from "@/lib/api/workflow-api";
 import { describeWorkflowError } from "@/lib/workflow/error-messages";
+import styles from "../workflow.module.css";
+import {
+  StatusBadge,
+  WorkflowEmptyState,
+  WorkflowSectionHeader,
+} from "./workflow-ui";
 
 export function WorkflowApprovals() {
   const [approvals, setApprovals] = useState<WorkflowApprovalResponse[]>([]);
@@ -71,69 +76,90 @@ export function WorkflowApprovals() {
     await runDecision(approval, "reject", reason);
   };
 
-  if (loading) return <AuthLoadingState />;
-
   return (
     <div dir="rtl">
-      <h2 style={{ marginTop: 0, fontSize: 20 }}>الموافقات</h2>
-      <p style={{ color: "var(--snad-color-text-secondary)" }}>
-        القرار النهائي وصلاحية المنفذ يتحقق منهما الخادم؛ الواجهة لا تمنح صلاحيات.
-      </p>
+      <WorkflowSectionHeader
+        eyebrow="صندوق القرارات"
+        title="الموافقات"
+        description="طلبات تنتظر قرارك. يتحقق الخادم من أهلية صاحب القرار وسياسة الموافقة قبل قبول أي إجراء."
+        actions={
+          <button type="button" onClick={() => void load()} disabled={loading}>
+            {loading ? "جارٍ التحديث…" : "تحديث"}
+          </button>
+        }
+      />
 
-      {conflict && <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>}
+      {conflict && (
+        <div role="alert" className={`${styles.alert} ${styles.alertWarning}`}>{conflict}</div>
+      )}
       {error && (
-        <div role="alert" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-          <p style={{ color: "var(--snad-color-error)", margin: 0 }}>{error}</p>
+        <div role="alert" className={`${styles.alert} ${styles.alertError}`}>
+          <span>{error}</span>
           <button type="button" onClick={() => void load()}>إعادة التحميل</button>
         </div>
       )}
 
-      {!error && approvals.length === 0 && <p>لا توجد طلبات موافقة معلّقة.</p>}
-      <div style={{ display: "grid", gap: 12 }}>
-        {approvals.map((approval) => {
-          const busy = actioningId === approval.id;
-          return (
-            <article
-              key={approval.id}
-              style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 10, padding: 14 }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div>
-                  <strong>طلب #{approval.id.slice(0, 8)}…</strong>
-                  <div style={{ marginTop: 4, fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
-                    المثيل {approval.workflowInstanceId.slice(0, 8)}… · {approval.status} · مرجع المزامنة #{approval.version}
+      {!loading && !error && approvals.length === 0 ? (
+        <WorkflowEmptyState
+          title="لا توجد موافقات معلّقة"
+          description="عند وصول طلب يتطلب قرارك سيظهر هنا مع مرجع المثيل وحالة الطلب."
+        />
+      ) : (
+        <div className={styles.cardsGrid}>
+          {approvals.map((approval) => {
+            const busy = actioningId === approval.id;
+            return (
+              <article key={approval.id} className={styles.approvalCard}>
+                <div className={styles.cardHeader}>
+                  <div>
+                    <h3 className={styles.cardTitle}>طلب موافقة</h3>
+                    <div className={styles.cardMeta}>
+                      <StatusBadge value={approval.status} />
+                      <span>مرجع المزامنة #{approval.version}</span>
+                    </div>
                   </div>
+                  <span className={styles.mono}>#{approval.id.slice(0, 8)}…</span>
                 </div>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void runDecision(approval, "approve", "تمت الموافقة")}
-                >
-                  {busy ? "جارٍ التنفيذ…" : "موافقة"}
-                </button>
-              </div>
 
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
-                <input
-                  aria-label={`سبب رفض الطلب ${approval.id}`}
-                  placeholder="سبب الرفض (إلزامي)"
-                  value={rejectionReasons[approval.id] ?? ""}
-                  onChange={(event) =>
-                    setRejectionReasons((current) => ({
-                      ...current,
-                      [approval.id]: event.target.value,
-                    }))
-                  }
-                  style={{ minWidth: 240, flex: "1 1 280px" }}
-                />
-                <button type="button" disabled={busy} onClick={() => void reject(approval)}>
-                  رفض
-                </button>
-              </div>
-            </article>
-          );
-        })}
-      </div>
+                <div className={styles.cardMeta}>
+                  <span>المثيل: <span className={styles.mono}>{approval.workflowInstanceId.slice(0, 8)}…</span></span>
+                  {approval.requestedFromEmployeeId ? (
+                    <span>الموظف: <span className={styles.mono}>{approval.requestedFromEmployeeId.slice(0, 8)}…</span></span>
+                  ) : null}
+                </div>
+
+                <div className={styles.cardActions}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void runDecision(approval, "approve", "تمت الموافقة")}
+                  >
+                    {busy ? "جارٍ التنفيذ…" : "موافقة"}
+                  </button>
+                </div>
+
+                <div className={styles.toolbar}>
+                  <input
+                    className={styles.toolbarGrow}
+                    aria-label={`سبب رفض الطلب ${approval.id}`}
+                    placeholder="سبب الرفض (إلزامي)"
+                    value={rejectionReasons[approval.id] ?? ""}
+                    onChange={(event) =>
+                      setRejectionReasons((current) => ({
+                        ...current,
+                        [approval.id]: event.target.value,
+                      }))
+                    }
+                  />
+                  <button type="button" disabled={busy} onClick={() => void reject(approval)}>
+                    رفض
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
