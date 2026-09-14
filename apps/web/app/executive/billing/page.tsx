@@ -41,8 +41,14 @@ export default function BillingPage() {
     const handle = setTimeout(() => {
       scpApi
         .tenants({ search: tenantQuery.trim(), size: 8, sort: "name", direction: "ASC" })
-        .then((page) => setMatches(page.content))
-        .catch(() => setMatches([]));
+        .then((page) => {
+          setMatches(page.content);
+          setError("");
+        })
+        .catch((reason) => {
+          setMatches([]);
+          setError(scpErrorMessage(reason));
+        });
     }, 250);
     return () => clearTimeout(handle);
   }, [tenantQuery, tenantId]);
@@ -81,6 +87,7 @@ export default function BillingPage() {
               setTenantQuery(event.target.value);
               setTenantId("");
               setInvoices(null);
+              setError("");
             }}
             aria-label={t("scp.entitlements.searchTenant")}
           />
