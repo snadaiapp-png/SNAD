@@ -6,6 +6,7 @@ import type {
   CreateWorkflowTransitionRequest,
   WorkflowStepResponse,
   WorkflowStepType,
+  WorkflowTransitionResponse,
 } from "@/lib/api/workflow-api";
 import {
   AssignmentRuleEditor,
@@ -46,9 +47,6 @@ const Y2_TYPES: WorkflowStepType[] = [
 
 const OUTCOMES = ["SUCCESS", "APPROVE", "REJECT", "TRUE", "FALSE", "COMPLETE", "TIMEOUT"];
 
-/** R0.G6 — outcome vocabulary is filtered by the source step type so a
- * CONDITION can only offer TRUE/FALSE and an APPROVAL only APPROVE/REJECT;
- * TIMEOUT is a first-class outcome for deadline routing (TIMEOUT != SUCCESS). */
 function outcomeOptionsFor(stepType: WorkflowStepType | string | undefined): string[] {
   switch (stepType) {
     case "CONDITION":
@@ -66,6 +64,7 @@ function outcomeOptionsFor(stepType: WorkflowStepType | string | undefined): str
 export function StepInspector({
   draft,
   selectedStep,
+  selectedTransition,
   steps,
   editable,
   busy,
@@ -75,6 +74,7 @@ export function StepInspector({
 }: {
   draft: DesignerStepDraft | null;
   selectedStep: WorkflowStepResponse | null;
+  selectedTransition: WorkflowTransitionResponse | null;
   steps: WorkflowStepResponse[];
   editable: boolean;
   busy: boolean;
@@ -238,66 +238,84 @@ export function StepInspector({
           </label>
           <button type="button" disabled={busy} onClick={() => void saveDraft()}>حفظ الخطوة في الخادم</button>
         </section>
+      ) : selectedTransition ? (
+        <section aria-label="تفاصيل الانتقال" style={{ display: "grid", gap: 6 }}>
+          <strong>تفاصيل الانتقال</strong>
+          <span>{selectedTransition.transitionKey}</span>
+          <span>من: {stepLabel(selectedTransition.fromStepId, steps)}</span>
+          <span>إلى: {stepLabel(selectedTransition.toStepId, steps)}</span>
+          <span>النتيجة: {selectedTransition.outcome || "—"}</span>
+          <span>الأولوية: {selectedTransition.priority}</span>
+          <small style={hintStyle}>
+            الانتقال المحفوظ للقراءة هنا؛ لا توجد API لتعديله أو حذفه ضمن عقد المصمم الحالي.
+          </small>
+        </section>
       ) : selectedStep ? (
         <section aria-label="تفاصيل الخطوة المحفوظة" style={{ display: "grid", gap: 6 }}>
           <strong>{selectedStep.name}</strong>
           <span>{selectedStep.stepKey}</span>
           <span>{selectedStep.stepType}</span>
           <span>مرجع المزامنة #{selectedStep.version}</span>
-          <small style={{ color: "var(--snad-color-text-secondary)" }}>
+          <small style={hintStyle}>
             الخطوة المحفوظة للقراءة هنا؛ لا توجد API لتعديلها أو حذفها ضمن عقد Task 18.
           </small>
         </section>
       ) : (
-        <p style={hintStyle}>اختر عقدة محفوظة لعرضها، أو أضف خطوة جديدة من المكتبة.</p>
+        <p style={hintStyle}>اختر عقدة أو انتقالًا محفوظًا لعرضه، أو أضف خطوة جديدة من المكتبة.</p>
       )}
 
-      <hr style={{ margin: "16px 0", border: 0, borderTop: "1px solid var(--snad-color-border-default)" }} />
-
-      <section style={{ display: "grid", gap: 9 }}>
-        <strong>انتقال جديد</strong>
-        {!editable && <small style={hintStyle}>الإصدار المنشور للقراءة فقط.</small>}
-        <label style={fieldStyle}>
-          <span>من</span>
-          <select disabled={!editable || busy} value={fromStepId} onChange={(event) => setFromStepId(event.target.value)}>
-            <option value="">اختر</option>
-            {steps.map((step) => <option key={step.id} value={step.id}>{step.stepKey}</option>)}
-          </select>
-        </label>
-        <label style={fieldStyle}>
-          <span>إلى</span>
-          <select disabled={!editable || busy} value={toStepId} onChange={(event) => setToStepId(event.target.value)}>
-            <option value="">اختر</option>
-            {steps.map((step) => <option key={step.id} value={step.id}>{step.stepKey}</option>)}
-          </select>
-        </label>
-        <label style={fieldStyle}>
-          <span>مفتاح الانتقال</span>
-          <input disabled={!editable || busy} value={transitionKey} onChange={(event) => setTransitionKey(event.target.value)} />
-        </label>
-        <label style={fieldStyle}>
-          <span>outcome</span>
-          <select disabled={!editable || busy} value={outcome} onChange={(event) => setOutcome(event.target.value)}>
-            {outcomeOptionsFor(steps.find((step) => step.id === fromStepId)?.stepType)
-              .map((item) => <option key={item}>{item}</option>)}
-          </select>
-        </label>
-        <label style={fieldStyle}>
-          <span>الأولوية</span>
-          <input
-            disabled={!editable || busy}
-            type="number"
-            value={priority}
-            onChange={(event) => setPriority(Number(event.target.value))}
-          />
-        </label>
-        <ExpressionRuleEditor value={conditionAst} disabled={!editable || busy} onChange={setConditionAst} />
-        <button type="button" disabled={!editable || busy || steps.length < 2} onClick={() => void createTransition()}>
-          حفظ الانتقال
-        </button>
-      </section>
+      {editable && (
+        <>
+          <hr style={{ margin: "16px 0", border: 0, borderTop: "1px solid var(--snad-color-border-default)" }} />
+          <section style={{ display: "grid", gap: 9 }}>
+            <strong>انتقال جديد</strong>
+            <label style={fieldStyle}>
+              <span>من</span>
+              <select disabled={busy} value={fromStepId} onChange={(event) => setFromStepId(event.target.value)}>
+                <option value="">اختر</option>
+                {steps.map((step) => <option key={step.id} value={step.id}>{step.stepKey}</option>)}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span>إلى</span>
+              <select disabled={busy} value={toStepId} onChange={(event) => setToStepId(event.target.value)}>
+                <option value="">اختر</option>
+                {steps.map((step) => <option key={step.id} value={step.id}>{step.stepKey}</option>)}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span>مفتاح الانتقال</span>
+              <input disabled={busy} value={transitionKey} onChange={(event) => setTransitionKey(event.target.value)} />
+            </label>
+            <label style={fieldStyle}>
+              <span>outcome</span>
+              <select disabled={busy} value={outcome} onChange={(event) => setOutcome(event.target.value)}>
+                {outcomeOptionsFor(steps.find((step) => step.id === fromStepId)?.stepType)
+                  .map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span>الأولوية</span>
+              <input
+                disabled={busy}
+                type="number"
+                value={priority}
+                onChange={(event) => setPriority(Number(event.target.value))}
+              />
+            </label>
+            <ExpressionRuleEditor value={conditionAst} disabled={busy} onChange={setConditionAst} />
+            <button type="button" disabled={busy || steps.length < 2} onClick={() => void createTransition()}>
+              حفظ الانتقال
+            </button>
+          </section>
+        </>
+      )}
     </aside>
   );
+}
+
+function stepLabel(id: string, steps: WorkflowStepResponse[]) {
+  return steps.find((step) => step.id === id)?.stepKey ?? id.slice(0, 8);
 }
 
 const panelStyle = {
