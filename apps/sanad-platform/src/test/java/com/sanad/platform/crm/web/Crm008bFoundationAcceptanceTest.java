@@ -104,8 +104,9 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260912_5 = verified provider-webhook resolution.
     //   V20260912_6 = provider-unavailable reconciliation classification.
     // HRM G1 T7 continues the same forward-only ledger:
-    //   V20260914_1 = offer approval correlation + immutable version identity (current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260914.1"; // Terminal versioned migration: V20260914_1 adds HRM G1 T7 offer approval correlation (additive only)
+    //   V20260914_1 = offer approval correlation + immutable version identity.
+    //   V20260914_2 = workflow idempotency index NULLS NOT DISTINCT rebuild (current terminal migration).
+    private static final String CRM_LATEST_VERSION = "20260914.2"; // Terminal versioned migration: V20260914_2 rebuilds uq_wf_instances_idempotency with NULLS NOT DISTINCT (T7-A26 fix, additive strengthening)
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");

@@ -279,6 +279,12 @@ class CrmFlywayHistoryAssertionTest {
             // append-only guard on hr_offer_versions). No migration bytes are modified, no
             // migration is deleted, and the sentinel remains explicit — not weakened.
             , "20260914.1"   // hrm g1 t7 offer approval correlation + immutable version identity
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only defect-fix migration (HRM G1 T7
+            // closure §10/T7-A26): V20260914_2 rebuilds uq_wf_instances_idempotency with NULLS
+            // NOT DISTINCT (same columns, same predicate, same name) so the engine idempotency
+            // key is enforced even for the NULL trigger_type rows the Y2 adapters produce.
+            // Additive strengthening only — no migration bytes modified, none deleted.
+            , "20260914.2"   // workflow idempotency index NULLS NOT DISTINCT rebuild
     );
 
 

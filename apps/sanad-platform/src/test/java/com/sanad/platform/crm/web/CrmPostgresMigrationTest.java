@@ -220,7 +220,11 @@ class CrmPostgresMigrationTest {
     // guard on hr_offer_versions). No migration bytes are modified and the expected
     // head remains explicit — the sentinel is extended, never weakened.
     private static final String T7_OFFER_APPROVAL_CORRELATION_VERSION = "20260914.1";
-    private static final String LATEST_MIGRATION_VERSION = T7_OFFER_APPROVAL_CORRELATION_VERSION;
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only defect-fix migration (HRM G1 T7 closure
+    // §10/T7-A26): V20260914_2 rebuilds uq_wf_instances_idempotency with NULLS NOT DISTINCT
+    // (same columns/predicate/name) — additive strengthening, never weakening.
+    private static final String T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION = "20260914.2";
+    private static final String LATEST_MIGRATION_VERSION = T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -467,7 +471,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
                         MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
-                        MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION));
+                        MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
+                        MigrationVersion.fromVersion(T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -652,7 +657,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
                         MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
-                        MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION));
+                        MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
+                        MigrationVersion.fromVersion(T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

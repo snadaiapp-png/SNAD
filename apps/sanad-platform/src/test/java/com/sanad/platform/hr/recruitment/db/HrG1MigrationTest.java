@@ -248,6 +248,27 @@ class HrG1MigrationTest {
 
     static final String T7_CORRELATION_VERSION = "20260914.1";
 
+    // TEST_ALIGNMENT_REASON = forward-only defect-fix migration (T7 closure §10/T7-A26):
+    // V20260914_2 rebuilds the engine idempotency index with NULLS NOT DISTINCT.
+    static final String T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION = "20260914.2";
+
+    @Test
+    void t7WorkflowIdempotencyIndexEnforcesNullTriggerType() {
+        flyway(null).migrate();
+        List<String> indexDefs = jdbc.queryForList(
+                "SELECT indexdef FROM pg_indexes WHERE tablename = 'workflow_instances' "
+                        + "AND indexname = 'uq_wf_instances_idempotency'", String.class);
+        assertThat(indexDefs).hasSize(1);
+        assertThat(indexDefs.get(0))
+                .as("T7-A26: the engine idempotency index is NULLS NOT DISTINCT so the same "
+                        + "idempotency key can never start a second instance for the NULL "
+                        + "trigger_type rows the Y2 adapters produce")
+                .containsIgnoringCase("UNIQUE")
+                .containsIgnoringCase("NULLS NOT DISTINCT")
+                .contains("idempotency_key")
+                .contains("WHERE");
+    }
+
     @Test
     void t7OfferCorrelationColumnsExist() {
         flyway(null).migrate();
