@@ -216,8 +216,11 @@ describe("Executive tenant management controls", () => {
     createTenantMock.mockRejectedValue(
       new ApiHttpError("Request failed", {
         status: 500,
+        error: "Internal Server Error",
         message: "Duplicate key value violates unique constraint uk_tenants_subdomain",
+        path: "/api/v1/executive/tenants",
         requestId: "req-g1a-1",
+        body: null,
       }),
     );
     render(<TenantsPage />);
