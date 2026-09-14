@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -64,6 +65,13 @@ import static org.assertj.core.api.Assertions.assertThat;
         // Matches the production contract: SANAD_CONTROL_PLANE_TENANT_ID.
         "sanad.control-plane.tenant-id=" + G1GDynamic403ForensicPostgresTest.CONTROL_PLANE_TENANT_ID
 })
+// Full-app contexts require the `local` profile for profile-gated
+// infrastructure adapters (e.g. LocalEmailAdapter as the default EmailPort):
+// application.yml defaults to `local`, but CI canonical environments set
+// SPRING_PROFILES_ACTIVE=default explicitly — pin the profile so the
+// forensic context boots identically everywhere (same convention as
+// BillingStateServiceIntegrationTest).
+@ActiveProfiles("local")
 class G1GDynamic403ForensicPostgresTest {
 
     static final String CONTROL_PLANE_TENANT_ID = "00000000-0000-0000-0000-000000000001";

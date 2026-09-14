@@ -100,7 +100,7 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260912_4 = subscription billing persistence foundation.
     //   V20260912_5 = verified provider-webhook resolution.
     //   V20260912_6 = provider-unavailable reconciliation classification (current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260912.6"; // Terminal versioned migration: V20260912_6 adds R0C13 G07 provider-unavailable reconciliation classification
+    private static final String CRM_LATEST_VERSION = "20260914.1"; // Terminal versioned migration: V20260914_1 adds PATH-B G1-B application catalog status lifecycle widening (design spec §12.4); V20260912_6 added R0C13 G07 provider-unavailable reconciliation classification
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
