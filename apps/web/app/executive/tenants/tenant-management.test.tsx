@@ -85,11 +85,11 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    expect(screen.getByRole("button", { name: "إنشاء حساب جديد" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "تحديث" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "تجميد" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "أرشفة الحساب" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "ترقية" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "scp.tenants.create" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scp.tenants.update" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scp.tenants.freeze" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scp.tenants.archive" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "scp.tenants.upgrade" })).toHaveAttribute(
       "href",
       "/executive/subscriptions?tenantId=11111111-1111-1111-1111-111111111111&intent=upgrade",
     );
@@ -101,11 +101,11 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    expect(screen.queryByRole("button", { name: "إنشاء حساب جديد" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "تحديث" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "تجميد" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "أرشفة الحساب" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "ترقية" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.create" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.update" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.freeze" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.archive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "scp.tenants.upgrade" })).not.toBeInTheDocument();
   });
 
   it("keeps focus on the input while typing multiple characters in the create dialog", async () => {
@@ -114,13 +114,13 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "إنشاء حساب جديد" }));
-    const subdomain = screen.getByLabelText("النطاق الفرعي");
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+    const subdomain = screen.getByLabelText("scp.tenants.form.subdomain");
     await user.click(subdomain);
     await user.type(subdomain, "acme01");
 
     expect((subdomain as HTMLInputElement).value).toBe("acme01");
-    expect(screen.getByLabelText("النطاق الفرعي")).toHaveFocus();
+    expect(screen.getByLabelText("scp.tenants.form.subdomain")).toHaveFocus();
   });
 
   it("shows visible labels for every create-dialog field", async () => {
@@ -129,9 +129,9 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "إنشاء حساب جديد" }));
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
 
-    for (const label of ["اسم الحساب", "النطاق الفرعي", "بريد المسؤول", "اسم المسؤول"]) {
+    for (const label of ["scp.tenants.form.name", "scp.tenants.form.subdomain", "scp.tenants.form.adminEmail", "scp.tenants.form.adminDisplayName"]) {
       const labelEl = screen.getByText(label);
       expect(labelEl).toBeVisible();
       expect(labelEl.tagName).toBe("LABEL");
@@ -144,18 +144,18 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "إنشاء حساب جديد" }));
-    await user.type(screen.getByLabelText("اسم الحساب"), "شركة اختبار");
-    await user.type(screen.getByLabelText("النطاق الفرعي"), "bad_domain");
-    await user.type(screen.getByLabelText("بريد المسؤول"), "not-an-email");
-    await user.type(screen.getByLabelText("اسم المسؤول"), "مدير النظام");
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+    await user.type(screen.getByLabelText("scp.tenants.form.name"), "شركة اختبار");
+    await user.type(screen.getByLabelText("scp.tenants.form.subdomain"), "bad_domain");
+    await user.type(screen.getByLabelText("scp.tenants.form.adminEmail"), "not-an-email");
+    await user.type(screen.getByLabelText("scp.tenants.form.adminDisplayName"), "مدير النظام");
 
-    await user.click(screen.getByRole("button", { name: "إنشاء" }));
+    await user.click(screen.getByRole("button", { name: "form.action.create" }));
 
     expect(createTenantMock).not.toHaveBeenCalled();
     const alert = screen.getByRole("alert");
     const alertText = alert.textContent ?? "";
-    expect(alertText).toMatch(/النطاق الفرعي|البريد/i);
+    expect(alertText).toMatch(/scp\.tenants\.validation\.(subdomainInvalid|adminEmailInvalid)/i);
     // No raw regex as the primary user message.
     expect(alertText).not.toMatch(/[\^$\\]|(?:\(\?)/);
   });
@@ -182,31 +182,31 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "تحديث" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "تحديث بيانات الحساب" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "scp.tenants.update" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "scp.tenants.editDialogTitle" })).toBeInTheDocument());
 
-    const country = screen.getByLabelText("الدولة");
+    const country = screen.getByLabelText("scp.tenants.form.countryCode");
     await user.clear(country);
     await user.type(country, "S1");
-    await user.click(screen.getByRole("button", { name: "حفظ" }));
+    await user.click(screen.getByRole("button", { name: "form.action.save" }));
 
     expect(updateTenantMock).not.toHaveBeenCalled();
     const countryAlert = screen.getByRole("alert");
-    expect(countryAlert.textContent).toMatch(/رمز الدولة/);
+    expect(countryAlert.textContent).toMatch(/scp\.tenants\.validation\.countryInvalid/);
     expect(countryAlert.textContent).not.toMatch(/[\^$\\[\]{}]/);
 
     // Fix the country, then break the currency: the currency message is the one surfaced.
-    const countryFixed = screen.getByLabelText("الدولة");
+    const countryFixed = screen.getByLabelText("scp.tenants.form.countryCode");
     await user.clear(countryFixed);
     await user.type(countryFixed, "SA");
-    const currency = screen.getByLabelText("العملة");
+    const currency = screen.getByLabelText("scp.tenants.form.currencyCode");
     await user.clear(currency);
     await user.type(currency, "EU4");
-    await user.click(screen.getByRole("button", { name: "حفظ" }));
+    await user.click(screen.getByRole("button", { name: "form.action.save" }));
 
     expect(updateTenantMock).not.toHaveBeenCalled();
     const currencyAlert = screen.getByRole("alert");
-    expect(currencyAlert.textContent).toMatch(/رمز العملة/);
+    expect(currencyAlert.textContent).toMatch(/scp\.tenants\.validation\.currencyInvalid/);
     expect(currencyAlert.textContent).not.toMatch(/[\^$\\[\]{}]/);
   });
 
@@ -226,18 +226,18 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "إنشاء حساب جديد" }));
-    await user.type(screen.getByLabelText("اسم الحساب"), "شركة اختبار");
-    await user.type(screen.getByLabelText("النطاق الفرعي"), "acme");
-    await user.type(screen.getByLabelText("بريد المسؤول"), "admin@acme.example");
-    await user.type(screen.getByLabelText("اسم المسؤول"), "مدير النظام");
-    await user.click(screen.getByRole("button", { name: "إنشاء" }));
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+    await user.type(screen.getByLabelText("scp.tenants.form.name"), "شركة اختبار");
+    await user.type(screen.getByLabelText("scp.tenants.form.subdomain"), "acme");
+    await user.type(screen.getByLabelText("scp.tenants.form.adminEmail"), "admin@acme.example");
+    await user.type(screen.getByLabelText("scp.tenants.form.adminDisplayName"), "مدير النظام");
+    await user.click(screen.getByRole("button", { name: "form.action.create" }));
 
     await waitFor(() => expect(createTenantMock).toHaveBeenCalledTimes(1));
 
     // The dialog must stay open and carry the localized error inside it.
-    expect(screen.getByRole("dialog", { name: "إنشاء حساب جديد" })).toBeInTheDocument();
-    const dialog = screen.getByRole("dialog", { name: "إنشاء حساب جديد" });
+    expect(screen.getByRole("dialog", { name: "scp.tenants.create" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "scp.tenants.create" });
     const alert = within(dialog).getByRole("alert");
     const alertText = alert.textContent ?? "";
     expect(alertText).toMatch(/خطأ|تعذر|حدث/); // Arabic localized backend failure
@@ -249,8 +249,8 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    expect(screen.getByRole("button", { name: "أرشفة الحساب" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "حذف الحساب" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scp.tenants.archive" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "form.action.delete" })).not.toBeInTheDocument();
   });
 
   it("routes tenant management controls and create dialog through i18n keys", async () => {
