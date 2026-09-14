@@ -62,7 +62,7 @@ export default function WorkflowPage() {
 
   useEffect(() => {
     if (state !== "INITIALIZING" && state !== "CHECKING_SESSION" && !user) {
-      router.push("/identity/login?from=/workflow");
+      router.replace("/?returnUrl=%2Fworkflow");
     }
   }, [router, state, user]);
 
