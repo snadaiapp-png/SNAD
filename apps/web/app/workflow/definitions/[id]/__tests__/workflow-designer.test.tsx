@@ -14,6 +14,7 @@ const COMPONENTS = [
   "components/workflow-designer.tsx",
   "components/designer-command-bar.tsx",
   "components/workflow-canvas.tsx",
+  "components/diagnostics-drawer.tsx",
   "components/workflow-designer.module.css",
   "components/step-palette.tsx",
   "components/step-inspector.tsx",
@@ -24,9 +25,7 @@ const COMPONENTS = [
 
 describe("workflow Y2 definition designer (Task 18)", () => {
   it("creates the approved route and focused designer components", () => {
-    for (const component of COMPONENTS) {
-      expect(existsSync(base(component)), `${component} must exist`).toBe(true);
-    }
+    for (const component of COMPONENTS) expect(existsSync(base(component)), `${component} must exist`).toBe(true);
   });
 
   it("keeps published definitions read-only and offers an explicit next draft", () => {
@@ -42,7 +41,6 @@ describe("workflow Y2 definition designer (Task 18)", () => {
   it("uses a dedicated command bar without weakening server-authoritative actions", () => {
     const designer = readRequired("components/workflow-designer.tsx");
     const commandBar = readRequired("components/designer-command-bar.tsx");
-
     expect(designer).toContain("DesignerCommandBar");
     expect(commandBar).toContain("publicationState");
     expect(commandBar).toContain("لوحة الرسم");
@@ -54,10 +52,7 @@ describe("workflow Y2 definition designer (Task 18)", () => {
 
   it("defines token-based SNAD stage visuals with Royal Gold terminal emphasis", () => {
     const css = readRequired("components/workflow-designer.module.css");
-
-    for (const className of ["stageStart", "stageUpcoming", "stageCompleted", "stageEnd", "stageCurrent"]) {
-      expect(css).toContain(`.${className}`);
-    }
+    for (const className of ["stageStart", "stageUpcoming", "stageCompleted", "stageEnd", "stageCurrent"]) expect(css).toContain(`.${className}`);
     expect(css).toContain("var(--snad-color-brand-primary)");
     expect(css).toContain("var(--snad-color-brand-accent)");
     expect(css).toContain("var(--snad-color-success)");
@@ -66,12 +61,9 @@ describe("workflow Y2 definition designer (Task 18)", () => {
 
   it("provides a searchable deterministic step library with accessible click-to-add", () => {
     const palette = readRequired("components/step-palette.tsx");
-
     expect(palette).toContain('aria-label="بحث في مكتبة الخطوات"');
     expect(palette).toContain("searchQuery");
-    for (const category of ["FLOW", "HUMAN", "CONTROL", "SYSTEM"]) {
-      expect(palette).toContain(category);
-    }
+    for (const category of ["FLOW", "HUMAN", "CONTROL", "SYSTEM"]) expect(palette).toContain(category);
     expect(palette).toContain("onClick={() => onAdd(item.type)}");
   });
 
@@ -79,7 +71,6 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     const designer = readRequired("components/workflow-designer.tsx");
     const canvas = readRequired("components/workflow-canvas.tsx");
     const api = readFileSync(new URL("../../../../../lib/api/workflow-api.ts", import.meta.url), "utf8");
-
     expect(designer).toContain("WorkflowCanvas");
     expect(canvas).toContain("<svg");
     expect(canvas).toContain('aria-label="تكبير"');
@@ -89,7 +80,6 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     expect(canvas).toContain("deriveWorkflowStagePresentation");
     expect(canvas).toContain("deriveTransitionProgressState");
     expect(canvas).not.toMatch(/reactflow|xyflow|dagre/i);
-
     expect(designer).toContain("getDefinitionSteps");
     expect(designer).toContain("getDefinitionTransitions");
     expect(designer).toContain("addDefinitionStep");
@@ -101,7 +91,6 @@ describe("workflow Y2 definition designer (Task 18)", () => {
   it("keeps canvas movement presentation-only and labels designer progress as preview", () => {
     const designer = readRequired("components/workflow-designer.tsx");
     const canvas = readRequired("components/workflow-canvas.tsx");
-
     expect(designer).toContain("Presentation-only state");
     expect(designer).toContain("setPositions");
     expect(canvas).toContain("معاينة بنيوية");
@@ -112,7 +101,6 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     const designer = readRequired("components/workflow-designer.tsx");
     const canvas = readRequired("components/workflow-canvas.tsx");
     const inspector = readRequired("components/step-inspector.tsx");
-
     expect(designer).toContain("selectedTransition");
     expect(designer).toContain("selectedTransitionId");
     expect(canvas).toContain("onSelectTransition");
@@ -123,24 +111,55 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     expect(inspector).toContain("لا توجد API لتعديله أو حذفه");
   });
 
+  it("owns validation and simulation evidence in the designer and exposes diagnostics tabs", () => {
+    const designer = readRequired("components/workflow-designer.tsx");
+    const panel = readRequired("components/publish-panel.tsx");
+    const drawer = readRequired("components/diagnostics-drawer.tsx");
+    expect(designer).toContain("latestValidation");
+    expect(designer).toContain("simulation");
+    expect(designer).toContain("DiagnosticsDrawer");
+    expect(designer).toContain("invalidateEvidence");
+    expect(panel).toContain("canPublish");
+    expect(panel).toContain("latestValidation?.valid === true");
+    expect(panel).toContain("onInvalidateEvidence");
+    for (const tab of ["Validation", "Simulation", "Activity"]) expect(drawer).toContain(tab);
+    expect(drawer).toContain("محاكاة غير إنتاجية");
+    expect(drawer).toContain("لا تنفذ آثارًا جانبية");
+    expect(drawer).toContain("ليس سجل تدقيق من الخادم");
+  });
+
+  it("feeds simulation evidence into a clearly preview-only progress context", () => {
+    const designer = readRequired("components/workflow-designer.tsx");
+    expect(designer).toContain("simulation?.visitedStepIds ?? []");
+    expect(designer).toContain("deriveVisitedTransitions");
+  });
+
+  it("supports keyboard, RTL focus, responsive layout and reduced motion", () => {
+    const canvas = readRequired("components/workflow-canvas.tsx");
+    const css = readRequired("components/workflow-designer.module.css");
+    expect(canvas).toContain("onKeyDown");
+    expect(canvas).toContain('aria-label="لوحة تصميم سير العمل"');
+    expect(canvas).toContain('event.key === "Escape"');
+    expect(canvas).toContain('event.key === "f"');
+    expect(css).toContain("prefers-reduced-motion");
+    expect(css).toContain("focus-visible");
+    expect(css).toContain("@media (max-width:");
+    expect(css).toContain("inset-inline-end");
+    expect(css).toContain("margin-inline-start");
+  });
+
   it("supports Y2 step, assignment, approval, SLA, transition and safe AST controls", () => {
     const inspector = readRequired("components/step-inspector.tsx");
     const assignment = readRequired("components/assignment-rule-editor.tsx");
     const expression = readRequired("components/expression-rule-editor.tsx");
-
-    for (const type of ["START", "HUMAN_TASK", "APPROVAL", "CONDITION", "SYSTEM_ACTION", "PARALLEL_FORK", "PARALLEL_JOIN", "CALL_WORKFLOW", "NOTIFICATION", "END"]) {
-      expect(inspector).toContain(type);
-    }
-    for (const rule of ["EMPLOYEE", "MANAGER", "POSITION", "DEPARTMENT", "ROLE", "PERMISSION"]) {
-      expect(assignment).toContain(rule);
-    }
+    for (const type of ["START", "HUMAN_TASK", "APPROVAL", "CONDITION", "SYSTEM_ACTION", "PARALLEL_FORK", "PARALLEL_JOIN", "CALL_WORKFLOW", "NOTIFICATION", "END"]) expect(inspector).toContain(type);
+    for (const rule of ["EMPLOYEE", "MANAGER", "POSITION", "DEPARTMENT", "ROLE", "PERMISSION"]) expect(assignment).toContain(rule);
     expect(inspector).toContain("ANY_ONE");
     expect(inspector).toContain("ALL");
     expect(inspector).toContain("DENY");
     expect(inspector).toContain("ALLOW");
     expect(inspector).toContain("slaMode");
     expect(inspector).toContain("outcome");
-
     expect(expression).toContain("WorkflowConditionAst");
     expect(expression).toContain("operator");
     expect(expression).not.toContain("eval(");
@@ -148,13 +167,12 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     expect(expression).not.toContain("textarea");
   });
 
-  it("gates publish on the latest server validation and labels simulation non-production", () => {
+  it("gates publish on latest server validation and labels simulation non-production", () => {
     const panel = readRequired("components/publish-panel.tsx");
     expect(panel).toContain("validateDefinition");
     expect(panel).toContain("simulateDefinition");
     expect(panel).toContain("publishDefinition");
     expect(panel).toContain("latestValidation");
-    expect(panel).toContain("disabled={!latestValidation?.valid");
     expect(panel).toContain("محاكاة غير إنتاجية");
     expect(panel).toContain("لا تنفذ آثارًا جانبية");
   });
