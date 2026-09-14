@@ -63,6 +63,17 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
+  it("provides a searchable deterministic step library with accessible click-to-add", () => {
+    const palette = readRequired("components/step-palette.tsx");
+
+    expect(palette).toContain('aria-label="بحث في مكتبة الخطوات"');
+    expect(palette).toContain("searchQuery");
+    for (const category of ["FLOW", "HUMAN", "CONTROL", "SYSTEM"]) {
+      expect(palette).toContain(category);
+    }
+    expect(palette).toContain("onClick={() => onAdd(item.type)}");
+  });
+
   it("uses native DOM/SVG graph rendering and real definition APIs without a graph dependency", () => {
     const designer = readRequired("components/workflow-designer.tsx");
     const api = readFileSync(new URL("../../../../../lib/api/workflow-api.ts", import.meta.url), "utf8");
