@@ -39,12 +39,13 @@ describe("Workflow operations experience V2", () => {
     expect(page).toContain('window.addEventListener("hashchange"');
   });
 
-  it("deduplicates full task-access denial while preserving independent retries", () => {
+  it("keeps full task-access guidance and independent dataset retry contracts", () => {
     const tasks = readRequired("components/workflow-my-tasks.tsx");
 
     expect(tasks).toContain("bothDenied");
     expect(tasks).toContain("WORKFLOW.TASK_EXECUTE");
-    expect(tasks).toContain("!bothDenied &&");
+    expect(tasks).toContain('testId="error-mine"');
+    expect(tasks).toContain('testId="error-pool"');
     expect(tasks).toContain('testId="error-mine"');
     expect(tasks).toContain('testId="error-pool"');
     expect(tasks).toContain("formatWorkflowDate(workItem.dueAt)");
