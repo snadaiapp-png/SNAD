@@ -257,6 +257,16 @@ class HrG1MigrationTest {
         assertThat(columns).as("T7.12: workflow correlation/reference + version reference columns")
                 .contains("current_version_id", "pending_offer_version_id",
                         "pending_workflow_instance_id", "pending_workflow_definition_version_id");
+        List<String> openingColumns = jdbc.queryForList(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'hr_job_openings'",
+                String.class);
+        assertThat(openingColumns).as("gate §14: opening approval correlation columns")
+                .contains("pending_workflow_instance_id", "pending_workflow_definition_version_id");
+        List<String> versionColumns = jdbc.queryForList(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'hr_offer_versions'",
+                String.class);
+        assertThat(versionColumns).as("gate §4: successor-chain predecessor linkage")
+                .contains("predecessor_version_id");
     }
 
     @Test
@@ -269,6 +279,23 @@ class HrG1MigrationTest {
         assertThat(idTenantUnique)
                 .as("T7.12: UNIQUE (id, tenant_id) enables tenant-safe composite FK references")
                 .isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void t7OneOpenApprovalPerOfferVersionPartialIndexExists() {
+        flyway(null).migrate();
+        List<String> indexDefs = jdbc.queryForList(
+                "SELECT indexdef FROM pg_indexes WHERE tablename = 'hr_offers' "
+                        + "AND indexname = 'uq_hr_offers_one_open_approval_per_version'", String.class);
+        assertThat(indexDefs).hasSize(1);
+        assertThat(indexDefs.get(0))
+                .as("gate §5: one OPEN workflow approval per (offer, offer_version)")
+                .containsIgnoringCase("UNIQUE").contains("pending_offer_version_id").contains("WHERE");
+        List<String> openingIdx = jdbc.queryForList(
+                "SELECT indexdef FROM pg_indexes WHERE tablename = 'hr_job_openings' "
+                        + "AND indexname = 'uq_hr_job_openings_one_open_approval'", String.class);
+        assertThat(openingIdx).hasSize(1);
+        assertThat(openingIdx.get(0)).containsIgnoringCase("UNIQUE").contains("pending_workflow_instance_id");
     }
 
     @Test
@@ -289,9 +316,9 @@ class HrG1MigrationTest {
     void t7OfferVersionsAppendOnlyGuardIsInstalled() {
         flyway(null).migrate();
         Integer triggers = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.triggers "
-                        + "WHERE event_object_table = 'hr_offer_versions' "
-                        + "AND trigger_name = 'trg_hr_offer_versions_append_only'",
+                "SELECT COUNT(*) FROM pg_trigger "
+                        + "WHERE tgrelid = 'hr_offer_versions'::regclass AND NOT tgisinternal "
+                        + "AND tgname = 'trg_hr_offer_versions_append_only'",
                 Integer.class);
         assertThat(triggers).as("T7.4/T7.12: DB-level append-only guard on offer versions").isEqualTo(1);
 
@@ -328,13 +355,13 @@ class HrG1MigrationTest {
         t.update("INSERT INTO hr_org_units (id, tenant_id, organization_id, stable_code, created_at) "
                 + "VALUES (?, ?, ?, 'OU-T7G', NOW())", UUID.randomUUID(), tenantId, organizationId);
         t.update("INSERT INTO hr_job_openings (id, tenant_id, opening_number, job_id, org_unit_id, state, requested_headcount) "
-                + "SELECT gen_random_uuid(), ?, j.tenant_id, j.id, u.id, 'OPEN', 1 FROM hr_jobs j "
+                + "SELECT gen_random_uuid(), ?, 'T7GUARD-1', j.id, u.id, 'OPEN', 1 FROM hr_jobs j "
                 + "JOIN hr_org_units u ON u.tenant_id = j.tenant_id WHERE j.tenant_id = ?", tenantId, tenantId);
         t.update("INSERT INTO hr_candidates (id, tenant_id, candidate_number, display_name, pool_state, version) "
                 + "VALUES (gen_random_uuid(), ?, 'CAND-T7G', 'T7 Guard Candidate', 'ACTIVE', 0)", tenantId);
         t.update("INSERT INTO hr_applications (id, tenant_id, candidate_id, job_opening_id, state, version) "
                 + "SELECT gen_random_uuid(), ?, c.id, o.id, 'OFFER', 0 FROM hr_candidates c, hr_job_openings o "
-                + "WHERE c.tenant_id = ? AND o.tenant_id = ? LIMIT 1", tenantId, tenantId, tenantId, tenantId);
+                + "WHERE c.tenant_id = ? AND o.tenant_id = ? LIMIT 1", tenantId, tenantId, tenantId);
         t.update("INSERT INTO hr_offers (id, tenant_id, application_id, offer_number, state, version) "
                 + "SELECT gen_random_uuid(), tenant_id, id, 'T7GUARD-1', 'DRAFT', 0 FROM hr_applications "
                 + "WHERE tenant_id = ? LIMIT 1", tenantId);

@@ -214,7 +214,13 @@ class CrmPostgresMigrationTest {
     private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.4";
     private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.5";
     private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.6";
-    private static final String LATEST_MIGRATION_VERSION = R0C13_G07_PROVIDER_UNAVAILABLE_VERSION;
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only feature migration (HRM G1 T7):
+    // V20260914_1 adds ONLY additive DDL (offer/opening approval correlation columns,
+    // partial unique idempotency indexes, lookup indexes, and the DB-level append-only
+    // guard on hr_offer_versions). No migration bytes are modified and the expected
+    // head remains explicit — the sentinel is extended, never weakened.
+    private static final String T7_OFFER_APPROVAL_CORRELATION_VERSION = "20260914.1";
+    private static final String LATEST_MIGRATION_VERSION = T7_OFFER_APPROVAL_CORRELATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -460,7 +466,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
-                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
+                        MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -644,7 +651,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
-                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
+                        MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

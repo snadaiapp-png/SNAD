@@ -273,6 +273,12 @@ class CrmFlywayHistoryAssertionTest {
             , "20260912.4"   // r0c13 subscription billing persistence foundation
             , "20260912.5"   // r0c13 verified provider-webhook SELECT-only RLS resolution
             , "20260912.6"   // r0c13 G07 provider-unavailable reconciliation classification
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only feature migration (HRM G1 T7):
+            // V20260914_1 adds ONLY additive DDL (offer approval correlation columns, the
+            // §11.2 one-open-approval partial unique index, lookup indexes, and the DB-level
+            // append-only guard on hr_offer_versions). No migration bytes are modified, no
+            // migration is deleted, and the sentinel remains explicit — not weakened.
+            , "20260914.1"   // hrm g1 t7 offer approval correlation + immutable version identity
     );
 
 

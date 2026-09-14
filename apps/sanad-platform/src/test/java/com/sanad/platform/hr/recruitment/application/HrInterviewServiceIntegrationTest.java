@@ -299,24 +299,40 @@ class HrInterviewServiceIntegrationTest {
                         "com.sanad.platform.hr.recruitment.infrastructure.JdbcHrJobOpeningRepository")
                 .getConstructor(DataSource.class, com.sanad.platform.hr.audit.HrTransactionalEvidenceWriter.class)
                 .newInstance(dataSource, new com.sanad.platform.hr.integration.JdbcHrEvidenceWriter(dataSource));
+        java.util.Map<UUID, UUID> fixtureRegistry = new java.util.HashMap<>();
+        Object openingWorkflowPort = stubOpeningWorkflowPort(fixtureRegistry);
+        Object openingLinkService = Class.forName(
+                        "com.sanad.platform.hr.recruitment.application.HrOpeningApprovalLinkService")
+                .getConstructor(Class.forName(
+                                "com.sanad.platform.hr.recruitment.application.OpeningApprovalWorkflowPort"),
+                        Class.forName(
+                                "com.sanad.platform.hr.recruitment.infrastructure.JdbcHrJobOpeningRepository"))
+                .newInstance(openingWorkflowPort, openingRepo);
         Object openingService = Class.forName(
                         "com.sanad.platform.hr.recruitment.application.HrJobOpeningService")
                 .getConstructor(Class.forName(
                                 "com.sanad.platform.hr.recruitment.infrastructure.JdbcHrJobOpeningRepository"),
                         Class.forName(PORT_CLASS),
-                        com.sanad.platform.hr.compliance.application.ComplianceEngine.class)
+                        com.sanad.platform.hr.compliance.application.ComplianceEngine.class,
+                        Class.forName(
+                                "com.sanad.platform.hr.recruitment.application.HrOpeningApprovalLinkService"))
                 .newInstance(openingRepo, stubPort(grants),
                         new com.sanad.platform.hr.compliance.application.ComplianceEngine(
                                 new com.sanad.platform.hr.compliance.application.CountryPolicyResolver(
                                         jdbc, new com.sanad.platform.hr.compliance.application.WorkerClassificationResolver(jdbc)),
                                 List.of(),
-                                new com.sanad.platform.hr.compliance.infrastructure.JdbcComplianceDecisionRepository(jdbc)));
+                                new com.sanad.platform.hr.compliance.infrastructure.JdbcComplianceDecisionRepository(jdbc)),
+                        openingLinkService);
         UUID openingId = (UUID) openingService.getClass()
                 .getMethod("create", HrCommandContext.class, UUID.class, UUID.class, UUID.class,
                         UUID.class, int.class, OffsetDateTime.class, OffsetDateTime.class)
                 .invoke(openingService, ctx(operatorId), jobId, null, orgUnitId, null, 1, null, null);
-        openingService.getClass().getMethod("submit", HrCommandContext.class, UUID.class)
+        Object submitResult = openingService.getClass().getMethod("submit", HrCommandContext.class, UUID.class)
                 .invoke(openingService, ctx(operatorId), openingId);
+        if (submitResult instanceof UUID instanceId) {
+            com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                    jdbc, tenantId, "HR_JOB_OPENING", openingId, instanceId, SEED_DEFINITION_VERSION, "COMPLETED", "APPROVED");
+        }
         openingService.getClass().getMethod("approve", HrCommandContext.class, UUID.class)
                 .invoke(openingService, ctx(panelistUserId), openingId);
 
@@ -421,5 +437,53 @@ class HrInterviewServiceIntegrationTest {
                     }
                     return method.invoke(base, args);
                 });
+    }
+
+    // ==================== T7 — opening-approval fixture wiring ====================
+
+    private static final UUID SEED_DEFINITION_VERSION =
+            UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+    /** DB-backed stub of the HR-owned opening workflow port (engine rows are seeded). */
+    private Object stubOpeningWorkflowPort(java.util.Map<UUID, UUID> registry) throws Exception {
+        Class<?> portClass = Class.forName(
+                "com.sanad.platform.hr.recruitment.application.OpeningApprovalWorkflowPort");
+        Class<?> snapshotClass = null;
+        Class<?> outcomeEnum = null;
+        for (Class<?> c : portClass.getDeclaredClasses()) {
+            if (c.getSimpleName().equals("ApprovalSnapshot")) {
+                snapshotClass = c;
+            }
+            if (c.isEnum() && c.getSimpleName().equals("ApprovalOutcome")) {
+                outcomeEnum = c;
+            }
+        }
+        final Class<?> snapshot = snapshotClass;
+        final Class<?> outcome = outcomeEnum;
+        InvocationHandler handler = (proxy, method, args) -> {
+            switch (method.getName()) {
+                case "startOpeningApproval" -> {
+                    UUID openingId = (UUID) args[1];
+                    UUID instanceId = UUID.randomUUID();
+                    registry.put(instanceId, openingId);
+                    return instanceId;
+                }
+                case "loadOpeningApprovalOutcome" -> {
+                    UUID instanceId = (UUID) args[1];
+                    UUID openingId = registry.get(instanceId);
+                    if (openingId == null) {
+                        return null;
+                    }
+                    var ctor = snapshot.getConstructor(UUID.class, UUID.class, String.class, UUID.class,
+                            String.class, outcome);
+                    return ctor.newInstance(instanceId, SEED_DEFINITION_VERSION, "HR_JOB_OPENING", openingId,
+                            "RUNNING", Enum.valueOf((Class<? extends Enum>) outcome, "NONE"));
+                }
+                default -> {
+                    return null;
+                }
+            }
+        };
+        return Proxy.newProxyInstance(portClass.getClassLoader(), new Class<?>[]{portClass}, handler);
     }
 }

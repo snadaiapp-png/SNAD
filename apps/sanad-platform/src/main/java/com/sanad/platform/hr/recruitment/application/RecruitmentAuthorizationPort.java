@@ -48,4 +48,10 @@ public interface RecruitmentAuthorizationPort {
 
     /** INTERVIEW.MANAGE — detail/feedback administration. */
     void requireInterviewManage(HrCommandContext ctx, UUID interviewId);
+
+    /** OFFER.MANAGE — offer create/revise/accept/decline/withdraw/expire + reads. */
+    void requireOfferManage(HrCommandContext ctx, UUID offerId);
+
+    /** OFFER.EXTEND — approval submission and approval-outcome reconciliation (design §11.2). */
+    void requireOfferExtend(HrCommandContext ctx, UUID offerId);
 }

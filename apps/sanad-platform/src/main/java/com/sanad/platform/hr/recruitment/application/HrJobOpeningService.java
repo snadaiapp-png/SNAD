@@ -50,14 +50,17 @@ public class HrJobOpeningService {
     private final JdbcHrJobOpeningRepository repository;
     private final RecruitmentAuthorizationPort authorization;
     private final ComplianceEngine complianceEngine;
+    private final HrOpeningApprovalLinkService openingApprovalLink;
 
     @Autowired
     public HrJobOpeningService(JdbcHrJobOpeningRepository repository,
                                RecruitmentAuthorizationPort authorization,
-                               ComplianceEngine complianceEngine) {
+                               ComplianceEngine complianceEngine,
+                               HrOpeningApprovalLinkService openingApprovalLink) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.authorization = Objects.requireNonNull(authorization, "authorization");
         this.complianceEngine = Objects.requireNonNull(complianceEngine, "complianceEngine");
+        this.openingApprovalLink = Objects.requireNonNull(openingApprovalLink, "openingApprovalLink");
     }
 
     public UUID create(HrCommandContext ctx, UUID jobId, UUID jobVersionId, UUID orgUnitId,
@@ -71,12 +74,43 @@ public class HrJobOpeningService {
         return inserted.id();
     }
 
-    public void submit(HrCommandContext ctx, UUID openingId) {
+    /**
+     * T7 — submit DRAFT → PENDING_APPROVAL and create/find the idempotent
+     * Workflow Y2 approval instance/work item. Fail-closed: a failing
+     * workflow start happens BEFORE the transition and leaves the opening
+     * DRAFT. Duplicate submissions return the SAME logical approval
+     * reference (no duplicate workflow instance).
+     */
+    public UUID submit(HrCommandContext ctx, UUID openingId) {
         authorization.requireOpeningManage(ctx, openingId);
+        HrJobOpening opening = load(ctx, openingId);
+        if (opening.state() == HrJobOpeningState.PENDING_APPROVAL) {
+            // Idempotent duplicate submit: same logical approval reference.
+            java.util.Optional<UUID> existing = repository.findPendingWorkflowInstanceId(
+                    ctx.tenantId(), openingId);
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+            return openingApprovalLink.healMissingCorrelation(ctx, openingId);
+        }
+        checkGuard(ctx, opening.state(), HrJobOpeningState.PENDING_APPROVAL);
+        UUID workflowInstanceId = openingApprovalLink.startApprovalForSubmission(ctx, openingId);
         transition(ctx, openingId, HrJobOpeningState.DRAFT, HrJobOpeningState.PENDING_APPROVAL,
                 null, ACTION_SUBMITTED, null);
+        var snapshot = openingApprovalLink.loadOutcome(ctx, workflowInstanceId);
+        repository.persistSubmissionWorkflow(ctx.tenantId(), openingId, workflowInstanceId,
+                snapshot.definitionVersionId());
+        return workflowInstanceId;
     }
 
+    /**
+     * T7 — the capability-only approve path is ELIMINATED. PENDING_APPROVAL →
+     * OPEN requires, in order: the {@code OPENING.PUBLISH} capability
+     * (re-checked here at apply-time), the §6.1 guard, separation of duties,
+     * the compliance gate, and the authoritative Workflow Y2 APPROVED outcome
+     * verified INSIDE the governed transactional mutation boundary. Without a
+     * linked approved workflow the transition is impossible.
+     */
     public void approve(HrCommandContext ctx, UUID openingId) {
         authorization.requireOpeningPublish(ctx, openingId);
         HrJobOpening opening = load(ctx, openingId);
@@ -90,10 +124,16 @@ public class HrJobOpeningService {
             throw new IllegalStateException("HRM_COMPLIANCE_BLOCKED: opening publish denied by compliance ("
                     + decision.type().name() + " / " + decision.reasonCode() + ")");
         }
-        transition(ctx, openingId, HrJobOpeningState.PENDING_APPROVAL, HrJobOpeningState.OPEN,
-                decision.type().name(), ACTION_PUBLISHED, ACTION_PUBLISHED);
+        openingApprovalLink.verifyApprovedAndApplyOpen(ctx, openingId, decision.type().name(),
+                payload(ctx, opening, ACTION_PUBLISHED));
     }
 
+    /**
+     * T7 — operator rejection: mandatory registered reason, history retained,
+     * and the open Y2 approval cycle is cancelled so no orphan work item
+     * remains actionable (§9). A Y2-native REJECTED outcome is applied via
+     * {@link HrOpeningApprovalLinkService#verifyRejectedAndApplyDraft}.
+     */
     public void reject(HrCommandContext ctx, UUID openingId, String reasonCode) {
         authorization.requireOpeningPublish(ctx, openingId);
         HrJobOpening opening = load(ctx, openingId);
@@ -106,9 +146,27 @@ public class HrJobOpeningService {
             throw new IllegalStateException("HRM_REASON_REJECTED: reject requires a registered reason code ("
                     + decision.violationCode() + ")");
         }
+        openingApprovalLink.cancelOpenApproval(ctx, openingId);
+        java.util.Optional<UUID> open = repository.findPendingWorkflowInstanceId(ctx.tenantId(), openingId);
         repository.transition(ctx.tenantId(), openingId, opening.state(), HrJobOpeningState.DRAFT,
                 opening.version(), null, ACTION_REJECTED, null, null,
                 ctx.actorUserId(), ctx.correlationId(), null);
+        open.ifPresent(instanceId -> repository.clearPendingWorkflow(ctx.tenantId(), openingId, instanceId));
+    }
+
+    /** Workflow Y2 REJECTED outcome → DRAFT (authoritative, in-tx verified). */
+    public void rejectFromWorkflowOutcome(HrCommandContext ctx, UUID openingId, UUID workflowInstanceId,
+                                          String reasonCode) {
+        authorization.requireOpeningManage(ctx, openingId);
+        HrJobOpening opening = load(ctx, openingId);
+        HrTransitionDecision decision = HrJobOpeningTransitions.check(
+                new HrTransitionContext(ctx.tenantId(), String.valueOf(ctx.actorUserId()), reasonCode),
+                opening.state(), HrJobOpeningState.DRAFT);
+        if (!decision.allowed()) {
+            throw new IllegalStateException("HRM_TRANSITION_FORBIDDEN: " + opening.state() + " → "
+                    + HrJobOpeningState.DRAFT + " (" + decision.violationCode() + ")");
+        }
+        openingApprovalLink.verifyRejectedAndApplyDraft(ctx, openingId, workflowInstanceId, reasonCode);
     }
 
     public void pause(HrCommandContext ctx, UUID openingId) {
@@ -133,13 +191,17 @@ public class HrJobOpeningService {
                 ctx.actorUserId(), ctx.correlationId(), null);
     }
 
+    /** T7 — cancellation also cancels the open Y2 approval (§9 orphan cleanup). */
     public void cancel(HrCommandContext ctx, UUID openingId) {
         authorization.requireOpeningManage(ctx, openingId);
         HrJobOpening opening = load(ctx, openingId);
         checkGuard(ctx, opening.state(), HrJobOpeningState.CANCELLED);
+        openingApprovalLink.cancelOpenApproval(ctx, openingId);
+        java.util.Optional<UUID> open = repository.findPendingWorkflowInstanceId(ctx.tenantId(), openingId);
         repository.transition(ctx.tenantId(), openingId, opening.state(), HrJobOpeningState.CANCELLED,
                 opening.version(), null, ACTION_CANCELLED, ACTION_CANCELLED,
                 payload(ctx, opening, ACTION_CANCELLED), ctx.actorUserId(), ctx.correlationId(), null);
+        open.ifPresent(instanceId -> repository.clearPendingWorkflow(ctx.tenantId(), openingId, instanceId));
     }
 
     // --- internals ---

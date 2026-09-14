@@ -17,6 +17,8 @@ public final class RecruitmentReasonCodes {
     public static final String APPLICATION_REJECTION = "APPLICATION_REJECTION";
     /** Application withdrawn (candidate- or recruiter-attributed). */
     public static final String APPLICATION_WITHDRAWAL = "APPLICATION_WITHDRAWAL";
+    /** PENDING_APPROVAL → DRAFT (offer approval rejected — T7.8 governed rejection evidence). */
+    public static final String OFFER_REJECTION = "OFFER_REJECTION";
     /** Extended offer withdrawn before acceptance. */
     public static final String OFFER_WITHDRAWAL = "OFFER_WITHDRAWAL";
 
@@ -24,6 +26,7 @@ public final class RecruitmentReasonCodes {
             OPENING_REJECTION,
             APPLICATION_REJECTION,
             APPLICATION_WITHDRAWAL,
+            OFFER_REJECTION,
             OFFER_WITHDRAWAL);
 
     private RecruitmentReasonCodes() {

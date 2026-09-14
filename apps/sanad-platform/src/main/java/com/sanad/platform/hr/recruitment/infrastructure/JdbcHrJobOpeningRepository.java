@@ -357,6 +357,282 @@ public class JdbcHrJobOpeningRepository {
         }
     }
 
+    // ==================== T7 — Workflow Y2 approval correlation ====================
+
+    /** The OPEN (uncancelled) approval workflow instance for this opening, if any. */
+    public java.util.Optional<UUID> findPendingWorkflowInstanceId(UUID tenantId, UUID openingId) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                setTenantLocal(connection, tenantId);
+                java.util.Optional<UUID> found;
+                try (PreparedStatement ps = connection.prepareStatement(
+                        "SELECT pending_workflow_instance_id FROM hr_job_openings "
+                                + "WHERE id = ? AND tenant_id = ? AND pending_workflow_instance_id IS NOT NULL")) {
+                    ps.setObject(1, openingId);
+                    ps.setObject(2, tenantId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        found = rs.next() ? java.util.Optional.of((UUID) rs.getObject(1)) : java.util.Optional.empty();
+                    }
+                }
+                connection.commit();
+                return found;
+            } catch (SQLException | RuntimeException e) {
+                connection.rollback();
+                throw wrap(e);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_OPENING_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
+    }
+
+    /** Persists the submission correlation (instance + pinned definition version). */
+    public void persistSubmissionWorkflow(UUID tenantId, UUID openingId, UUID workflowInstanceId,
+                                          UUID definitionVersionId) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                setTenantLocal(connection, tenantId);
+                try (PreparedStatement ps = connection.prepareStatement(
+                        "UPDATE hr_job_openings SET pending_workflow_instance_id = ?, "
+                                + "pending_workflow_definition_version_id = ?, version = version + 1, "
+                                + "updated_at = NOW() WHERE id = ? AND tenant_id = ? "
+                                + "AND state = 'PENDING_APPROVAL'")) {
+                    ps.setObject(1, workflowInstanceId);
+                    ps.setObject(2, definitionVersionId);
+                    ps.setObject(3, openingId);
+                    ps.setObject(4, tenantId);
+                    int updated = ps.executeUpdate();
+                    if (updated != 1) {
+                        connection.rollback();
+                        throw new IllegalStateException("HRM_OPENING_STATE_CONFLICT: opening is not "
+                                + "PENDING_APPROVAL; cannot persist the approval correlation");
+                    }
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException e) {
+                connection.rollback();
+                throw wrap(e);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_OPENING_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
+    }
+
+    /** Clears the correlation of a closed cycle (reject/cancel) — idempotent. */
+    public void clearPendingWorkflow(UUID tenantId, UUID openingId, UUID workflowInstanceId) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                setTenantLocal(connection, tenantId);
+                try (PreparedStatement ps = connection.prepareStatement(
+                        "UPDATE hr_job_openings SET pending_workflow_instance_id = NULL, "
+                                + "pending_workflow_definition_version_id = NULL, version = version + 1, "
+                                + "updated_at = NOW() WHERE id = ? AND tenant_id = ? "
+                                + "AND pending_workflow_instance_id = ?")) {
+                    ps.setObject(1, openingId);
+                    ps.setObject(2, tenantId);
+                    ps.setObject(3, workflowInstanceId);
+                    ps.executeUpdate();
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException e) {
+                connection.rollback();
+                throw wrap(e);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_OPENING_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * §7 IN-TRANSACTION APPROVAL CHECK + PENDING_APPROVAL → OPEN: the
+     * authoritative Workflow Y2 state is verified INSIDE the governed
+     * mutation transaction (FOR SHARE on the instance row) and the
+     * conditional UPDATE carries the workflow predicate — a stale pre-read
+     * cannot race. NO path reaches OPEN without this proof.
+     */
+    public HrJobOpening approveWithVerifiedWorkflow(UUID tenantId, UUID openingId, UUID workflowInstanceId,
+                                                    String complianceDecision, JsonNode eventPayload,
+                                                    UUID actorId, UUID correlationId, UUID requestId) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                setTenantLocal(connection, tenantId);
+                verifyApprovedOutcomeInTx(connection, tenantId, openingId, workflowInstanceId);
+                int rows;
+                try (PreparedStatement ps = connection.prepareStatement(
+                        "UPDATE hr_job_openings SET state = ?, compliance_decision = ?, "
+                                + "compliance_decided_at = NOW(), pending_workflow_instance_id = NULL, "
+                                + "pending_workflow_definition_version_id = NULL, version = version + 1, "
+                                + "updated_at = NOW() WHERE id = ? AND tenant_id = ? AND state = ? "
+                                + "AND pending_workflow_instance_id = ?")) {
+                    ps.setString(1, HrJobOpeningState.OPEN.name());
+                    ps.setString(2, complianceDecision);
+                    ps.setObject(3, openingId);
+                    ps.setObject(4, tenantId);
+                    ps.setString(5, HrJobOpeningState.PENDING_APPROVAL.name());
+                    ps.setObject(6, workflowInstanceId);
+                    rows = ps.executeUpdate();
+                }
+                if (rows != 1) {
+                    connection.rollback();
+                    throw new IllegalStateException("HRM_OPENING_STATE_CONFLICT: expected PENDING_APPROVAL "
+                            + "linked to workflow " + workflowInstanceId + " (concurrent modification)");
+                }
+                HrJobOpening updated = findWithinTx(connection, tenantId, openingId)
+                        .orElseThrow(() -> new IllegalStateException("HRM_OPENING_NOT_FOUND: " + openingId));
+                ObjectNode before = JSON.createObjectNode().put("state", HrJobOpeningState.PENDING_APPROVAL.name());
+                ObjectNode after = JSON.createObjectNode().put("state", HrJobOpeningState.OPEN.name());
+                if (complianceDecision != null) {
+                    after.put("compliance_decision", complianceDecision);
+                }
+                after.put("workflow_instance_id", workflowInstanceId.toString());
+                HrAuditRecord audit = auditRecord(tenantId, actorId, "HRM.RECRUITMENT.OPENING_PUBLISHED",
+                        openingId, before, after, "SUCCESS", correlationId, requestId);
+                DomainEventEnvelope envelope = envelope(tenantId, "HRM.RECRUITMENT.OPENING_PUBLISHED",
+                        openingId, eventPayload, actorId, correlationId, requestId);
+                writeEvidence(connection, audit, envelope);
+                connection.commit();
+                return updated;
+            } catch (SQLException | RuntimeException e) {
+                connection.rollback();
+                throw wrap(e);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_OPENING_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
+    }
+
+    /** Y2 REJECTED outcome → PENDING_APPROVAL → DRAFT, verified in-transaction. */
+    public HrJobOpening rejectWithVerifiedWorkflow(UUID tenantId, UUID openingId, UUID workflowInstanceId,
+                                                   String reasonCode, UUID actorId, UUID correlationId,
+                                                   UUID requestId) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                setTenantLocal(connection, tenantId);
+                verifyRejectedOutcomeInTx(connection, tenantId, openingId, workflowInstanceId);
+                int rows;
+                try (PreparedStatement ps = connection.prepareStatement(
+                        "UPDATE hr_job_openings SET state = ?, pending_workflow_instance_id = NULL, "
+                                + "pending_workflow_definition_version_id = NULL, version = version + 1, "
+                                + "updated_at = NOW() WHERE id = ? AND tenant_id = ? AND state = ? "
+                                + "AND pending_workflow_instance_id = ?")) {
+                    ps.setString(1, HrJobOpeningState.DRAFT.name());
+                    ps.setObject(2, openingId);
+                    ps.setObject(3, tenantId);
+                    ps.setString(4, HrJobOpeningState.PENDING_APPROVAL.name());
+                    ps.setObject(5, workflowInstanceId);
+                    rows = ps.executeUpdate();
+                }
+                if (rows != 1) {
+                    connection.rollback();
+                    throw new IllegalStateException("HRM_OPENING_STATE_CONFLICT: expected PENDING_APPROVAL "
+                            + "linked to workflow " + workflowInstanceId + " (concurrent modification)");
+                }
+                HrJobOpening updated = findWithinTx(connection, tenantId, openingId)
+                        .orElseThrow(() -> new IllegalStateException("HRM_OPENING_NOT_FOUND: " + openingId));
+                ObjectNode before = JSON.createObjectNode().put("state", HrJobOpeningState.PENDING_APPROVAL.name());
+                ObjectNode after = JSON.createObjectNode().put("state", HrJobOpeningState.DRAFT.name());
+                after.put("reason_code", reasonCode);
+                after.put("workflow_instance_id", workflowInstanceId.toString());
+                HrAuditRecord audit = auditRecord(tenantId, actorId, "HRM.RECRUITMENT.OPENING_REJECTED",
+                        openingId, before, after, "SUCCESS", correlationId, requestId);
+                writeEvidence(connection, audit, null);
+                connection.commit();
+                return updated;
+            } catch (SQLException | RuntimeException e) {
+                connection.rollback();
+                throw wrap(e);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_OPENING_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
+    }
+
+    private void verifyApprovedOutcomeInTx(Connection connection, UUID tenantId, UUID openingId,
+                                           UUID workflowInstanceId) throws SQLException {
+        String status = instanceStatusInTx(connection, tenantId, openingId, workflowInstanceId);
+        int approved = countRequestsInTx(connection, workflowInstanceId, "APPROVED");
+        int rejected = countRequestsInTx(connection, workflowInstanceId, "REJECTED");
+        if (rejected > 0) {
+            throw new IllegalStateException("HRM_OPENING_APPROVAL_OUTCOME_MISMATCH: the authoritative outcome "
+                    + "is REJECTED; publication requires APPROVED");
+        }
+        if (!"COMPLETED".equals(status) || approved == 0) {
+            throw new IllegalStateException("HRM_OPENING_APPROVAL_OUTCOME_PENDING: the authoritative workflow "
+                    + "instance is " + status + " with " + approved + " approvals; no publication without a "
+                    + "final APPROVED outcome");
+        }
+    }
+
+    private void verifyRejectedOutcomeInTx(Connection connection, UUID tenantId, UUID openingId,
+                                           UUID workflowInstanceId) throws SQLException {
+        instanceStatusInTx(connection, tenantId, openingId, workflowInstanceId);
+        int approved = countRequestsInTx(connection, workflowInstanceId, "APPROVED");
+        int rejected = countRequestsInTx(connection, workflowInstanceId, "REJECTED");
+        if (rejected == 0) {
+            throw new IllegalStateException("HRM_OPENING_APPROVAL_OUTCOME_PENDING: no authoritative REJECTED "
+                    + "outcome on workflow instance " + workflowInstanceId);
+        }
+        if (approved > 0 && rejected == 0) {
+            throw new IllegalStateException("HRM_OPENING_APPROVAL_OUTCOME_MISMATCH: the authoritative outcome "
+                    + "is APPROVED");
+        }
+    }
+
+    private String instanceStatusInTx(Connection connection, UUID tenantId, UUID openingId,
+                                      UUID workflowInstanceId) throws SQLException {
+        String status;
+        String entityType;
+        UUID entityId;
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT status, business_entity_type, business_entity_id FROM workflow_instances "
+                        + "WHERE id = ? AND tenant_id = ? FOR SHARE")) {
+            ps.setObject(1, workflowInstanceId);
+            ps.setObject(2, tenantId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalStateException("HRM_OPENING_APPROVAL_STALE: workflow instance "
+                            + workflowInstanceId + " does not exist in this tenant");
+                }
+                status = rs.getString("status");
+                entityType = rs.getString("business_entity_type");
+                entityId = (UUID) rs.getObject("business_entity_id");
+            }
+        }
+        if (!"HR_JOB_OPENING".equals(entityType) || !openingId.equals(entityId)) {
+            throw new IllegalStateException("HRM_OPENING_APPROVAL_LINK_INVALID: the workflow instance correlates "
+                    + entityType + "/" + entityId + "; a foreign or stale workflow result can never publish "
+                    + "this opening");
+        }
+        return status;
+    }
+
+    private int countRequestsInTx(Connection connection, UUID workflowInstanceId, String status)
+            throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT COUNT(*) FROM workflow_approval_requests WHERE workflow_instance_id = ? AND status = ?")) {
+            ps.setObject(1, workflowInstanceId);
+            ps.setString(2, status);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private static RuntimeException wrap(Exception e) {
+        if (e instanceof IllegalStateException ise) {
+            return ise;
+        }
+        if (e instanceof RuntimeException re) {
+            return re;
+        }
+        return new IllegalStateException("HRM_OPENING_PERSISTENCE_FAILED: " + e.getMessage(), e);
+    }
+
     private HrAuditRecord auditRecord(UUID tenantId, UUID actorId, String action, UUID openingId,
                                       JsonNode before, JsonNode after, String result,
                                       UUID correlationId, UUID requestId) {

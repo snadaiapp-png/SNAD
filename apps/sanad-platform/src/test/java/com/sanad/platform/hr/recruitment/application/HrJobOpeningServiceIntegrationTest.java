@@ -49,6 +49,10 @@ class HrJobOpeningServiceIntegrationTest {
 
     private static final String REPO_CLASS = "com.sanad.platform.hr.recruitment.infrastructure.JdbcHrJobOpeningRepository";
     private static final String SERVICE_CLASS = "com.sanad.platform.hr.recruitment.application.HrJobOpeningService";
+    private static final String LINK_SERVICE_CLASS =
+            "com.sanad.platform.hr.recruitment.application.HrOpeningApprovalLinkService";
+    private static final String WORKFLOW_PORT_CLASS =
+            "com.sanad.platform.hr.recruitment.application.OpeningApprovalWorkflowPort";
     private static final String PORT_CLASS = "com.sanad.platform.hr.recruitment.application.RecruitmentAuthorizationPort";
 
     private static final String CAP_MANAGE = "HRM.RECRUITMENT.OPENING.MANAGE";
@@ -136,11 +140,100 @@ class HrJobOpeningServiceIntegrationTest {
                 engineJdbc, new WorkerClassificationResolver(engineJdbc));
         ComplianceEngine engine = new ComplianceEngine(resolver, List.of(), decisionRepository);
 
+        Object workflowPort = stubOpeningWorkflowPort();
+        Object linkService = Class.forName(LINK_SERVICE_CLASS)
+                .getConstructor(Class.forName(WORKFLOW_PORT_CLASS), Class.forName(REPO_CLASS))
+                .newInstance(workflowPort, repository);
+
         service = Class.forName(SERVICE_CLASS)
                 .getConstructor(Class.forName(REPO_CLASS),
                         Class.forName(PORT_CLASS),
-                        ComplianceEngine.class)
-                .newInstance(repository, port, engine);
+                        ComplianceEngine.class,
+                        Class.forName(LINK_SERVICE_CLASS))
+                .newInstance(repository, port, engine, linkService);
+    }
+
+    // ==================== T7 — Workflow Y2 opening-approval wiring ====================
+
+    private final java.util.Map<UUID, UUID> seedInstanceToOpening = new java.util.HashMap<>();
+    private static final UUID SEED_DEFINITION_VERSION =
+            UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+    /**
+     * DB-backed stub of the HR-owned workflow port: start allocates a fresh
+     * authoritative instance id; outcome loading reads the SEEDED engine rows
+     * (real tables, real shape) so the in-transaction verification and the
+     * service-level snapshot always agree.
+     */
+    private Object stubOpeningWorkflowPort() throws Exception {
+        Class<?> portClass = Class.forName(WORKFLOW_PORT_CLASS);
+        Class<?> snapshotClass = null;
+        Class<?> outcomeEnum = null;
+        for (Class<?> c : portClass.getDeclaredClasses()) {
+            if (c.getSimpleName().equals("ApprovalSnapshot")) {
+                snapshotClass = c;
+            }
+            if (c.isEnum() && c.getSimpleName().equals("ApprovalOutcome")) {
+                outcomeEnum = c;
+            }
+        }
+        final Class<?> snapshot = snapshotClass;
+        final Class<?> outcome = outcomeEnum;
+        InvocationHandler handler = (proxy, method, args) -> {
+            switch (method.getName()) {
+                case "startOpeningApproval" -> {
+                    UUID openingId = (UUID) args[1];
+                    UUID instanceId = UUID.randomUUID();
+                    seedInstanceToOpening.put(instanceId, openingId);
+                    return instanceId;
+                }
+                case "loadOpeningApprovalOutcome" -> {
+                    UUID instanceId = (UUID) args[1];
+                    UUID openingId = seedInstanceToOpening.get(instanceId);
+                    if (openingId == null) {
+                        return null;
+                    }
+                    String status = "RUNNING";
+                    try {
+                        status = jdbc.queryForObject(
+                                "SELECT status FROM workflow_instances WHERE id = ?", String.class, instanceId);
+                    } catch (Exception ignored) {
+                        // no seeded rows yet — synthetic RUNNING
+                    }
+                    Object resolved = Enum.valueOf((Class<? extends Enum>) outcome, "NONE");
+                    try {
+                        String requestStatus = jdbc.queryForObject(
+                                "SELECT status FROM workflow_approval_requests WHERE workflow_instance_id = ? "
+                                        + "ORDER BY requested_at DESC LIMIT 1", String.class, instanceId);
+                        if ("REJECTED".equals(requestStatus)) {
+                            resolved = Enum.valueOf((Class<? extends Enum>) outcome, "REJECTED");
+                        } else if ("APPROVED".equals(requestStatus) && "COMPLETED".equals(status)) {
+                            resolved = Enum.valueOf((Class<? extends Enum>) outcome, "APPROVED");
+                        }
+                    } catch (Exception ignored) {
+                        // no requests seeded
+                    }
+                    var ctor = snapshot.getConstructor(UUID.class, UUID.class, String.class, UUID.class,
+                            String.class, outcome);
+                    return ctor.newInstance(instanceId, SEED_DEFINITION_VERSION, "HR_JOB_OPENING", openingId,
+                            status, resolved);
+                }
+                case "cancelOpeningApproval" -> {
+                    return null;
+                }
+                default -> {
+                    return null;
+                }
+            }
+        };
+        return Proxy.newProxyInstance(portClass.getClassLoader(), new Class<?>[]{portClass}, handler);
+    }
+
+    /** Seeds an authoritative COMPLETED+APPROVED Y2 approval for the open cycle. */
+    private void seedApprovedWorkflow(UUID instanceId) {
+        UUID openingId = seedInstanceToOpening.get(instanceId);
+        com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                jdbc, tenantId, "HR_JOB_OPENING", openingId, instanceId, SEED_DEFINITION_VERSION, "COMPLETED", "APPROVED");
     }
 
     // ==================== §6.1 matrix + compliance gate ====================
@@ -347,12 +440,25 @@ class HrJobOpeningServiceIntegrationTest {
                 ctx(tenantId, managerUserId), jobId, null, orgUnitId, null, 2, null, null);
     }
 
+    private final java.util.Map<UUID, UUID> submittedWorkflow = new java.util.HashMap<>();
+
     private void submit(UUID openingId, UUID actor) throws Exception {
-        invokeService("submit", new Class<?>[]{HrCommandContext.class, UUID.class},
+        Object result = invokeService("submit", new Class<?>[]{HrCommandContext.class, UUID.class},
                 ctx(tenantId, actor), openingId);
+        if (result instanceof UUID instanceId) {
+            submittedWorkflow.put(openingId, instanceId);
+        }
     }
 
     private void approve(UUID openingId, UUID actor) throws Exception {
+        // Seed the authoritative COMPLETED+APPROVED Y2 state for the open
+        // cycle (real engine tables, real shape — the Spring integration test
+        // proves the real engine produces exactly this state via the port).
+        UUID instanceId = submittedWorkflow.get(openingId);
+        if (instanceId != null) {
+            seedInstanceToOpening.putIfAbsent(instanceId, openingId);
+            seedApprovedWorkflow(instanceId);
+        }
         invokeService("approve", new Class<?>[]{HrCommandContext.class, UUID.class},
                 ctx(tenantId, actor), openingId);
     }

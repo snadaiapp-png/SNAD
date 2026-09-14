@@ -5,13 +5,17 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * HRM-G1 — HrOffer transition guard (design §6.3 matrix).
+ * HRM-G1 — HrOffer transition guard (design §6.3 matrix, RESTORED by T7).
  *
- * <p>DRAFT→PENDING_APPROVAL (policy path) or DRAFT→EXTENDED (no-approval
- * path); PENDING_APPROVAL→EXTENDED (approve) / →DRAFT (reject, reason);
- * EXTENDED→ACCEPTED/DECLINED/WITHDRAWN(reason)/EXPIRED. EXTENDED→DRAFT
- * forbidden (new OfferVersion + re-extension instead). ACCEPTED, DECLINED,
- * EXPIRED, WITHDRAWN are terminal. Fail-closed on unknown pairs.</p>
+ * <p>DRAFT→PENDING_APPROVAL (submit for approval); PENDING_APPROVAL→EXTENDED
+ * (ONLY behind the authoritative Workflow Y2 APPROVED outcome, verified by
+ * the application authority against the persisted correlation) /
+ * →DRAFT (reject, registered reason). EXTENDED→ACCEPTED/DECLINED/
+ * WITHDRAWN(reason)/EXPIRED. The former DRAFT→EXTENDED "no-approval path"
+ * was REMOVED by T7 — no controller/service may promote an offer to
+ * EXTENDED while bypassing Workflow Y2. EXTENDED→DRAFT forbidden (new
+ * OfferVersion + re-extension instead). ACCEPTED, DECLINED, EXPIRED,
+ * WITHDRAWN are terminal. Fail-closed on unknown pairs.</p>
  */
 public final class HrOfferTransitions {
 
@@ -19,7 +23,7 @@ public final class HrOfferTransitions {
 
     private static Map<HrOfferState, Set<HrOfferState>> build() {
         Map<HrOfferState, Set<HrOfferState>> m = new EnumMap<>(HrOfferState.class);
-        m.put(HrOfferState.DRAFT, Set.of(HrOfferState.PENDING_APPROVAL, HrOfferState.EXTENDED));
+        m.put(HrOfferState.DRAFT, Set.of(HrOfferState.PENDING_APPROVAL));
         m.put(HrOfferState.PENDING_APPROVAL, Set.of(HrOfferState.EXTENDED, HrOfferState.DRAFT));
         m.put(HrOfferState.EXTENDED, Set.of(
                 HrOfferState.ACCEPTED, HrOfferState.DECLINED, HrOfferState.WITHDRAWN, HrOfferState.EXPIRED));

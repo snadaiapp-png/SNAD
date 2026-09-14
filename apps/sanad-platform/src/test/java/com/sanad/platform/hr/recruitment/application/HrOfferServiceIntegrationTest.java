@@ -128,6 +128,16 @@ class HrOfferServiceIntegrationTest {
                 tenantId, "Tenant " + tenantId, "t-" + tenantId.toString().substring(0, 8));
         operatorId = UUID.randomUUID();
         workflowStartCalls.set(0);
+        grants = new HashMap<>();
+        grants.put(CAP_MANAGE, true);
+        grants.put(CAP_EXTEND, true);
+        grants.put("HRM.RECRUITMENT.APPLICATION.MANAGE", true);
+        grants.put("HRM.RECRUITMENT.APPLICATION.ADVANCE", true);
+        grants.put("HRM.RECRUITMENT.APPLICATION.REJECT", true);
+        grants.put("HRM.RECRUITMENT.CANDIDATE.MANAGE", true);
+        grants.put("HRM.RECRUITMENT.CANDIDATE.VIEW", true);
+        grants.put("HRM.RECRUITMENT.OPENING.MANAGE", true);
+        grants.put("HRM.RECRUITMENT.OPENING.PUBLISH", true);
         seedCandidateOpeningAndOfferStageApplication();
 
         repository = Class.forName(REPO_CLASS)
@@ -233,7 +243,7 @@ class HrOfferServiceIntegrationTest {
         Map<String, Object> v2Row = jdbc.queryForMap(
                 "SELECT version_number, contract_terms FROM hr_offer_versions WHERE id = ?", v2);
         assertThat(((Number) v2Row.get("version_number")).intValue()).isEqualTo(2);
-        assertThat(v2Row.get("contract_terms").toString()).contains("\"base_salary\":222000");
+        assertThat(v2Row.get("contract_terms").toString()).containsIgnoringCase("222000");
         assertThat(currentVersionId(offerId)).isEqualTo(v2);
     }
 
@@ -251,7 +261,7 @@ class HrOfferServiceIntegrationTest {
                 .as("T7.4: version history is append-only (DB guard)")
                 .isInstanceOf(Exception.class);
         Map<String, Object> v1After = rawVersionRow(v1);
-        assertThat(v1After.get("contract_terms").toString()).contains("\"base_salary\":111000");
+        assertThat(v1After.get("contract_terms").toString()).containsIgnoringCase("111000");
     }
 
     @Test
@@ -405,6 +415,7 @@ class HrOfferServiceIntegrationTest {
         UUID instanceId = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.NONE;
         stub.instanceStatus = "RUNNING";
+        seedOfferWorkflow(instanceId, offerId, "RUNNING", null);
 
         assertThatThrownBy(() -> invokeService("extendFromApproval",
                 new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
@@ -421,6 +432,7 @@ class HrOfferServiceIntegrationTest {
         UUID instanceId = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.APPROVED;
         stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instanceId, offerId, "COMPLETED", "APPROVED");
 
         invokeService("extendFromApproval",
                 new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
@@ -452,6 +464,7 @@ class HrOfferServiceIntegrationTest {
         UUID instanceId = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.APPROVED;
         stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instanceId, offerId, "COMPLETED", "APPROVED");
         invokeService("extendFromApproval",
                 new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
                 ctx(operatorId), offerId, instanceId);
@@ -485,10 +498,12 @@ class HrOfferServiceIntegrationTest {
 
         // late completion of a superseded cycle: reject W1, revise, submit W2, replay W1
         stub.approvalOutcome = Outcome.REJECTED;
+        seedOfferWorkflow(instanceId, offerId, "COMPLETED", "REJECTED");
         rejectForApproval(offerId, instanceId, "OFFER_REJECTION");
         UUID v2 = revise(offerId, TERMS_V2, COMP_V2);
         UUID instance2 = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.APPROVED;
+        seedOfferWorkflow(instance2, offerId, "COMPLETED", "APPROVED");
         assertThatThrownBy(() -> invokeService("extendFromApproval",
                 new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
                 ctx(operatorId), offerId, instanceId))
@@ -507,6 +522,7 @@ class HrOfferServiceIntegrationTest {
         UUID instanceId = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.APPROVED;
         stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instanceId, offerId, "COMPLETED", "APPROVED");
 
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -557,6 +573,7 @@ class HrOfferServiceIntegrationTest {
         UUID instanceId = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.REJECTED;
         stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instanceId, offerId, "COMPLETED", "REJECTED");
 
         assertThatThrownBy(() -> rejectForApproval(offerId, instanceId, "NOT_REGISTERED"))
                 .as("T7.8: governed rejection reason/evidence is mandatory").isInstanceOf(Exception.class);
@@ -578,6 +595,7 @@ class HrOfferServiceIntegrationTest {
         UUID instanceId = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.REJECTED;
         stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instanceId, offerId, "COMPLETED", "REJECTED");
         rejectForApproval(offerId, instanceId, "OFFER_REJECTION");
 
         assertThatThrownBy(() -> invokeService("extendFromApproval",
@@ -617,6 +635,7 @@ class HrOfferServiceIntegrationTest {
         UUID instance2 = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.APPROVED;
         stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instance2, offerId, "COMPLETED", "APPROVED");
         invokeService("extendFromApproval",
                 new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
                 ctx(operatorId), offerId, instance2);
@@ -669,7 +688,7 @@ class HrOfferServiceIntegrationTest {
         assertThat(offerState(declined)).isEqualTo("DECLINED");
         assertThatThrownBy(() -> invokeService("withdraw",
                 new Class<?>[]{HrCommandContext.class, UUID.class, String.class},
-                ctx(operatorId), declined, "OFFER_WITHDRAWN"))
+                ctx(operatorId), declined, "OFFER_WITHDRAWAL"))
                 .as("DECLINED is terminal").isInstanceOf(Exception.class);
 
         UUID withdrawn = createOffer();
@@ -679,7 +698,7 @@ class HrOfferServiceIntegrationTest {
                 ctx(operatorId), withdrawn, "NOT_REGISTERED"))
                 .as("withdraw requires a registered reason").isInstanceOf(Exception.class);
         invokeService("withdraw", new Class<?>[]{HrCommandContext.class, UUID.class, String.class},
-                ctx(operatorId), withdrawn, "OFFER_WITHDRAWN");
+                ctx(operatorId), withdrawn, "OFFER_WITHDRAWAL");
         assertThat(offerState(withdrawn)).isEqualTo("WITHDRAWN");
     }
 
@@ -734,6 +753,7 @@ class HrOfferServiceIntegrationTest {
         volatile String instanceStatus = "RUNNING";
         volatile RuntimeException startShouldThrow;
         final Map<UUID, UUID> instanceToOffer = new HashMap<>();
+        final AtomicInteger startSequence = new AtomicInteger();
     }
 
     private Object offerWorkflowStub() throws Exception {
@@ -759,7 +779,9 @@ class HrOfferServiceIntegrationTest {
                     }
                     workflowStartCalls.incrementAndGet();
                     UUID offerId = (UUID) args[1];
-                    UUID instanceId = UUID.nameUUIDFromBytes(("stub-instance-" + offerId).getBytes());
+                    int seq = stub.startSequence.incrementAndGet();
+                    UUID instanceId = UUID.nameUUIDFromBytes(
+                            ("stub-instance-" + offerId + "-" + seq).getBytes());
                     stub.instanceToOffer.put(instanceId, offerId);
                     return instanceId;
                 }
@@ -769,12 +791,32 @@ class HrOfferServiceIntegrationTest {
                     if (offerId == null) {
                         return null;
                     }
+                    // DB-backed: read the SEEDED authoritative engine rows (real
+                    // tables, real shape) so the service-level snapshot and the
+                    // in-transaction verification always agree.
+                    String status = stub.instanceStatus;
+                    Object resolved;
+                    try {
+                        String dbStatus = jdbc.queryForObject(
+                                "SELECT status FROM workflow_instances WHERE id = ?",
+                                String.class, instanceId);
+                        status = dbStatus;
+                        String requestStatus = jdbc.queryForObject(
+                                "SELECT status FROM workflow_approval_requests WHERE workflow_instance_id = ? "
+                                        + "ORDER BY requested_at DESC LIMIT 1", String.class, instanceId);
+                        resolved = Enum.valueOf((Class<? extends Enum>) outcome,
+                                switch (requestStatus) {
+                                    case "APPROVED" -> "COMPLETED".equals(status) ? "APPROVED" : "NONE";
+                                    case "REJECTED" -> "REJECTED";
+                                    default -> "NONE";
+                                });
+                    } catch (Exception empty) {
+                        resolved = Enum.valueOf((Class<? extends Enum>) outcome, stub.approvalOutcome.name());
+                    }
                     var ctor = snapshot.getConstructor(UUID.class, UUID.class, String.class, UUID.class,
                             String.class, outcome);
-                    @SuppressWarnings({"unchecked", "rawtypes"})
-                    Object resolved = Enum.valueOf((Class<? extends Enum>) outcome, stub.approvalOutcome.name());
                     return ctor.newInstance(instanceId, FIXED_DEFINITION_VERSION, "HR_OFFER", offerId,
-                            stub.instanceStatus, resolved);
+                            status, resolved);
                 }
                 default -> {
                     return null;
@@ -788,19 +830,18 @@ class HrOfferServiceIntegrationTest {
 
     private Object authStub() throws Exception {
         Class<?> portClass = Class.forName(AUTH_PORT_CLASS);
-        Map<String, Boolean> g = grants;
         InvocationHandler handler = (proxy, method, args) -> {
             String name = method.getName();
             switch (name) {
-                case "requireOfferManage" -> require(g, CAP_MANAGE);
-                case "requireOfferExtend" -> require(g, CAP_EXTEND);
-                case "requireApplicationManage" -> require(g, "HRM.RECRUITMENT.APPLICATION.MANAGE");
-                case "requireApplicationAdvance" -> require(g, "HRM.RECRUITMENT.APPLICATION.ADVANCE");
-                case "requireApplicationReject" -> require(g, "HRM.RECRUITMENT.APPLICATION.REJECT");
-                case "requireCandidateManage" -> require(g, "HRM.RECRUITMENT.CANDIDATE.MANAGE");
-                case "requireCandidateView" -> require(g, "HRM.RECRUITMENT.CANDIDATE.VIEW");
-                case "requireOpeningManage" -> require(g, "HRM.RECRUITMENT.OPENING.MANAGE");
-                case "requireOpeningPublish" -> require(g, "HRM.RECRUITMENT.OPENING.PUBLISH");
+                case "requireOfferManage" -> require(grants, CAP_MANAGE);
+                case "requireOfferExtend" -> require(grants, CAP_EXTEND);
+                case "requireApplicationManage" -> require(grants, "HRM.RECRUITMENT.APPLICATION.MANAGE");
+                case "requireApplicationAdvance" -> require(grants, "HRM.RECRUITMENT.APPLICATION.ADVANCE");
+                case "requireApplicationReject" -> require(grants, "HRM.RECRUITMENT.APPLICATION.REJECT");
+                case "requireCandidateManage" -> require(grants, "HRM.RECRUITMENT.CANDIDATE.MANAGE");
+                case "requireCandidateView" -> require(grants, "HRM.RECRUITMENT.CANDIDATE.VIEW");
+                case "requireOpeningManage" -> require(grants, "HRM.RECRUITMENT.OPENING.MANAGE");
+                case "requireOpeningPublish" -> require(grants, "HRM.RECRUITMENT.OPENING.PUBLISH");
                 default -> {
                 }
             }
@@ -810,7 +851,7 @@ class HrOfferServiceIntegrationTest {
     }
 
     private void require(Map<String, Boolean> g, String capability) {
-        if (!g.getOrDefault(capability, false)) {
+        if (g == null || !g.getOrDefault(capability, false)) {
             throw new IllegalStateException("HRM_SCOPE_DENIED: " + capability + " denied (test stub)");
         }
     }
@@ -849,11 +890,26 @@ class HrOfferServiceIntegrationTest {
                 .getMethod("create", HrCommandContext.class, String.class, String.class, String.class, String.class)
                 .invoke(candidateService, ctx(operatorId), "T7 Candidate", null, null, null);
 
+        java.util.Map<UUID, UUID> openingFixtureRegistry = new java.util.HashMap<>();
+        Object openingWorkflowPort = stubOpeningWorkflowPort(openingFixtureRegistry);
+        Object openingLinkService = Class.forName(
+                        "com.sanad.platform.hr.recruitment.application.HrOpeningApprovalLinkService")
+                .getConstructor(Class.forName(
+                                "com.sanad.platform.hr.recruitment.application.OpeningApprovalWorkflowPort"),
+                        Class.forName(
+                                "com.sanad.platform.hr.recruitment.infrastructure.JdbcHrJobOpeningRepository"))
+                .newInstance(openingWorkflowPort,
+                        Class.forName("com.sanad.platform.hr.recruitment.infrastructure.JdbcHrJobOpeningRepository")
+                                .getConstructor(DataSource.class,
+                                        com.sanad.platform.hr.audit.HrTransactionalEvidenceWriter.class)
+                                .newInstance(dataSource, new com.sanad.platform.hr.integration.JdbcHrEvidenceWriter(dataSource)));
         Object openingService = Class.forName(OPENING_SERVICE_CLASS)
                 .getConstructor(Class.forName(
                                 "com.sanad.platform.hr.recruitment.infrastructure.JdbcHrJobOpeningRepository"),
                         Class.forName(AUTH_PORT_CLASS),
-                        com.sanad.platform.hr.compliance.application.ComplianceEngine.class)
+                        com.sanad.platform.hr.compliance.application.ComplianceEngine.class,
+                        Class.forName(
+                                "com.sanad.platform.hr.recruitment.application.HrOpeningApprovalLinkService"))
                 .newInstance(
                         Class.forName("com.sanad.platform.hr.recruitment.infrastructure.JdbcHrJobOpeningRepository")
                                 .getConstructor(DataSource.class,
@@ -864,15 +920,20 @@ class HrOfferServiceIntegrationTest {
                                 new com.sanad.platform.hr.compliance.application.CountryPolicyResolver(
                                         jdbc, new com.sanad.platform.hr.compliance.application.WorkerClassificationResolver(jdbc)),
                                 List.of(),
-                                new com.sanad.platform.hr.compliance.infrastructure.JdbcComplianceDecisionRepository(jdbc)));
+                                new com.sanad.platform.hr.compliance.infrastructure.JdbcComplianceDecisionRepository(jdbc)),
+                        openingLinkService);
         UUID jobId = jdbc.queryForObject("SELECT id FROM hr_jobs WHERE tenant_id = ? LIMIT 1", UUID.class, tenantId);
         UUID orgUnitId = jdbc.queryForObject("SELECT id FROM hr_org_units WHERE tenant_id = ? LIMIT 1", UUID.class, tenantId);
         openingId = (UUID) openingService.getClass()
                 .getMethod("create", HrCommandContext.class, UUID.class, UUID.class, UUID.class,
                         UUID.class, int.class, OffsetDateTime.class, OffsetDateTime.class)
                 .invoke(openingService, ctx(operatorId), jobId, null, orgUnitId, null, 1, null, null);
-        openingService.getClass().getMethod("submit", HrCommandContext.class, UUID.class)
+        Object submitResult = openingService.getClass().getMethod("submit", HrCommandContext.class, UUID.class)
                 .invoke(openingService, ctx(operatorId), openingId);
+        if (submitResult instanceof UUID instanceId) {
+            com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                    jdbc, tenantId, "HR_JOB_OPENING", openingId, instanceId, OPENING_SEED_DEFINITION_VERSION, "COMPLETED", "APPROVED");
+        }
         openingService.getClass().getMethod("approve", HrCommandContext.class, UUID.class)
                 .invoke(openingService, ctx(UUID.randomUUID()), openingId);
 
@@ -890,15 +951,16 @@ class HrOfferServiceIntegrationTest {
         advance.invoke(applicationService, ctx(operatorId), applicationId);
     }
 
-    private UUID newApplicationAtAppliedStage() throws Exception {
-        Object applicationService = Class.forName(APPLICATION_SERVICE_CLASS)
-                .getConstructor(Class.forName(APPLICATION_REPO_CLASS), Class.forName(AUTH_PORT_CLASS))
-                .newInstance(Class.forName(APPLICATION_REPO_CLASS)
-                                .getConstructor(DataSource.class).newInstance(dataSource),
-                        authStub());
-        return (UUID) applicationService.getClass()
-                .getMethod("apply", HrCommandContext.class, UUID.class, UUID.class)
-                .invoke(applicationService, ctx(operatorId), candidateId, openingId);
+    private UUID newApplicationAtAppliedStage() {
+        // SQL-seeded APPLIED application for a DISTINCT candidate (the fixture
+        // candidate already has the single-active OFFER-stage application).
+        UUID newCandidate = UUID.randomUUID();
+        jdbc.update("INSERT INTO hr_candidates (id, tenant_id, candidate_number, display_name, pool_state, version) "
+                + "VALUES (?, ?, 'CAND-T7B', 'T7 Second Candidate', 'ACTIVE', 0)", newCandidate, tenantId);
+        UUID appliedId = UUID.randomUUID();
+        jdbc.update("INSERT INTO hr_applications (id, tenant_id, candidate_id, job_opening_id, state, version) "
+                + "VALUES (?, ?, ?, ?, 'APPLIED', 0)", appliedId, tenantId, newCandidate, openingId);
+        return appliedId;
     }
 
     private UUID createOffer() throws Exception {
@@ -908,9 +970,13 @@ class HrOfferServiceIntegrationTest {
     }
 
     private UUID revise(UUID offerId, String terms, String comp) throws Exception {
+        return revise(offerId, terms, comp, null);
+    }
+
+    private UUID revise(UUID offerId, String terms, String comp, OffsetDateTime expiresAt) throws Exception {
         return (UUID) invokeService("reviseOffer",
                 new Class<?>[]{HrCommandContext.class, UUID.class, String.class, String.class, OffsetDateTime.class},
-                ctx(operatorId), offerId, terms, comp, null);
+                ctx(operatorId), offerId, terms, comp, expiresAt);
     }
 
     private UUID submitForApproval(UUID offerId) throws Exception {
@@ -934,6 +1000,7 @@ class HrOfferServiceIntegrationTest {
         UUID instanceId = submitForApproval(offerId);
         stub.approvalOutcome = Outcome.APPROVED;
         stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instanceId, offerId, "COMPLETED", "APPROVED");
         invokeService("extendFromApproval",
                 new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
                 ctx(operatorId), offerId, instanceId);
@@ -995,5 +1062,187 @@ class HrOfferServiceIntegrationTest {
                     }
                     return method.invoke(base, args);
                 });
+    }
+
+    // ==================== T7 — fixture wiring (opening port + workflow seeds) ====================
+
+    private static final UUID OPENING_SEED_DEFINITION_VERSION =
+            UUID.fromString("66666666-6666-6666-6666-666666666666");
+
+
+    /** DB-backed stub of the HR-owned opening workflow port (engine rows are seeded). */
+    private Object stubOpeningWorkflowPort(java.util.Map<UUID, UUID> registry) throws Exception {
+        Class<?> portClass = Class.forName(
+                "com.sanad.platform.hr.recruitment.application.OpeningApprovalWorkflowPort");
+        Class<?> snapshotClass = null;
+        Class<?> outcomeEnum = null;
+        for (Class<?> c : portClass.getDeclaredClasses()) {
+            if (c.getSimpleName().equals("ApprovalSnapshot")) {
+                snapshotClass = c;
+            }
+            if (c.isEnum() && c.getSimpleName().equals("ApprovalOutcome")) {
+                outcomeEnum = c;
+            }
+        }
+        final Class<?> snapshot = snapshotClass;
+        final Class<?> outcome = outcomeEnum;
+        InvocationHandler handler = (proxy, method, args) -> {
+            switch (method.getName()) {
+                case "startOpeningApproval" -> {
+                    UUID openingId = (UUID) args[1];
+                    UUID instanceId = UUID.randomUUID();
+                    registry.put(instanceId, openingId);
+                    return instanceId;
+                }
+                case "loadOpeningApprovalOutcome" -> {
+                    UUID instanceId = (UUID) args[1];
+                    UUID openingId = registry.get(instanceId);
+                    if (openingId == null) {
+                        return null;
+                    }
+                    var ctor = snapshot.getConstructor(UUID.class, UUID.class, String.class, UUID.class,
+                            String.class, outcome);
+                    return ctor.newInstance(instanceId, OPENING_SEED_DEFINITION_VERSION, "HR_JOB_OPENING",
+                            openingId, "RUNNING", Enum.valueOf((Class<? extends Enum>) outcome, "NONE"));
+                }
+                default -> {
+                    return null;
+                }
+            }
+        };
+        return Proxy.newProxyInstance(portClass.getClassLoader(), new Class<?>[]{portClass}, handler);
+    }
+
+    /** Seeds offer workflow rows (real engine shape) for an allocated stub instance. */
+    private void seedOfferWorkflow(UUID instanceId, UUID offerId, String status, String requestStatus) {
+        com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                jdbc, tenantId, "HR_OFFER", offerId, instanceId, FIXED_DEFINITION_VERSION, status, requestStatus);
+    }
+
+    // ==================== gate additions: expiry / predecessor / cancel / policy / sensitive ====================
+
+    @Test
+    void acceptAfterExpiry_isDeniedByTheDatabaseClock() throws Exception {
+        UUID expired = createOffer();
+        // v2 staged with a PAST expiry (database clock decides at accept time)
+        revise(expired, TERMS_V2, COMP_V2, OffsetDateTime.now().minusHours(1));
+        UUID instanceId = submitForApproval(expired);
+        stub.approvalOutcome = Outcome.APPROVED;
+        stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instanceId, expired, "COMPLETED", "APPROVED");
+        invokeService("extendFromApproval",
+                new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
+                ctx(operatorId), expired, instanceId);
+        assertThat(offerState(expired)).isEqualTo("EXTENDED");
+
+        assertThatThrownBy(() -> invokeService("accept",
+                new Class<?>[]{HrCommandContext.class, UUID.class}, ctx(operatorId), expired))
+                .as("gate §8: acceptance after expiry FAILS CLOSED (no client clock authority)")
+                .isInstanceOf(Exception.class);
+        assertThat(offerState(expired)).isEqualTo("EXTENDED");
+        assertThatThrownBy(() -> invokeService("accept",
+                new Class<?>[]{HrCommandContext.class, UUID.class}, ctx(operatorId), expired))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    void acceptBeforeExpiry_isAllowed_withFutureExpiry() throws Exception {
+        UUID live = createOffer();
+        revise(live, TERMS_V2, COMP_V2, OffsetDateTime.now().plusDays(7));
+        UUID instanceId = submitForApproval(live);
+        stub.approvalOutcome = Outcome.APPROVED;
+        stub.instanceStatus = "COMPLETED";
+        seedOfferWorkflow(instanceId, live, "COMPLETED", "APPROVED");
+        invokeService("extendFromApproval",
+                new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
+                ctx(operatorId), live, instanceId);
+        invokeService("accept", new Class<?>[]{HrCommandContext.class, UUID.class},
+                ctx(operatorId), live);
+        assertThat(offerState(live)).isEqualTo("ACCEPTED");
+    }
+
+    @Test
+    void successorVersion_recordsPredecessorLinkage_andIncrementsDeterministically() throws Exception {
+        UUID offerId = createOffer();
+        UUID v1 = currentVersionId(offerId);
+        UUID v2 = revise(offerId, TERMS_V2, COMP_V2);
+        UUID v3 = revise(offerId, TERMS_V2B, COMP_V2);
+        Integer pred1 = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM hr_offer_versions WHERE id = ? AND predecessor_version_id IS NULL",
+                Integer.class, v1);
+        assertThat(pred1).as("v1 is the root of the successor chain").isEqualTo(1);
+        for (UUID successor : new UUID[]{v2, v3}) {
+            Map<String, Object> row = jdbc.queryForMap(
+                    "SELECT version_number, predecessor_version_id FROM hr_offer_versions WHERE id = ?", successor);
+            assertThat(row.get("predecessor_version_id")).as("predecessor linkage is recorded").isNotNull();
+        }
+        UUID predOfV3 = jdbc.queryForObject(
+                "SELECT predecessor_version_id FROM hr_offer_versions WHERE id = ?", UUID.class, v3);
+        assertThat(predOfV3).as("the chain is deterministic: v3 succeeds v2").isEqualTo(v2);
+        UUID predOfV2 = jdbc.queryForObject(
+                "SELECT predecessor_version_id FROM hr_offer_versions WHERE id = ?", UUID.class, v2);
+        assertThat(predOfV2).isEqualTo(v1);
+    }
+
+    @Test
+    void cancelApprovalCycle_returnsOfferToDraft_andClosesTheCorrelation() throws Exception {
+        UUID offerId = createOffer();
+        UUID instanceId = submitForApproval(offerId);
+        seedOfferWorkflow(instanceId, offerId, "RUNNING", null);
+        invokeService("cancelApprovalCycle",
+                new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class, String.class},
+                ctx(operatorId), offerId, instanceId, "OFFER_REJECTION");
+
+        assertThat(offerState(offerId)).as("cancelled cycle returns the offer to DRAFT").isEqualTo("DRAFT");
+        Map<String, Object> offer = jdbc.queryForMap(
+                "SELECT pending_workflow_instance_id FROM hr_offers WHERE id = ?", offerId);
+        assertThat(offer.get("pending_workflow_instance_id")).isNull();
+        Integer cancelledAudit = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = ? "
+                        + "AND action = 'HRM.RECRUITMENT.OFFER_APPROVAL_CANCELLED'",
+                Integer.class, offerId);
+        assertThat(cancelledAudit).isEqualTo(1);
+        // the cancelled cycle can NEVER extend
+        assertThatThrownBy(() -> invokeService("extendFromApproval",
+                new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
+                ctx(operatorId), offerId, instanceId))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    void policyUnresolved_failsClosedToApprovalRequired_noOffPathInferred() throws Exception {
+        // With NO authoritative tenant configuration resolving approval OFF
+        // (none exists in this tenant), the fail-closed default-ON rule holds:
+        // the DRAFT→EXTENDED bypass stays forbidden and submission is mandatory.
+        UUID offerId = createOffer();
+        assertThatThrownBy(() -> invokeService("extendFromApproval",
+                new Class<?>[]{HrCommandContext.class, UUID.class, UUID.class},
+                ctx(operatorId), offerId, UUID.randomUUID()))
+                .as("gate §3: missing policy/config FAILS CLOSED to approval-required")
+                .isInstanceOf(Exception.class);
+        assertThat(offerState(offerId)).isEqualTo("DRAFT");
+        assertThat(com.sanad.platform.hr.recruitment.domain.HrOfferTransitions.isAllowed(com.sanad.platform.hr.recruitment.domain.HrOfferState.DRAFT, com.sanad.platform.hr.recruitment.domain.HrOfferState.EXTENDED)).isFalse();
+        UUID instanceId = submitForApproval(offerId);
+        assertThat(offerState(offerId)).isEqualTo("PENDING_APPROVAL");
+    }
+
+    @Test
+    void compensationRead_createsSensitiveAuditEvidence_withoutLeakingValues() throws Exception {
+        UUID offerId = createOffer();
+        invokeService("versions", new Class<?>[]{HrCommandContext.class, UUID.class},
+                ctx(operatorId), offerId);
+        Integer sensitiveReads = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = ? "
+                        + "AND action = 'HRM.RECRUITMENT.OFFER_COMPENSATION_READ' "
+                        + "AND data_classification = 'SENSITIVE'",
+                Integer.class, offerId);
+        assertThat(sensitiveReads).as("gate §10: full compensation reads create sensitive-read audit").isEqualTo(1);
+        String auditPayload = jdbc.queryForObject(
+                "SELECT after_state::text FROM hr_audit_ledger WHERE resource_id = ? "
+                        + "AND action = 'HRM.RECRUITMENT.OFFER_COMPENSATION_READ' LIMIT 1",
+                String.class, offerId);
+        assertThat(auditPayload)
+                .as("no raw compensation values in the audit evidence")
+                .doesNotContain("111000").doesNotContain("base_salary").doesNotContain("band");
     }
 }

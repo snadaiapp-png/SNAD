@@ -102,8 +102,10 @@ class Crm008bFoundationAcceptanceTest {
     // R0C13 closure continues the same forward-only ledger:
     //   V20260912_4 = subscription billing persistence foundation.
     //   V20260912_5 = verified provider-webhook resolution.
-    //   V20260912_6 = provider-unavailable reconciliation classification (current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260912.6"; // Terminal versioned migration: V20260912_6 adds R0C13 G07 provider-unavailable reconciliation classification
+    //   V20260912_6 = provider-unavailable reconciliation classification.
+    // HRM G1 T7 continues the same forward-only ledger:
+    //   V20260914_1 = offer approval correlation + immutable version identity (current terminal migration).
+    private static final String CRM_LATEST_VERSION = "20260914.1"; // Terminal versioned migration: V20260914_1 adds HRM G1 T7 offer approval correlation (additive only)
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");
