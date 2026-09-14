@@ -89,22 +89,226 @@
   min-inline-size: 0;
 }
 
+.canvasShell {
+  position: relative;
+  display: grid;
+  gap: var(--snad-space-2);
+  min-inline-size: 0;
+}
+
+.canvasToolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--snad-space-2);
+  flex-wrap: wrap;
+}
+
+.canvasToolbar button {
+  min-inline-size: 38px;
+  min-block-size: 36px;
+}
+
+.zoomReadout,
+.previewBadge {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 28px;
+  padding-inline: var(--snad-space-2);
+  border-radius: var(--snad-radius-full);
+  background: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.previewBadge {
+  margin-inline-start: auto;
+}
+
+.canvasViewport {
+  position: relative;
+  min-block-size: 520px;
+  overflow: hidden;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-xl);
+  background:
+    linear-gradient(var(--snad-color-border-default) 1px, transparent 1px),
+    linear-gradient(90deg, var(--snad-color-border-default) 1px, transparent 1px),
+    var(--snad-color-background-default);
+  background-size: 28px 28px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.canvasViewport:active {
+  cursor: grabbing;
+}
+
+.canvasSurface {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: 0 0;
+  transition: transform var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+
+.edgeLayer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.edgeGroup {
+  cursor: pointer;
+  color: var(--snad-color-text-muted);
+}
+
+.edgeGroup line {
+  stroke: currentColor;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.edgeGroup text {
+  fill: var(--snad-color-text-secondary);
+  stroke: var(--snad-color-background-default);
+  stroke-width: 4;
+  paint-order: stroke;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.edgeCOMPLETED {
+  color: var(--snad-color-success);
+}
+
+.edgeUPCOMING {
+  color: var(--snad-color-border-strong);
+}
+
+.edgeINACTIVE {
+  color: var(--snad-color-border-default);
+  opacity: 0.6;
+}
+
+.edgeSelected {
+  color: var(--snad-color-focus-ring);
+}
+
+.edgeSelected line {
+  stroke-width: 3;
+}
+
+.canvasNode {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--snad-space-2);
+  inline-size: 164px;
+  min-block-size: 72px;
+  padding: var(--snad-space-2) var(--snad-space-3);
+  border: 2px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-lg);
+  text-align: start;
+  box-shadow: var(--snad-shadow-sm);
+  cursor: pointer;
+}
+
+.canvasNode[draggable="true"] {
+  cursor: grab;
+}
+
+.canvasNode[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.stageIcon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  inline-size: 28px;
+  block-size: 28px;
+  border: 1px solid currentColor;
+  border-radius: var(--snad-radius-full);
+  font-weight: 900;
+}
+
+.nodeText {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.nodeText strong,
+.nodeText span,
+.nodeText small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeText span,
+.nodeText small {
+  font-size: 0.7rem;
+  color: var(--snad-color-text-secondary);
+}
+
+.nodeSelected {
+  outline: 3px solid var(--snad-color-focus-ring);
+  outline-offset: 3px;
+}
+
+.canvasEmpty {
+  margin: 0;
+  padding: var(--snad-space-6);
+  color: var(--snad-color-text-secondary);
+}
+
+.minimap {
+  position: absolute;
+  inset-inline-end: var(--snad-space-3);
+  inset-block-end: var(--snad-space-3);
+  inline-size: 172px;
+  block-size: 108px;
+  padding: 6px;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md);
+  background: color-mix(in srgb, var(--snad-color-surface-primary) 92%, transparent);
+  box-shadow: var(--snad-shadow-sm);
+  pointer-events: none;
+}
+
+.minimapEdge {
+  stroke: var(--snad-color-border-strong);
+  stroke-width: 4;
+  opacity: 0.7;
+}
+
+.minimapNode {
+  stroke-width: 5;
+}
+
 .stageStart {
   border-color: var(--snad-color-brand-primary);
   background: color-mix(in srgb, var(--snad-color-brand-primary) 10%, var(--snad-color-surface-primary));
   color: var(--snad-color-text-primary);
+  stroke: var(--snad-color-brand-primary);
+  fill: color-mix(in srgb, var(--snad-color-brand-primary) 28%, var(--snad-color-surface-primary));
 }
 
 .stageUpcoming {
   border-color: var(--snad-color-border-default);
   background: var(--snad-color-surface-secondary);
   color: var(--snad-color-text-secondary);
+  stroke: var(--snad-color-border-strong);
+  fill: var(--snad-color-surface-secondary);
 }
 
 .stageCompleted {
   border-color: var(--snad-color-success);
   background: color-mix(in srgb, var(--snad-color-success) 9%, var(--snad-color-surface-primary));
   color: var(--snad-color-text-primary);
+  stroke: var(--snad-color-success);
+  fill: color-mix(in srgb, var(--snad-color-success) 22%, var(--snad-color-surface-primary));
 }
 
 .stageEnd {
@@ -112,11 +316,23 @@
   background: color-mix(in srgb, var(--snad-color-brand-accent) 16%, var(--snad-color-surface-primary));
   color: var(--snad-color-text-primary);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--snad-color-brand-accent) 32%, transparent), var(--snad-shadow-sm);
+  stroke: var(--snad-color-brand-accent);
+  fill: color-mix(in srgb, var(--snad-color-brand-accent) 34%, var(--snad-color-surface-primary));
+}
+
+.stageInactive {
+  border-color: var(--snad-color-border-default);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-muted);
+  stroke: var(--snad-color-border-default);
+  fill: var(--snad-color-surface-primary);
+  opacity: 0.62;
 }
 
 .stageCurrent {
-  outline: 3px solid var(--snad-color-focus-ring);
-  outline-offset: 2px;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--snad-color-brand-primary) 18%, transparent),
+    var(--snad-shadow-sm);
 }
 
 @media (max-width: 1100px) {
@@ -126,6 +342,11 @@
 
   .canvasRegion {
     order: -1;
+  }
+
+  .previewBadge {
+    inline-size: 100%;
+    margin-inline-start: 0;
   }
 }
 
