@@ -7,16 +7,20 @@ import {
   type CreateWorkflowStepRequest,
   type CreateWorkflowTransitionRequest,
   type WorkflowDefinitionResponse,
+  type WorkflowSimulationResponse,
   type WorkflowStepResponse,
   type WorkflowStepType,
   type WorkflowTransitionResponse,
+  type WorkflowValidationResponse,
 } from "@/lib/api/workflow-api";
 import { describeWorkflowError } from "@/lib/workflow/error-messages";
 import { DesignerCommandBar } from "./designer-command-bar";
-import { StepPalette } from "./step-palette";
-import { StepInspector, type DesignerStepDraft } from "./step-inspector";
+import { DiagnosticsDrawer } from "./diagnostics-drawer";
 import { PublishPanel } from "./publish-panel";
+import { StepInspector, type DesignerStepDraft } from "./step-inspector";
+import { StepPalette } from "./step-palette";
 import { WorkflowCanvas } from "./workflow-canvas";
+import { deriveWorkflowDiagnostics } from "./workflow-diagnostics";
 import styles from "./workflow-designer.module.css";
 
 interface NodePosition { x: number; y: number }
@@ -32,10 +36,22 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
   const [positions, setPositions] = useState<Record<string, NodePosition>>({});
   const [view, setView] = useState<"canvas" | "table">("canvas");
   const [graphRevision, setGraphRevision] = useState(0);
+  const [latestValidation, setLatestValidation] = useState<WorkflowValidationResponse | null>(null);
+  const [simulation, setSimulation] = useState<WorkflowSimulationResponse | null>(null);
+  const [activity, setActivity] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
+
+  const recordActivity = useCallback((message: string) => {
+    setActivity((current) => [...current.slice(-19), message]);
+  }, []);
+
+  const invalidateEvidence = useCallback(() => {
+    setLatestValidation(null);
+    setSimulation(null);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,18 +66,15 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
       setSteps(nextSteps);
       setTransitions(nextTransitions);
       setPositions((current) => buildPositions(nextSteps, current));
-      if (selectedStepId && !nextSteps.some((step) => step.id === selectedStepId)) {
-        setSelectedStepId(null);
-      }
-      if (selectedTransitionId && !nextTransitions.some((transition) => transition.id === selectedTransitionId)) {
-        setSelectedTransitionId(null);
-      }
+      setSelectedStepId((current) => current && nextSteps.some((step) => step.id === current) ? current : null);
+      setSelectedTransitionId((current) => current && nextTransitions.some((transition) => transition.id === current) ? current : null);
+      recordActivity("تم تحديث حقيقة الرسم من الخادم.");
     } catch (cause: unknown) {
       setError(describeWorkflowError(cause, "تعذر تحميل مصمم سير العمل"));
     } finally {
       setLoading(false);
     }
-  }, [definitionId, selectedStepId, selectedTransitionId]);
+  }, [definitionId, recordActivity]);
 
   useEffect(() => {
     void load();
@@ -76,11 +89,18 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
     () => transitions.find((transition) => transition.id === selectedTransitionId) ?? null,
     [selectedTransitionId, transitions],
   );
-  const progressContext = useMemo(() => ({
-    visitedStepIds: [] as string[],
-    currentStepId: null as string | null,
-    activeTransitionIds: [] as string[],
-  }), []);
+  const localDiagnostics = useMemo(
+    () => deriveWorkflowDiagnostics(steps, transitions),
+    [steps, transitions],
+  );
+  const progressContext = useMemo(() => {
+    const visitedStepIds = simulation?.visitedStepIds ?? [];
+    return {
+      visitedStepIds,
+      currentStepId: visitedStepIds.at(-1) ?? null,
+      activeTransitionIds: deriveVisitedTransitions(visitedStepIds, transitions),
+    };
+  }, [simulation, transitions]);
 
   const addLocalDraft = (stepType: WorkflowStepType) => {
     if (!editable || draft) return;
@@ -106,8 +126,10 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
   const handleMutationFailure = async (cause: unknown, fallback: string) => {
     const status = (cause as { status?: number })?.status;
     if (status === 409) {
+      invalidateEvidence();
       setConflict("تغير الرسم بالتزامن. أُعيد تحميل النسخة الأحدث وأُلغي اعتماد أي تحقق سابق.");
       setGraphRevision((value) => value + 1);
+      recordActivity("تعارض 409: أُبطلت الأدلة وأُعيد تحميل حقيقة الخادم.");
       await load();
       return;
     }
@@ -121,10 +143,12 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
     setConflict(null);
     try {
       const saved = await workflowApi.addDefinitionStep(definitionId, request);
+      invalidateEvidence();
       setDraft(null);
       setSelectedTransitionId(null);
       setSelectedStepId(saved.id);
       setGraphRevision((value) => value + 1);
+      recordActivity(`حُفظت الخطوة ${saved.stepKey} وأُبطلت أدلة الرسم السابقة.`);
       await load();
     } catch (cause: unknown) {
       await handleMutationFailure(cause, "فشل حفظ خطوة سير العمل");
@@ -139,10 +163,14 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
     setError(null);
     setConflict(null);
     try {
-      await workflowApi.createDefinitionTransition(definitionId, request);
+      const saved = await workflowApi.createDefinitionTransition(definitionId, request);
+      invalidateEvidence();
       setGraphRevision((value) => value + 1);
       const nextTransitions = await workflowApi.getDefinitionTransitions(definitionId);
       setTransitions(nextTransitions);
+      setSelectedStepId(null);
+      setSelectedTransitionId(saved.id);
+      recordActivity(`حُفظ الانتقال ${saved.transitionKey} وأُبطلت أدلة الرسم السابقة.`);
     } catch (cause: unknown) {
       await handleMutationFailure(cause, "فشل حفظ انتقال سير العمل");
     } finally {
@@ -177,7 +205,7 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
   const published = definition.publicationState === "PUBLISHED";
 
   return (
-    <div dir="rtl" className={styles.studio}>
+    <div dir="rtl" className={styles.studio} data-graph-revision={graphRevision}>
       <DesignerCommandBar
         definition={definition}
         busy={busy}
@@ -267,12 +295,46 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
       <PublishPanel
         definition={definition}
         editable={Boolean(editable)}
-        graphRevision={graphRevision}
+        latestValidation={latestValidation}
+        simulation={simulation}
+        onValidationChange={setLatestValidation}
+        onSimulationChange={setSimulation}
+        onInvalidateEvidence={invalidateEvidence}
         onPublished={load}
         onReload={load}
+        onActivity={recordActivity}
+      />
+
+      <DiagnosticsDrawer
+        localDiagnostics={localDiagnostics}
+        latestValidation={latestValidation}
+        simulation={simulation}
+        activity={activity}
+        onSelectStep={(id) => {
+          setSelectedTransitionId(null);
+          setSelectedStepId(id);
+        }}
+        onSelectTransition={(id) => {
+          setSelectedStepId(null);
+          setSelectedTransitionId(id);
+        }}
       />
     </div>
   );
+}
+
+function deriveVisitedTransitions(
+  visitedStepIds: readonly string[],
+  transitions: WorkflowTransitionResponse[],
+) {
+  const ids: string[] = [];
+  for (let index = 0; index < visitedStepIds.length - 1; index += 1) {
+    const from = visitedStepIds[index];
+    const to = visitedStepIds[index + 1];
+    const match = transitions.find((transition) => transition.fromStepId === from && transition.toStepId === to);
+    if (match) ids.push(match.id);
+  }
+  return ids;
 }
 
 function buildPositions(steps: WorkflowStepResponse[], current: Record<string, NodePosition>) {
