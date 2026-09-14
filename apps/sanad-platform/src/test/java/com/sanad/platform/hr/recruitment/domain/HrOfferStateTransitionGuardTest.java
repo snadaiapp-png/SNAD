@@ -7,12 +7,17 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * HRM-G1-T1 — §6.3 HrOffer transition guard matrix.
+ * HRM-G1-T1/T7 — §6.3 HrOffer transition guard matrix, RESTORED authoritative
+ * semantics (T7.2).
  *
- * <p>DRAFT→PENDING_APPROVAL (policy) or DRAFT→EXTENDED (no approval path);
- * PENDING_APPROVAL→EXTENDED/DRAFT(reject); EXTENDED→ACCEPTED/DECLINED/
- * WITHDRAWN/EXPIRED. EXTENDED→DRAFT forbidden (new OfferVersion instead);
- * ACCEPTED/DECLINED/EXPIRED/WITHDRAWN terminal.</p>
+ * <p>THE OFFER APPROVAL BYPASS IS REMOVED: DRAFT→EXTENDED does not exist.
+ * EXTENDED is reachable ONLY from PENDING_APPROVAL and only behind the
+ * authoritative Workflow Y2 APPROVED outcome (verified by the application
+ * authority against the persisted correlation). DRAFT→PENDING_APPROVAL
+ * (submit), PENDING_APPROVAL→DRAFT (reject, registered reason);
+ * EXTENDED→ACCEPTED/DECLINED/WITHDRAWN/EXPIRED; EXTENDED→DRAFT forbidden
+ * (new OfferVersion + re-approval instead); ACCEPTED/DECLINED/EXPIRED/
+ * WITHDRAWN terminal. Fail-closed on unknown pairs.</p>
  */
 class HrOfferStateTransitionGuardTest {
 
@@ -23,13 +28,16 @@ class HrOfferStateTransitionGuardTest {
     }
 
     @Test
-    void draft_movesToPendingApproval_whenPolicyRequiresApproval() {
+    void draft_movesToPendingApproval_whenSubmittingForApproval() {
         assertThat(HrOfferTransitions.isAllowed(HrOfferState.DRAFT, HrOfferState.PENDING_APPROVAL)).isTrue();
     }
 
     @Test
-    void draft_movesDirectlyToExtended_whenNoApprovalRequired() {
-        assertThat(HrOfferTransitions.isAllowed(HrOfferState.DRAFT, HrOfferState.EXTENDED)).isTrue();
+    void draft_directToExtended_isForbidden_approvalBypassRemoved() {
+        assertThat(HrOfferTransitions.isAllowed(HrOfferState.DRAFT, HrOfferState.EXTENDED))
+                .as("T7.2: no controller/service may promote an offer to EXTENDED "
+                        + "without the authoritative Workflow Y2 approval result")
+                .isFalse();
     }
 
     @Test
@@ -96,17 +104,27 @@ class HrOfferStateTransitionGuardTest {
     }
 
     @Test
+    void rejectionBackToDraft_requiresRegisteredReason() {
+        HrTransitionDecision without = HrOfferTransitions
+                .check(ctx(null), HrOfferState.PENDING_APPROVAL, HrOfferState.DRAFT);
+        assertThat(without.allowed())
+                .as("T7.8: governed rejection reason/evidence is mandatory").isFalse();
+        HrTransitionDecision with = HrOfferTransitions
+                .check(ctx("OFFER_REJECTION"), HrOfferState.PENDING_APPROVAL, HrOfferState.DRAFT);
+        assertThat(with.allowed()).isTrue();
+    }
+
+    @Test
     void check_acceptance_needsNoReason() {
         assertThat(HrOfferTransitions.check(ctx(null), HrOfferState.EXTENDED, HrOfferState.ACCEPTED).allowed())
                 .isTrue();
     }
 
     @Test
-    void guard_acceptsExactlyTheDesignSection6Matrix() {
+    void guard_acceptsExactlyTheRestoredSection6Matrix() {
         com.sanad.platform.test.HrG1StateMatrixHarness.assertExactly(
                 java.util.Set.of(
                         "DRAFT->PENDING_APPROVAL",
-                        "DRAFT->EXTENDED",
                         "PENDING_APPROVAL->EXTENDED",
                         "PENDING_APPROVAL->DRAFT",
                         "EXTENDED->ACCEPTED",

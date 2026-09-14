@@ -243,4 +243,120 @@ class HrG1MigrationTest {
             assertThat(template.get("is_active")).isEqualTo(true);
         }
     }
+
+    // ==================== T7.12 — offer approval correlation schema ====================
+
+    static final String T7_CORRELATION_VERSION = "20260914.1";
+
+    @Test
+    void t7OfferCorrelationColumnsExist() {
+        flyway(null).migrate();
+        List<String> columns = jdbc.queryForList(
+                "SELECT column_name FROM information_schema.columns "
+                        + "WHERE table_name = 'hr_offers'", String.class);
+        assertThat(columns).as("T7.12: workflow correlation/reference + version reference columns")
+                .contains("current_version_id", "pending_offer_version_id",
+                        "pending_workflow_instance_id", "pending_workflow_definition_version_id");
+    }
+
+    @Test
+    void t7OfferVersionTenantSafeIdentityConstraintExists() {
+        flyway(null).migrate();
+        Integer idTenantUnique = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_constraint WHERE conrelid = 'hr_offer_versions'::regclass "
+                        + "AND contype = 'u' AND pg_get_constraintdef(oid) ILIKE '%id%tenant_id%'",
+                Integer.class);
+        assertThat(idTenantUnique)
+                .as("T7.12: UNIQUE (id, tenant_id) enables tenant-safe composite FK references")
+                .isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void t7OneOpenApprovalPerOfferPartialIndexExists() {
+        flyway(null).migrate();
+        List<String> indexDefs = jdbc.queryForList(
+                "SELECT indexdef FROM pg_indexes WHERE tablename = 'hr_offers' "
+                        + "AND indexname = 'uq_hr_offers_one_open_approval'", String.class);
+        assertThat(indexDefs).hasSize(1);
+        assertThat(indexDefs.get(0))
+                .as("§11.2 idempotency: ONE open approval per offer (partial unique index)")
+                .containsIgnoringCase("UNIQUE")
+                .contains("pending_workflow_instance_id")
+                .contains("WHERE");
+    }
+
+    @Test
+    void t7OfferVersionsAppendOnlyGuardIsInstalled() {
+        flyway(null).migrate();
+        Integer triggers = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.triggers "
+                        + "WHERE event_object_table = 'hr_offer_versions' "
+                        + "AND trigger_name = 'trg_hr_offer_versions_append_only'",
+                Integer.class);
+        assertThat(triggers).as("T7.4/T7.12: DB-level append-only guard on offer versions").isEqualTo(1);
+
+        // Behavioral probe on the disposable database: seeded rows survive
+        // UPDATE/DELETE attempts (rows are intentionally left behind — the
+        // disposable test_migration database is cleaned by other tests).
+        UUID tenantId = UUID.randomUUID();
+        jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())",
+                tenantId, "T7 Guard Tenant", "t7g-" + tenantId.toString().substring(0, 8));
+
+        org.springframework.jdbc.datasource.DriverManagerDataSource ds =
+                new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                        url.replaceFirst("/sanad", "/test_migration"), username, password);
+        javax.sql.DataSource tenantDs = (javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
+                javax.sql.DataSource.class.getClassLoader(), new Class<?>[]{javax.sql.DataSource.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getConnection")) {
+                        java.sql.Connection c = (java.sql.Connection) method.invoke(ds, args);
+                        try (var st = c.createStatement()) {
+                            st.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
+                        }
+                        return c;
+                    }
+                    return method.invoke(ds, args);
+                });
+        org.springframework.jdbc.core.JdbcTemplate t = new org.springframework.jdbc.core.JdbcTemplate(tenantDs);
+        UUID organizationId = UUID.randomUUID();
+        t.update("INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) "
+                + "VALUES (?, ?, ?, 'ACTIVE', NOW(), NOW())", organizationId, tenantId,
+                "Org-" + organizationId.toString().substring(0, 8));
+        t.update("INSERT INTO hr_jobs (id, tenant_id, organization_id, stable_code, created_at) "
+                + "VALUES (?, ?, ?, 'JOB-T7G', NOW())", UUID.randomUUID(), tenantId, organizationId);
+        t.update("INSERT INTO hr_org_units (id, tenant_id, organization_id, stable_code, created_at) "
+                + "VALUES (?, ?, ?, 'OU-T7G', NOW())", UUID.randomUUID(), tenantId, organizationId);
+        t.update("INSERT INTO hr_job_openings (id, tenant_id, opening_number, job_id, org_unit_id, state, requested_headcount) "
+                + "SELECT gen_random_uuid(), ?, j.tenant_id, j.id, u.id, 'OPEN', 1 FROM hr_jobs j "
+                + "JOIN hr_org_units u ON u.tenant_id = j.tenant_id WHERE j.tenant_id = ?", tenantId, tenantId);
+        t.update("INSERT INTO hr_candidates (id, tenant_id, candidate_number, display_name, pool_state, version) "
+                + "VALUES (gen_random_uuid(), ?, 'CAND-T7G', 'T7 Guard Candidate', 'ACTIVE', 0)", tenantId);
+        t.update("INSERT INTO hr_applications (id, tenant_id, candidate_id, job_opening_id, state, version) "
+                + "SELECT gen_random_uuid(), ?, c.id, o.id, 'OFFER', 0 FROM hr_candidates c, hr_job_openings o "
+                + "WHERE c.tenant_id = ? AND o.tenant_id = ? LIMIT 1", tenantId, tenantId, tenantId, tenantId);
+        t.update("INSERT INTO hr_offers (id, tenant_id, application_id, offer_number, state, version) "
+                + "SELECT gen_random_uuid(), tenant_id, id, 'T7GUARD-1', 'DRAFT', 0 FROM hr_applications "
+                + "WHERE tenant_id = ? LIMIT 1", tenantId);
+        t.update("INSERT INTO hr_offer_versions (tenant_id, offer_id, version_number, contract_terms, compensation) "
+                + "SELECT tenant_id, id, 1, '{}'::jsonb, '{}'::jsonb FROM hr_offers WHERE tenant_id = ? LIMIT 1", tenantId);
+        String termsBefore = t.queryForObject(
+                "SELECT contract_terms::text FROM hr_offer_versions WHERE tenant_id = ? LIMIT 1",
+                String.class, tenantId);
+        assertThatThrownByByJdbc(t, "UPDATE hr_offer_versions SET contract_terms = '{\"x\":1}'::jsonb "
+                + "WHERE tenant_id = '" + tenantId + "'")
+                .as("T7.4: UPDATE of an offer version must be rejected by the DB guard")
+                .isInstanceOf(Exception.class);
+        assertThatThrownByByJdbc(t, "DELETE FROM hr_offer_versions WHERE tenant_id = '" + tenantId + "'")
+                .as("T7.4: DELETE of an offer version must be rejected by the DB guard")
+                .isInstanceOf(Exception.class);
+        assertThat(t.queryForObject(
+                "SELECT contract_terms::text FROM hr_offer_versions WHERE tenant_id = ? LIMIT 1",
+                String.class, tenantId)).isEqualTo(termsBefore);
+    }
+
+    private static org.assertj.core.api.AbstractThrowableAssert<?, ? extends Throwable> assertThatThrownByByJdbc(
+            org.springframework.jdbc.core.JdbcTemplate t, String sql) {
+        return org.assertj.core.api.Assertions.assertThatThrownBy(() -> t.execute(sql));
+    }
 }
