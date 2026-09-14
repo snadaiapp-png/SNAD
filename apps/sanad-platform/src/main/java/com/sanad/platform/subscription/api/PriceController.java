@@ -3,6 +3,8 @@ package com.sanad.platform.subscription.api;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.subscription.plan.PlanVersionEntity;
+import com.sanad.platform.subscription.plan.PlanVersionService;
 import com.sanad.platform.subscription.pricing.CountryCurrencyRepository;
 import com.sanad.platform.subscription.pricing.PriceEntity;
 import com.sanad.platform.subscription.pricing.PriceService;
@@ -17,8 +19,9 @@ import java.util.UUID;
 /**
  * Executive API for prices and the country/currency catalog.
  *
- * <p>Pricing is country- and currency-customizable (e.g. SA→SAR, AE→AED,
- * GLOBAL→USD); the mapping is catalog data, never hardcoded rules.
+ * <p>Pricing is country- and currency-customizable; the mapping is catalog
+ * data, never hardcoded rules. Nested plan-version routes validate that the
+ * version belongs to the path plan before any price read/write is delegated.</p>
  */
 @RestController
 @RequestMapping("/api/v1/executive")
@@ -28,15 +31,18 @@ public class PriceController {
     private final PriceService priceService;
     private final CountryCurrencyRepository countryCurrencies;
     private final PlatformAuditService auditService;
+    private final PlanVersionService planVersionService;
 
     public PriceController(ControlPlaneAccessGuard accessGuard,
                            PriceService priceService,
                            CountryCurrencyRepository countryCurrencies,
-                           PlatformAuditService auditService) {
+                           PlatformAuditService auditService,
+                           PlanVersionService planVersionService) {
         this.accessGuard = accessGuard;
         this.priceService = priceService;
         this.countryCurrencies = countryCurrencies;
         this.auditService = auditService;
+        this.planVersionService = planVersionService;
     }
 
     @GetMapping("/country-currencies")
@@ -57,6 +63,7 @@ public class PriceController {
             @PathVariable UUID versionId,
             Authentication authentication) {
         accessGuard.require(authentication);
+        requireVersionOwnership(planId, versionId);
         return ResponseEntity.ok(priceService.listForPlanVersion(versionId).stream()
                 .map(ScpDtos.PriceResponse::from).toList());
     }
@@ -69,6 +76,7 @@ public class PriceController {
             @Valid @RequestBody ScpDtos.PriceRequest request,
             Authentication authentication) {
         accessGuard.require(authentication);
+        requireVersionOwnership(planId, versionId);
         PriceEntity created = priceService.createForPlanVersion(versionId, fromRequest(request));
         auditService.success(authentication, null, "PRICE_CREATE",
                 "price", created.getId().toString(), null, null, created);
@@ -96,6 +104,16 @@ public class PriceController {
         auditService.success(authentication, null, "PRICE_CREATE",
                 "price", created.getId().toString(), null, null, created);
         return ResponseEntity.ok(ScpDtos.PriceResponse.from(created));
+    }
+
+    private PlanVersionEntity requireVersionOwnership(UUID planId, UUID versionId) {
+        PlanVersionEntity version = planVersionService.findVersion(versionId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown plan version: " + versionId));
+        if (!planId.equals(version.getPlanId())) {
+            throw new IllegalArgumentException(
+                    "Plan version " + versionId + " does not belong to plan " + planId);
+        }
+        return version;
     }
 
     private static PriceEntity fromRequest(ScpDtos.PriceRequest request) {
