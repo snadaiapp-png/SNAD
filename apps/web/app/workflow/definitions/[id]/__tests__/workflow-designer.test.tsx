@@ -13,6 +13,7 @@ const COMPONENTS = [
   "page.tsx",
   "components/workflow-designer.tsx",
   "components/designer-command-bar.tsx",
+  "components/workflow-canvas.tsx",
   "components/workflow-designer.module.css",
   "components/step-palette.tsx",
   "components/step-inspector.tsx",
@@ -74,17 +75,37 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     expect(palette).toContain("onClick={() => onAdd(item.type)}");
   });
 
-  it("uses native DOM/SVG graph rendering and real definition APIs without a graph dependency", () => {
+  it("extracts native DOM/SVG canvas controls without a graph dependency", () => {
     const designer = readRequired("components/workflow-designer.tsx");
+    const canvas = readRequired("components/workflow-canvas.tsx");
     const api = readFileSync(new URL("../../../../../lib/api/workflow-api.ts", import.meta.url), "utf8");
-    expect(designer).toContain("<svg");
+
+    expect(designer).toContain("WorkflowCanvas");
+    expect(canvas).toContain("<svg");
+    expect(canvas).toContain('aria-label="تكبير"');
+    expect(canvas).toContain('aria-label="تصغير"');
+    expect(canvas).toContain('aria-label="ملاءمة الرسم"');
+    expect(canvas).toContain('aria-label="الخريطة المصغرة"');
+    expect(canvas).toContain("deriveWorkflowStagePresentation");
+    expect(canvas).toContain("deriveTransitionProgressState");
+    expect(canvas).not.toMatch(/reactflow|xyflow|dagre/i);
+
     expect(designer).toContain("getDefinitionSteps");
     expect(designer).toContain("getDefinitionTransitions");
     expect(designer).toContain("addDefinitionStep");
     expect(designer).toContain("createDefinitionTransition");
     expect(api).toContain("addDefinitionStep:");
     expect(api).toContain("createDefinitionTransition:");
-    expect(designer).not.toMatch(/reactflow|xyflow|dagre/i);
+  });
+
+  it("keeps canvas movement presentation-only and labels designer progress as preview", () => {
+    const designer = readRequired("components/workflow-designer.tsx");
+    const canvas = readRequired("components/workflow-canvas.tsx");
+
+    expect(designer).toContain("Presentation-only state");
+    expect(designer).toContain("setPositions");
+    expect(canvas).toContain("معاينة بنيوية");
+    expect(canvas).toContain("ليست حالة تنفيذ إنتاجية");
   });
 
   it("supports Y2 step, assignment, approval, SLA, transition and safe AST controls", () => {
