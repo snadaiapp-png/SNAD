@@ -30,9 +30,10 @@ describe("workflow Y2 definition designer (Task 18)", () => {
 
   it("keeps published definitions read-only and offers an explicit next draft", () => {
     const designer = readRequired("components/workflow-designer.tsx");
+    const commandBar = readRequired("components/designer-command-bar.tsx");
     expect(designer).toContain('publicationState === "DRAFT"');
-    expect(designer).toContain("منشور");
-    expect(designer).toContain("إنشاء مسودة جديدة");
+    expect(commandBar).toContain("منشور");
+    expect(commandBar).toContain("إنشاء مسودة جديدة");
     expect(designer).toContain("حذف خطوة");
     expect(designer).toContain("createNextDraft");
   });

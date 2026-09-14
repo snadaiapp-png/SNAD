@@ -12,9 +12,11 @@ import {
   type WorkflowTransitionResponse,
 } from "@/lib/api/workflow-api";
 import { describeWorkflowError } from "@/lib/workflow/error-messages";
+import { DesignerCommandBar } from "./designer-command-bar";
 import { StepPalette } from "./step-palette";
 import { StepInspector, type DesignerStepDraft } from "./step-inspector";
 import { PublishPanel } from "./publish-panel";
+import styles from "./workflow-designer.module.css";
 
 interface NodePosition { x: number; y: number }
 
@@ -168,29 +170,17 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
   }
 
   const published = definition.publicationState === "PUBLISHED";
-  const retired = definition.publicationState === "RETIRED";
 
   return (
-    <div dir="rtl">
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
-        <div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <h1 style={{ margin: 0, fontSize: 24 }}>{definition.name}</h1>
-            <span style={badgeStyle}>
-              {published ? "منشور" : retired ? "متقاعد" : "مسودة"}
-            </span>
-            <span style={badgeStyle}>v{definition.version}</span>
-          </div>
-          <p style={{ margin: "5px 0 0", color: "var(--snad-color-text-secondary)" }}>
-            {definition.code} · {definition.engineGeneration} · مواضع العقد في اللوحة محلية للعرض، أما البنية فتحفظ في الخادم.
-          </p>
-        </div>
-        {published && (
-          <button type="button" disabled={busy} onClick={() => void createNextDraft()}>
-            إنشاء مسودة جديدة
-          </button>
-        )}
-      </header>
+    <div dir="rtl" className={styles.studio}>
+      <DesignerCommandBar
+        definition={definition}
+        busy={busy}
+        view={view}
+        onViewChange={setView}
+        onRefresh={() => void load()}
+        onCreateNextDraft={() => void createNextDraft()}
+      />
 
       {conflict && <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>}
       {error && <p role="alert" style={{ color: "var(--snad-color-error)" }}>{error}</p>}
@@ -201,21 +191,18 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "14px 0" }}>
-        <button type="button" onClick={() => setView("canvas")} disabled={view === "canvas"}>لوحة الرسم</button>
-        <button type="button" onClick={() => setView("table")} disabled={view === "table"}>جدول البنية</button>
-        <button type="button" onClick={() => void load()}>تحديث من الخادم</button>
-        {draft && editable && (
+      {draft && editable && (
+        <div>
           <button type="button" onClick={() => setDraft(null)}>
             حذف خطوة غير محفوظة
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, alignItems: "start" }}>
+      <div className={styles.workspaceGrid}>
         <StepPalette disabled={!editable || Boolean(draft) || busy} onAdd={addLocalDraft} />
 
-        <section aria-label="لوحة تصميم سير العمل" style={{ minWidth: 0 }}>
+        <section aria-label="لوحة تصميم سير العمل" className={styles.canvasRegion}>
           {view === "canvas" ? (
             <div
               onDragOver={(event) => { if (editable) event.preventDefault(); }}
@@ -268,6 +255,11 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
 
               {steps.map((step) => {
                 const position = positions[step.id] ?? { x: 12, y: 12 };
+                const stageClass = step.stepType === "START"
+                  ? styles.stageStart
+                  : step.stepType === "END"
+                    ? styles.stageEnd
+                    : styles.stageUpcoming;
                 return (
                   <button
                     key={step.id}
@@ -276,14 +268,14 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
                     onDragStart={() => setDraggedStepId(step.id)}
                     onDragEnd={() => setDraggedStepId(null)}
                     onClick={() => { setDraft(null); setSelectedStepId(step.id); }}
+                    className={`${stageClass} ${selectedStepId === step.id ? styles.stageCurrent : ""}`.trim()}
                     style={{
                       ...nodeStyle,
                       ...(step.stepType === "PARALLEL_FORK" || step.stepType === "PARALLEL_JOIN"
-                        ? { borderStyle: "dashed", borderWidth: 3, borderColor: "var(--snad-color-info)" }
+                        ? { borderStyle: "dashed", borderWidth: 3 }
                         : {}),
                       left: position.x,
                       top: position.y,
-                      outline: selectedStepId === step.id ? "3px solid var(--snad-color-info)" : undefined,
                       cursor: editable ? "grab" : "pointer",
                     }}
                   >
@@ -406,13 +398,6 @@ const nodeStyle: CSSProperties = {
   borderRadius: 9,
   background: "var(--snad-color-background-default)",
   textAlign: "right",
-};
-
-const badgeStyle: CSSProperties = {
-  padding: "3px 8px",
-  border: "1px solid var(--snad-color-border-default)",
-  borderRadius: 999,
-  fontSize: 12,
 };
 
 const readOnlyStyle: CSSProperties = {
