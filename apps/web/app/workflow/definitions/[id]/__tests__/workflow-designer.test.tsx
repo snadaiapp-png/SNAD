@@ -108,6 +108,21 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     expect(canvas).toContain("ليست حالة تنفيذ إنتاجية");
   });
 
+  it("promotes transition selection into a contextual read-only inspector", () => {
+    const designer = readRequired("components/workflow-designer.tsx");
+    const canvas = readRequired("components/workflow-canvas.tsx");
+    const inspector = readRequired("components/step-inspector.tsx");
+
+    expect(designer).toContain("selectedTransition");
+    expect(designer).toContain("selectedTransitionId");
+    expect(canvas).toContain("onSelectTransition");
+    expect(inspector).toContain("selectedTransition");
+    expect(inspector).toContain("تفاصيل الانتقال");
+    expect(inspector).toContain("سياسة الموافقة");
+    expect(inspector).toContain("AssignmentRuleEditor");
+    expect(inspector).toContain("لا توجد API لتعديله أو حذفه");
+  });
+
   it("supports Y2 step, assignment, approval, SLA, transition and safe AST controls", () => {
     const inspector = readRequired("components/step-inspector.tsx");
     const assignment = readRequired("components/assignment-rule-editor.tsx");
