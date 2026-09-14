@@ -347,7 +347,7 @@ export default function TenantsPage() {
                                 </Button>
                               ) : null}
                               <Button type="button" variant="danger" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ARCHIVED" }); }}>
-                                حذف الحساب
+                                أرشفة الحساب
                               </Button>
                               <Link href={`/executive/subscriptions?tenantId=${tenant.id}&intent=upgrade`}>
                                 ترقية
