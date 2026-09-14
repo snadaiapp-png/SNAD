@@ -38,16 +38,16 @@ public class LifecycleController {
      *
      * <p>Commands with additional business invariants are deliberately excluded:
      * ACTIVATE is owned by provisioning; RENEW by the renewal/invoicing path;
-     * START_TRIAL by a trial-period authority; SCHEDULE_CANCELLATION by the
-     * cancellation service; and billing-derived commands by BillingStateService.
-     * Keeping them off this generic route prevents state-only transitions from
-     * bypassing required financial/provisioning side effects.</p>
+     * EXPIRE by the expiration runtime; START_TRIAL by a trial-period authority;
+     * SCHEDULE_CANCELLATION by the cancellation service; and billing-derived
+     * commands by BillingStateService. Keeping them off this generic route
+     * prevents state-only transitions from bypassing required side effects.</p>
      */
     private static final Set<String> DIRECT_OPERATOR_COMMANDS = Set.of(
-            "PAUSE", "RESUME", "SUSPEND", "CANCEL", "EXPIRE", "TERMINATE");
+            "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE");
 
     private static final Set<String> GOVERNED_ROUTE_COMMANDS = Set.of(
-            "ACTIVATE", "START_TRIAL", "RENEW", "SCHEDULE_CANCELLATION",
+            "ACTIVATE", "START_TRIAL", "RENEW", "EXPIRE", "SCHEDULE_CANCELLATION",
             "MARK_PAST_DUE", "ENTER_GRACE", "REQUEST_ACTIVATION", "PAYMENT_RECEIVED");
 
     public record LifecycleCommandRequest(@NotBlank String reason) {
@@ -102,6 +102,7 @@ public class LifecycleController {
             String owner = switch (command) {
                 case "ACTIVATE" -> "provisioning (/subscriptions/{id}/provision)";
                 case "RENEW" -> "renewal/invoicing (/subscriptions/{id}/renew)";
+                case "EXPIRE" -> "expiration runtime";
                 case "SCHEDULE_CANCELLATION" -> "cancellation service (/subscriptions/{id}/cancel)";
                 case "START_TRIAL" -> "trial-period authority";
                 case "MARK_PAST_DUE", "ENTER_GRACE", "PAYMENT_RECEIVED" -> "BillingStateService";
@@ -171,8 +172,6 @@ public class LifecycleController {
             @RequestParam(name = "status", required = false) String status,
             Authentication authentication) {
         accessGuard.require(authentication);
-        // R0C-12 Blocker B-class: typed RowMapper instead of a raw JDBC
-        // snake_case Map — the console contract is camelCase (ProvisioningJobResponse).
         List<ProvisioningJobResponse> jobs = jdbc.query(
                 "SELECT id, tenant_id, subscription_id, action, status, attempts, "
                         + "started_at, completed_at, error_code, created_at "
