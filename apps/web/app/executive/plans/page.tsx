@@ -18,6 +18,7 @@ import {
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
 import { useScpAccess } from "../_components/ScpAccess";
+import { scpErrorMessage } from "../_components/scp-errors";
 import { PlanVersionPricesTable } from "./PlanVersionPricesTable";
 import { PlanEntitlementsSummary } from "./PlanEntitlementsSummary";
 import styles from "../scp.module.css";
@@ -53,7 +54,7 @@ export default function PlansPage() {
       if (mountedRef.current) setPlans(next);
     } catch (reason) {
       if (mountedRef.current) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(scpErrorMessage(reason));
       }
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -131,7 +132,7 @@ function PlanCard({
         setPrices(active ? await scpApi.planVersionPrices(plan.id, active.id) : []);
       }
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : String(reason));
+      onError(scpErrorMessage(reason));
     }
   }
 
@@ -141,7 +142,7 @@ function PlanCard({
       await scpApi.activatePlanVersion(plan.id, version.id);
       setVersions(await scpApi.planVersions(plan.id));
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : String(reason));
+      onError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -164,7 +165,7 @@ function PlanCard({
       setCreating(false);
       setVersions(await scpApi.planVersions(plan.id));
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : String(reason));
+      onError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
