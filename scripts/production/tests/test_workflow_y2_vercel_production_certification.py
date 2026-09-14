@@ -55,6 +55,21 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
             "manual dispatch must fail closed if its pinned backend SHA is not the live Render SHA",
         )
 
+    def test_push_trigger_covers_workflow_frontend_runtime_surfaces(self):
+        text = WORKFLOW.read_text()
+        required_paths = [
+            '"apps/web/app/workflow/**"',
+            '"apps/web/lib/api/workflow-api.ts"',
+            '"apps/web/lib/workflow/**"',
+            '"apps/web/app/api/platform/**"',
+        ]
+        for path in required_paths:
+            self.assertIn(
+                path,
+                text,
+                f"Vercel Workflow certification must run when runtime surface changes: {path}",
+            )
+
     def test_runtime_probe_uses_vercel_bff_and_exact_release_identity(self):
         text = SCRIPT.read_text()
         required = [

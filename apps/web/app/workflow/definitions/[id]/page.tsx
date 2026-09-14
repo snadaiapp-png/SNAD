@@ -1,14 +1,16 @@
 "use client";
 
-import { use } from "react";
+import { use, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { WorkflowDesigner } from "./components/workflow-designer";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { ExecutiveShell } from "@/components/shell";
+import styles from "../../workflow.module.css";
 
 /**
- * Definition/version designer route (design decision H3). The server stays
- * the authorization boundary; this page only hosts the designer surface.
+ * Definition/version designer route. The server remains the authorization
+ * boundary; this page owns authentication routing and the designer shell.
  */
 export default function WorkflowDesignerPage({
   params,
@@ -16,18 +18,31 @@ export default function WorkflowDesignerPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { state, user } = useAuth();
 
+  useEffect(() => {
+    if (state !== "INITIALIZING" && state !== "CHECKING_SESSION" && !user) {
+      router.push(`/identity/login?from=${encodeURIComponent(`/workflow/definitions/${id}`)}`);
+    }
+  }, [id, router, state, user]);
+
   const isLoading =
-    state === "INITIALIZING" || state === "CHECKING_SESSION" || state === "AUTHENTICATING";
+    state === "INITIALIZING" ||
+    state === "CHECKING_SESSION" ||
+    state === "AUTHENTICATING";
+
   if (isLoading || !user) return <AuthLoadingState />;
 
   return (
     <ExecutiveShell>
-      <div style={{
-        padding: "24px 16px", maxWidth: 1280, margin: "0 auto",
-        direction: "rtl", fontFamily: "system-ui, -apple-system, sans-serif",
-      }}>
+      <div dir="rtl" className={styles.designerPage}>
+        <div className={styles.breadcrumbBar}>
+          <a className={styles.backLink} href="/workflow#definitions">
+            ← العودة إلى تعريفات سير العمل
+          </a>
+          <span className={styles.metaChip}>مصمم Workflow Y2</span>
+        </div>
         <WorkflowDesigner definitionId={id} />
       </div>
     </ExecutiveShell>

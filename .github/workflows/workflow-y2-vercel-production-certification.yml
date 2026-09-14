@@ -10,6 +10,10 @@ on:
       - "scripts/production/tests/mock_workflow_vercel_runtime.py"
       - "scripts/production/tests/verify-workflow-vercel-production-runtime.test.sh"
       - "scripts/production/tests/test_workflow_y2_vercel_production_certification.py"
+      - "apps/web/app/workflow/**"
+      - "apps/web/lib/api/workflow-api.ts"
+      - "apps/web/lib/workflow/**"
+      - "apps/web/app/api/platform/**"
   workflow_dispatch:
     inputs:
       backend_release_sha:
