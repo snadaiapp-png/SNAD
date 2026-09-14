@@ -1,5 +1,8 @@
 "use client";
 
+import { useRef, type KeyboardEvent } from "react";
+import styles from "../workflow.module.css";
+
 export type WorkflowSection =
   | "overview"
   | "definitions"
@@ -29,43 +32,45 @@ export function WorkflowNav({
   value: WorkflowSection;
   onChange: (section: WorkflowSection) => void;
 }) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const moveFocus = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowLeft") nextIndex = (index + 1) % SECTIONS.length;
+    if (event.key === "ArrowRight") nextIndex = (index - 1 + SECTIONS.length) % SECTIONS.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = SECTIONS.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    const next = SECTIONS[nextIndex];
+    onChange(next.key);
+    refs.current[nextIndex]?.focus();
+  };
+
   return (
     <nav
       aria-label="أقسام سير العمل"
       role="tablist"
+      aria-orientation="horizontal"
       dir="rtl"
-      style={{
-        display: "flex",
-        gap: 4,
-        overflowX: "auto",
-        borderBottom: "1px solid var(--snad-color-border-default)",
-        marginBottom: 20,
-      }}
+      className={styles.nav}
     >
-      {SECTIONS.map((section) => {
+      {SECTIONS.map((section, index) => {
         const active = section.key === value;
         return (
           <button
             key={section.key}
+            ref={(element) => { refs.current[index] = element; }}
+            id={`workflow-tab-${section.key}`}
             type="button"
             role="tab"
             aria-selected={active}
             aria-controls={`workflow-panel-${section.key}`}
+            tabIndex={active ? 0 : -1}
+            onKeyDown={(event) => moveFocus(event, index)}
             onClick={() => onChange(section.key)}
-            style={{
-              padding: "10px 14px",
-              border: 0,
-              borderBottom: active
-                ? "2px solid var(--snad-color-primary)"
-                : "2px solid transparent",
-              background: "transparent",
-              color: active
-                ? "var(--snad-color-primary)"
-                : "var(--snad-color-text-secondary)",
-              cursor: "pointer",
-              fontWeight: active ? 700 : 500,
-              whiteSpace: "nowrap",
-            }}
+            className={active ? `${styles.navTab} ${styles.navTabActive}` : styles.navTab}
           >
             {section.label}
           </button>

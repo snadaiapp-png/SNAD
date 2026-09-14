@@ -8,6 +8,7 @@ import {
   type WorkflowModuleCatalogEntry,
 } from "@/lib/api/workflow-api";
 import { describeWorkflowError } from "@/lib/workflow/error-messages";
+import { StatusBadge, WorkflowEmptyState, formatWorkflowStatus } from "./workflow-ui";
 
 /**
  * R0.G5 — Definitions workspace.
@@ -228,7 +229,7 @@ export function WorkflowDefinitions() {
         <div>
           <h2 style={{ margin: 0, fontSize: 20 }}>تعريفات سير العمل</h2>
           <p style={{ margin: "4px 0 0", color: "var(--snad-color-text-secondary)" }}>
-            البيانات والأوامر تأتي من خدمة Workflow؛ لا توجد بيانات تجريبية محلية.
+            أنشئ التعريفات، راقب الإصدارات، وافتح مصمم Y2 من مساحة عمل واحدة.
           </p>
         </div>
         <button type="button" onClick={() => setShowCreate((value) => !value)}>
@@ -436,7 +437,7 @@ function FamilyRow({
         <td style={cellStyle}>{family.publishedVersion === null ? "—" : `v${family.publishedVersion}`}</td>
         <td style={cellStyle}>{family.draftVersion === null ? "—" : `v${family.draftVersion}`}</td>
         <td style={cellStyle}>{family.engine}</td>
-        <td style={cellStyle}>{family.latest.publicationState}</td>
+        <td style={cellStyle}><StatusBadge value={family.latest.publicationState} /></td>
         <td style={cellStyle}>{formatUpdatedAt(family.latest.updatedAt)}</td>
         <td style={cellStyle}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -463,7 +464,7 @@ function FamilyRow({
                   .sort((a, b) => a.version - b.version)
                   .map((version) => (
                     <li key={version.id}>
-                      <code>{`v${version.version}`}</code> — {version.publicationState}
+                      <code>{`v${version.version}`}</code> — {formatWorkflowStatus(version.publicationState)}
                       {version.status ? ` · ${version.status}` : ""}
                     </li>
                   ))}
