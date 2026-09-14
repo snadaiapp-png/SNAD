@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type {
   WorkflowSimulationResponse,
   WorkflowValidationResponse,
@@ -26,18 +26,35 @@ export function DiagnosticsDrawer({
   onSelectTransition: (id: string) => void;
 }) {
   const [tab, setTab] = useState<DrawerTab>("Validation");
+  const tabs: DrawerTab[] = ["Validation", "Simulation", "Activity"];
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectTab = (next: number) => {
+    const item = tabs[(next + tabs.length) % tabs.length];
+    setTab(item);
+    tabRefs.current[(next + tabs.length) % tabs.length]?.focus();
+  };
 
   return (
     <section className={styles.drawer} aria-label="مركز التشخيص والأدلة">
       <div className={styles.drawerTabs} role="tablist" aria-label="Diagnostics">
-        {(["Validation", "Simulation", "Activity"] as DrawerTab[]).map((item) => (
+        {tabs.map((item, index) => (
           <button
             key={item}
             type="button"
             role="tab"
+            id={`diagnostics-tab-${item.toLowerCase()}`}
+            aria-controls={`diagnostics-panel-${item.toLowerCase()}`}
             aria-selected={tab === item}
+            tabIndex={tab === item ? 0 : -1}
+            ref={(node) => { tabRefs.current[index] = node; }}
             className={tab === item ? styles.drawerTabActive : undefined}
             onClick={() => setTab(item)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowRight") { event.preventDefault(); selectTab(index + 1); }
+              if (event.key === "ArrowLeft") { event.preventDefault(); selectTab(index - 1); }
+              if (event.key === "Home") { event.preventDefault(); selectTab(0); }
+              if (event.key === "End") { event.preventDefault(); selectTab(tabs.length - 1); }
+            }}
           >
             {item}
           </button>
@@ -45,7 +62,7 @@ export function DiagnosticsDrawer({
       </div>
 
       {tab === "Validation" && (
-        <div role="tabpanel" className={styles.drawerBody}>
+        <div id="diagnostics-panel-validation" role="tabpanel" aria-labelledby="diagnostics-tab-validation" className={styles.drawerBody}>
           <div className={styles.evidenceBlock}>
             <strong>تشخيص محلي حتمي</strong>
             <small>إرشادي؛ لا يستبدل تحقق الخادم.</small>
@@ -99,7 +116,7 @@ export function DiagnosticsDrawer({
       )}
 
       {tab === "Simulation" && (
-        <div role="tabpanel" className={styles.drawerBody}>
+        <div id="diagnostics-panel-simulation" role="tabpanel" aria-labelledby="diagnostics-tab-simulation" className={styles.drawerBody}>
           <strong>محاكاة غير إنتاجية</strong>
           <p>هذه المعاينة لا تنفذ آثارًا جانبية ولا تنشئ WorkItems أو موافقات أو إشعارات أو تغييرات أعمال.</p>
           {!simulation ? (
@@ -116,7 +133,7 @@ export function DiagnosticsDrawer({
       )}
 
       {tab === "Activity" && (
-        <div role="tabpanel" className={styles.drawerBody}>
+        <div id="diagnostics-panel-activity" role="tabpanel" aria-labelledby="diagnostics-tab-activity" className={styles.drawerBody}>
           <strong>نشاط الجلسة الحالية</strong>
           <small>ليس سجل تدقيق من الخادم.</small>
           {activity.length === 0 ? (
