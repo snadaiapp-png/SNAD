@@ -123,4 +123,27 @@ class SubscriptionDetailServiceTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.detail(SUBSCRIPTION_ID))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    @DisplayName("detail exposes backend-derived direct lifecycle actions and blocking reasons")
+    void detailExposesStateDrivenLifecycleActions() throws Exception {
+        stubDetailQueries();
+        when(jdbc.queryForList(contains("product_entitlements"), eq(SUBSCRIPTION_ID), eq(SUBSCRIPTION_ID)))
+                .thenReturn(List.of());
+
+        SubscriptionDetailService.SubscriptionDetail detail = service.detail(SUBSCRIPTION_ID);
+
+        java.util.Set<String> components = java.util.Arrays.stream(
+                        SubscriptionDetailService.SubscriptionDetail.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .collect(java.util.stream.Collectors.toSet());
+        assertThat(components).contains("availableActions", "blockingReasons");
+
+        @SuppressWarnings("unchecked")
+        List<String> actions = (List<String>) SubscriptionDetailService.SubscriptionDetail.class
+                .getMethod("availableActions").invoke(detail);
+        assertThat(actions).containsExactly("PAUSE", "SUSPEND", "CANCEL", "TERMINATE");
+        assertThat(actions).doesNotContain("ACTIVATE", "RENEW", "EXPIRE");
+    }
+
 }

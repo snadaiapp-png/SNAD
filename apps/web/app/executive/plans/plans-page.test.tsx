@@ -18,6 +18,8 @@ import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const plansMock = vi.fn();
+const createPlanVersionMock = vi.fn();
+const hasMock = vi.fn();
 
 vi.mock("@/lib/api/executive-api", () => ({
   executiveApi: {
@@ -29,7 +31,8 @@ vi.mock("@/lib/api/scp-api", () => ({
   scpApi: {
     planVersions: vi.fn().mockResolvedValue([]),
     activatePlanVersion: vi.fn(),
-    createPlanVersion: vi.fn(),
+    createPlanVersion: (...args: unknown[]) => createPlanVersionMock(...args),
+    planVersionPrices: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -60,6 +63,14 @@ vi.mock("@/lib/auth/auth-provider", () => ({
   useAuth: () => ({ state: "AUTHENTICATED" }),
 }));
 
+vi.mock("@/app/executive/_components/ScpAccess", () => ({
+  useScpAccess: () => ({
+    has: (capability: string) => hasMock(capability),
+    hasAll: () => false,
+    hasAny: () => false,
+  }),
+}));
+
 import PlansPage from "./page";
 
 type Deferred<T> = {
@@ -87,10 +98,19 @@ const PLAN = {
   monthlyPriceMinor: 9900,
   annualPriceMinor: 99000,
   trialDays: 14,
+  maxUsers: 25,
+  maxOrganizations: 5,
+  storageMb: 51200,
+  entitlements: [],
+  createdAt: "2026-01-01T00:00:00Z",
+  updatedAt: "2026-01-01T00:00:00Z",
 };
 
 beforeEach(() => {
   plansMock.mockReset();
+  createPlanVersionMock.mockReset();
+  hasMock.mockReset();
+  hasMock.mockReturnValue(true);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
@@ -188,4 +208,42 @@ describe("PlansPage — loading deadlock regression", () => {
     });
     expect(await screen.findByText("Starter")).toBeInTheDocument();
   });
+
+  it("hides plan mutation controls from read-only viewers", async () => {
+    hasMock.mockReturnValue(false);
+    plansMock.mockResolvedValueOnce([PLAN]);
+
+    render(<PlansPage />);
+    expect(await screen.findByText("Starter")).toBeInTheDocument();
+
+    expect(screen.queryByRole("button", { name: "scp.plans.newVersion" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.plans.activate" })).not.toBeInTheDocument();
+  });
+
+  it("new plan versions preserve the current plan limits instead of resetting hidden defaults", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    plansMock.mockResolvedValueOnce([PLAN]);
+    createPlanVersionMock.mockResolvedValueOnce({});
+
+    render(<PlansPage />);
+    expect(await screen.findByText("Starter")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "scp.plans.newVersion" }));
+
+    expect(screen.getByLabelText("scp.plans.maxUsers")).toHaveValue(25);
+    expect(screen.getByLabelText("scp.plans.maxOrganizations")).toHaveValue(5);
+    expect(screen.getByLabelText("scp.plans.storageMb")).toHaveValue(51200);
+
+    await user.click(screen.getByRole("button", { name: "scp.plans.submitVersion" }));
+
+    await waitFor(() => expect(createPlanVersionMock).toHaveBeenCalledWith(
+      PLAN.id,
+      expect.objectContaining({
+        maxUsers: 25,
+        maxOrganizations: 5,
+        storageMb: 51200,
+      }),
+    ));
+  });
+
 });

@@ -243,4 +243,14 @@ describe("Executive tenant management controls", () => {
     expect(alertText).toMatch(/خطأ|تعذر|حدث/); // Arabic localized backend failure
     expect(alertText).not.toMatch(/uk_tenants_subdomain|Duplicate key|constraint/i); // no raw internals
   });
+
+  it("uses archive terminology for the non-destructive tenant action", async () => {
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "أرشفة الحساب" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "حذف الحساب" })).not.toBeInTheDocument();
+  });
+
 });

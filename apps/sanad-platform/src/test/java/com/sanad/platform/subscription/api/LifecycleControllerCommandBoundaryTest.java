@@ -58,7 +58,7 @@ class LifecycleControllerCommandBoundaryTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "ACTIVATE", "START_TRIAL", "RENEW", "SCHEDULE_CANCELLATION",
-            "MARK_PAST_DUE", "ENTER_GRACE", "REQUEST_ACTIVATION", "PAYMENT_RECEIVED"
+            "MARK_PAST_DUE", "ENTER_GRACE", "REQUEST_ACTIVATION", "PAYMENT_RECEIVED", "EXPIRE"
     })
     void governedCommandsFailClosedOnGenericEndpoint(String command) {
         assertThatThrownBy(() -> controller.executeCommand(
