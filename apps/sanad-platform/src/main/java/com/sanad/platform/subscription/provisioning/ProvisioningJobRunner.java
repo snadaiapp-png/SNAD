@@ -80,6 +80,11 @@ public class ProvisioningJobRunner {
             } catch (Exception e) {
                 recordStep(jobId, step, "FAILED", truncate(e.getMessage()));
                 failures.add(step + ": " + truncate(e.getMessage()));
+                // Provisioning is an ordered pipeline. A later step must never
+                // run after an earlier prerequisite failed: in particular
+                // VALIDATE must not activate a subscription when
+                // ENABLE_APPLICATIONS or RESOLVE_ENTITLEMENTS failed.
+                break;
             }
         }
 
@@ -89,7 +94,19 @@ public class ProvisioningJobRunner {
                     "UPDATE provisioning_jobs SET status = '" + jobStatus + "', error_code = 'STEP_FAILED', "
                             + "error_message = ?, updated_at = NOW() WHERE id = ?",
                     truncate(String.join("; ", failures)), jobId);
-            return new JobOutcome(jobId, "FAILED", skipped);
+            // Truthful outcome classification:
+            // - a prerequisite interruption (ENABLE_APPLICATIONS /
+            //   RESOLVE_ENTITLEMENTS) is repairable, so the caller sees the
+            //   persisted retryable status (RETRYING on the first attempt,
+            //   FAILED once the retry budget is exhausted);
+            // - a VALIDATE refusal (terminal subscription state or a canonical
+            //   transition rejection) can never succeed on a blind re-run, so
+            //   the caller truthfully sees FAILED even though the job row
+            //   keeps its retry-budget bookkeeping for a manual re-queue.
+            String outcomeStatus = failures.stream().anyMatch(f -> f.startsWith("VALIDATE:"))
+                    ? "FAILED"
+                    : jobStatus;
+            return new JobOutcome(jobId, outcomeStatus, skipped);
         }
 
         jdbc.update(
@@ -149,6 +166,10 @@ public class ProvisioningJobRunner {
                         INSERT INTO provisioning_job_steps (
                             id, job_id, step_key, status, detail, completed_at, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+                        ON CONFLICT (job_id, step_key)
+                        DO UPDATE SET status = EXCLUDED.status,
+                                      detail = EXCLUDED.detail,
+                                      completed_at = EXCLUDED.completed_at
                         """,
                 UUID.randomUUID(), jobId, stepKey, status, detail,
                 Timestamp.from(Instant.now()));
