@@ -12,6 +12,8 @@ function readRequired(relative: string) {
 const COMPONENTS = [
   "page.tsx",
   "components/workflow-designer.tsx",
+  "components/designer-command-bar.tsx",
+  "components/workflow-designer.module.css",
   "components/step-palette.tsx",
   "components/step-inspector.tsx",
   "components/assignment-rule-editor.tsx",
@@ -33,6 +35,31 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     expect(designer).toContain("إنشاء مسودة جديدة");
     expect(designer).toContain("حذف خطوة");
     expect(designer).toContain("createNextDraft");
+  });
+
+  it("uses a dedicated command bar without weakening server-authoritative actions", () => {
+    const designer = readRequired("components/workflow-designer.tsx");
+    const commandBar = readRequired("components/designer-command-bar.tsx");
+
+    expect(designer).toContain("DesignerCommandBar");
+    expect(commandBar).toContain("publicationState");
+    expect(commandBar).toContain("لوحة الرسم");
+    expect(commandBar).toContain("جدول البنية");
+    expect(commandBar).toContain("تحديث من الخادم");
+    expect(commandBar).toContain("إنشاء مسودة جديدة");
+    expect(commandBar).toContain('publicationState === "PUBLISHED"');
+  });
+
+  it("defines token-based SNAD stage visuals with Royal Gold terminal emphasis", () => {
+    const css = readRequired("components/workflow-designer.module.css");
+
+    for (const className of ["stageStart", "stageUpcoming", "stageCompleted", "stageEnd", "stageCurrent"]) {
+      expect(css).toContain(`.${className}`);
+    }
+    expect(css).toContain("var(--snad-color-brand-primary)");
+    expect(css).toContain("var(--snad-color-brand-accent)");
+    expect(css).toContain("var(--snad-color-success)");
+    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
   it("uses native DOM/SVG graph rendering and real definition APIs without a graph dependency", () => {
