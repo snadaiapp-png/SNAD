@@ -236,8 +236,8 @@ describe("Executive tenant management controls", () => {
     await waitFor(() => expect(createTenantMock).toHaveBeenCalledTimes(1));
 
     // The dialog must stay open and carry the localized error inside it.
-    expect(screen.getByRole("dialog", { name: "scp.tenants.create" })).toBeInTheDocument();
-    const dialog = screen.getByRole("dialog", { name: "scp.tenants.create" });
+    expect(screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" });
     const alert = within(dialog).getByRole("alert");
     const alertText = alert.textContent ?? "";
     expect(alertText).toMatch(/خطأ|تعذر|حدث/); // Arabic localized backend failure
