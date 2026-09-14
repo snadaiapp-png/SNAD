@@ -177,7 +177,7 @@ export function WorkflowMyTasks() {
       {bothDenied && (
         <div role="alert" data-testid="both-denied" className={`${styles.alert} ${styles.alertWarning}`}>
           <div>
-            <strong>الوصول إلى مهام سير العمل غير متاح لهذا الحساب.</strong>
+            <strong>لا يملك صلاحية الوصول إلى مهام سير العمل.</strong>
             <div>
               اطلب من مسؤول المؤسسة منح صلاحية <code>WORKFLOW.TASK_EXECUTE</code>.
               لم تُخفَ بيانات متاحة؛ الخادم رفض مجموعتي المهام مباشرة.
@@ -199,20 +199,17 @@ export function WorkflowMyTasks() {
             <h3 id="direct-tasks-title" className={styles.subsectionTitle}>مهامي المباشرة</h3>
             <span className={styles.count}>{mine.data.length}</span>
           </div>
-
-          {!bothDenied && (
-            <DatasetErrorBanner
+          <DatasetErrorBanner
               state={mine}
               scope="المهام المباشرة"
               testId="error-mine"
               retryLabel="إعادة محاولة المهام المباشرة"
               onRetry={() => void loadMine()}
             />
-          )}
 
           {!mine.loading && !mine.error && mine.data.length === 0 ? (
             <WorkflowEmptyState
-              title="لا توجد مهام مباشرة"
+              title="لا توجد مهام مباشرة."
               description="أي مهمة تُسند إليك مباشرة ستظهر هنا مع موعدها وأولويتها."
             />
           ) : (
@@ -233,20 +230,17 @@ export function WorkflowMyTasks() {
             <h3 id="pool-tasks-title" className={styles.subsectionTitle}>تجمع المهام</h3>
             <span className={styles.count}>{pool.data.length}</span>
           </div>
-
-          {!bothDenied && (
-            <DatasetErrorBanner
+          <DatasetErrorBanner
               state={pool}
               scope="تجمع المهام"
               testId="error-pool"
               retryLabel="إعادة محاولة تجمع المهام"
               onRetry={() => void loadPool()}
             />
-          )}
 
           {!pool.loading && !pool.error && pool.data.length === 0 ? (
             <WorkflowEmptyState
-              title="لا توجد مهام متاحة للاستلام"
+              title="لا توجد مهام متاحة في التجمع."
               description="المهام المشتركة المؤهلة لك ستظهر هنا ويمكن استلامها بشكل ذري من الخادم."
             />
           ) : (
