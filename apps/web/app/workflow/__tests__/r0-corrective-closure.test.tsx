@@ -110,6 +110,7 @@ describe("R0.G5 — Definitions workspace", () => {
 describe("R0.G6 — Designer semantics", () => {
   const designer = readRequired("definitions/[id]/components/workflow-designer.tsx");
   const inspector = readRequired("definitions/[id]/components/step-inspector.tsx");
+  const designerCss = readRequired("definitions/[id]/components/workflow-designer.module.css");
 
   it("labels every canvas edge with its outcome (SOURCE -> OUTCOME -> DESTINATION)", () => {
     expect(designer).toContain("data-testid={`edge-label-${transition.transitionKey}`}");
@@ -135,7 +136,9 @@ describe("R0.G6 — Designer semantics", () => {
   });
 
   it("stacks the designer layout responsively", () => {
-    expect(designer).toContain("repeat(auto-fit, minmax(280px, 1fr))");
+    expect(designer).toContain("styles.workspaceGrid");
+    expect(designerCss).toContain("@media (max-width: 1100px)");
+    expect(designerCss).toContain("grid-template-columns: 1fr");
   });
 });
 
