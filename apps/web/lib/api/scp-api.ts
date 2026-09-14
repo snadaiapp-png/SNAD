@@ -221,6 +221,8 @@ export interface SubscriptionDetail {
   changes: Array<Record<string, unknown>>;
   provisioningJobs: Array<Record<string, unknown>>;
   audit: Array<Record<string, unknown>>;
+  availableActions: LifecycleCommand[];
+  blockingReasons: string[];
 }
 
 export interface ChangePreview {
@@ -246,16 +248,11 @@ export interface ChangePreview {
 }
 
 export type LifecycleCommand =
-  | "ACTIVATE"
-  | "START_TRIAL"
   | "PAUSE"
   | "RESUME"
   | "SUSPEND"
   | "CANCEL"
-  | "RENEW"
-  | "EXPIRE"
-  | "TERMINATE"
-  | "SCHEDULE_CANCELLATION";
+  | "TERMINATE";
 
 export interface CommandResult {
   subscriptionId: string;
