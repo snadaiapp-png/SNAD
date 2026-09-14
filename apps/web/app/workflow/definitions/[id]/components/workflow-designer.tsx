@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import {
   workflowApi,
@@ -16,6 +16,7 @@ import { DesignerCommandBar } from "./designer-command-bar";
 import { StepPalette } from "./step-palette";
 import { StepInspector, type DesignerStepDraft } from "./step-inspector";
 import { PublishPanel } from "./publish-panel";
+import { WorkflowCanvas } from "./workflow-canvas";
 import styles from "./workflow-designer.module.css";
 
 interface NodePosition { x: number; y: number }
@@ -27,8 +28,8 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
   const [transitions, setTransitions] = useState<WorkflowTransitionResponse[]>([]);
   const [draft, setDraft] = useState<DesignerStepDraft | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [selectedTransitionId, setSelectedTransitionId] = useState<string | null>(null);
   const [positions, setPositions] = useState<Record<string, NodePosition>>({});
-  const [draggedStepId, setDraggedStepId] = useState<string | null>(null);
   const [view, setView] = useState<"canvas" | "table">("canvas");
   const [graphRevision, setGraphRevision] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -52,12 +53,15 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
       if (selectedStepId && !nextSteps.some((step) => step.id === selectedStepId)) {
         setSelectedStepId(null);
       }
+      if (selectedTransitionId && !nextTransitions.some((transition) => transition.id === selectedTransitionId)) {
+        setSelectedTransitionId(null);
+      }
     } catch (cause: unknown) {
       setError(describeWorkflowError(cause, "تعذر تحميل مصمم سير العمل"));
     } finally {
       setLoading(false);
     }
-  }, [definitionId, selectedStepId]);
+  }, [definitionId, selectedStepId, selectedTransitionId]);
 
   useEffect(() => {
     void load();
@@ -68,11 +72,17 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
     () => steps.find((step) => step.id === selectedStepId) ?? null,
     [selectedStepId, steps],
   );
+  const progressContext = useMemo(() => ({
+    visitedStepIds: [] as string[],
+    currentStepId: null as string | null,
+    activeTransitionIds: [] as string[],
+  }), []);
 
   const addLocalDraft = (stepType: WorkflowStepType) => {
     if (!editable || draft) return;
     const ordinal = steps.length + 1;
     setSelectedStepId(null);
+    setSelectedTransitionId(null);
     setDraft({
       localId: `local-${Date.now()}`,
       stepKey: `${stepType.toLowerCase()}_${ordinal}`,
@@ -108,6 +118,7 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
     try {
       const saved = await workflowApi.addDefinitionStep(definitionId, request);
       setDraft(null);
+      setSelectedTransitionId(null);
       setSelectedStepId(saved.id);
       setGraphRevision((value) => value + 1);
       await load();
@@ -147,16 +158,6 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
     } finally {
       setBusy(false);
     }
-  };
-
-  const dropNode = (event: DragEvent<HTMLDivElement>) => {
-    if (!editable || !draggedStepId) return;
-    event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = Math.max(8, Math.min(rect.width - 150, event.clientX - rect.left - 70));
-    const y = Math.max(8, Math.min(rect.height - 64, event.clientY - rect.top - 28));
-    setPositions((current) => ({ ...current, [draggedStepId]: { x, y } }));
-    setDraggedStepId(null);
   };
 
   if (loading && !definition) return <p dir="rtl">جارٍ تحميل المصمم…</p>;
@@ -204,103 +205,25 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
 
         <section aria-label="لوحة تصميم سير العمل" className={styles.canvasRegion}>
           {view === "canvas" ? (
-            <div
-              onDragOver={(event) => { if (editable) event.preventDefault(); }}
-              onDrop={dropNode}
-              style={canvasStyle}
-            >
-              <svg aria-hidden style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
-                <defs>
-                  <marker id="workflow-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
-                    <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
-                  </marker>
-                </defs>
-                {transitions.map((transition) => {
-                  const from = positions[transition.fromStepId];
-                  const to = positions[transition.toStepId];
-                  if (!from || !to) return null;
-                  const labelX = (from.x + 140 + to.x) / 2;
-                  const labelY = (from.y + 28 + to.y + 28) / 2 - 8;
-                  return (
-                    <g key={transition.id}>
-                      <line
-                        x1={from.x + 140}
-                        y1={from.y + 28}
-                        x2={to.x}
-                        y2={to.y + 28}
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        markerEnd="url(#workflow-arrow)"
-                      />
-                      {/* R0.G6 — a transition must visibly communicate
-                          SOURCE -> OUTCOME/CONDITION -> DESTINATION; no
-                          ambiguous decorative lines. */}
-                      <text
-                        data-testid={`edge-label-${transition.transitionKey}`}
-                        x={labelX}
-                        y={labelY}
-                        textAnchor="middle"
-                        fontSize="11"
-                        fill="currentColor"
-                        stroke="var(--snad-color-background-default)"
-                        strokeWidth="3"
-                        paintOrder="stroke"
-                      >
-                        {transition.outcome || transition.transitionKey}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
-
-              {steps.map((step) => {
-                const position = positions[step.id] ?? { x: 12, y: 12 };
-                const stageClass = step.stepType === "START"
-                  ? styles.stageStart
-                  : step.stepType === "END"
-                    ? styles.stageEnd
-                    : styles.stageUpcoming;
-                return (
-                  <button
-                    key={step.id}
-                    type="button"
-                    draggable={editable}
-                    onDragStart={() => setDraggedStepId(step.id)}
-                    onDragEnd={() => setDraggedStepId(null)}
-                    onClick={() => { setDraft(null); setSelectedStepId(step.id); }}
-                    className={`${stageClass} ${selectedStepId === step.id ? styles.stageCurrent : ""}`.trim()}
-                    style={{
-                      ...nodeStyle,
-                      ...(step.stepType === "PARALLEL_FORK" || step.stepType === "PARALLEL_JOIN"
-                        ? { borderStyle: "dashed", borderWidth: 3 }
-                        : {}),
-                      left: position.x,
-                      top: position.y,
-                      cursor: editable ? "grab" : "pointer",
-                    }}
-                  >
-                    <strong>{step.name}</strong>
-                    <span style={{ display: "block", fontSize: 11, opacity: 0.72 }}>
-                      {step.stepType}
-                      {(step.stepType === "PARALLEL_FORK" || step.stepType === "PARALLEL_JOIN") && " ∥"}
-                    </span>
-                  </button>
-                );
-              })}
-
-              {draft && editable && (
-                <div style={{ ...nodeStyle, left: 12, bottom: 12, borderStyle: "dashed", top: "auto" }}>
-                  <strong>{draft.name}</strong>
-                  <span style={{ display: "block", fontSize: 11 }}>{draft.stepType} · غير محفوظة</span>
-                </div>
-              )}
-
-              {steps.length === 0 && !draft && (
-                <p style={{ padding: 24, color: "var(--snad-color-text-secondary)" }}>
-                  لا توجد خطوات بعد. أضف أول عقدة من المكتبة.
-                </p>
-              )}
-            </div>
+            <WorkflowCanvas
+              steps={steps}
+              transitions={transitions}
+              positions={positions}
+              selectedStepId={selectedStepId}
+              selectedTransitionId={selectedTransitionId}
+              editable={Boolean(editable)}
+              progressContext={progressContext}
+              onSelectStep={(id) => {
+                if (id) setDraft(null);
+                setSelectedStepId(id);
+              }}
+              onSelectTransition={setSelectedTransitionId}
+              onMoveStep={(id, position) => {
+                // Presentation-only state: moving nodes never mutates the server,
+                // increments graphRevision, or invalidates authoritative evidence.
+                setPositions((current) => ({ ...current, [id]: position }));
+              }}
+            />
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -353,8 +276,8 @@ function buildPositions(steps: WorkflowStepResponse[], current: Record<string, N
     // R0.G6 — RTL presentation: later steps flow right-to-left, matching
     // the reading direction of the surrounding interface.
     next[step.id] = current[step.id] ?? {
-      x: 24 + (3 - (index % 4)) * 170,
-      y: 24 + Math.floor(index / 4) * 92,
+      x: 24 + (3 - (index % 4)) * 190,
+      y: 24 + Math.floor(index / 4) * 104,
     };
   });
   return next;
@@ -379,26 +302,6 @@ function defaultName(type: WorkflowStepType) {
   };
   return labels[type];
 }
-
-const canvasStyle: CSSProperties = {
-  position: "relative",
-  minHeight: 440,
-  overflow: "auto",
-  border: "1px solid var(--snad-color-border-default)",
-  borderRadius: 10,
-  background: "var(--snad-color-background-default)",
-};
-
-const nodeStyle: CSSProperties = {
-  position: "absolute",
-  width: 140,
-  minHeight: 56,
-  padding: "8px 10px",
-  border: "2px solid var(--snad-color-border-default)",
-  borderRadius: 9,
-  background: "var(--snad-color-background-default)",
-  textAlign: "right",
-};
 
 const readOnlyStyle: CSSProperties = {
   padding: 10,
