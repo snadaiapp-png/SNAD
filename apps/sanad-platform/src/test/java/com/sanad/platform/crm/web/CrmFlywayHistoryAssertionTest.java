@@ -248,7 +248,31 @@ class CrmFlywayHistoryAssertionTest {
             , "20260908.2"   // hr g1 recruitment + onboarding schema
             , "20260908.3"   // hr g1 fail-closed RLS policies
             , "20260908.4"   // hr g1 onboarding checklist template seed
-    );
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only Wave-2 migration
+            // added after prior sentinel baseline (V20260910_1: workflow Y2 SLA
+            // modes, SLA escalation, two-phase cancellation hardening). The
+            // expected head remains explicit — the sentinel is not weakened.
+            , "20260910.1"   // workflow y2 SLA modes + two-phase cancellation hardening
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only R1 migrations
+            // added after prior sentinel baseline (V20260911_1..3: module
+            // entitlement policy, attachments + external participation
+            // foundation, workflow journey/time governance). The expected head
+            // remains explicit — the sentinel is not weakened.
+            , "20260911.1"   // R1 module entitlement policy (WORKFLOW EXPLICIT_OPT_IN)
+            , "20260911.2"   // R1 attachments + external participation foundation
+            , "20260911.3"   // R1 workflow journey/time governance
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only R2 migrations
+            // added after prior sentinel baseline (V20260912_1..3: workflow
+            // notification foundation, external portal feedback, analytics
+            // projections). The expected head remains explicit — the sentinel
+            // is not weakened.
+            , "20260912.1"   // R2 workflow notification foundation
+            , "20260912.2"   // R2 workflow external portal feedback
+            , "20260912.3"   // R2 workflow analytics projections
+            // R0C13 forward-only continuation after the R2 ledger claim.
+            , "20260912.4"   // r0c13 subscription billing persistence foundation
+            , "20260912.5"   // r0c13 verified provider-webhook SELECT-only RLS resolution
+            , "20260912.6"   // r0c13 G07 provider-unavailable reconciliation classification    );
 
 
     @BeforeAll

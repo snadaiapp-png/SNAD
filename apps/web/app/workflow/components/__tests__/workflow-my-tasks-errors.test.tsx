@@ -46,8 +46,19 @@ const anItem = {
   sourceEntityId: "22222222-2222-2222-2222-222222222222",
 };
 
-describe("<WorkflowMyTasks /> error handling contract (Y2 hotfix regression)", () => {
+const poolItem = {
+  ...anItem,
+  id: "33333333-3333-3333-3333-333333333333",
+  title: "مهمة التجمع",
+  assignmentMode: "WORK_POOL",
+  status: "AVAILABLE",
+};
+
+describe("<WorkflowMyTasks /> partial-failure resilience contract (R0.G4)", () => {
   beforeEach(() => {
+    // Drop leftover queued once-implementations and call history so call
+    // counts assert per-test behavior only.
+    vi.resetAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -56,35 +67,133 @@ describe("<WorkflowMyTasks /> error handling contract (Y2 hotfix regression)", (
     vi.restoreAllMocks();
   });
 
-  it("renders an explicit Arabic server error, a retry action, and never the empty state when the API fails with 500", async () => {
+  it("mine=200 + pool=403 renders mine and shows a precise pool denial with independent pool retry", async () => {
+    workflowApiMock.listMyWorkItems.mockResolvedValueOnce([anItem]);
+    workflowApiMock.listPoolWorkItems.mockRejectedValueOnce(httpError(403));
+
+    render(<WorkflowMyTasks />);
+
+    // Mine renders despite the pool denial.
+    await waitFor(() => {
+      expect(screen.getByText("مراجعة الطلب")).toBeInTheDocument();
+    });
+    // Precise pool access state (wait for the rejected pool promise).
+    await waitFor(() => {
+      expect(screen.getByTestId("error-pool")).toHaveTextContent(
+        "لا تملك صلاحية الوصول إلى تجمع المهام",
+      );
+    });
+    // No global both-denied explanation.
+    expect(screen.queryByTestId("both-denied")).not.toBeInTheDocument();
+
+    // Independent retry refetches ONLY the pool.
+    workflowApiMock.listPoolWorkItems.mockResolvedValueOnce([poolItem]);
+    await userEvent.click(screen.getByRole("button", { name: "إعادة محاولة تجمع المهام" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("مهمة التجمع")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("error-pool")).not.toBeInTheDocument();
+    expect(workflowApiMock.listMyWorkItems).toHaveBeenCalledTimes(1);
+  });
+
+  it("mine=403 + pool=200 renders pool and shows a precise mine denial with independent mine retry", async () => {
+    workflowApiMock.listMyWorkItems.mockRejectedValueOnce(httpError(403));
+    workflowApiMock.listPoolWorkItems.mockResolvedValueOnce([poolItem]);
+
+    render(<WorkflowMyTasks />);
+
+    await waitFor(() => {
+      expect(screen.getByText("مهمة التجمع")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("error-mine")).toHaveTextContent(
+        "لا تملك صلاحية الوصول إلى المهام المباشرة",
+      );
+    });
+    expect(screen.queryByTestId("both-denied")).not.toBeInTheDocument();
+
+    workflowApiMock.listMyWorkItems.mockResolvedValueOnce([anItem]);
+    await userEvent.click(screen.getByRole("button", { name: "إعادة محاولة المهام المباشرة" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("مراجعة الطلب")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("error-mine")).not.toBeInTheDocument();
+    expect(workflowApiMock.listPoolWorkItems).toHaveBeenCalledTimes(1);
+  });
+
+  it("mine=500 + pool=200 renders pool and allows independent retry of mine", async () => {
+    workflowApiMock.listMyWorkItems.mockRejectedValueOnce(httpError(500));
+    workflowApiMock.listPoolWorkItems.mockResolvedValueOnce([poolItem]);
+
+    render(<WorkflowMyTasks />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error-mine")).toHaveTextContent("حدث خطأ في الخادم");
+    });
+    expect(screen.getByText("مهمة التجمع")).toBeInTheDocument();
+
+    // Raw transport details must never leak to the user.
+    expect(screen.queryByText(/HTTP 500/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/A database failure occurred/)).not.toBeInTheDocument();
+
+    workflowApiMock.listMyWorkItems.mockResolvedValueOnce([anItem]);
+    await userEvent.click(screen.getByRole("button", { name: "إعادة محاولة المهام المباشرة" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("مراجعة الطلب")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("error-mine")).not.toBeInTheDocument();
+  });
+
+  it("both=403 shows the authorized-access explanation", async () => {
+    workflowApiMock.listMyWorkItems.mockRejectedValueOnce(httpError(403));
+    workflowApiMock.listPoolWorkItems.mockRejectedValueOnce(httpError(403));
+
+    render(<WorkflowMyTasks />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("both-denied")).toHaveTextContent(
+        "لا يملك صلاحية الوصول إلى مهام سير العمل",
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("error-mine")).toBeInTheDocument();
+      expect(screen.getByTestId("error-pool")).toBeInTheDocument();
+    });
+    // A failed request must NOT be presented as an empty state.
+    expect(screen.queryByText("لا توجد مهام مباشرة.")).not.toBeInTheDocument();
+    expect(screen.queryByText("لا توجد مهام متاحة في التجمع.")).not.toBeInTheDocument();
+  });
+
+  it("both=500 keeps both retry paths and never leaks raw internals", async () => {
     workflowApiMock.listMyWorkItems.mockRejectedValueOnce(httpError(500));
     workflowApiMock.listPoolWorkItems.mockRejectedValueOnce(httpError(500));
 
     render(<WorkflowMyTasks />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("حدث خطأ في الخادم");
+      expect(screen.getByTestId("error-mine")).toHaveTextContent("حدث خطأ في الخادم");
     });
-
-    // A failed request must NOT be presented as an empty state.
-    expect(screen.queryByText("لا توجد مهام مباشرة.")).not.toBeInTheDocument();
-    expect(screen.queryByText("لا توجد مهام متاحة في التجمع.")).not.toBeInTheDocument();
-
-    // Raw transport details must never leak to the user.
+    expect(screen.getByTestId("error-pool")).toHaveTextContent("حدث خطأ في الخادم");
     expect(screen.queryByText(/HTTP 500/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/\/api\/v1\//)).not.toBeInTheDocument();
     expect(screen.queryByText(/A database failure occurred/)).not.toBeInTheDocument();
 
-    // Clear retry affordance.
-    const retry = screen.getByRole("button", { name: "إعادة المحاولة" });
     workflowApiMock.listMyWorkItems.mockResolvedValueOnce([anItem]);
     workflowApiMock.listPoolWorkItems.mockResolvedValueOnce([]);
-    await userEvent.click(retry);
+    await userEvent.click(screen.getByRole("button", { name: "إعادة محاولة المهام المباشرة" }));
 
     await waitFor(() => {
       expect(screen.getByText("مراجعة الطلب")).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).not.toBeInTheDocument();
+    // Pool still shows its own retry until it succeeds independently.
+    expect(screen.getByRole("button", { name: "إعادة محاولة تجمع المهام" })).toBeInTheDocument();
+    workflowApiMock.listPoolWorkItems.mockResolvedValueOnce([]);
+    await userEvent.click(screen.getByRole("button", { name: "إعادة محاولة تجمع المهام" }));
+    await waitFor(() => {
+      expect(screen.getByText("لا توجد مهام متاحة في التجمع.")).toBeInTheDocument();
+    });
   });
 
   it("maps 401 to the Arabic session-expired guidance", async () => {
@@ -94,19 +203,7 @@ describe("<WorkflowMyTasks /> error handling contract (Y2 hotfix regression)", (
     render(<WorkflowMyTasks />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("انتهت صلاحية الجلسة");
-    });
-    expect(screen.queryByText("لا توجد مهام مباشرة.")).not.toBeInTheDocument();
-  });
-
-  it("maps 403 to the Arabic permission guidance", async () => {
-    workflowApiMock.listMyWorkItems.mockRejectedValueOnce(httpError(403));
-    workflowApiMock.listPoolWorkItems.mockRejectedValueOnce(httpError(403));
-
-    render(<WorkflowMyTasks />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("لا تملك صلاحية الوصول");
+      expect(screen.getByTestId("error-mine")).toHaveTextContent("انتهت صلاحية الجلسة");
     });
     expect(screen.queryByText("لا توجد مهام مباشرة.")).not.toBeInTheDocument();
   });
@@ -122,9 +219,9 @@ describe("<WorkflowMyTasks /> error handling contract (Y2 hotfix regression)", (
     render(<WorkflowMyTasks />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("تعذر الاتصال بالخادم");
+      expect(screen.getByTestId("error-mine")).toHaveTextContent("تعذر الاتصال بالخادم");
     });
-    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة محاولة المهام المباشرة" })).toBeInTheDocument();
     expect(screen.queryByText("لا توجد مهام متاحة في التجمع.")).not.toBeInTheDocument();
   });
 
@@ -138,6 +235,21 @@ describe("<WorkflowMyTasks /> error handling contract (Y2 hotfix regression)", (
       expect(screen.getByText("لا توجد مهام مباشرة.")).toBeInTheDocument();
     });
     expect(screen.getByText("لا توجد مهام متاحة في التجمع.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /إعادة محاولة/ })).not.toBeInTheDocument();
+  });
+
+  it("never presents row lock counters as semantic versions (R0.G1)", async () => {
+    workflowApiMock.listMyWorkItems.mockResolvedValueOnce([anItem]);
+    workflowApiMock.listPoolWorkItems.mockResolvedValueOnce([]);
+
+    render(<WorkflowMyTasks />);
+
+    await waitFor(() => {
+      expect(screen.getByText("مراجعة الطلب")).toBeInTheDocument();
+    });
+    // Forbidden representation: lock counters rendered as a version.
+    expect(screen.queryByText(/إصدار/)).not.toBeInTheDocument();
+    // Opaque sync-reference token instead.
+    expect(screen.getByText(/مرجع المزامنة #3/)).toBeInTheDocument();
   });
 });

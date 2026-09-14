@@ -44,7 +44,24 @@ const Y2_TYPES: WorkflowStepType[] = [
   "END",
 ];
 
-const OUTCOMES = ["SUCCESS", "APPROVE", "REJECT", "TRUE", "FALSE", "COMPLETE"];
+const OUTCOMES = ["SUCCESS", "APPROVE", "REJECT", "TRUE", "FALSE", "COMPLETE", "TIMEOUT"];
+
+/** R0.G6 — outcome vocabulary is filtered by the source step type so a
+ * CONDITION can only offer TRUE/FALSE and an APPROVAL only APPROVE/REJECT;
+ * TIMEOUT is a first-class outcome for deadline routing (TIMEOUT != SUCCESS). */
+function outcomeOptionsFor(stepType: WorkflowStepType | string | undefined): string[] {
+  switch (stepType) {
+    case "CONDITION":
+      return ["TRUE", "FALSE"];
+    case "APPROVAL":
+      return ["APPROVE", "REJECT"];
+    case "START":
+    case "END":
+      return ["SUCCESS"];
+    default:
+      return OUTCOMES;
+  }
+}
 
 export function StepInspector({
   draft,
@@ -226,7 +243,7 @@ export function StepInspector({
           <strong>{selectedStep.name}</strong>
           <span>{selectedStep.stepKey}</span>
           <span>{selectedStep.stepType}</span>
-          <span>v{selectedStep.version}</span>
+          <span>مرجع المزامنة #{selectedStep.version}</span>
           <small style={{ color: "var(--snad-color-text-secondary)" }}>
             الخطوة المحفوظة للقراءة هنا؛ لا توجد API لتعديلها أو حذفها ضمن عقد Task 18.
           </small>
@@ -261,7 +278,8 @@ export function StepInspector({
         <label style={fieldStyle}>
           <span>outcome</span>
           <select disabled={!editable || busy} value={outcome} onChange={(event) => setOutcome(event.target.value)}>
-            {OUTCOMES.map((item) => <option key={item}>{item}</option>)}
+            {outcomeOptionsFor(steps.find((step) => step.id === fromStepId)?.stepType)
+              .map((item) => <option key={item}>{item}</option>)}
           </select>
         </label>
         <label style={fieldStyle}>

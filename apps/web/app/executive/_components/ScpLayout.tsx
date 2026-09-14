@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { ScpNav } from "./ScpNav";
 import { ScpAuthGate } from "./ScpStates";
+import { ScpAccessProvider } from "./ScpAccess";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import styles from "../scp.module.css";
 
@@ -24,7 +25,10 @@ export function ScpLayout({ children }: { children: ReactNode }) {
 
   return (
     <ScpAuthGate>
-      <div className={styles.scpLayout}>
+      {/* R0C-12 Blocker C: ONE access-check per console session — the nav and
+          every page's mutation gates consume this shared capability state. */}
+      <ScpAccessProvider>
+        <div className={styles.scpLayout}>
         <button
           type="button"
           className={styles.navToggle}
@@ -43,15 +47,16 @@ export function ScpLayout({ children }: { children: ReactNode }) {
           <ScpNav />
         </div>
         {children}
-        {navOpen && (
-          <button
-            type="button"
-            className={styles.navBackdrop}
-            aria-label={t("scp.nav.closeMenu")}
-            onClick={close}
-          />
-        )}
-      </div>
+          {navOpen && (
+            <button
+              type="button"
+              className={styles.navBackdrop}
+              aria-label={t("scp.nav.closeMenu")}
+              onClick={close}
+            />
+          )}
+        </div>
+      </ScpAccessProvider>
     </ScpAuthGate>
   );
 }

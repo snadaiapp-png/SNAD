@@ -2,6 +2,7 @@ package com.sanad.platform.subscription.api;
 
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.subscription.audit.AuditEntryResponse;
 import com.sanad.platform.subscription.audit.AuditQueryService;
 import com.sanad.platform.subscription.rbac.ControlPlaneAccessService;
 import com.sanad.platform.subscription.read.PageResponse;
@@ -45,7 +46,7 @@ public class GovernanceController {
 
     @GetMapping("/audit/v2")
     @RequireCapability("audit.read")
-    public ResponseEntity<PageResponse<Map<String, Object>>> audit(
+    public ResponseEntity<PageResponse<AuditEntryResponse>> audit(
             @RequestParam(name = "tenantId", required = false) UUID tenantId,
             @RequestParam(name = "action", required = false) String action,
             @RequestParam(name = "resourceType", required = false) String resourceType,

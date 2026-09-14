@@ -571,7 +571,8 @@ jobs:
 #   - SKIP CLASSIFICATION: every skipped testcase must be a
 #     known profile-gated class covered by the companion
 #     acceptance run (CommerceOrderPostgresConcurrencyTest = 6,
-#     RbacAccessCheckPostgresAcceptanceTest = 15); any unknown
+#     RbacAccessCheckPostgresAcceptanceTest = 15,
+#     ModuleRegistryUatPostgresAcceptanceTest = 10); any unknown
 #     skip => UNEXPLAINED_SKIPS > 0 => GATE G FAIL
 #   - CRITICAL SCP INVARIANTS from frozen evidence:
 #     FinanceModuleIntegrationTest = 11/0F/0E/0S,
@@ -579,9 +580,9 @@ jobs:
 #     WorkflowY2CapabilityMigrationTest = 3/0F/0E
 #   - PG-ACCEPTANCE COMPANION after the Gate-G freeze only:
 #     pristine pg_acceptance DB, SPRING_PROFILES_ACTIVE=
-#     pg-acceptance, BOTH gated classes in one explicit
-#     invocation, EXPECTED_ACCEPTANCE_TESTS=21 (Commerce=6,
-#     RBAC=15), 0F/0E/0S
+#     pg-acceptance, ALL THREE gated classes in one explicit
+#     invocation, EXPECTED_ACCEPTANCE_TESTS=31 (Commerce=6,
+#     RBAC=15, ModuleRegistryHumanUAT=10), 0F/0E/0S
 #   - EVIDENCE MANIFEST + VERDICT files (A6-GATE-G-METADATA.txt,
 #     A6-GATE-G-RECONCILIATION.txt, A6-GATE-G-VERDICT.txt,
 #     A6-PG-ACCEPTANCE-VERDICT.txt, SHA256SUMS.txt) uploaded as a
@@ -995,7 +996,7 @@ jobs:
                       if has_skip:
                           cn = (tc.get("classname") or s.get("name") or "").split(".")[-1]
                           skip_classes[cn] = skip_classes.get(cn, 0) + 1
-          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15}
+          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15, "ModuleRegistryUatPostgresAcceptanceTest": 10}
           unexplained = critical = 0
           detail = []
           for cn, n in sorted(skip_classes.items()):
@@ -1083,7 +1084,7 @@ jobs:
           date -u +%Y-%m-%dT%H:%M:%SZ > "$CANON_ROOT/ACCEPTANCE_START_UTC.txt"
           set +e
           mvn test -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true \
-            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest' \
+            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest' \
             2>&1 | tee "$CANON_ROOT/A6-PG-ACCEPTANCE-CONSOLE.log"
           ACC_EXIT="${PIPESTATUS[0]}"
           set -e
@@ -1095,7 +1096,7 @@ jobs:
           fi
           echo "ACCEPTANCE_EXIT_CODE=${ACC_EXIT}"
 
-      - name: A6-17 Acceptance verdict (21 executed, 0F/0E/0S, 6+15)
+      - name: A6-17 Acceptance verdict (31 executed, 0F/0E/0S, 6+15+10)
         if: always()
         run: |
           set -euo pipefail
@@ -1136,11 +1137,13 @@ jobs:
           acc_exit = open(os.path.join(root, "ACCEPTANCE_EXIT_CODE.txt")).read().strip() if os.path.exists(os.path.join(root, "ACCEPTANCE_EXIT_CODE.txt")) else "n/a"
           com = per_class.get("CommerceOrderPostgresConcurrencyTest", [0, 0, 0, 0])
           rbac = per_class.get("RbacAccessCheckPostgresAcceptanceTest", [0, 0, 0, 0])
-          ok = (tests == 21 and failures == 0 and errors == 0 and skipped == 0
-                and com[0] == 6 and rbac[0] == 15 and acc_exit == "0" and parse_errors == 0)
+          module_uat = per_class.get("ModuleRegistryUatPostgresAcceptanceTest", [0, 0, 0, 0])
+          ok = (tests == 31 and failures == 0 and errors == 0 and skipped == 0
+                and com[0] == 6 and rbac[0] == 15 and module_uat[0] == 10
+                and acc_exit == "0" and parse_errors == 0)
           with open(out_path, "w") as w:
               w.write("ACCEPTANCE_EXIT_CODE=%s\n" % acc_exit)
-              w.write("EXPECTED_ACCEPTANCE_TESTS=21\n")
+              w.write("EXPECTED_ACCEPTANCE_TESTS=31\n")
               w.write("ACTUAL_ACCEPTANCE_TESTS=%d\n" % tests)
               w.write("PG_ACCEPTANCE_TESTS=%d\n" % tests)
               w.write("PG_ACCEPTANCE_FAILURES=%d\n" % failures)
@@ -1148,6 +1151,7 @@ jobs:
               w.write("PG_ACCEPTANCE_SKIPPED=%d\n" % skipped)
               w.write("COMMERCE_EXECUTED=%d\n" % com[0])
               w.write("RBAC_EXECUTED=%d\n" % rbac[0])
+              w.write("MODULE_REGISTRY_UAT_EXECUTED=%d\n" % module_uat[0])
               w.write("XML_COUNT=%d\n" % len(files))
               w.write("XML_PARSE_ERRORS=%d\n" % parse_errors)
               w.write("PG_ACCEPTANCE_STATUS=%s\n" % ("PASS" if ok else "FAIL"))
@@ -1200,7 +1204,7 @@ jobs:
               "SUREFIRE_RECONCILIATION==PASS": recon.get("SUREFIRE_RECONCILIATION") == "PASS",
               "CRITICAL_INVARIANTS==PASS": recon.get("CRITICAL_INVARIANTS") == "PASS",
               "FROZEN_EVIDENCE_BINDING==PASS": feb == "PASS",
-              "PG_ACCEPTANCE==21/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "21"
+              "PG_ACCEPTANCE==31/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "31"
                                            and acc.get("PG_ACCEPTANCE_FAILURES") == "0"
                                            and acc.get("PG_ACCEPTANCE_ERRORS") == "0"
                                            and acc.get("PG_ACCEPTANCE_SKIPPED") == "0"),

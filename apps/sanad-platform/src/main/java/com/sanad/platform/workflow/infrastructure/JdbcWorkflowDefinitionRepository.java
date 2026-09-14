@@ -75,6 +75,8 @@ public class JdbcWorkflowDefinitionRepository implements WorkflowDefinitionRepos
             rs.getObject("sla_hours", Integer.class),
             rs.getString("required_capability"),
             rs.getString("required_role"),
+            rs.getString("sla_mode"),
+            rs.getObject("sla_calendar_id", UUID.class),
             rs.getLong("version"),
             rs.getTimestamp("created_at").toInstant(),
             rs.getTimestamp("updated_at").toInstant()
@@ -224,8 +226,8 @@ public class JdbcWorkflowDefinitionRepository implements WorkflowDefinitionRepos
                 INSERT INTO workflow_steps
                     (id, tenant_id, workflow_definition_id, step_key, name, step_type,
                      sequence_order, configuration, sla_hours, required_capability,
-                     required_role, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?)
+                     required_role, sla_mode, sla_calendar_id, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 step.id(), step.tenantId(), step.workflowDefinitionId(),
                 step.stepKey(), step.name(), step.stepType().name(),
@@ -234,6 +236,8 @@ public class JdbcWorkflowDefinitionRepository implements WorkflowDefinitionRepos
                 step.slaHours(),
                 step.requiredCapability(),
                 step.requiredRole(),
+                step.slaMode() != null && !step.slaMode().isBlank() ? step.slaMode() : "WALL_CLOCK",
+                step.slaCalendarId(),
                 step.version(),
                 Timestamp.from(step.createdAt()), Timestamp.from(step.updatedAt())
         );
@@ -297,6 +301,7 @@ public class JdbcWorkflowDefinitionRepository implements WorkflowDefinitionRepos
                 UPDATE workflow_steps SET
                     name = ?, step_type = ?, sequence_order = ?, configuration = CAST(? AS jsonb),
                     sla_hours = ?, required_capability = ?, required_role = ?,
+                    sla_mode = ?, sla_calendar_id = ?,
                     version = ?, updated_at = ?
                 WHERE id = ? AND workflow_definition_id = ? AND version = ?
                 """,
@@ -305,6 +310,8 @@ public class JdbcWorkflowDefinitionRepository implements WorkflowDefinitionRepos
                 step.slaHours(),
                 step.requiredCapability(),
                 step.requiredRole(),
+                step.slaMode() != null && !step.slaMode().isBlank() ? step.slaMode() : "WALL_CLOCK",
+                step.slaCalendarId(),
                 step.version(), Timestamp.from(step.updatedAt()),
                 step.id(), step.workflowDefinitionId(), step.version() - 1
         );

@@ -7,34 +7,102 @@ import {
 } from "@/lib/api/workflow-api";
 import { describeWorkflowError } from "@/lib/workflow/error-messages";
 
+/**
+ * R0.G4 — My Tasks partial-failure resilience.
+ *
+ * MINE (direct assignments) and POOL (work pool) are independent datasets
+ * with independent loading/data/error state and independent retry. One
+ * endpoint failing must never destroy or withhold the other dataset, and
+ * the access state shown must be precise about WHICH dataset was denied.
+ */
+type DatasetState = {
+  loading: boolean;
+  data: WorkflowWorkItemResponse[];
+  error: string | null;
+  errorCode: number | null;
+};
+
+const DATASET_INITIAL: DatasetState = {
+  loading: true,
+  data: [],
+  error: null,
+  errorCode: null,
+};
+
+function DatasetErrorBanner({
+  state,
+  scope,
+  testId,
+  retryLabel,
+  onRetry,
+}: {
+  state: DatasetState;
+  scope: string;
+  testId: string;
+  retryLabel: string;
+  onRetry: () => void;
+}) {
+  if (!state.error) return null;
+  const denied = state.errorCode === 403;
+  return (
+    <div
+      role="alert"
+      data-testid={testId}
+      style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}
+    >
+      <p style={{ color: "var(--snad-color-error)", margin: 0 }}>
+        {denied
+          ? `لا تملك صلاحية الوصول إلى ${scope}.`
+          : state.error}
+      </p>
+      <button type="button" onClick={onRetry}>
+        {retryLabel}
+      </button>
+    </div>
+  );
+}
+
 export function WorkflowMyTasks() {
-  const [mine, setMine] = useState<WorkflowWorkItemResponse[]>([]);
-  const [pool, setPool] = useState<WorkflowWorkItemResponse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [mine, setMine] = useState<DatasetState>(DATASET_INITIAL);
+  const [pool, setPool] = useState<DatasetState>(DATASET_INITIAL);
   const [conflict, setConflict] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
   const [actioningId, setActioningId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadMine = useCallback(async () => {
+    setMine((previous) => ({ ...previous, loading: true, error: null, errorCode: null }));
     try {
-      const [myItems, poolItems] = await Promise.all([
-        workflowApi.listMyWorkItems(50),
-        workflowApi.listPoolWorkItems(50),
-      ]);
-      setMine(myItems);
-      setPool(poolItems);
+      const data = await workflowApi.listMyWorkItems(50);
+      setMine({ loading: false, data, error: null, errorCode: null });
     } catch (cause: unknown) {
-      setError(describeWorkflowError(cause, "تعذر تحميل المهام"));
-    } finally {
-      setLoading(false);
+      setMine({
+        loading: false,
+        data: [],
+        error: describeWorkflowError(cause, "تعذر تحميل المهام المباشرة"),
+        errorCode: (cause as { status?: number })?.status ?? null,
+      });
+    }
+  }, []);
+
+  const loadPool = useCallback(async () => {
+    setPool((previous) => ({ ...previous, loading: true, error: null, errorCode: null }));
+    try {
+      const data = await workflowApi.listPoolWorkItems(50);
+      setPool({ loading: false, data, error: null, errorCode: null });
+    } catch (cause: unknown) {
+      setPool({
+        loading: false,
+        data: [],
+        error: describeWorkflowError(cause, "تعذر تحميل تجمع المهام"),
+        errorCode: (cause as { status?: number })?.status ?? null,
+      });
     }
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMine();
+    void loadPool();
+  }, [loadMine, loadPool]);
 
   const runCommand = async (
     workItem: WorkflowWorkItemResponse,
@@ -42,19 +110,19 @@ export function WorkflowMyTasks() {
   ) => {
     setActioningId(workItem.id);
     setConflict(null);
-    setError(null);
+    setCommandError(null);
     try {
       await command();
-      await load();
+      await Promise.allSettled([loadMine(), loadPool()]);
     } catch (cause: unknown) {
       const status = (cause as { status?: number })?.status;
       if (status === 409) {
         setConflict(`تم تحديث المهمة ${workItem.id.slice(0, 8)}… من مستخدم آخر. أُعيد تحميل النسخة الأحدث.`);
-        await load();
+        await Promise.allSettled([loadMine(), loadPool()]);
       } else if (status === 403) {
-        setError(describeWorkflowError(cause, "لا تملك صلاحية تنفيذ هذا الإجراء على المهمة"));
+        setCommandError(describeWorkflowError(cause, "لا تملك صلاحية تنفيذ هذا الإجراء على المهمة"));
       } else {
-        setError(describeWorkflowError(cause, "فشل تنفيذ الإجراء"));
+        setCommandError(describeWorkflowError(cause, "فشل تنفيذ الإجراء"));
       }
     } finally {
       setActioningId(null);
@@ -62,39 +130,57 @@ export function WorkflowMyTasks() {
   };
 
   const claim = (workItem: WorkflowWorkItemResponse) =>
-    runCommand(
-      workItem,
-      () => workflowApi.claimWorkItem(workItem.id, workItem.version),
-    );
+    runCommand(workItem, () => workflowApi.claimWorkItem(workItem.id, workItem.version));
 
   const release = (workItem: WorkflowWorkItemResponse) =>
-    runCommand(
-      workItem,
-      () => workflowApi.releaseWorkItem(workItem.id, workItem.version),
-    );
+    runCommand(workItem, () => workflowApi.releaseWorkItem(workItem.id, workItem.version));
 
   const complete = (workItem: WorkflowWorkItemResponse) =>
-    runCommand(
-      workItem,
-      () => workflowApi.completeWorkItem(workItem.id, workItem.version),
-    );
+    runCommand(workItem, () => workflowApi.completeWorkItem(workItem.id, workItem.version));
 
-  if (loading) return <p>جارٍ التحميل…</p>;
+  const bothDenied = mine.errorCode === 403 && pool.errorCode === 403;
+  const anyLoading = mine.loading || pool.loading;
 
   return (
     <div dir="rtl">
       <h2 style={{ marginTop: 0, fontSize: 20 }}>مهامي</h2>
-      {conflict && <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>}
-      {error && (
-        <div role="alert" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <p style={{ color: "var(--snad-color-error)", margin: 0 }}>{error}</p>
-          <button type="button" onClick={() => void load()}>إعادة المحاولة</button>
+
+      {anyLoading && (
+        <p role="status" data-testid="tasks-loading">
+          {mine.loading && pool.loading
+            ? "جارٍ التحميل…"
+            : mine.loading
+              ? "جارٍ تحميل المهام المباشرة…"
+              : "جارٍ تحميل تجمع المهام…"}
+        </p>
+      )}
+
+      {bothDenied && (
+        <div role="alert" data-testid="both-denied">
+          <p style={{ color: "var(--snad-color-error)", margin: 0 }}>
+            حسابك لا يملك صلاحية الوصول إلى مهام سير العمل — تكلّم مع مالك النظام لمنح صلاحية
+            WORKFLOW.TASK_EXECUTE.
+          </p>
         </div>
       )}
 
+      {conflict && <p role="alert" style={{ color: "var(--snad-color-warning)" }}>{conflict}</p>}
+      {commandError && (
+        <p role="alert" style={{ color: "var(--snad-color-error)" }}>
+          {commandError}
+        </p>
+      )}
+
       <h3>مهامي المباشرة</h3>
-      {!error && mine.length === 0 && <p>لا توجد مهام مباشرة.</p>}
-      {mine.map((workItem) => (
+      <DatasetErrorBanner
+        state={mine}
+        scope="المهام المباشرة"
+        testId="error-mine"
+        retryLabel="إعادة محاولة المهام المباشرة"
+        onRetry={() => void loadMine()}
+      />
+      {!mine.loading && !mine.error && mine.data.length === 0 && <p>لا توجد مهام مباشرة.</p>}
+      {mine.data.map((workItem) => (
         <WorkItemCard
           key={workItem.id}
           workItem={workItem}
@@ -105,8 +191,15 @@ export function WorkflowMyTasks() {
       ))}
 
       <h3 style={{ marginTop: 24 }}>تجمع المهام (Work Pool)</h3>
-      {!error && pool.length === 0 && <p>لا توجد مهام متاحة في التجمع.</p>}
-      {pool.map((workItem) => (
+      <DatasetErrorBanner
+        state={pool}
+        scope="تجمع المهام"
+        testId="error-pool"
+        retryLabel="إعادة محاولة تجمع المهام"
+        onRetry={() => void loadPool()}
+      />
+      {!pool.loading && !pool.error && pool.data.length === 0 && <p>لا توجد مهام متاحة في التجمع.</p>}
+      {pool.data.map((workItem) => (
         <WorkItemCard
           key={workItem.id}
           workItem={workItem}
@@ -135,7 +228,7 @@ function WorkItemCard({
     <article style={{ border: "1px solid var(--snad-color-border-default)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
       <strong>{workItem.title}</strong>{" "}
       <span style={{ fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
-        {workItem.status} · إصدار {workItem.version}
+        {workItem.status} · مرجع المزامنة #{workItem.version}
       </span>
       <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
         {onClaim && <button type="button" disabled={busy} onClick={onClaim}>استلام</button>}

@@ -186,7 +186,35 @@ class CrmPostgresMigrationTest {
     private static final String HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION = "20260908.2";
     private static final String HR_G1_RLS_POLICIES_VERSION = "20260908.3";
     private static final String HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION = "20260908.4";
-    private static final String LATEST_MIGRATION_VERSION = HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION;
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only Wave-2 migration added
+    // after prior sentinel baseline: V20260910_1 (workflow Y2 SLA modes, SLA
+    // escalation, and two-phase cancellation hardening) extends the merged
+    // ledger; the sentinel still validates the entire sequence exactly and the
+    // expected head remains explicit (20260910.1).
+    private static final String WORKFLOW_Y2_SLA_CANCELLATION_VERSION = "20260910.1";
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only R1 migrations added
+    // after prior sentinel baseline: V20260911_1 (module entitlement policy,
+    // WORKFLOW EXPLICIT_OPT_IN), V20260911_2 (attachments + external
+    // participation foundation), and V20260911_3 (workflow journey/time
+    // governance) extend the merged ledger; the sentinel still validates the
+    // entire sequence exactly and the expected head remains explicit
+    // (20260911.3).
+    private static final String R1_MODULE_ENTITLEMENT_POLICY_VERSION = "20260911.1";
+    private static final String R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION = "20260911.2";
+    private static final String R1_JOURNEY_TIME_GOVERNANCE_VERSION = "20260911.3";
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only R2 migrations added
+    // after prior sentinel baseline: V20260912_1 (workflow notification
+    // foundation), V20260912_2 (workflow external portal feedback), and
+    // V20260912_3 (workflow analytics projections) extend the merged ledger;
+    // the sentinel still validates the entire sequence exactly and the
+    // expected head remains explicit (20260912.3).
+    private static final String R2_NOTIFICATION_FOUNDATION_VERSION = "20260912.1";
+    private static final String R2_EXTERNAL_PORTAL_FEEDBACK_VERSION = "20260912.2";
+    private static final String R2_ANALYTICS_PROJECTIONS_VERSION = "20260912.3";
+    private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.4";
+    private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.5";
+    private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.6";
+    private static final String LATEST_MIGRATION_VERSION = R0C13_G07_PROVIDER_UNAVAILABLE_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -423,6 +451,16 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(HR_G1_RLS_POLICIES_VERSION),
                         MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
+                        MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
+                        MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
+                        MigrationVersion.fromVersion(R2_NOTIFICATION_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R2_EXTERNAL_PORTAL_FEEDBACK_VERSION),
+                        MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
+                        MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -597,6 +635,16 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION),
                         MigrationVersion.fromVersion(HR_G1_RLS_POLICIES_VERSION),
                         MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION));
+                        MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
+                        MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
+                        MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R1_JOURNEY_TIME_GOVERNANCE_VERSION),
+                        MigrationVersion.fromVersion(R2_NOTIFICATION_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R2_EXTERNAL_PORTAL_FEEDBACK_VERSION),
+                        MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
+                        MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
+                        MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

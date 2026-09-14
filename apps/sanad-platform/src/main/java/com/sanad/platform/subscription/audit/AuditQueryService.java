@@ -2,24 +2,56 @@ package com.sanad.platform.subscription.audit;
 
 import com.sanad.platform.subscription.read.PageResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
  * Paginated read access to {@code platform_audit_logs} for the executive
  * console. Read-only; writes go through {@code PlatformAuditWriter} only.
+ *
+ * <p>R0C-12 Blocker B correction: rows are mapped through an explicit,
+ * typed {@link RowMapper} into {@link AuditEntryResponse} — the raw JDBC
+ * {@code Map} (snake_case column names) is no longer returned to the web
+ * console, whose {@code AuditEntry} contract is camelCase. Nullable columns
+ * (actor ids, resource_id, reason, correlation_id) map to {@code null}.
  */
 @Service
 public class AuditQueryService {
 
     /** Whitelisted sort columns — never interpolate unvalidated input into SQL. */
     private static final Set<String> SORTABLE = Set.of("created_at", "action", "resource_type");
+
+    /**
+     * Explicit typed projection — the JSON contract is defined by
+     * {@link AuditEntryResponse} component names (camelCase), never by the
+     * physical column names.
+     */
+    private static final RowMapper<AuditEntryResponse> AUDIT_ROW_MAPPER =
+            (ResultSet rs, int rowNum) -> new AuditEntryResponse(
+                    rs.getObject("id", UUID.class),
+                    rs.getObject("actor_tenant_id", UUID.class),
+                    rs.getObject("actor_user_id", UUID.class),
+                    rs.getObject("target_tenant_id", UUID.class),
+                    rs.getString("action"),
+                    rs.getString("resource_type"),
+                    rs.getString("resource_id"),
+                    rs.getString("reason"),
+                    rs.getString("result"),
+                    rs.getString("correlation_id"),
+                    toInstant(rs.getTimestamp("created_at")));
+
+    private static Instant toInstant(Timestamp timestamp) {
+        return timestamp == null ? null : timestamp.toInstant();
+    }
 
     private final JdbcTemplate jdbc;
 
@@ -28,9 +60,9 @@ public class AuditQueryService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<Map<String, Object>> query(UUID targetTenantId, String action,
-                                                   String resourceType, int page, int size,
-                                                   String sort, String direction) {
+    public PageResponse<AuditEntryResponse> query(UUID targetTenantId, String action,
+                                                  String resourceType, int page, int size,
+                                                  String sort, String direction) {
         int safeSize = Math.min(Math.max(size, 1), 200);
         int safePage = Math.max(page, 0);
         String sortColumn = sort != null && SORTABLE.contains(sort) ? sort : "created_at";
@@ -57,10 +89,11 @@ public class AuditQueryService {
 
         String orderSql = " ORDER BY " + sortColumn + " " + sortDirection
                 + " LIMIT ? OFFSET ?";
-        List<Map<String, Object>> rows = jdbc.queryForList(
+        List<AuditEntryResponse> rows = jdbc.query(
                 "SELECT id, actor_tenant_id, actor_user_id, target_tenant_id, action, "
                         + "resource_type, resource_id, reason, result, correlation_id, created_at"
                         + " FROM platform_audit_logs" + where + orderSql,
+                AUDIT_ROW_MAPPER,
                 appendAll(filterArgs, List.of(safeSize, safePage * safeSize)).toArray());
 
         return PageResponse.of(rows, safePage, safeSize, total == null ? 0 : total);

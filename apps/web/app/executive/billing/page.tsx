@@ -12,6 +12,7 @@ import {
   ScpStatusPill,
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
+import { scpErrorMessage } from "../_components/scp-errors";
 import styles from "../scp.module.css";
 
 /**
@@ -34,7 +35,7 @@ export default function BillingPage() {
     try {
       setInvoices(await executiveApi.invoices());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setLoading(false);
     }

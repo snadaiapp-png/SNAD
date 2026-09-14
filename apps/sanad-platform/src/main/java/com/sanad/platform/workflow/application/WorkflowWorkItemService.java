@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -27,16 +28,19 @@ public class WorkflowWorkItemService {
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowWorkItemService.class);
 
+    private final WorkflowAttachmentService attachmentService;
     private final WorkflowWorkItemRepository workItemRepo;
     private final HrEmployeeRepository employeeRepo;
     private final WorkflowNotificationService notificationService;
 
     public WorkflowWorkItemService(WorkflowWorkItemRepository workItemRepo,
                                    HrEmployeeRepository employeeRepo,
-                                   WorkflowNotificationService notificationService) {
+                                   WorkflowNotificationService notificationService,
+                                   WorkflowAttachmentService attachmentService) {
         this.workItemRepo = workItemRepo;
         this.employeeRepo = employeeRepo;
         this.notificationService = notificationService;
+        this.attachmentService = attachmentService;
     }
 
     @Transactional
@@ -140,7 +144,38 @@ public class WorkflowWorkItemService {
         log.info("WorkItem reassigned: tenant={} item={} to={} by={} reason={} version={}",
                 tenantId, workItemId, newAssigneeEmployeeId, actingEmployeeId, reason,
                 reassigned.version());
+        // R2.13 reassignment notification: durable intent + journey evidence,
+        // deduped per reassignment event (version-bounded key). Delivery is
+        // decoupled (dispatcher); a notification failure never rolls back the
+        // reassignment.
+        try {
+            UUID newAssigneeUserId = resolveUserIdForEmployee(tenantId, newAssigneeEmployeeId);
+            notificationService.enqueue(tenantId,
+                    new WorkflowNotificationService.NotificationIntentRequest(
+                            "TASK_REASSIGNED", reassigned.workflowInstanceId(),
+                            workItemId, null,
+                            newAssigneeUserId, null, null, "IN_APP",
+                            "reassign:" + workItemId + ":" + expectedVersion,
+                            "Task reassigned to you",
+                            "A workflow task has been reassigned to you: " + reason,
+                            null, "ar", "HIGH", null,
+                            null, workItemId,
+                            "reassign:" + workItemId + ":" + expectedVersion,
+                            Map.of("workItemId", workItemId.toString(),
+                                    "assigneeEmployeeId",
+                                    String.valueOf(newAssigneeEmployeeId))));
+        } catch (IllegalStateException raced) {
+            log.debug("Reassignment notification dedup race for item {}: {}",
+                    workItemId, raced.getMessage());
+        }
         return reassigned;
+    }
+
+    /** Best-effort Employee.id -> User.id mapping for IN_APP delivery. */
+    private UUID resolveUserIdForEmployee(UUID tenantId, UUID employeeId) {
+        return employeeRepo.findById(tenantId, employeeId)
+                .map(com.sanad.platform.hr.domain.HrEmployee::userId)
+                .orElse(null);
     }
 
     @Transactional(readOnly = true)

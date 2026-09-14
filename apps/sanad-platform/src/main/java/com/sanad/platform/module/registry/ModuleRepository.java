@@ -30,6 +30,8 @@ public class ModuleRepository {
         m.setDisplayOrder(rs.getInt("display_order"));
         m.setVersion(rs.getString("version"));
         m.setEnabled(rs.getBoolean("enabled"));
+        String policy = rs.getString("entitlement_policy");
+        m.setEntitlementPolicy(policy == null ? "DEFAULT_COMPATIBILITY" : policy);
         Timestamp createdAt = rs.getTimestamp("created_at");
         Timestamp updatedAt = rs.getTimestamp("updated_at");
         m.setCreatedAt(createdAt != null ? createdAt.toInstant() : null);

@@ -77,6 +77,7 @@ class WorkflowEngineIntegrationTest {
                     + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
                     uid, tenantId, "wf-" + uid.toString().substring(0, 8) + "@test", now, now);
         }
+        grantWorkflowEntitlement();
 
         var roleId = UUID.randomUUID();
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) "
@@ -88,6 +89,38 @@ class WorkflowEngineIntegrationTest {
             jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) "
                     + "VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), tenantId, roleId, cap.get("id"), now);
         }
+    }
+
+    /**
+     * R1 GATE R1.2/R1.4 alignment: WORKFLOW is EXPLICIT_OPT_IN, so the API
+     * start path (NEW PRODUCT USE) is guarded by requireWorkflowEnabled in
+     * WorkflowController. This suite predates R1 and verifies ENGINE and API
+     * semantics under RBAC, not the entitlement contract — the fixture
+     * therefore grants the paid entitlement (same pattern as
+     * WorkflowEntitlementEnforcementTest) so the 200-OK API assertions run
+     * under an entitled tenant. No assertion is weakened.
+     */
+    private void grantWorkflowEntitlement() {
+        UUID planId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO saas_plans (id, code, name, status, currency_code, monthly_price_minor,
+                     annual_price_minor, trial_days, max_users, max_organizations, storage_mb,
+                     created_at, updated_at)
+                VALUES (?,?,?,?, 'SAR', 0, 0, 0, 10, 1, 0, NOW(), NOW())
+                """, planId, "WFENG_" + UUID.randomUUID().toString().substring(0, 8),
+                "Engine integration plan", "ACTIVE");
+        jdbc.update("""
+                INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
+                     seat_quantity, credit_balance_minor, started_at, current_period_start,
+                     current_period_end, cancel_at_period_end, created_at, updated_at)
+                VALUES (?,?,?, 'ACTIVE', 'MONTHLY', 5, 0, NOW(), NOW(),
+                        NOW() + INTERVAL '30 days', false, NOW(), NOW())
+                """, UUID.randomUUID(), tenantId, planId);
+        jdbc.update("""
+                INSERT INTO plan_module_entitlements (id, plan_id, module_id, module_enabled,
+                     capability_code, created_at, updated_at)
+                SELECT ?, ?, id, true, NULL, NOW(), NOW() FROM modules WHERE code = 'WORKFLOW'
+                """, UUID.randomUUID(), planId);
     }
 
     private Authentication auth() {

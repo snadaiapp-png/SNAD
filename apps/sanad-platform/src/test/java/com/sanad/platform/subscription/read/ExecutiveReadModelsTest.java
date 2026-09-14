@@ -126,6 +126,8 @@ class ExecutiveReadModelsTest {
         row.put("item_count", 2);
         row.put("trial", false);
         row.put("cancel_at_period_end", false);
+        row.put("current_period_end", java.sql.Timestamp.from(
+                java.time.Instant.parse("2026-10-01T00:00:00Z")));
         when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of(row));
 
         PageResponse<SubscriptionGridQueryService.SubscriptionRow> page =
@@ -137,6 +139,8 @@ class ExecutiveReadModelsTest {
         assertThat(page.content().get(0).monthlyPriceMinor()).isEqualTo(29_900L);
         assertThat(page.content().get(0).planVersion()).isEqualTo("v2");
         assertThat(page.content().get(0).itemCount()).isEqualTo(2);
+        assertThat(page.content().get(0).currentPeriodEnd())
+                .isEqualTo(java.time.Instant.parse("2026-10-01T00:00:00Z"));
     }
 
     @Test
@@ -200,6 +204,36 @@ class ExecutiveReadModelsTest {
         assertThat(bound[1]).isEqualTo(20);
         assertThat(bound[2]).isEqualTo(0);
         assertThat(bound).allSatisfy(v -> assertThat(v).isNotInstanceOf(List.class));
+    }
+
+    @Test
+    @DisplayName("tenant directory: latest subscription status has deterministic id tie-breaker")
+    void tenantDirectoryLatestStatusIsDeterministic() {
+        stubTenantCount();
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        tenantDirectory.search(null, null, null, 0, 20, "name", "ASC");
+
+        verify(jdbc).queryForList(
+                contains("ORDER BY s.created_at DESC, s.id DESC LIMIT 1"),
+                any(Object[].class));
+    }
+
+    @Test
+    @DisplayName("subscription grid: legacy rows without plan_version_id fall back to parent plan prices")
+    void subscriptionGridLegacyPriceFallbackIsExplicit() {
+        when(jdbc.queryForObject(contains("SELECT COUNT(*) FROM tenant_subscriptions"),
+                eq(Long.class), any(Object[].class))).thenReturn(0L);
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        subscriptionGrid.search(null, null, null, null, false, 0, 20, null, null);
+
+        verify(jdbc).queryForList(
+                contains("COALESCE(pv.monthly_price_minor, p.monthly_price_minor)"),
+                any(Object[].class));
+        verify(jdbc).queryForList(
+                contains("COALESCE(pv.annual_price_minor, p.annual_price_minor)"),
+                any(Object[].class));
     }
 
     private void stubCounts() {

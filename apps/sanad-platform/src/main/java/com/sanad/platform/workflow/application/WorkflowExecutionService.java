@@ -43,16 +43,19 @@ public class WorkflowExecutionService {
     private final WorkflowStepInstanceRepository stepInstanceRepo;
     private final WorkflowDefinitionRepository defRepo;
     private final WorkflowTransitionAuditRepository auditRepo;
+    private final WorkflowGraphExecutionService graphExecutionService;
 
     public WorkflowExecutionService(
             WorkflowInstanceRepository instanceRepo,
             WorkflowStepInstanceRepository stepInstanceRepo,
             WorkflowDefinitionRepository defRepo,
-            WorkflowTransitionAuditRepository auditRepo) {
+            WorkflowTransitionAuditRepository auditRepo,
+            WorkflowGraphExecutionService graphExecutionService) {
         this.instanceRepo = instanceRepo;
         this.stepInstanceRepo = stepInstanceRepo;
         this.defRepo = defRepo;
         this.auditRepo = auditRepo;
+        this.graphExecutionService = graphExecutionService;
     }
 
     @Transactional
@@ -127,6 +130,13 @@ public class WorkflowExecutionService {
     @Transactional
     public WorkflowInstance cancel(UUID tenantId, UUID id, UUID cancelledBy, String reason) {
         var i = load(tenantId, id);
+        // Route by the persisted engine generation (Z3/AA3): Y2 instances take
+        // the two-phase graph cancellation (P3), LEGACY instances keep their
+        // direct backward-compatible cancellation. No instance is served by
+        // both engines.
+        if (i.engineGeneration() == WorkflowInstance.EngineGeneration.Y2) {
+            return graphExecutionService.cancel(tenantId, id, cancelledBy, reason);
+        }
         var oldStatus = i.status().name();
         var updated = instanceRepo.save(i.cancel(cancelledBy, reason));
         audit(cancelledBy, updated, null, WorkflowTransitionAudit.Action.CANCEL,

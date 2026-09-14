@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   scpApi,
   type ChangePreview,
@@ -24,6 +24,8 @@ import {
   ScpStatusPill,
 } from "../../_components/ScpStates";
 import { useScpFormat } from "../../_components/format";
+import { useScpAccess } from "../../_components/ScpAccess";
+import { scpErrorMessage } from "../../_components/scp-errors";
 import styles from "../../scp.module.css";
 import {
   SubscriptionEntitlementsSection,
@@ -38,9 +40,30 @@ import {
  */
 export default function SubscriptionDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const subscriptionId = params.id;
+  const tenantIdParam = searchParams.get("tenantId") ?? "";
+  const intentParam = searchParams.get("intent") ?? "";
+  const backParams = new URLSearchParams();
+  if (tenantIdParam) backParams.set("tenantId", tenantIdParam);
+  if (intentParam === "upgrade") backParams.set("intent", "upgrade");
+  const backQuery = backParams.toString();
+  const subscriptionsHref = `/executive/subscriptions${backQuery ? `?${backQuery}` : ""}`;
   const { t } = useI18n();
   const { money, day, number } = useScpFormat();
+  // R0C-12 Blocker C — unified, fail-closed mutation gating. The backend
+  // enforces EXECUTIVE_MANAGE on every lifecycle command and on plan changes;
+  // the granular subscription.* write codes are co-granted with
+  // EXECUTIVE_MANAGE (V20260830_2), so requiring ALL of them identifies the
+  // same population without ever false-enabling a control.
+  const { has, hasAll } = useScpAccess();
+  const canManageLifecycle = hasAll([
+    "subscription.create",
+    "subscription.change_plan",
+    "subscription.cancel",
+    "subscription.suspend",
+  ]);
+  const canChangePlan = has("subscription.change_plan");
 
   const [detail, setDetail] = useState<SubscriptionDetail | null>(null);
   const [items, setItems] = useState<SubscriptionItem[] | null>(null);
@@ -71,7 +94,7 @@ export default function SubscriptionDetailPage() {
         scpApi.usage(tenantId).then(setUsage).catch(() => setUsage(null));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setLoading(false);
     }
@@ -80,6 +103,21 @@ export default function SubscriptionDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    executiveApi
+      .plans()
+      .then((result) => {
+        if (active) setPlans(result);
+      })
+      .catch((reason) => {
+        if (active) setError(scpErrorMessage(reason));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function runCommand(command: string) {
     setBusy(true);
@@ -94,7 +132,7 @@ export default function SubscriptionDetailPage() {
       setNotice(t("scp.detail.commandApplied", { command: result.command, from: result.fromStatus, to: result.toStatus }));
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -105,22 +143,17 @@ export default function SubscriptionDetailPage() {
     setBusy(true);
     setNotice("");
     try {
-      if (!plans) {
-        setPlans(await executiveApi.plans());
-      }
       const versions: PlanVersion[] = await scpApi.planVersions(changePlanId);
-      const active = versions.find((version) => version.status === "ACTIVE") ?? versions[0];
+      const active = versions.find((version) => version.status === "ACTIVE");
       if (!active) {
-        setNotice(t("scp.detail.noVersionForPlan"));
+        setNotice(t("scp.detail.noActiveVersionForPlan"));
         return;
       }
-      const overview = detail?.overview ?? {};
-      const country = String(overview.tenantCountry ?? overview.countryCode ?? "GLOBAL");
       setChangePreview(
-        await scpApi.previewChange(subscriptionId, active.id, country),
+        await scpApi.previewChange(subscriptionId, active.id),
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -131,19 +164,16 @@ export default function SubscriptionDetailPage() {
     setBusy(true);
     setError("");
     try {
-      const overview = detail?.overview ?? {};
-      const country = String(overview.tenantCountry ?? overview.countryCode ?? "GLOBAL");
       await scpApi.executeChange(
         subscriptionId,
         changePreview.targetPlanVersionId,
-        country,
         "Executive plan change",
       );
       setChangePreview(null);
       setNotice(t("scp.detail.changeExecuted"));
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -165,7 +195,7 @@ export default function SubscriptionDetailPage() {
       title={`${t("scp.detail.title")} — ${String(overview.tenantName ?? overview.tenantCode ?? subscriptionId)}`}
       subtitle={String(overview.planName ?? "")}
     >
-      <Link href="/executive/subscriptions" className={styles.appCardMeta}>
+      <Link href={subscriptionsHref} className={styles.appCardMeta}>
         ← {t("scp.subscriptions.title")}
       </Link>
 
@@ -350,21 +380,23 @@ export default function SubscriptionDetailPage() {
             maxLength={200}
           />
         </label>
-        <div className={styles.filters}>
-          {(["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"] as const).map(
-            (command) => (
-              <Button
-                key={command}
-                variant="secondary"
-                size="sm"
-                disabled={busy}
-                onClick={() => void runCommand(command)}
-              >
-                {command}
-              </Button>
-            ),
-          )}
-        </div>
+        {canManageLifecycle ? (
+          <div className={styles.filters}>
+            {(["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"] as const).map(
+              (command) => (
+                <Button
+                  key={command}
+                  variant="secondary"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void runCommand(command)}
+                >
+                  {t(`scp.detail.lifecycle.${command}`)}
+                </Button>
+              ),
+            )}
+          </div>
+        ) : null}
       </section>
 
       <section className={styles.panel} aria-labelledby="scp-change-heading">
@@ -391,11 +423,13 @@ export default function SubscriptionDetailPage() {
         {changePreview ? (
           <div>
             <p className={styles.pageSubtitle}>
-              {t("scp.detail.currentTotal")}: {money(changePreview.currentMonthlyMinor, changePreview.currencyCode)}
+              {t("scp.detail.currentTotal")}: {money(changePreview.currentMonthlyMinor, changePreview.currentCurrencyCode ?? changePreview.currencyCode)}
               {" · "}
-              {t("scp.detail.targetTotal")}: {money(changePreview.targetMonthlyMinor, changePreview.currencyCode)}
+              {t("scp.detail.targetTotal")}: {money(changePreview.targetMonthlyMinor, changePreview.targetCurrencyCode ?? changePreview.currencyCode)}
               {" · "}
-              {t("scp.detail.delta")}: {money(changePreview.deltaMonthlyMinor, changePreview.currencyCode)}
+              {t("scp.detail.delta")}: {changePreview.deltaMonthlyMinor === null
+                ? "—"
+                : money(changePreview.deltaMonthlyMinor, changePreview.currencyCode)}
             </p>
             {changePreview.warnings.length > 0 ? (
               <ul>
@@ -405,11 +439,11 @@ export default function SubscriptionDetailPage() {
                   </li>
                 ))}
               </ul>
-            ) : (
+            ) : canChangePlan ? (
               <Button variant="primary" size="sm" disabled={busy} onClick={() => void confirmPlanChange()}>
                 {t("scp.detail.confirmChange")}
               </Button>
-            )}
+            ) : null}
           </div>
         ) : null}
       </section>

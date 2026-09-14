@@ -81,12 +81,29 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260906_2 = SCP subscription multiplicity MODEL_B (renumbered from
     //                 V20260906_1 at integration; unmerged on PR #989).
     //   V20260908_1 = workflow incident optimistic lock (forward-merged from
-    //                 main; last main-owned versioned migration).
     //   V20260908_2..4 = HRM-G1 recruitment & onboarding forward chain
     //                 (schema, RLS, seed; renumbered from 20260908.1-.3 so
     //                 main's optimistic lock keeps 20260908.1).
-    private static final String CRM_LATEST_VERSION = "20260908.4"; // Terminal versioned migration: V20260908_4 seeds the G1 onboarding checklist template
-
+    //                 main).
+    // Wave-2 closure (TEST_ALIGNMENT_REASON = legitimate forward-only Wave-2
+    // migration added after prior sentinel baseline):
+    //   V20260910_1 = workflow Y2 SLA modes, SLA escalation, and two-phase
+    //                 cancellation hardening.
+    // R1 closure (TEST_ALIGNMENT_REASON = legitimate forward-only R1
+    //   migrations added after the Wave-2 baseline):
+    //   V20260911_1 = module entitlement policy (WORKFLOW EXPLICIT_OPT_IN).
+    //   V20260911_2 = attachments + external participation foundation.
+    //   V20260911_3 = workflow journey/time governance.
+    // R2 closure (TEST_ALIGNMENT_REASON = legitimate forward-only R2
+    //   migrations added after the R1 baseline):
+    //   V20260912_1 = workflow notification foundation.
+    //   V20260912_2 = workflow external portal feedback.
+    //   V20260912_3 = workflow analytics projections.
+    // R0C13 closure continues the same forward-only ledger:
+    //   V20260912_4 = subscription billing persistence foundation.
+    //   V20260912_5 = verified provider-webhook resolution.
+    //   V20260912_6 = provider-unavailable reconciliation classification (current terminal migration).
+    private static final String CRM_LATEST_VERSION = "20260912.6"; // Terminal versioned migration: V20260912_6 adds R0C13 G07 provider-unavailable reconciliation classification
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");

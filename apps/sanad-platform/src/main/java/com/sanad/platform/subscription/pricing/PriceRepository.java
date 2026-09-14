@@ -120,7 +120,7 @@ public class PriceRepository {
         try {
             return JSON.readValue(tiersJson, TIER_LIST);
         } catch (Exception e) {
-            return List.of();
+            throw new IllegalArgumentException("Malformed price tiers JSON", e);
         }
     }
 

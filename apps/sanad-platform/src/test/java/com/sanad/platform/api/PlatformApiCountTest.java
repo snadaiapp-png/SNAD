@@ -48,8 +48,29 @@ class PlatformApiCountTest {
      *  + 4 R0C-11 product catalog runtime endpoints (GET /products, GET /products/{id},
      *  POST /products, PUT /products/{id} — NO DELETE by design) = 825.
      *  + 1 R0C-12 design-contract detail alias (GET /subscriptions/{id} — additive,
-     *  same read model as /subscriptions/{id}/detail) = 826. */
-    private static final long EXPECTED_TOTAL_OPS = 826;
+     *  same read model as /subscriptions/{id}/detail) = 826.
+     *  + 1 R0C-12 tenant-management profile update (PATCH /tenants/{tenantId},
+     *  EXECUTIVE_MANAGE — the governed GREEN implementation of the R0C12 human-UAT
+     *  contract; /api/v1/executive group 80 → 81) = 827.
+     *  + 1 Workflow R0 definition version-history endpoint
+     *  (GET /api/v1/workflows/definitions/{id}/versions, WORKFLOW.VIEW-gated;
+     *  reviewed R0 corrective scope, old-R0 commit ebbd3d32, transplanted onto
+     *  post-Wave-2 main) = 828.
+     *  + 1 Workflow R1 dynamic Designer module catalog
+     *  (GET /api/v1/workflows/catalog/modules, WORKFLOW.VIEW + paid entitlement
+     *  gated; R1 GATE R1.10 replaces the static frontend module list) = 829.
+     *  + 24 Workflow R2 experience-intelligence endpoints (PR #1026; STALE_GATE_ASSUMPTION
+     *  per CI 34698941545, expected 829 was 853): notifications (9: GET feed,
+     *  GET unread-count, POST {id}/read, POST read-all, GET policies,
+     *  POST policies, GET webhook-endpoints, POST webhook-endpoints,
+     *  POST webhook-endpoints/{id}/status), external portal (4: POST view,
+     *  POST respond, POST otp, GET status), analytics (8: GET dashboards
+     *  service/employee/executive/bottleneck/sla/customer, POST rebuild,
+     *  GET metrics/employee/{employeeId}), ai-context (1: GET
+     *  instance/{instanceId}), customer feedback (2: POST + GET) = 853.
+     *  + 1 R0C13 signed provider webhook ingress
+     *  (POST /api/v1/billing/provider/webhook) = 854. */
+    private static final long EXPECTED_TOTAL_OPS = 854;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -66,7 +87,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(80);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(81);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
@@ -80,6 +101,8 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/executive/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/workflows/catalog/modules", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/billing/provider/webhook", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/master", "get")).isTrue();

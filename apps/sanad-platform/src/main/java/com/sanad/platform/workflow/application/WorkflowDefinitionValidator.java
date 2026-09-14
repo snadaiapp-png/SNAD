@@ -86,6 +86,16 @@ public class WorkflowDefinitionValidator {
         checkConditionAsts(transitions, errors);
         checkConfigurationPayload(steps, errors);
         checkAssignmentConfiguration(steps, errors);
+        // R0.G7 hardening — deterministic structural semantics (additive;
+        // existing error codes and behaviors are unchanged).
+        checkStartIncoming(steps, transitions, errors);
+        checkEndOutgoing(steps, transitions, errors);
+        checkPathToEnd(steps, transitions, errors);
+        checkTransitionDeterminism(steps, transitions, errors);
+        checkConditionOutcomes(steps, transitions, errors);
+        checkForkJoinConsistency(steps, errors);
+        checkSystemActionConfiguration(steps, errors);
+        checkAssignmentTypeValidity(steps, errors);
 
         log.debug("WorkflowDefinition validated: tenant={} definition={} errors={}",
                 tenantId, definitionId, errors.size());
@@ -294,6 +304,263 @@ public class WorkflowDefinitionValidator {
             return max + 1;
         }
         return 1;
+    }
+
+    /** Known assignment-rule type tokens (sealed WorkflowAssignmentRule hierarchy). */
+    private static final Set<String> ASSIGNMENT_TYPES = Set.of(
+            "EMPLOYEE", "MANAGER", "POSITION", "DEPARTMENT", "ROLE", "PERMISSION");
+
+    private void checkStartIncoming(List<WorkflowStep> steps,
+                                    List<WorkflowTransition> transitions,
+                                    List<WorkflowDefinitionValidation.Error> errors) {
+        for (WorkflowStep step : steps) {
+            if (step.stepType() != WorkflowStep.StepType.START) continue;
+            boolean hasIncoming = transitions.stream().anyMatch(t -> t.toStepId().equals(step.id()));
+            if (hasIncoming) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "START_INCOMING_INVALID",
+                        "START step '" + step.stepKey() + "' must not have incoming transitions",
+                        step.id()));
+            }
+        }
+    }
+
+    private void checkEndOutgoing(List<WorkflowStep> steps,
+                                  List<WorkflowTransition> transitions,
+                                  List<WorkflowDefinitionValidation.Error> errors) {
+        for (WorkflowStep step : steps) {
+            if (step.stepType() != WorkflowStep.StepType.END) continue;
+            boolean hasOutgoing = transitions.stream().anyMatch(t -> t.fromStepId().equals(step.id()));
+            if (hasOutgoing) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "END_OUTGOING_INVALID",
+                        "END step '" + step.stepKey() + "' must not have outgoing transitions",
+                        step.id()));
+            }
+        }
+    }
+
+    /** Reverse reachability: every non-END step must be able to reach an END. */
+    private void checkPathToEnd(List<WorkflowStep> steps,
+                                List<WorkflowTransition> transitions,
+                                List<WorkflowDefinitionValidation.Error> errors) {
+        boolean hasEnd = steps.stream().anyMatch(s -> s.stepType() == WorkflowStep.StepType.END);
+        if (!hasEnd) return; // END_MISSING already reported
+        Set<UUID> reachesEnd = new HashSet<>();
+        LinkedList<UUID> queue = new LinkedList<>();
+        for (WorkflowStep step : steps) {
+            if (step.stepType() == WorkflowStep.StepType.END) {
+                reachesEnd.add(step.id());
+                queue.add(step.id());
+            }
+        }
+        while (!queue.isEmpty()) {
+            UUID current = queue.poll();
+            transitions.stream()
+                    .filter(t -> t.toStepId().equals(current))
+                    .forEach(t -> {
+                        if (reachesEnd.add(t.fromStepId())) queue.add(t.fromStepId());
+                    });
+        }
+        for (WorkflowStep step : steps) {
+            if (step.stepType() != WorkflowStep.StepType.END && !reachesEnd.contains(step.id())) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "NO_PATH_TO_END",
+                        "Step '" + step.stepKey() + "' has no path to an END step",
+                        step.id()));
+            }
+        }
+    }
+
+    /**
+     * Deterministic edge semantics: duplicate transitions (same source,
+     * outcome and target) and ambiguous transitions (same source and outcome
+     * but different targets) can never resolve to exactly one successor.
+     * Duplicate transition keys are enforced by the database unique
+     * constraint, re-checked here defensively for corrupted/imported graphs.
+     */
+    private void checkTransitionDeterminism(List<WorkflowStep> steps,
+                                            List<WorkflowTransition> transitions,
+                                            List<WorkflowDefinitionValidation.Error> errors) {
+        // A PARALLEL_FORK intentionally fires ALL of its outgoing branches —
+        // same-outcome fan-out from a fork is not ambiguity.
+        Set<UUID> forkStepIds = steps.stream()
+                .filter(s -> s.stepType() == WorkflowStep.StepType.PARALLEL_FORK)
+                .map(WorkflowStep::id)
+                .collect(java.util.stream.Collectors.toSet());
+        java.util.Map<String, java.util.List<WorkflowTransition>> bySourceOutcome = new java.util.HashMap<>();
+        Set<String> seenExact = new HashSet<>();
+        Set<String> seenKeys = new HashSet<>();
+        for (WorkflowTransition t : transitions) {
+            String exact = t.fromStepId() + "|" + outcomeToken(t) + "|" + t.toStepId();
+            if (!seenExact.add(exact)) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "TRANSITION_DUPLICATE",
+                        "Transition '" + t.transitionKey()
+                                + "' duplicates an existing source/outcome/target edge",
+                        t.fromStepId()));
+            }
+            if (!forkStepIds.contains(t.fromStepId())) {
+                bySourceOutcome.computeIfAbsent(t.fromStepId() + "|" + outcomeToken(t),
+                                k -> new ArrayList<>())
+                        .add(t);
+            }
+            if (!seenKeys.add(t.transitionKey())) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "TRANSITION_KEY_DUPLICATE",
+                        "Transition key '" + t.transitionKey() + "' is used more than once",
+                        t.fromStepId()));
+            }
+        }
+        for (java.util.List<WorkflowTransition> group : bySourceOutcome.values()) {
+            long distinctTargets = group.stream().map(WorkflowTransition::toStepId).distinct().count();
+            if (distinctTargets > 1) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "TRANSITION_AMBIGUOUS",
+                        "Source/outcome pair on transition '" + group.get(0).transitionKey()
+                                + "' resolves to multiple targets",
+                        group.get(0).fromStepId()));
+            }
+        }
+    }
+
+    private String outcomeToken(WorkflowTransition t) {
+        return t.outcome() == null ? "" : t.outcome().toUpperCase(Locale.ROOT);
+    }
+
+    /** CONDITION steps must declare exactly one TRUE and one FALSE branch. */
+    private void checkConditionOutcomes(List<WorkflowStep> steps,
+                                        List<WorkflowTransition> transitions,
+                                        List<WorkflowDefinitionValidation.Error> errors) {
+        for (WorkflowStep step : steps) {
+            if (step.stepType() != WorkflowStep.StepType.CONDITION) continue;
+            List<WorkflowTransition> outgoing = transitions.stream()
+                    .filter(t -> t.fromStepId().equals(step.id()))
+                    .toList();
+            java.util.Map<String, Long> counts = outgoing.stream().collect(
+                    java.util.stream.Collectors.groupingBy(
+                            t -> outcomeToken(t), java.util.stream.Collectors.counting()));
+            if (counts.getOrDefault("TRUE", 0L) < 1 || counts.getOrDefault("FALSE", 0L) < 1) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "CONDITION_OUTCOME_MISSING",
+                        "Condition step '" + step.stepKey()
+                                + "' must declare exactly one TRUE and one FALSE transition",
+                        step.id()));
+            }
+            boolean ambiguous = counts.entrySet().stream().anyMatch(e -> e.getValue() > 1);
+            if (ambiguous) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "CONDITION_OUTCOME_AMBIGUOUS",
+                        "Condition step '" + step.stepKey()
+                                + "' has more than one transition for the same outcome",
+                        step.id()));
+            }
+        }
+    }
+
+    /** A graph that contains only one of FORK/JOIN is structurally inconsistent. */
+    private void checkForkJoinConsistency(List<WorkflowStep> steps,
+                                          List<WorkflowDefinitionValidation.Error> errors) {
+        boolean hasFork = steps.stream().anyMatch(s -> s.stepType() == WorkflowStep.StepType.PARALLEL_FORK);
+        boolean hasJoin = steps.stream().anyMatch(s -> s.stepType() == WorkflowStep.StepType.PARALLEL_JOIN);
+        if (hasFork ^ hasJoin) {
+            errors.add(new WorkflowDefinitionValidation.Error(
+                    "FORK_JOIN_MISMATCH",
+                    "Graph contains " + (hasFork ? "PARALLEL_FORK without PARALLEL_JOIN"
+                            : "PARALLEL_JOIN without PARALLEL_FORK"),
+                    null));
+        }
+    }
+
+    /** SYSTEM_ACTION steps must declare a registered adapter token. */
+    private void checkSystemActionConfiguration(List<WorkflowStep> steps,
+                                                List<WorkflowDefinitionValidation.Error> errors) {
+        for (WorkflowStep step : steps) {
+            if (step.stepType() != WorkflowStep.StepType.SYSTEM_ACTION) continue;
+            String adapter = null;
+            if (step.configuration() != null && !step.configuration().isBlank()) {
+                try {
+                    JsonNode config = objectMapper.readTree(step.configuration());
+                    JsonNode node = config.get("adapter");
+                    if (node != null && !node.isNull()) adapter = node.asText();
+                } catch (Exception ignored) {
+                    // STEP_CONFIG_INVALID already reported
+                }
+            }
+            if (adapter == null || adapter.isBlank()) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "SYSTEM_ACTION_CONFIG_MISSING",
+                        "System action step '" + step.stepKey()
+                                + "' must declare configuration.adapter",
+                        step.id()));
+            }
+        }
+    }
+
+    /**
+     * Assignment configuration must reference the sealed assignment-rule
+     * vocabulary with a resolvable structural target. Validation stays
+     * metadata-only: existence of referenced employees/roles/capabilities is
+     * resolved (fail-closed) at runtime, not here.
+     */
+    private void checkAssignmentTypeValidity(List<WorkflowStep> steps,
+                                             List<WorkflowDefinitionValidation.Error> errors) {
+        for (WorkflowStep step : steps) {
+            if (step.stepType() != WorkflowStep.StepType.HUMAN_TASK
+                    && step.stepType() != WorkflowStep.StepType.APPROVAL) continue;
+            if (step.configuration() == null || step.configuration().isBlank()) continue;
+            try {
+                JsonNode config = objectMapper.readTree(step.configuration());
+                JsonNode assignment = config.get("assignment");
+                if (assignment == null || !assignment.isObject() || !assignment.has("type")) continue;
+                String type = assignment.get("type").asText("").toUpperCase(Locale.ROOT);
+                if (!ASSIGNMENT_TYPES.contains(type)) {
+                    errors.add(new WorkflowDefinitionValidation.Error(
+                            "ASSIGNMENT_CONFIG_INVALID",
+                            "Assignment type '" + type + "' on step '" + step.stepKey()
+                                    + "' is not a supported assignment rule",
+                            step.id()));
+                    continue;
+                }
+                if (!assignmentTargetPresent(assignment, type)) {
+                    errors.add(new WorkflowDefinitionValidation.Error(
+                            "ASSIGNMENT_CONFIG_INVALID",
+                            "Assignment rule on step '" + step.stepKey()
+                                    + "' of type " + type + " requires a target",
+                            step.id()));
+                }
+            } catch (Exception ignored) {
+                // STEP_CONFIG_INVALID already reported
+            }
+        }
+    }
+
+    private boolean assignmentTargetPresent(JsonNode assignment, String type) {
+        String target = textOr(assignment.get("target"));
+        return switch (type) {
+            case "EMPLOYEE" -> uuidOr(textOr(assignment.get("employeeId")), target) != null;
+            case "ROLE" -> !textOr(assignment.get("roleCode")).isBlank()
+                    || !textOr(assignment.get("role")).isBlank() || !target.isBlank();
+            case "PERMISSION" -> !textOr(assignment.get("capabilityCode")).isBlank()
+                    || !textOr(assignment.get("capability")).isBlank() || !target.isBlank();
+            case "POSITION" -> !textOr(assignment.get("positionId")).isBlank() || !target.isBlank();
+            case "DEPARTMENT" -> !textOr(assignment.get("departmentId")).isBlank() || !target.isBlank();
+            default -> true; // MANAGER resolves its subject at runtime
+        };
+    }
+
+    private String textOr(JsonNode node) {
+        return node == null || node.isNull() ? "" : node.asText("");
+    }
+
+    private UUID uuidOr(String primary, String fallback) {
+        String candidate = primary == null || primary.isBlank() ? fallback : primary;
+        if (candidate == null || candidate.isBlank()) return null;
+        try {
+            return UUID.fromString(candidate);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private void checkAssignmentConfiguration(List<WorkflowStep> steps,

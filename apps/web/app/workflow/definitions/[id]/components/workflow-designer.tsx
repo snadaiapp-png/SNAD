@@ -212,7 +212,7 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
         )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 0.65fr) minmax(340px, 2fr) minmax(260px, 1fr)", gap: 12, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, alignItems: "start" }}>
         <StepPalette disabled={!editable || Boolean(draft) || busy} onAdd={addLocalDraft} />
 
         <section aria-label="لوحة تصميم سير العمل" style={{ minWidth: 0 }}>
@@ -232,17 +232,36 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
                   const from = positions[transition.fromStepId];
                   const to = positions[transition.toStepId];
                   if (!from || !to) return null;
+                  const labelX = (from.x + 140 + to.x) / 2;
+                  const labelY = (from.y + 28 + to.y + 28) / 2 - 8;
                   return (
-                    <line
-                      key={transition.id}
-                      x1={from.x + 140}
-                      y1={from.y + 28}
-                      x2={to.x}
-                      y2={to.y + 28}
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      markerEnd="url(#workflow-arrow)"
-                    />
+                    <g key={transition.id}>
+                      <line
+                        x1={from.x + 140}
+                        y1={from.y + 28}
+                        x2={to.x}
+                        y2={to.y + 28}
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        markerEnd="url(#workflow-arrow)"
+                      />
+                      {/* R0.G6 — a transition must visibly communicate
+                          SOURCE -> OUTCOME/CONDITION -> DESTINATION; no
+                          ambiguous decorative lines. */}
+                      <text
+                        data-testid={`edge-label-${transition.transitionKey}`}
+                        x={labelX}
+                        y={labelY}
+                        textAnchor="middle"
+                        fontSize="11"
+                        fill="currentColor"
+                        stroke="var(--snad-color-background-default)"
+                        strokeWidth="3"
+                        paintOrder="stroke"
+                      >
+                        {transition.outcome || transition.transitionKey}
+                      </text>
+                    </g>
                   );
                 })}
               </svg>
@@ -259,6 +278,9 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
                     onClick={() => { setDraft(null); setSelectedStepId(step.id); }}
                     style={{
                       ...nodeStyle,
+                      ...(step.stepType === "PARALLEL_FORK" || step.stepType === "PARALLEL_JOIN"
+                        ? { borderStyle: "dashed", borderWidth: 3, borderColor: "var(--snad-color-info)" }
+                        : {}),
                       left: position.x,
                       top: position.y,
                       outline: selectedStepId === step.id ? "3px solid var(--snad-color-info)" : undefined,
@@ -266,7 +288,10 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
                     }}
                   >
                     <strong>{step.name}</strong>
-                    <span style={{ display: "block", fontSize: 11, opacity: 0.72 }}>{step.stepType}</span>
+                    <span style={{ display: "block", fontSize: 11, opacity: 0.72 }}>
+                      {step.stepType}
+                      {(step.stepType === "PARALLEL_FORK" || step.stepType === "PARALLEL_JOIN") && " ∥"}
+                    </span>
                   </button>
                 );
               })}
@@ -333,8 +358,10 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
 function buildPositions(steps: WorkflowStepResponse[], current: Record<string, NodePosition>) {
   const next: Record<string, NodePosition> = {};
   steps.forEach((step, index) => {
+    // R0.G6 — RTL presentation: later steps flow right-to-left, matching
+    // the reading direction of the surrounding interface.
     next[step.id] = current[step.id] ?? {
-      x: 24 + (index % 4) * 170,
+      x: 24 + (3 - (index % 4)) * 170,
       y: 24 + Math.floor(index / 4) * 92,
     };
   });

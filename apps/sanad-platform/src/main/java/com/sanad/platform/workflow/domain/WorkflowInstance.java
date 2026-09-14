@@ -33,7 +33,7 @@ public record WorkflowInstance(
         Instant createdAt,
         Instant updatedAt
 ) {
-    public enum Status { RUNNING, PAUSED, COMPLETED, CANCELLED, FAILED }
+    public enum Status { RUNNING, PAUSED, CANCELLING, COMPLETED, CANCELLED, FAILED }
     public enum EngineGeneration { LEGACY, Y2 }
 
     public static WorkflowInstance start(
@@ -104,6 +104,41 @@ public record WorkflowInstance(
         return new WorkflowInstance(id, tenantId, workflowDefinitionId, workflowVersion,
                 businessEntityType, businessEntityId, Status.CANCELLED, null,
                 startedBy, startedAt, null, now, cancelledBy, reason, correlationId,
+                engineGeneration, definitionFamilyId, definitionVersionId, parentInstanceId,
+                triggerType, triggerId, idempotencyKey, causationId, contextJson, contextSchemaVersion,
+                version + 1, createdAt, now);
+    }
+
+    /**
+     * Y2 two-phase cancellation (P3), phase 1: RUNNING/PAUSED -> CANCELLING.
+     * The cancellation reason and actor are pinned immediately so the durable
+     * CANCELLING row carries the full business evidence while compensations
+     * run. Terminal states never re-enter cancellation.
+     */
+    public WorkflowInstance markCancelling(UUID cancelledBy, String reason) {
+        if (status != Status.RUNNING && status != Status.PAUSED) {
+            throw new IllegalStateException("Cannot cancel from " + status + " (requires ACTIVE)");
+        }
+        var now = Instant.now();
+        return new WorkflowInstance(id, tenantId, workflowDefinitionId, workflowVersion,
+                businessEntityType, businessEntityId, Status.CANCELLING, currentStepKey,
+                startedBy, startedAt, null, now, cancelledBy, reason, correlationId,
+                engineGeneration, definitionFamilyId, definitionVersionId, parentInstanceId,
+                triggerType, triggerId, idempotencyKey, causationId, contextJson, contextSchemaVersion,
+                version + 1, createdAt, now);
+    }
+
+    /**
+     * Y2 two-phase cancellation (P3), phase 2: CANCELLING -> CANCELLED.
+     * Only callable once every compensatable side effect is reconciled or
+     * its failure is captured as a governed incident.
+     */
+    public WorkflowInstance finalizeCancel() {
+        requireStatus(Status.CANCELLING, "finalize cancellation");
+        var now = Instant.now();
+        return new WorkflowInstance(id, tenantId, workflowDefinitionId, workflowVersion,
+                businessEntityType, businessEntityId, Status.CANCELLED, null,
+                startedBy, startedAt, null, cancelledAt, cancelledBy, cancelReason, correlationId,
                 engineGeneration, definitionFamilyId, definitionVersionId, parentInstanceId,
                 triggerType, triggerId, idempotencyKey, causationId, contextJson, contextSchemaVersion,
                 version + 1, createdAt, now);

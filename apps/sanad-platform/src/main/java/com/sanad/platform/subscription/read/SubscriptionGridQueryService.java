@@ -26,7 +26,7 @@ public class SubscriptionGridQueryService {
             String status, String billingCycle, int seatQuantity,
             UUID planId, String planName, String planCode, String planVersion,
             String currencyCode, Long monthlyPriceMinor, int itemCount,
-            boolean trial, boolean cancelAtPeriodEnd) {
+            boolean trial, boolean cancelAtPeriodEnd, java.time.Instant currentPeriodEnd) {
     }
 
     private final JdbcTemplate jdbc;
@@ -86,13 +86,17 @@ public class SubscriptionGridQueryService {
                         SELECT s.id, s.tenant_id, t.name AS tenant_name, t.country_code,
                                s.status, s.billing_cycle, s.seat_quantity,
                                s.plan_id, p.name AS plan_name, p.code AS plan_code,
-                               pv.version_number AS plan_version, p.currency_code,
-                               CASE s.billing_cycle WHEN 'ANNUAL' THEN pv.annual_price_minor / 12
-                                                    ELSE pv.monthly_price_minor END AS monthly_price_minor,
+                               pv.version_number AS plan_version,
+                               COALESCE(pv.currency_code, p.currency_code) AS currency_code,
+                               CASE s.billing_cycle
+                                    WHEN 'ANNUAL' THEN COALESCE(pv.annual_price_minor, p.annual_price_minor) / 12
+                                    ELSE COALESCE(pv.monthly_price_minor, p.monthly_price_minor)
+                               END AS monthly_price_minor,
                                (SELECT COUNT(*) FROM subscription_items si
                                  WHERE si.subscription_id = s.id AND si.status = 'ACTIVE') AS item_count,
                                (s.status IN ('TRIAL', 'TRIALING')) AS trial,
-                               s.cancel_at_period_end
+                               s.cancel_at_period_end,
+                               s.current_period_end
                         FROM tenant_subscriptions s
                         JOIN tenants t ON t.id = s.tenant_id
                         LEFT JOIN saas_plans p ON p.id = s.plan_id
@@ -124,7 +128,9 @@ public class SubscriptionGridQueryService {
                         : ((Number) r.get("monthly_price_minor")).longValue(),
                 ((Number) r.getOrDefault("item_count", 0)).intValue(),
                 Boolean.TRUE.equals(r.get("trial")),
-                Boolean.TRUE.equals(r.get("cancel_at_period_end")))).toList();
+                Boolean.TRUE.equals(r.get("cancel_at_period_end")),
+                r.get("current_period_end") == null ? null
+                        : ((java.sql.Timestamp) r.get("current_period_end")).toInstant())).toList();
 
         return PageResponse.of(content, safePage, safeSize, total == null ? 0 : total);
     }

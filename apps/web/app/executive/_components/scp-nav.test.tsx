@@ -38,6 +38,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
+import { ScpAccessProvider } from "./ScpAccess";
 import { ScpNav } from "./ScpNav";
 
 type Deferred<T> = {
@@ -105,7 +106,11 @@ describe("ScpNav — capability state machine", () => {
     const pending = deferred<typeof FULL_ACCESS>();
     accessCheckMock.mockReturnValueOnce(pending.promise);
 
-    render(<ScpNav />);
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
 
     // checking — transient optimistic render, aria-busy signals pending check
     expect(accessCheckMock).toHaveBeenCalledTimes(1);
@@ -135,7 +140,11 @@ describe("ScpNav — capability state machine", () => {
       },
     });
 
-    render(<ScpNav />);
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
     await settle();
 
     expect(screen.getByText("scp.nav.overview")).toBeInTheDocument();
@@ -152,7 +161,11 @@ describe("ScpNav — capability state machine", () => {
       capabilities: { "subscription.read": true },
     });
 
-    render(<ScpNav />);
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
     await settle();
 
     expect(screen.getByText("scp.nav.overview")).toBeInTheDocument();
@@ -165,7 +178,11 @@ describe("ScpNav — capability state machine", () => {
   it("degraded — access-check failure hides all links and shows an explicit error with retry", async () => {
     accessCheckMock.mockRejectedValueOnce(new Error("network down"));
 
-    render(<ScpNav />);
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
     await settle();
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -181,7 +198,11 @@ describe("ScpNav — capability state machine", () => {
       .mockRejectedValueOnce(new Error("network down"))
       .mockResolvedValueOnce(FULL_ACCESS);
 
-    render(<ScpNav />);
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
     await settle();
     expect(screen.getByRole("alert")).toBeInTheDocument();
 
@@ -199,7 +220,11 @@ describe("ScpNav — capability state machine", () => {
       capabilities: {},
     });
 
-    render(<ScpNav />);
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
     await settle();
 
     expect(screen.getByText("scp.nav.unauthorized")).toBeInTheDocument();
@@ -214,7 +239,11 @@ describe("ScpNav — capability state machine", () => {
       capabilities: {},
     });
 
-    render(<ScpNav />);
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
     await settle();
 
     // AUTHENTICATED_BUT_NO_CAPABILITIES — NOT an authentication failure.
@@ -239,7 +268,11 @@ describe("ScpNav — capability state machine", () => {
     };
     accessCheckMock.mockResolvedValueOnce({ authenticated: true, capabilities: allFalse });
 
-    render(<ScpNav />);
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
     await settle();
 
     expect(screen.getByText("scp.nav.noAccess")).toBeInTheDocument();

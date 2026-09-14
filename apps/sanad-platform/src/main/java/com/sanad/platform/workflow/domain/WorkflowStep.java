@@ -15,6 +15,14 @@ public record WorkflowStep(
         Integer slaHours,
         String requiredCapability,
         String requiredRole,
+        /**
+         * SLA policy mode (V3): WALL_CLOCK (legacy-compatible elapsed hours),
+         * CALENDAR_TIME (elapsed hours, explicit), or BUSINESS_TIME (due
+         * instant resolved through the pinned tenant business calendar).
+         */
+        String slaMode,
+        /** Pinned tenant business calendar for BUSINESS_TIME resolution. */
+        UUID slaCalendarId,
         long version,
         Instant createdAt,
         Instant updatedAt
@@ -28,11 +36,20 @@ public record WorkflowStep(
             UUID tenantId, UUID workflowDefinitionId, String stepKey, String name,
             StepType stepType, int sequenceOrder, String configuration,
             Integer slaHours, String requiredCapability, String requiredRole) {
+        return create(tenantId, workflowDefinitionId, stepKey, name, stepType, sequenceOrder,
+                configuration, slaHours, requiredCapability, requiredRole, null, null);
+    }
+
+    public static WorkflowStep create(
+            UUID tenantId, UUID workflowDefinitionId, String stepKey, String name,
+            StepType stepType, int sequenceOrder, String configuration,
+            Integer slaHours, String requiredCapability, String requiredRole,
+            String slaMode, UUID slaCalendarId) {
         if (stepKey == null || stepKey.isBlank()) throw new IllegalArgumentException("stepKey must not be blank");
         if (name == null || name.isBlank()) throw new IllegalArgumentException("name must not be blank");
         var now = Instant.now();
         return new WorkflowStep(UUID.randomUUID(), tenantId, workflowDefinitionId, stepKey, name,
                 stepType, sequenceOrder, configuration, slaHours, requiredCapability, requiredRole,
-                0, now, now);
+                slaMode, slaCalendarId, 0, now, now);
     }
 }

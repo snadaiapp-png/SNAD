@@ -485,7 +485,7 @@ export type paths = {
             readonly path?: never;
             readonly cookie?: never;
         };
-        readonly get: operations["list_2"];
+        readonly get: operations["list_3"];
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
@@ -5955,7 +5955,7 @@ export interface operations {
             };
         };
     };
-    readonly list_2: {
+    readonly list_3: {
         readonly parameters: {
             readonly query?: {
                 readonly status?: string;

@@ -105,6 +105,17 @@ class PriceResolverTest {
     }
 
     @Test
+    @DisplayName("fails closed when only a different country's price exists")
+    void doesNotFallBackToDifferentCountry() {
+        when(repository.findEffective(eq(VERSION_ID), eq(null), eq("MONTHLY"), any()))
+                .thenReturn(List.of(price("AE", 5000L)));
+
+        Optional<PriceEntity> resolved = resolver.resolveForPlanVersion(VERSION_ID, "SA", "MONTHLY", NOW);
+
+        assertThat(resolved).isEmpty();
+    }
+
+    @Test
     @DisplayName("resolves product prices for add-ons with the same fallback chain")
     void resolvesProductPrices() {
         when(repository.findEffective(eq(null), eq(null), eq("MONTHLY"), any()))

@@ -6,6 +6,8 @@ import com.sanad.platform.workflow.application.WorkflowActionabilityService;
 import com.sanad.platform.workflow.application.WorkflowBreakGlassService;
 import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
+import com.sanad.platform.workflow.application.WorkflowEntitlementGuard;
+import com.sanad.platform.workflow.application.WorkflowModuleCatalogService;
 import com.sanad.platform.workflow.application.WorkflowGraphExecutionService;
 import com.sanad.platform.workflow.application.WorkflowIncidentService;
 import com.sanad.platform.workflow.application.WorkflowWorkItemService;
@@ -46,6 +48,8 @@ public class WorkflowController {
     private final WorkflowActionabilityService actionabilityService;
     private final WorkflowBreakGlassService breakGlassService;
     private final WorkflowGraphExecutionService graphExecutionService;
+    private final WorkflowEntitlementGuard workflowEntitlementGuard;
+    private final WorkflowModuleCatalogService moduleCatalogService;
 
     public WorkflowController(
             WorkflowDefinitionService definitionService,
@@ -57,7 +61,9 @@ public class WorkflowController {
             WorkflowIncidentService incidentService,
             WorkflowActionabilityService actionabilityService,
             WorkflowBreakGlassService breakGlassService,
-            WorkflowGraphExecutionService graphExecutionService) {
+            WorkflowGraphExecutionService graphExecutionService,
+            WorkflowEntitlementGuard workflowEntitlementGuard,
+            WorkflowModuleCatalogService moduleCatalogService) {
         this.definitionService = definitionService;
         this.executionService = executionService;
         this.approvalService = approvalService;
@@ -68,6 +74,8 @@ public class WorkflowController {
         this.actionabilityService = actionabilityService;
         this.breakGlassService = breakGlassService;
         this.graphExecutionService = graphExecutionService;
+        this.workflowEntitlementGuard = workflowEntitlementGuard;
+        this.moduleCatalogService = moduleCatalogService;
     }
 
     @org.springframework.web.bind.annotation.ExceptionHandler(
@@ -138,6 +146,36 @@ public class WorkflowController {
         return definitionService.findById(tenantId(auth), id)
                 .map(d -> ResponseEntity.ok(toDefinitionMap(d)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * R0.G5 — version history for one definition family. The requested
+     * definition must exist in the caller's tenant (fail-closed); the whole
+     * family's versions are then returned oldest-first.
+     */
+    @GetMapping("/definitions/{id}/versions")
+    @RequireCapability("WORKFLOW.VIEW")
+    public ResponseEntity<List<Map<String, Object>>> definitionVersions(
+            Authentication auth, @PathVariable UUID id) {
+        var definition = definitionService.findById(tenantId(auth), id)
+                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
+        return ResponseEntity.ok(definitionService
+                .findVersions(tenantId(auth), definition.definitionFamilyId())
+                .stream().map(this::toDefinitionMap).toList());
+    }
+
+    /**
+     * R1 GATE R1.10 — authoritative dynamic Designer/Definitions module catalog.
+     * Replaces the static frontend module list: derives from the module registry
+     * + integration registry + tenant entitlements (fail closed on Workflow
+     * entitlement; DESIGN-time NEW PRODUCT USE).
+     */
+    @GetMapping("/catalog/modules")
+    @RequireCapability("WORKFLOW.VIEW")
+    public ResponseEntity<Map<String, Object>> moduleCatalog(Authentication auth) {
+        var tenant = tenantId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        return ResponseEntity.ok(moduleCatalogService.effectiveCatalog(tenant));
     }
 
     @PostMapping("/definitions/{id}/validate")
@@ -211,6 +249,13 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.TASK_EXECUTE")
     public ResponseEntity<WorkflowDtos.WorkItemResponse> completeWorkItem(
             Authentication auth, @PathVariable UUID id, @RequestBody WorkItemCommandRequest req) {
+        // R1 GATE R1.6 (DRAIN_EXISTING): work-item completion is a RUNTIME
+        // mutation on an already-running instance — governed by RBAC alone,
+        // never by the paid entitlement, so a downgrade can never kill an
+        // in-flight business process. (The three requireWorkflowEnabled calls
+        // previously placed here were removed: they contradicted the R1.6
+        // policy above, broke the cross-tenant 409 contract that claim/
+        // release/reassign follow, and were accidentally triplicated.)
         var employee = requireActorEmployee(auth);
         var tenant = tenantId(auth);
         var completed = workItemService.complete(tenant, id, employee.id(), req.expectedVersion());
@@ -352,6 +397,13 @@ public class WorkflowController {
     public ResponseEntity<Map<String, Object>> addStep(
             Authentication auth, @PathVariable UUID id, @RequestBody CreateStepRequest req) {
         var tenant = tenantId(auth); var actor = userId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
         definitionService.findById(tenant, id)
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
         var step = WorkflowStep.create(tenant, id, req.stepKey(), req.name(),
@@ -374,6 +426,7 @@ public class WorkflowController {
     public ResponseEntity<Map<String, Object>> startWorkflow(
             Authentication auth, @RequestBody StartWorkflowRequest req) {
         var tenant = tenantId(auth); var actor = userId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant); // R1 GATE R1.4 (NEW PRODUCT USE)
         var def = definitionService.findById(tenant, req.workflowDefinitionId())
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + req.workflowDefinitionId()));
         boolean startEligible = switch (def.engineGeneration()) {
@@ -546,7 +599,15 @@ public class WorkflowController {
         map.put("version", d.version()); map.put("versionLock", d.versionLock()); map.put("createdBy", d.createdBy());
         map.put("definitionFamilyId", d.definitionFamilyId() != null ? d.definitionFamilyId().toString() : "");
         map.put("engineGeneration", d.engineGeneration() != null ? d.engineGeneration().name() : "");
-        map.put("publicationState", d.publicationState() != null ? d.publicationState().name() : ""); return map;
+        map.put("publicationState", d.publicationState() != null ? d.publicationState().name() : "");
+        map.put("updatedAt", d.updatedAt() != null ? d.updatedAt().toString() : null);
+        // R0.G8 — system canaries are release infrastructure: expose a derived
+        // classification so the product workspace can separate them from
+        // business workflows (historical canaries are never mutated).
+        map.put("classification",
+                com.sanad.platform.workflow.domain.WorkflowCanaryPolicy.isSystemCanary(d.code())
+                        ? "SYSTEM_CANARY" : "BUSINESS");
+        return map;
     }
 
     private Map<String, Object> toInstanceMap(WorkflowInstance i) {

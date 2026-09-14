@@ -11,7 +11,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -93,6 +95,30 @@ class SubscriptionCommandServiceTest {
         verify(eventPublisher).publishEvent(events.capture());
         assertThat(events.getValue())
                 .isInstanceOf(SubscriptionEntitlementListener.SubscriptionSuspendedEvent.class);
+    }
+
+    @Test
+    @DisplayName("authenticated actor is preserved in ledger and platform audit")
+    void authenticatedActorIsPreserved() {
+        activeSubscriptionRow();
+        UUID actorTenantId = UUID.fromString("00000000-0000-0000-0000-000000000010");
+        UUID actorUserId = UUID.fromString("00000000-0000-0000-0000-000000000011");
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken("admin", "n/a", List.of());
+        authentication.setDetails(Map.of(
+                "tenant_id", actorTenantId.toString(),
+                "user_id", actorUserId.toString()));
+
+        service.execute(SUBSCRIPTION_ID, "SUSPEND", "governed action",
+                actorTenantId, actorUserId, authentication);
+
+        verify(jdbc).update(contains("INSERT INTO subscription_commands"),
+                any(UUID.class), eq(SUBSCRIPTION_ID), eq(TENANT_ID), eq("SUSPEND"),
+                eq("ACTIVE"), eq("SUSPENDED"), eq("governed action"),
+                eq(actorTenantId), eq(actorUserId), any());
+        verify(auditService).success(eq(authentication), eq(TENANT_ID), eq("SUBSCRIPTION_SUSPEND"),
+                eq("subscription"), eq(SUBSCRIPTION_ID.toString()), eq("governed action"),
+                any(), any());
     }
 
     @Test

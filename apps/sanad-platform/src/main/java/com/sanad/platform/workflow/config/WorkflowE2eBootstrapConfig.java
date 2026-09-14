@@ -149,6 +149,39 @@ public class WorkflowE2eBootstrapConfig {
                     ON CONFLICT DO NOTHING
                     """, TENANT_A_ID, ADMIN_ROLE_ID);
 
+            // 6.5. R1 GATE R1.2 alignment — the E2E fixture represents Tenant A
+            // as a paying Workflow tenant: WORKFLOW is EXPLICIT_OPT_IN, so the
+            // guarded DESIGN/PUBLISH/START paths (WorkflowEntitlementGuard)
+            // require an explicit plan entitlement row. The seed is idempotent
+            // (deterministic ids + ON CONFLICT DO NOTHING). Tenant B is
+            // intentionally NOT granted: it exists only to prove cross-tenant
+            // denial (P12) and never starts its own workflows.
+            UUID e2ePlanId = deterministicId("A", "paid-plan", "saas_plan");
+            jdbc.update("""
+                    INSERT INTO saas_plans (id, code, name, status, currency_code, monthly_price_minor,
+                         annual_price_minor, trial_days, max_users, max_organizations, storage_mb,
+                         created_at, updated_at)
+                    VALUES (?, 'WF-E2E-PAID-PLAN-A', 'Workflow E2E paid plan', 'ACTIVE', 'SAR',
+                            0, 0, 0, 10, 1, 0, ?, ?)
+                    ON CONFLICT DO NOTHING
+                    """, e2ePlanId, now, now);
+            jdbc.update("""
+                    INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, billing_cycle,
+                         seat_quantity, credit_balance_minor, started_at, current_period_start,
+                         current_period_end, cancel_at_period_end, created_at, updated_at)
+                    VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 5, 0, ?, ?,
+                            NOW() + INTERVAL '3650 days', false, ?, ?)
+                    ON CONFLICT DO NOTHING
+                    """, deterministicId("A", "paid-plan", "subscription"), TENANT_A_ID, e2ePlanId,
+                    now, now, now, now);
+            jdbc.update("""
+                    INSERT INTO plan_module_entitlements (id, plan_id, module_id, module_enabled,
+                         capability_code, created_at, updated_at)
+                    SELECT ?, ?, m.id, true, NULL, NOW(), NOW() FROM modules m
+                    WHERE m.code = 'WORKFLOW'
+                    ON CONFLICT DO NOTHING
+                    """, deterministicId("A", "paid-plan", "entitlement_row"), e2ePlanId);
+
             // 7. Multi-actor fixture: seed Tenant A while Tenant A is the
             // active transaction-local RLS context.
             seedActors(jdbc, TENANT_A_ID, TENANT_A_ACTORS, "A", passwordHash, now);

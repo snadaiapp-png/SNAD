@@ -15,6 +15,15 @@ public record WorkflowStepInstance(
         Instant startedAt,
         Instant completedAt,
         Instant dueAt,
+        /**
+         * Activation-time SLA policy snapshot (V3): the resolved mode,
+         * pinned calendar, and duration are frozen when the step instance is
+         * created so later definition/calendar edits never change historical
+         * evidence. Nullable for pre-snapshot rows.
+         */
+        String slaMode,
+        UUID slaCalendarId,
+        Integer slaHours,
         int attemptCount,
         String result,
         long version,
@@ -26,10 +35,21 @@ public record WorkflowStepInstance(
     public static WorkflowStepInstance create(
             UUID tenantId, UUID workflowInstanceId, UUID workflowStepId,
             String stepKey, Instant dueAt, UUID assignedUserId, String assignedRole) {
+        return create(tenantId, workflowInstanceId, workflowStepId, stepKey,
+                new SlaSnapshot(dueAt, null, null, null), assignedUserId, assignedRole);
+    }
+
+    /** Activation-time SLA policy snapshot carried with the create command. */
+    public record SlaSnapshot(Instant dueAt, String slaMode, UUID slaCalendarId, Integer slaHours) {}
+
+    public static WorkflowStepInstance create(
+            UUID tenantId, UUID workflowInstanceId, UUID workflowStepId,
+            String stepKey, SlaSnapshot slaSnapshot, UUID assignedUserId, String assignedRole) {
         var now = Instant.now();
         return new WorkflowStepInstance(UUID.randomUUID(), tenantId, workflowInstanceId,
                 workflowStepId, stepKey, Status.PENDING, assignedUserId, assignedRole,
-                null, null, dueAt, 0, null, 0, now, now);
+                null, null, slaSnapshot.dueAt(), slaSnapshot.slaMode(), slaSnapshot.slaCalendarId(),
+                slaSnapshot.slaHours(), 0, null, 0, now, now);
     }
 
     public WorkflowStepInstance start() {
@@ -37,7 +57,8 @@ public record WorkflowStepInstance(
         var now = Instant.now();
         return new WorkflowStepInstance(id, tenantId, workflowInstanceId, workflowStepId,
                 stepKey, Status.IN_PROGRESS, assignedUserId, assignedRole,
-                now, null, dueAt, attemptCount + 1, result, version + 1, createdAt, now);
+                now, null, dueAt, slaMode, slaCalendarId, slaHours, attemptCount + 1, result,
+                version + 1, createdAt, now);
     }
 
     public WorkflowStepInstance complete(String result) {
@@ -45,7 +66,8 @@ public record WorkflowStepInstance(
         var now = Instant.now();
         return new WorkflowStepInstance(id, tenantId, workflowInstanceId, workflowStepId,
                 stepKey, Status.COMPLETED, assignedUserId, assignedRole,
-                startedAt, now, dueAt, attemptCount, result, version + 1, createdAt, now);
+                startedAt, now, dueAt, slaMode, slaCalendarId, slaHours, attemptCount, result,
+                version + 1, createdAt, now);
     }
 
     public WorkflowStepInstance fail(String reason) {
@@ -53,7 +75,8 @@ public record WorkflowStepInstance(
         var now = Instant.now();
         return new WorkflowStepInstance(id, tenantId, workflowInstanceId, workflowStepId,
                 stepKey, Status.FAILED, assignedUserId, assignedRole,
-                startedAt, null, dueAt, attemptCount, reason, version + 1, createdAt, now);
+                startedAt, null, dueAt, slaMode, slaCalendarId, slaHours, attemptCount, reason,
+                version + 1, createdAt, now);
     }
 
     private void requireStatus(Status expected, String action) {

@@ -13,6 +13,7 @@ import com.sanad.platform.workflow.domain.WorkflowTransitionAudit;
 import com.sanad.platform.workflow.domain.WorkflowTransitionAuditRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ import java.util.UUID;
 public class WorkflowApprovalService {
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowApprovalService.class);
+    private static final String SELF_APPROVAL_OVERRIDE_CAPABILITY = "WORKFLOW.SELF_APPROVAL_OVERRIDE";
 
     private final WorkflowApprovalRequestRepository approvalRepo;
     private final WorkflowInstanceRepository instanceRepo;
@@ -35,7 +37,37 @@ public class WorkflowApprovalService {
     private final WorkflowTransitionAuditRepository auditRepo;
     private final WorkflowApprovalPolicyEngine approvalPolicyEngine;
     private final WorkflowGraphExecutionService graphExecutionService;
+    private final WorkflowAuthorizationReadPort authorizationReadPort;
 
+    /**
+     * Production constructor. The authorization read port is mandatory so that
+     * exceptional self-approval is checked against current RBAC state at the
+     * application boundary rather than trusted from the frozen workflow policy alone.
+     */
+    @Autowired
+    public WorkflowApprovalService(
+            WorkflowApprovalRequestRepository approvalRepo,
+            WorkflowInstanceRepository instanceRepo,
+            WorkflowStepInstanceRepository stepInstanceRepo,
+            WorkflowDefinitionRepository defRepo,
+            WorkflowTransitionAuditRepository auditRepo,
+            WorkflowApprovalPolicyEngine approvalPolicyEngine,
+            WorkflowGraphExecutionService graphExecutionService,
+            WorkflowAuthorizationReadPort authorizationReadPort) {
+        this.approvalRepo = approvalRepo;
+        this.instanceRepo = instanceRepo;
+        this.stepInstanceRepo = stepInstanceRepo;
+        this.defRepo = defRepo;
+        this.auditRepo = auditRepo;
+        this.approvalPolicyEngine = approvalPolicyEngine;
+        this.graphExecutionService = graphExecutionService;
+        this.authorizationReadPort = authorizationReadPort;
+    }
+
+    /**
+     * Compatibility constructor for existing focused unit tests/internal callers.
+     * It intentionally fails closed for exceptional self-approval.
+     */
     public WorkflowApprovalService(
             WorkflowApprovalRequestRepository approvalRepo,
             WorkflowInstanceRepository instanceRepo,
@@ -44,13 +76,18 @@ public class WorkflowApprovalService {
             WorkflowTransitionAuditRepository auditRepo,
             WorkflowApprovalPolicyEngine approvalPolicyEngine,
             WorkflowGraphExecutionService graphExecutionService) {
-        this.approvalRepo = approvalRepo;
-        this.instanceRepo = instanceRepo;
-        this.stepInstanceRepo = stepInstanceRepo;
-        this.defRepo = defRepo;
-        this.auditRepo = auditRepo;
-        this.approvalPolicyEngine = approvalPolicyEngine;
-        this.graphExecutionService = graphExecutionService;
+        this(approvalRepo, instanceRepo, stepInstanceRepo, defRepo, auditRepo,
+                approvalPolicyEngine, graphExecutionService, new WorkflowAuthorizationReadPort() {
+                    @Override
+                    public List<UUID> findActiveUserIdsByRole(UUID tenantId, String roleCode) {
+                        return List.of();
+                    }
+
+                    @Override
+                    public List<UUID> findActiveUserIdsByCapability(UUID tenantId, String capabilityCode) {
+                        return List.of();
+                    }
+                });
     }
 
     @Transactional
@@ -156,12 +193,30 @@ public class WorkflowApprovalService {
 
     private WorkflowApprovalRequest approveLoaded(
             UUID tenantId, WorkflowApprovalRequest req, UUID approverId, String comments) {
+        requireSelfApprovalOverrideCapability(tenantId, req, approverId);
         var oldStatus = req.status().name();
         var updated = approvalRepo.save(req.approve(approverId, comments));
         auditWorkflow(approverId, updated, WorkflowTransitionAudit.Action.APPROVE,
                 oldStatus, updated.status().name());
         resolvePolicyAndAdvance(tenantId, updated, approverId);
         return updated;
+    }
+
+    private void requireSelfApprovalOverrideCapability(
+            UUID tenantId, WorkflowApprovalRequest req, UUID approverId) {
+        if (req.requestedByUserId() == null || !approverId.equals(req.requestedByUserId())) {
+            return;
+        }
+        if (req.selfApprovalPolicy() != WorkflowApprovalPolicy.SelfApproval.ALLOW) {
+            return; // Domain policy remains authoritative for DENY and will reject below.
+        }
+        boolean hasOverride = authorizationReadPort
+                .findActiveUserIdsByCapability(tenantId, SELF_APPROVAL_OVERRIDE_CAPABILITY)
+                .contains(approverId);
+        if (!hasOverride) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Self-approval requires " + SELF_APPROVAL_OVERRIDE_CAPABILITY);
+        }
     }
 
     /** Legacy/internal overload retained for compatibility with existing callers. */

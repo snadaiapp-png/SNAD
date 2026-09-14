@@ -101,7 +101,7 @@ export function WorkflowApprovals() {
                 <div>
                   <strong>طلب #{approval.id.slice(0, 8)}…</strong>
                   <div style={{ marginTop: 4, fontSize: 12, color: "var(--snad-color-text-secondary)" }}>
-                    المثيل {approval.workflowInstanceId.slice(0, 8)}… · {approval.status} · إصدار {approval.version}
+                    المثيل {approval.workflowInstanceId.slice(0, 8)}… · {approval.status} · مرجع المزامنة #{approval.version}
                   </div>
                 </div>
                 <button
