@@ -23,7 +23,7 @@ export default function WorkflowDesignerPage({
 
   useEffect(() => {
     if (state !== "INITIALIZING" && state !== "CHECKING_SESSION" && !user) {
-      router.push(`/identity/login?from=${encodeURIComponent(`/workflow/definitions/${id}`)}`);
+      router.replace(`/?returnUrl=${encodeURIComponent(`/workflow/definitions/${id}`)}`);
     }
   }, [id, router, state, user]);
 
