@@ -250,7 +250,7 @@ describe("Executive tenant management controls", () => {
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
     expect(screen.getByRole("button", { name: "أرشفة الحساب" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "أرشفة الحساب" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "حذف الحساب" })).not.toBeInTheDocument();
   });
 
 });
