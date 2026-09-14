@@ -382,7 +382,7 @@ export default function SubscriptionDetailPage() {
         </label>
         {canManageLifecycle ? (
           <div className={styles.filters}>
-            {(["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"] as const).map(
+            {(detail.availableActions ?? []).map(
               (command) => (
                 <Button
                   key={command}
