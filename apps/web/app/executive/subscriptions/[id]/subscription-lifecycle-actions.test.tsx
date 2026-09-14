@@ -64,4 +64,14 @@ describe("Subscription detail lifecycle authority", () => {
     expect(screen.queryByRole("button", { name: "scp.detail.lifecycle.ACTIVATE" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "scp.detail.lifecycle.RENEW" })).not.toBeInTheDocument();
   });
+
+  it("keeps the error surface renderable when subscription detail loading fails", async () => {
+    detailMock.mockRejectedValue(new Error("load failed"));
+
+    render(<SubscriptionDetailPage />);
+
+    await waitFor(() => expect(detailMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("scp.detail.lifecycleCommands")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "scp.detail.lifecycle.PAUSE" })).not.toBeInTheDocument();
+  });
 });
