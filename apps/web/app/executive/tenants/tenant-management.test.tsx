@@ -253,4 +253,18 @@ describe("Executive tenant management controls", () => {
     expect(screen.queryByRole("button", { name: "حذف الحساب" })).not.toBeInTheDocument();
   });
 
+  it("routes tenant management controls and create dialog through i18n keys", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+    expect(screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" })).toBeInTheDocument();
+    expect(screen.getByLabelText("scp.tenants.form.name")).toBeInTheDocument();
+    expect(screen.getByLabelText("scp.tenants.form.subdomain")).toBeInTheDocument();
+    expect(screen.getByLabelText("scp.tenants.form.adminEmail")).toBeInTheDocument();
+    expect(screen.getByLabelText("scp.tenants.form.adminDisplayName")).toBeInTheDocument();
+  });
+
 });
