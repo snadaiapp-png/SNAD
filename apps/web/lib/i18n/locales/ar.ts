@@ -1078,6 +1078,9 @@ export const ar: TranslationDictionary = {
   "scp.plans.monthlyMinor": "السعر الشهري (أجزاء العملة)",
   "scp.plans.annualMinor": "السعر السنوي (أجزاء العملة)",
   "scp.plans.trialDays": "أيام التجربة",
+  "scp.plans.maxUsers": "الحد الأقصى للمستخدمين",
+  "scp.plans.maxOrganizations": "الحد الأقصى للمنظمات",
+  "scp.plans.storageMb": "التخزين (ميجابايت)",
   "scp.plans.submitVersion": "إنشاء الإصدار",
   "scp.plans.versionsCaption": "الإصدارات — المشتركون الحاليون يبقون على إصدارهم المتعاقد عليه",
   "scp.plans.version": "الإصدار",
@@ -1110,6 +1113,7 @@ export const ar: TranslationDictionary = {
   "scp.usage.warning": "تحذير اقتراب الحد",
   "scp.billing.title": "الفوترة",
   "scp.billing.subtitle": "فواتير المنصة — دلالات محاسبية دون تغيير",
+  "scp.billing.load": "تحميل الفواتير",
   "scp.billing.searchPlaceholder": "ابحث برقم الفاتورة",
   "scp.billing.statusFilter": "تصفية الحالة",
   "scp.billing.count": "عدد الفواتير: {count}",
@@ -1170,4 +1174,3 @@ export const ar: TranslationDictionary = {
   "scp.usage.period": "الفترة: {period}",
   "scp.usage.critical": "حرج",
 };
-
