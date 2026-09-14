@@ -16,6 +16,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { ApiHttpError } from "@/lib/api/errors";
 
 const plansMock = vi.fn();
 const createPlanVersionMock = vi.fn();
@@ -156,13 +157,23 @@ describe("PlansPage — loading deadlock regression", () => {
     expect(screen.queryByText("Starter")).not.toBeInTheDocument();
   });
 
-  it("renders a visible error state when the request fails", async () => {
-    plansMock.mockRejectedValueOnce(new Error("backend unavailable"));
+  it("renders a safe visible error state when the request fails", async () => {
+    plansMock.mockRejectedValueOnce(
+      new ApiHttpError("Request failed", {
+        status: 500,
+        error: "Internal Server Error",
+        message: "relation saas_plans does not exist",
+        path: "/api/v1/executive/plans",
+        requestId: "req-plan-safe-error",
+        body: null,
+      }),
+    );
 
     render(<PlansPage />);
 
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
-    expect(screen.getByText("backend unavailable")).toBeInTheDocument();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toBeInTheDocument();
+    expect(alert.textContent).not.toMatch(/relation saas_plans|does not exist/i);
   });
 
   it("retry performs another plans request and recovers into the data state", async () => {
