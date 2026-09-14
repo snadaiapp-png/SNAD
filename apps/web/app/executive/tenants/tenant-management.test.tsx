@@ -88,7 +88,7 @@ describe("Executive tenant management controls", () => {
     expect(screen.getByRole("button", { name: "إنشاء حساب جديد" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "تحديث" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "تجميد" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "حذف الحساب" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "أرشفة الحساب" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ترقية" })).toHaveAttribute(
       "href",
       "/executive/subscriptions?tenantId=11111111-1111-1111-1111-111111111111&intent=upgrade",
@@ -104,7 +104,7 @@ describe("Executive tenant management controls", () => {
     expect(screen.queryByRole("button", { name: "إنشاء حساب جديد" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "تحديث" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "تجميد" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "حذف الحساب" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "أرشفة الحساب" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "ترقية" })).not.toBeInTheDocument();
   });
 
@@ -250,7 +250,7 @@ describe("Executive tenant management controls", () => {
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
     expect(screen.getByRole("button", { name: "أرشفة الحساب" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "حذف الحساب" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "أرشفة الحساب" })).not.toBeInTheDocument();
   });
 
 });
