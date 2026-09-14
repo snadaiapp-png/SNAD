@@ -40,6 +40,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       the historical S1 is untouched.</li>
  *   <li>QI-04 — cross-tenant isolation: provisioning tenant B's subscription
  *       never mutates tenant A's rows, ledger or entitlements.</li>
+ *   <li>QI-05 — a failed keyed step retries in-place (UPSERT) and the pipeline
+ *       cannot activate past a failed prerequisite.</li>
+ *   <li>QI-06..08 — PATH-B G1 PROVISIONING_STATUS_TRUTH_INVARIANT: for every
+ *       run the returned {@code JobOutcome.status} equals the final persisted
+ *       {@code provisioning_jobs.status} (asserted against the real database).
+ *       Canonical/terminal rejections persist FAILED and return FAILED
+ *       immediately; recoverable failures follow the retry budget.</li>
  * </ul>
  */
 class EntitlementProvisioningIsolationPostgresTest {
@@ -138,11 +145,13 @@ class EntitlementProvisioningIsolationPostgresTest {
         UUID jobId = enqueueJob(tenant, s1);
         ProvisioningJobRunner.JobOutcome outcome = runner.run(jobId);
 
-        // Truthful caller outcome for a terminal refusal is FAILED (a blind
-        // re-run can never activate an EXPIRED subscription). Aligned with the
-        // newest approved contract (WS3 #1058 terminalSubscriptionNotActivated);
-        // the job row itself keeps its RETRYING/FAILED retry-budget bookkeeping.
+        // PROVISIONING_STATUS_TRUTH_INVARIANT (PATH-B G1): a terminal refusal
+        // is NON_RETRYABLE — the durable row is FAILED immediately and the
+        // returned outcome equals it. (Supersedes the prior adjudication that
+        // kept the row in RETRYING bookkeeping while returning FAILED.)
         assertThat(outcome.status()).isEqualTo("FAILED");
+        assertThat(jobStatus(jobId)).isEqualTo("FAILED");
+        assertThat(jobStatus(jobId)).isEqualTo(outcome.status());
         // The terminal subscription was never activated.
         assertThat(field(s1, "status")).isEqualTo("EXPIRED");
         // The effective successor is untouched: no status change, no ledger, no job.
@@ -251,8 +260,95 @@ class EntitlementProvisioningIsolationPostgresTest {
     }
 
     // ---------------------------------------------------------------
+    // QI-06 — truth invariant: canonical rejection is FAILED/FAILED
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("QI-06: PAUSED canonical ACTIVATE rejection persists FAILED and returns FAILED (truth invariant); no direct state mutation")
+    void qi06_canonicalRejectionOutcomeMatchesDurableStatus() {
+        UUID tenant = newTenant();
+        UUID s = insertSubscription(tenant, planA, "PAUSED");
+        UUID jobId = enqueueJob(tenant, s);
+
+        ProvisioningJobRunner runner = runner();
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(jobId);
+
+        // RED regression for the Wave-1 contradiction: the old runner returned
+        // FAILED while persisting RETRYING (attempts == 1). The governed
+        // invariant requires the durable row and the outcome to agree.
+        assertThat(outcome.status()).isEqualTo("FAILED");
+        assertThat(jobStatus(jobId)).isEqualTo("FAILED");
+        assertThat(jobStatus(jobId)).isEqualTo(outcome.status());
+        // No direct state mutation and no ledger row: the canonical authority
+        // refused, so the subscription stays exactly as it was.
+        assertThat(field(s, "status")).isEqualTo("PAUSED");
+        assertThat(ledgerCount(s)).isZero();
+        // The refusal is recorded on the VALIDATE step itself.
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM provisioning_job_steps WHERE job_id = ? AND step_key = 'VALIDATE'",
+                String.class, jobId)).isEqualTo("FAILED");
+    }
+
+    // ---------------------------------------------------------------
+    // QI-07 — truth invariant: recoverable failure follows retry budget
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("QI-07: recoverable prerequisite — first attempt RETRYING/RETRYING, after budget FAILED/FAILED (truth invariant)")
+    void qi07_retryableFailureFollowsRetryBudgetTruthfully() {
+        UUID tenant = newTenant();
+        UUID subscription = insertSubscription(tenant, planA, "PENDING_ACTIVATION");
+        // Recoverable prerequisite failure: no ACTIVE items to provision.
+        jdbc.update("DELETE FROM subscription_items WHERE subscription_id = ?", subscription);
+
+        ProvisioningJobRunner runner = runner();
+        UUID jobId = enqueueJob(tenant, subscription);
+
+        ProvisioningJobRunner.JobOutcome first = runner.run(jobId);
+        assertThat(first.status()).isEqualTo("RETRYING");
+        assertThat(jobStatus(jobId)).isEqualTo("RETRYING");
+        assertThat(jobStatus(jobId)).isEqualTo(first.status());
+        assertThat(field(subscription, "status")).isEqualTo("PENDING_ACTIVATION");
+
+        // Still broken: the re-run exhausts the retry budget — both the row
+        // and the outcome must say FAILED (not RETRYING).
+        ProvisioningJobRunner.JobOutcome second = runner.run(jobId);
+        assertThat(second.status()).isEqualTo("FAILED");
+        assertThat(jobStatus(jobId)).isEqualTo("FAILED");
+        assertThat(jobStatus(jobId)).isEqualTo(second.status());
+        assertThat(field(subscription, "status")).isEqualTo("PENDING_ACTIVATION");
+    }
+
+    // ---------------------------------------------------------------
+    // QI-08 — truth invariant: already-ACTIVE is idempotent success
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("QI-08: already-ACTIVE subscription — job SUCCEEDED idempotently, no duplicate lifecycle transition")
+    void qi08_alreadyActiveIsIdempotentSuccess() {
+        UUID tenant = newTenant();
+        UUID s = insertSubscription(tenant, planA, "ACTIVE");
+        UUID jobId = enqueueJob(tenant, s);
+
+        ProvisioningJobRunner runner = runner();
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(jobId);
+
+        assertThat(outcome.status()).isEqualTo("SUCCEEDED");
+        assertThat(jobStatus(jobId)).isEqualTo("SUCCEEDED");
+        assertThat(jobStatus(jobId)).isEqualTo(outcome.status());
+        assertThat(field(s, "status")).isEqualTo("ACTIVE");
+        // Idempotent: no second lifecycle transition was recorded.
+        assertThat(ledgerCount(s)).isZero();
+    }
+
+    // ---------------------------------------------------------------
     // helpers
     // ---------------------------------------------------------------
+
+    private String jobStatus(UUID jobId) {
+        return jdbc.queryForObject(
+                "SELECT status FROM provisioning_jobs WHERE id = ?", String.class, jobId);
+    }
 
     private ProvisioningJobRunner runner() {
         return new ProvisioningJobRunner(jdbc,

@@ -29,6 +29,17 @@ import java.util.UUID;
  * retries succeed without a second transition); a terminal or otherwise
  * non-activatable subscription fails closed. Job status, step status, retry
  * and idempotency behavior are unchanged.</p>
+ *
+ * <p>PATH-B G1 — PROVISIONING_STATUS_TRUTH_INVARIANT: for every run the
+ * returned {@link JobOutcome} status MUST equal the final persisted
+ * {@code provisioning_jobs.status}. The final status is derived from the
+ * failure disposition (RETRYABLE vs NON_RETRYABLE —
+ * {@link NonRetryableProvisioningException} plus malformed contracts) AND the
+ * retry policy — never from the attempt count alone. A canonical or terminal
+ * rejection persists FAILED and returns FAILED immediately, even on the first
+ * attempt, so a permanently illegal activation job is never parked in
+ * RETRYING. This supersedes the prior Wave-1 adjudication under which a
+ * VALIDATE refusal returned FAILED while the durable row stayed RETRYING.</p>
  */
 @Service
 public class ProvisioningJobRunner {
@@ -38,6 +49,13 @@ public class ProvisioningJobRunner {
 
     private static final Set<String> TERMINAL_STATUSES =
             Set.of("CANCELLED", "EXPIRED", "TERMINATED");
+
+    /**
+     * Retry policy for a RETRYABLE disposition: the first eligible attempt is
+     * parked RETRYING; once the consumed attempts exceed this budget the job
+     * is FAILED. NON_RETRYABLE rejections bypass the budget entirely.
+     */
+    private static final int RETRYABLE_BUDGET_ATTEMPTS = 1;
 
     private final JdbcTemplate jdbc;
     private final SubscriptionCommandService commandService;
@@ -68,6 +86,7 @@ public class ProvisioningJobRunner {
                 String.class, jobId);
         List<String> skipped = new ArrayList<>();
         List<String> failures = new ArrayList<>();
+        boolean nonRetryable = false;
 
         for (String step : PROVISION_STEPS) {
             if (completed.contains(step)) {
@@ -80,6 +99,9 @@ public class ProvisioningJobRunner {
             } catch (Exception e) {
                 recordStep(jobId, step, "FAILED", truncate(e.getMessage()));
                 failures.add(step + ": " + truncate(e.getMessage()));
+                // Explicit failure disposition (PATH-B G1 §4): retryability is
+                // a property of the FAILURE, not of the attempt counter.
+                nonRetryable = isNonRetryable(e);
                 // Provisioning is an ordered pipeline. A later step must never
                 // run after an earlier prerequisite failed: in particular
                 // VALIDATE must not activate a subscription when
@@ -89,24 +111,20 @@ public class ProvisioningJobRunner {
         }
 
         if (!failures.isEmpty()) {
-            String jobStatus = attempts <= 1 ? "RETRYING" : "FAILED";
+            // PROVISIONING_STATUS_TRUTH_INVARIANT (PATH-B G1): the final status
+            // is derived from the failure disposition AND the retry policy —
+            // never from the attempt count alone — and the outcome returns the
+            // SAME string that is persisted, so the API result and the durable
+            // job state always tell the same truth. A NON_RETRYABLE rejection
+            // (terminal subscription, canonical ACTIVATE refusal, malformed
+            // contract) is FAILED immediately, even on the first attempt.
+            String finalStatus =
+                    (nonRetryable || attempts > RETRYABLE_BUDGET_ATTEMPTS) ? "FAILED" : "RETRYING";
             jdbc.update(
-                    "UPDATE provisioning_jobs SET status = '" + jobStatus + "', error_code = 'STEP_FAILED', "
+                    "UPDATE provisioning_jobs SET status = '" + finalStatus + "', error_code = 'STEP_FAILED', "
                             + "error_message = ?, updated_at = NOW() WHERE id = ?",
                     truncate(String.join("; ", failures)), jobId);
-            // Truthful outcome classification:
-            // - a prerequisite interruption (ENABLE_APPLICATIONS /
-            //   RESOLVE_ENTITLEMENTS) is repairable, so the caller sees the
-            //   persisted retryable status (RETRYING on the first attempt,
-            //   FAILED once the retry budget is exhausted);
-            // - a VALIDATE refusal (terminal subscription state or a canonical
-            //   transition rejection) can never succeed on a blind re-run, so
-            //   the caller truthfully sees FAILED even though the job row
-            //   keeps its retry-budget bookkeeping for a manual re-queue.
-            String outcomeStatus = failures.stream().anyMatch(f -> f.startsWith("VALIDATE:"))
-                    ? "FAILED"
-                    : jobStatus;
-            return new JobOutcome(jobId, outcomeStatus, skipped);
+            return new JobOutcome(jobId, finalStatus, skipped);
         }
 
         jdbc.update(
@@ -138,7 +156,9 @@ public class ProvisioningJobRunner {
                         "SELECT status FROM tenant_subscriptions WHERE id = ?",
                         String.class, subscriptionId);
                 if (status != null && TERMINAL_STATUSES.contains(status)) {
-                    throw new IllegalStateException(
+                    // NON_RETRYABLE: a blind re-run can never activate a
+                    // terminal subscription.
+                    throw new NonRetryableProvisioningException(
                             "Subscription is terminal (" + status + "); refusing to activate");
                 }
                 if ("ACTIVE".equals(status)) {
@@ -150,12 +170,35 @@ public class ProvisioningJobRunner {
                 // canonical lifecycle authority — the job's final contract.
                 // ACTIVATE only accepts DRAFT/PENDING_ACTIVATION/PENDING_PAYMENT/
                 // TRIAL/TRIALING; anything else fails the step (fail-closed).
-                commandService.applyCanonicalTransition(subscriptionId, "ACTIVATE",
-                        "Provisioning validated", null, null);
+                try {
+                    commandService.applyCanonicalTransition(subscriptionId, "ACTIVATE",
+                            "Provisioning validated", null, null);
+                } catch (IllegalStateException | IllegalArgumentException e) {
+                    // NON_RETRYABLE: the canonical authority validated against
+                    // the durable state and refused (illegal transition from
+                    // e.g. PAUSED, unknown subscription). This provisioning job
+                    // cannot legally activate without another governed
+                    // business action, so the refusal is authoritative.
+                    throw new NonRetryableProvisioningException(
+                            "Canonical lifecycle rejected ACTIVATE: " + e.getMessage(), e);
+                }
                 yield "subscription ACTIVE";
             }
             default -> throw new IllegalArgumentException("Unknown provisioning step: " + step);
         };
+    }
+
+    /**
+     * PATH-B G1 §3/§4 — explicit failure disposition. RETRYABLE (default):
+     * transient/prerequisite state that a repaired re-run may survive.
+     * NON_RETRYABLE: authoritative rejections ({@link
+     * NonRetryableProvisioningException}) and malformed/non-recoverable
+     * contracts ({@link IllegalArgumentException} — unknown step or unknown
+     * subscription); a blind re-run can never succeed for these.
+     */
+    private static boolean isNonRetryable(Throwable e) {
+        return e instanceof NonRetryableProvisioningException
+                || e instanceof IllegalArgumentException;
     }
 
     private void recordStep(UUID jobId, String stepKey, String status, String detail) {
