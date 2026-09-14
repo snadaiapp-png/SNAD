@@ -1074,6 +1074,9 @@ export const en: TranslationDictionary = {
   "scp.plans.monthlyMinor": "Monthly price (minor units)",
   "scp.plans.annualMinor": "Annual price (minor units)",
   "scp.plans.trialDays": "Trial days",
+  "scp.plans.maxUsers": "Maximum users",
+  "scp.plans.maxOrganizations": "Maximum organizations",
+  "scp.plans.storageMb": "Storage (MB)",
   "scp.plans.submitVersion": "Create version",
   "scp.plans.versionsCaption": "Versions — existing subscribers stay on their contracted version",
   "scp.plans.version": "Version",
@@ -1106,6 +1109,7 @@ export const en: TranslationDictionary = {
   "scp.usage.warning": "Approaching limit",
   "scp.billing.title": "Billing",
   "scp.billing.subtitle": "Platform invoices — accounting semantics preserved",
+  "scp.billing.load": "Load invoices",
   "scp.billing.searchPlaceholder": "Search by invoice number",
   "scp.billing.statusFilter": "Status filter",
   "scp.billing.count": "Invoices: {count}",
@@ -1166,4 +1170,3 @@ export const en: TranslationDictionary = {
   "scp.usage.period": "Period: {period}",
   "scp.usage.critical": "Critical",
 };
-
