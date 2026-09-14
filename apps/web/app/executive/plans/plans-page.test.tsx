@@ -49,6 +49,7 @@ vi.mock("@/app/executive/_components/format", () => ({
 }));
 
 vi.mock("@/lib/api/client", () => ({
+  ApiClientCancellation: class ApiClientCancellation extends Error {},
   apiClient: {
     setDefaultHeader: vi.fn(),
     removeDefaultHeader: vi.fn(),
