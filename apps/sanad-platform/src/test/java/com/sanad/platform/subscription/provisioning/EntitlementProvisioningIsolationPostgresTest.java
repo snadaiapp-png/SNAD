@@ -138,6 +138,10 @@ class EntitlementProvisioningIsolationPostgresTest {
         UUID jobId = enqueueJob(tenant, s1);
         ProvisioningJobRunner.JobOutcome outcome = runner.run(jobId);
 
+        // Truthful caller outcome for a terminal refusal is FAILED (a blind
+        // re-run can never activate an EXPIRED subscription). Aligned with the
+        // newest approved contract (WS3 #1058 terminalSubscriptionNotActivated);
+        // the job row itself keeps its RETRYING/FAILED retry-budget bookkeeping.
         assertThat(outcome.status()).isEqualTo("FAILED");
         // The terminal subscription was never activated.
         assertThat(field(s1, "status")).isEqualTo("EXPIRED");
@@ -202,6 +206,48 @@ class EntitlementProvisioningIsolationPostgresTest {
         Long aLedger = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM subscription_commands WHERE tenant_id = ?", Long.class, tenantA);
         assertThat(aLedger).isZero();
+    }
+
+    // ---------------------------------------------------------------
+    // QI-05 — failed keyed step can recover on the SAME job
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("QI-05: FAILED prerequisite retries in-place and cannot activate until the whole pipeline succeeds")
+    void qi05_failedStepRetryIsConflictSafeAndOrdered() {
+        UUID tenant = newTenant();
+        UUID subscription = insertSubscription(tenant, planA, "PENDING_ACTIVATION");
+        // Force the first prerequisite to fail. Before the fix the runner
+        // continued into VALIDATE and could activate despite this failure.
+        jdbc.update("DELETE FROM subscription_items WHERE subscription_id = ?", subscription);
+
+        ProvisioningJobRunner runner = runner();
+        UUID jobId = enqueueJob(tenant, subscription);
+        ProvisioningJobRunner.JobOutcome first = runner.run(jobId);
+
+        assertThat(first.status()).isEqualTo("RETRYING");
+        assertThat(field(subscription, "status")).isEqualTo("PENDING_ACTIVATION");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM provisioning_job_steps WHERE job_id = ? AND step_key = 'ENABLE_APPLICATIONS'",
+                String.class, jobId)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provisioning_job_steps WHERE job_id = ?",
+                Long.class, jobId)).isEqualTo(1L);
+
+        // Repair the prerequisite and retry the SAME job. The unique
+        // (job_id,step_key) row must be updated, not duplicated.
+        seedPlanItem(subscription, tenant, planA);
+        ProvisioningJobRunner.JobOutcome second = runner.run(jobId);
+
+        assertThat(second.status()).isEqualTo("SUCCEEDED");
+        assertThat(field(subscription, "status")).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM provisioning_job_steps WHERE job_id = ? AND step_key = 'ENABLE_APPLICATIONS'",
+                String.class, jobId)).isEqualTo("SUCCEEDED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provisioning_job_steps WHERE job_id = ?",
+                Long.class, jobId)).isEqualTo(3L);
+        assertThat(ledgerCount(subscription)).isEqualTo(1L);
     }
 
     // ---------------------------------------------------------------
