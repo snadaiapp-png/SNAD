@@ -69,9 +69,15 @@ describe("Workflow operations experience V2", () => {
     const designerPage = readRequired("definitions/[id]/page.tsx");
 
     expect(designerPage).toContain("useRouter");
-    expect(designerPage).toContain("router.push");
-    expect(designerPage).toContain("/identity/login?from=");
+    expect(designerPage).toContain("router.replace");
+    expect(designerPage).toContain("/?returnUrl=");
     expect(designerPage).toContain("encodeURIComponent");
     expect(designerPage).toContain("/workflow#definitions");
+  });
+
+  it("redirects the workflow root through the real auth entry with an authorized return URL", () => {
+    const page = readRequired("page.tsx");
+    expect(page).toContain('router.replace("/?returnUrl=%2Fworkflow")');
+    expect(page).not.toContain("/identity/login");
   });
 });
