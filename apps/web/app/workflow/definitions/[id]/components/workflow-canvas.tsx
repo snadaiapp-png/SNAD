@@ -120,7 +120,8 @@ export function WorkflowCanvas({
   };
 
   const startPan = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return;
+    const target = event.target as Element;
+    if (target.closest("button,[role='button']")) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     setPanState({
       pointerId: event.pointerId,
@@ -153,12 +154,33 @@ export function WorkflowCanvas({
     onSelectTransition(null);
   };
 
+  const handleCanvasKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      clearSelection();
+      return;
+    }
+    if (event.key === "f" || event.key === "F") {
+      event.preventDefault();
+      fitToView();
+      return;
+    }
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoomBy(0.12);
+      return;
+    }
+    if (event.key === "-") {
+      event.preventDefault();
+      zoomBy(-0.12);
+    }
+  };
+
   return (
     <div className={styles.canvasShell}>
       <div className={styles.canvasToolbar} aria-label="أدوات لوحة الرسم">
-        <button type="button" aria-label="تكبير" onClick={() => zoomBy(0.12)}>+</button>
-        <button type="button" aria-label="تصغير" onClick={() => zoomBy(-0.12)}>−</button>
-        <button type="button" aria-label="ملاءمة الرسم" onClick={fitToView}>ملاءمة</button>
+        <button className={styles.canvasControl} type="button" aria-label="تكبير" onClick={() => zoomBy(0.12)}>+</button>
+        <button className={styles.canvasControl} type="button" aria-label="تصغير" onClick={() => zoomBy(-0.12)}>−</button>
+        <button className={styles.canvasControl} type="button" aria-label="ملاءمة الرسم" onClick={fitToView}>ملاءمة</button>
         <span className={styles.zoomReadout} aria-live="polite">{Math.round(viewport.scale * 100)}%</span>
         <span className={styles.previewBadge}>معاينة بنيوية · ليست حالة تنفيذ إنتاجية</span>
       </div>
@@ -166,6 +188,9 @@ export function WorkflowCanvas({
       <div
         ref={viewportRef}
         className={styles.canvasViewport}
+        tabIndex={0}
+        aria-label="لوحة تصميم سير العمل"
+        onKeyDown={handleCanvasKeyDown}
         onDragOver={(event) => { if (editable) event.preventDefault(); }}
         onDrop={handleDrop}
         onPointerDown={startPan}
@@ -182,12 +207,7 @@ export function WorkflowCanvas({
             transform: `translate(${viewport.offsetX}px, ${viewport.offsetY}px) scale(${viewport.scale})`,
           }}
         >
-          <svg
-            className={styles.edgeLayer}
-            width={worldWidth}
-            height={worldHeight}
-            aria-label="انتقالات سير العمل"
-          >
+          <svg className={styles.edgeLayer} width={worldWidth} height={worldHeight} aria-label="انتقالات سير العمل">
             <defs>
               <marker id="workflow-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
                 <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
@@ -229,12 +249,7 @@ export function WorkflowCanvas({
                     y2={to.y + NODE_HEIGHT / 2}
                     markerEnd="url(#workflow-arrow)"
                   />
-                  <text
-                    data-testid={`edge-label-${transition.transitionKey}`}
-                    x={labelX}
-                    y={labelY}
-                    textAnchor="middle"
-                  >
+                  <text data-testid={`edge-label-${transition.transitionKey}`} x={labelX} y={labelY} textAnchor="middle">
                     {transition.outcome || transition.transitionKey}
                   </text>
                 </g>
@@ -273,18 +288,11 @@ export function WorkflowCanvas({
             );
           })}
 
-          {steps.length === 0 && (
-            <p className={styles.canvasEmpty}>لا توجد خطوات بعد. أضف أول عقدة من المكتبة.</p>
-          )}
+          {steps.length === 0 && <p className={styles.canvasEmpty}>لا توجد خطوات بعد. أضف أول عقدة من المكتبة.</p>}
         </div>
       </div>
 
-      <svg
-        className={styles.minimap}
-        aria-label="الخريطة المصغرة"
-        viewBox={`0 0 ${worldWidth} ${worldHeight}`}
-        role="img"
-      >
+      <svg className={styles.minimap} aria-label="الخريطة المصغرة" viewBox={`0 0 ${worldWidth} ${worldHeight}`} role="img">
         {transitions.map((transition) => {
           const from = positions[transition.fromStepId];
           const to = positions[transition.toStepId];
@@ -321,19 +329,11 @@ export function WorkflowCanvas({
   );
 }
 
-function graphBounds(
-  steps: WorkflowStepResponse[],
-  positions: Record<string, { x: number; y: number }>,
-) {
+function graphBounds(steps: WorkflowStepResponse[], positions: Record<string, { x: number; y: number }>) {
   if (steps.length === 0) return { minX: 0, minY: 0, maxX: NODE_WIDTH, maxY: NODE_HEIGHT };
   const xs = steps.map((step) => positions[step.id]?.x ?? 12);
   const ys = steps.map((step) => positions[step.id]?.y ?? 12);
-  return {
-    minX: Math.min(...xs),
-    minY: Math.min(...ys),
-    maxX: Math.max(...xs),
-    maxY: Math.max(...ys),
-  };
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
 function stageClass(visual: WorkflowStageVisual) {
