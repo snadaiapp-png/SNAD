@@ -13,8 +13,13 @@ class G1ForensicCredentialHygieneTest {
     void dynamic403ForensicUsesDisposableTestIdentityNotSeededOwnerCredential() throws Exception {
         Path source = locate("apps/sanad-platform/src/test/java/com/sanad/platform/subscription/rbac/G1GDynamic403ForensicPostgresTest.java");
         String text = Files.readString(source);
-        assertThat(text).doesNotContain("Senen1985");
-        assertThat(text).doesNotContain("snad.ai.app@gmail.com");
+
+        // The forensic must build disposable identities, never depend on a
+        // repository-seeded/owner account or an external personal mailbox.
+        assertThat(text).contains("g1g-control-");
+        assertThat(text).contains("forensic.sanad.test");
+        assertThat(text).doesNotContain("snad.ai.app");
+        assertThat(text).doesNotContain("@gmail.com");
     }
 
     private static Path locate(String relative) {
