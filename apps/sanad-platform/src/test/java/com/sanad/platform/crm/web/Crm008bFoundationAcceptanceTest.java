@@ -81,6 +81,9 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260906_2 = SCP subscription multiplicity MODEL_B (renumbered from
     //                 V20260906_1 at integration; unmerged on PR #989).
     //   V20260908_1 = workflow incident optimistic lock (forward-merged from
+    //   V20260908_2..4 = HRM-G1 recruitment & onboarding forward chain
+    //                 (schema, RLS, seed; renumbered from 20260908.1-.3 so
+    //                 main's optimistic lock keeps 20260908.1).
     //                 main).
     // Wave-2 closure (TEST_ALIGNMENT_REASON = legitimate forward-only Wave-2
     // migration added after prior sentinel baseline):
@@ -99,9 +102,13 @@ class Crm008bFoundationAcceptanceTest {
     // R0C13 closure continues the same forward-only ledger:
     //   V20260912_4 = subscription billing persistence foundation.
     //   V20260912_5 = verified provider-webhook resolution.
-    //   V20260912_6 = provider-unavailable reconciliation classification (current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260912.6"; // Terminal versioned migration: V20260912_6 adds R0C13 G07 provider-unavailable reconciliation classification
-
+    //   V20260912_6 = provider-unavailable reconciliation classification.
+    // HRM G1 T7 continues the same forward-only ledger:
+    //   V20260914_1 = offer approval correlation + immutable version identity.
+    //   V20260914_2 = workflow idempotency index NULLS NOT DISTINCT rebuild.
+    //   V20260914_3 = T8 hire conversion governance (ledger columns + person FK
+    //     congruence rebuild + hr_tenant_policies authoritative policy store).
+    private static final String CRM_LATEST_VERSION = "20260914.3"; // Terminal versioned migration: V20260914_3 hr_t8_hire_conversion_governance (T8-MIG-001 person FK congruence rebuild + T8.8 policy store)
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");

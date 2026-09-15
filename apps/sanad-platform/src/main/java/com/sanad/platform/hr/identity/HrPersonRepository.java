@@ -1,5 +1,6 @@
 package com.sanad.platform.hr.identity;
 
+import java.sql.Connection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,10 @@ public interface HrPersonRepository {
     void savePerson(HrPerson person);
 
     Optional<HrPerson> findPersonById(UUID tenantId, UUID personId);
+
+    /** In-transaction lookup for the governed hire-conversion boundary (T8). */
+    Optional<HrPerson> findPersonByIdWithinTransaction(java.sql.Connection connection,
+                                                       UUID tenantId, UUID personId);
 
     /**
      * Link a tenant-scoped User to an existing Person.
@@ -48,6 +53,28 @@ public interface HrPersonRepository {
 
     /** Private PII profile; empty when never written (implicit version 0). */
     Optional<HrPersonPrivate> findPrivate(UUID tenantId, UUID personId);
+
+    // ==================== T8 — in-transaction (connection-scoped) variants ====================
+
+    /**
+     * Canonical Person creation participating in the CALLER's transaction
+     * (the governed hire-conversion boundary, G1-T8 §7.1). Canonical SQL
+     * stays in this G0 implementation; the conversion never writes
+     * {@code hr_people} itself. Does NOT commit; does NOT close the
+     * connection.
+     */
+    HrPerson savePersonWithinTransaction(Connection connection, HrPerson person);
+
+    /** Identifier persistence inside the caller's transaction. */
+    PersonIdentifier saveIdentifierWithinTransaction(Connection connection, PersonIdentifier identifier);
+
+    /** Blind-index identity lookup inside the caller's transaction. */
+    Optional<PersonIdentifier> findActiveIdentifierByBlindIndexWithinTransaction(
+            Connection connection,
+            UUID tenantId,
+            String identifierType,
+            String issuingCountryCode,
+            String blindIndex);
 
     /**
      * Upsert of the private PII profile guarded by {@code expectedVersion}

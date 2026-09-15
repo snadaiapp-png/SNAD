@@ -48,10 +48,25 @@ public class JdbcCompensationRepository implements CompensationRepository {
     @Override
     public void createPackageWithEvidence(CompensationPackage pkg, HrAuditRecord auditRecord, DomainEventEnvelope event) {
         inTenantTransaction(pkg.tenantId(), connection -> {
+            createPackageWithinTransaction(connection, pkg, auditRecord, event);
+            return null;
+        });
+    }
+
+    /**
+     * T8 — canonical compensation write inside the CALLER's transaction
+     * (governed hire conversion §7.1 step 8). Does NOT commit.
+     */
+    public void createPackageWithinTransaction(Connection connection, CompensationPackage pkg,
+                                               HrAuditRecord auditRecord, DomainEventEnvelope event) {
+        Objects.requireNonNull(connection, "connection");
+        try {
             insertPackageRow(connection, pkg);
             insertComponentRows(connection, pkg);
             writeEvidence(connection, auditRecord, event);
-        });
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_COMPENSATION_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
     }
 
     @Override

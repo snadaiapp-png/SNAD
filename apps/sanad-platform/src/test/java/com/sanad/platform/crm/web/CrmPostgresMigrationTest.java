@@ -178,8 +178,14 @@ class CrmPostgresMigrationTest {
     // to V20260906_2 at Amendment #5 integration).
     private static final String SCP_MULTIPLICITY_MODEL_B_VERSION = "20260906.2";
     // Forward drift reconciliation of 05b64dfc: workflow incident optimistic
-    // lock is the terminal migration of the merged ledger.
+    // lock is the last main-owned migration before the HRM-G1 forward chain.
     private static final String WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION = "20260908.1";
+    // HRM-G1 recruitment & onboarding forward chain: renumbered from
+    // 20260908.1-.3 to 20260908.2-.4 so main's workflow incident optimistic
+    // lock keeps 20260908.1 (no out-of-order, no gap).
+    private static final String HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION = "20260908.2";
+    private static final String HR_G1_RLS_POLICIES_VERSION = "20260908.3";
+    private static final String HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION = "20260908.4";
     // TEST_ALIGNMENT_REASON = Legitimate forward-only Wave-2 migration added
     // after prior sentinel baseline: V20260910_1 (workflow Y2 SLA modes, SLA
     // escalation, and two-phase cancellation hardening) extends the merged
@@ -208,7 +214,22 @@ class CrmPostgresMigrationTest {
     private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.4";
     private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.5";
     private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.6";
-    private static final String LATEST_MIGRATION_VERSION = R0C13_G07_PROVIDER_UNAVAILABLE_VERSION;
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only feature migration (HRM G1 T7):
+    // V20260914_1 adds ONLY additive DDL (offer/opening approval correlation columns,
+    // partial unique idempotency indexes, lookup indexes, and the DB-level append-only
+    // guard on hr_offer_versions). No migration bytes are modified and the expected
+    // head remains explicit — the sentinel is extended, never weakened.
+    private static final String T7_OFFER_APPROVAL_CORRELATION_VERSION = "20260914.1";
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only defect-fix migration (HRM G1 T7 closure
+    // §10/T7-A26): V20260914_2 rebuilds uq_wf_instances_idempotency with NULLS NOT DISTINCT
+    // (same columns/predicate/name) — additive strengthening, never weakening.
+    private static final String T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION = "20260914.2";
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only defect-fix migration (HRM G1 T8,
+    // T8-MIG-001): V20260914_3 hr_t8_hire_conversion_governance adds ledger columns,
+    // rebuilds the unsatisfiable person FK pairing, and adds the authoritative
+    // hr_tenant_policies policy store. Additive strengthening, never weakening.
+    private static final String T8_HIRE_CONVERSION_VERSION = "20260914.3";
+    private static final String LATEST_MIGRATION_VERSION = T8_HIRE_CONVERSION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -442,6 +463,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_RLS_POLICIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
                         MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
                         MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
@@ -451,7 +475,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
-                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
+                        MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
+                        MigrationVersion.fromVersion(T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION),
+                        MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -623,6 +650,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(WF_NOTIFICATION_DEDUP_VERSION),
                         MigrationVersion.fromVersion(SCP_MULTIPLICITY_MODEL_B_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_INCIDENT_OPTIMISTIC_LOCK_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_RECRUITMENT_ONBOARDING_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_RLS_POLICIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION),
                         MigrationVersion.fromVersion(WORKFLOW_Y2_SLA_CANCELLATION_VERSION),
                         MigrationVersion.fromVersion(R1_MODULE_ENTITLEMENT_POLICY_VERSION),
                         MigrationVersion.fromVersion(R1_ATTACHMENTS_EXTERNAL_FOUNDATION_VERSION),
@@ -632,7 +662,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
-                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
+                        MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
+                        MigrationVersion.fromVersion(T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION),
+                        MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
