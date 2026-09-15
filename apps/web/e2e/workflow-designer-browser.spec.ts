@@ -185,7 +185,7 @@ test("Designer Browser Acceptance Gate — real Y2 designer journey", async ({ p
 
   const palette = page.getByRole("complementary", { name: "مكتبة الخطوات" });
   const inspector = page.getByRole("complementary", { name: "مفتش سير العمل" });
-  const canvas = page.getByLabel("لوحة تصميم سير العمل");
+  const canvas = page.locator('[aria-label="لوحة تصميم سير العمل"][tabindex="0"]');
   await expect(palette).toBeVisible();
   await expect(inspector).toBeVisible();
   await expect(canvas).toBeVisible();
