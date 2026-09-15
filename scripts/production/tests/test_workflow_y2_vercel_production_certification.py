@@ -92,6 +92,21 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
         for needle in required:
             self.assertIn(needle, text, f"missing runtime probe contract: {needle}")
 
+    def test_entitlement_denial_fixture_covers_side_effect_free_posts(self):
+        mock = (ROOT / "scripts/production/tests/mock_workflow_vercel_runtime.py").read_text()
+        harness = HARNESS.read_text()
+        self.assertGreaterEqual(
+            mock.count('"message": "WORKFLOW_MODULE_NOT_ENTITLED"'),
+            3,
+            "catalog, validate, and simulate must model the same explicit entitlement boundary",
+        )
+        for route in ("workflowValidateViaVercel", "workflowSimulateViaVercel"):
+            self.assertIn(
+                f'.route == "{route}" and .httpStatus == 403 and .result == "PASS"',
+                harness,
+                f"entitlement-denied {route} must be certified as guard enforcement",
+            )
+
     def test_shell_syntax_and_behavioral_harness(self):
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
         result = subprocess.run(
