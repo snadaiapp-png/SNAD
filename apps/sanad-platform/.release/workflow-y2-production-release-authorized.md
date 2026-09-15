@@ -193,3 +193,36 @@ Only the canonical release chain is authorized:
 No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, or subscription/entitlement state fabrication is authorized.
 
 If the release-control PR head, current `main`, required CI, independent approval, immutable-image evidence, or production target changes before merge, this authorization fails closed and must be re-evaluated.
+
+
+## Workflow Designer Production Alignment Authority — 2026-09-15
+
+- Certified engineering main SHA: `f62644009c1edb68314e5cbadd1c6ebddc4a0ddb`
+- Source PR: `#1065` — Workflow Designer Browser Acceptance Gate
+- Source PR exact head: `d9ee9262a366a19478112d216f468cca2c0ae769`
+- Source PR independent human review: `APPROVED`
+- Source PR required CI: `PASS`
+- Designer Browser Acceptance: `PASS`
+- Vercel frontend deployment for engineering main: `PASS`
+- Observed live Render backend image before alignment: `ghcr.io/snadaiapp-png/snad-backend:e30d47be1716dcd32a4101f01428f62a66d0ac18`
+- Backend source parity before alignment: `FAIL` because current main contains later `apps/sanad-platform/**` changes not present in the live image.
+- Runtime application behavior change in this release-control PR: `NONE`
+- Database migration change in this release-control PR: `NONE`
+- Security/RBAC semantic change in this release-control PR: `NONE`
+- Owner production deployment authorization: `GRANTED_EXPLICITLY_2026-09-15`
+- Independent human review with repository write access: `REQUIRED`
+- Exact-head required checks: `REQUIRED_PASS`
+- Pre-merge current-main drift guard: `REQUIRED_PASS`
+- Rollback on failure: `REQUIRED=true`
+
+This authorization is strictly limited to aligning production with the certified engineering state represented by `f62644009c1edb68314e5cbadd1c6ebddc4a0ddb` through the canonical protected release path.
+
+The protected squash merge MUST contain the exact immutable commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker, the production orchestrator must fail closed.
+
+Only the canonical path is authorized:
+
+`Publish Render Backend Image` → exact immutable SHA image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → exact-image Render verification → readiness → Flyway/runtime invariants → security boundary → subscription/SCP production smoke → Vercel Control Plane/BFF → sanitized release evidence → Workflow Y2 Vercel Production Certification.
+
+No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, subscription/entitlement fabrication, or autonomous AI activation is authorized.
+
+If the release-control PR head, current `main`, required CI, independent approval, immutable-image evidence, or production target changes before merge, this authorization fails closed and must be re-evaluated.
