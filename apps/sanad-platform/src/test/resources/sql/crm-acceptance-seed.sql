@@ -532,6 +532,11 @@ ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------------------
 -- These rows belong to Tenant A only — Tenant B must never see them.
 
+-- FORCE-RLS CRM tables require the same tenant context used by the
+-- application transaction interceptor. This seed runs in one psql session,
+-- so set the session GUC before inserting Tenant A CRM fixtures.
+SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', false);
+
 INSERT INTO crm_accounts (
     id, tenant_id, version, display_name, normalized_name, account_type,
     lifecycle_status, primary_currency_code, preferred_locale, time_zone,

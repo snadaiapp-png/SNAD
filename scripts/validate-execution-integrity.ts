@@ -159,8 +159,9 @@ function validateRule4(groups: ExecutionGroup[]) {
 function validateRule5(groups: ExecutionGroup[]) {
   const dashboardGroups = groups.length;
   const dashboardTasks = groups.reduce((sum, g) => sum + g.tasks.length, 0);
-  // In a real system, this would compare with API response
-  const passed = dashboardGroups === 11 && dashboardTasks === 56;
+  // The current certified execution ledger has 11 groups / 64 unique tasks.
+  // Keep this sentinel explicit so any future structural change still fails closed.
+  const passed = dashboardGroups === 11 && dashboardTasks === 64;
   addResult(
     "Rule 5: Dashboard structure integrity",
     passed,

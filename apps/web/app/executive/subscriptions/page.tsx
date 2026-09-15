@@ -14,6 +14,7 @@ import {
   ScpStatusPill,
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
+import { scpErrorMessage } from "../_components/scp-errors";
 import styles from "../scp.module.css";
 
 /**
@@ -63,7 +64,7 @@ function SubscriptionsContent() {
       }
     } catch (reason) {
       if (generation === requestGeneration.current) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(scpErrorMessage(reason));
       }
     } finally {
       if (generation === requestGeneration.current) {

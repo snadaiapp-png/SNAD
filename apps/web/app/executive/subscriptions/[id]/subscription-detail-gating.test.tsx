@@ -31,6 +31,8 @@ vi.mock("@/lib/api/scp-api", () => ({
       changes: [],
       provisioningJobs: [],
       audit: [],
+      availableActions: ["PAUSE", "SUSPEND", "CANCEL", "TERMINATE"],
+      blockingReasons: [],
     }),
     subscriptionItems: vi.fn().mockResolvedValue([]),
     usage: vi.fn().mockResolvedValue([]),
@@ -141,7 +143,7 @@ describe("Subscription detail — mutation capability gating (Blocker C)", () =>
     expect(screen.queryByRole("button", { name: "scp.detail.confirmChange" })).not.toBeInTheDocument();
   });
 
-  it("R5/UAT-10: admin receives the lifecycle mutation controls", async () => {
+  it("R5/UAT-10: admin receives only backend-allowed direct lifecycle controls", async () => {
     accessCheckMock.mockResolvedValueOnce(ADMIN_MAP);
     render(
       <ScpAccessProvider>
@@ -149,9 +151,12 @@ describe("Subscription detail — mutation capability gating (Blocker C)", () =>
       </ScpAccessProvider>,
     );
     await settle();
-    for (const command of ["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"]) {
+    for (const command of ["PAUSE", "SUSPEND", "CANCEL", "TERMINATE"]) {
       const button = screen.getByRole("button", { name: `scp.detail.lifecycle.${command}` });
       expect(button).toBeEnabled();
+    }
+    for (const governed of ["ACTIVATE", "RENEW", "EXPIRE"]) {
+      expect(screen.queryByRole("button", { name: `scp.detail.lifecycle.${governed}` })).not.toBeInTheDocument();
     }
   });
 

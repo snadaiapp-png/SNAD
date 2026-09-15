@@ -17,6 +17,8 @@ import {
   ScpStatusPill,
 } from "../_components/ScpStates";
 import { useScpFormat } from "../_components/format";
+import { useScpAccess } from "../_components/ScpAccess";
+import { scpErrorMessage } from "../_components/scp-errors";
 import { PlanVersionPricesTable } from "./PlanVersionPricesTable";
 import { PlanEntitlementsSummary } from "./PlanEntitlementsSummary";
 import styles from "../scp.module.css";
@@ -36,6 +38,8 @@ import styles from "../scp.module.css";
  */
 export default function PlansPage() {
   const { t } = useI18n();
+  const { has } = useScpAccess();
+  const canManage = has("EXECUTIVE_MANAGE");
   const [plans, setPlans] = useState<SaasPlan[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -50,7 +54,7 @@ export default function PlansPage() {
       if (mountedRef.current) setPlans(next);
     } catch (reason) {
       if (mountedRef.current) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(scpErrorMessage(reason));
       }
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -84,6 +88,7 @@ export default function PlansPage() {
           <PlanCard
             key={plan.id}
             plan={plan}
+            canManage={canManage}
             onError={setError}
           />
         ))}
@@ -94,9 +99,11 @@ export default function PlansPage() {
 
 function PlanCard({
   plan,
+  canManage,
   onError,
 }: {
   plan: SaasPlan;
+  canManage: boolean;
   onError: (message: string) => void;
 }) {
   const { t } = useI18n();
@@ -125,7 +132,7 @@ function PlanCard({
         setPrices(active ? await scpApi.planVersionPrices(plan.id, active.id) : []);
       }
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : String(reason));
+      onError(scpErrorMessage(reason));
     }
   }
 
@@ -135,7 +142,7 @@ function PlanCard({
       await scpApi.activatePlanVersion(plan.id, version.id);
       setVersions(await scpApi.planVersions(plan.id));
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : String(reason));
+      onError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -158,7 +165,7 @@ function PlanCard({
       setCreating(false);
       setVersions(await scpApi.planVersions(plan.id));
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : String(reason));
+      onError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -181,9 +188,11 @@ function PlanCard({
         <Button variant="secondary" size="sm" onClick={() => void toggleVersions()}>
           {expanded ? t("scp.plans.hideVersions") : t("scp.plans.showVersions")}
         </Button>
-        <Button variant="secondary" size="sm" onClick={() => setCreating((value) => !value)}>
-          {t("scp.plans.newVersion")}
-        </Button>
+        {canManage ? (
+          <Button variant="secondary" size="sm" onClick={() => setCreating((value) => !value)}>
+            {t("scp.plans.newVersion")}
+          </Button>
+        ) : null}
       </div>
 
       {creating ? (
@@ -203,6 +212,18 @@ function PlanCard({
           <label>
             <span>{t("scp.plans.trialDays")}</span>
             <Input name="trialDays" type="number" defaultValue={plan.trialDays} min={0} max={365} />
+          </label>
+          <label>
+            <span>{t("scp.plans.maxUsers")}</span>
+            <Input name="maxUsers" type="number" defaultValue={plan.maxUsers} min={1} required />
+          </label>
+          <label>
+            <span>{t("scp.plans.maxOrganizations")}</span>
+            <Input name="maxOrganizations" type="number" defaultValue={plan.maxOrganizations} min={1} required />
+          </label>
+          <label>
+            <span>{t("scp.plans.storageMb")}</span>
+            <Input name="storageMb" type="number" defaultValue={plan.storageMb} min={0} required />
           </label>
           <Button type="submit" variant="primary" size="sm" disabled={busy}>
             {t("scp.plans.submitVersion")}
@@ -231,7 +252,7 @@ function PlanCard({
                   </td>
                   <td>{version.effectiveFrom ? String(version.effectiveFrom).slice(0, 10) : "—"}</td>
                   <td>
-                    {version.status === "DRAFT" ? (
+                    {canManage && version.status === "DRAFT" ? (
                       <Button variant="primary" size="sm" disabled={busy} onClick={() => void activate(version)}>
                         {t("scp.plans.activate")}
                       </Button>

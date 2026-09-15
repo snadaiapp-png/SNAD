@@ -1,14 +1,29 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiHttpError } from "@/lib/api/errors";
 
 const tenantsMock = vi.fn();
 const hasMock = vi.fn();
+const createTenantMock = vi.fn();
+const tenantMock = vi.fn();
+const updateTenantMock = vi.fn();
+const changeTenantStatusMock = vi.fn();
 
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: { tenants: (...args: unknown[]) => tenantsMock(...args) },
+}));
+
+vi.mock("@/lib/api/executive-api", () => ({
+  executiveApi: {
+    createTenant: (...args: unknown[]) => createTenantMock(...args),
+    tenant: (...args: unknown[]) => tenantMock(...args),
+    updateTenant: (...args: unknown[]) => updateTenantMock(...args),
+    changeTenantStatus: (...args: unknown[]) => changeTenantStatusMock(...args),
+  },
 }));
 
 vi.mock("../_components/ScpAccess", () => ({
@@ -55,6 +70,10 @@ const PAGE = {
 
 beforeEach(() => {
   tenantsMock.mockResolvedValue(PAGE);
+  createTenantMock.mockReset();
+  tenantMock.mockReset();
+  updateTenantMock.mockReset();
+  changeTenantStatusMock.mockReset();
   hasMock.mockReset();
 });
 
@@ -66,11 +85,11 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    expect(screen.getByRole("button", { name: "إنشاء حساب جديد" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "تحديث" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "تجميد" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "حذف الحساب" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "ترقية" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "scp.tenants.create" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scp.tenants.update" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scp.tenants.freeze" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scp.tenants.archive" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "scp.tenants.upgrade" })).toHaveAttribute(
       "href",
       "/executive/subscriptions?tenantId=11111111-1111-1111-1111-111111111111&intent=upgrade",
     );
@@ -82,10 +101,170 @@ describe("Executive tenant management controls", () => {
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
-    expect(screen.queryByRole("button", { name: "إنشاء حساب جديد" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "تحديث" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "تجميد" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "حذف الحساب" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "ترقية" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.create" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.update" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.freeze" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.archive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "scp.tenants.upgrade" })).not.toBeInTheDocument();
   });
+
+  it("keeps focus on the input while typing multiple characters in the create dialog", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+    const subdomain = screen.getByLabelText("scp.tenants.form.subdomain");
+    await user.click(subdomain);
+    await user.type(subdomain, "acme01");
+
+    expect((subdomain as HTMLInputElement).value).toBe("acme01");
+    expect(screen.getByLabelText("scp.tenants.form.subdomain")).toHaveFocus();
+  });
+
+  it("shows visible labels for every create-dialog field", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+
+    for (const label of ["scp.tenants.form.name", "scp.tenants.form.subdomain", "scp.tenants.form.adminEmail", "scp.tenants.form.adminDisplayName"]) {
+      const labelEl = screen.getByText(label);
+      expect(labelEl).toBeVisible();
+      expect(labelEl.tagName).toBe("LABEL");
+    }
+  });
+
+  it("validates tenant creation locally and keeps invalid payloads away from the API", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+    await user.type(screen.getByLabelText("scp.tenants.form.name"), "شركة اختبار");
+    await user.type(screen.getByLabelText("scp.tenants.form.subdomain"), "bad_domain");
+    await user.type(screen.getByLabelText("scp.tenants.form.adminEmail"), "not-an-email");
+    await user.type(screen.getByLabelText("scp.tenants.form.adminDisplayName"), "مدير النظام");
+
+    await user.click(screen.getByRole("button", { name: "form.action.create" }));
+
+    expect(createTenantMock).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    const alertText = alert.textContent ?? "";
+    expect(alertText).toMatch(/scp\.tenants\.validation\.(subdomainInvalid|adminEmailInvalid)/i);
+    // No raw regex as the primary user message.
+    expect(alertText).not.toMatch(/[\^$\\]|(?:\(\?)/);
+  });
+
+  it("validates tenant edit country and currency structurally with human-readable messages", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    tenantMock.mockResolvedValue({
+      id: "11111111-1111-1111-1111-111111111111",
+      name: "Acme Corp",
+      legalName: null,
+      subdomain: "acme",
+      status: "ACTIVE",
+      billingEmail: "billing@acme.example",
+      countryCode: "SA",
+      locale: "ar-SA",
+      timezone: "Asia/Riyadh",
+      currencyCode: "SAR",
+      trialEndsAt: null,
+      suspensionReason: null,
+      createdAt: "2026-09-09T00:00:00Z",
+      updatedAt: "2026-09-09T00:00:00Z",
+    });
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.update" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "scp.tenants.editDialogTitle" })).toBeInTheDocument());
+
+    const country = screen.getByLabelText("scp.tenants.form.countryCode");
+    await user.clear(country);
+    await user.type(country, "S1");
+    await user.click(screen.getByRole("button", { name: "form.action.save" }));
+
+    expect(updateTenantMock).not.toHaveBeenCalled();
+    const countryAlert = screen.getByRole("alert");
+    expect(countryAlert.textContent).toMatch(/scp\.tenants\.validation\.countryInvalid/);
+    expect(countryAlert.textContent).not.toMatch(/[\^$\\[\]{}]/);
+
+    // Fix the country, then break the currency: the currency message is the one surfaced.
+    const countryFixed = screen.getByLabelText("scp.tenants.form.countryCode");
+    await user.clear(countryFixed);
+    await user.type(countryFixed, "SA");
+    const currency = screen.getByLabelText("scp.tenants.form.currencyCode");
+    await user.clear(currency);
+    await user.type(currency, "EU4");
+    await user.click(screen.getByRole("button", { name: "form.action.save" }));
+
+    expect(updateTenantMock).not.toHaveBeenCalled();
+    const currencyAlert = screen.getByRole("alert");
+    expect(currencyAlert.textContent).toMatch(/scp\.tenants\.validation\.currencyInvalid/);
+    expect(currencyAlert.textContent).not.toMatch(/[\^$\\[\]{}]/);
+  });
+
+  it("surfaces localized backend errors inside the create dialog without raw internals", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    createTenantMock.mockRejectedValue(
+      new ApiHttpError("Request failed", {
+        status: 500,
+        error: "Internal Server Error",
+        message: "Duplicate key value violates unique constraint uk_tenants_subdomain",
+        path: "/api/v1/executive/tenants",
+        requestId: "req-g1a-1",
+        body: null,
+      }),
+    );
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+    await user.type(screen.getByLabelText("scp.tenants.form.name"), "شركة اختبار");
+    await user.type(screen.getByLabelText("scp.tenants.form.subdomain"), "acme");
+    await user.type(screen.getByLabelText("scp.tenants.form.adminEmail"), "admin@acme.example");
+    await user.type(screen.getByLabelText("scp.tenants.form.adminDisplayName"), "مدير النظام");
+    await user.click(screen.getByRole("button", { name: "form.action.create" }));
+
+    await waitFor(() => expect(createTenantMock).toHaveBeenCalledTimes(1));
+
+    // The dialog must stay open and carry the localized error inside it.
+    expect(screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" });
+    const alert = within(dialog).getByRole("alert");
+    const alertText = alert.textContent ?? "";
+    expect(alertText).toMatch(/خطأ|تعذر|حدث/); // Arabic localized backend failure
+    expect(alertText).not.toMatch(/uk_tenants_subdomain|Duplicate key|constraint/i); // no raw internals
+  });
+
+  it("uses archive terminology for the non-destructive tenant action", async () => {
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "scp.tenants.archive" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "form.action.delete" })).not.toBeInTheDocument();
+  });
+
+  it("routes tenant management controls and create dialog through i18n keys", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
+    expect(screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" })).toBeInTheDocument();
+    expect(screen.getByLabelText("scp.tenants.form.name")).toBeInTheDocument();
+    expect(screen.getByLabelText("scp.tenants.form.subdomain")).toBeInTheDocument();
+    expect(screen.getByLabelText("scp.tenants.form.adminEmail")).toBeInTheDocument();
+    expect(screen.getByLabelText("scp.tenants.form.adminDisplayName")).toBeInTheDocument();
+  });
+
 });

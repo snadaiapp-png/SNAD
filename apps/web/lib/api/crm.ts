@@ -667,7 +667,7 @@ export const crmApi = {
   // ── Contacts (V2 — migrated TD-002-2) ──────────────────────────────────
   contacts: async (accountId?: string, search?: string) => {
     const data = await fetchAllPages<V2ContactResponse>((cursor) =>
-      apiClient.get<V2ListResponse<V2ContactResponse>>(`${v2root}/contacts`, { query: { limit: 200, accountId, search, cursor }, cache: "no-store" }),
+      apiClient.get<V2ListResponse<V2ContactResponse>>(`${v2root}/contacts`, { query: { limit: 200, accountId, search: search?.trim() || undefined, cursor }, cache: "no-store" }),
     );
     return data.map(mapV2Contact);
   },

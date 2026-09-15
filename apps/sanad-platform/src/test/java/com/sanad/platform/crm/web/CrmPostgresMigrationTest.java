@@ -208,7 +208,12 @@ class CrmPostgresMigrationTest {
     private static final String R0C13_BILLING_FOUNDATION_VERSION = "20260912.4";
     private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.5";
     private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.6";
-    private static final String LATEST_MIGRATION_VERSION = R0C13_G07_PROVIDER_UNAVAILABLE_VERSION;
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only PATH-B G1-B migration
+    // (V20260914_1: application catalog status lifecycle widening per design
+    // spec §12.4). The expected head remains explicit — the sentinel is
+    // not weakened.
+    private static final String PATH_B_G1B_CATALOG_LIFECYCLE_VERSION = "20260914.1";
+    private static final String LATEST_MIGRATION_VERSION = PATH_B_G1B_CATALOG_LIFECYCLE_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -451,7 +456,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
-                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
+                        MigrationVersion.fromVersion(PATH_B_G1B_CATALOG_LIFECYCLE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -632,7 +638,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R2_ANALYTICS_PROJECTIONS_VERSION),
                         MigrationVersion.fromVersion(R0C13_BILLING_FOUNDATION_VERSION),
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
-                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION));
+                        MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
+                        MigrationVersion.fromVersion(PATH_B_G1B_CATALOG_LIFECYCLE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
