@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { executiveApi, type BillingInvoice } from "@/lib/api/executive-api";
 import { scpApi, type TenantRow } from "@/lib/api/scp-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -27,8 +27,10 @@ export default function BillingPage() {
   const [tenantQuery, setTenantQuery] = useState("");
   const [tenantId, setTenantId] = useState("");
   const [matches, setMatches] = useState<TenantRow[]>([]);
+  const tenantSearchGeneration = useRef(0);
   const [invoices, setInvoices] = useState<BillingInvoice[] | null>(null);
-  const [error, setError] = useState("");
+  const [searchError, setSearchError] = useState("");
+  const [invoiceError, setInvoiceError] = useState("");
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -38,16 +40,19 @@ export default function BillingPage() {
       setMatches([]);
       return;
     }
+    const generation = tenantSearchGeneration.current;
     const handle = setTimeout(() => {
       scpApi
         .tenants({ search: tenantQuery.trim(), size: 8, sort: "name", direction: "ASC" })
         .then((page) => {
+          if (generation !== tenantSearchGeneration.current) return;
           setMatches(page.content);
-          setError("");
+          setSearchError("");
         })
         .catch((reason) => {
+          if (generation !== tenantSearchGeneration.current) return;
           setMatches([]);
-          setError(scpErrorMessage(reason));
+          setSearchError(scpErrorMessage(reason));
         });
     }, 250);
     return () => clearTimeout(handle);
@@ -56,11 +61,11 @@ export default function BillingPage() {
   const load = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true);
-    setError("");
+    setInvoiceError("");
     try {
       setInvoices(await executiveApi.invoices(tenantId));
     } catch (reason) {
-      setError(scpErrorMessage(reason));
+      setInvoiceError(scpErrorMessage(reason));
     } finally {
       setLoading(false);
     }
@@ -84,10 +89,12 @@ export default function BillingPage() {
             value={tenantQuery}
             placeholder={t("scp.entitlements.searchTenant")}
             onChange={(event) => {
+              tenantSearchGeneration.current += 1;
               setTenantQuery(event.target.value);
               setTenantId("");
               setInvoices(null);
-              setError("");
+              setSearchError("");
+              setInvoiceError("");
             }}
             aria-label={t("scp.entitlements.searchTenant")}
           />
@@ -100,9 +107,12 @@ export default function BillingPage() {
                   variant="secondary"
                   size="sm"
                   onClick={() => {
+                    tenantSearchGeneration.current += 1;
                     setTenantId(tenant.id);
                     setTenantQuery(tenant.name);
                     setMatches([]);
+                    setSearchError("");
+                    setInvoiceError("");
                     setInvoices(null);
                   }}
                 >
@@ -118,7 +128,8 @@ export default function BillingPage() {
       </div>
 
       {loading ? <ScpSkeleton lines={6} /> : null}
-      {error ? <ScpError message={error} onRetry={load} /> : null}
+      {searchError ? <ScpError message={searchError} /> : null}
+      {invoiceError ? <ScpError message={invoiceError} onRetry={load} /> : null}
 
       {invoices ? (
         <>
