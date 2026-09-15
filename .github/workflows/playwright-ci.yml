@@ -237,10 +237,12 @@ jobs:
           \c sanad_test
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_test;
           SQL
-          role_contract="$(sudo -u postgres psql -Atqc             "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_test'")"
+          role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_test'")"
           echo "CRM_ACCEPTANCE_ROLE_CONTRACT=$role_contract"
           test "$role_contract" = "false|false|false|false"
-          PGPASSWORD="$DATABASE_PASSWORD" psql             -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME"             -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
 
       - name: Generate isolated CI credentials
         shell: bash
