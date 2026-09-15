@@ -105,11 +105,6 @@ jobs:
         with:
           k6-version: 0.55.0
 
-      - name: Set up host-native k6
-        uses: grafana/setup-k6-action@v1
-        with:
-          k6-version: 0.55.0
-
       - name: Start backend on perf-test profile
         working-directory: apps/sanad-platform
         run: |
@@ -255,6 +250,11 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+
+      - name: Set up host-native k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: 0.55.0
 
       - name: Start backend on local CI profile
         working-directory: apps/sanad-platform
