@@ -173,6 +173,31 @@ describe("SDS Modal", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("preserves the focused child when a parent rerender supplies a new onClose callback", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <Modal isOpen onClose={() => {}} title="Edit tenant">
+        <input aria-label="Tenant name" />
+      </Modal>,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Tenant name" });
+    await user.click(input);
+    expect(input).toHaveFocus();
+
+    rerender(
+      <Modal isOpen onClose={() => {}} title="Edit tenant">
+        <input aria-label="Tenant name" />
+      </Modal>,
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByRole("textbox", { name: "Tenant name" })).toHaveFocus();
+  });
+
   it.each(["sm", "md", "lg", "full"] as const)(
     "renders size=%s without error",
     (size) => {
