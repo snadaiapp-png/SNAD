@@ -29,7 +29,7 @@ import java.util.UUID;
 public class LifecycleController {
 
     private static final Set<String> GOVERNED_ROUTE_COMMANDS = Set.of(
-            "ACTIVATE", "START_TRIAL", "RENEW", "CANCEL", "EXPIRE", "SCHEDULE_CANCELLATION",
+            "ACTIVATE", "START_TRIAL", "RENEW", "CANCEL", "RESUME", "EXPIRE", "SCHEDULE_CANCELLATION",
             "MARK_PAST_DUE", "ENTER_GRACE", "REQUEST_ACTIVATION", "PAYMENT_RECEIVED");
 
     public record LifecycleCommandRequest(@NotBlank String reason) {
@@ -85,6 +85,7 @@ public class LifecycleController {
                 case "ACTIVATE" -> "provisioning (/subscriptions/{id}/provision)";
                 case "RENEW" -> "renewal/invoicing (/subscriptions/{id}/renew)";
                 case "CANCEL" -> "cancellation service (/subscriptions/{id}/cancel)";
+                case "RESUME" -> "resume service (/subscriptions/{id}/resume)";
                 case "EXPIRE" -> "expiration runtime";
                 case "SCHEDULE_CANCELLATION" -> "cancellation service (/subscriptions/{id}/cancel)";
                 case "START_TRIAL" -> "trial-period authority";
@@ -98,15 +99,6 @@ public class LifecycleController {
         if (!SubscriptionLifecycle.DIRECT_OPERATOR_COMMANDS.contains(command)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Unknown or unsupported direct lifecycle command: " + command);
-        }
-        if ("RESUME".equals(command)) {
-            String status = jdbc.queryForObject(
-                    "SELECT status FROM tenant_subscriptions WHERE id = ?", String.class, subscriptionId);
-            if ("CANCELLED".equals(status)) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "CANCELLED subscriptions must use the governed resume endpoint "
-                                + "(/subscriptions/{id}/resume) so period and billing side effects are preserved");
-            }
         }
     }
 
