@@ -133,7 +133,7 @@ export default function ApplicationsPage() {
           code: form.code.trim().toUpperCase(),
           name: form.name.trim(),
           localizedName: form.localizedName.trim() || undefined,
-          description: form.description.trim() || undefined,
+          description: form.description.trim(),
           category: form.category.trim() || undefined,
         });
       } else {
