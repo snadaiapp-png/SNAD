@@ -147,4 +147,20 @@ describe("Subscription detail lifecycle authority", () => {
     await waitFor(() => expect(screen.getByText("scp.detail.lifecycleCommands")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "scp.detail.lifecycle.PAUSE" })).not.toBeInTheDocument();
   });
+  it("surfaces embedded usage API degradation instead of silently hiding the usage section", async () => {
+    detailMock.mockResolvedValue({
+      id: "sub-1",
+      overview: { tenantId: "tenant-1", status: "ACTIVE", currencyCode: "SAR" },
+      items: [], entitlements: [], invoices: [], changes: [], provisioningJobs: [], audit: [],
+      availableActions: [], blockingReasons: [],
+    });
+    usageMock.mockRejectedValueOnce(new Error("RAW_USAGE_BACKEND_FAILURE"));
+
+    render(<SubscriptionDetailPage />);
+
+    await waitFor(() => expect(usageMock).toHaveBeenCalledWith("tenant-1"));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toContain("RAW_USAGE_BACKEND_FAILURE");
+  });
+
 });
