@@ -124,12 +124,6 @@ export const executiveApi = {
     apiClient.patch<TenantSubscription, Record<string, never>>(`${root}/subscriptions/${subscriptionId}/resume`, {}),
   renewSubscription: (subscriptionId: string) =>
     apiClient.post<TenantSubscription, Record<string, never>>(`${root}/subscriptions/${subscriptionId}/renew`, {}),
-  renewSubscription: (subscriptionId: string) =>
-    apiClient.post<TenantSubscription, Record<string, never>>(
-      `${root}/subscriptions/${subscriptionId}/renew`, {} as Record<string, never>),
-  resumeSubscription: (subscriptionId: string) =>
-    apiClient.patch<TenantSubscription, Record<string, never>>(
-      `${root}/subscriptions/${subscriptionId}/resume`, {} as Record<string, never>),
   invoices: (tenantId: string) =>
     apiClient.get<BillingInvoice[]>(`${root}/billing/invoices?tenantId=${encodeURIComponent(tenantId)}`),
   organizations: (tenantId: string) => apiClient.get<ManagedOrganization[]>(`${root}/tenants/${tenantId}/organizations`),
