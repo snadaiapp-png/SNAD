@@ -120,6 +120,10 @@ export const executiveApi = {
   subscriptions: () => apiClient.get<TenantSubscription[]>(`${root}/subscriptions`),
   cancelSubscription: (subscriptionId: string, body: { immediate: boolean; reason: string }) =>
     apiClient.patch<TenantSubscription, typeof body>(`${root}/subscriptions/${subscriptionId}/cancel`, body),
+  resumeSubscription: (subscriptionId: string) =>
+    apiClient.patch<TenantSubscription, Record<string, never>>(`${root}/subscriptions/${subscriptionId}/resume`, {}),
+  renewSubscription: (subscriptionId: string) =>
+    apiClient.post<TenantSubscription, Record<string, never>>(`${root}/subscriptions/${subscriptionId}/renew`, {}),
   renewSubscription: (subscriptionId: string) =>
     apiClient.post<TenantSubscription, Record<string, never>>(
       `${root}/subscriptions/${subscriptionId}/renew`, {} as Record<string, never>),
