@@ -72,6 +72,8 @@ bash "$SCRIPT"
 jq -e '
   .result == "PASS"
   and any(.checks[]; .route == "workflowModuleCatalog" and .httpStatus == 403 and .result == "PASS")
+  and any(.checks[]; .route == "workflowValidateViaVercel" and .httpStatus == 403 and .result == "PASS")
+  and any(.checks[]; .route == "workflowSimulateViaVercel" and .httpStatus == 403 and .result == "PASS")
 ' "$ENTITLEMENT_EVIDENCE" >/dev/null
 
 COLD_PORT="$(run_mock aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa enabled 1)"
