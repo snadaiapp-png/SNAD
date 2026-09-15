@@ -84,7 +84,10 @@ export default function SubscriptionDetailPage() {
       setItems(itemsResult);
       const tenantId = String(detailResult.overview.tenantId ?? "");
       if (tenantId) {
-        scpApi.usage(tenantId).then(setUsage).catch(() => setUsage(null));
+        scpApi.usage(tenantId).then(setUsage).catch((reason) => {
+          setUsage(null);
+          setError(scpErrorMessage(reason));
+        });
       }
     } catch (reason) {
       setError(scpErrorMessage(reason));
