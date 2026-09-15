@@ -142,8 +142,32 @@ class SubscriptionDetailServiceTest {
         @SuppressWarnings("unchecked")
         List<String> actions = (List<String>) SubscriptionDetailService.SubscriptionDetail.class
                 .getMethod("availableActions").invoke(detail);
-        assertThat(actions).containsExactly("PAUSE", "SUSPEND", "CANCEL", "TERMINATE");
-        assertThat(actions).doesNotContain("ACTIVATE", "RENEW", "EXPIRE");
+        assertThat(actions).containsExactly("PAUSE", "SUSPEND", "CANCEL", "TERMINATE", "RENEW");
+        assertThat(actions).doesNotContain("ACTIVATE", "EXPIRE");
+    }
+
+
+    @Test
+    @DisplayName("cancelled subscription exposes governed RESUME instead of hiding a valid operator action")
+    void cancelledSubscriptionExposesGovernedResumeAction() {
+        Map<String, Object> overview = new HashMap<>();
+        overview.put("id", SUBSCRIPTION_ID);
+        overview.put("tenantId", TENANT_ID);
+        overview.put("status", "CANCELLED");
+        when(jdbc.queryForMap(contains("FROM tenant_subscriptions"), eq(SUBSCRIPTION_ID)))
+                .thenReturn(overview);
+        lenient().when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+        lenient().when(jdbc.query(contains("subscription_commands"),
+                        org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<Map<String, Object>>>any(),
+                        eq(SUBSCRIPTION_ID), eq(SUBSCRIPTION_ID)))
+                .thenReturn(List.of());
+        when(jdbc.queryForList(contains("product_entitlements"), eq(SUBSCRIPTION_ID), eq(SUBSCRIPTION_ID)))
+                .thenReturn(List.of());
+
+        SubscriptionDetailService.SubscriptionDetail detail = service.detail(SUBSCRIPTION_ID);
+
+        assertThat(detail.availableActions()).contains("RESUME");
+        assertThat(detail.availableActions()).doesNotContain("ACTIVATE", "RENEW");
     }
 
 }
