@@ -25,7 +25,7 @@ export function WorkflowApprovals() {
     setLoading(true);
     setError(null);
     try {
-      setApprovals(await workflowApi.listPendingApprovals(50));
+      setApprovals(await workflowApi.listMyPendingApprovals(50));
     } catch (cause: unknown) {
       setError(describeWorkflowError(cause, "تعذر تحميل طلبات الموافقة"));
     } finally {

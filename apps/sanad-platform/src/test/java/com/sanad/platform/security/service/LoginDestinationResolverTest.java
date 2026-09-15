@@ -152,6 +152,16 @@ class LoginDestinationResolverTest {
     }
 
     @Test
+    void workflowCapabilityUser_canReturnToWorkflowAfterLogin() {
+        UUID roleId = UUID.randomUUID();
+        grant(roleId, "MEMBER", RoleStatus.ACTIVE, list("WORKFLOW.VIEW"));
+
+        LoginDestinationResolver.DestinationSet result = resolver.resolve(TENANT, USER, false);
+
+        assertThat(result.getAvailable()).containsExactly("/workspace", "/workflow");
+    }
+
+    @Test
     void inactiveRole_grantDoesNotContributeCapabilities() {
         UUID roleId = UUID.randomUUID();
         // Active grant, but role is INACTIVE → capabilities should not apply.

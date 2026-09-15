@@ -89,7 +89,7 @@ export function WorkflowDefinitions() {
   const [showCreate, setShowCreate] = useState(false);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [module, setModule] = useState("GENERAL");
+  const [module, setModule] = useState("");
   const [triggerType, setTriggerType] = useState("MANUAL");
 
   // R1 GATE R1.10 — backend-authoritative dynamic module catalog. The static
@@ -145,11 +145,8 @@ export function WorkflowDefinitions() {
         const versions = await workflowApi.listDefinitionVersions(family.latest.id);
         setFamilyHistory((previous) => ({ ...previous, [family.familyId]: versions }));
       } catch (cause: unknown) {
-        setFamilyHistory((previous) => ({
-          ...previous,
-          [family.familyId]: family.versions,
-        }));
-        console.error("version history load failed", cause);
+        setExpandedFamily(null);
+        setError(describeWorkflowError(cause, "تعذر تحميل سجل إصدارات سير العمل"));
       }
     }
   };
@@ -176,10 +173,14 @@ export function WorkflowDefinitions() {
   };
 
   const createDefinition = async () => {
+    if (catalogError || catalogModules.length === 0) {
+      setError(catalogError ?? "كتالوج الوحدات غير متاح");
+      return;
+    }
     const normalizedCode = code.trim();
     const normalizedName = name.trim();
-    if (!normalizedCode || !normalizedName) {
-      setError("الرمز والاسم مطلوبان");
+    if (!normalizedCode || !normalizedName || !module) {
+      setError("الرمز والاسم والوحدة مطلوبة");
       return;
     }
     const saved = await runMutation(() =>
@@ -249,13 +250,10 @@ export function WorkflowDefinitions() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, padding: 14, margin: "16px 0", border: "1px solid var(--snad-color-border-default)", borderRadius: 8 }}>
           <input aria-label="رمز التعريف" placeholder="الرمز" value={code} onChange={(event) => setCode(event.target.value)} />
           <input aria-label="اسم التعريف" placeholder="الاسم" value={name} onChange={(event) => setName(event.target.value)} />
-          <select aria-label="الوحدة" value={module} onChange={(event) => setModule(event.target.value)}>
-            {catalogError ? (
-              <option value="GENERAL">عام</option>
-            ) : (
-              <>
-                <option value="GENERAL">عام</option>
-                {catalogModules.map((entry) => (
+          {catalogError && <p role="alert" style={{ color: "var(--snad-color-error)", margin: 0 }}>{catalogError}</p>}
+          <select aria-label="الوحدة" value={module} disabled={Boolean(catalogError) || catalogModules.length === 0} onChange={(event) => setModule(event.target.value)}>
+            <option value="">اختر الوحدة</option>
+            {catalogModules.map((entry) => (
                   <option
                     key={entry.moduleCode}
                     value={entry.moduleCode}
@@ -264,8 +262,6 @@ export function WorkflowDefinitions() {
                     {entry.displayName}
                   </option>
                 ))}
-              </>
-            )}
           </select>
           <select aria-label="نوع المشغل" value={triggerType} onChange={(event) => setTriggerType(event.target.value)}>
             <option value="MANUAL">يدوي</option>
@@ -273,7 +269,7 @@ export function WorkflowDefinitions() {
             <option value="SCHEDULED">مجدول</option>
             <option value="API">API</option>
           </select>
-          <button type="button" onClick={() => void createDefinition()}>حفظ</button>
+          <button type="button" disabled={Boolean(catalogError) || catalogModules.length === 0} onClick={() => void createDefinition()}>حفظ</button>
         </div>
       )}
 

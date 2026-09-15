@@ -136,6 +136,7 @@ describe("workflow Y2 definition designer (Task 18)", () => {
 
   it("supports keyboard, RTL focus, responsive layout and reduced motion", () => {
     const canvas = readRequired("components/workflow-canvas.tsx");
+    const drawer = readRequired("components/diagnostics-drawer.tsx");
     const css = readRequired("components/workflow-designer.module.css");
     expect(canvas).toContain("onKeyDown");
     expect(canvas).toContain('aria-label="لوحة تصميم سير العمل"');
@@ -146,6 +147,10 @@ describe("workflow Y2 definition designer (Task 18)", () => {
     expect(css).toContain("@media (max-width:");
     expect(css).toContain("inset-inline-end");
     expect(css).toContain("margin-inline-start");
+    expect(drawer).toContain("aria-controls");
+    expect(drawer).toContain("aria-labelledby");
+    expect(drawer).toContain("tabIndex={tab === item ? 0 : -1}");
+    for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) expect(drawer).toContain(key);
   });
 
   it("supports Y2 step, assignment, approval, SLA, transition and safe AST controls", () => {
