@@ -14,6 +14,7 @@ on:
       - "apps/web/lib/api/workflow-api.ts"
       - "apps/web/lib/workflow/**"
       - "apps/web/app/api/platform/**"
+      - "apps/sanad-platform/.release/workflow-y2-production-release-authorized.md"
   workflow_dispatch:
     inputs:
       backend_release_sha:
