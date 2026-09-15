@@ -224,12 +224,12 @@ jobs:
         run: |
           set -euo pipefail
           sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          DO $
+          DO $sanad$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_test') THEN
               CREATE ROLE sanad_test WITH LOGIN PASSWORD 'sanad_test_pass';
             END IF;
-          END $;
+          END $sanad$;
           ALTER ROLE sanad_test NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SELECT 'CREATE DATABASE sanad_test OWNER sanad_test'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_test')\gexec
