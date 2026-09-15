@@ -10,6 +10,8 @@ const usageMock = vi.fn();
 const plansMock = vi.fn();
 const lifecycleCommandMock = vi.fn();
 const cancelSubscriptionMock = vi.fn();
+const renewSubscriptionMock = vi.fn();
+const resumeSubscriptionMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "sub-1" }),
@@ -30,6 +32,8 @@ vi.mock("@/lib/api/executive-api", () => ({
   executiveApi: {
     plans: (...args: unknown[]) => plansMock(...args),
     cancelSubscription: (...args: unknown[]) => cancelSubscriptionMock(...args),
+    renewSubscription: (...args: unknown[]) => renewSubscriptionMock(...args),
+    resumeSubscription: (...args: unknown[]) => resumeSubscriptionMock(...args),
   },
 }));
 vi.mock("@/lib/i18n/I18nProvider", () => ({
@@ -55,6 +59,8 @@ beforeEach(() => {
   plansMock.mockReset();
   lifecycleCommandMock.mockReset();
   cancelSubscriptionMock.mockReset();
+  renewSubscriptionMock.mockReset();
+  resumeSubscriptionMock.mockReset();
   itemsMock.mockResolvedValue([]);
   usageMock.mockResolvedValue([]);
   plansMock.mockResolvedValue([]);
@@ -94,6 +100,41 @@ describe("Subscription detail lifecycle authority", () => {
       "sub-1",
       { immediate: true, reason: "CANCEL" },
     ));
+    expect(lifecycleCommandMock).not.toHaveBeenCalled();
+  });
+
+
+  it("routes RENEW through the governed renewal endpoint, never generic lifecycle", async () => {
+    const user = userEvent.setup();
+    detailMock.mockResolvedValue({
+      id: "sub-1",
+      overview: { tenantId: "tenant-1", status: "ACTIVE", currencyCode: "SAR" },
+      items: [], entitlements: [], invoices: [], changes: [], provisioningJobs: [], audit: [],
+      availableActions: ["RENEW"], blockingReasons: [],
+    });
+    renewSubscriptionMock.mockResolvedValue({ id: "sub-1", status: "ACTIVE" });
+
+    render(<SubscriptionDetailPage />);
+    await user.click(await screen.findByRole("button", { name: "scp.detail.lifecycle.RENEW" }));
+
+    await waitFor(() => expect(renewSubscriptionMock).toHaveBeenCalledWith("sub-1"));
+    expect(lifecycleCommandMock).not.toHaveBeenCalled();
+  });
+
+  it("routes RESUME through the governed resume endpoint, never generic lifecycle", async () => {
+    const user = userEvent.setup();
+    detailMock.mockResolvedValue({
+      id: "sub-1",
+      overview: { tenantId: "tenant-1", status: "PAUSED", currencyCode: "SAR" },
+      items: [], entitlements: [], invoices: [], changes: [], provisioningJobs: [], audit: [],
+      availableActions: ["RESUME"], blockingReasons: [],
+    });
+    resumeSubscriptionMock.mockResolvedValue({ id: "sub-1", status: "ACTIVE" });
+
+    render(<SubscriptionDetailPage />);
+    await user.click(await screen.findByRole("button", { name: "scp.detail.lifecycle.RESUME" }));
+
+    await waitFor(() => expect(resumeSubscriptionMock).toHaveBeenCalledWith("sub-1"));
     expect(lifecycleCommandMock).not.toHaveBeenCalled();
   });
 
