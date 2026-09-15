@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - transfer/hrm-t8-bundle
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,17 +13,30 @@ jobs:
   import-t8:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout transfer branch with full history
+      - name: Checkout exact transfer branch with full history
         uses: actions/checkout@v4
         with:
+          ref: transfer/hrm-t8-bundle
           fetch-depth: 0
 
       - name: Reassemble and verify T8 bundle
         shell: bash
         run: |
           set -euo pipefail
-          cat             .t8-import/t8.bundle.b64.part00             .t8-import/t8.bundle.b64.part01             .t8-import/t8.bundle.b64.part02             .t8-import/t8.bundle.b64.part03             .t8-import/t8.bundle.b64.part04             .t8-import/t8.bundle.b64.part05a0             .t8-import/t8.bundle.b64.part05a1             .t8-import/t8.bundle.b64.part05a2             .t8-import/t8.bundle.b64.part05a3             .t8-import/t8.bundle.b64.part06             | base64 --decode > /tmp/t8.bundle
+          cat \
+            .t8-import/t8.bundle.b64.part00 \
+            .t8-import/t8.bundle.b64.part01 \
+            .t8-import/t8.bundle.b64.part02 \
+            .t8-import/t8.bundle.b64.part03 \
+            .t8-import/t8.bundle.b64.part04 \
+            .t8-import/t8.bundle.b64.part05a0 \
+            .t8-import/t8.bundle.b64.part05a1 \
+            .t8-import/t8.bundle.b64.part05a2 \
+            .t8-import/t8.bundle.b64.part05a3 \
+            .t8-import/t8.bundle.b64.part06 \
+            | base64 --decode > /tmp/t8.bundle
 
+          test "$(wc -c < /tmp/t8.bundle)" = "91557"
           echo "1d682ca0fd334b254d51db688c203773857dfcbbd54f5154742c0ba15f1f70c4  /tmp/t8.bundle" | sha256sum -c -
           git bundle verify /tmp/t8.bundle
 
@@ -46,16 +60,14 @@ jobs:
           BASE: 7511906b82f8b39ef6875d0cdc502530944785f5
         run: |
           set -euo pipefail
-          git fetch /tmp/t8.bundle             refs/heads/impl/hrm-g1-recruitment-onboarding:refs/remotes/t8-bundle/impl/hrm-g1-recruitment-onboarding
+          git fetch /tmp/t8.bundle \
+            refs/heads/impl/hrm-g1-recruitment-onboarding:refs/remotes/t8-bundle/impl/hrm-g1-recruitment-onboarding
 
           test "$(git rev-parse refs/remotes/t8-bundle/impl/hrm-g1-recruitment-onboarding)" = "$GREEN"
           test "$(git rev-parse "$RED^")" = "$BASE"
           test "$(git rev-parse "$GREEN^")" = "$RED"
-
           git cat-file -e "$RED^{commit}"
           git cat-file -e "$GREEN^{commit}"
-          echo "RED=$RED"
-          echo "GREEN=$GREEN"
 
       - name: Push exact T8 chain to governed HRM branch
         shell: bash
