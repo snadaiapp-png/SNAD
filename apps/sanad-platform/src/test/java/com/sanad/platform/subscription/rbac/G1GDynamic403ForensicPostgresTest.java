@@ -41,8 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class G1GDynamic403ForensicPostgresTest {
 
     static final String CONTROL_PLANE_TENANT_ID = "00000000-0000-0000-0000-000000000001";
-    static final String CONTROL_ADMIN_PASSWORD = "G1G-Disposable-Control#2026";
-    static final String TENANT_ADMIN_PASSWORD = "G1G-Disposable-Tenant#2026";
+    private String controlAdminCredential;
+    private String tenantAdminCredential;
 
     public static final String EXPECTED_EXECUTIVE_DENIAL = "EXPECTED_EXECUTIVE_DENIAL";
     public static final String TENANT_WORKSPACE_SUBSCRIPTION_READ_SURFACE_MISSING =
@@ -72,6 +72,8 @@ class G1GDynamic403ForensicPostgresTest {
     void seedForensicIdentityChains() {
         purgeForensicResidue();
         Instant now = Instant.now();
+        controlAdminCredential = UUID.randomUUID() + "-C!9g";
+        tenantAdminCredential = UUID.randomUUID() + "-T!9g";
 
         UUID controlTenantId = UUID.fromString(CONTROL_PLANE_TENANT_ID);
         controlRoleId = jdbc.queryForObject(
@@ -87,7 +89,7 @@ class G1GDynamic403ForensicPostgresTest {
                                    session_version, created_at, updated_at)
                 VALUES (?, ?, ?, 'G1-G Disposable Control Admin', 'ACTIVE', ?, false, true, 0, ?, ?)
                 """, controlUserId, controlTenantId, controlAdminEmail,
-                passwordEncoder.encode(CONTROL_ADMIN_PASSWORD), Timestamp.from(now), Timestamp.from(now));
+                passwordEncoder.encode(controlAdminCredential), Timestamp.from(now), Timestamp.from(now));
         jdbc.update("""
                 INSERT INTO user_role_assignments
                     (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
@@ -111,7 +113,7 @@ class G1GDynamic403ForensicPostgresTest {
                                    session_version, created_at, updated_at)
                 VALUES (?, ?, ?, 'G1-G Forensic Tenant Admin', 'ACTIVE', ?, false, false, 0, ?, ?)
                 """, forensicUserId, forensicTenantId, tenantAdminEmail,
-                passwordEncoder.encode(TENANT_ADMIN_PASSWORD), Timestamp.from(now), Timestamp.from(now));
+                passwordEncoder.encode(tenantAdminCredential), Timestamp.from(now), Timestamp.from(now));
         jdbc.update("""
                 INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
                 VALUES (?, ?, 'ADMIN', 'Administrator', 'G1-G forensic tenant admin', 'ACTIVE', ?, ?)
@@ -192,7 +194,7 @@ class G1GDynamic403ForensicPostgresTest {
     @Test
     @DisplayName("A: disposable control-plane identity can read executive subscriptions")
     void scenarioA_controlPlaneIdentityReadsExecutiveSubscriptions() throws Exception {
-        String controlToken = login(controlAdminEmail, CONTROL_ADMIN_PASSWORD);
+        String controlToken = login(controlAdminEmail, controlAdminCredential);
 
         ResponseEntity<String> grid = get("/api/v1/executive/subscriptions/v2?size=50", controlToken);
         assertThat(grid.getStatusCode().value()).isEqualTo(200);
@@ -215,7 +217,7 @@ class G1GDynamic403ForensicPostgresTest {
     @Test
     @DisplayName("B: ordinary tenant admin is denied executive subscription surface")
     void scenarioB_tenantAdminExecutiveRequestIsDenied403() throws Exception {
-        String tenantAdminToken = login(tenantAdminEmail, TENANT_ADMIN_PASSWORD);
+        String tenantAdminToken = login(tenantAdminEmail, tenantAdminCredential);
         ResponseEntity<String> response = get(
                 EXECUTIVE_SUBSCRIPTIONS_PATH + "?tenantId=" + forensicTenantId, tenantAdminToken);
         assertThat(response.getStatusCode().value())
@@ -241,7 +243,7 @@ class G1GDynamic403ForensicPostgresTest {
         });
         assertThat(subscriptionRoutes).isNotEmpty();
 
-        String tenantAdminToken = login(tenantAdminEmail, TENANT_ADMIN_PASSWORD);
+        String tenantAdminToken = login(tenantAdminEmail, tenantAdminCredential);
         for (String missingSurface : List.of(
                 "/api/v1/workspace/subscriptions",
                 "/api/v1/tenant/subscriptions",
