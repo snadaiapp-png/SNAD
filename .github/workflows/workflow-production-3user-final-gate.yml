@@ -1,0 +1,140 @@
+name: Workflow Production 3-User Final Gate
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-production-3user-final-gate
+  cancel-in-progress: false
+
+jobs:
+  production-final-gate:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[workflow-prod-3user-final]')
+    name: Execute final production Workflow closure
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 40
+    env:
+      BASELINE_APP_SHA: 6b95862598aad42efea168e6138eacc240e62ee8
+      EXPECTED_MAIN_SHA: ${{ github.sha }}
+      PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      PROD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      PROD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      PROD_EVIDENCE_FILE: workflow-production-3user-journey.json
+
+    steps:
+      - name: Checkout exact main gate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on baseline drift and resolve live production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = 'refs/heads/main' ] || { echo '::error::Final production gate must execute from main'; exit 1; }
+          remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          [ "$remote_main" = "$EXPECTED_MAIN_SHA" ] || {
+            echo "::error::MAIN_DRIFT expected=$EXPECTED_MAIN_SHA actual=$remote_main"
+            exit 1
+          }
+          git cat-file -e "${BASELINE_APP_SHA}^{commit}"
+          git diff --quiet "$BASELINE_APP_SHA" "$EXPECTED_MAIN_SHA" -- apps/sanad-platform apps/web || {
+            echo '::error::Application source changed after the certified baseline; this gate is not authorized for that drift'
+            exit 1
+          }
+          for name in PRODUCTION_BASE_URL PROD_ADMIN_EMAIL PROD_ADMIN_PASSWORD RENDER_API_KEY RENDER_SERVICE_ID; do
+            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
+          done
+          curl --fail-with-body --silent --show-error --max-time 45             -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json'             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=50" > "$RUNNER_TEMP/render-deploys.json"
+          jq '[if type=="array" then .[] else (.deploys // .items // [])[] end | (.deploy // .) | select(.status=="live")] | sort_by(.finishedAt // .updatedAt // .createdAt) | reverse | first // empty'             "$RUNNER_TEMP/render-deploys.json" > "$RUNNER_TEMP/render-live.json"
+          image_ref="$(jq -r '(.image.ref // .imageRef) // empty' "$RUNNER_TEMP/render-live.json")"
+          [[ "$image_ref" =~ ^ghcr\.io/snadaiapp-png/snad-backend:([0-9a-f]{40})$ ]] || {
+            echo "::error::Live Render image is not an immutable SNAD backend image: $image_ref"
+            exit 1
+          }
+          live_sha="${BASH_REMATCH[1]}"
+          git cat-file -e "${live_sha}^{commit}"
+          git merge-base --is-ancestor "$live_sha" "$EXPECTED_MAIN_SHA" || { echo '::error::Live backend SHA is not an ancestor of current main'; exit 1; }
+          git diff --quiet "$live_sha" "$EXPECTED_MAIN_SHA" -- apps/sanad-platform || { echo '::error::Backend source differs from current main'; exit 1; }
+          echo "LIVE_BACKEND_SHA=$live_sha" >> "$GITHUB_ENV"
+
+          curl --fail-with-body --silent --show-error --max-time 45             -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json'             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars?limit=100" > "$RUNNER_TEMP/render-env.json"
+          test "$(jq 'length' "$RUNNER_TEMP/render-env.json")" -lt 100 || { echo '::error::Cannot prove complete Render env pagination'; exit 1; }
+          tenant_id="$(jq -r '[.[]? | (.envVar // .) | select(.key=="SANAD_CONTROL_PLANE_TENANT_ID")][0].value // empty' "$RUNNER_TEMP/render-env.json")"
+          [[ "$tenant_id" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo '::error::SANAD_CONTROL_PLANE_TENANT_ID missing or invalid'; exit 1; }
+          echo "::add-mask::$tenant_id"
+          echo "PROD_TENANT_ID=$tenant_id" >> "$GITHUB_ENV"
+
+          release_ready=false
+          for attempt in $(seq 1 40); do
+            status="$(curl --silent --show-error --location --connect-timeout 12 --max-time 60               --output "$RUNNER_TEMP/vercel-release.json" --write-out '%{http_code}'               "$PRODUCTION_BASE_URL/api/system/release")"
+            if [ "$status" = 200 ] && jq -e --arg sha "$EXPECTED_MAIN_SHA"               '.commitSha==$sha and (.environment=="production" or .environment=="prod")'               "$RUNNER_TEMP/vercel-release.json" >/dev/null 2>&1; then
+              release_ready=true
+              break
+            fi
+            sleep 15
+          done
+          [ "$release_ready" = true ] || { echo '::error::Vercel production did not converge to exact main SHA'; exit 1; }
+          echo 'Production identity guard: PASS'
+
+      - name: Execute entitlement-safe 3-user Workflow journey
+        shell: bash
+        run: bash scripts/production/verify-workflow-production-3user-journey.sh
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies and Chromium
+        working-directory: apps/web
+        shell: bash
+        run: |
+          npm ci
+          npx playwright install chromium --with-deps
+
+      - name: Capture authenticated Vercel production proof
+        working-directory: apps/web
+        env:
+          VISUAL_EVIDENCE_DIR: workflow-production-visual-evidence
+        run: node ../../scripts/production/verify-workflow-production-visual.mjs
+
+      - name: Upload final production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-production-3user-final-${{ github.run_id }}
+          path: |
+            workflow-production-3user-journey.json
+            apps/web/workflow-production-visual-evidence/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Record final gate summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## Workflow Production Final Gate'
+            echo "- Current main: $EXPECTED_MAIN_SHA"
+            echo "- Live backend source-equivalent SHA: $LIVE_BACKEND_SHA"
+            echo '- Workflow entitlement: ACTIVE through audited control-plane path'
+            echo '- Production QA users: 3 created'
+            echo '- DRAFT → validate → simulate → PUBLISHED(Y2): PASS'
+            echo '- User-linked Workflow instances: 3/3 COMPLETED'
+            echo '- Published immutability: PASS (409)'
+            echo '- Authenticated Vercel Workflow UI: PASS'
+            echo '- Desktop + mobile visual evidence: CAPTURED'
+            echo '- Direct database writes: NONE'
+          } >> "$GITHUB_STEP_SUMMARY"
