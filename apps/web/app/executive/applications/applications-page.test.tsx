@@ -167,4 +167,23 @@ describe("ApplicationsPage governed mutations", () => {
     expect(screen.getByLabelText("scp.applications.description")).toHaveValue(APP.description);
   });
 
+
+  it("allows an operator to clear an existing application description", async () => {
+    const user = userEvent.setup();
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+
+    render(<ApplicationsPage />);
+    await waitFor(() => expect(screen.getByText("المؤسسات")).toBeInTheDocument());
+    await user.click(screen.getAllByRole("button", { name: "scp.applications.edit" })[0]);
+
+    const description = screen.getByLabelText("scp.applications.description");
+    await user.clear(description);
+    await user.click(screen.getByRole("button", { name: "scp.applications.update" }));
+
+    await waitFor(() => expect(updateApplicationMock).toHaveBeenCalled());
+    expect(updateApplicationMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ description: "" }),
+    );
+  });
+
 });
