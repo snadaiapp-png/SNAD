@@ -130,6 +130,26 @@ export default function SubscriptionDetailPage() {
         await load();
         return;
       }
+      if (command === "RENEW") {
+        const renewed = await executiveApi.renewSubscription(subscriptionId);
+        setNotice(t("scp.detail.commandApplied", {
+          command,
+          from: String(detail?.overview.status ?? ""),
+          to: renewed.status,
+        }));
+        await load();
+        return;
+      }
+      if (command === "RESUME") {
+        const resumed = await executiveApi.resumeSubscription(subscriptionId);
+        setNotice(t("scp.detail.commandApplied", {
+          command,
+          from: String(detail?.overview.status ?? ""),
+          to: resumed.status,
+        }));
+        await load();
+        return;
+      }
       const result: CommandResult = await scpApi.lifecycleCommand(
         subscriptionId,
         command as Parameters<typeof scpApi.lifecycleCommand>[1],
