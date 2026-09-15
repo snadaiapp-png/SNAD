@@ -24,7 +24,10 @@ jobs:
         run: |
           set -euo pipefail
           cat \
-            .t8-import/t8.bundle.b64.part00 \
+            .t8-import/t8.bundle.b64.part00a0 \
+            .t8-import/t8.bundle.b64.part00a1 \
+            .t8-import/t8.bundle.b64.part00a2 \
+            .t8-import/t8.bundle.b64.part00a3 \
             .t8-import/t8.bundle.b64.part01 \
             .t8-import/t8.bundle.b64.part02 \
             .t8-import/t8.bundle.b64.part03 \
@@ -62,7 +65,6 @@ jobs:
           set -euo pipefail
           git fetch /tmp/t8.bundle \
             refs/heads/impl/hrm-g1-recruitment-onboarding:refs/remotes/t8-bundle/impl/hrm-g1-recruitment-onboarding
-
           test "$(git rev-parse refs/remotes/t8-bundle/impl/hrm-g1-recruitment-onboarding)" = "$GREEN"
           test "$(git rev-parse "$RED^")" = "$BASE"
           test "$(git rev-parse "$GREEN^")" = "$RED"
