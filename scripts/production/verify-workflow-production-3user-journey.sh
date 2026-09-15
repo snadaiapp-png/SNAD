@@ -99,7 +99,7 @@ EXISTING_DEF="$(jq -r '[.[]|select(.publicationState=="PUBLISHED")][0].id // .[0
 status="$(request POST "/api/platform/api/v1/workflows/definitions/$EXISTING_DEF/validate" "$WORK_DIR/boundary-validate.json" auth '{}')"; expect "$status" 200 validateBoundary
 
 # 6) Create three production QA users (real tenant user records; no credential bypass).
-RUN_KEY="${GITHUB_RUN_ID:-manual}-${EXPECTED_MAIN_SHA:0:8}"
+RUN_KEY="${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}-${EXPECTED_MAIN_SHA:0:8}"
 USERS='[]'
 for n in 1 2 3; do
   email="workflow-prod-qa${n}-${RUN_KEY}@example.invalid"; display="Workflow Production QA $n"
@@ -111,7 +111,7 @@ done
 record threeQaUsers PASS '3 production QA user records created'
 
 # 7) Full Workflow lifecycle: DRAFT -> graph -> validate -> simulate -> publish(Y2).
-WF_CODE="PROD-3USER-${EXPECTED_MAIN_SHA:0:8}-${GITHUB_RUN_ID:-manual}"
+WF_CODE="PROD-3USER-${EXPECTED_MAIN_SHA:0:8}-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}"
 create_payload="$(jq -cn --arg code "$WF_CODE" '{code:$code,name:"Production 3-User Journey",description:"Controlled production closure evidence",module:"GENERAL",triggerType:"MANUAL"}')"
 status="$(request POST '/api/platform/api/v1/workflows/definitions' "$WORK_DIR/definition.json" auth "$create_payload")"; expect "$status" 200 definitionCreate
 DEF_ID="$(jq -r '.id // empty' "$WORK_DIR/definition.json")"; VERSION_LOCK="$(jq -r '.versionLock // empty' "$WORK_DIR/definition.json")"
