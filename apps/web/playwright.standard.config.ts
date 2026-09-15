@@ -50,6 +50,10 @@ export default defineConfig({
     // It runs exclusively through playwright.workflow-y2.config.ts in the
     // Workflow Y2 Playwright Release Gate workflow.
     "**/workflow-y2-release.spec.ts",
+    // Requires the dedicated real Workflow E2E backend + host-native PostgreSQL Direct.
+    // It runs only through playwright.workflow-designer.config.ts in the
+    // G4 Workflow Designer Browser Acceptance job.
+    "**/workflow-designer-browser.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
