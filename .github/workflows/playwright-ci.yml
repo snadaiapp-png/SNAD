@@ -151,23 +151,9 @@ jobs:
           retention-days: 14
 
   crm-authenticated:
-    name: CRM Authenticated E2E (PostgreSQL + Spring Boot + Next.js)
+    name: CRM Authenticated E2E (PostgreSQL Direct + Spring Boot + Next.js)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: sanad_test
-          POSTGRES_PASSWORD: sanad_test_pass
-          POSTGRES_DB: sanad_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U sanad_test -d sanad_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     env:
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
       DATABASE_USERNAME: sanad_test
@@ -213,6 +199,48 @@ jobs:
           actual="$(git rev-parse HEAD)"
           echo "expected=$expected actual=$actual"
           test "$actual" = "$expected"
+
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_START_FAILED"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege CRM acceptance database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_test') THEN
+              CREATE ROLE sanad_test WITH LOGIN PASSWORD 'sanad_test_pass';
+            END IF;
+          END $;
+          ALTER ROLE sanad_test NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad_test OWNER sanad_test'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_test')\gexec
+          ALTER DATABASE sanad_test OWNER TO sanad_test;
+          \c sanad_test
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_test;
+          SQL
+          role_contract="$(sudo -u postgres psql -Atqc             "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_test'")"
+          echo "CRM_ACCEPTANCE_ROLE_CONTRACT=$role_contract"
+          test "$role_contract" = "false|false|false|false"
+          PGPASSWORD="$DATABASE_PASSWORD" psql             -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME"             -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
 
       - name: Generate isolated CI credentials
         shell: bash
@@ -270,9 +298,6 @@ jobs:
             -Dflyway.validateOnMigrate=true \
             -Dflyway.outOfOrder=true \
             -Dflyway.baselineVersion=0
-
-      - name: Install PostgreSQL client
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
       - name: Seed CRM acceptance data
         working-directory: apps/sanad-platform
