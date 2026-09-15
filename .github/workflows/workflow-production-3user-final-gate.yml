@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   production-final-gate:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[workflow-prod-3user-final]')
     name: Execute final production Workflow closure
     runs-on: ubuntu-latest
     environment: production
@@ -126,8 +127,8 @@ jobs:
         run: |
           {
             echo '## Workflow Production Final Gate'
-            echo "- Current main: `$EXPECTED_MAIN_SHA`"
-            echo "- Live backend source-equivalent SHA: `$LIVE_BACKEND_SHA`"
+            echo "- Current main: $EXPECTED_MAIN_SHA"
+            echo "- Live backend source-equivalent SHA: $LIVE_BACKEND_SHA"
             echo '- Workflow entitlement: ACTIVE through audited control-plane path'
             echo '- Production QA users: 3 created'
             echo '- DRAFT → validate → simulate → PUBLISHED(Y2): PASS'
