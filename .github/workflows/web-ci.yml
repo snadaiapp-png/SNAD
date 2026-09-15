@@ -89,6 +89,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Performance budget policy regression
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/ci -p 'test_performance_budget.py' -v
+
       - name: Build Next.js application
         run: npm run build
 
