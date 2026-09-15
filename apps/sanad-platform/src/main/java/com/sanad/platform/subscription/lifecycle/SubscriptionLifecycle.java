@@ -16,9 +16,17 @@ import java.util.Set;
  */
 public final class SubscriptionLifecycle {
 
-    /** Commands that may be issued directly by an operator through the generic lifecycle surface. */
+    /** Commands that the generic lifecycle endpoint may accept directly after governed-route filtering. */
     public static final List<String> DIRECT_OPERATOR_COMMANDS =
             List.of("PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE");
+
+    /**
+     * Actions that the backend may expose to a human operator. Some entries
+     * (RENEW, CANCEL, RESUME) are intentionally routed by the UI to dedicated
+     * governed endpoints rather than the generic lifecycle endpoint.
+     */
+    private static final List<String> OPERATOR_VISIBLE_COMMANDS =
+            List.of("PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE", "RENEW");
 
     /** Command → allowed (fromStatus → toStatus) transitions. */
     public static final Map<String, Map<String, String>> COMMANDS = Map.ofEntries(
@@ -135,16 +143,16 @@ public final class SubscriptionLifecycle {
     }
 
     /**
-     * Direct lifecycle controls that may be rendered for a human operator in the supplied state.
-     * CANCELLED→RESUME is deliberately omitted because that revival path has governed period/billing side effects.
+     * Lifecycle controls that may be rendered for a human operator in the supplied state.
+     * The read model exposes business actions, while the web client chooses the
+     * authoritative dedicated route for governed actions such as RENEW/CANCEL/RESUME.
      */
     public static List<String> directOperatorActionsForStatus(String status) {
         if (status == null || !STATUSES.contains(status)) {
             return List.of();
         }
-        return DIRECT_OPERATOR_COMMANDS.stream()
+        return OPERATOR_VISIBLE_COMMANDS.stream()
                 .filter(command -> isLegal(command, status))
-                .filter(command -> !("RESUME".equals(command) && "CANCELLED".equals(status)))
                 .toList();
     }
 
