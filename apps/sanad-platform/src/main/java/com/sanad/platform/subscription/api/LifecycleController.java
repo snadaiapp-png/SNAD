@@ -29,7 +29,7 @@ import java.util.UUID;
 public class LifecycleController {
 
     private static final Set<String> GOVERNED_ROUTE_COMMANDS = Set.of(
-            "ACTIVATE", "START_TRIAL", "RENEW", "EXPIRE", "SCHEDULE_CANCELLATION",
+            "ACTIVATE", "START_TRIAL", "RENEW", "CANCEL", "EXPIRE", "SCHEDULE_CANCELLATION",
             "MARK_PAST_DUE", "ENTER_GRACE", "REQUEST_ACTIVATION", "PAYMENT_RECEIVED");
 
     public record LifecycleCommandRequest(@NotBlank String reason) {
@@ -84,6 +84,7 @@ public class LifecycleController {
             String owner = switch (command) {
                 case "ACTIVATE" -> "provisioning (/subscriptions/{id}/provision)";
                 case "RENEW" -> "renewal/invoicing (/subscriptions/{id}/renew)";
+                case "CANCEL" -> "cancellation service (/subscriptions/{id}/cancel)";
                 case "EXPIRE" -> "expiration runtime";
                 case "SCHEDULE_CANCELLATION" -> "cancellation service (/subscriptions/{id}/cancel)";
                 case "START_TRIAL" -> "trial-period authority";
