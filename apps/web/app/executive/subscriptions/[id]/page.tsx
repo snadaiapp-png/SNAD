@@ -118,11 +118,15 @@ export default function SubscriptionDetailPage() {
     setError("");
     try {
       if (command === "CANCEL") {
-        await executiveApi.cancelSubscription(subscriptionId, {
+        const cancelled = await executiveApi.cancelSubscription(subscriptionId, {
           immediate: true,
           reason: commandReason || command,
         });
-        setNotice(t("scp.detail.commandApplied", { command, from: detail?.overview.status ?? "", to: "CANCELLED" }));
+        setNotice(t("scp.detail.commandApplied", {
+          command,
+          from: String(detail?.overview.status ?? ""),
+          to: cancelled.status,
+        }));
         await load();
         return;
       }
