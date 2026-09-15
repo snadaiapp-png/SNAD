@@ -28,20 +28,6 @@ jobs:
     name: CRM-033 Authenticated Benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: sanad_perf
-          POSTGRES_PASSWORD: sanad_perf_pass
-          POSTGRES_DB: sanad_perf
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U sanad_perf -d sanad_perf"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     env:
       # Deterministic HMAC key for the perf-test profile (CI-only value; the
       # profile is never active in production). Secrets are environment-driven.
@@ -62,12 +48,67 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_START_FAILED"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege performance database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $sanad_perf$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_perf') THEN
+              CREATE ROLE sanad_perf WITH LOGIN PASSWORD 'sanad_perf_pass';
+            END IF;
+          END $sanad_perf$;
+          ALTER ROLE sanad_perf NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad_perf OWNER sanad_perf'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_perf')\gexec
+          ALTER DATABASE sanad_perf OWNER TO sanad_perf;
+          \c sanad_perf
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_perf;
+          SQL
+          role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_perf'")"
+          echo "PERF_ROLE_CONTRACT=$role_contract"
+          test "$role_contract" = "false|false|false|false"
+          PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$SPRING_DATASOURCE_USERNAME" -d sanad_perf \
+            -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
+
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: maven
+
+      - name: Set up host-native k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: 0.55.0
+
+      - name: Set up host-native k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: 0.55.0
 
       - name: Start backend on perf-test profile
         working-directory: apps/sanad-platform
@@ -107,16 +148,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p performance/results
-          docker run --rm --network host \
-            -e BASE_URL=http://localhost:8080 \
-            -e PERF_TEST_ADMIN_EMAIL="$PERF_TEST_ADMIN_EMAIL" \
-            -e PERF_TEST_ADMIN_PASSWORD="$PERF_TEST_ADMIN_PASSWORD" \
-            -e OUTPUT_FILE=/results/crm-perf-baseline.json \
-            -v "$PWD/performance/k6:/scripts:ro" \
-            -v "$PWD/performance/results:/results" \
-            grafana/k6:latest run \
-            --summary-export=/results/crm-perf-summary.json \
-            /scripts/crm-performance-baseline.js
+          BASE_URL=http://localhost:8080 \
+          PERF_TEST_ADMIN_EMAIL="$PERF_TEST_ADMIN_EMAIL" \
+          PERF_TEST_ADMIN_PASSWORD="$PERF_TEST_ADMIN_PASSWORD" \
+          OUTPUT_FILE="$PWD/performance/results/crm-perf-baseline.json" \
+          k6 run \
+            --summary-export="$PWD/performance/results/crm-perf-summary.json" \
+            "$PWD/performance/k6/crm-performance-baseline.js"
 
       - name: Publish CRM-033 summary
         if: always()
@@ -130,7 +168,7 @@ jobs:
             echo '- Failure threshold: less than 1%'
             echo '- p95 target: below 500 ms'
             echo '- p99 target: below 1000 ms'
-            echo '- Runtime database: PostgreSQL 16 CI service'
+            echo '- Runtime database: host-native PostgreSQL Direct (least-privilege role)'
             echo '- Startup log artifact: `crm-perf-backend-startup.log`'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -154,20 +192,6 @@ jobs:
     name: Backend Health Load Baseline
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: sanad_health
-          POSTGRES_PASSWORD: sanad_health_pass
-          POSTGRES_DB: sanad_health
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U sanad_health -d sanad_health"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_health
       SPRING_DATASOURCE_USERNAME: sanad_health
@@ -179,6 +203,51 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_START_FAILED"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege health baseline database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $sanad_health$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_health') THEN
+              CREATE ROLE sanad_health WITH LOGIN PASSWORD 'sanad_health_pass';
+            END IF;
+          END $sanad_health$;
+          ALTER ROLE sanad_health NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad_health OWNER sanad_health'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_health')\gexec
+          ALTER DATABASE sanad_health OWNER TO sanad_health;
+          \c sanad_health
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_health;
+          SQL
+          role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_health'")"
+          echo "HEALTH_ROLE_CONTRACT=$role_contract"
+          test "$role_contract" = "false|false|false|false"
+          PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$SPRING_DATASOURCE_USERNAME" -d sanad_health \
+            -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
+
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -225,13 +294,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p performance/results
-          docker run --rm --network host \
-            -e BASE_URL=http://localhost:8080 \
-            -v "$PWD/performance/k6:/scripts:ro" \
-            -v "$PWD/performance/results:/results" \
-            grafana/k6:latest run \
-            --summary-export=/results/health-baseline-summary.json \
-            /scripts/health-baseline.js
+          BASE_URL=http://localhost:8080 \
+          k6 run \
+            --summary-export="$PWD/performance/results/health-baseline-summary.json" \
+            "$PWD/performance/k6/health-baseline.js"
 
       - name: Publish baseline summary
         if: always()
@@ -245,7 +311,7 @@ jobs:
             echo '- p95 target: below 500 ms'
             echo '- p99 target: below 1000 ms'
             echo '- Scope: CI baseline only; not a production capacity certification'
-            echo '- Runtime database: PostgreSQL 16 CI service'
+            echo '- Runtime database: host-native PostgreSQL Direct (least-privilege role)'
             echo '- Startup log artifact: `backend-startup.log`'
           } >> "$GITHUB_STEP_SUMMARY"
 
