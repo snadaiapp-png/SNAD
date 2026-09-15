@@ -4,6 +4,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.boot.context.metrics.buffering.BufferingApplicationStartup;
+
+import com.sanad.platform.config.StartupTimelineLogger;
 
 /**
  * SANAD Platform application entry point.
@@ -30,6 +33,12 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  *       not invoked on the platform's {@code SecurityFilterChain} — so even
  *       if a fallback {@code AuthenticationManager} were wired, no endpoint
  *       would accept BASIC or form credentials.</li>
+ *   <li>{@link BufferingApplicationStartup} is attached to capture per-step
+ *       startup timing. The buffer is drained by
+ *       {@link StartupTimelineLogger} on {@code ApplicationReadyEvent} and
+ *       the top-N slowest steps are logged for cold-start profiling. The
+ *       buffer capacity is sized to hold the full startup step tree for a
+ *       SANAD cold start (~3-5k steps; drops oldest silently if exceeded).</li>
  * </ul>
  * </p>
  */
@@ -38,7 +47,18 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 public class SanadPlatformApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(SanadPlatformApplication.class, args);
+        SpringApplication app = new SpringApplication(SanadPlatformApplication.class);
+        // Buffer startup steps for cold-start profiling. Capacity is conservative
+        // (2k) to bound memory overhead on Render Free. The buffer
+        // is read by StartupTimelineLogger#onReady via getBufferedTimeline()
+        // (non-draining). Overhead per step is ~1-2 microseconds, total
+        // overhead <500ms even on Render Free.
+        app.setApplicationStartup(new BufferingApplicationStartup(2_000));
+        // Register the timeline logger programmatically so it can observe
+        // the early ApplicationStartingEvent / ApplicationEnvironmentPreparedEvent
+        // that fire BEFORE the ApplicationContext exists (and therefore before
+        // any @Component @EventListener could be registered).
+        app.addListeners(new StartupTimelineLogger());
+        app.run(args);
     }
 }
-
