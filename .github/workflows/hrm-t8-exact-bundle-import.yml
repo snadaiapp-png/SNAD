@@ -1,0 +1,71 @@
+name: HRM T8 Exact Bundle Import
+
+on:
+  push:
+    branches:
+      - transfer/hrm-t8-bundle
+
+permissions:
+  contents: write
+
+jobs:
+  import-t8:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout transfer branch with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reassemble and verify T8 bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat             .t8-import/t8.bundle.b64.part00             .t8-import/t8.bundle.b64.part01             .t8-import/t8.bundle.b64.part02             .t8-import/t8.bundle.b64.part03             .t8-import/t8.bundle.b64.part04             .t8-import/t8.bundle.b64.part05a0             .t8-import/t8.bundle.b64.part05a1             .t8-import/t8.bundle.b64.part05a2             .t8-import/t8.bundle.b64.part05a3             .t8-import/t8.bundle.b64.part06             | base64 --decode > /tmp/t8.bundle
+
+          echo "1d682ca0fd334b254d51db688c203773857dfcbbd54f5154742c0ba15f1f70c4  /tmp/t8.bundle" | sha256sum -c -
+          git bundle verify /tmp/t8.bundle
+
+      - name: Fail closed on target drift
+        shell: bash
+        env:
+          TARGET_BRANCH: impl/hrm-g1-recruitment-onboarding
+          EXPECTED_TARGET_HEAD: 7511906b82f8b39ef6875d0cdc502530944785f5
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          ACTUAL="$(git rev-parse FETCH_HEAD)"
+          echo "TARGET_REMOTE_HEAD=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED_TARGET_HEAD"
+
+      - name: Import exact RED and GREEN commits from bundle
+        shell: bash
+        env:
+          RED: 84c1c1b59d3e6094733d15a0e8ea5a5785f856e3
+          GREEN: 5d480f319540afef646c7174965d2d2d2c8f98ca
+          BASE: 7511906b82f8b39ef6875d0cdc502530944785f5
+        run: |
+          set -euo pipefail
+          git fetch /tmp/t8.bundle             refs/heads/impl/hrm-g1-recruitment-onboarding:refs/remotes/t8-bundle/impl/hrm-g1-recruitment-onboarding
+
+          test "$(git rev-parse refs/remotes/t8-bundle/impl/hrm-g1-recruitment-onboarding)" = "$GREEN"
+          test "$(git rev-parse "$RED^")" = "$BASE"
+          test "$(git rev-parse "$GREEN^")" = "$RED"
+
+          git cat-file -e "$RED^{commit}"
+          git cat-file -e "$GREEN^{commit}"
+          echo "RED=$RED"
+          echo "GREEN=$GREEN"
+
+      - name: Push exact T8 chain to governed HRM branch
+        shell: bash
+        env:
+          GREEN: 5d480f319540afef646c7174965d2d2d2c8f98ca
+          TARGET_BRANCH: impl/hrm-g1-recruitment-onboarding
+        run: |
+          set -euo pipefail
+          git push origin "$GREEN:refs/heads/$TARGET_BRANCH"
+          git fetch origin "$TARGET_BRANCH"
+          REMOTE="$(git rev-parse FETCH_HEAD)"
+          echo "REMOTE_HEAD=$REMOTE"
+          test "$REMOTE" = "$GREEN"
