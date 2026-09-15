@@ -80,6 +80,9 @@ jobs:
           set -o pipefail
           npm test 2>&1 | tee "$RUNNER_TEMP/vitest.log"
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Upload Vitest diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -95,6 +98,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests/ci -p 'test_performance_budget.py' -v
+
+      - name: Execution Integrity Check
+        run: npm run validate:integrity
 
       - name: Build Next.js application
         run: npm run build
