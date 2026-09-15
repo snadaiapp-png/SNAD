@@ -54,4 +54,7 @@ public interface RecruitmentAuthorizationPort {
 
     /** OFFER.EXTEND — approval submission and approval-outcome reconciliation (design §11.2). */
     void requireOfferExtend(HrCommandContext ctx, UUID offerId);
+
+    /** HIRE.CONVERT — the governed candidate→hire conversion command (design §6.2/§7). */
+    void requireHireConvert(HrCommandContext ctx, UUID offerId);
 }

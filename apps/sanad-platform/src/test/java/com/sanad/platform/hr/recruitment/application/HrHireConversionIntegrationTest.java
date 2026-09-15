@@ -100,8 +100,12 @@ class HrHireConversionIntegrationTest {
     private static final String AUTH_PORT_CLASS =
             "com.sanad.platform.hr.recruitment.application.RecruitmentAuthorizationPort";
 
-    private static final UUID SEED_DEFINITION_VERSION =
+    private static final UUID OPENING_SEED_DEFINITION_VERSION =
             UUID.fromString("88888888-8888-8888-8888-888888888888");
+    private static final UUID OFFER_SEED_DEFINITION_VERSION =
+            UUID.fromString("89999999-9999-9999-9999-999999999999");
+    private static final UUID HIRE_SEED_DEFINITION_VERSION =
+            UUID.fromString("87777777-7777-7777-7777-777777777777");
 
     private static final String CAP_HIRE_CONVERT = "HRM.RECRUITMENT.HIRE.CONVERT";
     private static final String CAP_MANAGE = "HRM.RECRUITMENT.OFFER.MANAGE";
@@ -116,7 +120,7 @@ class HrHireConversionIntegrationTest {
     private static String isolatedUrl;
 
     /** Hire-eligible structured offer terms (design §7.1 steps 7/8). */
-    private static final String HIRE_TERMS = "{\"contractTermType\":\"PERMANENT\","
+    private static final String HIRE_TERMS = "{\"contractTermType\":\"INDEFINITE\","
             + "\"contractStartDate\":\"2026-10-01\",\"documentReference\":\"DOC-HIRE-1\"}";
     private static final String HIRE_COMP = "{\"currency\":\"SAR\",\"payFrequency\":\"MONTHLY\","
             + "\"components\":[{\"type\":\"BASE_SALARY\",\"code\":\"BASE\",\"amount\":111000}]}";
@@ -172,6 +176,7 @@ class HrHireConversionIntegrationTest {
                 tenantId, "Tenant " + tenantId, "t8-" + tenantId.toString().substring(0, 8));
         operatorId = UUID.randomUUID();
         crypto = noopCrypto();
+        seedOnboardingTemplate();
         grants = new HashMap<>();
         grants.put(CAP_HIRE_CONVERT, true);
         grants.put(CAP_MANAGE, true);
@@ -189,6 +194,22 @@ class HrHireConversionIntegrationTest {
     @AfterEach
     void drain() {
         // no persistent pools; symmetry hook
+    }
+
+    /** T9 provisioning path: tenants created after migration receive the
+     *  GENERIC-ONBOARDING template through application provisioning (here:
+     *  the test's own tenant seed mirrors V20260908_4). */
+    private void seedOnboardingTemplate() {
+        String definition = "[{\"seq\":1,\"title\":\"Complete personal file\"},"
+                + "{\"seq\":2,\"title\":\"Sign employment contract\"},"
+                + "{\"seq\":3,\"title\":\"Workstation and equipment ready\"},"
+                + "{\"seq\":4,\"title\":\"Introduce team and policies\"},"
+                + "{\"seq\":5,\"title\":\"Complete mandatory training\"}]";
+        jdbc.update("INSERT INTO hr_onboarding_checklist_templates "
+                + "(id, tenant_id, code, name, version, definition, is_active, created_at, updated_at) "
+                + "VALUES (?, ?, 'GENERIC-ONBOARDING', 'Generic Onboarding Checklist', 1, ?::jsonb, "
+                + "TRUE, NOW(), NOW()) ON CONFLICT (tenant_id, code) DO NOTHING",
+                UUID.randomUUID(), tenantId, definition);
     }
 
     // ==================== helpers ====================
@@ -288,8 +309,19 @@ class HrHireConversionIntegrationTest {
             }
             case "loadHireApprovalOutcome" -> {
                 UUID instanceId = (UUID) args[1];
+                UUID correlatedOffer = instanceToOffer.get(instanceId);
+                if (correlatedOffer == null && jdbc != null) {
+                    // read the SEEDED authoritative row's correlation
+                    try {
+                        correlatedOffer = jdbc.queryForObject(
+                                "SELECT business_entity_id FROM workflow_instances WHERE id = ?",
+                                UUID.class, instanceId);
+                    } catch (Exception missing) {
+                        correlatedOffer = null;
+                    }
+                }
                 yield buildSnapshot(portClass, instanceId,
-                        instanceToOffer.getOrDefault(instanceId, tenantId));
+                        correlatedOffer == null ? tenantId : correlatedOffer);
             }
             case "findLatestApproval" -> {
                 UUID offerForLookup = (UUID) args[1];
@@ -298,7 +330,8 @@ class HrHireConversionIntegrationTest {
                 Integer cnt = jdbc == null ? 0 : jdbc.queryForObject(
                         "SELECT COUNT(*) FROM workflow_instances WHERE id = ?",
                         Integer.class, deterministic);
-                yield cnt != null && cnt > 0 ? deterministic : null;
+                yield cnt != null && cnt > 0 ? java.util.Optional.of(deterministic)
+                        : java.util.Optional.empty();
             }
             case "cancelHireApproval" -> null;
             default -> null;
@@ -333,7 +366,7 @@ class HrHireConversionIntegrationTest {
         return snapshotClass.getConstructor(UUID.class, UUID.class, String.class, UUID.class,
                         String.class, outcomeEnum)
                 .newInstance(instanceId,
-                        UUID.fromString("55555555-5555-5555-5555-555555555555"),
+                        HIRE_SEED_DEFINITION_VERSION,
                         "HR_OFFER_HIRE", businessEntityId, status, outcome);
     }
 
@@ -404,7 +437,7 @@ class HrHireConversionIntegrationTest {
         if (submitResult instanceof UUID instanceId) {
             com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
                     jdbc, tenantId, "HR_JOB_OPENING", openingId, instanceId,
-                    SEED_DEFINITION_VERSION, "COMPLETED", "APPROVED");
+                    OPENING_SEED_DEFINITION_VERSION, "COMPLETED", "APPROVED");
         }
         openingService.getClass().getMethod("approve", HrCommandContext.class, UUID.class)
                 .invoke(openingService, ctx(UUID.randomUUID()), openingId);
@@ -472,7 +505,7 @@ class HrHireConversionIntegrationTest {
                 }
                 yield snapshotClass.getConstructor(UUID.class, UUID.class, String.class, UUID.class,
                                 String.class, outcomeEnum)
-                        .newInstance((UUID) args[1], SEED_DEFINITION_VERSION,
+                        .newInstance((UUID) args[1], OPENING_SEED_DEFINITION_VERSION,
                                 "HR_JOB_OPENING", registry.get((UUID) args[1]),
                                 "COMPLETED", Enum.valueOf((Class<? extends Enum>) outcomeEnum, "APPROVED"));
             }
@@ -535,9 +568,9 @@ class HrHireConversionIntegrationTest {
         Method submit = offerService.getClass().getMethod("submitForApproval",
                 HrCommandContext.class, UUID.class);
         UUID instanceId = (UUID) submit.invoke(offerService, ctx(operatorId), offerId);
-        jdbc.update("UPDATE workflow_instances SET status = 'COMPLETED' WHERE id = ?", instanceId);
-        jdbc.update("UPDATE workflow_approval_requests SET status = 'APPROVED' "
-                + "WHERE workflow_instance_id = ?", instanceId);
+        com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                jdbc, tenantId, "HR_OFFER", offerId, instanceId, OFFER_SEED_DEFINITION_VERSION,
+                "COMPLETED", "APPROVED");
         offerService.getClass()
                 .getMethod("extendFromApproval", HrCommandContext.class, UUID.class, UUID.class)
                 .invoke(offerService, ctx(operatorId), offerId, instanceId);
@@ -551,9 +584,15 @@ class HrHireConversionIntegrationTest {
     private Object offerStub() throws Exception {
         Class<?> portClass = Class.forName(
                 "com.sanad.platform.hr.recruitment.application.OfferApprovalWorkflowPort");
+        Map<UUID, UUID> instanceToOffer = new HashMap<>();
         InvocationHandler handler = (proxy, method, args) -> switch (method.getName()) {
-            case "startOfferApproval" -> UUID.nameUUIDFromBytes(
-                    ("offer-approval-" + args[1]).getBytes());
+            case "startOfferApproval" -> {
+                UUID offerForApproval = (UUID) args[1];
+                UUID instanceId = UUID.nameUUIDFromBytes(
+                        ("offer-approval-" + offerForApproval).getBytes());
+                instanceToOffer.put(instanceId, offerForApproval);
+                yield instanceId;
+            }
             case "loadApprovalOutcome" -> {
                 Class<?> snapshotClass = null;
                 Class<?> outcomeEnum = null;
@@ -581,8 +620,8 @@ class HrHireConversionIntegrationTest {
                 yield snapshotClass.getConstructor(UUID.class, UUID.class, String.class, UUID.class,
                                 String.class, outcomeEnum)
                         .newInstance((UUID) args[1],
-                                UUID.fromString("44444444-4444-4444-4444-444444444444"),
-                                "HR_OFFER", null, status, outcome);
+                                OFFER_SEED_DEFINITION_VERSION,
+                                "HR_OFFER", instanceToOffer.get((UUID) args[1]), status, outcome);
             }
             default -> null;
         };
@@ -741,24 +780,23 @@ class HrHireConversionIntegrationTest {
 
     @org.junit.jupiter.api.Test
     void emailOnlyDuplicate_failsClosed_CONVERSION_IDENTITY_AMBIGUOUS_noSilentMerge() throws Exception {
-        // Existing Person carries an EMAIL identifier equal to the candidate email;
-        // the conversion supplies NO verified strong claim.
+        // §T8.4 case C / §7.3 case 2: an EMAIL claim alone can NEVER resolve
+        // or link a Person — the G0 identity store does not accept EMAIL as a
+        // verified identifier (DB CHECK), so email-only resolution is refused
+        // for human review instead of silently merging identities. The
+        // candidate email here duplicates an existing person's mailbox in the
+        // scenario; the conversion supplies NO verified strong claim.
         Object personService = new HrPersonService(
                 new JdbcHrPersonRepository(dataSource, crypto), crypto, new IdentifierNormalizer());
-        Object existing = personService.getClass()
+        personService.getClass()
                 .getMethod("createPerson", UUID.class, String.class, String.class, String.class)
                 .invoke(personService, tenantId, "Same", null, "EmailOwner");
-        UUID existingPersonId = (UUID) existing.getClass().getMethod("id").invoke(existing);
-        String candidateEmail = jdbc.queryForObject(
-                "SELECT contact_email_ciphertext FROM hr_candidates WHERE id = ?", String.class, candidateId);
-        String plaintextEmail = decryptCandidateEmail(candidateEmail);
-        personService.getClass()
-                .getMethod("addIdentifier", UUID.class, UUID.class, String.class, String.class, String.class)
-                .invoke(personService, tenantId, existingPersonId, "EMAIL", null, plaintextEmail);
 
         UUID offerId = createHireReadyOffer(HIRE_TERMS, HIRE_COMP);
 
-        assertThatThrownBy(() -> convert(ctx(operatorId), offerId, command("req-amb", List.of(), null)))
+        assertThatThrownBy(() -> convert(ctx(operatorId), offerId,
+                command("req-amb", List.of(claim("EMAIL", null,
+                        "t8.candidate." + tenantId.toString().substring(0, 6) + "@example.com")), null)))
                 .as("§T8.4 case C: email-only duplicate is NOT an automatic link")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("CONVERSION_IDENTITY_AMBIGUOUS");
@@ -878,9 +916,9 @@ class HrHireConversionIntegrationTest {
             Method submit = offerService.getClass().getMethod("submitForApproval",
                     HrCommandContext.class, UUID.class);
             UUID instanceId = (UUID) submit.invoke(offerService, ctx(operatorId), offerId);
-            jdbc.update("UPDATE workflow_instances SET status = 'COMPLETED' WHERE id = ?", instanceId);
-            jdbc.update("UPDATE workflow_approval_requests SET status = 'APPROVED' "
-                    + "WHERE workflow_instance_id = ?", instanceId);
+            com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                    jdbc, tenantId, "HR_OFFER", offerId, instanceId, OFFER_SEED_DEFINITION_VERSION,
+                    "COMPLETED", "APPROVED");
             offerService.getClass()
                     .getMethod("extendFromApproval", HrCommandContext.class, UUID.class, UUID.class)
                     .invoke(offerService, ctx(operatorId), offerId, instanceId);
@@ -1168,9 +1206,9 @@ class HrHireConversionIntegrationTest {
         Method submit = offerService.getClass().getMethod("submitForApproval",
                 HrCommandContext.class, UUID.class);
         UUID instanceId = (UUID) submit.invoke(offerService, ctx(operatorId), offerId);
-        jdbc.update("UPDATE workflow_instances SET status = 'COMPLETED' WHERE id = ?", instanceId);
-        jdbc.update("UPDATE workflow_approval_requests SET status = 'APPROVED' "
-                + "WHERE workflow_instance_id = ?", instanceId);
+        com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                jdbc, tenantId, "HR_OFFER", offerId, instanceId, OFFER_SEED_DEFINITION_VERSION,
+                "COMPLETED", "APPROVED");
         offerService.getClass()
                 .getMethod("extendFromApproval", HrCommandContext.class, UUID.class, UUID.class)
                 .invoke(offerService, ctx(operatorId), offerId, instanceId);
@@ -1268,9 +1306,10 @@ class HrHireConversionIntegrationTest {
         seedHireApprovalWorkflowRows(instanceId, offerId, "RUNNING", null);
 
         assertThatThrownBy(() -> convert(ctx(operatorId), offerId, command("req-on1", List.of(), null)))
-                .as("§T8.8: policy ON requires the authoritative Y2 approval")
+                .as("§T8.8: policy ON — a RUNNING approval authorizes nothing; "
+                        + "no conversion without a final APPROVED outcome")
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("HRM_HIRE_APPROVAL_REQUIRED");
+                .hasMessageContaining("HRM_HIRE_APPROVAL_PENDING");
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM hr_hire_conversions WHERE offer_id = ?",
                 Integer.class, offerId)).isZero();
@@ -1317,9 +1356,9 @@ class HrHireConversionIntegrationTest {
         Method submit = offerService.getClass().getMethod("submitForApproval",
                 HrCommandContext.class, UUID.class);
         UUID instanceId = (UUID) submit.invoke(offerService, ctx(operatorId), offerId);
-        jdbc.update("UPDATE workflow_instances SET status = 'COMPLETED' WHERE id = ?", instanceId);
-        jdbc.update("UPDATE workflow_approval_requests SET status = 'APPROVED' "
-                + "WHERE workflow_instance_id = ?", instanceId);
+        com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                jdbc, tenantId, "HR_OFFER", offerId, instanceId, OFFER_SEED_DEFINITION_VERSION,
+                "COMPLETED", "APPROVED");
         offerService.getClass()
                 .getMethod("extendFromApproval", HrCommandContext.class, UUID.class, UUID.class)
                 .invoke(offerService, ctx(operatorId), offerId, instanceId);
@@ -1337,18 +1376,9 @@ class HrHireConversionIntegrationTest {
 
     private void seedHireApprovalWorkflowRows(UUID instanceId, UUID offerId,
                                               String instanceStatus, String requestStatus) {
-        jdbc.update("INSERT INTO workflow_instances (id, tenant_id, definition_family_id, "
-                        + "definition_version_id, workflow_version, business_entity_type, business_entity_id, "
-                        + "current_step_key, status, started_by, correlation_id, created_at, updated_at) "
-                        + "VALUES (?, ?, gen_random_uuid(), gen_random_uuid(), 1, 'HR_OFFER_HIRE', ?, "
-                        + "'submit', ?, ?, ?, NOW(), NOW())",
-                instanceId, tenantId, offerId, instanceStatus, operatorId, offerId);
-        if (requestStatus != null) {
-            jdbc.update("INSERT INTO workflow_approval_requests (id, workflow_instance_id, step_key, "
-                            + "requested_by, status, requested_at) "
-                            + "VALUES (?, ?, 'hire_approval', ?, ?, NOW())",
-                    UUID.randomUUID(), instanceId, operatorId, requestStatus);
-        }
+        com.sanad.platform.hr.recruitment.db.HrY2WorkflowSeedSupport.seedApproval(
+                jdbc, tenantId, "HR_OFFER_HIRE", offerId, instanceId, HIRE_SEED_DEFINITION_VERSION,
+                instanceStatus, requestStatus);
     }
 
     // ==================== §T8.11 PII sentinel ====================

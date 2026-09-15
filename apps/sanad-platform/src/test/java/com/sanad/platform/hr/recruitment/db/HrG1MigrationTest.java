@@ -252,6 +252,60 @@ class HrG1MigrationTest {
     // V20260914_2 rebuilds the engine idempotency index with NULLS NOT DISTINCT.
     static final String T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION = "20260914.2";
 
+    static final String T8_HIRE_CONVERSION_VERSION = "20260914.3";
+
+    @Test
+    void t8HireConversionLedgerColumnsExist() {
+        flyway(null).migrate();
+        List<String> columns = jdbc.queryForList(
+                "SELECT column_name FROM information_schema.columns "
+                        + "WHERE table_name = 'hr_hire_conversions'", String.class);
+        assertThat(columns)
+                .as("T8: the conversion ledger records person reuse (§7.3 case 1) "
+                        + "and the employee number for exact replay (§7.3 cases 3/4)")
+                .contains("person_reused", "employee_number");
+    }
+
+    @Test
+    void t8HireConversionPersonForeignKeyIsCongruent() {
+        flyway(null).migrate();
+        List<String> definitions = jdbc.queryForList(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        + "WHERE conrelid = 'hr_hire_conversions'::regclass "
+                        + "AND conname = 'fk_hr_hire_conversions_person'", String.class);
+        assertThat(definitions).hasSize(1);
+        assertThat(definitions.get(0))
+                .as("T8-MIG-001: the ledger→person FK pairs (person_id↔id, tenant_id↔tenant_id); "
+                        + "the shipped swapped pairing could never hold for real rows")
+                .contains("person_id")
+                .contains("tenant_id")
+                .contains("hr_people");
+        // The corrected FK must be violated by a non-matching (person_id, tenant_id) pair.
+        UUID tenant = UUID.randomUUID();
+        jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) "
+                + "VALUES (?, 'T8 FK', 't8fk', 'ACTIVE', NOW(), NOW())", tenant);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO hr_hire_conversions (id, tenant_id, offer_id, application_id, "
+                        + "conversion_state, person_id) VALUES (?, ?, ?, ?, 'IN_PROGRESS', ?)",
+                UUID.randomUUID(), tenant, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()))
+                .as("T8-MIG-001: a ledger row whose person is not in this tenant must be rejected")
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    void t8TenantPoliciesTableIsForceRlsTenantScoped() {
+        flyway(null).migrate();
+        Boolean rls = jdbc.queryForObject(
+                "SELECT relrowsecurity FROM pg_class WHERE relname = 'hr_tenant_policies'", Boolean.class);
+        Boolean force = jdbc.queryForObject(
+                "SELECT relforcerowsecurity FROM pg_class WHERE relname = 'hr_tenant_policies'", Boolean.class);
+        assertThat(rls).as("T8.8: the authoritative policy store is RLS-protected").isTrue();
+        assertThat(force).as("T8.8: the policy store is FORCE RLS (owner included)").isTrue();
+        List<String> policies = jdbc.queryForList(
+                "SELECT policyname FROM pg_policies WHERE tablename = 'hr_tenant_policies'", String.class);
+        assertThat(policies).as("T8.8: a tenant-isolation policy exists").isNotEmpty();
+    }
+
     @Test
     void t7WorkflowIdempotencyIndexEnforcesNullTriggerType() {
         flyway(null).migrate();

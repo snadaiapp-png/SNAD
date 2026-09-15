@@ -36,6 +36,7 @@ public class ScopedRecruitmentAuthorizationAdapter implements RecruitmentAuthori
     public static final String CAPABILITY_INTERVIEW_OUTCOME = "HRM.RECRUITMENT.INTERVIEW.RECORD_OUTCOME";
     public static final String CAPABILITY_OFFER_MANAGE = "HRM.RECRUITMENT.OFFER.MANAGE";
     public static final String CAPABILITY_OFFER_EXTEND = "HRM.RECRUITMENT.OFFER.EXTEND";
+    public static final String CAPABILITY_HIRE_CONVERT = "HRM.RECRUITMENT.HIRE.CONVERT";
 
     private final ScopedAuthorizationService scopedAuthorizationService;
 
@@ -108,6 +109,11 @@ public class ScopedRecruitmentAuthorizationAdapter implements RecruitmentAuthori
     @Override
     public void requireOfferExtend(HrCommandContext ctx, UUID offerId) {
         require(ctx, offerId, CAPABILITY_OFFER_EXTEND);
+    }
+
+    @Override
+    public void requireHireConvert(HrCommandContext ctx, UUID offerId) {
+        require(ctx, offerId, CAPABILITY_HIRE_CONVERT);
     }
 
     private void require(HrCommandContext ctx, UUID openingId, String capability) {

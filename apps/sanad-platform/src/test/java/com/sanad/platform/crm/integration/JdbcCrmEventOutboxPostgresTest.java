@@ -519,8 +519,21 @@ class JdbcCrmEventOutboxPostgresTest {
     void missingTenantContextFailsClosed() {
         CrmEventEnvelope env = envelope(EVENT_ID_1, TENANT_A, AGGREGATE_A,
                 "evt", "agg.contact", T0, T0);
-        // No setGuc call — app.tenant_id GUC is unset → WITH CHECK fails.
+        // TEST_ISOLATION: the assertion must hold for a connection with NO
+        // effective tenant context regardless of Hikari pool reuse order.
+        // Reset (not set) app.tenant_id inside the SAME transaction, then
+        // prove RLS WITH CHECK still rejects the append — fail-closed with
+        // no tenant context, unconditionally.
         assertThatThrownBy(() -> transactions.executeWithoutResult(s -> {
+            var conn = org.springframework.jdbc.datasource.DataSourceUtils.getConnection(
+                    jdbc.getJdbcTemplate().getDataSource());
+            try {
+                try (var st = conn.createStatement()) {
+                    st.execute("SELECT set_config('app.tenant_id', '', true)");
+                }
+            } catch (java.sql.SQLException resetFailure) {
+                throw new IllegalStateException(resetFailure);
+            }
             adapter.append(env);
         })).isInstanceOf(DataAccessException.class);
     }

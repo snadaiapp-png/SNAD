@@ -285,6 +285,7 @@ class CrmFlywayHistoryAssertionTest {
             // key is enforced even for the NULL trigger_type rows the Y2 adapters produce.
             // Additive strengthening only — no migration bytes modified, none deleted.
             , "20260914.2"   // workflow idempotency index NULLS NOT DISTINCT rebuild
+            , "20260914.3"   // hrm g1 t8 hire conversion governance (T8-MIG-001 person FK congruence rebuild + T8.8 policy store)
     );
 
 

@@ -105,8 +105,10 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260912_6 = provider-unavailable reconciliation classification.
     // HRM G1 T7 continues the same forward-only ledger:
     //   V20260914_1 = offer approval correlation + immutable version identity.
-    //   V20260914_2 = workflow idempotency index NULLS NOT DISTINCT rebuild (current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260914.2"; // Terminal versioned migration: V20260914_2 rebuilds uq_wf_instances_idempotency with NULLS NOT DISTINCT (T7-A26 fix, additive strengthening)
+    //   V20260914_2 = workflow idempotency index NULLS NOT DISTINCT rebuild.
+    //   V20260914_3 = T8 hire conversion governance (ledger columns + person FK
+    //     congruence rebuild + hr_tenant_policies authoritative policy store).
+    private static final String CRM_LATEST_VERSION = "20260914.3"; // Terminal versioned migration: V20260914_3 hr_t8_hire_conversion_governance (T8-MIG-001 person FK congruence rebuild + T8.8 policy store)
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");

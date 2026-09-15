@@ -143,7 +143,10 @@ class HrRlsFailClosedIntegrationTest {
                 "hr_onboarding_plans",
                 "hr_onboarding_checklists",
                 "hr_onboarding_tasks",
-                "hr_onboarding_checklist_templates"
+                "hr_onboarding_checklist_templates",
+                // G1 T8 governance — authoritative tenant policy store (§T8.8),
+                // tenant-scoped and FORCE-RLS like every other HR table.
+                "hr_tenant_policies"
         );
     }
 
@@ -1144,6 +1147,14 @@ class HrRlsFailClosedIntegrationTest {
             case "hr_onboarding_checklist_templates" -> {
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO hr_onboarding_checklist_templates (tenant_id, code, name) VALUES (?, 'TPL-RLS', 'RLS Template')")) {
+                    ps.setObject(1, tenantId);
+                    ps.executeUpdate();
+                }
+            }
+            case "hr_tenant_policies" -> {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_tenant_policies (tenant_id, policy_code, policy_value) "
+                                + "VALUES (?, 'HRM.RECRUITMENT.HIRE_APPROVAL', 'ON')")) {
                     ps.setObject(1, tenantId);
                     ps.executeUpdate();
                 }
