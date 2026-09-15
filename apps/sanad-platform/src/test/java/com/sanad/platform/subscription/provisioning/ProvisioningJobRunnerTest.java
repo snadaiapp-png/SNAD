@@ -137,10 +137,53 @@ class ProvisioningJobRunnerTest {
 
         ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
 
-        assertThat(outcome.status()).isEqualTo("FAILED");
+        assertThat(outcome.status()).isEqualTo("RETRYING");
         verify(commandService, never()).applyCanonicalTransition(
                 any(), any(), any(), any(), any());
         verify(jdbc, never()).update(contains("UPDATE tenant_subscriptions SET status = 'ACTIVE'"), (Object) any());
+    }
+
+    @Test
+    @DisplayName("failed prerequisite stops the pipeline before VALIDATE can activate")
+    void failedPrerequisiteCannotActivateSubscription() {
+        jobRow("PENDING", 0);
+        noCompletedSteps();
+        when(jdbc.queryForObject(
+                contains("SELECT COUNT(*) FROM subscription_items"), eq(Integer.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(0);
+
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
+
+        assertThat(outcome.status()).isEqualTo("RETRYING");
+        verify(commandService, never()).applyCanonicalTransition(
+                any(), any(), any(), any(), any());
+        verify(jdbc, never()).queryForObject(
+                contains("SELECT status FROM tenant_subscriptions"), eq(String.class),
+                eq(SUBSCRIPTION_ID));
+    }
+
+    @Test
+    @DisplayName("retry rewrites a previously failed keyed step instead of inserting a duplicate")
+    void retryUsesConflictSafeStepUpsert() {
+        jobRow("RETRYING", 1);
+        noCompletedSteps();
+        when(jdbc.queryForObject(
+                contains("SELECT COUNT(*) FROM subscription_items"), eq(Integer.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(1);
+        when(jdbc.<java.util.UUID>queryForObject(
+                contains("SELECT plan_id FROM tenant_subscriptions"), eq(java.util.UUID.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(
+                java.util.UUID.fromString("c3000000-0000-0000-0000-000000000001"));
+        when(jdbc.queryForObject(
+                contains("SELECT status FROM tenant_subscriptions"), eq(String.class),
+                eq(SUBSCRIPTION_ID))).thenReturn("ACTIVE");
+
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
+
+        assertThat(outcome.status()).isEqualTo("SUCCEEDED");
+        verify(jdbc, org.mockito.Mockito.atLeastOnce()).update(
+                contains("ON CONFLICT (job_id, step_key)"),
+                any(), eq(JOB_ID), any(), any(), any(), any());
     }
 
     @Test
@@ -190,7 +233,7 @@ class ProvisioningJobRunnerTest {
 
         ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
 
-        assertThat(outcome.status()).isEqualTo("FAILED");
+        assertThat(outcome.status()).isEqualTo("RETRYING");
         verify(jdbc).update(contains("UPDATE provisioning_jobs SET status = 'RETRYING'"),
                 any(), eq(JOB_ID));
     }
