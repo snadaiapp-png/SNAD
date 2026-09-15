@@ -31,7 +31,7 @@ beforeEach(() => {
   });
   invoicesMock.mockResolvedValue([]);
 });
-afterEach(() => cleanup());
+afterEach(() => { vi.useRealTimers(); cleanup(); });
 
 describe("Billing tenant context", () => {
   it("does not issue an unscoped request and loads invoices only for the selected tenant", async () => {
