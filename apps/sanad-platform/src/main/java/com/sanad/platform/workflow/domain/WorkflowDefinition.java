@@ -152,22 +152,6 @@ public record WorkflowDefinition(
         );
     }
 
-    /**
-     * Participates graph mutations in the parent definition's optimistic-lock
-     * protocol. The graph itself remains in child tables, but every structural
-     * mutation advances versionLock so stale publishers fail closed.
-     */
-    public WorkflowDefinition touchGraph() {
-        if (publicationState != PublicationState.DRAFT) {
-            throw new IllegalStateException("Only DRAFT definitions can mutate graph structure");
-        }
-        return new WorkflowDefinition(
-                id, tenantId, definitionFamilyId, code, name, description,
-                module, version, status, triggerType, createdBy, versionLock + 1,
-                engineGeneration, publicationState, publishedBy, publishedAt, validatedAt,
-                definitionChecksum, schemaVersion, createdAt, Instant.now());
-    }
-
     private WorkflowDefinition withStatus(Status newStatus) {
         return new WorkflowDefinition(id, tenantId, definitionFamilyId, code, name, description, module,
                 version, newStatus, triggerType, createdBy, versionLock + 1,
