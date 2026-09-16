@@ -18,21 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres_pass
-          POSTGRES_DB: sanad
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d sanad"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
@@ -42,11 +27,29 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
-      PGPASSWORD: postgres_pass
 
     steps:
       - name: Checkout exact PR SHA
         uses: actions/checkout@v4
+
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_START_FAILED"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -64,14 +67,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          psql -h 127.0.0.1 -U postgres -d sanad -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $sanad$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
               CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
             END IF;
-          END $$;
+          END $sanad$;
           ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
           ALTER DATABASE sanad OWNER TO sanad;
           SELECT 'CREATE DATABASE test_migration OWNER sanad'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
@@ -80,14 +85,21 @@ jobs:
           \c test_migration
           GRANT USAGE, CREATE ON SCHEMA public TO sanad;
           \c sanad
-          DO $$
+          DO $sanad_rls$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
               CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
             END IF;
-          END $$;
+          END $sanad_rls$;
           ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SQL
+
+          role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
+          echo "PRE_MERGE_ROLE_CONTRACT=$role_contract"
+          test "$role_contract" = "false|false|false|false"
+          PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$SPRING_DATASOURCE_USERNAME" -d sanad \
+            -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
 
       - name: Generate ephemeral CRM encryption key
         shell: bash

@@ -92,8 +92,11 @@ class R0C13G02SchemaPostgresTest {
                         + "ORDER BY installed_rank DESC LIMIT 1");
              ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).isTrue();
-            // R13-G07.0: the Flyway head moved forward to 20260912.6
-            assertThat(rs.getString(1)).isEqualTo("20260912.6");
+            // R13-G07.0: the Flyway head moved forward to 20260912.6;
+            // PATH-B G1-B advanced the head to 20260914.1 (V20260914_1
+            // application catalog status lifecycle widening, design spec
+            // §12.4) — explicit sentinel alignment, not a weakening.
+            assertThat(rs.getString(1)).isEqualTo("20260914.1");
         }
     }
 

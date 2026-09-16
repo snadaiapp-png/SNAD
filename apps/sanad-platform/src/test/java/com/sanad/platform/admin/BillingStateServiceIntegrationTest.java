@@ -1,6 +1,8 @@
 package com.sanad.platform.admin;
 
+import com.sanad.platform.admin.api.SaasAdminDtos.MarkInvoicePaidRequest;
 import com.sanad.platform.admin.service.BillingStateService;
+import com.sanad.platform.admin.service.SaasAdministrationService;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class BillingStateServiceIntegrationTest {
 
     @Autowired private BillingStateService billingStateService;
+    @Autowired private SaasAdministrationService saasAdministrationService;
     @Autowired private JdbcTemplate jdbc;
 
     private UUID tenantId;
@@ -149,13 +152,80 @@ class BillingStateServiceIntegrationTest {
 
     @Test
     void runDunningCycleOnce_isDefensiveAgainstSingleTenantFailure() {
-        // Add a tenant with an obviously broken subscription (e.g. no plan)
-        // and verify the cycle continues for others.
-        int count = billingStateService.runDunningCycleOnce();
-        assertThat(count).isGreaterThanOrEqualTo(1);
+        UUID tenantB = UUID.randomUUID();
+        UUID subscriptionB = UUID.randomUUID();
+        var now = Timestamp.from(Instant.now());
+        jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
+                        + "VALUES (?, 'Tenant B', ?, 'ACTIVE', ?, ?)",
+                tenantB, "bs-b-" + tenantB.toString().substring(0, 8), now, now);
+        jdbc.update("INSERT INTO tenant_subscriptions "
+                        + "(id, tenant_id, plan_id, status, billing_cycle, seat_quantity, "
+                        + " credit_balance_minor, started_at, current_period_start, current_period_end, "
+                        + " cancel_at_period_end, billing_state, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0, ?, ?, ?, FALSE, 'CURRENT', ?, ?)",
+                subscriptionB, tenantB, planId, now, now,
+                Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)), now, now);
+
+        insertOverdueInvoiceFor(tenantId, subscriptionId, Instant.now().minus(5, ChronoUnit.DAYS));
+        insertOverdueInvoiceFor(tenantB, subscriptionB, Instant.now().minus(5, ChronoUnit.DAYS));
+
+        String trigger = installBillingFailureTrigger(tenantId);
+        try {
+            int count = billingStateService.runDunningCycleOnce();
+            assertThat(count).isGreaterThanOrEqualTo(1);
+
+            // Tenant A's SQL failure rolls back only A.
+            assertThat(jdbc.queryForObject(
+                    "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
+                    String.class, subscriptionId)).isEqualTo("CURRENT");
+            // Tenant B still commits in its own REQUIRES_NEW transaction.
+            assertThat(jdbc.queryForObject(
+                    "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
+                    String.class, subscriptionB)).isEqualTo("PAST_DUE");
+            assertThat(jdbc.queryForObject(
+                    "SELECT status FROM tenant_subscriptions WHERE id = ?",
+                    String.class, subscriptionB)).isEqualTo("PAST_DUE");
+        } finally {
+            removeBillingFailureTrigger(trigger);
+        }
     }
 
-    private void insertOverdueInvoice(Instant dueAt) {
+    @Test
+    void markInvoicePaid_commitsPaymentBeforeIndependentBillingRecovery() {
+        UUID invoiceId = insertOverdueInvoice(Instant.now().minus(10, ChronoUnit.DAYS));
+        billingStateService.evaluateAndTransition(tenantId);
+        assertThat(jdbc.queryForObject(
+                "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
+                String.class, subscriptionId)).isEqualTo("SUSPENDED");
+
+        String trigger = installBillingFailureTrigger(tenantId);
+        try {
+            // The payment transaction must commit even though the after-commit
+            // billing recovery transaction is deliberately forced to fail.
+            saasAdministrationService.markInvoicePaid(
+                    invoiceId,
+                    new MarkInvoicePaidRequest("tx-isolation-proof", "payment transaction isolation"),
+                    null);
+
+            assertThat(jdbc.queryForObject(
+                    "SELECT status FROM billing_invoices WHERE id = ?",
+                    String.class, invoiceId)).isEqualTo("PAID");
+            assertThat(jdbc.queryForObject(
+                    "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
+                    String.class, subscriptionId)).isEqualTo("SUSPENDED");
+            assertThat(jdbc.queryForObject(
+                    "SELECT status FROM tenant_subscriptions WHERE id = ?",
+                    String.class, subscriptionId)).isEqualTo("SUSPENDED");
+        } finally {
+            removeBillingFailureTrigger(trigger);
+        }
+    }
+
+    private UUID insertOverdueInvoice(Instant dueAt) {
+        return insertOverdueInvoiceFor(tenantId, subscriptionId, dueAt);
+    }
+
+    private UUID insertOverdueInvoiceFor(UUID invoiceTenantId, UUID invoiceSubscriptionId, Instant dueAt) {
         UUID invoiceId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO billing_invoices "
@@ -163,8 +233,33 @@ class BillingStateServiceIntegrationTest {
                         + " subtotal_minor, credit_applied_minor, tax_minor, total_minor, amount_paid_minor, "
                         + " period_start, period_end, due_at, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, 'OPEN', 'SAR', 10000, 0, 1500, 11500, 0, ?, ?, ?, ?, ?)",
-                invoiceId, tenantId, subscriptionId, "INV-TEST-" + invoiceId.toString().substring(0, 8),
+                invoiceId, invoiceTenantId, invoiceSubscriptionId,
+                "INV-TEST-" + invoiceId.toString().substring(0, 8),
                 now, Timestamp.from(Instant.now().plus(30, ChronoUnit.DAYS)),
                 Timestamp.from(dueAt), now, now);
+        return invoiceId;
+    }
+
+    private String installBillingFailureTrigger(UUID failingTenantId) {
+        String suffix = failingTenantId.toString().replace("-", "");
+        String function = "test_fail_billing_" + suffix;
+        String trigger = "test_fail_billing_trg_" + suffix;
+        jdbc.execute("CREATE OR REPLACE FUNCTION " + function + "() RETURNS trigger "
+                + "LANGUAGE plpgsql AS $$ BEGIN "
+                + "IF NEW.tenant_id = '" + failingTenantId + "'::uuid "
+                + "AND NEW.billing_state IS DISTINCT FROM OLD.billing_state THEN "
+                + "RAISE EXCEPTION 'injected billing transition failure'; END IF; "
+                + "RETURN NEW; END $$");
+        jdbc.execute("CREATE TRIGGER " + trigger
+                + " BEFORE UPDATE ON tenant_subscriptions FOR EACH ROW "
+                + "EXECUTE FUNCTION " + function + "()");
+        return trigger;
+    }
+
+    private void removeBillingFailureTrigger(String trigger) {
+        String suffix = trigger.substring("test_fail_billing_trg_".length());
+        String function = "test_fail_billing_" + suffix;
+        jdbc.execute("DROP TRIGGER IF EXISTS " + trigger + " ON tenant_subscriptions");
+        jdbc.execute("DROP FUNCTION IF EXISTS " + function + "()");
     }
 }

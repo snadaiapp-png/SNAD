@@ -17,6 +17,7 @@ import com.sanad.platform.crm.mapper.CrmDtoMapper;
 import com.sanad.platform.crm.pagination.CrmEnvelopes.ListResponse;
 import com.sanad.platform.security.authorization.CapabilityAuthorizationAspect;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -26,6 +27,8 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -58,18 +61,25 @@ public class CrmCoreCursorPaginationAspect {
     private final CrmDtoMapper mapper;
     private final ObjectMapper objectMapper;
     private final CapabilityAuthorizationAspect authorization;
+    private final TenantRlsTransactionContext tenantRlsContext;
+    private final TransactionTemplate readTransaction;
 
     public CrmCoreCursorPaginationAspect(
             NamedParameterJdbcTemplate jdbc,
             CursorCodec cursors,
             CrmDtoMapper mapper,
             ObjectMapper objectMapper,
-            CapabilityAuthorizationAspect authorization) {
+            CapabilityAuthorizationAspect authorization,
+            TenantRlsTransactionContext tenantRlsContext,
+            PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
         this.cursors = cursors;
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.authorization = authorization;
+        this.tenantRlsContext = tenantRlsContext;
+        this.readTransaction = new TransactionTemplate(transactionManager);
+        this.readTransaction.setReadOnly(true);
     }
 
     @Around("execution(* com.sanad.platform.crm.web.CrmContractController.listAccounts(..))")
@@ -275,6 +285,28 @@ public class CrmCoreCursorPaginationAspect {
     }
 
     private List<Map<String, Object>> query(
+            String from,
+            String select,
+            String where,
+            MapSqlParameterSource parameters,
+            PageRequest page,
+            String cursorScope,
+            SortColumn sortColumn) {
+        Object rawTenantId = parameters.getValue("tenantId");
+        if (!(rawTenantId instanceof UUID tenantId)) {
+            throw new IllegalStateException("CRM pagination requires a tenant UUID before querying");
+        }
+        List<Map<String, Object>> rows = readTransaction.execute(status -> {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+            return queryInCurrentTransaction(from, select, where, parameters, page, cursorScope, sortColumn);
+        });
+        if (rows == null) {
+            throw new IllegalStateException("CRM pagination transaction returned no result");
+        }
+        return rows;
+    }
+
+    private List<Map<String, Object>> queryInCurrentTransaction(
             String from,
             String select,
             String where,

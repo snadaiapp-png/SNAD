@@ -4,30 +4,33 @@ import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
 import com.sanad.platform.subscription.change.SubscriptionChangeService;
 import com.sanad.platform.subscription.lifecycle.SubscriptionCommandService;
+import com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle;
 import com.sanad.platform.subscription.provisioning.ProvisioningJobResponse;
 import com.sanad.platform.subscription.provisioning.ProvisioningJobRunner;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
-/**
- * Executive API for subscription lifecycle commands, item-aware change
- * previews, and provisioning jobs.
- *
- * <p>Subscription status is NEVER written directly by callers — the frontend
- * invokes commands and the backend enforces transition legality.
- */
+/** Executive API for lifecycle commands, item-aware change previews, and provisioning jobs. */
 @RestController
 @RequestMapping("/api/v1/executive")
 public class LifecycleController {
+
+    private static final Set<String> GOVERNED_ROUTE_COMMANDS = Set.of(
+            "ACTIVATE", "START_TRIAL", "RENEW", "CANCEL", "RESUME", "EXPIRE", "SCHEDULE_CANCELLATION",
+            "MARK_PAST_DUE", "ENTER_GRACE", "REQUEST_ACTIVATION", "PAYMENT_RECEIVED");
 
     public record LifecycleCommandRequest(@NotBlank String reason) {
     }
@@ -69,9 +72,34 @@ public class LifecycleController {
         accessGuard.require(authentication);
         UUID actorTenantId = principalUuid(authentication, "tenant_id");
         UUID actorUserId = principalUuid(authentication, "user_id");
+        String normalized = command == null ? "" : command.trim().toUpperCase(Locale.ROOT);
+        requireDirectOperatorCommand(id, normalized);
         return ResponseEntity.ok(commandService.execute(
-                id, command.toUpperCase(), request.reason(),
+                id, normalized, request.reason(),
                 actorTenantId, actorUserId, authentication));
+    }
+
+    private void requireDirectOperatorCommand(UUID subscriptionId, String command) {
+        if (GOVERNED_ROUTE_COMMANDS.contains(command)) {
+            String owner = switch (command) {
+                case "ACTIVATE" -> "provisioning (/subscriptions/{id}/provision)";
+                case "RENEW" -> "renewal/invoicing (/subscriptions/{id}/renew)";
+                case "CANCEL" -> "cancellation service (/subscriptions/{id}/cancel)";
+                case "RESUME" -> "resume service (/subscriptions/{id}/resume)";
+                case "EXPIRE" -> "expiration runtime";
+                case "SCHEDULE_CANCELLATION" -> "cancellation service (/subscriptions/{id}/cancel)";
+                case "START_TRIAL" -> "trial-period authority";
+                case "MARK_PAST_DUE", "ENTER_GRACE", "PAYMENT_RECEIVED" -> "BillingStateService";
+                case "REQUEST_ACTIVATION" -> "activation orchestration";
+                default -> "governed service";
+            };
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Lifecycle command " + command + " is not allowed on the generic endpoint; use " + owner);
+        }
+        if (!SubscriptionLifecycle.DIRECT_OPERATOR_COMMANDS.contains(command)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unknown or unsupported direct lifecycle command: " + command);
+        }
     }
 
     @PostMapping("/subscriptions/{id}/change-preview")
@@ -119,8 +147,6 @@ public class LifecycleController {
             @RequestParam(name = "status", required = false) String status,
             Authentication authentication) {
         accessGuard.require(authentication);
-        // R0C-12 Blocker B-class: typed RowMapper instead of a raw JDBC
-        // snake_case Map — the console contract is camelCase (ProvisioningJobResponse).
         List<ProvisioningJobResponse> jobs = jdbc.query(
                 "SELECT id, tenant_id, subscription_id, action, status, attempts, "
                         + "started_at, completed_at, error_code, created_at "

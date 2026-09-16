@@ -5,6 +5,7 @@ import com.sanad.platform.crm.export.domain.ExportRepository.AccountExportRow;
 import com.sanad.platform.crm.export.domain.ExportRepository.ContactExportRow;
 import com.sanad.platform.crm.export.domain.ExportRepository.LeadExportRow;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -18,14 +19,17 @@ public class ExportUseCases {
         this.repository = repository;
     }
 
+    @Transactional(readOnly = true)
     public List<AccountExportRow> exportAccounts(UUID tenantId, String search) {
         return repository.exportAccounts(tenantId, normalize(search), MAX_EXPORT_ROWS);
     }
 
+    @Transactional(readOnly = true)
     public List<ContactExportRow> exportContacts(UUID tenantId, String search) {
         return repository.exportContacts(tenantId, normalize(search), MAX_EXPORT_ROWS);
     }
 
+    @Transactional(readOnly = true)
     public List<LeadExportRow> exportLeads(UUID tenantId, String search) {
         return repository.exportLeads(tenantId, normalize(search), MAX_EXPORT_ROWS);
     }

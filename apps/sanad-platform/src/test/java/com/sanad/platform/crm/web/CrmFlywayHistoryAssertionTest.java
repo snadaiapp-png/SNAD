@@ -267,6 +267,11 @@ class CrmFlywayHistoryAssertionTest {
             , "20260912.4"   // r0c13 subscription billing persistence foundation
             , "20260912.5"   // r0c13 verified provider-webhook SELECT-only RLS resolution
             , "20260912.6"   // r0c13 G07 provider-unavailable reconciliation classification
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only PATH-B G1-B
+            // migration (V20260914_1: application catalog status lifecycle
+            // widening per design spec §12.4). The expected head remains
+            // explicit — the sentinel is not weakened.
+            , "20260914.1"   // PATH-B G1-B application catalog status lifecycle widening
     );
 
 

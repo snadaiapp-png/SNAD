@@ -121,12 +121,19 @@ describe("Usage — state semantics (Blocker G / UAT-12)", () => {
 });
 
 describe("Billing — state semantics (Blocker G / UAT-11)", () => {
-  it("zero invoices renders the explicit empty state — never an application error", async () => {
+  it("zero invoices renders the explicit empty state after selecting a tenant", async () => {
+    const user = userEvent.setup();
     render(
       <ScpAccessProvider>
         <BillingPage />
       </ScpAccessProvider>,
     );
+    await settle();
+    await user.type(screen.getByRole("searchbox", { name: "scp.entitlements.searchTenant" }), "u");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await settle();
+    await user.click(screen.getByRole("button", { name: /UAT Tenant/ }));
+    await user.click(screen.getByRole("button", { name: "scp.billing.load" }));
     await settle();
     expect(screen.getByText("scp.state.empty")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();

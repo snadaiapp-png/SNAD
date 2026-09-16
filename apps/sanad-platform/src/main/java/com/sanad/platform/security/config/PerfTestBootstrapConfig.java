@@ -193,6 +193,10 @@ public class PerfTestBootstrapConfig {
                 VALUES (?, ?, ?, ?, NULL, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, GRANT_ID, TENANT_ID, ADMIN_USER_ID, ADMIN_ROLE_ID);
 
+        // CRM FORCE-RLS tables use app.tenant_id. TransactionTemplate keeps
+        // JdbcTemplate on the same transaction-bound connection, so a local GUC
+        // is sufficient and cannot leak beyond this perf bootstrap transaction.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, TENANT_ID.toString());
         seedCrmFixtures(jdbc);
     }
 

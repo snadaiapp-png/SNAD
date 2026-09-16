@@ -15,6 +15,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -120,6 +121,104 @@ class ApplicationCatalogServiceTest {
         assertThat(updated.getName()).isEqualTo("ERP Suite");
         assertThat(updated.getDisplayOrder()).isEqualTo(15);
         verify(repository).update(updated);
+    }
+
+    @Test
+    @DisplayName("update: lifecycle retirement preserves catalog metadata omitted by the public request")
+    void update_retirementPreservesMetadata() {
+        ApplicationEntity existing = app("ERP");
+        when(repository.findById(APP_ID)).thenReturn(Optional.of(existing));
+
+        ApplicationEntity changes = new ApplicationEntity();
+        changes.setName(existing.getName());
+        changes.setStatus("deprecated");
+        changes.setDisplayOrder(existing.getDisplayOrder());
+
+        ApplicationEntity updated = service.update(APP_ID, changes);
+
+        assertThat(updated.getStatus()).isEqualTo("DEPRECATED");
+        assertThat(updated.getVersion()).isEqualTo("1.0");
+        assertThat(updated.getIconKey()).isEqualTo("erp");
+        assertThat(updated.getSupportedCountries()).containsExactly("SA", "AE", "KW", "GLOBAL");
+        verify(repository).update(updated);
+    }
+
+    @Test
+    @DisplayName("update: rejects unsupported lifecycle status")
+    void update_rejectsUnsupportedStatus() {
+        ApplicationEntity existing = app("ERP");
+        when(repository.findById(APP_ID)).thenReturn(Optional.of(existing));
+
+        ApplicationEntity changes = app("ERP");
+        changes.setStatus("DELETED");
+
+        assertThatThrownBy(() -> service.update(APP_ID, changes))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("status");
+    }
+
+    @Test
+    @DisplayName("update: archives an active application to ARCHIVED (G1-B lifecycle)")
+    void update_archivesToArchived() {
+        ApplicationEntity existing = app("ERP");
+        when(repository.findById(APP_ID)).thenReturn(Optional.of(existing));
+
+        ApplicationEntity changes = new ApplicationEntity();
+        changes.setName(existing.getName());
+        changes.setStatus("ARCHIVED");
+        changes.setDisplayOrder(existing.getDisplayOrder());
+
+        ApplicationEntity updated = service.update(APP_ID, changes);
+
+        assertThat(updated.getStatus()).isEqualTo("ARCHIVED");
+        assertThat(updated.getCode()).isEqualTo("ERP");
+        verify(repository).update(updated);
+    }
+
+    @Test
+    @DisplayName("update: restores an archived application back to ACTIVE")
+    void update_restoresArchivedToActive() {
+        ApplicationEntity existing = app("ERP");
+        existing.setStatus("ARCHIVED");
+        when(repository.findById(APP_ID)).thenReturn(Optional.of(existing));
+
+        ApplicationEntity changes = new ApplicationEntity();
+        changes.setName(existing.getName());
+        changes.setStatus("ACTIVE");
+        changes.setDisplayOrder(existing.getDisplayOrder());
+
+        ApplicationEntity updated = service.update(APP_ID, changes);
+
+        assertThat(updated.getStatus()).isEqualTo("ACTIVE");
+        verify(repository).update(updated);
+    }
+
+    @Test
+    @DisplayName("create: admits DRAFT as an explicit catalog lifecycle status")
+    void create_allowsDraftStatus() {
+        when(repository.existsByCode("DRAFTAPP")).thenReturn(false);
+
+        ApplicationEntity request = app("DRAFTAPP");
+        request.setStatus("draft");
+
+        ApplicationEntity created = service.create(request);
+
+        assertThat(created.getStatus()).isEqualTo("DRAFT");
+        verify(repository).insert(request);
+    }
+
+    @Test
+    @DisplayName("create: rejects unsupported lifecycle status")
+    void create_rejectsUnsupportedStatus() {
+        when(repository.existsByCode("ERP")).thenReturn(false);
+
+        ApplicationEntity request = app("ERP");
+        request.setStatus("PUBLISHED");
+
+        assertThatThrownBy(() -> service.create(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("status");
+        verify(repository, never()).insert(any());
     }
 
     @Test

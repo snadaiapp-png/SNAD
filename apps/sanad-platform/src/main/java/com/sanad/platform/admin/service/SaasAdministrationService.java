@@ -23,6 +23,8 @@ import com.sanad.platform.subscription.billing.domain.SubscriptionFinancePort;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
@@ -55,6 +57,8 @@ import java.util.UUID;
 /** SaaS administration engine for plans, entitlements, subscriptions, upgrades, and invoices. */
 @Service
 public class SaasAdministrationService {
+
+    private static final Logger log = LoggerFactory.getLogger(SaasAdministrationService.class);
 
     private static final Set<String> PLAN_STATUSES = Set.of("ACTIVE", "INACTIVE", "ARCHIVED");
     private static final Set<String> SUBSCRIPTION_STATUSES = Set.of(
@@ -154,6 +158,31 @@ public class SaasAdministrationService {
                 changeService, commandService,
                 new SubscriptionResolutionService(jdbcTemplate),
                 new ExpiredSuccessorGate());
+    }
+
+    // Billing recovery is intentionally AFTER COMMIT. Running the
+    // BillingStateService inside the payment transaction would join it; a
+    // downstream runtime/SQL failure could mark it rollback-only even if
+    // caught here and undo the successful payment.
+    private void scheduleBillingReevaluationAfterCommit(UUID tenantId) {
+        Runnable reevaluate = () -> {
+            try {
+                billingStateService.evaluateAndTransitionAfterCommit(tenantId);
+            } catch (Exception e) {
+                log.error("Invoice payment committed but billing-state re-evaluation failed for tenant {}",
+                        tenantId, e);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    reevaluate.run();
+                }
+            });
+        } else {
+            reevaluate.run();
+        }
     }
 
     /**
@@ -559,7 +588,7 @@ public class SaasAdministrationService {
             // authority (validation + status + cancelled_at + command ledger);
             // the legacy engine keeps its own events, audit, entitlement
             // publishing and the cancel_at_period_end flag.
-            canonicalTransition(subscriptionId, "CANCEL", request.reason());
+            canonicalTransition(subscriptionId, "CANCEL", request.reason(), authentication);
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, updated_at = ? WHERE id = ?",
                     Timestamp.from(now), subscriptionId);
@@ -569,7 +598,7 @@ public class SaasAdministrationService {
             // Scheduling is not a status transition: the canonical no-op
             // SCHEDULE_CANCELLATION command ledgers the operation (design doc
             // G3 command list) while the status stays untouched.
-            canonicalTransition(subscriptionId, "SCHEDULE_CANCELLATION", request.reason());
+            canonicalTransition(subscriptionId, "SCHEDULE_CANCELLATION", request.reason(), authentication);
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = TRUE, updated_at = ? WHERE id = ?",
                     Timestamp.from(now), subscriptionId);
@@ -621,7 +650,7 @@ public class SaasAdministrationService {
             // authority which also clears cancelled_at. The legacy engine
             // keeps the period reset, the resumption invoice and its own
             // events, audit and entitlement publishing.
-            canonicalTransition(subscriptionId, "RESUME", "Resumed from control plane");
+            canonicalTransition(subscriptionId, "RESUME", "Resumed from control plane", authentication);
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, "
                             + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
@@ -651,7 +680,7 @@ public class SaasAdministrationService {
             // CANCEL authority (status + cancelled_at + command ledger);
             // the legacy engine keeps the flag cleanup, its own event and
             // the early return wire behavior.
-            canonicalTransition(subscriptionId, "CANCEL", "Scheduled cancellation applied");
+            canonicalTransition(subscriptionId, "CANCEL", "Scheduled cancellation applied", authentication);
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET cancel_at_period_end = FALSE, updated_at = ? WHERE id = ?",
                     Timestamp.from(now), subscriptionId);
@@ -677,7 +706,7 @@ public class SaasAdministrationService {
                             + "pending_billing_cycle = NULL, trial_ends_at = NULL, "
                             + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
                     billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
-            canonicalTransition(subscriptionId, "RENEW", "Renewal processed");
+            canonicalTransition(subscriptionId, "RENEW", "Renewal processed", authentication);
             changeService.applyCanonicalPlanCompositionChange(subscriptionId, planId, pendingVersionId,
                     price(plan, billingCycle), plan.currencyCode(), before.seatQuantity(),
                     "Scheduled plan change applied at renewal", before.tenantId(), null);
@@ -687,7 +716,7 @@ public class SaasAdministrationService {
                             + "pending_billing_cycle = NULL, trial_ends_at = NULL, "
                             + "current_period_start = ?, current_period_end = ?, updated_at = ? WHERE id = ?",
                     planId, billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
-            canonicalTransition(subscriptionId, "RENEW", "Renewal processed");
+            canonicalTransition(subscriptionId, "RENEW", "Renewal processed", authentication);
         }
         SubscriptionResponse renewed = getSubscription(subscriptionId);
         issueRecurringInvoice(renewed, plan, "Subscription renewal");
@@ -707,9 +736,16 @@ public class SaasAdministrationService {
      * guard, e.g. renewing a SUSPENDED subscription (RENEW-from-SUSPENDED is
      * unit-tested illegal in the canonical table).
      */
-    private void canonicalTransition(UUID subscriptionId, String command, String reason) {
+    private void canonicalTransition(
+            UUID subscriptionId,
+            String command,
+            String reason,
+            Authentication authentication
+    ) {
         try {
-            commandService.applyCanonicalTransition(subscriptionId, command, reason, null, null);
+            PrincipalIds actor = principal(authentication);
+            commandService.applyCanonicalTransition(
+                    subscriptionId, command, reason, actor.tenantId(), actor.userId());
         } catch (IllegalStateException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
         }
@@ -743,13 +779,11 @@ public class SaasAdministrationService {
         InvoiceResponse after = getInvoice(invoiceId);
         auditService.success(authentication, before.tenantId(), "INVOICE.MARK.PAID", "BILLING_INVOICE",
                 invoiceId.toString(), request.reason(), before, after);
-        // Trigger billing-state re-evaluation — successful payment may transition
-        // PAST_DUE → CURRENT or SUSPENDED → CURRENT.
-        try {
-            billingStateService.evaluateAndTransition(before.tenantId());
-        } catch (Exception ignored) {
-            // best-effort — invoice is already paid; do not roll back
-        }
+        // Billing recovery is intentionally AFTER COMMIT. Running the
+        // BillingStateService inside this transaction would join the payment
+        // transaction; a downstream runtime/SQL failure could mark it
+        // rollback-only even if caught here and undo the successful payment.
+        scheduleBillingReevaluationAfterCommit(before.tenantId());
         return after;
     }
 
