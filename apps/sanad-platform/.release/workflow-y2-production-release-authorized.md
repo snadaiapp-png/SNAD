@@ -226,3 +226,40 @@ Only the canonical path is authorized:
 No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, subscription/entitlement fabrication, or autonomous AI activation is authorized.
 
 If the release-control PR head, current `main`, required CI, independent approval, immutable-image evidence, or production target changes before merge, this authorization fails closed and must be re-evaluated.
+
+
+## Subscription / SCP PRE-G2 Production Alignment Authority — 2026-09-16
+
+- Certified engineering main SHA: `8d58f86fbd18ef310a2972896198a38d5dcac199`
+- Source engineering PR: `#1062` — Subscription / SCP PRE-G2 G1 review and remediation
+- Source PR certified head: `8d165de42713adcb3773d22c6d20a9240c490afc`
+- Source PR independent review: `APPROVED`
+- PRE-G2 review: `PASS`
+- Post-Merge Main Verification run: `35059631411` — `PASS`
+- Main CI run: `35059631445` — `PASS`
+- Web CI run: `35059631394` — `PASS`
+- Playwright E2E / Visual run: `35059631460` — `PASS`
+- Exact-main backend image publication run: `35059631425` — `PASS`
+- Production release orchestrator run: `35059713824` — `FAIL_CLOSED` before dispatch because exact main lacked the immutable production authorization marker
+- Canonical SANAD Production Release for this exact main: `NOT_STARTED`
+- Runtime application behavior change in this release-control PR: `NONE`
+- Database migration change in this release-control PR: `NONE`
+- Security/RBAC semantic change in this release-control PR: `NONE`
+- AI activation/change in this release-control PR: `NONE`
+- Independent human review with repository write access: `REQUIRED`
+- Exact-head required checks: `REQUIRED_PASS`
+- Pre-merge current-main drift guard: `REQUIRED_PASS`
+- Rollback on failure: `REQUIRED=true`
+- G2 implementation/release authorization: `NOT_GRANTED`
+
+This authorization change is intentionally inert and changes only this release-control marker. It exists to create the protected, reviewable release-control main commit required by the canonical production orchestrator after the certified Subscription / SCP PRE-G2 engineering merge landed without the production authorization marker.
+
+The protected squash merge MUST contain the exact immutable commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker, the production orchestrator must remain fail-closed.
+
+Only the canonical production path is authorized after all gates above remain satisfied:
+
+`Publish Render Backend Image` → exact immutable main image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → exact-image Render verification → readiness → Flyway/runtime invariants → security boundary → Subscription/SCP production smoke → Vercel Control Plane/BFF → sanitized release evidence → Vercel production certification where applicable.
+
+No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, subscription/entitlement fabrication, or G2 activation is authorized.
+
+If the release-control PR head, current `main`, required CI, independent approval, immutable-image evidence, or production target changes before merge, this authorization fails closed and must be re-evaluated.
