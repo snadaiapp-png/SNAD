@@ -91,7 +91,7 @@ public class WorkflowDefinitionService {
      */
     @Transactional
     public WorkflowDefinition publish(UUID tenantId, UUID id, UUID actorUserId) {
-        var def = load(tenantId, id);
+        var def = loadForUpdate(tenantId, id);
         return publishLoaded(tenantId, def, def.versionLock(), actorUserId);
     }
 
@@ -102,7 +102,7 @@ public class WorkflowDefinitionService {
      */
     @Transactional
     public WorkflowDefinition publish(UUID tenantId, UUID id, long expectedVersion, UUID actorUserId) {
-        var def = load(tenantId, id);
+        var def = loadForUpdate(tenantId, id);
         return publishLoaded(tenantId, def, expectedVersion, actorUserId);
     }
 
@@ -258,7 +258,7 @@ public class WorkflowDefinitionService {
             String transitionKey, String outcome,
             String conditionAst, int priority, String metadata,
             UUID actorUserId) {
-        var def = load(tenantId, definitionId);
+        var def = loadForUpdate(tenantId, definitionId);
         if (def.publicationState() != WorkflowDefinition.PublicationState.DRAFT) {
             throw new IllegalStateException(
                     "Transitions can only be added to DRAFT definitions; current state: "
@@ -273,9 +273,9 @@ public class WorkflowDefinitionService {
         if (!stepIds.contains(toStepId)) {
             throw new IllegalArgumentException("toStepId does not belong to this definition");
         }
-        // Parent version bump participates this child-table mutation in the
-        // same optimistic-lock protocol used by publication.
-        defRepo.save(def.touchGraph());
+        // The parent row is held FOR UPDATE for this whole transaction.
+        // Publication takes the same lock, so graph mutation and checksum
+        // publication cannot interleave.
         var transition = WorkflowTransition.create(
                 tenantId, definitionId, fromStepId, toStepId,
                 transitionKey, outcome, conditionAst, priority, metadata);
@@ -290,7 +290,7 @@ public class WorkflowDefinitionService {
         // Published/retired definition versions are immutable (P03 release
         // contract): graph structure changes require an explicit next-draft.
         // Fail-closed with the same conflict semantics as addTransition.
-        var def = defRepo.findById(step.tenantId(), step.workflowDefinitionId())
+        var def = defRepo.findByIdForUpdate(step.tenantId(), step.workflowDefinitionId())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowDefinition not found: " + step.workflowDefinitionId()));
         if (def.publicationState() != WorkflowDefinition.PublicationState.DRAFT) {
@@ -298,9 +298,9 @@ public class WorkflowDefinitionService {
                     "Steps can only be added to DRAFT definitions; current state: "
                             + def.publicationState());
         }
-        // Parent version bump makes a publisher holding the pre-mutation
-        // snapshot stale before the child row is written.
-        defRepo.save(def.touchGraph());
+        // The parent row is held FOR UPDATE for this whole transaction.
+        // Publication takes the same lock, so this child mutation cannot
+        // race a checksum/publication transition.
         var saved = defRepo.saveStep(step);
         log.info("WorkflowStep added: tenant={} definitionId={} stepKey={} actor={}",
                 saved.tenantId(), saved.workflowDefinitionId(), saved.stepKey(), actorUserId);
@@ -314,6 +314,11 @@ public class WorkflowDefinitionService {
 
     private WorkflowDefinition load(UUID tenantId, UUID id) {
         return defRepo.findById(tenantId, id)
+                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
+    }
+
+    private WorkflowDefinition loadForUpdate(UUID tenantId, UUID id) {
+        return defRepo.findByIdForUpdate(tenantId, id)
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
     }
 
