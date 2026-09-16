@@ -69,8 +69,10 @@ class PlatformApiCountTest {
      *  GET metrics/employee/{employeeId}), ai-context (1: GET
      *  instance/{instanceId}), customer feedback (2: POST + GET) = 853.
      *  + 1 R0C13 signed provider webhook ingress
-     *  (POST /api/v1/billing/provider/webhook) = 854. */
-    private static final long EXPECTED_TOTAL_OPS = 854;
+     *  (POST /api/v1/billing/provider/webhook) = 854.
+     *  + 1 Workflow Y2 governed draft-creation endpoint (WF-AUD-05 remediation)
+     *  (POST /api/v1/workflows/definitions/y2, WORKFLOW.DESIGN + source-module entitlement gated) = 855. */
+    private static final long EXPECTED_TOTAL_OPS = 855;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -102,6 +104,7 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();
         assertThat(has(paths, "/api/v1/workflows/catalog/modules", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/workflows/definitions/y2", "post")).isTrue();
         assertThat(has(paths, "/api/v1/billing/provider/webhook", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();

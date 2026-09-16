@@ -166,8 +166,10 @@ export function WorkflowDesigner({ definitionId }: { definitionId: string }) {
       const saved = await workflowApi.createDefinitionTransition(definitionId, request);
       invalidateEvidence();
       setGraphRevision((value) => value + 1);
-      const nextTransitions = await workflowApi.getDefinitionTransitions(definitionId);
-      setTransitions(nextTransitions);
+      // Transition mutations advance the parent definition versionLock.
+      // Reload the authoritative definition as well as the graph before any
+      // later publish command can reuse a stale optimistic-lock token.
+      await load();
       setSelectedStepId(null);
       setSelectedTransitionId(saved.id);
       recordActivity(`حُفظ الانتقال ${saved.transitionKey} وأُبطلت أدلة الرسم السابقة.`);

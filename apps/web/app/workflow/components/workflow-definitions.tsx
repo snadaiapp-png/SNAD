@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import {
   workflowApi,
@@ -82,6 +83,7 @@ const MODULE_LABELS: Record<string, string> = {
 };
 
 export function WorkflowDefinitions() {
+  const router = useRouter();
   const [definitions, setDefinitions] = useState<WorkflowDefinitionResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -155,9 +157,9 @@ export function WorkflowDefinitions() {
     setError(null);
     setConflict(null);
     try {
-      await command();
+      const result = await command();
       await load();
-      return true;
+      return result;
     } catch (cause: unknown) {
       const status = (cause as { status?: number })?.status;
       if (status === 409) {
@@ -168,7 +170,7 @@ export function WorkflowDefinitions() {
       } else {
         setError(describeWorkflowError(cause, "فشل تعديل تعريف سير العمل"));
       }
-      return false;
+      return null;
     }
   };
 
@@ -184,7 +186,7 @@ export function WorkflowDefinitions() {
       return;
     }
     const saved = await runMutation(() =>
-      workflowApi.createDefinition({
+      workflowApi.createY2Definition({
         code: normalizedCode,
         name: normalizedName,
         module,
@@ -195,6 +197,7 @@ export function WorkflowDefinitions() {
       setCode("");
       setName("");
       setShowCreate(false);
+      router.push(`/workflow/definitions/${saved.id}`);
     }
   };
 

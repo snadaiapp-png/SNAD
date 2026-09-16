@@ -61,6 +61,29 @@ public record WorkflowDefinition(
         );
     }
 
+    /**
+     * Creates a first-class Y2 draft for the modern designer without changing
+     * the legacy create() compatibility contract.
+     */
+    public static WorkflowDefinition createY2Draft(
+            UUID tenantId, String code, String name, String description,
+            String module, TriggerType triggerType, UUID createdBy) {
+        if (code == null || code.isBlank()) throw new IllegalArgumentException("code must not be blank");
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("name must not be blank");
+        if (module == null || module.isBlank()) throw new IllegalArgumentException("module must not be blank");
+        var now = Instant.now();
+        var id = UUID.randomUUID();
+        return new WorkflowDefinition(
+                id, tenantId, id, code, name, description,
+                module.trim().toUpperCase(java.util.Locale.ROOT), 1,
+                Status.DRAFT, triggerType != null ? triggerType : TriggerType.MANUAL,
+                createdBy, 0,
+                EngineGeneration.Y2, PublicationState.DRAFT,
+                null, null, null, null, 1,
+                now, now
+        );
+    }
+
     public WorkflowDefinition activate() {
         if (engineGeneration == EngineGeneration.Y2) {
             throw new IllegalStateException("Y2 definitions cannot use the legacy activation lifecycle");

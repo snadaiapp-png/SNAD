@@ -2,11 +2,10 @@ package com.sanad.platform.workflow.application;
 
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionRepository;
+import com.sanad.platform.workflow.domain.WorkflowDefinitionAuditPort;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionValidation;
 import com.sanad.platform.workflow.domain.WorkflowStep;
 import com.sanad.platform.workflow.domain.WorkflowTransition;
-import com.sanad.platform.workflow.domain.WorkflowTransitionAudit;
-import com.sanad.platform.workflow.domain.WorkflowTransitionAuditRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,15 +21,8 @@ import java.util.UUID;
  * <p>State machine: DRAFT → ACTIVE → INACTIVE → ARCHIVED
  *
  * <p>Controllers should never call repositories directly — they go through
- * this service. Every lifecycle transition is logged via SLF4J.
- *
- * <p><strong>Audit note:</strong> the {@code workflow_transition_audit} table
- * has a NOT NULL {@code workflow_instance_id} column with an FK to
- * {@code workflow_instances(id)}, so definition-level events cannot be written
- * there. Instead, they are logged via SLF4J with structured fields
- * (tenantId, definitionId, action, fromState, toState, actorUserId) so they
- * can be correlated with instance-level audit rows when an instance is later
- * created from the definition.
+ * this service. Definition lifecycle transitions are persisted through
+ * {@link WorkflowDefinitionAuditPort}; SLF4J remains diagnostics only.
  */
 @Service
 public class WorkflowDefinitionService {
@@ -38,24 +30,22 @@ public class WorkflowDefinitionService {
     private static final Logger log = LoggerFactory.getLogger(WorkflowDefinitionService.class);
 
     private final WorkflowDefinitionRepository defRepo;
-    private final WorkflowTransitionAuditRepository auditRepo;
     private final WorkflowDefinitionValidator validator;
+    private final WorkflowDefinitionAuditPort definitionAudit;
 
     public WorkflowDefinitionService(
             WorkflowDefinitionRepository defRepo,
-            WorkflowTransitionAuditRepository auditRepo,
-            WorkflowDefinitionValidator validator) {
+            WorkflowDefinitionValidator validator,
+            WorkflowDefinitionAuditPort definitionAudit) {
         this.defRepo = defRepo;
-        this.auditRepo = auditRepo;
         this.validator = validator;
+        this.definitionAudit = definitionAudit;
     }
 
     @Transactional
     public WorkflowDefinition create(WorkflowDefinition def, UUID actorUserId) {
         var saved = defRepo.save(def);
-        // Save any steps that were attached to the definition
-        logDefEvent(actorUserId, saved, WorkflowTransitionAudit.Action.CREATE,
-                null, saved.status().name());
+        definitionAudit.record(actorUserId, null, saved, WorkflowDefinitionAuditPort.Action.CREATE);
         return saved;
     }
 
@@ -72,30 +62,24 @@ public class WorkflowDefinitionService {
     @Transactional
     public WorkflowDefinition activate(UUID tenantId, UUID id, UUID actorUserId) {
         var def = load(tenantId, id);
-        var oldStatus = def.status().name();
         var updated = defRepo.save(def.activate());
-        logDefEvent(actorUserId, updated, WorkflowTransitionAudit.Action.ACTIVATE,
-                oldStatus, updated.status().name());
+        definitionAudit.record(actorUserId, def, updated, WorkflowDefinitionAuditPort.Action.ACTIVATE);
         return updated;
     }
 
     @Transactional
     public WorkflowDefinition deactivate(UUID tenantId, UUID id, UUID actorUserId) {
         var def = load(tenantId, id);
-        var oldStatus = def.status().name();
         var updated = defRepo.save(def.deactivate());
-        logDefEvent(actorUserId, updated, WorkflowTransitionAudit.Action.DEACTIVATE,
-                oldStatus, updated.status().name());
+        definitionAudit.record(actorUserId, def, updated, WorkflowDefinitionAuditPort.Action.DEACTIVATE);
         return updated;
     }
 
     @Transactional
     public WorkflowDefinition archive(UUID tenantId, UUID id, UUID actorUserId) {
         var def = load(tenantId, id);
-        var oldStatus = def.status().name();
         var updated = defRepo.save(def.archive());
-        logDefEvent(actorUserId, updated, WorkflowTransitionAudit.Action.ARCHIVE,
-                oldStatus, updated.status().name());
+        definitionAudit.record(actorUserId, def, updated, WorkflowDefinitionAuditPort.Action.ARCHIVE);
         return updated;
     }
 
@@ -107,16 +91,35 @@ public class WorkflowDefinitionService {
      */
     @Transactional
     public WorkflowDefinition publish(UUID tenantId, UUID id, UUID actorUserId) {
-        var def = load(tenantId, id);
-        var validation = validator.validate(tenantId, id);
+        var def = loadForUpdate(tenantId, id);
+        return publishLoaded(tenantId, def, def.versionLock(), actorUserId);
+    }
+
+    /**
+     * Publish command with caller-observed versionLock. The expected version is
+     * checked inside the same transaction as validation and the final
+     * optimistic update, eliminating the controller/service TOCTOU window.
+     */
+    @Transactional
+    public WorkflowDefinition publish(UUID tenantId, UUID id, long expectedVersion, UUID actorUserId) {
+        var def = loadForUpdate(tenantId, id);
+        return publishLoaded(tenantId, def, expectedVersion, actorUserId);
+    }
+
+    private WorkflowDefinition publishLoaded(
+            UUID tenantId, WorkflowDefinition def, long expectedVersion, UUID actorUserId) {
+        if (def.versionLock() != expectedVersion) {
+            throw new org.springframework.dao.OptimisticLockingFailureException(
+                    "WorkflowDefinition " + def.id() + " was modified before publication");
+        }
+        var validation = validator.validate(tenantId, def.id());
         if (!validation.valid()) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
                     "Workflow definition validation failed: " + validation.errors().get(0).code());
         }
         var updated = defRepo.save(def.publish(actorUserId, checksum(def)));
-        logDefEvent(actorUserId, updated, WorkflowTransitionAudit.Action.ACTIVATE,
-                def.publicationState().name(), updated.publicationState().name());
+        definitionAudit.record(actorUserId, def, updated, WorkflowDefinitionAuditPort.Action.PUBLISH);
         return updated;
     }
 
@@ -220,6 +223,7 @@ public class WorkflowDefinitionService {
                     transition.priority(), transition.metadata(), now, now);
             defRepo.saveTransition(clone);
         }
+        definitionAudit.record(actorUserId, source, draft, WorkflowDefinitionAuditPort.Action.NEXT_DRAFT);
         log.info("WorkflowDefinition next draft: tenant={} family={} sourceVersion={} draftId={} draftVersion={} "
                         + "clonedSteps={} clonedTransitions={} actor={}",
                 tenantId, source.definitionFamilyId(), source.version(), draft.id(), draft.version(),
@@ -254,7 +258,7 @@ public class WorkflowDefinitionService {
             String transitionKey, String outcome,
             String conditionAst, int priority, String metadata,
             UUID actorUserId) {
-        var def = load(tenantId, definitionId);
+        var def = loadForUpdate(tenantId, definitionId);
         if (def.publicationState() != WorkflowDefinition.PublicationState.DRAFT) {
             throw new IllegalStateException(
                     "Transitions can only be added to DRAFT definitions; current state: "
@@ -269,6 +273,9 @@ public class WorkflowDefinitionService {
         if (!stepIds.contains(toStepId)) {
             throw new IllegalArgumentException("toStepId does not belong to this definition");
         }
+        // The parent row is held FOR UPDATE for this whole transaction.
+        // Publication takes the same lock, so graph mutation and checksum
+        // publication cannot interleave.
         var transition = WorkflowTransition.create(
                 tenantId, definitionId, fromStepId, toStepId,
                 transitionKey, outcome, conditionAst, priority, metadata);
@@ -283,7 +290,7 @@ public class WorkflowDefinitionService {
         // Published/retired definition versions are immutable (P03 release
         // contract): graph structure changes require an explicit next-draft.
         // Fail-closed with the same conflict semantics as addTransition.
-        var def = defRepo.findById(step.tenantId(), step.workflowDefinitionId())
+        var def = defRepo.findByIdForUpdate(step.tenantId(), step.workflowDefinitionId())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WorkflowDefinition not found: " + step.workflowDefinitionId()));
         if (def.publicationState() != WorkflowDefinition.PublicationState.DRAFT) {
@@ -291,6 +298,9 @@ public class WorkflowDefinitionService {
                     "Steps can only be added to DRAFT definitions; current state: "
                             + def.publicationState());
         }
+        // The parent row is held FOR UPDATE for this whole transaction.
+        // Publication takes the same lock, so this child mutation cannot
+        // race a checksum/publication transition.
         var saved = defRepo.saveStep(step);
         log.info("WorkflowStep added: tenant={} definitionId={} stepKey={} actor={}",
                 saved.tenantId(), saved.workflowDefinitionId(), saved.stepKey(), actorUserId);
@@ -307,16 +317,9 @@ public class WorkflowDefinitionService {
                 .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
     }
 
-    /**
-     * Log a definition-level lifecycle event. See class JavaDoc for why
-     * definition-level events are not written to {@code workflow_transition_audit}.
-     */
-    private void logDefEvent(UUID actorUserId, WorkflowDefinition def,
-                            WorkflowTransitionAudit.Action action,
-                            String fromState, String toState) {
-        log.info(
-                "WorkflowDefinition event: action={} tenant={} definitionId={} code={} version={} fromState={} toState={} actor={}",
-                action.name(), def.tenantId(), def.id(), def.code(), def.version(),
-                fromState, toState, actorUserId);
+    private WorkflowDefinition loadForUpdate(UUID tenantId, UUID id) {
+        return defRepo.findByIdForUpdate(tenantId, id)
+                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
     }
+
 }
