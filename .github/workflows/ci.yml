@@ -39,6 +39,17 @@
 #   and run #3215 was killed by the 60-minute ceiling (60m39s) with
 #   zero test failures — an infrastructure cancellation, not a regression.
 #
+# v20260916.1: Maven Test Suite timeout raised 120→180 minutes after
+#   exact-main run 35082355017 was cancelled at the 120-minute ceiling
+#   with 2,590 tests already completed at 0 failures / 0 errors.
+#   On the same SHA, Post-Merge JOB C completed the full 3,507-test
+#   PostgreSQL Direct suite successfully. Surefire timing comparison showed
+#   broad runner throughput degradation rather than a single hanging test
+#   (common test classes were ~2.05x slower in the cancelled CI run).
+#   Projected full-suite duration at that observed throughput was ~155 min;
+#   180 min is the smallest evidence-based ceiling that clears the observed
+#   runner variance without weakening any test, database, or security gate.
+#
 # v20260907.1 (HRM-G0 reconciliation — CI governance remediation):
 #   PostgreSQL service CONTAINERS (services: postgres: image: ...) are
 #   FORBIDDEN for this certification. All three jobs now run against
@@ -85,7 +96,7 @@ jobs:
   test:
     name: Maven Test Suite
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
