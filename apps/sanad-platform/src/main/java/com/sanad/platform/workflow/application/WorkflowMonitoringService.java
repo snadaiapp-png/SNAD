@@ -1,16 +1,10 @@
 package com.sanad.platform.workflow.application;
 
-import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
-import com.sanad.platform.workflow.domain.WorkflowApprovalRequestRepository;
-import com.sanad.platform.workflow.domain.WorkflowStepInstance;
-import com.sanad.platform.workflow.domain.WorkflowStepInstanceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -26,9 +20,9 @@ import java.util.UUID;
  * </ul>
  *
  * <p>This service is <strong>idempotent and authoritative-read only</strong>:
- * every SLA scan reloads current domain state through the authoritative
- * repositories. Operational read-model snapshots are never authorization or
- * command-decision evidence. SLA enforcement mutations belong to a separate
+ * every SLA scan executes tenant-scoped COUNT queries over the authoritative
+ * source tables. These operational counts are observability evidence only,
+ * never authorization or command-decision evidence. SLA enforcement mutations belong to a separate
  * command worker that revalidates authoritative state before transition.
  */
 @Service
@@ -36,14 +30,10 @@ public class WorkflowMonitoringService {
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowMonitoringService.class);
 
-    private final WorkflowStepInstanceRepository stepInstanceRepo;
-    private final WorkflowApprovalRequestRepository approvalRepo;
+    private final WorkflowOperationalQueryService operationalQueryService;
 
-    public WorkflowMonitoringService(
-            WorkflowStepInstanceRepository stepInstanceRepo,
-            WorkflowApprovalRequestRepository approvalRepo) {
-        this.stepInstanceRepo = stepInstanceRepo;
-        this.approvalRepo = approvalRepo;
+    public WorkflowMonitoringService(WorkflowOperationalQueryService operationalQueryService) {
+        this.operationalQueryService = operationalQueryService;
     }
 
     /**
@@ -70,17 +60,11 @@ public class WorkflowMonitoringService {
      */
     @Transactional(readOnly = true)
     public int checkOverdueSteps(UUID tenantId) {
-        var inProgress = stepInstanceRepo.findByTenantAndStatus(
-                tenantId, WorkflowStepInstance.Status.IN_PROGRESS, 200);
-        var now = Instant.now();
-        List<WorkflowStepInstance> overdue = inProgress.stream()
-                .filter(si -> si.dueAt() != null && now.isAfter(si.dueAt()))
-                .toList();
-        if (!overdue.isEmpty()) {
-            log.warn("Tenant {} has {} overdue workflow step_instances (first: {})",
-                    tenantId, overdue.size(), overdue.get(0).id());
+        int overdue = operationalQueryService.countOverdueSteps(tenantId);
+        if (overdue > 0) {
+            log.warn("Tenant {} has {} overdue workflow step_instances", tenantId, overdue);
         }
-        return overdue.size();
+        return overdue;
     }
 
     /**
@@ -90,16 +74,10 @@ public class WorkflowMonitoringService {
      */
     @Transactional(readOnly = true)
     public int checkOverdueApprovals(UUID tenantId) {
-        var pending = approvalRepo.findByTenantAndStatus(
-                tenantId, WorkflowApprovalRequest.Status.PENDING, 200);
-        var now = Instant.now();
-        List<WorkflowApprovalRequest> overdue = pending.stream()
-                .filter(a -> a.dueAt() != null && now.isAfter(a.dueAt()))
-                .toList();
-        if (!overdue.isEmpty()) {
-            log.warn("Tenant {} has {} overdue workflow approval_requests (first: {})",
-                    tenantId, overdue.size(), overdue.get(0).id());
+        int overdue = operationalQueryService.countOverdueApprovals(tenantId);
+        if (overdue > 0) {
+            log.warn("Tenant {} has {} overdue workflow approval_requests", tenantId, overdue);
         }
-        return overdue.size();
+        return overdue;
     }
 }
