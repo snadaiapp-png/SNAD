@@ -46,7 +46,7 @@ export function WorkflowMonitoring() {
   }, [autoRefresh, load]);
 
   const totalAttention = useMemo(
-    () => (health?.overdueSteps ?? 0) + (health?.overdueApprovals ?? 0) + (health?.totalBreaches ?? 0),
+    () => health?.totalBreaches ?? 0,
     [health],
   );
 
