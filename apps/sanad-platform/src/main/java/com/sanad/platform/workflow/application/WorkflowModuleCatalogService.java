@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -62,6 +63,35 @@ public class WorkflowModuleCatalogService {
                 "workflowEnabled", workflowEnabled,
                 "modules", modules,
                 "generatedAt", java.time.Instant.now().toString());
+    }
+
+    /**
+     * Authoritative command-side guard for selecting a source module in a new
+     * Workflow definition. UI catalog visibility is presentation only; callers
+     * cannot bypass global registration, Workflow contract registration, or
+     * the tenant's source-module entitlement with a crafted request.
+     */
+    @Transactional(readOnly = true)
+    public String requireWorkflowReadyModule(UUID tenantId, String moduleCode) {
+        workflowEntitlementGuard.requireWorkflowEnabled(tenantId);
+        if (moduleCode == null || moduleCode.isBlank()) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "WORKFLOW_SOURCE_MODULE_NOT_READY: source module is required");
+        }
+        String code = moduleCode.trim().toUpperCase(Locale.ROOT);
+        boolean globallyRegistered = moduleRepository.findByCode(code).isPresent();
+        boolean tenantEntitled;
+        try {
+            tenantEntitled = entitlementResolver.isModuleEnabled(tenantId, code);
+        } catch (Exception e) {
+            tenantEntitled = false;
+        }
+        var status = integrationRegistry.classify(code, globallyRegistered, tenantEntitled);
+        if (status != WorkflowModuleIntegrationRegistry.WorkflowReadyStatus.REGISTERED_AND_WORKFLOW_READY) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "WORKFLOW_SOURCE_MODULE_NOT_READY: module '" + code + "' status=" + status.name());
+        }
+        return code;
     }
 
     private Map<String, Object> toCatalogEntry(UUID tenantId, WorkflowModuleIntegrationContract contract) {
