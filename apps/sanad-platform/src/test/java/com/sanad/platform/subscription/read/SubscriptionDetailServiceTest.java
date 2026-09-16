@@ -115,6 +115,25 @@ class SubscriptionDetailServiceTest {
     }
 
     @Test
+    @DisplayName("detail includes governed TENANT_SUBSCRIPTION audit rows")
+    void detailIncludesGovernedTenantSubscriptionAuditRows() {
+        stubDetailQueries();
+        when(jdbc.queryForList(contains("product_entitlements"), eq(SUBSCRIPTION_ID), eq(SUBSCRIPTION_ID)))
+                .thenReturn(List.of());
+        Map<String, Object> auditRow = new HashMap<>();
+        auditRow.put("action", "SUBSCRIPTION.CANCEL");
+        auditRow.put("resourceType", "TENANT_SUBSCRIPTION");
+        when(jdbc.queryForList(contains("TENANT_SUBSCRIPTION"), eq(SUBSCRIPTION_ID), eq(SUBSCRIPTION_ID)))
+                .thenReturn(List.of(auditRow));
+
+        SubscriptionDetailService.SubscriptionDetail detail = service.detail(SUBSCRIPTION_ID);
+
+        assertThat(detail.audit()).extracting(row -> row.get("action"))
+                .contains("SUBSCRIPTION.CANCEL");
+    }
+
+
+    @Test
     @DisplayName("unknown subscription still fails closed")
     void unknownSubscriptionFailsClosed() {
         when(jdbc.queryForMap(anyString(), any(Object[].class)))
