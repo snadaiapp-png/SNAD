@@ -163,6 +163,9 @@ export const workflowApi = {
   createDefinition: (data: CreateDefinitionRequest) =>
     apiClient.post<WorkflowDefinitionResponse>(`${BASE}/definitions`, data),
 
+  createY2Definition: (data: CreateDefinitionRequest) =>
+    apiClient.post<WorkflowDefinitionResponse>(`${BASE}/definitions/y2`, data),
+
   activateDefinition: (id: string) =>
     apiClient.post<WorkflowDefinitionResponse>(`${BASE}/definitions/${id}/activate`),
 
