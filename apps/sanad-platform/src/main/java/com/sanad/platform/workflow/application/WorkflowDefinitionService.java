@@ -62,7 +62,6 @@ public class WorkflowDefinitionService {
     @Transactional
     public WorkflowDefinition activate(UUID tenantId, UUID id, UUID actorUserId) {
         var def = load(tenantId, id);
-        var oldStatus = def.status().name();
         var updated = defRepo.save(def.activate());
         definitionAudit.record(actorUserId, def, updated, WorkflowDefinitionAuditPort.Action.ACTIVATE);
         return updated;
@@ -71,7 +70,6 @@ public class WorkflowDefinitionService {
     @Transactional
     public WorkflowDefinition deactivate(UUID tenantId, UUID id, UUID actorUserId) {
         var def = load(tenantId, id);
-        var oldStatus = def.status().name();
         var updated = defRepo.save(def.deactivate());
         definitionAudit.record(actorUserId, def, updated, WorkflowDefinitionAuditPort.Action.DEACTIVATE);
         return updated;
@@ -80,7 +78,6 @@ public class WorkflowDefinitionService {
     @Transactional
     public WorkflowDefinition archive(UUID tenantId, UUID id, UUID actorUserId) {
         var def = load(tenantId, id);
-        var oldStatus = def.status().name();
         var updated = defRepo.save(def.archive());
         definitionAudit.record(actorUserId, def, updated, WorkflowDefinitionAuditPort.Action.ARCHIVE);
         return updated;
@@ -305,7 +302,7 @@ public class WorkflowDefinitionService {
         // snapshot stale before the child row is written.
         defRepo.save(def.touchGraph());
         var saved = defRepo.saveStep(step);
-        log.info("WorkflowStep added: tenant={} definitionId={} stepKey={} actor={"
+        log.info("WorkflowStep added: tenant={} definitionId={} stepKey={} actor={}",
                 saved.tenantId(), saved.workflowDefinitionId(), saved.stepKey(), actorUserId);
         return saved;
     }
