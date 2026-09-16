@@ -82,7 +82,7 @@ public class WorkflowModuleCatalogService {
         boolean globallyRegistered = moduleRepository.findByCode(code).isPresent();
         boolean tenantEntitled;
         try {
-            tenantEntitled = entitlementResolver.isModuleEnabled(tenantId, code);
+            tenantEntitled = entitlementResolver.hasExplicitModuleEntitlement(tenantId, code);
         } catch (Exception e) {
             tenantEntitled = false;
         }
