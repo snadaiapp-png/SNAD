@@ -263,3 +263,39 @@ Only the canonical production path is authorized after all gates above remain sa
 No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, subscription/entitlement fabrication, or G2 activation is authorized.
 
 If the release-control PR head, current `main`, required CI, independent approval, immutable-image evidence, or production target changes before merge, this authorization fails closed and must be re-evaluated.
+
+
+## Workflow Audit WF-AUD-01..08 Production Alignment Authority — 2026-09-17
+
+- Certified engineering main SHA: `487b8e884624f5b6832a48a7ee3d01b994684b56`
+- Source engineering PR: `#1074` — Workflow audit remediation WF-AUD-01 through WF-AUD-08
+- Source PR certified head: `afab9b1cc45070e64eb63383fe4ea32984b52e9a`
+- Source PR independent review: `APPROVED`
+- Source PR Backend CI / Maven / PostgreSQL Direct / CRM Integration: `PASS`
+- Source PR Workflow Y2 G4 Release Gate: `PASS`
+- Source PR Web CI / Security / Compile / Playwright / Performance / Provenance / Smoke: `PASS`
+- Post-Merge Main Verification run: `35151547415` — `PASS`
+- Vercel Production Certification run: `35151547448` — `FAIL_CLOSED` because live Render backend source did not yet match current main
+- Production Release Orchestrator run: `35151720135` — `FAIL_CLOSED` before dispatch because exact main lacked `PRODUCTION-RELEASE-AUTHORIZED`
+- Current production remains on the previously authorized live backend image until this release-control PR is protected-merged and the canonical release succeeds.
+- Runtime application behavior change in this authorization PR: `NONE`
+- Database migration change in this authorization PR: `NONE`
+- Security/RBAC semantic change in this authorization PR: `NONE`
+- AI activation/change in this authorization PR: `NONE`
+- Owner production deployment authorization: `GRANTED_EXPLICITLY_2026-09-17`
+- Independent human review with repository write access: `REQUIRED`
+- Exact-head required checks: `REQUIRED_PASS`
+- Pre-merge current-main drift guard: `REQUIRED_PASS`
+- Rollback on failure: `REQUIRED=true`
+
+This authorization change is intentionally inert and changes only this release-control marker. It exists to create the protected, reviewable release-control main commit required by the canonical production orchestrator after PR #1074 was merged and Post-Merge Main Verification passed while production remained on an older Render backend image.
+
+The protected squash merge MUST contain the exact immutable commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker, the production orchestrator must remain fail-closed.
+
+Only the canonical production path is authorized after all gates above remain satisfied:
+
+`Publish Render Backend Image` → exact immutable main image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → exact-image Render verification → readiness → Flyway/runtime invariants → security boundary → Subscription/SCP production smoke → Vercel Control Plane/BFF → sanitized release evidence → Workflow Y2 Vercel Production Certification.
+
+No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, subscription/entitlement fabrication, or autonomous AI activation is authorized.
+
+If the release-control PR head, current `main`, required CI, independent approval, immutable-image evidence, or production target changes before merge, this authorization fails closed and must be re-evaluated.
