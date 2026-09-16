@@ -129,7 +129,8 @@ public class WorkflowController {
         String module = req.module();
         // Preserve the legacy no-module -> GENERAL contract, but any explicit
         // source module must be a server-authoritative Workflow-ready module.
-        if (module != null && !module.isBlank()) {
+        if (module != null && !module.isBlank()
+                && !"GENERAL".equalsIgnoreCase(module.trim())) {
             module = moduleCatalogService.requireWorkflowReadyModule(tenant, module);
         }
         var def = WorkflowDefinition.create(
