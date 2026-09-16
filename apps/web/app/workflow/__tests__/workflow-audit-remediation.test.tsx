@@ -30,6 +30,15 @@ describe("Workflow audit remediation regressions", () => {
     expect(definitions).toContain("router.push(`/workflow/definitions/${saved.id}`)");
   });
 
+  it("reloads authoritative definition state after transition mutations", () => {
+    const designer = readRequired("definitions/[id]/components/workflow-designer.tsx");
+    const start = designer.indexOf("const createTransition = async");
+    const end = designer.indexOf("const createNextDraft = async");
+    const transitionMutation = designer.slice(start, end);
+
+    expect(transitionMutation).toContain("await load()");
+  });
+
   it("does not double-count totalBreaches in overview or monitoring attention totals", () => {
     const overview = readRequired("components/workflow-overview.tsx");
     const monitoring = readRequired("components/workflow-monitoring.tsx");
