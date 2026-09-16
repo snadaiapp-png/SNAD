@@ -8,24 +8,29 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * RED regression coverage for the 2026-09-16 Workflow forensic audit.
  *
- * Proves that graph mutations participate in the parent definition's
- * optimistic-lock protocol and that definition lifecycle events are durable
- * business evidence rather than SLF4J-only diagnostics.
+ * Proves that graph mutation/publication serialize on the parent definition
+ * row without changing the public versionLock contract, and that definition
+ * lifecycle events are durable business evidence rather than SLF4J-only
+ * diagnostics.
  */
 @SpringBootTest
 @ActiveProfiles("local")
@@ -35,6 +40,7 @@ class WorkflowDefinitionConcurrencyAuditTest {
     @Autowired private WorkflowDefinitionService definitionService;
     @Autowired private WorkflowDefinitionRepository definitionRepository;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private UUID tenantId;
     private UUID userId;
@@ -53,38 +59,66 @@ class WorkflowDefinitionConcurrencyAuditTest {
     }
 
     @Test
-    void stepMutationInvalidatesAStalePublisherSnapshot() {
-        WorkflowDefinition definition = createDefinition("WF-LOCK-STEP");
-        WorkflowDefinition stalePublisher = definitionRepository.findById(tenantId, definition.id()).orElseThrow();
+    void graphMutationsPreserveTheExistingVersionLockContract() {
+        WorkflowDefinition definition = createDefinition("WF-LOCK-COMPAT");
+        long expectedVersionLock = definition.versionLock();
 
-        definitionService.addStep(WorkflowStep.create(
-                tenantId, definition.id(), "start", "Start",
-                WorkflowStep.StepType.START, 1, "{}", null, null, null), userId);
-
-        assertThatThrownBy(() -> definitionRepository.save(
-                stalePublisher.publish(userId, "sha256:stale-step")))
-                .isInstanceOf(OptimisticLockingFailureException.class);
-    }
-
-    @Test
-    void transitionMutationInvalidatesAStalePublisherSnapshot() {
-        WorkflowDefinition definition = createDefinition("WF-LOCK-EDGE");
         WorkflowStep start = definitionService.addStep(WorkflowStep.create(
                 tenantId, definition.id(), "start", "Start",
                 WorkflowStep.StepType.START, 1, "{}", null, null, null), userId);
         WorkflowStep end = definitionService.addStep(WorkflowStep.create(
                 tenantId, definition.id(), "end", "End",
                 WorkflowStep.StepType.END, 2, "{}", null, null, null), userId);
-
-        WorkflowDefinition stalePublisher = definitionRepository.findById(tenantId, definition.id()).orElseThrow();
-
         definitionService.addTransition(
                 tenantId, definition.id(), start.id(), end.id(),
                 "finish", "SUCCESS", null, 10, "{}", userId);
 
-        assertThatThrownBy(() -> definitionRepository.save(
-                stalePublisher.publish(userId, "sha256:stale-edge")))
-                .isInstanceOf(OptimisticLockingFailureException.class);
+        WorkflowDefinition reloaded =
+                definitionRepository.findById(tenantId, definition.id()).orElseThrow();
+        assertThat(reloaded.versionLock()).isEqualTo(expectedVersionLock);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void graphMutationWaitsForTheParentDefinitionRowLock() throws Exception {
+        WorkflowDefinition definition = createDefinition("WF-LOCK-SERIAL");
+        CountDownLatch lockAcquired = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var lockFuture = executor.submit(() -> {
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                    definitionRepository.findByIdForUpdate(tenantId, definition.id()).orElseThrow();
+                    lockAcquired.countDown();
+                    try {
+                        if (!releaseLock.await(5, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("Timed out waiting to release definition row lock");
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                });
+            });
+
+            assertThat(lockAcquired.await(5, TimeUnit.SECONDS)).isTrue();
+
+            var mutationFuture = executor.submit(() -> definitionService.addStep(WorkflowStep.create(
+                    tenantId, definition.id(), "start", "Start",
+                    WorkflowStep.StepType.START, 1, "{}", null, null, null), userId));
+
+            Thread.sleep(200);
+            assertThat(mutationFuture.isDone())
+                    .as("graph mutation must wait while the parent definition row is locked")
+                    .isFalse();
+
+            releaseLock.countDown();
+            lockFuture.get(5, TimeUnit.SECONDS);
+            assertThat(mutationFuture.get(5, TimeUnit.SECONDS).stepKey()).isEqualTo("start");
+        } finally {
+            releaseLock.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
