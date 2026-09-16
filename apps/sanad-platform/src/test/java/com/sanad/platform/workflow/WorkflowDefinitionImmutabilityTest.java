@@ -7,8 +7,6 @@ import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionRepository;
 import com.sanad.platform.workflow.domain.WorkflowStep;
 import com.sanad.platform.workflow.domain.WorkflowTransition;
-import com.sanad.platform.workflow.domain.WorkflowTransitionAudit;
-import com.sanad.platform.workflow.domain.WorkflowTransitionAuditRepository;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -60,8 +58,9 @@ class WorkflowDefinitionImmutabilityTest {
         var draft = WorkflowDefinition.create(TENANT, "WF-P03-DRAFT", "P03 Draft", "fixture",
                 "GENERAL", WorkflowDefinition.TriggerType.MANUAL, ACTOR);
         var repo = new StubDefinitionRepository(draft);
-        var service = new WorkflowDefinitionService(repo, new StubAuditRepository(),
-                new WorkflowDefinitionValidator(null, null));
+        var service = new WorkflowDefinitionService(repo,
+                new WorkflowDefinitionValidator(null, null, new WorkflowSystemActionAdapterRegistry(List.of())),
+                (actor, before, after, action) -> {});
 
         var step = WorkflowStep.create(TENANT, draft.id(), "start", "Start",
                 WorkflowStep.StepType.START, 1, "{}", null, null, null);
@@ -145,20 +144,5 @@ class WorkflowDefinitionImmutabilityTest {
         }
     }
 
-    private static final class StubAuditRepository implements WorkflowTransitionAuditRepository {
-        @Override
-        public WorkflowTransitionAudit save(WorkflowTransitionAudit audit) {
-            return audit;
-        }
 
-        @Override
-        public List<WorkflowTransitionAudit> findByInstance(UUID tenantId, UUID workflowInstanceId) {
-            return List.of();
-        }
-
-        @Override
-        public List<WorkflowTransitionAudit> findByTenant(UUID tenantId, int limit) {
-            return List.of();
-        }
-    }
 }
