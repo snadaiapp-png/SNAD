@@ -7,6 +7,13 @@ import java.util.UUID;
 public interface WorkflowDefinitionRepository {
     WorkflowDefinition save(WorkflowDefinition def);
     Optional<WorkflowDefinition> findById(UUID tenantId, UUID id);
+    /**
+     * Transaction-scoped parent-row lock used to serialize Y2 graph mutation
+     * and publication. Call only from an active transaction.
+     */
+    default Optional<WorkflowDefinition> findByIdForUpdate(UUID tenantId, UUID id) {
+        return findById(tenantId, id);
+    }
     Optional<WorkflowDefinition> findByCode(UUID tenantId, String code, int version);
     Optional<WorkflowDefinition> findActiveByCode(UUID tenantId, String code);
     List<WorkflowDefinition> findByTenant(UUID tenantId, int limit);

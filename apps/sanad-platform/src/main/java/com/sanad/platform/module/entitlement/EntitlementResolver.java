@@ -99,6 +99,37 @@ public class EntitlementResolver {
     }
 
     /**
+     * Strict source-module entitlement check for cross-module product use.
+     *
+     * Unlike {@link #isModuleEnabled(UUID, String)}, this method does not
+     * fall back to a module's default-enabled registry flag. It requires an
+     * explicit enabled plan-module entitlement row on the tenant's current
+     * ACTIVE subscription. Workflow source-module selection uses this stricter
+     * authority so a crafted API request cannot inherit a catalog default.
+     */
+    @Transactional(readOnly = true)
+    public boolean hasExplicitModuleEntitlement(UUID tenantId, String moduleCode) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        if (moduleCode == null || moduleCode.isBlank()) {
+            return false;
+        }
+        Optional<ModuleEntity> moduleOpt =
+                moduleRepository.findByCode(moduleCode.trim().toUpperCase(Locale.ROOT));
+        if (moduleOpt.isEmpty()) {
+            return false;
+        }
+        Map<String, Object> subInfo = findActiveSubscription(tenantId);
+        if (subInfo == null) {
+            return false;
+        }
+        UUID planId = (UUID) subInfo.get("planId");
+        return planModuleEntitlementRepository
+                .findByPlanIdAndModuleId(planId, moduleOpt.get().getId())
+                .stream()
+                .anyMatch(PlanModuleEntitlementEntity::isModuleEnabled);
+    }
+
+    /**
      * Check if a boolean capability is enabled for a tenant's module.
      *
      * @param tenantId       the tenant UUID

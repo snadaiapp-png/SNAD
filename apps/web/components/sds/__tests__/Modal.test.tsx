@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Modal } from "../Modal";
@@ -171,6 +172,58 @@ describe("SDS Modal", () => {
     const overlay = dialog.parentElement;
     await user.click(overlay as HTMLElement);
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("preserves the focused child when a parent rerender supplies a new onClose callback", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <Modal isOpen onClose={() => {}} title="Edit tenant">
+        <input aria-label="Tenant name" />
+      </Modal>,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Tenant name" });
+    await user.click(input);
+    expect(input).toHaveFocus();
+
+    rerender(
+      <Modal isOpen onClose={() => {}} title="Edit tenant">
+        <input aria-label="Tenant name" />
+      </Modal>,
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByRole("textbox", { name: "Tenant name" })).toHaveFocus();
+  });
+
+  it("keeps input focus across multi-character typing while the parent form rerenders", async () => {
+    const user = userEvent.setup();
+    let handleClose: () => void = () => {};
+    function HostForm() {
+      const [value, setValue] = React.useState("");
+      // Fresh inline callback per keystroke — the production tenant form shape.
+      handleClose = () => setValue("");
+      return (
+        <Modal isOpen onClose={handleClose} title="Edit tenant">
+          <input
+            aria-label="Tenant name"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        </Modal>
+      );
+    }
+    render(<HostForm />);
+
+    const input = screen.getByRole("textbox", { name: "Tenant name" });
+    await user.click(input);
+    await user.type(input, "acme");
+
+    expect((input as HTMLInputElement).value).toBe("acme");
+    expect(screen.getByRole("textbox", { name: "Tenant name" })).toHaveFocus();
   });
 
   it.each(["sm", "md", "lg", "full"] as const)(

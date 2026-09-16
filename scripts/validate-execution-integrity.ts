@@ -159,10 +159,8 @@ function validateRule4(groups: ExecutionGroup[]) {
 function validateRule5(groups: ExecutionGroup[]) {
   const dashboardGroups = groups.length;
   const dashboardTasks = groups.reduce((sum, g) => sum + g.tasks.length, 0);
-  // In a real system, this would compare with API response
-  // T7-CI-002 alignment: canonical structure is 11 groups / 64 tasks
-  // (G0:15 G1:12 G2:10 G3:6 G4:4 G5:5 G6:4 G7:8; G8-G10 pending). The former
-  // hardcoded 56 predates the G7 task registration and failed every build.
+  // The current certified execution ledger has 11 groups / 64 unique tasks.
+  // Keep this sentinel explicit so any future structural change still fails closed.
   const passed = dashboardGroups === 11 && dashboardTasks === 64;
   addResult(
     "Rule 5: Dashboard structure integrity",

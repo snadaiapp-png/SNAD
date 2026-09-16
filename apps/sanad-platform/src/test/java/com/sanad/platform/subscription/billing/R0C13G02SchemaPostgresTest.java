@@ -92,15 +92,11 @@ class R0C13G02SchemaPostgresTest {
                         + "ORDER BY installed_rank DESC LIMIT 1");
              ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).isTrue();
-            // TEST_ALIGNMENT_REASON (HRM G1 T7 closure): the forward-only chain was
-            // legitimately extended by the additive HRM G1 T7 migrations
-            // V20260914_1 (offer approval correlation + immutable version identity),
-            // V20260914_2 (workflow idempotency index NULLS NOT DISTINCT rebuild)
-            // and V20260914_3 (T8 hire conversion governance: person_reused +
-            // employee_number ledger columns, person FK congruence rebuild,
-            // hr_tenant_policies authoritative policy store)
-            // T7-A26). No migration bytes were modified or deleted; the expected
-            // fresh-chain head moves forward to 20260914.2.
+            // TEST_ALIGNMENT_REASON: union of the unmerged HRM G1 chain with
+            // current-main PATH-B authority. HRM T7 is forward-renumbered to
+            // V20260913_1; main owns V20260914_1 (application catalog lifecycle);
+            // V20260914_2 strengthens workflow idempotency and V20260914_3 carries
+            // T8 hire-conversion governance. No merged main migration is rewritten.
             assertThat(rs.getString(1)).isEqualTo("20260914.3");
         }
     }

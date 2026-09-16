@@ -124,9 +124,36 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.WRITE")
     public ResponseEntity<Map<String, Object>> createDefinition(
             Authentication auth, @RequestBody CreateDefinitionRequest req) {
-        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
+        var tenant = tenantId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant);
+        String module = req.module();
+        // Preserve the legacy no-module -> GENERAL contract, but any explicit
+        // source module must be a server-authoritative Workflow-ready module.
+        if (module != null && !module.isBlank()
+                && !"GENERAL".equalsIgnoreCase(module.trim())) {
+            module = moduleCatalogService.requireWorkflowReadyModule(tenant, module);
+        }
         var def = WorkflowDefinition.create(
-                tenantId(auth), req.code(), req.name(), req.description(), req.module(),
+                tenant, req.code(), req.name(), req.description(), module,
+                req.triggerType() != null ? WorkflowDefinition.TriggerType.valueOf(req.triggerType())
+                        : WorkflowDefinition.TriggerType.MANUAL,
+                userId(auth));
+        return ResponseEntity.ok(toDefinitionMap(definitionService.create(def, userId(auth))));
+    }
+
+    /**
+     * Modern Y2 creation path. Kept separate from the legacy create endpoint
+     * so existing clients retain their historical LEGACY semantics.
+     */
+    @PostMapping("/definitions/y2")
+    @RequireCapability("WORKFLOW.DESIGN")
+    public ResponseEntity<Map<String, Object>> createY2Definition(
+            Authentication auth, @RequestBody CreateDefinitionRequest req) {
+        var tenant = tenantId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant);
+        String module = moduleCatalogService.requireWorkflowReadyModule(tenant, req.module());
+        var def = WorkflowDefinition.createY2Draft(
+                tenant, req.code(), req.name(), req.description(), module,
                 req.triggerType() != null ? WorkflowDefinition.TriggerType.valueOf(req.triggerType())
                         : WorkflowDefinition.TriggerType.MANUAL,
                 userId(auth));
@@ -290,14 +317,10 @@ public class WorkflowController {
     @RequireCapability("WORKFLOW.PUBLISH")
     public ResponseEntity<Map<String, Object>> publishDefinition(
             Authentication auth, @PathVariable UUID id, @RequestBody PublishDefinitionRequest req) {
-        workflowEntitlementGuard.requireWorkflowEnabled(tenantId(auth));
-        var def = definitionService.findById(tenantId(auth), id)
-                .orElseThrow(() -> new IllegalArgumentException("WorkflowDefinition not found: " + id));
-        if (def.versionLock() != req.expectedVersion()) {
-            throw new org.springframework.dao.OptimisticLockingFailureException(
-                    "WorkflowDefinition " + id + " was modified by another publisher");
-        }
-        return ResponseEntity.ok(toDefinitionMap(definitionService.publish(tenantId(auth), id, userId(auth))));
+        var tenant = tenantId(auth);
+        workflowEntitlementGuard.requireWorkflowEnabled(tenant);
+        return ResponseEntity.ok(toDefinitionMap(
+                definitionService.publish(tenant, id, req.expectedVersion(), userId(auth))));
     }
 
     @PostMapping("/definitions/{id}/next-draft")
@@ -438,7 +461,16 @@ public class WorkflowController {
                 + "(status=" + def.status() + ", publicationState=" + def.publicationState() + ")");
         var steps = definitionService.findSteps(def.id());
         if (steps.isEmpty()) throw new IllegalStateException("WorkflowDefinition " + def.id() + " has no steps");
-        var firstStep = steps.stream().min(Comparator.comparingInt(WorkflowStep::sequenceOrder)).orElseThrow();
+        var firstStep = switch (def.engineGeneration()) {
+            case LEGACY -> steps.stream()
+                    .min(Comparator.comparingInt(WorkflowStep::sequenceOrder))
+                    .orElseThrow();
+            case Y2 -> steps.stream()
+                    .filter(step -> step.stepType() == WorkflowStep.StepType.START)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Published Y2 WorkflowDefinition " + def.id() + " has no START step"));
+        };
         var instance = switch (def.engineGeneration()) {
             case LEGACY -> WorkflowInstance.start(tenant, def.id(), def.version(), req.businessEntityType(),
                     req.businessEntityId(), firstStep.stepKey(), actor, req.correlationId());

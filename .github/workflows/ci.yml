@@ -39,6 +39,17 @@
 #   and run #3215 was killed by the 60-minute ceiling (60m39s) with
 #   zero test failures — an infrastructure cancellation, not a regression.
 #
+# v20260916.1: Maven Test Suite timeout raised 120→180 minutes after
+#   exact-main run 35082355017 was cancelled at the 120-minute ceiling
+#   with 2,590 tests already completed at 0 failures / 0 errors.
+#   On the same SHA, Post-Merge JOB C completed the full 3,507-test
+#   PostgreSQL Direct suite successfully. Surefire timing comparison showed
+#   broad runner throughput degradation rather than a single hanging test
+#   (common test classes were ~2.05x slower in the cancelled CI run).
+#   Projected full-suite duration at that observed throughput was ~155 min;
+#   180 min is the smallest evidence-based ceiling that clears the observed
+#   runner variance without weakening any test, database, or security gate.
+#
 # v20260907.1 (HRM-G0 reconciliation — CI governance remediation):
 #   PostgreSQL service CONTAINERS (services: postgres: image: ...) are
 #   FORBIDDEN for this certification. All three jobs now run against
@@ -85,7 +96,7 @@ jobs:
   test:
     name: Maven Test Suite
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
@@ -392,7 +403,7 @@ jobs:
   pg-acceptance:
     name: PostgreSQL Acceptance Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     env:
       # SPRING_DATASOURCE_URL is intentionally NOT set here.
@@ -480,21 +491,22 @@ jobs:
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
 
       - name: Run PostgreSQL acceptance tests
-        # -Dtest=CommerceOrderPostgresConcurrencyTest runs ONLY this single
-        #   class — the @EnabledIfEnvironmentVariable guard ensures all 6
-        #   methods execute under SPRING_PROFILES_ACTIVE=pg-acceptance.
-        # -DfailIfNoTests=true fails loudly if the test class is ever
-        #   renamed/moved/disabled — prevents silent SKIPPED=6 from passing.
-        # -Dsurefire.useFile=true emits per-class JUnit XML under
-        #   target/surefire-reports/ for the artifact upload below.
+        # Execute the COMPLETE profile-gated acceptance companion on every CI run.
+        # The default Maven suite intentionally skips these 31 tests under the
+        # default profile; this job is their exact PostgreSQL Direct authority:
+        #   CommerceOrderPostgresConcurrencyTest = 6
+        #   RbacAccessCheckPostgresAcceptanceTest = 15
+        #   ModuleRegistryUatPostgresAcceptanceTest = 10
+        # -DfailIfNoTests=true prevents a rename/move from becoming false-green.
         env:
           # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: |
+          rm -rf target/surefire-reports
           mvn test -B -ntp \
             -Dsurefire.useFile=true \
             -DfailIfNoTests=true \
-            -Dtest=CommerceOrderPostgresConcurrencyTest
+            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest'
 
       - name: Upload acceptance test reports
         if: always()
@@ -508,17 +520,57 @@ jobs:
       - name: Acceptance test summary
         if: always()
         run: |
-          echo "## PostgreSQL Acceptance Test Results" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          # Parse surefire reports for summary
-          find target/surefire-reports -name "*.txt" -exec grep -H "Tests run:" {} \; 2>/dev/null | \
-            awk -F'[, ]' '{runs+=$4; fail+=$6; err+=$8; skip+=$10} END {print "Total: "runs" tests, "fail" failures, "err" errors, "skip" skipped"}' >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          # Explicit check: the 6 concurrency tests MUST actually execute (skipped=0)
-          echo "RC-4 acceptance check: CommerceOrderPostgresConcurrencyTest must report 6/0/0/0" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          find target/surefire-reports -name "*CommerceOrderPostgresConcurrencyTest.txt" -exec cat {} \; 2>/dev/null >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import glob
+          import xml.etree.ElementTree as ET
+
+          expected = {
+              "CommerceOrderPostgresConcurrencyTest": 6,
+              "RbacAccessCheckPostgresAcceptanceTest": 15,
+              "ModuleRegistryUatPostgresAcceptanceTest": 10,
+          }
+          actual = {}
+          failures = errors = skipped = total = 0
+          parse_errors = 0
+          for path in glob.glob("target/surefire-reports/TEST-*.xml"):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  parse_errors += 1
+                  continue
+              suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+              for suite in suites:
+                  cls = (suite.get("name") or "").split(".")[-1]
+                  for tc in suite.iter("testcase"):
+                      total += 1
+                      has_failure = tc.find("failure") is not None
+                      has_error = tc.find("error") is not None
+                      has_skip = tc.find("skipped") is not None
+                      failures += int(has_failure)
+                      errors += int(has_error)
+                      skipped += int(has_skip)
+                      if cls in expected:
+                          actual[cls] = actual.get(cls, 0) + 1
+
+          print("## PostgreSQL Acceptance Test Results")
+          print("")
+          print(f"Total={total} Failures={failures} Errors={errors} Skipped={skipped} ParseErrors={parse_errors}")
+          for cls, count in expected.items():
+              print(f"{cls}={actual.get(cls, 0)}/{count}")
+
+          ok = (
+              total == 31
+              and failures == 0
+              and errors == 0
+              and skipped == 0
+              and parse_errors == 0
+              and all(actual.get(cls, 0) == count for cls, count in expected.items())
+          )
+          print("PG_ACCEPTANCE_STATUS=" + ("PASS" if ok else "FAIL"))
+          if not ok:
+              raise SystemExit(1)
+          PY
 
 # ============================================================
 # R0C-12 — Amendment #6 (v20260908.1): Persistent Canonical

@@ -104,7 +104,8 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260912_5 = verified provider-webhook resolution.
     //   V20260912_6 = provider-unavailable reconciliation classification.
     // HRM G1 T7 continues the same forward-only ledger:
-    //   V20260914_1 = offer approval correlation + immutable version identity.
+    //   V20260913_1 = HRM G1 T7 offer approval correlation + immutable version identity.
+    //   V20260914_1 = PATH-B G1-B application catalog status lifecycle widening (main authority).
     //   V20260914_2 = workflow idempotency index NULLS NOT DISTINCT rebuild.
     //   V20260914_3 = T8 hire conversion governance (ledger columns + person FK
     //     congruence rebuild + hr_tenant_policies authoritative policy store).

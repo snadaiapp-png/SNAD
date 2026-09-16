@@ -89,8 +89,8 @@ public class SubscriptionGridQueryService {
                                pv.version_number AS plan_version,
                                COALESCE(pv.currency_code, p.currency_code) AS currency_code,
                                CASE s.billing_cycle
-                                    WHEN 'ANNUAL' THEN COALESCE(pv.annual_price_minor, p.annual_price_minor) / 12
-                                    ELSE COALESCE(pv.monthly_price_minor, p.monthly_price_minor)
+                                    WHEN 'ANNUAL' THEN COALESCE(pv.annual_price_minor, p.annual_price_minor) * s.seat_quantity / 12
+                                    ELSE COALESCE(pv.monthly_price_minor, p.monthly_price_minor) * s.seat_quantity
                                END AS monthly_price_minor,
                                (SELECT COUNT(*) FROM subscription_items si
                                  WHERE si.subscription_id = s.id AND si.status = 'ACTIVE') AS item_count,

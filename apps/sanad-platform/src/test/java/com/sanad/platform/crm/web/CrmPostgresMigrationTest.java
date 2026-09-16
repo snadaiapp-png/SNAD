@@ -215,11 +215,13 @@ class CrmPostgresMigrationTest {
     private static final String R0C13_VERIFIED_WEBHOOK_VERSION = "20260912.5";
     private static final String R0C13_G07_PROVIDER_UNAVAILABLE_VERSION = "20260912.6";
     // TEST_ALIGNMENT_REASON = Legitimate forward-only feature migration (HRM G1 T7):
-    // V20260914_1 adds ONLY additive DDL (offer/opening approval correlation columns,
+    // V20260913_1 adds ONLY additive DDL (offer/opening approval correlation columns,
     // partial unique idempotency indexes, lookup indexes, and the DB-level append-only
     // guard on hr_offer_versions). No migration bytes are modified and the expected
     // head remains explicit — the sentinel is extended, never weakened.
-    private static final String T7_OFFER_APPROVAL_CORRELATION_VERSION = "20260914.1";
+    private static final String T7_OFFER_APPROVAL_CORRELATION_VERSION = "20260913.1";
+    // Current-main authority: PATH-B G1-B application catalog lifecycle widening.
+    private static final String PATH_B_G1B_CATALOG_LIFECYCLE_VERSION = "20260914.1";
     // TEST_ALIGNMENT_REASON = Legitimate forward-only defect-fix migration (HRM G1 T7 closure
     // §10/T7-A26): V20260914_2 rebuilds uq_wf_instances_idempotency with NULLS NOT DISTINCT
     // (same columns/predicate/name) — additive strengthening, never weakening.
@@ -477,6 +479,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
                         MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
                         MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
+                        MigrationVersion.fromVersion(PATH_B_G1B_CATALOG_LIFECYCLE_VERSION),
                         MigrationVersion.fromVersion(T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION),
                         MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION));
         upgrade.migrate();
@@ -664,6 +667,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(R0C13_VERIFIED_WEBHOOK_VERSION),
                         MigrationVersion.fromVersion(R0C13_G07_PROVIDER_UNAVAILABLE_VERSION),
                         MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
+                        MigrationVersion.fromVersion(PATH_B_G1B_CATALOG_LIFECYCLE_VERSION),
                         MigrationVersion.fromVersion(T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION),
                         MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION));
         completion.migrate();

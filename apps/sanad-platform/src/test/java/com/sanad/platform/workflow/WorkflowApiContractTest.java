@@ -110,6 +110,19 @@ class WorkflowApiContractTest {
                 """, UUID.randomUUID(), planId);
     }
 
+
+    private void grantSourceModuleEntitlement(String moduleCode) {
+        UUID planId = jdbc.queryForObject(
+                "SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 1",
+                UUID.class, tenantId);
+        jdbc.update("""
+                INSERT INTO plan_module_entitlements (id, plan_id, module_id, module_enabled,
+                     capability_code, created_at, updated_at)
+                SELECT ?, ?, id, true, NULL, NOW(), NOW()
+                FROM modules WHERE code = ?
+                """, UUID.randomUUID(), planId, moduleCode);
+    }
+
     private Authentication auth() {
         var token = new UsernamePasswordAuthenticationToken(
                 userId.toString(), null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
@@ -295,6 +308,86 @@ class WorkflowApiContractTest {
         assertThat(body).contains("\"code\":\"CONTRACT-1\"");
         assertThat(body).contains("\"status\":\"DRAFT\"");
         assertThat(body).contains("\"triggerType\":\"MANUAL\"");
+    }
+
+
+    @Test
+    void startY2UsesExplicitStartNodeEvenWhenSequenceOrderIsHigher() throws Exception {
+        UUID definitionId = UUID.randomUUID();
+        UUID startId = UUID.randomUUID();
+        UUID notifyId = UUID.randomUUID();
+        UUID endId = UUID.randomUUID();
+        var now = java.sql.Timestamp.from(java.time.Instant.now());
+
+        jdbc.update("""
+                INSERT INTO workflow_definitions (
+                    id, tenant_id, definition_family_id, code, name, module, version, status,
+                    trigger_type, created_by, version_lock, engine_generation, publication_state,
+                    schema_version, created_at, updated_at
+                ) VALUES (?, ?, ?, 'WF-START-ORDER', 'Start ordering', 'GENERAL', 1, 'DRAFT',
+                          'MANUAL', ?, 0, 'Y2', 'PUBLISHED', 1, ?, ?)
+                """, definitionId, tenantId, definitionId, userId, now, now);
+
+        jdbc.update("""
+                INSERT INTO workflow_steps (
+                    id, tenant_id, workflow_definition_id, step_key, name, step_type,
+                    sequence_order, configuration, version, created_at, updated_at
+                ) VALUES
+                    (?, ?, ?, 'notify', 'Notify', 'NOTIFICATION', 1, CAST('{}' AS jsonb), 0, ?, ?),
+                    (?, ?, ?, 'start', 'Start', 'START', 10, CAST('{}' AS jsonb), 0, ?, ?),
+                    (?, ?, ?, 'end', 'End', 'END', 20, CAST('{}' AS jsonb), 0, ?, ?)
+                """,
+                notifyId, tenantId, definitionId, now, now,
+                startId, tenantId, definitionId, now, now,
+                endId, tenantId, definitionId, now, now);
+
+        jdbc.update("""
+                INSERT INTO workflow_step_transitions (
+                    id, tenant_id, workflow_definition_id, from_step_id, to_step_id,
+                    transition_key, outcome, priority, metadata, created_at, updated_at
+                ) VALUES
+                    (?, ?, ?, ?, ?, 'start_to_notify', 'SUCCESS', 10, CAST('{}' AS jsonb), ?, ?),
+                    (?, ?, ?, ?, ?, 'notify_to_end', 'SUCCESS', 10, CAST('{}' AS jsonb), ?, ?)
+                """,
+                UUID.randomUUID(), tenantId, definitionId, startId, notifyId, now, now,
+                UUID.randomUUID(), tenantId, definitionId, notifyId, endId, now, now);
+
+        mockMvc.perform(post("/api/v1/workflows/instances")
+                        .with(authentication(auth()))
+                        .contentType("application/json")
+                        .content("""
+                                {"workflowDefinitionId":"%s","businessEntityType":"TEST","businessEntityId":"%s"}
+                                """.formatted(definitionId, UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RUNNING"))
+                .andExpect(jsonPath("$.currentStepKey").value("notify"));
+    }
+
+    @Test
+    void explicitUnentitledSourceModuleCannotBeUsedToCreateDefinition() throws Exception {
+        mockMvc.perform(post("/api/v1/workflows/definitions")
+                        .with(authentication(auth()))
+                        .contentType("application/json")
+                        .content("""
+                                {"code":"CRM-BYPASS","name":"CRM bypass","module":"CRM","triggerType":"MANUAL"}
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void entitledSourceModuleCanCreateY2DraftThroughDedicatedEndpoint() throws Exception {
+        grantSourceModuleEntitlement("CRM");
+
+        mockMvc.perform(post("/api/v1/workflows/definitions/y2")
+                        .with(authentication(auth()))
+                        .contentType("application/json")
+                        .content("""
+                                {"code":"CRM-Y2","name":"CRM Y2","module":"CRM","triggerType":"MANUAL"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.engineGeneration").value("Y2"))
+                .andExpect(jsonPath("$.publicationState").value("DRAFT"))
+                .andExpect(jsonPath("$.module").value("CRM"));
     }
 
     @Test
