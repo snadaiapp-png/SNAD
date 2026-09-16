@@ -36,6 +36,12 @@ public class WorkflowSystemActionAdapterRegistry {
                 .collect(java.util.stream.Collectors.toUnmodifiableList());
     }
 
+    /** Read-only registration check used by publish-time validation. */
+    public boolean isRegistered(String adapterCode) {
+        if (adapterCode == null || adapterCode.isBlank()) return false;
+        return adaptersByType.containsKey(adapterCode.toUpperCase(java.util.Locale.ROOT));
+    }
+
     public WorkflowSystemActionAdapter require(String adapterCode) {
         if (adapterCode == null || adapterCode.isBlank()) {
             throw new IllegalStateException(
