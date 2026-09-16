@@ -145,8 +145,8 @@ public class SubscriptionDetailService {
                 jdbc.queryForList("""
                                 SELECT id, action, resource_type AS "resourceType", resource_id AS "resourceId", reason, result, created_at AS "createdAt"
                                 FROM platform_audit_logs
-                                WHERE (resource_type = 'subscription' AND resource_id = ?::text)
-                                   OR (resource_type = 'subscription_item' AND resource_id IN (
+                                WHERE (resource_type IN ('subscription', 'TENANT_SUBSCRIPTION') AND resource_id = ?::text)
+                                   OR (resource_type IN ('subscription_item', 'SUBSCRIPTION_ITEM') AND resource_id IN (
                                         SELECT id::text FROM subscription_items WHERE subscription_id = ?))
                                 ORDER BY created_at DESC LIMIT 100
                                 """, subscriptionId, subscriptionId),
