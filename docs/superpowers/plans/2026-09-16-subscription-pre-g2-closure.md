@@ -148,15 +148,32 @@ git commit -m "fix(ci): isolate subscription acceptance from generic playwright"
 
 Expected: exact class + exact failing assertion/exception.
 
-- [ ] **Step 2: Reproduce only that test first**
+- [ ] **Step 2: Reproduce the first failing Surefire testcase exactly**
 
-Run:
+After downloading/extracting the `surefire-reports` artifact into `apps/sanad-platform/target/surefire-reports`, resolve the first failure/error and execute it:
 ```bash
 cd apps/sanad-platform
-mvn test -B -ntp -Dtest='<FailingClass>#<failingMethod>' -DfailIfNoTests=true
+selector="$(python3 - <<'PY'
+import glob
+import xml.etree.ElementTree as ET
+for path in sorted(glob.glob("target/surefire-reports/TEST-*.xml")):
+    root = ET.parse(path).getroot()
+    suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+    for suite in suites:
+        for tc in suite.iter("testcase"):
+            if tc.find("failure") is not None or tc.find("error") is not None:
+                cls = (tc.get("classname") or "").split(".")[-1]
+                name = tc.get("name") or ""
+                print(f"{cls}#{name}")
+                raise SystemExit(0)
+raise SystemExit("no failing testcase found in Surefire XML")
+PY
+)"
+test -n "$selector"
+mvn test -B -ntp -Dtest="$selector" -DfailIfNoTests=true
 ```
 
-Expected: same failure before implementation change.
+Expected: the selected testcase reproduces the same failure before any implementation change.
 
 - [ ] **Step 3: Add or preserve the minimal regression assertion**
 
