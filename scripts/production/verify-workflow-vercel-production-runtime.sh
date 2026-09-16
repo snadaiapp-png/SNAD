@@ -71,6 +71,20 @@ expect_200() {
   fail "$label" "$label returned HTTP ${status:-000}; expected 200"
 }
 
+expect_workflow_entitlement_denied() {
+  local status="$1" label="$2" response_file="$3"
+  if [ "$status" = "403" ] && jq -e '
+    .status == 403
+    and .error == "Forbidden"
+    and ((.message // "") | contains("WORKFLOW_MODULE_NOT_ENTITLED"))
+  ' "$response_file" >/dev/null 2>&1; then
+    record_check "$label" "$status" "PASS"
+    return 0
+  fi
+  record_check "$label" "${status:-000}" "FAIL"
+  fail "$label" "$label did not preserve the explicit WORKFLOW_MODULE_NOT_ENTITLED boundary"
+}
+
 [[ "$VERCEL_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "input-validation" "VERCEL_EXPECTED_SHA must be a full lowercase SHA"
 case "$BASE_URL" in
   https://*) ;;
@@ -151,10 +165,12 @@ jq -e 'type == "array"' "$WORK_DIR/definitions.json" >/dev/null || fail "$STAGE"
 STAGE="module-catalog"
 status="$(request GET "$BASE_URL/api/platform/api/v1/workflows/catalog/modules" "$WORK_DIR/catalog.json" \
   --header 'Accept: application/json' --header "$AUTH_HEADER")"
+WORKFLOW_ENTITLED="unknown"
 case "$status" in
   200)
     if jq -e 'type == "object" and (.modules | type == "array")' "$WORK_DIR/catalog.json" >/dev/null 2>&1; then
       record_check "workflowModuleCatalog" "$status" "PASS"
+      WORKFLOW_ENTITLED="true"
     else
       record_check "workflowModuleCatalog" "$status" "FAIL"
       fail "workflowModuleCatalog" "Workflow module catalog 200 response does not match the expected object contract"
@@ -167,6 +183,7 @@ case "$status" in
       and ((.message // "") | contains("WORKFLOW_MODULE_NOT_ENTITLED"))
     ' "$WORK_DIR/catalog.json" >/dev/null 2>&1; then
       record_check "workflowModuleCatalog" "$status" "PASS"
+      WORKFLOW_ENTITLED="false"
     else
       record_check "workflowModuleCatalog" "$status" "FAIL"
       fail "workflowModuleCatalog" "Workflow module catalog returned 403 without the explicit WORKFLOW_MODULE_NOT_ENTITLED contract"
@@ -201,15 +218,23 @@ DEF_ID="$(jq -r '[.[] | select(.publicationState == "PUBLISHED")][0].id // .[0].
 if [ -n "$DEF_ID" ]; then
   status="$(request POST "$BASE_URL/api/platform/api/v1/workflows/definitions/$DEF_ID/validate" "$WORK_DIR/validate.json" \
     --header 'Accept: application/json' --header 'Content-Type: application/json' --header "$AUTH_HEADER" --data '{}')"
-  expect_200 "$status" "workflowValidateViaVercel"
-  jq -e '(.valid | type == "boolean") and (.errors | type == "array")' "$WORK_DIR/validate.json" >/dev/null \
-    || fail "$STAGE" "Workflow validate response is invalid"
+  if [ "$WORKFLOW_ENTITLED" = "true" ]; then
+    expect_200 "$status" "workflowValidateViaVercel"
+    jq -e '(.valid | type == "boolean") and (.errors | type == "array")' "$WORK_DIR/validate.json" >/dev/null \
+      || fail "$STAGE" "Workflow validate response is invalid"
+  else
+    expect_workflow_entitlement_denied "$status" "workflowValidateViaVercel" "$WORK_DIR/validate.json"
+  fi
 
   status="$(request POST "$BASE_URL/api/platform/api/v1/workflows/definitions/$DEF_ID/simulate" "$WORK_DIR/simulate.json" \
     --header 'Accept: application/json' --header 'Content-Type: application/json' --header "$AUTH_HEADER" --data '{}')"
-  expect_200 "$status" "workflowSimulateViaVercel"
-  jq -e '(.valid | type == "boolean") and (.simulated | type == "boolean")' "$WORK_DIR/simulate.json" >/dev/null \
-    || fail "$STAGE" "Workflow simulate response is invalid"
+  if [ "$WORKFLOW_ENTITLED" = "true" ]; then
+    expect_200 "$status" "workflowSimulateViaVercel"
+    jq -e '(.valid | type == "boolean") and (.simulated | type == "boolean")' "$WORK_DIR/simulate.json" >/dev/null \
+      || fail "$STAGE" "Workflow simulate response is invalid"
+  else
+    expect_workflow_entitlement_denied "$status" "workflowSimulateViaVercel" "$WORK_DIR/simulate.json"
+  fi
 else
   fail "$STAGE" "No Workflow definition exists to prove the Vercel BFF POST path without mutating production state"
 fi
@@ -221,8 +246,9 @@ jq -n \
   --arg releaseSha "$VERCEL_EXPECTED_SHA" \
   --arg baseUrl "$BASE_URL" \
   --arg workflowDefinitionId "$DEF_ID" \
+  --arg workflowEntitled "$WORKFLOW_ENTITLED" \
   --slurpfile checks "$WORK_DIR/checks.json" \
-  '{schema:$schema,result:$result,failureStage:null,releaseSha:$releaseSha,transport:"vercel-bff",baseUrl:$baseUrl,workflowDefinitionId:$workflowDefinitionId,checks:$checks[0]}' \
+  '{schema:$schema,result:$result,failureStage:null,releaseSha:$releaseSha,transport:"vercel-bff",baseUrl:$baseUrl,workflowDefinitionId:$workflowDefinitionId,workflowEntitled:($workflowEntitled=="true"),checks:$checks[0]}' \
   > "$EVIDENCE_FILE"
 
 jq -e '.result == "PASS" and (.checks | length >= 9)' "$EVIDENCE_FILE" >/dev/null || fail "evidence" "Vercel Workflow runtime evidence did not resolve to PASS"

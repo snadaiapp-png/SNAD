@@ -30,6 +30,13 @@ describe("post-login destination security", () => {
     })).toBe("/crm/leads");
   });
 
+  it("preserves nested workflow routes after authentication", () => {
+    expect(resolvePostLoginDestination({
+      returnUrl: "/workflow/definitions/abc",
+      availableDestinations: ["/workflow"],
+    })).toBe("/workflow/definitions/abc");
+  });
+
   it("uses workspace as the default landing page after login", () => {
     expect(resolvePostLoginDestination({
       returnUrl: "https://evil.example",

@@ -78,7 +78,7 @@ describe("workflow Y2 operational IA (Task 17)", () => {
     expect(myTasks).toContain("workItem.version");
 
     const approvals = readRequired("components/workflow-approvals.tsx");
-    expect(approvals).toContain("workflowApi.listPendingApprovals");
+    expect(approvals).toContain("workflowApi.listMyPendingApprovals");
     expect(approvals).toContain("workflowApi.approveRequest");
     expect(approvals).toContain("workflowApi.rejectRequest");
     expect(approvals).toContain("approval.version");

@@ -117,8 +117,20 @@ class Handler(BaseHTTPRequestHandler):
                 "user": {"email": EMAIL},
             })
         if path == f"/api/platform/api/v1/workflows/definitions/{DEF_ID}/validate":
+            if self.catalog_mode == "not-entitled":
+                return self._send(403, {
+                    "status": 403,
+                    "error": "Forbidden",
+                    "message": "WORKFLOW_MODULE_NOT_ENTITLED",
+                })
             return self._send(200, {"valid": True, "errors": []})
         if path == f"/api/platform/api/v1/workflows/definitions/{DEF_ID}/simulate":
+            if self.catalog_mode == "not-entitled":
+                return self._send(403, {
+                    "status": 403,
+                    "error": "Forbidden",
+                    "message": "WORKFLOW_MODULE_NOT_ENTITLED",
+                })
             return self._send(200, {"valid": True, "simulated": True, "visitedStepIds": [], "notes": []})
         return self._send(404, {"status": 404, "path": path})
 

@@ -14,6 +14,7 @@ import { WorkflowMyTasks } from "./components/workflow-my-tasks";
 import { WorkflowNav, type WorkflowSection } from "./components/workflow-nav";
 import { WorkflowOverview } from "./components/workflow-overview";
 import { WorkflowSettings } from "./components/workflow-settings";
+import styles from "./workflow.module.css";
 
 function WorkflowSectionContent({ section }: { section: WorkflowSection }) {
   switch (section) {
@@ -37,6 +38,23 @@ function WorkflowSectionContent({ section }: { section: WorkflowSection }) {
   }
 }
 
+const SECTION_KEYS: WorkflowSection[] = [
+  "overview",
+  "definitions",
+  "my-tasks",
+  "approvals",
+  "instances",
+  "incidents",
+  "monitoring",
+  "settings",
+];
+
+function sectionFromHash(): WorkflowSection | null {
+  if (typeof window === "undefined") return null;
+  const value = window.location.hash.replace(/^#/, "") as WorkflowSection;
+  return SECTION_KEYS.includes(value) ? value : null;
+}
+
 export default function WorkflowPage() {
   const router = useRouter();
   const { state, user } = useAuth();
@@ -44,9 +62,26 @@ export default function WorkflowPage() {
 
   useEffect(() => {
     if (state !== "INITIALIZING" && state !== "CHECKING_SESSION" && !user) {
-      router.push("/identity/login?from=/workflow");
+      router.replace("/?returnUrl=%2Fworkflow");
     }
   }, [router, state, user]);
+
+  useEffect(() => {
+    const syncFromHash = () => {
+      const section = sectionFromHash();
+      if (section) setActiveSection(section);
+    };
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, []);
+
+  const changeSection = (section: WorkflowSection) => {
+    setActiveSection(section);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${section}`);
+    }
+  };
 
   const loading =
     state === "INITIALIZING" ||
@@ -57,33 +92,32 @@ export default function WorkflowPage() {
 
   return (
     <ExecutiveShell>
-      <main
-        dir="rtl"
-        style={{
-          maxWidth: 1280,
-          margin: "0 auto",
-          padding: "24px 16px",
-          color: "var(--snad-color-text-primary)",
-        }}
-      >
-        <header style={{ marginBottom: 20 }}>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700 }}>محرك سير العمل</h1>
-          <p style={{ margin: "8px 0 0", color: "var(--snad-color-text-secondary)" }}>
-            تشغيل ومتابعة سير العمل، المهام، الموافقات والحوادث من واجهة تشغيلية واحدة.
+      <div dir="rtl" className={styles.workspace}>
+        <header className={styles.hero}>
+          <span className={styles.heroKicker}>مركز التشغيل والحوكمة</span>
+          <h1 className={styles.heroTitle}>محرك سير العمل</h1>
+          <p className={styles.heroDescription}>
+            مساحة تشغيل موحّدة لمتابعة التعريفات والمهام والموافقات والمثيلات والحوادث
+            وصحة التشغيل، مع إبقاء التفويض والقرارات الحساسة خاضعة للخادم.
           </p>
+          <div className={styles.heroMeta} aria-label="قدرات مساحة العمل">
+            <span className={styles.metaChip}>تشغيل يومي</span>
+            <span className={styles.metaChip}>مراقبة SLA</span>
+            <span className={styles.metaChip}>حوكمة الإصدارات</span>
+          </div>
         </header>
 
-        <WorkflowNav value={activeSection} onChange={setActiveSection} />
+        <WorkflowNav value={activeSection} onChange={changeSection} />
 
         <section
           id={`workflow-panel-${activeSection}`}
           role="tabpanel"
-          aria-label="محتوى قسم سير العمل"
-          style={{ minWidth: 0 }}
+          aria-labelledby={`workflow-tab-${activeSection}`}
+          className={styles.sectionSurface}
         >
           <WorkflowSectionContent section={activeSection} />
         </section>
-      </main>
+      </div>
     </ExecutiveShell>
   );
 }
