@@ -54,6 +54,10 @@ export default defineConfig({
     // It runs only through playwright.workflow-designer.config.ts in the
     // G4 Workflow Designer Browser Acceptance job.
     "**/workflow-designer-browser.spec.ts",
+    // Stateful Subscription acceptance owns its own PostgreSQL Direct database,
+    // seed, backend, frontend, and credentials. It runs exactly once through
+    // playwright.subscription-acceptance.config.ts in the dedicated CI job.
+    "**/subscription-executive-acceptance.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
