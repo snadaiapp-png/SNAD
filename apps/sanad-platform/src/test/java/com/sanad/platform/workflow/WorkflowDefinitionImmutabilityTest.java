@@ -2,6 +2,7 @@ package com.sanad.platform.workflow;
 
 import com.sanad.platform.workflow.application.WorkflowDefinitionService;
 import com.sanad.platform.workflow.application.WorkflowDefinitionValidator;
+import com.sanad.platform.workflow.application.WorkflowSystemActionAdapterRegistry;
 import com.sanad.platform.workflow.domain.WorkflowDefinition;
 import com.sanad.platform.workflow.domain.WorkflowDefinitionRepository;
 import com.sanad.platform.workflow.domain.WorkflowStep;
@@ -40,8 +41,9 @@ class WorkflowDefinitionImmutabilityTest {
                         "GENERAL", WorkflowDefinition.TriggerType.MANUAL, ACTOR)
                 .publish(ACTOR, "sha256:fixture");
         var repo = new StubDefinitionRepository(published);
-        var service = new WorkflowDefinitionService(repo, new StubAuditRepository(),
-                new WorkflowDefinitionValidator(null, null));
+        var service = new WorkflowDefinitionService(repo,
+                new WorkflowDefinitionValidator(null, null, new WorkflowSystemActionAdapterRegistry(List.of())),
+                (actor, before, after, action) -> {});
 
         var step = WorkflowStep.create(TENANT, published.id(), "extra", "Extra",
                 WorkflowStep.StepType.ACTION, 99, "{}", null, null, null);
