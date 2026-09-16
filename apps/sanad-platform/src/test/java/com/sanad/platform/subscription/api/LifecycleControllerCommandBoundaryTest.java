@@ -76,11 +76,6 @@ class LifecycleControllerCommandBoundaryTest {
 
     @Test
     void cancelledResumeMustUseGovernedResumePath() {
-        when(jdbc.queryForObject(
-                eq("SELECT status FROM tenant_subscriptions WHERE id = ?"),
-                eq(String.class), eq(SUBSCRIPTION_ID)))
-                .thenReturn("CANCELLED");
-
         assertThatThrownBy(() -> controller.executeCommand(
                 SUBSCRIPTION_ID,
                 "RESUME",
