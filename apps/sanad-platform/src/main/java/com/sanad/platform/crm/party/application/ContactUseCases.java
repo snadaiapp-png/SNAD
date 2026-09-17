@@ -93,10 +93,12 @@ public class ContactUseCases {
         return created;
     }
 
+    @Transactional(readOnly = true)
     public ContactRecord getById(UUID tenantId, UUID contactId) {
         return repo.findById(tenantId, contactId);
     }
 
+    @Transactional(readOnly = true)
     public List<ContactRecord> list(UUID tenantId, int limit, UUID accountId, String search) {
         return repo.findAll(tenantId, limit, accountId, search);
     }

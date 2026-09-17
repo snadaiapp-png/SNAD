@@ -139,6 +139,16 @@ public class WorkflowOperationalQueryService {
         return repo.openIncidents(tenantId, Math.max(1, Math.min(limit, 200)));
     }
 
+    @Transactional(readOnly = true)
+    public int countOverdueSteps(UUID tenantId) {
+        return repo.countOverdueSteps(tenantId);
+    }
+
+    @Transactional(readOnly = true)
+    public int countOverdueApprovals(UUID tenantId) {
+        return repo.countOverdueApprovals(tenantId);
+    }
+
     /**
      * Operational snapshot for one tenant. Publishes bounded global gauges as
      * a side effect. The values represent the latest sampled tenant snapshot;

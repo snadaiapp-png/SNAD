@@ -14,6 +14,10 @@ on:
     paths:
       - 'apps/web/**'
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/subscription/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/admin/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/executive/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/subscription/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
       - 'apps/sanad-platform/src/main/resources/**'
       - 'apps/sanad-platform/src/test/resources/**'
@@ -23,6 +27,10 @@ on:
     paths:
       - 'apps/web/**'
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/crm/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/subscription/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/admin/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/executive/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/subscription/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/**'
       - 'apps/sanad-platform/src/main/resources/**'
       - 'apps/sanad-platform/src/test/resources/**'
@@ -151,23 +159,9 @@ jobs:
           retention-days: 14
 
   crm-authenticated:
-    name: CRM Authenticated E2E (PostgreSQL + Spring Boot + Next.js)
+    name: CRM Authenticated E2E (PostgreSQL Direct + Spring Boot + Next.js)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: sanad_test
-          POSTGRES_PASSWORD: sanad_test_pass
-          POSTGRES_DB: sanad_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U sanad_test -d sanad_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     env:
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_test
       DATABASE_USERNAME: sanad_test
@@ -213,6 +207,50 @@ jobs:
           actual="$(git rev-parse HEAD)"
           echo "expected=$expected actual=$actual"
           test "$actual" = "$expected"
+
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_START_FAILED"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege CRM acceptance database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $sanad$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_test') THEN
+              CREATE ROLE sanad_test WITH LOGIN PASSWORD 'sanad_test_pass';
+            END IF;
+          END $sanad$;
+          ALTER ROLE sanad_test NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad_test OWNER sanad_test'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_test')\gexec
+          ALTER DATABASE sanad_test OWNER TO sanad_test;
+          \c sanad_test
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_test;
+          SQL
+          role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_test'")"
+          echo "CRM_ACCEPTANCE_ROLE_CONTRACT=$role_contract"
+          test "$role_contract" = "false|false|false|false"
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
 
       - name: Generate isolated CI credentials
         shell: bash
@@ -270,9 +308,6 @@ jobs:
             -Dflyway.validateOnMigrate=true \
             -Dflyway.outOfOrder=true \
             -Dflyway.baselineVersion=0
-
-      - name: Install PostgreSQL client
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
       - name: Seed CRM acceptance data
         working-directory: apps/sanad-platform
@@ -393,5 +428,273 @@ jobs:
             apps/web/crm-playwright-report/
             apps/web/test-results/
             ${{ runner.temp }}/crm-acceptance/*.log
+          if-no-files-found: warn
+          retention-days: 30
+
+
+  subscription-authenticated:
+    name: Subscription E2E (PostgreSQL Direct + Spring Boot + Next.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_subscription_test
+      DATABASE_USERNAME: sanad_subscription_test
+      DATABASE_PASSWORD: sanad_subscription_test_pass
+      DATABASE_NAME: sanad_subscription_test
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_subscription_test
+      SPRING_DATASOURCE_USERNAME: sanad_subscription_test
+      SPRING_DATASOURCE_PASSWORD: sanad_subscription_test_pass
+      SPRING_PROFILES_ACTIVE: crm-acceptance
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'true'
+      JPA_DDL_AUTO: validate
+      SERVER_PORT: '8080'
+      JWT_ISSUER: sanad-platform-ci
+      JWT_ACCESS_TOKEN_TTL: 60m
+      REFRESH_TOKEN_TTL: 720h
+      COOKIE_SECURE: 'false'
+      COOKIE_SAME_SITE: lax
+      BOOTSTRAP_ENABLED: 'false'
+      SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+      SANAD_CRM_IMPORT_WORKER_ENABLED: 'false'
+      SECURITY_NOTIFICATION_PROVIDER: disabled
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+      SANAD_SERVICE_AUTH_JWT_SECRET: 'ci-only-non-production-jwt-secret-key-32-chars-min'
+      SANAD_WORKFLOW_ENGINE_BASE_URL: 'http://127.0.0.1:8080'
+      SANAD_AI_GATEWAY_BASE_URL: 'http://127.0.0.1:8080'
+      SANAD_CONTROL_PLANE_TENANT_ID: '11111111-1111-4111-8111-111111111111'
+      SUBSCRIPTION_ACCEPTANCE_ID: '44444444-4444-4444-8444-444444444444'
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove checked-out SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          echo "expected=$expected actual=$actual"
+          test "$actual" = "$expected"
+
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE"
+            exit 1
+          }
+          sudo systemctl start postgresql
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege subscription acceptance database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $sanad$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_subscription_test') THEN
+              CREATE ROLE sanad_subscription_test WITH LOGIN PASSWORD 'sanad_subscription_test_pass';
+            END IF;
+          END $sanad$;
+          ALTER ROLE sanad_subscription_test NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad_subscription_test OWNER sanad_subscription_test'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_subscription_test')\gexec
+          ALTER DATABASE sanad_subscription_test OWNER TO sanad_subscription_test;
+          \c sanad_subscription_test
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_subscription_test;
+          SQL
+          role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_subscription_test'")"
+          echo "SUBSCRIPTION_ACCEPTANCE_ROLE_CONTRACT=$role_contract"
+          test "$role_contract" = "false|false|false|false"
+
+      - name: Generate isolated CI credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo 'CRM_TENANT_A_EMAIL=tenant-a-admin@snad-crm-acceptance.example' >> "$GITHUB_ENV"
+          echo 'CRM_TENANT_A_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
+          echo 'CRM_TENANT_A_ID=11111111-1111-4111-8111-111111111111' >> "$GITHUB_ENV"
+          echo 'SUBSCRIPTION_ADMIN_EMAIL=tenant-a-admin@snad-crm-acceptance.example' >> "$GITHUB_ENV"
+          echo 'SUBSCRIPTION_ADMIN_PASSWORD=TestPass123!' >> "$GITHUB_ENV" # gitleaks:allow -- synthetic isolated CI fixture
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Build Spring Boot backend
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true clean package
+
+      - name: Run Flyway migrations
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress flyway:migrate \
+            -Dflyway.url="$DATABASE_URL" \
+            -Dflyway.user="$DATABASE_USERNAME" \
+            -Dflyway.password="$DATABASE_PASSWORD" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.baselineOnMigrate=true \
+            -Dflyway.validateOnMigrate=true \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.baselineVersion=0
+
+      - name: Seed control-plane admin and subscription fixture
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 -f src/test/resources/sql/crm-acceptance-seed.sql
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 -f src/test/resources/sql/subscription-acceptance-seed.sql
+
+      - name: Verify seeded subscription contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
+            "SELECT status || '|' || plan_id::text || '|' || plan_version_id::text FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID'")"
+          test "$state" = "ACTIVE|33333333-3333-4333-8333-333333333333|33333333-3333-4333-8333-333333333334"
+
+      - name: Start Spring Boot backend
+        id: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/subscription-acceptance"
+          BACKEND_LOG="$RUNNER_TEMP/subscription-acceptance/backend.log"
+          JAR_PATH="$(find apps/sanad-platform/target -name 'sanad-platform-*.jar' ! -name '*-sources.jar' | head -n1)"
+          test -n "$JAR_PATH"
+          java -jar "$JAR_PATH" --spring.profiles.active=crm-acceptance --spring.flyway.out-of-order=true > "$BACKEND_LOG" 2>&1 &
+          BACKEND_PID=$!
+          echo "pid=$BACKEND_PID" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/actuator/health >/dev/null; then exit 0; fi
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+              tail -120 "$BACKEND_LOG" || true
+              exit 1
+            fi
+            sleep 3
+          done
+          tail -120 "$BACKEND_LOG" || true
+          exit 1
+
+      - name: Smoke-test control-plane admin login
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$SUBSCRIPTION_ADMIN_EMAIL\",\"password\":\"$SUBSCRIPTION_ADMIN_PASSWORD\",\"tenantId\":\"$SANAD_CONTROL_PLANE_TENANT_ID\"}" \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("accessToken"); assert data["user"]["tenantId"]=="11111111-1111-4111-8111-111111111111"'
+
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Verify runner Chrome
+        working-directory: apps/web
+        run: google-chrome --version
+
+      - name: Build Next.js production bundle
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8080
+        run: npm run build
+
+      - name: Start Next.js frontend
+        id: frontend
+        working-directory: apps/web
+        env:
+          BACKEND_API_BASE_URL: http://127.0.0.1:8080
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRONTEND_LOG="$RUNNER_TEMP/subscription-acceptance/frontend.log"
+          NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production \
+            ./node_modules/.bin/next start -H 127.0.0.1 -p 3001 > "$FRONTEND_LOG" 2>&1 &
+          FRONTEND_PID=$!
+          echo "pid=$FRONTEND_PID" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          tail -100 "$FRONTEND_LOG" || true
+          exit 1
+
+      - name: Run subscription authenticated acceptance exactly once
+        working-directory: apps/web
+        env:
+          SANAD_BACKEND_BASE_URL: http://127.0.0.1:8080
+        run: |
+          set -euo pipefail
+          npx playwright test --config=playwright.subscription-acceptance.config.ts --reporter=html,list
+
+      - name: Verify durable cancellation state and ledgers
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
+            "SELECT status || '|' || cancel_at_period_end::text FROM tenant_subscriptions WHERE id = '$SUBSCRIPTION_ACCEPTANCE_ID'")"
+          echo "SUBSCRIPTION_FINAL_STATE=$state"
+          test "$state" = "CANCELLED|false"
+
+          commands="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
+            "SELECT COUNT(*) FROM subscription_commands WHERE subscription_id = '$SUBSCRIPTION_ACCEPTANCE_ID' AND command = 'CANCEL' AND from_status = 'ACTIVE' AND to_status = 'CANCELLED' AND actor_user_id IS NOT NULL")"
+          test "$commands" = "1"
+
+          events="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atqc \
+            "SELECT COUNT(*) FROM subscription_change_events WHERE subscription_id = '$SUBSCRIPTION_ACCEPTANCE_ID' AND action = 'SUBSCRIPTION.CANCELLED'")"
+          test "$events" = "1"
+
+      - name: Stop subscription acceptance services
+        if: always()
+        shell: bash
+        run: |
+          kill ${{ steps.frontend.outputs.pid }} 2>/dev/null || true
+          kill ${{ steps.backend.outputs.pid }} 2>/dev/null || true
+
+      - name: Upload subscription acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: subscription-authenticated-e2e-${{ github.run_id }}
+          path: |
+            apps/web/subscription-playwright-report/
+            apps/web/test-results/
+            ${{ runner.temp }}/subscription-acceptance/*.log
           if-no-files-found: warn
           retention-days: 30

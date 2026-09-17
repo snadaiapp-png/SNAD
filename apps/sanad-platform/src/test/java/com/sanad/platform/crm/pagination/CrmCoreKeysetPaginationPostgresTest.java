@@ -6,6 +6,7 @@ import com.sanad.platform.crm.mapper.CrmDtoMapper;
 import com.sanad.platform.crm.pagination.CrmEnvelopes.ListResponse;
 import com.sanad.platform.crm.web.CrmContractController;
 import com.sanad.platform.security.authorization.CapabilityAuthorizationAspect;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -18,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -116,8 +118,11 @@ class CrmCoreKeysetPaginationPostgresTest {
         tenantA = authentication(tenantAId);
         tenantB = authentication(tenantBId);
         cursors = new CursorCodec();
+        TenantRlsTransactionContext tenantRlsContext = mock(TenantRlsTransactionContext.class);
         aspect = new CrmCoreCursorPaginationAspect(
-                jdbc, cursors, new CrmDtoMapper(), new ObjectMapper(), authorization);
+                jdbc, cursors, new CrmDtoMapper(), new ObjectMapper(), authorization,
+                tenantRlsContext, new DataSourceTransactionManager(dataSource));
+        doNothing().when(tenantRlsContext).applyForCurrentTransaction(any());
         doNothing().when(authorization).checkCapability(any(), any());
     }
 

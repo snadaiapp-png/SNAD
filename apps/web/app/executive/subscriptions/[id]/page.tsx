@@ -51,11 +51,6 @@ export default function SubscriptionDetailPage() {
   const subscriptionsHref = `/executive/subscriptions${backQuery ? `?${backQuery}` : ""}`;
   const { t } = useI18n();
   const { money, day, number } = useScpFormat();
-  // R0C-12 Blocker C — unified, fail-closed mutation gating. The backend
-  // enforces EXECUTIVE_MANAGE on every lifecycle command and on plan changes;
-  // the granular subscription.* write codes are co-granted with
-  // EXECUTIVE_MANAGE (V20260830_2), so requiring ALL of them identifies the
-  // same population without ever false-enabling a control.
   const { has, hasAll } = useScpAccess();
   const canManageLifecycle = hasAll([
     "subscription.create",
@@ -72,10 +67,8 @@ export default function SubscriptionDetailPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
-
   const [commandReason, setCommandReason] = useState("");
   const [busy, setBusy] = useState(false);
-
   const [changePlanId, setChangePlanId] = useState("");
   const [changePreview, setChangePreview] = useState<ChangePreview | null>(null);
 
@@ -91,7 +84,10 @@ export default function SubscriptionDetailPage() {
       setItems(itemsResult);
       const tenantId = String(detailResult.overview.tenantId ?? "");
       if (tenantId) {
-        scpApi.usage(tenantId).then(setUsage).catch(() => setUsage(null));
+        scpApi.usage(tenantId).then(setUsage).catch((reason) => {
+          setUsage(null);
+          setError(scpErrorMessage(reason));
+        });
       }
     } catch (reason) {
       setError(scpErrorMessage(reason));
@@ -124,6 +120,39 @@ export default function SubscriptionDetailPage() {
     setNotice("");
     setError("");
     try {
+      if (command === "CANCEL") {
+        const cancelled = await executiveApi.cancelSubscription(subscriptionId, {
+          immediate: true,
+          reason: commandReason || command,
+        });
+        setNotice(t("scp.detail.commandApplied", {
+          command,
+          from: String(detail?.overview.status ?? ""),
+          to: cancelled.status,
+        }));
+        await load();
+        return;
+      }
+      if (command === "RENEW") {
+        const renewed = await executiveApi.renewSubscription(subscriptionId);
+        setNotice(t("scp.detail.commandApplied", {
+          command,
+          from: String(detail?.overview.status ?? ""),
+          to: renewed.status,
+        }));
+        await load();
+        return;
+      }
+      if (command === "RESUME") {
+        const resumed = await executiveApi.resumeSubscription(subscriptionId);
+        setNotice(t("scp.detail.commandApplied", {
+          command,
+          from: String(detail?.overview.status ?? ""),
+          to: resumed.status,
+        }));
+        await load();
+        return;
+      }
       const result: CommandResult = await scpApi.lifecycleCommand(
         subscriptionId,
         command as Parameters<typeof scpApi.lifecycleCommand>[1],
@@ -149,9 +178,7 @@ export default function SubscriptionDetailPage() {
         setNotice(t("scp.detail.noActiveVersionForPlan"));
         return;
       }
-      setChangePreview(
-        await scpApi.previewChange(subscriptionId, active.id),
-      );
+      setChangePreview(await scpApi.previewChange(subscriptionId, active.id));
     } catch (reason) {
       setError(scpErrorMessage(reason));
     } finally {
@@ -188,7 +215,6 @@ export default function SubscriptionDetailPage() {
   }
 
   const overview = detail?.overview ?? {};
-  const currency = String(overview.currencyCode ?? "SAR");
 
   return (
     <ScpPage
@@ -222,9 +248,7 @@ export default function SubscriptionDetailPage() {
       </div>
 
       <section className={styles.panel} aria-labelledby="scp-items-heading">
-        <h2 id="scp-items-heading" className={styles.pageSubtitle}>
-          {t("scp.detail.items")}
-        </h2>
+        <h2 id="scp-items-heading" className={styles.pageSubtitle}>{t("scp.detail.items")}</h2>
         {items && items.length > 0 ? (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -244,9 +268,7 @@ export default function SubscriptionDetailPage() {
                     <td>{item.nameSnapshot ?? item.id}</td>
                     <td>{item.quantity}</td>
                     <td>{money(item.unitAmountMinor, item.currencyCode)}</td>
-                    <td>
-                      <ScpStatusPill value={item.status} />
-                    </td>
+                    <td><ScpStatusPill value={item.status} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -265,9 +287,7 @@ export default function SubscriptionDetailPage() {
 
       {usage && usage.length > 0 ? (
         <section className={styles.panel} aria-labelledby="scp-usage-heading">
-          <h2 id="scp-usage-heading" className={styles.pageSubtitle}>
-            {t("scp.detail.usage")}
-          </h2>
+          <h2 id="scp-usage-heading" className={styles.pageSubtitle}>{t("scp.detail.usage")}</h2>
           <div className={styles.metrics}>
             {usage.map((snapshot) => (
               <div key={snapshot.metricCode} className={styles.metricCard}>
@@ -299,9 +319,7 @@ export default function SubscriptionDetailPage() {
       ) : null}
 
       <section className={styles.panel} aria-labelledby="scp-invoices-heading">
-        <h2 id="scp-invoices-heading" className={styles.pageSubtitle}>
-          {t("scp.detail.invoices")}
-        </h2>
+        <h2 id="scp-invoices-heading" className={styles.pageSubtitle}>{t("scp.detail.invoices")}</h2>
         {detail && detail.invoices.length > 0 ? (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -317,9 +335,7 @@ export default function SubscriptionDetailPage() {
                 {detail.invoices.map((invoice) => (
                   <tr key={String(invoice.id)}>
                     <td>{String(invoice.invoiceNumber)}</td>
-                    <td>
-                      <ScpStatusPill value={String(invoice.status)} />
-                    </td>
+                    <td><ScpStatusPill value={String(invoice.status)} /></td>
                     <td>{money(Number(invoice.totalMinor), String(invoice.currencyCode))}</td>
                     <td>{day(String(invoice.dueAt))}</td>
                   </tr>
@@ -333,9 +349,7 @@ export default function SubscriptionDetailPage() {
       </section>
 
       <section className={styles.panel} aria-labelledby="scp-changes-heading">
-        <h2 id="scp-changes-heading" className={styles.pageSubtitle}>
-          {t("scp.detail.changes")}
-        </h2>
+        <h2 id="scp-changes-heading" className={styles.pageSubtitle}>{t("scp.detail.changes")}</h2>
         {detail && detail.changes.length > 0 ? (
           <ul>
             {detail.changes.slice(0, 10).map((change, index) => (
@@ -351,9 +365,7 @@ export default function SubscriptionDetailPage() {
       </section>
 
       <section className={styles.panel} aria-labelledby="scp-provisioning-heading">
-        <h2 id="scp-provisioning-heading" className={styles.pageSubtitle}>
-          {t("scp.detail.provisioning")}
-        </h2>
+        <h2 id="scp-provisioning-heading" className={styles.pageSubtitle}>{t("scp.detail.provisioning")}</h2>
         {detail && detail.provisioningJobs.length > 0 ? (
           <ul>
             {detail.provisioningJobs.map((job) => (
@@ -369,40 +381,30 @@ export default function SubscriptionDetailPage() {
       </section>
 
       <section className={styles.panel} aria-labelledby="scp-lifecycle-heading">
-        <h2 id="scp-lifecycle-heading" className={styles.pageSubtitle}>
-          {t("scp.detail.lifecycleCommands")}
-        </h2>
+        <h2 id="scp-lifecycle-heading" className={styles.pageSubtitle}>{t("scp.detail.lifecycleCommands")}</h2>
         <label className={styles.appCardMeta}>
           <span>{t("scp.detail.reason")}</span>
-          <Input
-            value={commandReason}
-            onChange={(event) => setCommandReason(event.target.value)}
-            maxLength={200}
-          />
+          <Input value={commandReason} onChange={(event) => setCommandReason(event.target.value)} maxLength={200} />
         </label>
         {canManageLifecycle ? (
           <div className={styles.filters}>
-            {(["ACTIVATE", "RENEW", "PAUSE", "RESUME", "SUSPEND", "CANCEL", "TERMINATE"] as const).map(
-              (command) => (
-                <Button
-                  key={command}
-                  variant="secondary"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void runCommand(command)}
-                >
-                  {t(`scp.detail.lifecycle.${command}`)}
-                </Button>
-              ),
-            )}
+            {(detail?.availableActions ?? []).map((command) => (
+              <Button
+                key={command}
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() => void runCommand(command)}
+              >
+                {t(`scp.detail.lifecycle.${command}`)}
+              </Button>
+            ))}
           </div>
         ) : null}
       </section>
 
       <section className={styles.panel} aria-labelledby="scp-change-heading">
-        <h2 id="scp-change-heading" className={styles.pageSubtitle}>
-          {t("scp.detail.changePlan")}
-        </h2>
+        <h2 id="scp-change-heading" className={styles.pageSubtitle}>{t("scp.detail.changePlan")}</h2>
         <div className={styles.filters}>
           <select
             value={changePlanId}
@@ -434,9 +436,7 @@ export default function SubscriptionDetailPage() {
             {changePreview.warnings.length > 0 ? (
               <ul>
                 {changePreview.warnings.map((warning, index) => (
-                  <li key={index} className={styles.appCardMeta}>
-                    ⚠ {warning}
-                  </li>
+                  <li key={index} className={styles.appCardMeta}>⚠ {warning}</li>
                 ))}
               </ul>
             ) : canChangePlan ? (
@@ -449,9 +449,7 @@ export default function SubscriptionDetailPage() {
       </section>
 
       <section className={styles.panel} aria-labelledby="scp-audit-heading">
-        <h2 id="scp-audit-heading" className={styles.pageSubtitle}>
-          {t("scp.detail.audit")}
-        </h2>
+        <h2 id="scp-audit-heading" className={styles.pageSubtitle}>{t("scp.detail.audit")}</h2>
         {detail && detail.audit.length > 0 ? (
           <ul>
             {detail.audit.map((entry, index) => (

@@ -1,5 +1,6 @@
 package com.sanad.platform.subscription.read;
 
+import com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -15,7 +16,7 @@ import java.util.UUID;
  * change events), provisioning jobs and audit references.
  *
  * <p>Names are display names; raw UUIDs are only exposed as identifiers,
- * never as user-facing labels (mission §21).
+ * never as user-facing labels.</p>
  */
 @Service
 public class SubscriptionDetailService {
@@ -34,7 +35,9 @@ public class SubscriptionDetailService {
             List<Map<String, Object>> invoices,
             List<Map<String, Object>> changes,
             List<Map<String, Object>> provisioningJobs,
-            List<Map<String, Object>> audit) {
+            List<Map<String, Object>> audit,
+            List<String> availableActions,
+            List<String> blockingReasons) {
     }
 
     @Transactional(readOnly = true)
@@ -61,6 +64,12 @@ public class SubscriptionDetailService {
             throw new IllegalArgumentException("Unknown subscription: " + subscriptionId);
         }
 
+        String status = String.valueOf(overview.get("status"));
+        List<String> availableActions = SubscriptionLifecycle.directOperatorActionsForStatus(status);
+        List<String> blockingReasons = availableActions.isEmpty()
+                ? List.of("NO_AVAILABLE_OPERATOR_ACTIONS")
+                : List.of();
+
         return new SubscriptionDetail(
                 subscriptionId,
                 overview,
@@ -71,8 +80,6 @@ public class SubscriptionDetailService {
                                 FROM subscription_items WHERE subscription_id = ?
                                 ORDER BY created_at, id
                                 """, subscriptionId),
-                // R0C-12 G5-R2: design §8/§9 detail contract — entitlements
-                // section (plan-derived ∪ item-derived), bounded + parameterized
                 jdbc.queryForList("""
                                 SELECT e.source, e.module_code AS "moduleCode", e.module_name AS "moduleName",
                                        e.capability_code AS "capabilityCode", e.module_enabled AS "moduleEnabled",
@@ -119,9 +126,6 @@ public class SubscriptionDetailService {
                                 ORDER BY created_at DESC LIMIT 100
                                 """,
                         (rs, n) -> {
-                            // R0C-4 defect B: legacy EVENT rows carry literal NULL
-                            // from/to statuses (and reason is nullable); Map.of
-                            // rejects null values and NPEd the whole timeline.
                             Map<String, Object> row = new java.util.LinkedHashMap<>();
                             row.put("source", rs.getString("source"));
                             row.put("action", rs.getString("action"));
@@ -141,10 +145,12 @@ public class SubscriptionDetailService {
                 jdbc.queryForList("""
                                 SELECT id, action, resource_type AS "resourceType", resource_id AS "resourceId", reason, result, created_at AS "createdAt"
                                 FROM platform_audit_logs
-                                WHERE (resource_type = 'subscription' AND resource_id = ?::text)
-                                   OR (resource_type = 'subscription_item' AND resource_id IN (
+                                WHERE (resource_type IN ('subscription', 'TENANT_SUBSCRIPTION') AND resource_id = ?::text)
+                                   OR (resource_type IN ('subscription_item', 'SUBSCRIPTION_ITEM') AND resource_id IN (
                                         SELECT id::text FROM subscription_items WHERE subscription_id = ?))
                                 ORDER BY created_at DESC LIMIT 100
-                                """, subscriptionId, subscriptionId));
+                                """, subscriptionId, subscriptionId),
+                availableActions,
+                blockingReasons);
     }
 }

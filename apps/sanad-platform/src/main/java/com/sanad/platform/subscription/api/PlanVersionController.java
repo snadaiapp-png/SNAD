@@ -18,8 +18,7 @@ import java.util.UUID;
  *
  * <p>Creating a new version never changes what existing subscribers
  * contracted — activation retires the previous version for NEW subscribers
- * only; existing subscribers stay pinned (dual-compatible read through
- * {@code tenant_subscriptions.plan_version_id} / subscription items).
+ * only; existing subscribers stay pinned.</p>
  */
 @RestController
 @RequestMapping("/api/v1/executive")
@@ -75,10 +74,20 @@ public class PlanVersionController {
             @PathVariable UUID versionId,
             Authentication authentication) {
         accessGuard.require(authentication);
-        PlanVersionEntity before = planVersionService.findVersion(versionId).orElse(null);
+        PlanVersionEntity before = requireVersionOwnership(planId, versionId);
         PlanVersionEntity activated = planVersionService.activate(versionId);
         auditService.success(authentication, null, "PLAN_VERSION_ACTIVATE",
                 "plan_version", versionId.toString(), null, before, activated);
         return ResponseEntity.ok(ScpDtos.PlanVersionResponse.from(activated));
+    }
+
+    private PlanVersionEntity requireVersionOwnership(UUID planId, UUID versionId) {
+        PlanVersionEntity version = planVersionService.findVersion(versionId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown plan version: " + versionId));
+        if (!planId.equals(version.getPlanId())) {
+            throw new IllegalArgumentException(
+                    "Plan version " + versionId + " does not belong to plan " + planId);
+        }
+        return version;
     }
 }

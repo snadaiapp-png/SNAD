@@ -33,6 +33,7 @@ public final class ScpDtos {
             @Size(max = 200) String localizedName,
             @Size(max = 1000) String description,
             @Size(max = 50) String category,
+            @Pattern(regexp = "^(ACTIVE|INACTIVE|DEPRECATED|DRAFT|ARCHIVED)$") String status,
             @Size(max = 50) String iconKey,
             @Size(max = 20) String provisioningMode,
             List<String> supportedCountries,

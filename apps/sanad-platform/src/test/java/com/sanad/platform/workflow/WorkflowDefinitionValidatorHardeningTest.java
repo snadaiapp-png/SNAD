@@ -235,6 +235,22 @@ class WorkflowDefinitionValidatorHardeningTest {
                 .contains("SYSTEM_ACTION_CONFIG_MISSING");
     }
 
+
+    @Test
+    void unknownSystemActionAdapterIsRejectedBeforePublication() {
+        UUID defId = createDefinition();
+        UUID start = createStep(defId, "start", "START", null);
+        UUID action = createStepWithConfig(defId, "sys", "SYSTEM_ACTION",
+                "{\"adapter\":\"NO_SUCH_ADAPTER\"}");
+        UUID end = createStep(defId, "end", "END", null);
+        createTransition(defId, start, action, "go", "SUCCESS", null);
+        createTransition(defId, action, end, "done", "SUCCESS", null);
+
+        var result = validator.validate(tenantId, defId);
+        assertThat(result.errors()).extracting(WorkflowDefinitionValidation.Error::code)
+                .contains("SYSTEM_ACTION_ADAPTER_UNKNOWN");
+    }
+
     @Test
     void unknownAssignmentTypeRejected() {
         UUID defId = createDefinition();

@@ -56,11 +56,14 @@ public class WorkflowDefinitionValidator {
 
     private final WorkflowDefinitionRepository definitionRepo;
     private final ObjectMapper objectMapper;
+    private final WorkflowSystemActionAdapterRegistry systemActionAdapterRegistry;
 
     public WorkflowDefinitionValidator(WorkflowDefinitionRepository definitionRepo,
-                                       ObjectMapper objectMapper) {
+                                       ObjectMapper objectMapper,
+                                       WorkflowSystemActionAdapterRegistry systemActionAdapterRegistry) {
         this.definitionRepo = definitionRepo;
         this.objectMapper = objectMapper;
+        this.systemActionAdapterRegistry = systemActionAdapterRegistry;
     }
 
     @Transactional(readOnly = true)
@@ -492,6 +495,12 @@ public class WorkflowDefinitionValidator {
                         "SYSTEM_ACTION_CONFIG_MISSING",
                         "System action step '" + step.stepKey()
                                 + "' must declare configuration.adapter",
+                        step.id()));
+            } else if (!systemActionAdapterRegistry.isRegistered(adapter)) {
+                errors.add(new WorkflowDefinitionValidation.Error(
+                        "SYSTEM_ACTION_ADAPTER_UNKNOWN",
+                        "System action step '" + step.stepKey()
+                                + "' references an unregistered adapter '" + adapter + "'",
                         step.id()));
             }
         }

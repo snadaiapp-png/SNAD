@@ -4,6 +4,7 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
+import com.sanad.platform.subscription.read.ExecutiveOverviewService;
 import com.sanad.platform.subscription.read.SubscriptionDetailService;
 import com.sanad.platform.subscription.read.SubscriptionGridQueryService;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
@@ -49,6 +50,7 @@ class SubscriptionAnchorPostgresTest {
     private SubscriptionChangeService service;
     private SubscriptionGridQueryService grid;
     private SubscriptionDetailService detail;
+    private ExecutiveOverviewService overview;
     private TransactionTemplate transactions;
 
     private UUID tenantA;
@@ -103,6 +105,7 @@ class SubscriptionAnchorPostgresTest {
                 new PriceResolver(new PriceRepository(jdbc)));
         grid = new SubscriptionGridQueryService(jdbc);
         detail = new SubscriptionDetailService(jdbc);
+        overview = new ExecutiveOverviewService(jdbc);
         transactions = new TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(ds));
 
@@ -263,6 +266,31 @@ class SubscriptionAnchorPostgresTest {
         assertThat(result.overview().get("planId")).isEqualTo(planB);
         assertThat(result.overview().get("planCode")).isEqualTo("R0C3-B");
         assertThat(((Number) result.overview().get("planVersion")).intValue()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("revenue read models use billed seat totals and pinned plan-version currency")
+    void revenueReadModelsUseSeatTotalAndPinnedCurrency() {
+        // The mutable plan row is deliberately changed after the subscription
+        // was pinned. Financial projection must stay on versionA's SAR contract.
+        jdbc.update("UPDATE saas_plans SET currency_code = 'USD' WHERE id = ?", planA);
+        jdbc.update("UPDATE tenant_subscriptions SET seat_quantity = 3 WHERE id = ?", subscriptionA);
+        jdbc.update("UPDATE subscription_items SET quantity = 3 WHERE subscription_id = ? AND item_type = 'PLAN'",
+                subscriptionA);
+        // Isolate MRR to subscriptionA for an exact assertion.
+        jdbc.update("UPDATE tenant_subscriptions SET status = 'CANCELLED' WHERE id = ?", subscriptionB);
+
+        var page = grid.search(tenantA, null, null, null, false, 0, 10, "created_at", "ASC");
+        assertThat(page.content()).hasSize(1);
+        assertThat(page.content().get(0).currencyCode()).isEqualTo("SAR");
+        assertThat(page.content().get(0).monthlyPriceMinor()).isEqualTo(90_000L);
+
+        var subscriptionDetail = detail.detail(subscriptionA);
+        assertThat(subscriptionDetail.overview().get("currencyCode")).isEqualTo("SAR");
+
+        var executive = overview.overview();
+        assertThat(executive.mrrMinorByCurrency()).containsEntry("SAR", 90_000L);
+        assertThat(executive.mrrMinorByCurrency()).doesNotContainKey("USD");
     }
 
     // ---------------------------------------------------------------

@@ -147,6 +147,15 @@ public class JdbcWorkflowDefinitionRepository implements WorkflowDefinitionRepos
     }
 
     @Override
+    public Optional<WorkflowDefinition> findByIdForUpdate(UUID tenantId, UUID id) {
+        return jdbc.query("""
+                SELECT * FROM workflow_definitions
+                WHERE tenant_id = ? AND id = ?
+                FOR UPDATE
+                """, DEF_MAPPER, tenantId, id).stream().findFirst();
+    }
+
+    @Override
     public Optional<WorkflowDefinition> findByCode(UUID tenantId, String code, int version) {
         return jdbc.query("""
                 SELECT * FROM workflow_definitions

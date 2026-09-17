@@ -76,8 +76,8 @@ class WorkflowAuditRemediationTest {
         var repo = mock(WorkflowDefinitionRepository.class);
         when(repo.findSteps(DEFINITION)).thenReturn(steps);
         when(repo.findTransitions(DEFINITION)).thenReturn(transitions);
-        var service = new WorkflowDefinitionService(repo, mock(WorkflowTransitionAuditRepository.class),
-                mock(WorkflowDefinitionValidator.class));
+        var service = new WorkflowDefinitionService(repo, mock(WorkflowDefinitionValidator.class),
+                mock(WorkflowDefinitionAuditPort.class));
         Method method = WorkflowDefinitionService.class.getDeclaredMethod("checksum", WorkflowDefinition.class);
         method.setAccessible(true);
         var definition = new WorkflowDefinition(DEFINITION, TENANT, DEFINITION, "code", "name", "description",

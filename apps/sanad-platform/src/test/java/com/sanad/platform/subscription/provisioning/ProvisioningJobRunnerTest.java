@@ -5,6 +5,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
@@ -31,6 +34,15 @@ import static org.mockito.Mockito.when;
  * to ACTIVE via the canonical lifecycle transition (R0C-7: no direct status
  * write; an already-ACTIVE subscription is an idempotent no-op; a terminal
  * subscription is never activated).</p>
+ *
+ * <p>PATH-B G1 — PROVISIONING_STATUS_TRUTH_INVARIANT: for every run, the
+ * returned {@code JobOutcome.status} MUST equal the final persisted
+ * {@code provisioning_jobs.status}. The final status is derived from the
+ * failure disposition (RETRYABLE vs NON_RETRYABLE) AND the retry policy —
+ * never from the attempt count alone. A canonical/terminal rejection persists
+ * FAILED and returns FAILED immediately; it is never parked in RETRYING.
+ * This supersedes the prior Wave-1 adjudication that let a VALIDATE refusal
+ * return FAILED while the row kept RETRYING bookkeeping.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProvisioningJobRunner — idempotent provisioning")
@@ -118,9 +130,10 @@ class ProvisioningJobRunnerTest {
         assertThat(outcome.skippedSteps()).containsExactly("ENABLE_APPLICATIONS");
     }
 
-    @Test
-    @DisplayName("terminal subscriptions are never provisioned to ACTIVE")
-    void terminalSubscriptionNotActivated() {
+    @ParameterizedTest
+    @ValueSource(strings = {"CANCELLED", "EXPIRED", "TERMINATED"})
+    @DisplayName("terminal subscriptions are never provisioned to ACTIVE — outcome FAILED and durable status FAILED")
+    void terminalSubscriptionNotActivated(String terminalStatus) {
         jobRow("PENDING", 0);
         noCompletedSteps();
         when(jdbc.queryForObject(
@@ -133,14 +146,91 @@ class ProvisioningJobRunnerTest {
         when(jdbc.queryForObject(
                 contains("SELECT status FROM tenant_subscriptions"), eq(String.class),
                 eq(SUBSCRIPTION_ID)))
-                .thenReturn("CANCELLED");
+                .thenReturn(terminalStatus);
+
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
+
+        // Governed invariant: outcome == final persisted provisioning_jobs.status.
+        assertThat(outcome.status()).isEqualTo("FAILED");
+        verify(jdbc).update(contains("SET status = 'FAILED', error_code = 'STEP_FAILED'"),
+                any(), eq(JOB_ID));
+        verify(jdbc, never()).update(contains("SET status = 'RETRYING', error_code"),
+                any(), eq(JOB_ID));
+        verify(commandService, never()).applyCanonicalTransition(
+                any(), any(), any(), any(), any());
+        verify(jdbc, never()).update(contains("UPDATE tenant_subscriptions SET status = 'ACTIVE'"), (Object) any());
+    }
+
+    @Test
+    @DisplayName("failed prerequisite stops pipeline before VALIDATE can activate")
+    void failedPrerequisiteCannotActivateSubscription() {
+        jobRow("PENDING", 0);
+        noCompletedSteps();
+        when(jdbc.queryForObject(
+                contains("SELECT COUNT(*) FROM subscription_items"), eq(Integer.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(0);
+
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
+
+        // CASE 1/CASE 8: recoverable prerequisite failure on the first eligible
+        // attempt — outcome RETRYING and the durable row RETRYING; the pipeline
+        // stops before RESOLVE_ENTITLEMENTS/VALIDATE can run.
+        assertThat(outcome.status()).isEqualTo("RETRYING");
+        verify(jdbc).update(contains("SET status = 'RETRYING', error_code = 'STEP_FAILED'"),
+                any(), eq(JOB_ID));
+        verify(commandService, never()).applyCanonicalTransition(
+                any(), any(), any(), any(), any());
+        verify(jdbc, never()).queryForObject(
+                contains("SELECT status FROM tenant_subscriptions"), eq(String.class),
+                eq(SUBSCRIPTION_ID));
+        verify(jdbc, never()).update(
+                contains("INSERT INTO provisioning_job_steps"),
+                any(), eq(JOB_ID), eq("RESOLVE_ENTITLEMENTS"), any(), any(), any());
+        verify(jdbc, never()).update(
+                contains("INSERT INTO provisioning_job_steps"),
+                any(), eq(JOB_ID), eq("VALIDATE"), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("CASE 2: recoverable prerequisite failure after the retry budget — outcome FAILED and durable status FAILED")
+    void recoverableFailureAfterRetryBudgetFailsTruthfully() {
+        jobRow("RETRYING", 1); // attempts becomes 2 > retry budget
+        noCompletedSteps();
+        when(jdbc.queryForObject(
+                contains("SELECT COUNT(*) FROM subscription_items"), eq(Integer.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(0);
 
         ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
 
         assertThat(outcome.status()).isEqualTo("FAILED");
-        verify(commandService, never()).applyCanonicalTransition(
-                any(), any(), any(), any(), any());
-        verify(jdbc, never()).update(contains("UPDATE tenant_subscriptions SET status = 'ACTIVE'"), (Object) any());
+        verify(jdbc).update(contains("SET status = 'FAILED', error_code = 'STEP_FAILED'"),
+                any(), eq(JOB_ID));
+        verify(jdbc, never()).update(contains("SET status = 'RETRYING', error_code"),
+                any(), eq(JOB_ID));
+    }
+
+    @Test
+    @DisplayName("retry rewrites previously failed keyed step instead of inserting a duplicate")
+    void retryUsesConflictSafeStepUpsert() {
+        jobRow("RETRYING", 1);
+        noCompletedSteps();
+        when(jdbc.queryForObject(
+                contains("SELECT COUNT(*) FROM subscription_items"), eq(Integer.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(1);
+        when(jdbc.<UUID>queryForObject(
+                contains("SELECT plan_id FROM tenant_subscriptions"), eq(UUID.class),
+                eq(SUBSCRIPTION_ID))).thenReturn(
+                UUID.fromString("c3000000-0000-0000-0000-000000000001"));
+        when(jdbc.queryForObject(
+                contains("SELECT status FROM tenant_subscriptions"), eq(String.class),
+                eq(SUBSCRIPTION_ID))).thenReturn("ACTIVE");
+
+        ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
+
+        assertThat(outcome.status()).isEqualTo("SUCCEEDED");
+        verify(jdbc, atLeastOnce()).update(
+                contains("ON CONFLICT (job_id, step_key)"),
+                any(), eq(JOB_ID), any(), any(), any(), any());
     }
 
     @Test
@@ -169,8 +259,12 @@ class ProvisioningJobRunnerTest {
     }
 
     @Test
-    @DisplayName("non-activatable subscription (PAUSED): canonical rejection fails the step")
-    void nonActivatableSubscriptionFailsClosed() {
+    @DisplayName("PROVISIONING_STATUS_TRUTH_INVARIANT: PAUSED canonical rejection persists FAILED and returns FAILED — never DB RETRYING vs outcome FAILED")
+    void canonicalRejectionPersistedStatusMatchesOutcome() {
+        // RED regression for the Wave-1 contradiction: the old runner returned
+        // outcome FAILED for a VALIDATE refusal on the first attempt while the
+        // durable row was persisted RETRYING (forbidden: DB RETRYING /
+        // outcome FAILED). The governed invariant requires both to say FAILED.
         jobRow("PENDING", 0);
         noCompletedSteps();
         when(jdbc.queryForObject(
@@ -190,8 +284,15 @@ class ProvisioningJobRunnerTest {
 
         ProvisioningJobRunner.JobOutcome outcome = runner.run(JOB_ID);
 
+        // CASE 6: canonical rejection is authoritative — immediately FAILED on
+        // BOTH the returned outcome and the durable job row.
         assertThat(outcome.status()).isEqualTo("FAILED");
-        verify(jdbc).update(contains("UPDATE provisioning_jobs SET status = 'RETRYING'"),
+        verify(jdbc).update(contains("SET status = 'FAILED', error_code = 'STEP_FAILED'"),
                 any(), eq(JOB_ID));
+        verify(jdbc, never()).update(contains("SET status = 'RETRYING', error_code"),
+                any(), eq(JOB_ID));
+        // No direct state mutation: the activation is only attempted through
+        // the canonical authority, which refused it.
+        verify(jdbc, never()).update(contains("UPDATE tenant_subscriptions SET status"), (Object) any());
     }
 }

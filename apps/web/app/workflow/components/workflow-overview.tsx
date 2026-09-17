@@ -49,7 +49,7 @@ export function WorkflowOverview() {
   }, [load]);
 
   const attentionCount = useMemo(
-    () => (health?.overdueSteps ?? 0) + (health?.overdueApprovals ?? 0) + (health?.totalBreaches ?? 0),
+    () => health?.totalBreaches ?? 0,
     [health],
   );
 
