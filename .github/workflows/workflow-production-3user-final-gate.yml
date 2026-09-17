@@ -21,7 +21,7 @@ jobs:
     environment: production
     timeout-minutes: 40
     env:
-      BASELINE_APP_SHA: 6b95862598aad42efea168e6138eacc240e62ee8
+      BASELINE_APP_SHA: eed00c9947289c3145d9daa2e4efa4f189b7cb0b
       EXPECTED_MAIN_SHA: ${{ github.sha }}
       PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       PROD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
