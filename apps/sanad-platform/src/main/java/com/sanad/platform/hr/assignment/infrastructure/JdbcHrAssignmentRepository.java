@@ -143,13 +143,42 @@ public final class JdbcHrAssignmentRepository {
             AssignmentType assignmentType, OccupancyMode occupancyMode,
             BigDecimal allocationPercent,
             LocalDate effectiveFrom, LocalDate effectiveTo) {
-        return inTenantTransaction(tenantId, connection -> {
+        return inTenantTransaction(tenantId, connection -> createAssignmentWithinTransaction(
+                connection, tenantId, employmentId, organizationId, orgUnitId, positionId,
+                reportsToAssignmentId, workLocationId, costCenterId, assignmentType,
+                occupancyMode, allocationPercent, effectiveFrom, effectiveTo));
+    }
+
+    /**
+     * T8 — canonical assignment creation inside the CALLER's transaction
+     * (governed hire conversion §7.1 step 6). The full G0 validation chain
+     * (allocation, organization eligibility, org-unit/position effectiveness,
+     * effective allocation, reporting, and the in-transaction POSITION
+     * OCCUPANCY re-check) runs against the caller's connection, so a stale
+     * occupancy snapshot can never satisfy the conversion. Evidence is
+     * appended on the same connection; nothing commits here.
+     */
+    public HrAssignment createAssignmentWithinTransaction(
+            Connection connection, UUID tenantId, UUID employmentId, UUID organizationId,
+            UUID orgUnitId, UUID positionId, UUID reportsToAssignmentId,
+            UUID workLocationId, UUID costCenterId,
+            AssignmentType assignmentType, OccupancyMode occupancyMode,
+            BigDecimal allocationPercent,
+            LocalDate effectiveFrom, LocalDate effectiveTo) {
+        try {
             validateAllocationRange(allocationPercent);
 
             UUID legalEntityId = loadEmploymentLegalEntity(connection, tenantId, employmentId);
             validateOrganizationEligibility(connection, tenantId, organizationId, legalEntityId, effectiveFrom);
             validateOrgUnitEffectiveness(connection, tenantId, orgUnitId, effectiveFrom);
             validatePositionEffectiveness(connection, tenantId, positionId, effectiveFrom);
+
+            // §T8.5: the occupancy re-check runs INSIDE the caller's governed
+            // transaction — a stale occupancy snapshot can never satisfy the
+            // hire conversion. The DB exclusion constraint remains the last
+            // line of defense.
+            validatePositionOccupancy(connection, tenantId, positionId, occupancyMode,
+                    effectiveFrom, effectiveTo, null);
 
             // An incomplete intermediate FTE state is valid. Only overlapping
             // effective allocation above 100% is rejected.
@@ -203,7 +232,9 @@ public final class JdbcHrAssignmentRepository {
                     OBJECT_MAPPER.createObjectNode(), afterState, assignmentId);
 
             return created;
-        });
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_ASSIGNMENT_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
     }
 
     /**

@@ -92,11 +92,13 @@ class R0C13G02SchemaPostgresTest {
                         + "ORDER BY installed_rank DESC LIMIT 1");
              ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).isTrue();
-            // R13-G07.0: the Flyway head moved forward to 20260912.6;
-            // PATH-B G1-B advanced the head to 20260914.1 (V20260914_1
-            // application catalog status lifecycle widening, design spec
-            // §12.4) — explicit sentinel alignment, not a weakening.
-            assertThat(rs.getString(1)).isEqualTo("20260914.1");
+            // TEST_ALIGNMENT_REASON: union of the unmerged HRM G1 chain with
+            // current-main PATH-B authority. HRM T7 is forward-renumbered to
+            // V20260913_1; main owns V20260914_1 (application catalog lifecycle);
+            // V20260914_2 strengthens workflow idempotency, V20260914_3 carries
+            // T8 hire-conversion governance, and V20260918_1 adds governed T9
+            // onboarding runtime state. No prior migration is rewritten.
+            assertThat(rs.getString(1)).isEqualTo("20260918.1");
         }
     }
 

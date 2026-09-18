@@ -4,6 +4,7 @@ import com.sanad.platform.security.crypto.BlindIndex;
 import com.sanad.platform.security.crypto.EncryptedValue;
 import com.sanad.platform.security.crypto.PlatformCryptographyService;
 
+import java.sql.Connection;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -104,6 +105,78 @@ public final class HrPersonService {
                 normalizedType,
                 normalizedCountry,
                 blindIndex.value());
+    }
+
+    // ==================== T8 — in-transaction variants (governed hire conversion) ====================
+
+    /**
+     * Canonical Person creation inside the CALLER's transaction (the
+     * governed hire-conversion boundary, §7.1 step 4b). The G0 SQL path and
+     * crypto authority are unchanged; only the transaction scope is
+     * contributed by the caller, which commits or rolls back atomically.
+     */
+    public HrPerson createPersonWithinTransaction(Connection connection, UUID tenantId,
+                                                  String firstName, String middleName, String lastName) {
+        Objects.requireNonNull(tenantId, "tenantId");
+        Objects.requireNonNull(firstName, "firstName");
+        Objects.requireNonNull(lastName, "lastName");
+
+        HrPerson person = new HrPerson(
+                UUID.randomUUID(),
+                tenantId,
+                null,
+                firstName,
+                middleName,
+                lastName,
+                buildDisplayName(firstName, middleName, lastName),
+                0L);
+        return repository.savePersonWithinTransaction(connection, person);
+    }
+
+    /** Identifier storage inside the caller's transaction (same G0 crypto flow). */
+    public PersonIdentifier addIdentifierWithinTransaction(Connection connection, UUID tenantId,
+                                                           UUID personId, String identifierType,
+                                                           String issuingCountryCode,
+                                                           String plaintextValue) {
+        Objects.requireNonNull(tenantId, "tenantId");
+        Objects.requireNonNull(personId, "personId");
+
+        String normalizedType = normalizer.normalizeIdentifierType(identifierType);
+        String normalizedCountry = normalizer.normalizeCountryCode(issuingCountryCode);
+        String normalizedValue = normalizer.normalizeValue(plaintextValue);
+        String purpose = identifierPurpose(normalizedType, normalizedCountry);
+
+        BlindIndex blindIndex = crypto.blindIndex(tenantId, purpose, normalizedValue);
+        EncryptedValue encryptedValue = crypto.encrypt(tenantId, purpose, normalizedValue);
+
+        PersonIdentifier identifier = new PersonIdentifier(
+                UUID.randomUUID(),
+                tenantId,
+                personId,
+                normalizedType,
+                normalizedCountry,
+                encryptedValue.ciphertext(),
+                blindIndex.value(),
+                encryptedValue.keyVersion(),
+                blindIndex.keyVersion(),
+                "ACTIVE");
+        return repository.saveIdentifierWithinTransaction(connection, identifier);
+    }
+
+    /** Blind-index match inside the caller's transaction (§7.1 step 4). */
+    public Optional<PersonIdentifier> findExactIdentifierMatchWithinTransaction(
+            Connection connection, UUID tenantId, String identifierType,
+            String issuingCountryCode, String plaintextValue) {
+        Objects.requireNonNull(tenantId, "tenantId");
+
+        String normalizedType = normalizer.normalizeIdentifierType(identifierType);
+        String normalizedCountry = normalizer.normalizeCountryCode(issuingCountryCode);
+        String normalizedValue = normalizer.normalizeValue(plaintextValue);
+        String purpose = identifierPurpose(normalizedType, normalizedCountry);
+
+        BlindIndex blindIndex = crypto.blindIndex(tenantId, purpose, normalizedValue);
+        return repository.findActiveIdentifierByBlindIndexWithinTransaction(
+                connection, tenantId, normalizedType, normalizedCountry, blindIndex.value());
     }
 
     private String identifierPurpose(String identifierType, String issuingCountryCode) {

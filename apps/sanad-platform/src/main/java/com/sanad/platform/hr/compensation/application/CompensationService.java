@@ -8,6 +8,7 @@ import com.sanad.platform.hr.compensation.domain.CompensationComponent;
 import com.sanad.platform.hr.compensation.domain.CompensationComponentType;
 import com.sanad.platform.hr.compensation.domain.CompensationPackage;
 import com.sanad.platform.hr.compensation.domain.CompensationRepository;
+import com.sanad.platform.hr.compensation.infrastructure.JdbcCompensationRepository;
 import com.sanad.platform.hr.compliance.domain.HrCommandContext;
 import com.sanad.platform.integration.events.DomainEventEnvelope;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +85,29 @@ public class CompensationService {
         authorizationPort.requireManage(ctx, pkg.id());
         repository.createPackageWithEvidence(pkg,
                 auditRecord(ctx, "HRM.COMPENSATION.CREATE", pkg.employmentId(), "CREATE"),
+                envelope(ctx, pkg));
+        return pkg;
+    }
+
+    /**
+     * T8 — governed hire-conversion compensation mirror inside the CALLER's
+     * transaction (§7.1 step 8). Same G0 package construction and validation
+     * semantics; the write lands on the caller's connection and does NOT
+     * commit. Skips the G0 capability gate: the conversion command itself is
+     * the governed capability boundary (HRM.RECRUITMENT.HIRE.CONVERT), and
+     * the conversion evidence audit records the mirror operation.
+     */
+    public CompensationPackage createPackageWithinTransaction(HrCommandContext ctx,
+                                                              CreateCompensationCommand command,
+                                                              java.sql.Connection connection) {
+        Objects.requireNonNull(ctx, "ctx");
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(connection, "connection");
+        CompensationPackage pkg = newPackage(UUID.randomUUID(), ctx.tenantId(), command.employmentId(),
+                command.currencyCode(), command.payFrequency(), command.effectiveFrom(), null,
+                CompensationPackage.STATUS_ACTIVE, null, command.components(), 1);
+        ((JdbcCompensationRepository) repository).createPackageWithinTransaction(connection, pkg,
+                auditRecord(ctx, "HRM.COMPENSATION.CREATE", pkg.employmentId(), "HIRE_CONVERSION_MIRROR"),
                 envelope(ctx, pkg));
         return pkg;
     }

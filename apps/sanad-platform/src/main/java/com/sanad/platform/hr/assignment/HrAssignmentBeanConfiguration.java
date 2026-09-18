@@ -24,4 +24,12 @@ public class HrAssignmentBeanConfiguration {
                                                              HrTransactionalEvidenceWriter evidenceWriter) {
         return new JdbcHrAssignmentRepository(dataSource, evidenceWriter);
     }
+
+    /** T8: the assignment application authority, exposed for the governed
+     *  hire-conversion service (connection-scoped create path included). */
+    @Bean
+    public com.sanad.platform.hr.assignment.application.HrAssignmentService hrAssignmentService(
+            JdbcHrAssignmentRepository repository) {
+        return new com.sanad.platform.hr.assignment.application.HrAssignmentService(repository);
+    }
 }

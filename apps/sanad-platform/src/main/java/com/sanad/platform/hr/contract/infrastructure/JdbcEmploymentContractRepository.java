@@ -57,6 +57,20 @@ public class JdbcEmploymentContractRepository implements EmploymentContractRepos
     public void createContractWithEvidence(EmploymentContract contract, EmploymentContractVersion firstVersion,
                                            HrAuditRecord auditRecord, DomainEventEnvelope event) {
         inTenantTransaction(contract.tenantId(), connection -> {
+            createContractWithinTransaction(connection, contract, firstVersion, auditRecord, event);
+            return null;
+        });
+    }
+
+    /**
+     * T8 — canonical contract write inside the CALLER's transaction
+     * (governed hire conversion §7.1 step 7). Does NOT commit.
+     */
+    public void createContractWithinTransaction(Connection connection, EmploymentContract contract,
+                                                EmploymentContractVersion firstVersion,
+                                                HrAuditRecord auditRecord, DomainEventEnvelope event) {
+        Objects.requireNonNull(connection, "connection");
+        try {
             try (PreparedStatement ps = connection.prepareStatement(
                     "INSERT INTO hr_employment_contracts (id, tenant_id, employment_id, contract_number, "
                             + "is_primary, predecessor_contract_id) VALUES (?,?,?,?,?,?)")) {
@@ -70,7 +84,13 @@ public class JdbcEmploymentContractRepository implements EmploymentContractRepos
             }
             insertVersionRow(connection, firstVersion);
             writeEvidence(connection, auditRecord, event);
-        });
+        } catch (SQLException e) {
+            if ("23505".equals(e.getSQLState())) {
+                throw new IllegalStateException("HRM_CONTRACT_CONFLICT: contract identifier conflict "
+                        + e.getMessage());
+            }
+            throw new IllegalStateException("HRM_CONTRACT_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
     }
 
     @Override

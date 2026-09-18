@@ -1,5 +1,6 @@
 package com.sanad.platform.hr.employment;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,6 +20,23 @@ public interface EmploymentRepository {
 
     /** Persist a new Employment row (canonical projection over hr_employees). */
     void saveEmployment(Employment employment);
+
+    /** T8: canonical write inside the CALLER's transaction (hire conversion §7.1). */
+    void saveEmploymentWithinTransaction(java.sql.Connection connection, Employment employment);
+
+    /** T8: in-transaction count for the one-non-terminal-employment invariant. */
+    int countNonTerminalEmploymentsForPersonInLegalEntityWithinTransaction(
+            java.sql.Connection connection, UUID tenantId, UUID personId, UUID legalEntityId);
+
+    /**
+     * T8: opens the employment's INITIAL labor-jurisdiction period inside the
+     * caller's transaction. The initial jurisdiction inherits the authority
+     * of the approved offer that produced the hire (approvalReference);
+     * subsequent jurisdiction changes go through the G0 legal-review path.
+     */
+    void openJurisdictionPeriodWithinTransaction(java.sql.Connection connection, UUID tenantId,
+                                                 UUID employmentId, String laborJurisdiction,
+                                                 LocalDate effectiveFrom, String approvalReference);
 
     /** Find a single Employment by id within a tenant scope. */
     Optional<Employment> findEmploymentById(UUID tenantId, UUID employmentId);

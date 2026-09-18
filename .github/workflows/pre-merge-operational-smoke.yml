@@ -170,8 +170,14 @@ jobs:
             --management-port 8082 \
             --health-url http://127.0.0.1:8082/actuator/health
 
-      - name: Upload backend smoke evidence
+      # Evidence upload with bounded retry: transient (403) intermediary failures on
+      # FinalizeArtifact must not fail an otherwise-successful smoke job, but the
+      # evidence requirement itself is NOT weakened: the final attempt has no
+      # continue-on-error, so three consecutive failures still fail the job.
+      - name: Upload backend smoke evidence (attempt 1)
+        id: upload_backend_evidence_a1
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: pre-merge-backend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
@@ -181,6 +187,43 @@ jobs:
             ${{ runner.temp }}/backend-smoke-metadata.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Backoff before backend evidence retry
+        if: always() && steps.upload_backend_evidence_a1.outcome == 'failure'
+        run: sleep 15
+
+      - name: Upload backend smoke evidence (attempt 2)
+        id: upload_backend_evidence_a2
+        if: always() && steps.upload_backend_evidence_a1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-merge-backend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/backend-health.json
+            ${{ runner.temp }}/backend-smoke-metadata.json
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+
+      - name: Backoff before backend evidence final retry
+        if: always() && steps.upload_backend_evidence_a2.outcome == 'failure'
+        run: sleep 30
+
+      - name: Upload backend smoke evidence (final attempt)
+        id: upload_backend_evidence_a3
+        if: always() && steps.upload_backend_evidence_a2.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-merge-backend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/backend-health.json
+            ${{ runner.temp }}/backend-smoke-metadata.json
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
 
   frontend-smoke:
     name: Frontend Operational Smoke
@@ -264,8 +307,14 @@ jobs:
             --url "$FRONTEND_SMOKE_URL" \
             --port 3001
 
-      - name: Upload frontend smoke evidence
+      # Evidence upload with bounded retry: transient (403) intermediary failures on
+      # FinalizeArtifact must not fail an otherwise-successful smoke job, but the
+      # evidence requirement itself is NOT weakened: the final attempt has no
+      # continue-on-error, so three consecutive failures still fail the job.
+      - name: Upload frontend smoke evidence (attempt 1)
+        id: upload_frontend_evidence_a1
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: pre-merge-frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
@@ -275,6 +324,43 @@ jobs:
             ${{ runner.temp }}/frontend-smoke-metadata.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Backoff before frontend evidence retry
+        if: always() && steps.upload_frontend_evidence_a1.outcome == 'failure'
+        run: sleep 15
+
+      - name: Upload frontend smoke evidence (attempt 2)
+        id: upload_frontend_evidence_a2
+        if: always() && steps.upload_frontend_evidence_a1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-merge-frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/frontend.log
+            ${{ runner.temp }}/frontend-auth.html
+            ${{ runner.temp }}/frontend-smoke-metadata.json
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+
+      - name: Backoff before frontend evidence final retry
+        if: always() && steps.upload_frontend_evidence_a2.outcome == 'failure'
+        run: sleep 30
+
+      - name: Upload frontend smoke evidence (final attempt)
+        id: upload_frontend_evidence_a3
+        if: always() && steps.upload_frontend_evidence_a2.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-merge-frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/frontend.log
+            ${{ runner.temp }}/frontend-auth.html
+            ${{ runner.temp }}/frontend-smoke-metadata.json
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
 
   smoke-summary:
     name: Pre-Merge Operational Smoke Summary
