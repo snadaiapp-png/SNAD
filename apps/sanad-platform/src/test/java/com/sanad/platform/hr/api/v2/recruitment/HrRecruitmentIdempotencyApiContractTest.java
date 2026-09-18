@@ -114,7 +114,7 @@ class HrRecruitmentIdempotencyApiContractTest {
                 return root.at(ref.substring(1));
             }
         }
-        return node == null ? objectMapper.missingNode() : node;
+        return node == null ? objectMapper.getNodeFactory().missingNode() : node;
     }
 
     private JsonNode runtimeOpenApi() throws Exception {
