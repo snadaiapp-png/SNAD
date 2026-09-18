@@ -537,7 +537,7 @@ public class HrRecruitmentV2Controller {
         if (value == null || value.isBlank()) return;
         String normalized = value.trim();
         if (normalized.startsWith("W/")) normalized = normalized.substring(2).trim();
-        normalized = normalized.replace(""", "");
+        normalized = normalized.replace("\"", "");
         if (!String.valueOf(currentVersion).equals(normalized)) {
             throw new HrDomainException(HrApiErrorCode.HRM_CONCURRENCY_CONFLICT,
                     "If-Match does not match the current resource version");
