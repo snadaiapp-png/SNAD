@@ -299,3 +299,53 @@ Only the canonical production path is authorized after all gates above remain sa
 No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, subscription/entitlement fabrication, or autonomous AI activation is authorized.
 
 If the release-control PR head, current `main`, required CI, independent approval, immutable-image evidence, or production target changes before merge, this authorization fails closed and must be re-evaluated.
+
+
+## Flyway Forward-Lineage Final Production Authority — 2026-09-18
+
+- Certified engineering main SHA: `00be1025d9d1e7940ac1872737c6f089e135d7b2`
+- Source engineering PR: `#1086` — forward-only production Flyway lineage remediation
+- Source PR exact head: `6eadeca94175c560af0fbe3a703ae2d40a66cf5a`
+- Source PR independent review: `APPROVED`
+- Source PR exact-head CI: `PASS`
+- Main CI run `35371799114` / #3869: `PASS`
+- Post-Merge Main Verification run `35371798997` / #1073: `PASS`
+- Exact-main backend image publication run `35371799421` / #360: `PASS`
+- Prior failed Render deployment: `dep-damkccou01pc73ajhuf0`
+- Proven immutable production Flyway ledger floor before remediation: `20260914.1`
+- Forward-only pending sequence authorized for canonical deployment:
+  - `20260914.2`
+  - `20260918.2`
+  - `20260918.3`
+  - `20260918.4`
+  - `20260918.5`
+  - `20260918.6`
+  - `20260918.7`
+- Retired retroactive versions MUST remain absent from production history:
+  - `20260908.2`
+  - `20260908.3`
+  - `20260908.4`
+  - `20260913.1`
+  - `20260914.3`
+  - `20260918.1`
+- Runtime application behavior change in this authorization PR: `NONE`
+- Database migration content change in this authorization PR: `NONE`
+- Security/RBAC semantic change in this authorization PR: `NONE`
+- Persistent Flyway out-of-order execution: `FORBIDDEN`
+- Flyway repair / manual schema-history mutation: `FORBIDDEN`
+- Independent human review with repository write access: `REQUIRED`
+- Exact-head required checks: `REQUIRED_PASS`
+- Pre-merge current-main drift guard: `REQUIRED_PASS`
+- Rollback on failure: `REQUIRED=true`
+
+This authorization change is intentionally inert and changes only this release-control marker. It authorizes the canonical protected production alignment for the forward-only Flyway remediation merged as PR #1086.
+
+The protected squash merge MUST contain the exact immutable commit-message marker `PRODUCTION-RELEASE-AUTHORIZED`. Without that marker, the production orchestrator must fail closed.
+
+Only the canonical production path is authorized:
+
+`Publish Render Backend Image` → exact immutable main image → `Workflow Y2 Production Release Orchestrator` → `production-release.yml` with `rollback_on_failure=true` → exact-image Render verification → readiness → Flyway/runtime invariants → security boundary → production smoke/certification.
+
+Final closure additionally requires read-only verification that production `flyway_schema_history` has zero failed rows, contains the authorized forward sequence, excludes the retired retroactive versions, and that normal Flyway operation remains `outOfOrder=false`.
+
+No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, or entitlement fabrication is authorized.
