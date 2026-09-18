@@ -116,6 +116,11 @@ export const executiveApi = {
     apiClient.patch<ManagedTenant, TenantProfileUpdate>(`${root}/tenants/${tenantId}`, body),
   changeTenantStatus: (tenantId: string, status: string, reason: string) =>
     apiClient.patch<ManagedTenant, { status: string; reason: string }>(`${root}/tenants/${tenantId}/status`, { status, reason }),
+  recordTenantLoginLinkEvent: (tenantId: string, action: "OPEN" | "COPY") =>
+    apiClient.post<void, { action: "OPEN" | "COPY" }>(
+      `${root}/tenants/${tenantId}/login-link-events`,
+      { action },
+    ),
   plans: () => apiClient.get<SaasPlan[]>(`${root}/plans`),
   subscriptions: () => apiClient.get<TenantSubscription[]>(`${root}/subscriptions`),
   cancelSubscription: (subscriptionId: string, body: { immediate: boolean; reason: string }) =>
