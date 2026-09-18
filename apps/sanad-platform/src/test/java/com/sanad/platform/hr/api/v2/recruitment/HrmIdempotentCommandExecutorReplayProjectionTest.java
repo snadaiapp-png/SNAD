@@ -16,6 +16,7 @@ import java.util.function.UnaryOperator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -84,7 +85,7 @@ class HrmIdempotentCommandExecutorReplayProjectionTest {
         assertThat(projected).isInstanceOf(HireConversionResult.class);
         assertThat(((HireConversionResult) projected).replayed()).isTrue();
         assertThat(commandInvoked).isFalse();
-        verify(idempotency, never()).complete(any(UUID.class), any(Integer.class), anyString());
+        verify(idempotency, never()).complete(any(UUID.class), anyInt(), anyString());
     }
 
     private static HireConversionResult result(boolean replayed) {
