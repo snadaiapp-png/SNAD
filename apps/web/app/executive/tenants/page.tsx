@@ -235,6 +235,40 @@ export default function TenantsPage() {
     }
   }
 
+  function tenantLoginUrl(tenantId: string): string {
+    const url = new URL("/", window.location.origin);
+    url.searchParams.set("tenantId", tenantId);
+    return url.toString();
+  }
+
+  async function handleTenantLoginLink(tenantId: string, action: "OPEN" | "COPY") {
+    const popup = action === "OPEN"
+      ? window.open("about:blank", "_blank", "noopener,noreferrer")
+      : null;
+    if (action === "OPEN" && !popup) {
+      setError(t("scp.tenants.error.popupBlocked"));
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await executiveApi.recordTenantLoginLinkEvent(tenantId, action);
+      const url = tenantLoginUrl(tenantId);
+      if (action === "OPEN") {
+        popup!.location.href = url;
+      } else {
+        await navigator.clipboard.writeText(url);
+        setNotice(t("scp.tenants.notice.loginLinkCopied"));
+      }
+    } catch (reasonValue) {
+      popup?.close();
+      setError(scpErrorMessage(reasonValue));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading && !page) {
     return (
       <ScpPage title={t("scp.tenants.title")}>
@@ -314,6 +348,9 @@ export default function TenantsPage() {
               <tbody>
                 {page.content.map((tenant) => {
                   const archived = tenant.status === "ARCHIVED";
+                  const canUseLoginLink = canManage
+                    && tenant.status === "ACTIVE"
+                    && tenant.subscriptionStatus !== "TERMINATED";
                   const canFreeze = tenant.status === "ACTIVE" || tenant.status === "PAST_DUE";
                   const canReactivate = tenant.status === "SUSPENDED";
                   return (
@@ -333,6 +370,16 @@ export default function TenantsPage() {
                           <Link href={`/executive/subscriptions?tenantId=${tenant.id}`}>
                             {t("scp.tenants.viewSubscriptions")}
                           </Link>
+                          {canUseLoginLink ? (
+                            <>
+                              <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void handleTenantLoginLink(tenant.id, "OPEN")}>
+                                {t("scp.tenants.openLogin")}
+                              </Button>
+                              <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void handleTenantLoginLink(tenant.id, "COPY")}>
+                                {t("scp.tenants.copyLogin")}
+                              </Button>
+                            </>
+                          ) : null}
                           {canManage && !archived ? (
                             <>
                               <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void openEdit(tenant.id)}>
