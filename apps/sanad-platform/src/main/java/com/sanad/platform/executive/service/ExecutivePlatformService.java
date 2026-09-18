@@ -177,6 +177,31 @@ public class ExecutivePlatformService {
         return after;
     }
 
+    public void recordTenantLoginLinkEvent(UUID tenantId, String requestedAction, Authentication authentication) {
+        String action = requestedAction == null ? "" : requestedAction.trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("OPEN", "COPY").contains(action)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unsupported tenant login link action");
+        }
+
+        TenantResponse tenant = getTenant(tenantId);
+        if (!"ACTIVE".equals(tenant.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Tenant login link is available only for active tenants");
+        }
+
+        auditService.success(
+                authentication,
+                tenantId,
+                "TENANT_LOGIN_LINK_" + action,
+                "TENANT",
+                tenantId.toString(),
+                "Executive " + ("OPEN".equals(action) ? "opened" : "copied") + " tenant sign-in link",
+                null,
+                Map.of("action", action)
+        );
+    }
+
     public record AccessCheck(boolean authenticated, boolean canRead, boolean canWrite) {}
 
     public AccessCheck accessCheck(Authentication authentication) {
