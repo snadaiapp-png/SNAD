@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260908_1 — HRM-G1: recruitment & onboarding schema (design §5.2)
+-- V20260918_2 — HRM-G1: recruitment & onboarding schema (design §5.2)
 -- ============================================================
 -- Append-only Flyway migration (no edits to prior migrations; no down-script).
 --
@@ -16,7 +16,7 @@
 --     enums (single source of truth for values; app layer owns transitions)
 --
 -- RLS (ENABLE + FORCE + tenant_isolation policy) is applied in
--- V20260908_2 so this file stays schema-only.
+-- V20260918_3 so this file stays schema-only.
 -- ============================================================
 
 -- ------------------------------------------------------------

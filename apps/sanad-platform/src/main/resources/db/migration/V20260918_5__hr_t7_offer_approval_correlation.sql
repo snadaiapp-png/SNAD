@@ -1,5 +1,5 @@
 -- ============================================================================
--- HRM G1 T7 — offer approval correlation + immutable version identity.
+-- V20260918_5 — HRM G1 T7 offer approval correlation + immutable version identity.
 --
 -- TEST_ALIGNMENT_REASON = Legitimate forward-only feature migration (T7
 -- EXECUTION DIRECTIVE §T7.12). Adds ONLY additive DDL:
@@ -14,7 +14,7 @@
 -- No previously merged migration bytes are modified; no migration is
 -- deleted; no Flyway history is rewritten. RLS (ENABLE + FORCE +
 -- tenant_isolation) was installed on hr_offers / hr_offer_versions by
--- V20260908_3 and automatically covers the new columns.
+-- V20260918_3 and automatically covers the new columns.
 -- ============================================================================
 
 -- 1. Tenant-safe composite identity for version rows (FK target for the
