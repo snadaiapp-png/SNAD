@@ -24,6 +24,35 @@ public class HrResourceContextResolver {
         return Boolean.TRUE.equals(match);
     }
 
+    public boolean isCandidateSelf(UUID tenantId, UUID userId, UUID candidateId) {
+        if (candidateId == null) return false;
+        Boolean match = jdbc.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM hr_candidates WHERE tenant_id = ? AND iam_user_id = ? AND id = ?)",
+                Boolean.class, tenantId, userId, candidateId);
+        return Boolean.TRUE.equals(match);
+    }
+
+    public boolean isApplicationCandidateSelf(UUID tenantId, UUID userId, UUID applicationId) {
+        if (applicationId == null) return false;
+        Boolean match = jdbc.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM hr_applications a "
+                        + "JOIN hr_candidates c ON c.tenant_id = a.tenant_id AND c.id = a.candidate_id "
+                        + "WHERE a.tenant_id = ? AND c.iam_user_id = ? AND a.id = ?)",
+                Boolean.class, tenantId, userId, applicationId);
+        return Boolean.TRUE.equals(match);
+    }
+
+    public boolean isOfferCandidateSelf(UUID tenantId, UUID userId, UUID offerId) {
+        if (offerId == null) return false;
+        Boolean match = jdbc.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM hr_offers o "
+                        + "JOIN hr_applications a ON a.tenant_id = o.tenant_id AND a.id = o.application_id "
+                        + "JOIN hr_candidates c ON c.tenant_id = a.tenant_id AND c.id = a.candidate_id "
+                        + "WHERE o.tenant_id = ? AND c.iam_user_id = ? AND o.id = ?)",
+                Boolean.class, tenantId, userId, offerId);
+        return Boolean.TRUE.equals(match);
+    }
+
     public boolean isDirectReport(UUID tenantId, UUID actorUserId, UUID targetEmploymentId, LocalDate authorizationDate) {
         if (targetEmploymentId == null) return false;
         Boolean match = jdbc.queryForObject(

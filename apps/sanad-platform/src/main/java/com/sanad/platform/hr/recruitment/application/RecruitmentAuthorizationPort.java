@@ -34,6 +34,12 @@ public interface RecruitmentAuthorizationPort {
     /** APPLICATION.MANAGE — apply (operator path) + withdraw. */
     void requireApplicationManage(HrCommandContext ctx, UUID applicationId);
 
+    /** APPLICATION.SUBMIT — candidate self-service submission for the bound candidate identity. */
+    void requireApplicationSubmit(HrCommandContext ctx, UUID candidateId);
+
+    /** APPLICATION.WITHDRAW — candidate self-service withdrawal of own application. */
+    void requireApplicationWithdraw(HrCommandContext ctx, UUID applicationId);
+
     /** APPLICATION.ADVANCE — forward stage movement. */
     void requireApplicationAdvance(HrCommandContext ctx, UUID applicationId);
 
@@ -51,6 +57,12 @@ public interface RecruitmentAuthorizationPort {
 
     /** OFFER.MANAGE — offer create/revise/accept/decline/withdraw/expire + reads. */
     void requireOfferManage(HrCommandContext ctx, UUID offerId);
+
+    /** OFFER.ACCEPT — candidate self-service acceptance of own offer. */
+    void requireOfferAccept(HrCommandContext ctx, UUID offerId);
+
+    /** OFFER.DECLINE — candidate self-service decline of own offer. */
+    void requireOfferDecline(HrCommandContext ctx, UUID offerId);
 
     /** OFFER.EXTEND — approval submission and approval-outcome reconciliation (design §11.2). */
     void requireOfferExtend(HrCommandContext ctx, UUID offerId);

@@ -29,12 +29,16 @@ public class ScopedRecruitmentAuthorizationAdapter implements RecruitmentAuthori
     public static final String CAPABILITY_CANDIDATE_VIEW = "HRM.RECRUITMENT.CANDIDATE.VIEW";
     public static final String CAPABILITY_CANDIDATE_MANAGE = "HRM.RECRUITMENT.CANDIDATE.MANAGE";
     public static final String CAPABILITY_APPLICATION_MANAGE = "HRM.RECRUITMENT.APPLICATION.MANAGE";
+    public static final String CAPABILITY_APPLICATION_SUBMIT = "HRM.RECRUITMENT.APPLICATION.SUBMIT";
+    public static final String CAPABILITY_APPLICATION_WITHDRAW = "HRM.RECRUITMENT.APPLICATION.WITHDRAW";
     public static final String CAPABILITY_APPLICATION_ADVANCE = "HRM.RECRUITMENT.APPLICATION.ADVANCE";
     public static final String CAPABILITY_APPLICATION_REJECT = "HRM.RECRUITMENT.APPLICATION.REJECT";
     public static final String CAPABILITY_INTERVIEW_MANAGE = "HRM.RECRUITMENT.INTERVIEW.MANAGE";
     public static final String CAPABILITY_INTERVIEW_SCHEDULE = "HRM.RECRUITMENT.INTERVIEW.SCHEDULE";
     public static final String CAPABILITY_INTERVIEW_OUTCOME = "HRM.RECRUITMENT.INTERVIEW.RECORD_OUTCOME";
     public static final String CAPABILITY_OFFER_MANAGE = "HRM.RECRUITMENT.OFFER.MANAGE";
+    public static final String CAPABILITY_OFFER_ACCEPT = "HRM.RECRUITMENT.OFFER.ACCEPT";
+    public static final String CAPABILITY_OFFER_DECLINE = "HRM.RECRUITMENT.OFFER.DECLINE";
     public static final String CAPABILITY_OFFER_EXTEND = "HRM.RECRUITMENT.OFFER.EXTEND";
     public static final String CAPABILITY_HIRE_CONVERT = "HRM.RECRUITMENT.HIRE.CONVERT";
 
@@ -77,6 +81,16 @@ public class ScopedRecruitmentAuthorizationAdapter implements RecruitmentAuthori
     }
 
     @Override
+    public void requireApplicationSubmit(HrCommandContext ctx, UUID candidateId) {
+        requireCandidateScope(ctx, "HR_CANDIDATE", candidateId, candidateId, CAPABILITY_APPLICATION_SUBMIT);
+    }
+
+    @Override
+    public void requireApplicationWithdraw(HrCommandContext ctx, UUID applicationId) {
+        requireCandidateScope(ctx, "HR_APPLICATION", applicationId, null, CAPABILITY_APPLICATION_WITHDRAW);
+    }
+
+    @Override
     public void requireApplicationAdvance(HrCommandContext ctx, UUID applicationId) {
         require(ctx, applicationId, CAPABILITY_APPLICATION_ADVANCE);
     }
@@ -107,6 +121,16 @@ public class ScopedRecruitmentAuthorizationAdapter implements RecruitmentAuthori
     }
 
     @Override
+    public void requireOfferAccept(HrCommandContext ctx, UUID offerId) {
+        requireCandidateScope(ctx, "HR_OFFER", offerId, null, CAPABILITY_OFFER_ACCEPT);
+    }
+
+    @Override
+    public void requireOfferDecline(HrCommandContext ctx, UUID offerId) {
+        requireCandidateScope(ctx, "HR_OFFER", offerId, null, CAPABILITY_OFFER_DECLINE);
+    }
+
+    @Override
     public void requireOfferExtend(HrCommandContext ctx, UUID offerId) {
         require(ctx, offerId, CAPABILITY_OFFER_EXTEND);
     }
@@ -114,6 +138,20 @@ public class ScopedRecruitmentAuthorizationAdapter implements RecruitmentAuthori
     @Override
     public void requireHireConvert(HrCommandContext ctx, UUID offerId) {
         require(ctx, offerId, CAPABILITY_HIRE_CONVERT);
+    }
+
+    private void requireCandidateScope(HrCommandContext ctx, String resourceType, UUID resourceId,
+                                       UUID candidateId, String capability) {
+        HrAuthorizationResourceContext resource = new HrAuthorizationResourceContext(
+                ctx.tenantId(), resourceType, resourceId, null, null,
+                null, null, null, null, "RECRUITMENT", null, candidateId);
+        ScopedAuthorizationRequest request = new ScopedAuthorizationRequest(
+                ctx.tenantId(), ctx.actorUserId(), capability, resource, Instant.now());
+        var decision = scopedAuthorizationService.authorize(request);
+        if (decision == null || !decision.allowed()) {
+            throw new IllegalStateException("HRM_SCOPE_DENIED: " + capability
+                    + " denied for the candidate-owned recruitment scope");
+        }
     }
 
     private void require(HrCommandContext ctx, UUID openingId, String capability) {
