@@ -20,8 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * HRM-G1 T10 RED — authoritative §13 recruitment/onboarding OpenAPI surface.
  *
  * <p>This test intentionally lands before controller implementation. It must
- * fail until every §13 route exists under the canonical /hr/api/v2 family.
- * It also fails on undocumented extra operations inside the G1 recruitment
+ * fail until every §13 route exists under the repository-canonical /api/v2/hr family.
+ * The source design spells the URL prefix as /hr/api/v2, but the executable G0 contract,\n * web client and API-count gate all establish /api/v2/hr; this test preserves\n * that single canonical family and prevents a parallel namespace. It also fails\n * on undocumented extra operations inside the G1 recruitment
  * and onboarding namespaces.</p>
  */
 @SpringBootTest
@@ -33,49 +33,49 @@ class HrRecruitmentOpenApiContractTest {
             Set.of("get", "post", "put", "patch", "delete", "head", "options", "trace");
 
     private static final Set<Operation> EXPECTED = Set.of(
-            op("post", "/hr/api/v2/recruitment/openings"),
-            op("get", "/hr/api/v2/recruitment/openings"),
-            op("get", "/hr/api/v2/recruitment/openings/{id}"),
-            op("post", "/hr/api/v2/recruitment/openings/{id}/submit"),
-            op("post", "/hr/api/v2/recruitment/openings/{id}/approve"),
-            op("post", "/hr/api/v2/recruitment/openings/{id}/reject"),
-            op("post", "/hr/api/v2/recruitment/openings/{id}/pause"),
-            op("post", "/hr/api/v2/recruitment/openings/{id}/resume"),
-            op("post", "/hr/api/v2/recruitment/openings/{id}/close"),
-            op("post", "/hr/api/v2/recruitment/openings/{id}/cancel"),
+            op("post", "/api/v2/hr/recruitment/openings"),
+            op("get", "/api/v2/hr/recruitment/openings"),
+            op("get", "/api/v2/hr/recruitment/openings/{id}"),
+            op("post", "/api/v2/hr/recruitment/openings/{id}/submit"),
+            op("post", "/api/v2/hr/recruitment/openings/{id}/approve"),
+            op("post", "/api/v2/hr/recruitment/openings/{id}/reject"),
+            op("post", "/api/v2/hr/recruitment/openings/{id}/pause"),
+            op("post", "/api/v2/hr/recruitment/openings/{id}/resume"),
+            op("post", "/api/v2/hr/recruitment/openings/{id}/close"),
+            op("post", "/api/v2/hr/recruitment/openings/{id}/cancel"),
 
-            op("post", "/hr/api/v2/recruitment/candidates"),
-            op("get", "/hr/api/v2/recruitment/candidates"),
-            op("get", "/hr/api/v2/recruitment/candidates/{id}"),
-            op("post", "/hr/api/v2/recruitment/candidates/{id}/archive"),
+            op("post", "/api/v2/hr/recruitment/candidates"),
+            op("get", "/api/v2/hr/recruitment/candidates"),
+            op("get", "/api/v2/hr/recruitment/candidates/{id}"),
+            op("post", "/api/v2/hr/recruitment/candidates/{id}/archive"),
 
-            op("post", "/hr/api/v2/recruitment/applications"),
-            op("get", "/hr/api/v2/recruitment/applications"),
-            op("get", "/hr/api/v2/recruitment/applications/{id}"),
-            op("post", "/hr/api/v2/recruitment/applications/{id}/advance"),
-            op("post", "/hr/api/v2/recruitment/applications/{id}/reject"),
-            op("post", "/hr/api/v2/recruitment/applications/{id}/withdraw"),
-            op("get", "/hr/api/v2/recruitment/applications/{id}/pipeline"),
-            op("post", "/hr/api/v2/recruitment/applications/{id}/interviews"),
+            op("post", "/api/v2/hr/recruitment/applications"),
+            op("get", "/api/v2/hr/recruitment/applications"),
+            op("get", "/api/v2/hr/recruitment/applications/{id}"),
+            op("post", "/api/v2/hr/recruitment/applications/{id}/advance"),
+            op("post", "/api/v2/hr/recruitment/applications/{id}/reject"),
+            op("post", "/api/v2/hr/recruitment/applications/{id}/withdraw"),
+            op("get", "/api/v2/hr/recruitment/applications/{id}/pipeline"),
+            op("post", "/api/v2/hr/recruitment/applications/{id}/interviews"),
 
-            op("get", "/hr/api/v2/recruitment/interviews/{id}"),
-            op("post", "/hr/api/v2/recruitment/interviews/{id}/outcome"),
-            op("put", "/hr/api/v2/recruitment/interviews/{id}/feedback"),
-            op("get", "/hr/api/v2/recruitment/interviews/{id}/feedback"),
+            op("get", "/api/v2/hr/recruitment/interviews/{id}"),
+            op("post", "/api/v2/hr/recruitment/interviews/{id}/outcome"),
+            op("put", "/api/v2/hr/recruitment/interviews/{id}/feedback"),
+            op("get", "/api/v2/hr/recruitment/interviews/{id}/feedback"),
 
-            op("post", "/hr/api/v2/recruitment/applications/{id}/offers"),
-            op("post", "/hr/api/v2/recruitment/offers/{id}/extend"),
-            op("post", "/hr/api/v2/recruitment/offers/{id}/accept"),
-            op("post", "/hr/api/v2/recruitment/offers/{id}/decline"),
-            op("post", "/hr/api/v2/recruitment/offers/{id}/withdraw"),
-            op("post", "/hr/api/v2/recruitment/offers/{id}/hire-conversion"),
+            op("post", "/api/v2/hr/recruitment/applications/{id}/offers"),
+            op("post", "/api/v2/hr/recruitment/offers/{id}/extend"),
+            op("post", "/api/v2/hr/recruitment/offers/{id}/accept"),
+            op("post", "/api/v2/hr/recruitment/offers/{id}/decline"),
+            op("post", "/api/v2/hr/recruitment/offers/{id}/withdraw"),
+            op("post", "/api/v2/hr/recruitment/offers/{id}/hire-conversion"),
 
-            op("get", "/hr/api/v2/onboarding/plans"),
-            op("get", "/hr/api/v2/onboarding/plans/{id}"),
-            op("post", "/hr/api/v2/onboarding/plans"),
-            op("post", "/hr/api/v2/onboarding/plans/{id}/tasks/{taskId}/complete"),
-            op("post", "/hr/api/v2/onboarding/plans/{id}/tasks/{taskId}/waive"),
-            op("post", "/hr/api/v2/onboarding/plans/{id}/cancel")
+            op("get", "/api/v2/hr/onboarding/plans"),
+            op("get", "/api/v2/hr/onboarding/plans/{id}"),
+            op("post", "/api/v2/hr/onboarding/plans"),
+            op("post", "/api/v2/hr/onboarding/plans/{id}/tasks/{taskId}/complete"),
+            op("post", "/api/v2/hr/onboarding/plans/{id}/tasks/{taskId}/waive"),
+            op("post", "/api/v2/hr/onboarding/plans/{id}/cancel")
     );
 
     @Autowired private MockMvc mockMvc;
@@ -92,8 +92,8 @@ class HrRecruitmentOpenApiContractTest {
 
         paths.fields().forEachRemaining(pathEntry -> {
             String path = pathEntry.getKey();
-            if (!path.startsWith("/hr/api/v2/recruitment")
-                    && !path.startsWith("/hr/api/v2/onboarding")) {
+            if (!path.startsWith("/api/v2/hr/recruitment")
+                    && !path.startsWith("/api/v2/hr/onboarding")) {
                 return;
             }
             pathEntry.getValue().fields().forEachRemaining(methodEntry -> {
