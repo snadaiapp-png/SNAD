@@ -3,6 +3,7 @@ package com.sanad.platform.executive.api;
 import com.sanad.platform.security.authorization.RequireCapability;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -22,6 +23,23 @@ class PlatformOperationsTenantManagementContractTest {
                 .orElseThrow(() -> new AssertionError("PATCH /tenants/{tenantId} update endpoint is missing"));
 
         RequireCapability capability = update.getAnnotation(RequireCapability.class);
+        assertThat(capability).isNotNull();
+        assertThat(capability.value()).isEqualTo("EXECUTIVE_MANAGE");
+    }
+
+    @Test
+    void tenantLoginLinkEventEndpointMustExistAndRequireExecutiveManage() {
+        Method endpoint = Arrays.stream(PlatformOperationsCommandController.class.getDeclaredMethods())
+                .filter(method -> {
+                    PostMapping mapping = method.getAnnotation(PostMapping.class);
+                    return mapping != null && Arrays.asList(mapping.value())
+                            .contains("/tenants/{tenantId}/login-link-events");
+                })
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "POST /tenants/{tenantId}/login-link-events endpoint is missing"));
+
+        RequireCapability capability = endpoint.getAnnotation(RequireCapability.class);
         assertThat(capability).isNotNull();
         assertThat(capability.value()).isEqualTo("EXECUTIVE_MANAGE");
     }

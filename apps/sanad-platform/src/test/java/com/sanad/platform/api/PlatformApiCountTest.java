@@ -71,8 +71,11 @@ class PlatformApiCountTest {
      *  + 1 R0C13 signed provider webhook ingress
      *  (POST /api/v1/billing/provider/webhook) = 854.
      *  + 1 Workflow Y2 governed draft-creation endpoint (WF-AUD-05 remediation)
-     *  (POST /api/v1/workflows/definitions/y2, WORKFLOW.DESIGN + source-module entitlement gated) = 855. */
-    private static final long EXPECTED_TOTAL_OPS = 855;
+     *  (POST /api/v1/workflows/definitions/y2, WORKFLOW.DESIGN + source-module entitlement gated) = 855.
+     *  + 1 audited executive tenant-login-link event endpoint
+     *  (POST /api/v1/executive/tenants/{tenantId}/login-link-events,
+     *  EXECUTIVE_MANAGE-gated; /api/v1/executive group 81 → 82) = 856. */
+    private static final long EXPECTED_TOTAL_OPS = 856;
     private static final long EXPECTED_HRM_V2_OPS = 58;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -89,7 +92,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(81);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(82);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
@@ -101,6 +104,7 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/dashboard", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/tenants/{tenantId}/login-link-events", "post")).isTrue();
         assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();
         assertThat(has(paths, "/api/v1/workflows/catalog/modules", "get")).isTrue();

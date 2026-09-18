@@ -91,6 +91,11 @@ public final class AdminDtos {
     ) {
     }
 
+    public record TenantLoginLinkEventRequest(
+            @NotNull @Pattern(regexp = "^(OPEN|COPY)$") String action
+    ) {
+    }
+
     public record SystemServiceResponse(
             UUID id,
             String code,
