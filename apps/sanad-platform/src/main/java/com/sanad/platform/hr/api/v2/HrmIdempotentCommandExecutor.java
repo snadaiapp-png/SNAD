@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 /**
  * HRM-G0 / WS5 Task 3 — idempotent command plumbing for critical v2 POSTs.
@@ -61,6 +62,56 @@ public class HrmIdempotentCommandExecutor {
             }
             try {
                 return objectMapper.readValue(begin.priorResponse(), responseType);
+            } catch (Exception unreadable) {
+                throw new IllegalStateException("HRM_IDEMPOTENCY_CONFLICT: stored replay payload is unreadable "
+                        + "for key " + idempotencyKey);
+            }
+        }
+
+        try {
+            T result = command.get();
+            try {
+                idempotency.complete(begin.operationId(), 200, objectMapper.writeValueAsString(result));
+            } catch (Exception serializationFailure) {
+                idempotency.fail(begin.operationId());
+                throw new IllegalStateException("HRM_IDEMPOTENCY_COMPLETE_FAILED: unable to persist replay payload "
+                        + "for key " + idempotencyKey, serializationFailure);
+            }
+            return result;
+        } catch (RuntimeException commandFailure) {
+            try {
+                idempotency.fail(begin.operationId());
+            } catch (RuntimeException failFailure) {
+                log.warn("HRM idempotency fail() could not mark operation {} for key {}: {}",
+                        begin.operationId(), idempotencyKey, failFailure.getMessage());
+            }
+            throw commandFailure;
+        }
+    }
+
+    /**
+     * Replay-aware variant used by commands whose public response must mark a
+     * cache hit explicitly (for example hire conversion with replayed=true).
+     * The projection is applied ONLY to a completed replay; fresh execution
+     * and the stored canonical payload remain unchanged.
+     */
+    public <T> T execute(UUID tenantId, UUID principalId, String operation, String idempotencyKey,
+                         String requestFingerprint, Class<T> responseType, Supplier<T> command,
+                         UnaryOperator<T> replayProjection) {
+        Objects.requireNonNull(replayProjection, "replayProjection");
+        IdempotencyBeginResult begin = idempotency.begin(
+                tenantId, principalId, operation, idempotencyKey, requestFingerprint);
+
+        if (begin.alreadyExists()) {
+            if (begin.priorStatus() == null) {
+                throw new IllegalStateException("HRM_IDEMPOTENCY_CONFLICT: operation is still in flight "
+                        + "for key " + idempotencyKey);
+            }
+            try {
+                T prior = objectMapper.readValue(begin.priorResponse(), responseType);
+                return replayProjection.apply(prior);
+            } catch (RuntimeException projectionFailure) {
+                throw projectionFailure;
             } catch (Exception unreadable) {
                 throw new IllegalStateException("HRM_IDEMPOTENCY_CONFLICT: stored replay payload is unreadable "
                         + "for key " + idempotencyKey);
