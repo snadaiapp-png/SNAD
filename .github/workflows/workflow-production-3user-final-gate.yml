@@ -100,22 +100,36 @@ jobs:
         run: |
           set -euo pipefail
           backend_ready=false
-          for attempt in $(seq 1 4); do
+          max_attempts=8
+          for attempt in $(seq 1 "$max_attempts"); do
+            : > "$RUNNER_TEMP/backend-status.json"
             set +e
             status="$(curl --silent --show-error --location \
               --connect-timeout 15 \
-              --max-time 140 \
+              --max-time 90 \
               --output "$RUNNER_TEMP/backend-status.json" \
               --write-out '%{http_code}' \
               "$PRODUCTION_BASE_URL/api/system/backend-status")"
             rc=$?
             set -e
-            if [ "$rc" -eq 0 ] && [ "$status" = 200 ] && jq -e '.configured == true and .reachable == true and .statusCode == 200' "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
+
+            configured=unknown
+            reachable=unknown
+            backend_status_code=unknown
+            if jq -e . "$RUNNER_TEMP/backend-status.json" >/dev/null 2>&1; then
+              configured="$(jq -r 'if has("configured") then .configured else "missing" end' "$RUNNER_TEMP/backend-status.json")"
+              reachable="$(jq -r 'if has("reachable") then .reachable else "missing" end' "$RUNNER_TEMP/backend-status.json")"
+              backend_status_code="$(jq -r 'if has("statusCode") then .statusCode else "missing" end' "$RUNNER_TEMP/backend-status.json")"
+            fi
+
+            echo "Backend readiness attempt ${attempt}/${max_attempts}: curl_rc=${rc} http_status=${status:-000} configured=${configured} reachable=${reachable} backend_status_code=${backend_status_code}"
+
+            if [ "$rc" -eq 0 ] && [ "$status" = 200 ] && [ "$configured" = true ] && [ "$reachable" = true ] && [ "$backend_status_code" = 200 ]; then
               backend_ready=true
               break
             fi
-            if [ "$attempt" -lt 4 ]; then
-              sleep 10
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep 15
             fi
           done
           [ "$backend_ready" = true ] || {
