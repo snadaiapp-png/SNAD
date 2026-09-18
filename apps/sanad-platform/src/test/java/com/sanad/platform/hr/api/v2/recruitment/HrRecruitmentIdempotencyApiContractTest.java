@@ -23,6 +23,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Idempotency-Key, and a replay returns HTTP 200 with the original result and
  * replayed=true. OpenAPI must document those semantics rather than leaving
  * them as implementation-only behavior.</p>
+ *
+ * <p>The assertions are deliberately OpenAPI-reference aware: Springdoc may
+ * represent parameters/responses/schemas inline or through component $refs.
+ * The contract cares about semantics, not serialization shape.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -46,6 +50,7 @@ class HrRecruitmentIdempotencyApiContractTest {
 
         JsonNode parameters = operation.path("parameters");
         JsonNode idempotency = StreamSupport.stream(parameters.spliterator(), false)
+                .map(p -> resolveRef(root, p))
                 .filter(p -> "header".equalsIgnoreCase(p.path("in").asText()))
                 .filter(p -> "Idempotency-Key".equalsIgnoreCase(p.path("name").asText()))
                 .findFirst()
@@ -58,7 +63,7 @@ class HrRecruitmentIdempotencyApiContractTest {
                 .as("Idempotency-Key is mandatory for the governed conversion command")
                 .isTrue();
 
-        JsonNode ok = operation.path("responses").path("200");
+        JsonNode ok = resolveRef(root, operation.path("responses").path("200"));
         assertThat(ok.isMissingNode())
                 .as("first execution and replay both return the successful 200 contract")
                 .isFalse();
@@ -72,9 +77,44 @@ class HrRecruitmentIdempotencyApiContractTest {
                 .contains("replay")
                 .contains("idempot");
 
-        assertThat(ok.toString())
-                .as("ConversionResult schema must expose replayed:boolean")
-                .contains("\"replayed\"");
+        JsonNode schema = ok.path("content").path("application/json").path("schema");
+        JsonNode replayed = findProperty(root, schema, "replayed");
+        assertThat(replayed)
+                .as("ConversionResult schema must expose replayed:boolean, inline or via $ref")
+                .isNotNull();
+        assertThat(resolveRef(root, replayed).path("type").asText())
+                .as("ConversionResult.replayed must be boolean")
+                .isEqualTo("boolean");
+    }
+
+    private JsonNode findProperty(JsonNode root, JsonNode schema, String propertyName) {
+        JsonNode resolved = resolveRef(root, schema);
+        JsonNode property = resolved.path("properties").path(propertyName);
+        if (!property.isMissingNode()) {
+            return property;
+        }
+        for (String composition : new String[]{"allOf", "oneOf", "anyOf"}) {
+            JsonNode variants = resolved.path(composition);
+            if (variants.isArray()) {
+                for (JsonNode variant : variants) {
+                    JsonNode nested = findProperty(root, variant, propertyName);
+                    if (nested != null) {
+                        return nested;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private JsonNode resolveRef(JsonNode root, JsonNode node) {
+        if (node != null && node.hasNonNull("$ref")) {
+            String ref = node.path("$ref").asText();
+            if (ref.startsWith("#/")) {
+                return root.at(ref.substring(1));
+            }
+        }
+        return node == null ? objectMapper.missingNode() : node;
     }
 
     private JsonNode runtimeOpenApi() throws Exception {
