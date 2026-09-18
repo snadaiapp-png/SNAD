@@ -78,7 +78,26 @@ public enum HrApiErrorCode {
     HRM_MIGRATION_REQUIRED(409),
 
     /** Request body failed Jakarta bean validation (envelope-only code). */
-    HRM_VALIDATION_FAILED(400);
+    HRM_VALIDATION_FAILED(400),
+
+    // HRM-G1 T10 / design §15 — stable recruitment and onboarding API semantics.
+    HRM_OPENING_APPROVAL_REQUIRED(422),
+    HRM_OPENING_STATE_CONFLICT(409),
+    HRM_APPLICATION_STAGE_CONFLICT(409),
+    HRM_APPLICATION_DUP_ACTIVE(409),
+    HRM_OFFER_VERSION_CONFLICT(409),
+    HRM_OFFER_STATE_CONFLICT(409),
+    HRM_OFFER_EXPIRED(409),
+    HRM_OFFER_APPROVAL_REQUIRED(422),
+    HRM_CONVERSION_IDENTITY_AMBIGUOUS(422),
+    HRM_CONVERSION_ONBOARDING_TEMPLATE_INVALID(422),
+    HRM_CONVERSION_POSITION_OVER_OCCUPANCY(409),
+    HRM_TENANT_CONTEXT_MISMATCH(404),
+
+    /** Successful replay: the original response is returned with HTTP 200. */
+    HRM_IDEMPOTENCY_REPLAY(200),
+
+    HRM_WAIVER_REASON_REQUIRED(400);
 
     private final int httpStatus;
 
