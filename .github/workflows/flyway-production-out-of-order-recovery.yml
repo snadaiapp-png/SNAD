@@ -164,7 +164,7 @@ jobs:
           export FLYWAY_LOCATIONS="filesystem:$GITHUB_WORKSPACE/apps/sanad-platform/src/main/resources/db/migration,filesystem:$GITHUB_WORKSPACE/apps/sanad-platform/src/main/resources/db/vendor/postgresql"
           echo "ONE_SHOT_OUT_OF_ORDER=true"
           flyway info
-          flyway validate
+          flyway -ignoreMigrationPatterns='*:pending' validate
           flyway migrate
           echo "FLYWAY_ONE_SHOT_MIGRATE=PASS"
 
