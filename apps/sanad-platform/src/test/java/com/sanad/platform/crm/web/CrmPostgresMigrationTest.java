@@ -231,7 +231,10 @@ class CrmPostgresMigrationTest {
     // rebuilds the unsatisfiable person FK pairing, and adds the authoritative
     // hr_tenant_policies policy store. Additive strengthening, never weakening.
     private static final String T8_HIRE_CONVERSION_VERSION = "20260914.3";
-    private static final String LATEST_MIGRATION_VERSION = T8_HIRE_CONVERSION_VERSION;
+    // TEST_ALIGNMENT_REASON = Legitimate forward-only HRM G1 T9 migration.
+    // V20260918_1 adds governed onboarding runtime state without rewriting prior history.
+    private static final String T9_GOVERNED_ONBOARDING_VERSION = "20260918.1";
+    private static final String LATEST_MIGRATION_VERSION = T9_GOVERNED_ONBOARDING_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -481,7 +484,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
                         MigrationVersion.fromVersion(PATH_B_G1B_CATALOG_LIFECYCLE_VERSION),
                         MigrationVersion.fromVersion(T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION),
-                        MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION));
+                        MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION),
+                        MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -669,7 +673,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
                         MigrationVersion.fromVersion(PATH_B_G1B_CATALOG_LIFECYCLE_VERSION),
                         MigrationVersion.fromVersion(T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION),
-                        MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION));
+                        MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION),
+                        MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

@@ -288,6 +288,10 @@ class CrmFlywayHistoryAssertionTest {
             // Additive strengthening only — no migration bytes modified, none deleted.
             , "20260914.2"   // workflow idempotency index NULLS NOT DISTINCT rebuild
             , "20260914.3"   // hrm g1 t8 hire conversion governance (T8-MIG-001 person FK congruence rebuild + T8.8 policy store)
+            // TEST_ALIGNMENT_REASON = Legitimate forward-only HRM G1 T9 migration.
+            // V20260918_1 adds governed onboarding runtime state and RLS-protected
+            // workflow transition idempotency without rewriting prior migrations.
+            , "20260918.1"   // hrm g1 t9 governed onboarding
     );
 
 

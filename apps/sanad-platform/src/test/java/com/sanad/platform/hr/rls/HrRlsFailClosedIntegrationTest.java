@@ -144,6 +144,7 @@ class HrRlsFailClosedIntegrationTest {
                 "hr_onboarding_checklists",
                 "hr_onboarding_tasks",
                 "hr_onboarding_checklist_templates",
+                "hr_onboarding_workflow_transitions",
                 // G1 T8 governance — authoritative tenant policy store (§T8.8),
                 // tenant-scoped and FORCE-RLS like every other HR table.
                 "hr_tenant_policies"
@@ -1148,6 +1149,32 @@ class HrRlsFailClosedIntegrationTest {
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO hr_onboarding_checklist_templates (tenant_id, code, name) VALUES (?, 'TPL-RLS', 'RLS Template')")) {
                     ps.setObject(1, tenantId);
+                    ps.executeUpdate();
+                }
+            }
+            case "hr_onboarding_workflow_transitions" -> {
+                UUID planId = insertG1OnboardingPlan(tenantId);
+                UUID checklistId = UUID.randomUUID();
+                UUID taskId = UUID.randomUUID();
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_onboarding_checklists (id, tenant_id, plan_id) VALUES (?, ?, ?)")) {
+                    ps.setObject(1, checklistId);
+                    ps.setObject(2, tenantId);
+                    ps.setObject(3, planId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_onboarding_tasks (id, tenant_id, plan_id, checklist_id, title) VALUES (?, ?, ?, ?, 'RLS Workflow Task')")) {
+                    ps.setObject(1, taskId);
+                    ps.setObject(2, tenantId);
+                    ps.setObject(3, planId);
+                    ps.setObject(4, checklistId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO hr_onboarding_workflow_transitions (tenant_id, task_id, transition_seq, outcome) VALUES (?, ?, 1, 'DONE')")) {
+                    ps.setObject(1, tenantId);
+                    ps.setObject(2, taskId);
                     ps.executeUpdate();
                 }
             }

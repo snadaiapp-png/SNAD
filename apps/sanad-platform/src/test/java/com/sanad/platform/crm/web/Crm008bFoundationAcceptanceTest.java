@@ -109,7 +109,8 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260914_2 = workflow idempotency index NULLS NOT DISTINCT rebuild.
     //   V20260914_3 = T8 hire conversion governance (ledger columns + person FK
     //     congruence rebuild + hr_tenant_policies authoritative policy store).
-    private static final String CRM_LATEST_VERSION = "20260914.3"; // Terminal versioned migration: V20260914_3 hr_t8_hire_conversion_governance (T8-MIG-001 person FK congruence rebuild + T8.8 policy store)
+    // T9 governed onboarding adds V20260918_1 (workflow transition ledger + snapshot/link support).
+    private static final String CRM_LATEST_VERSION = "20260918.1"; // Terminal versioned migration: V20260918_1 hr_t9_governed_onboarding
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");
