@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          gh workflow run workflow-y2-vercel-production-certification.yml             --ref main             -f backend_release_sha="$EXPECTED_MAIN_SHA"             -f confirm="run-vercel-workflow-certification"
+          gh workflow run workflow-y2-vercel-production-certification.yml --repo "$GITHUB_REPOSITORY" --ref main -f backend_release_sha="$EXPECTED_MAIN_SHA" -f confirm="run-vercel-workflow-certification"
           echo "dispatched_at=$dispatched_at" >> "$GITHUB_OUTPUT"
 
       - name: Resolve newly-created certification run
