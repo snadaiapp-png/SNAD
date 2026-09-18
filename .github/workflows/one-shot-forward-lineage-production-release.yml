@@ -1,0 +1,205 @@
+name: One-Shot Forward-Lineage Production Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-shot-forward-lineage-production-release.yml"
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+concurrency:
+  group: one-shot-forward-lineage-production-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Dispatch exact-SHA production release after certified gates
+    if: contains(github.event.head_commit.message, '[prod-release-forward-lineage]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      EXPECTED_APP_SOURCE_SHA: 00be1025d9d1e7940ac1872737c6f089e135d7b2
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout exact orchestration commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact main and application-source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          CURRENT_MAIN="$(git rev-parse origin/main)"
+          test "$CURRENT_MAIN" = "$GITHUB_SHA" || {
+            echo "::error::Main drift: workflow SHA=$GITHUB_SHA current main=$CURRENT_MAIN"
+            exit 1
+          }
+          git cat-file -e "$EXPECTED_APP_SOURCE_SHA^{commit}"
+          if ! git diff --quiet "$EXPECTED_APP_SOURCE_SHA" "$GITHUB_SHA" -- apps/sanad-platform apps/web; then
+            echo "::error::Application source changed after certified forward-lineage source"
+            git diff --name-only "$EXPECTED_APP_SOURCE_SHA" "$GITHUB_SHA" -- apps/sanad-platform apps/web
+            exit 1
+          fi
+          echo "EXACT_MAIN_LOCK=PASS"
+          echo "APPLICATION_SOURCE_LOCK=PASS"
+
+      - name: Wait for exact-SHA Post-Merge Main Verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID=""
+          for _ in $(seq 1 360); do
+            RESPONSE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
+            RUN_ID="$(jq -r '[.workflow_runs[] | select(.name == "Post-Merge Main Verification" and .head_sha == env.GITHUB_SHA)] | sort_by(.created_at) | last.id // empty' <<<"$RESPONSE")"
+            if [ -n "$RUN_ID" ]; then
+              STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")"
+              STATUS="$(jq -r '.status' <<<"$STATE")"
+              CONCLUSION="$(jq -r '.conclusion // ""' <<<"$STATE")"
+              echo "Post-Merge run $RUN_ID: status=$STATUS conclusion=$CONCLUSION"
+              if [ "$STATUS" = "completed" ]; then
+                test "$CONCLUSION" = "success" || {
+                  echo "::error::Post-Merge Main Verification did not succeed"
+                  exit 1
+                }
+                echo "POST_MERGE_EXACT_SHA=PASS"
+                exit 0
+              fi
+            else
+              echo "Waiting for exact-SHA Post-Merge run..."
+            fi
+            sleep 10
+          done
+          echo "::error::Timed out waiting for exact-SHA Post-Merge Main Verification"
+          exit 1
+
+      - name: Wait for exact-SHA immutable backend image publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID=""
+          for _ in $(seq 1 360); do
+            RESPONSE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
+            RUN_ID="$(jq -r '[.workflow_runs[] | select(.name == "Publish Render Backend Image" and .head_sha == env.GITHUB_SHA)] | sort_by(.created_at) | last.id // empty' <<<"$RESPONSE")"
+            if [ -n "$RUN_ID" ]; then
+              STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")"
+              STATUS="$(jq -r '.status' <<<"$STATE")"
+              CONCLUSION="$(jq -r '.conclusion // ""' <<<"$STATE")"
+              echo "Image publication run $RUN_ID: status=$STATUS conclusion=$CONCLUSION"
+              if [ "$STATUS" = "completed" ]; then
+                test "$CONCLUSION" = "success" || {
+                  echo "::error::Exact-SHA backend image publication did not succeed"
+                  exit 1
+                }
+                echo "EXACT_IMAGE_PUBLICATION=PASS"
+                exit 0
+              fi
+            else
+              echo "Waiting for exact-SHA image publication..."
+            fi
+            sleep 10
+          done
+          echo "::error::Timed out waiting for exact-SHA image publication"
+          exit 1
+
+      - name: Resolve release evidence PR
+        id: evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$(gh api -H "Accept: application/vnd.github+json"             "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[0].number // empty')"
+          test -n "$PR_NUMBER" || {
+            echo "::error::No pull request is associated with exact main SHA $GITHUB_SHA"
+            exit 1
+          }
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_EVIDENCE_PR=$PR_NUMBER"
+
+      - name: Dispatch or adopt exact-SHA SANAD Production Release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$CURRENT_MAIN" = "$GITHUB_SHA" || {
+            echo "::error::Main drift before production release: $CURRENT_MAIN"
+            exit 1
+          }
+
+          EXISTING="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
+          RUN_ID="$(jq -r '[.workflow_runs[] | select(.name == "SANAD Production Release" and .event == "workflow_dispatch" and .head_sha == env.GITHUB_SHA)] | sort_by(.created_at) | last.id // empty' <<<"$EXISTING")"
+
+          if [ -z "$RUN_ID" ]; then
+            DISPATCHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            gh workflow run production-release.yml --ref main               -f commit_sha="$GITHUB_SHA"               -f pull_request_number="${{ steps.evidence.outputs.pr_number }}"               -f rollback_on_failure=true
+            echo "Production release dispatched at $DISPATCHED_AT"
+
+            for _ in $(seq 1 180); do
+              RESPONSE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
+              RUN_ID="$(jq -r --arg started "$DISPATCHED_AT"                 '[.workflow_runs[] | select(.name == "SANAD Production Release" and .event == "workflow_dispatch" and .head_sha == env.GITHUB_SHA and .created_at >= $started)] | sort_by(.created_at) | first.id // empty' <<<"$RESPONSE")"
+              [ -n "$RUN_ID" ] && break
+              sleep 10
+            done
+          else
+            echo "Adopting already-created exact-SHA production release run $RUN_ID"
+          fi
+
+          test -n "$RUN_ID" || {
+            echo "::error::Exact-SHA SANAD Production Release run was not observed"
+            exit 1
+          }
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for SANAD Production Release success
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID="${{ steps.release.outputs.run_id }}"
+          for _ in $(seq 1 480); do
+            STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")"
+            STATUS="$(jq -r '.status' <<<"$STATE")"
+            CONCLUSION="$(jq -r '.conclusion // ""' <<<"$STATE")"
+            echo "Production release run $RUN_ID: status=$STATUS conclusion=$CONCLUSION"
+            if [ "$STATUS" = "completed" ]; then
+              test "$CONCLUSION" = "success" || {
+                echo "::error::SANAD Production Release failed"
+                exit 1
+              }
+              echo "SANAD_PRODUCTION_RELEASE=PASS"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Timed out waiting for SANAD Production Release"
+          exit 1
+
+      - name: Write orchestration evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/one-shot-release"
+          jq -n             --arg sha "$GITHUB_SHA"             --arg appSource "$EXPECTED_APP_SOURCE_SHA"             --arg pr "${{ steps.evidence.outputs.pr_number }}"             --arg releaseRun "${{ steps.release.outputs.run_id }}"             '{
+              result:"PRODUCTION_ALIGNMENT_DISPATCH_PASS",
+              exactMainSha:$sha,
+              applicationSourceSha:$appSource,
+              releaseEvidencePr:$pr,
+              releaseRunId:$releaseRun,
+              postMerge:"SUCCESS",
+              immutableImagePublication:"SUCCESS",
+              rollbackOnFailure:true
+            }' > "$RUNNER_TEMP/one-shot-release/evidence.json"
+
+      - name: Upload orchestration evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-shot-forward-lineage-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/one-shot-release
+          if-no-files-found: error
+          retention-days: 30
