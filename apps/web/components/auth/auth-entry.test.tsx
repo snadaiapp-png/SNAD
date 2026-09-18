@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthResponse } from "@/lib/api/auth";
 import { AuthProvider } from "@/lib/auth/auth-provider";
@@ -116,5 +116,23 @@ describe("AuthEntry session bootstrap", () => {
     authApiMock.refresh.mockResolvedValue(bootstrap);
     renderEntry();
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/crm/leads"));
+  });
+
+  it("submits the tenant selected by a tenant login link with the credentials", async () => {
+    const tenantId = "11111111-1111-1111-1111-111111111111";
+    window.history.replaceState({}, "", `/?tenantId=${tenantId}`);
+    authApiMock.login.mockImplementation(() => new Promise(() => {}));
+    renderEntry();
+
+    const email = await screen.findByPlaceholderText("name@company.com");
+    fireEvent.change(email, { target: { value: "owner@acme.example" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "secret" } });
+    fireEvent.submit(email.closest("form")!);
+
+    await waitFor(() => expect(authApiMock.login).toHaveBeenCalledWith({
+      email: "owner@acme.example",
+      password: "secret",
+      tenantId,
+    }));
   });
 });
