@@ -194,7 +194,7 @@ public class HrRecruitmentV2Controller {
         IdResponse result = idem(authentication, OP + ".candidate.create", idempotencyKey, request,
                 IdResponse.class, () -> new IdResponse(candidates.create(context(authentication),
                         request.displayName(), request.email(), request.phone(),
-                        request.compensationExpectations())));
+                        request.compensationExpectations(), request.iamUserId())));
         return ResponseEntity.status(HttpStatus.CREATED).body(result);
     }
 
@@ -233,7 +233,7 @@ public class HrRecruitmentV2Controller {
 
     @Operation(operationId = "hrRecruitmentApplicationCreate")
     @PostMapping("/applications")
-    @RequireCapability("HRM.RECRUITMENT.APPLICATION.MANAGE")
+    @RequireCapability("HRM.RECRUITMENT.APPLICATION.SUBMIT")
     public ResponseEntity<IdResponse> createApplication(
             Authentication authentication,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -241,7 +241,7 @@ public class HrRecruitmentV2Controller {
         IdResponse result = idem(authentication, OP + ".application.create", idempotencyKey, request,
                 IdResponse.class, () -> {
                     try {
-                        return new IdResponse(applications.apply(context(authentication),
+                        return new IdResponse(applications.applyCandidate(context(authentication),
                                 request.candidateId(), request.jobOpeningId()));
                     } catch (IllegalStateException conflict) {
                         if (conflict.getMessage() != null
@@ -297,13 +297,13 @@ public class HrRecruitmentV2Controller {
 
     @Operation(operationId = "hrRecruitmentApplicationWithdraw")
     @PostMapping("/applications/{id}/withdraw")
-    @RequireCapability("HRM.RECRUITMENT.APPLICATION.MANAGE")
+    @RequireCapability("HRM.RECRUITMENT.APPLICATION.WITHDRAW")
     public CommandResponse withdrawApplication(Authentication authentication, @PathVariable UUID id,
                                                @RequestHeader("Idempotency-Key") String idempotencyKey,
                                                @Valid @RequestBody ReasonRequest request) {
         return idem(authentication, OP + ".application.withdraw", idempotencyKey, id + "|" + request,
                 CommandResponse.class, () -> {
-                    applications.withdraw(context(authentication), id, request.reasonCode());
+                    applications.withdrawCandidate(context(authentication), id, request.reasonCode());
                     return new CommandResponse(id, "WITHDRAWN");
                 });
     }
@@ -410,20 +410,20 @@ public class HrRecruitmentV2Controller {
 
     @Operation(operationId = "hrRecruitmentOfferAccept")
     @PostMapping("/offers/{id}/accept")
-    @RequireCapability("HRM.RECRUITMENT.OFFER.MANAGE")
+    @RequireCapability("HRM.RECRUITMENT.OFFER.ACCEPT")
     public HrOffer acceptOffer(Authentication authentication, @PathVariable UUID id,
                                @RequestHeader("Idempotency-Key") String idempotencyKey) {
         return offerCommand(authentication, id, idempotencyKey, "accept",
-                () -> offers.accept(context(authentication), id));
+                () -> offers.acceptCandidate(context(authentication), id));
     }
 
     @Operation(operationId = "hrRecruitmentOfferDecline")
     @PostMapping("/offers/{id}/decline")
-    @RequireCapability("HRM.RECRUITMENT.OFFER.MANAGE")
+    @RequireCapability("HRM.RECRUITMENT.OFFER.DECLINE")
     public HrOffer declineOffer(Authentication authentication, @PathVariable UUID id,
                                 @RequestHeader("Idempotency-Key") String idempotencyKey) {
         return offerCommand(authentication, id, idempotencyKey, "decline",
-                () -> offers.decline(context(authentication), id));
+                () -> offers.declineCandidate(context(authentication), id));
     }
 
     @Operation(operationId = "hrRecruitmentOfferWithdraw")
@@ -563,7 +563,8 @@ public class HrRecruitmentV2Controller {
             @NotBlank String displayName,
             String email,
             String phone,
-            String compensationExpectations) {}
+            String compensationExpectations,
+            UUID iamUserId) {}
 
     public record CreateApplicationRequest(@NotNull UUID candidateId, @NotNull UUID jobOpeningId) {}
 
