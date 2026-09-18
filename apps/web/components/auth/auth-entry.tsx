@@ -14,6 +14,14 @@ import { LoginScreen } from "./login-screen";
 import { TenantPicker } from "./tenant-picker";
 import { CredentialRotationForm } from "./credential-rotation-form";
 
+const TENANT_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+function requestedTenantId(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const tenantId = new URLSearchParams(window.location.search).get("tenantId")?.trim();
+  return tenantId && TENANT_ID_PATTERN.test(tenantId) ? tenantId : undefined;
+}
+
 export function AuthEntry() {
   const {
     state,
@@ -46,7 +54,7 @@ export function AuthEntry() {
   const handleLogin = async (email: string, password: string) => {
     const requested = safeReturnUrl(readReturnUrl(), AUTH_PREFETCH_DESTINATIONS);
     router.prefetch(requested ?? "/crm");
-    await login({ email, password });
+    await login({ email, password, tenantId: requestedTenantId() });
   };
 
   if (state === "CHECKING_SESSION") return <AuthLoadingState phase="session" />;
