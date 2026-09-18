@@ -113,15 +113,16 @@ class ApplicationCatalogLifecyclePostgresTest {
     }
 
     @Test
-    @DisplayName("fresh Flyway chain ends at the application lifecycle widening head")
-    void freshChainEndsAtApplicationLifecycleHead() throws SQLException {
+    @DisplayName("fresh Flyway chain includes the application lifecycle widening migration")
+    void freshChainIncludesApplicationLifecycleMigration() throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT version FROM flyway_schema_history "
-                        + "WHERE success = TRUE AND version IS NOT NULL "
-                        + "ORDER BY installed_rank DESC LIMIT 1");
-             ResultSet rs = ps.executeQuery()) {
-            assertThat(rs.next()).isTrue();
-            assertThat(rs.getString(1)).isEqualTo(WIDENING_HEAD);
+                "SELECT COUNT(*) FROM flyway_schema_history "
+                        + "WHERE success = TRUE AND version = ?")) {
+            ps.setString(1, WIDENING_HEAD);
+            try (ResultSet rs = ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getInt(1)).isEqualTo(1);
+            }
         }
     }
 

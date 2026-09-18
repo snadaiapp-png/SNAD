@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -74,6 +75,15 @@ public final class JdbcEmploymentRepository implements EmploymentRepository {
     @Override
     public void saveEmployment(Employment employment) {
         inTenantTransaction(employment.tenantId(), connection -> {
+            saveEmploymentWithinTransaction(connection, employment);
+            return null;
+        });
+    }
+
+    @Override
+    public void saveEmploymentWithinTransaction(Connection connection, Employment employment) {
+        Objects.requireNonNull(connection, "connection");
+        try {
             // G0 reconciliation fix (T-G0-DEF-1): the canonical write path
             // must never persist placeholder identity data. Names are owned
             // by the canonical Person (hr_people) and are projected onto the
@@ -84,15 +94,15 @@ public final class JdbcEmploymentRepository implements EmploymentRepository {
             String displayName;
             try (PreparedStatement ps = connection.prepareStatement(
                     "SELECT first_name, last_name, display_name FROM hr_people "
-                    + "WHERE id = ? AND tenant_id = ?")) {
+                            + "WHERE id = ? AND tenant_id = ?")) {
                 ps.setObject(1, employment.personId());
                 ps.setObject(2, employment.tenantId());
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
                         throw new IllegalStateException(
-                            "Cannot save employment " + employment.id()
-                            + ": canonical person " + employment.personId()
-                            + " not found in tenant " + employment.tenantId());
+                                "Cannot save employment " + employment.id()
+                                        + ": canonical person " + employment.personId()
+                                        + " not found in tenant " + employment.tenantId());
                     }
                     firstName = rs.getString(1);
                     lastName = rs.getString(2);
@@ -107,10 +117,10 @@ public final class JdbcEmploymentRepository implements EmploymentRepository {
             // CHECK constraint (fail-closed) instead of being masked.
             try (PreparedStatement ps = connection.prepareStatement(
                     "INSERT INTO hr_employees " +
-                    "(id, tenant_id, person_id, legal_entity_id, employee_number, " +
-                    "first_name, last_name, display_name, employment_type, worker_classification_code, " +
-                    "status, hire_date, termination_date, rehire_of_employee_id, version, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")) {
+                            "(id, tenant_id, person_id, legal_entity_id, employee_number, " +
+                            "first_name, last_name, display_name, employment_type, worker_classification_code, " +
+                            "status, hire_date, termination_date, rehire_of_employee_id, version, created_at, updated_at) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")) {
                 ps.setObject(1, employment.id());
                 ps.setObject(2, employment.tenantId());
                 ps.setObject(3, employment.personId());
@@ -136,8 +146,53 @@ public final class JdbcEmploymentRepository implements EmploymentRepository {
                 ps.setLong(15, employment.version());
                 ps.executeUpdate();
             }
-            return null;
-        });
+        } catch (SQLException e) {
+            if ("23505".equals(e.getSQLState())) {
+                throw new IllegalStateException("HRM_EMPLOYMENT_CONFLICT: employment identifier conflict "
+                        + e.getMessage());
+            }
+            throw new IllegalStateException("HRM_EMPLOYMENT_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public int countNonTerminalEmploymentsForPersonInLegalEntityWithinTransaction(
+            Connection connection, UUID tenantId, UUID personId, UUID legalEntityId) {
+        Objects.requireNonNull(connection, "connection");
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT COUNT(*) FROM hr_employees WHERE tenant_id = ? AND person_id = ? "
+                        + "AND legal_entity_id = ? AND status NOT IN ('TERMINATED','VOIDED')")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, personId);
+            ps.setObject(3, legalEntityId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_EMPLOYMENT_LOOKUP_FAILED: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void openJurisdictionPeriodWithinTransaction(Connection connection, UUID tenantId,
+                                                        UUID employmentId, String laborJurisdiction,
+                                                        LocalDate effectiveFrom, String approvalReference) {
+        Objects.requireNonNull(connection, "connection");
+        Objects.requireNonNull(laborJurisdiction, "laborJurisdiction");
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO hr_employment_jurisdiction_periods "
+                        + "(tenant_id, employment_id, labor_jurisdiction, effective_from, "
+                        + "approval_status, approval_reference, approved_at) "
+                        + "VALUES (?, ?, ?, ?, 'APPROVED', ?, NOW())")) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, employmentId);
+            ps.setString(3, laborJurisdiction.trim().toUpperCase());
+            ps.setObject(4, java.sql.Date.valueOf(effectiveFrom));
+            ps.setString(5, approvalReference);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_JURISDICTION_PERSISTENCE_FAILED: " + e.getMessage(), e);
+        }
     }
 
     @Override

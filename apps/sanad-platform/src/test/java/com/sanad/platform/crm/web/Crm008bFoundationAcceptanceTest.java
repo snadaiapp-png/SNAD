@@ -81,6 +81,9 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260906_2 = SCP subscription multiplicity MODEL_B (renumbered from
     //                 V20260906_1 at integration; unmerged on PR #989).
     //   V20260908_1 = workflow incident optimistic lock (forward-merged from
+    //   V20260908_2..4 = HRM-G1 recruitment & onboarding forward chain
+    //                 (schema, RLS, seed; renumbered from 20260908.1-.3 so
+    //                 main's optimistic lock keeps 20260908.1).
     //                 main).
     // Wave-2 closure (TEST_ALIGNMENT_REASON = legitimate forward-only Wave-2
     // migration added after prior sentinel baseline):
@@ -99,9 +102,15 @@ class Crm008bFoundationAcceptanceTest {
     // R0C13 closure continues the same forward-only ledger:
     //   V20260912_4 = subscription billing persistence foundation.
     //   V20260912_5 = verified provider-webhook resolution.
-    //   V20260912_6 = provider-unavailable reconciliation classification (current terminal migration).
-    private static final String CRM_LATEST_VERSION = "20260914.1"; // Terminal versioned migration: V20260914_1 adds PATH-B G1-B application catalog status lifecycle widening (design spec §12.4); V20260912_6 added R0C13 G07 provider-unavailable reconciliation classification
-
+    //   V20260912_6 = provider-unavailable reconciliation classification.
+    // HRM G1 T7 continues the same forward-only ledger:
+    //   V20260913_1 = HRM G1 T7 offer approval correlation + immutable version identity.
+    //   V20260914_1 = PATH-B G1-B application catalog status lifecycle widening (main authority).
+    //   V20260914_2 = workflow idempotency index NULLS NOT DISTINCT rebuild.
+    //   V20260914_3 = T8 hire conversion governance (ledger columns + person FK
+    //     congruence rebuild + hr_tenant_policies authoritative policy store).
+    // T9 governed onboarding adds V20260918_1 (workflow transition ledger + snapshot/link support).
+    private static final String CRM_LATEST_VERSION = "20260918.1"; // Terminal versioned migration: V20260918_1 hr_t9_governed_onboarding
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");

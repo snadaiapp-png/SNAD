@@ -89,8 +89,10 @@ public class EmploymentContractService {
     public ContractCommandResult createDraft(HrCommandContext ctx, CreateContractCommand command) {
         Objects.requireNonNull(ctx, "ctx");
         Objects.requireNonNull(command, "command");
-        ResolvedCountryPolicy policy = resolveAndValidate(ctx, command.effectiveDate(), command.countryTerms());
-        ComplianceDecision decision = evaluate(ctx, OP_CREATE, command.effectiveDate(), command.employmentId());
+        ResolvedCountryPolicy policy = resolveAndValidate(countryPolicyResolver, ctx,
+                command.effectiveDate(), command.countryTerms());
+        ComplianceDecision decision = evaluate(complianceEngine, ctx, OP_CREATE,
+                command.effectiveDate(), command.employmentId());
 
         UUID contractId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
@@ -109,6 +111,45 @@ public class EmploymentContractService {
         return result(version, decision, "CONTRACT_CREATED");
     }
 
+    /**
+     * T8 — governed hire-conversion draft inside the CALLER's transaction
+     * (§7.1 step 7). The country-policy + compliance validation chain runs
+     * against the transaction-scoped resolver/engine supplied by the caller
+     * (so reads and the decision write share the conversion connection and
+     * stay atomic with the rest of the hire). Does NOT commit; skips the G0
+     * capability gate because the conversion command itself is the governed
+     * capability boundary (HRM.RECRUITMENT.HIRE.CONVERT).
+     */
+    public ContractCommandResult createDraftWithinTransaction(
+            HrCommandContext ctx, CreateContractCommand command,
+            CountryPolicyResolver txPolicyResolver, ComplianceEngine txComplianceEngine,
+            java.sql.Connection connection) {
+        Objects.requireNonNull(ctx, "ctx");
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(txPolicyResolver, "txPolicyResolver");
+        Objects.requireNonNull(txComplianceEngine, "txComplianceEngine");
+        Objects.requireNonNull(connection, "connection");
+        ResolvedCountryPolicy policy = resolveAndValidate(txPolicyResolver, ctx,
+                command.effectiveDate(), command.countryTerms());
+        ComplianceDecision decision = evaluate(txComplianceEngine, ctx, OP_CREATE,
+                command.effectiveDate(), command.employmentId());
+
+        UUID contractId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        EmploymentContract contract = new EmploymentContract(contractId, ctx.tenantId(), command.employmentId(),
+                command.contractNumber(), command.isPrimary(), null, Instant.now());
+        EmploymentContractVersion version = new EmploymentContractVersion(versionId, ctx.tenantId(), contractId,
+                command.employmentId(), 1, EmploymentContractStatus.DRAFT, command.isPrimary(),
+                command.contractTermType(), command.contractStartDate(), command.contractEndDate(),
+                command.effectiveDate(), null, command.documentReference(), command.countryTerms(),
+                ctx.actorUserId(), Instant.now());
+
+        repository.createContractWithinTransaction(connection, contract, version,
+                auditRecord(ctx, OP_CREATE, contractId, "CREATE", version),
+                envelope(ctx, EVENT_CREATED, contractId, command.effectiveDate(), version, decision));
+        return result(version, decision, "CONTRACT_CREATED");
+    }
+
     public ContractCommandResult amend(HrCommandContext ctx, UUID contractId, AmendContractCommand command) {
         Objects.requireNonNull(ctx, "ctx");
         Objects.requireNonNull(contractId, "contractId");
@@ -121,8 +162,8 @@ public class EmploymentContractService {
                         + " has no active version at " + command.effectiveDate()));
         int nextNumber = repository.findVersions(ctx.tenantId(), contractId).size() + 1;
 
-        ResolvedCountryPolicy policy = resolveAndValidate(ctx, command.effectiveDate(), command.countryTerms());
-        ComplianceDecision decision = evaluate(ctx, OP_AMEND, command.effectiveDate(), current.employmentId());
+        ResolvedCountryPolicy policy = resolveAndValidate(countryPolicyResolver, ctx, command.effectiveDate(), command.countryTerms());
+        ComplianceDecision decision = evaluate(complianceEngine, ctx, OP_AMEND, command.effectiveDate(), current.employmentId());
 
         UUID versionId = UUID.randomUUID();
         EmploymentContractVersion newVersion = new EmploymentContractVersion(versionId, ctx.tenantId(), contractId,
@@ -144,7 +185,7 @@ public class EmploymentContractService {
         authorizationPort.requireManage(ctx, contractId);
         UUID employmentId = contractEmploymentId(ctx.tenantId(), contractId);
         ResolvedCountryPolicy policy = countryPolicyResolver.resolve(ctx.tenantId(), employmentId, effectiveDate);
-        ComplianceDecision decision = evaluate(ctx, OP_ACTIVATE, effectiveDate, employmentId);
+        ComplianceDecision decision = evaluate(complianceEngine, ctx, OP_ACTIVATE, effectiveDate, employmentId);
 
         EmploymentContractVersion version = repository.findVersionByNumber(ctx.tenantId(), contractId, versionNumber)
                 .orElseThrow(() -> new IllegalStateException("HRM_CONTRACT_VERSION_NOT_FOUND: contract " + contractId
@@ -163,7 +204,7 @@ public class EmploymentContractService {
         Objects.requireNonNull(ctx, "ctx");
         authorizationPort.requireManage(ctx, contractId);
         UUID employmentId = contractEmploymentId(ctx.tenantId(), contractId);
-        ComplianceDecision decision = evaluate(ctx, OP_TERMINATE, effectiveDate, employmentId);
+        ComplianceDecision decision = evaluate(complianceEngine, ctx, OP_TERMINATE, effectiveDate, employmentId);
 
         EmploymentContractVersion version = repository
                 .findActivePrimaryVersion(ctx.tenantId(), employmentId, effectiveDate)
@@ -179,18 +220,20 @@ public class EmploymentContractService {
 
     // ==================== helpers ====================
 
-    private ResolvedCountryPolicy resolveAndValidate(HrCommandContext ctx, LocalDate effectiveDate,
+    private ResolvedCountryPolicy resolveAndValidate(CountryPolicyResolver resolver,
+                                                     HrCommandContext ctx, LocalDate effectiveDate,
                                                      JsonNode countryTerms) {
-        ResolvedCountryPolicy policy = countryPolicyResolver.resolve(ctx.tenantId(), ctx.employmentId(), effectiveDate);
+        ResolvedCountryPolicy policy = resolver.resolve(ctx.tenantId(), ctx.employmentId(), effectiveDate);
         termsValidator.validate(policy, countryTerms);
         return policy;
     }
 
-    private ComplianceDecision evaluate(HrCommandContext ctx, String operationCode, LocalDate effectiveDate,
+    private ComplianceDecision evaluate(ComplianceEngine engine, HrCommandContext ctx, String operationCode,
+                                        LocalDate effectiveDate,
                                         UUID employmentId) {
         HrCommandContext scoped = new HrCommandContext(ctx.tenantId(), employmentId, ctx.actorUserId(),
                 ctx.correlationId());
-        return complianceEngine.evaluate(scoped, operationCode, ComplianceOperationType.GENERIC_HR,
+        return engine.evaluate(scoped, operationCode, ComplianceOperationType.GENERIC_HR,
                 effectiveDate, new ComplianceResource("HR_EMPLOYMENT_CONTRACT", ctx.employmentId() != null
                         ? ctx.employmentId() : employmentId));
     }

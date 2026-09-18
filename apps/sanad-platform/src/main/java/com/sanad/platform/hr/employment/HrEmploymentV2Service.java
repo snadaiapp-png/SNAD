@@ -81,6 +81,43 @@ public class HrEmploymentV2Service {
         return toResponse(employment);
     }
 
+    /**
+     * T8 — canonical employment creation inside the CALLER's transaction
+     * (governed hire conversion, §7.1 step 5). Runs the SAME G0 validations
+     * (person exists; one non-terminal employment per person+legal entity)
+     * against the caller's connection, then writes through the G0
+     * connection-scoped path. Does NOT commit.
+     */
+    public Employment createWithinTransaction(java.sql.Connection connection, UUID tenantId,
+                                              CreateEmploymentRequest request) {
+        if (personRepository.findPersonByIdWithinTransaction(connection, tenantId,
+                request.personId()).isEmpty()) {
+            throw new HrDomainException(HrApiErrorCode.HRM_PERSON_NOT_FOUND,
+                    "Person " + request.personId() + " not found");
+        }
+        if (repository.countNonTerminalEmploymentsForPersonInLegalEntityWithinTransaction(
+                connection, tenantId, request.personId(), request.legalEntityId()) > 0) {
+            throw new HrDomainException(HrApiErrorCode.HRM_EMPLOYMENT_CONFLICT,
+                    "Person " + request.personId() + " already has a non-terminal employment in legal entity "
+                            + request.legalEntityId());
+        }
+        Employment employment = new Employment(
+                UUID.randomUUID(), tenantId, request.personId(), request.legalEntityId(),
+                request.employeeNumber(), request.workerClassificationCode(),
+                EmploymentStatus.DRAFT, request.employmentStartDate(), null, null, 0L);
+        repository.saveEmploymentWithinTransaction(connection, employment);
+        if (request.laborJurisdictionCode() != null && !request.laborJurisdictionCode().isBlank()
+                && request.employmentStartDate() != null) {
+            // The initial hire jurisdiction inherits the authority of the
+            // approved offer that produced the conversion (§7.1 step 5);
+            // later jurisdiction changes require the G0 legal-review path.
+            repository.openJurisdictionPeriodWithinTransaction(connection, tenantId, employment.id(),
+                    request.laborJurisdictionCode(), request.employmentStartDate(),
+                    "HIRE_CONVERSION_AUTHORIZED_BY_APPROVED_OFFER");
+        }
+        return employment;
+    }
+
     // ==================== LIFECYCLE ====================
 
     public LifecycleOutcome submitOnboarding(UUID tenantId, UUID employmentId, Long expectedVersion,

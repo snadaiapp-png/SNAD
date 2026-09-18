@@ -21,6 +21,20 @@ public interface EmploymentContractRepository {
     void createContractWithEvidence(EmploymentContract contract, EmploymentContractVersion firstVersion,
                                     HrAuditRecord auditRecord, DomainEventEnvelope event);
 
+    /**
+     * T8 — canonical contract write inside the CALLER's transaction (governed
+     * hire conversion §7.1 step 7). Implementations must NOT commit or close
+     * the supplied connection.
+     */
+    default void createContractWithinTransaction(java.sql.Connection connection,
+                                                 EmploymentContract contract,
+                                                 EmploymentContractVersion firstVersion,
+                                                 HrAuditRecord auditRecord,
+                                                 DomainEventEnvelope event) {
+        throw new UnsupportedOperationException(
+                "createContractWithinTransaction is not supported by this implementation");
+    }
+
     /** Amendment: supersedes the ACTIVE version and inserts the next version (one transaction + evidence). */
     void amendVersionWithEvidence(UUID tenantId, UUID contractId, EmploymentContractVersion newVersion,
                                   java.time.LocalDate supersedeEffectiveTo,
