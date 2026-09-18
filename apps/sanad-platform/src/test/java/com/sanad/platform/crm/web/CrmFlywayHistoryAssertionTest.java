@@ -242,56 +242,26 @@ class CrmFlywayHistoryAssertionTest {
             // from V20260906_1 to V20260906_2 at Amendment #5 integration.
             , "20260906.2"   // scp subscription multiplicity model b
             , "20260908.1"   // workflow incident optimistic lock
-            // HRM-G1 recruitment & onboarding forward chain: renumbered from
-            // 20260908.1-.3 to 20260908.2-.4 so main's workflow incident
-            // optimistic lock keeps 20260908.1 (no out-of-order, no gap).
-            , "20260908.2"   // hr g1 recruitment + onboarding schema
-            , "20260908.3"   // hr g1 fail-closed RLS policies
-            , "20260908.4"   // hr g1 onboarding checklist template seed
-            // TEST_ALIGNMENT_REASON = Legitimate forward-only Wave-2 migration
-            // added after prior sentinel baseline (V20260910_1: workflow Y2 SLA
-            // modes, SLA escalation, two-phase cancellation hardening). The
-            // expected head remains explicit — the sentinel is not weakened.
-            , "20260910.1"   // workflow y2 SLA modes + two-phase cancellation hardening
-            // TEST_ALIGNMENT_REASON = Legitimate forward-only R1 migrations
-            // added after prior sentinel baseline (V20260911_1..3: module
-            // entitlement policy, attachments + external participation
-            // foundation, workflow journey/time governance). The expected head
-            // remains explicit — the sentinel is not weakened.
-            , "20260911.1"   // R1 module entitlement policy (WORKFLOW EXPLICIT_OPT_IN)
-            , "20260911.2"   // R1 attachments + external participation foundation
-            , "20260911.3"   // R1 workflow journey/time governance
-            // TEST_ALIGNMENT_REASON = Legitimate forward-only R2 migrations
-            // added after prior sentinel baseline (V20260912_1..3: workflow
-            // notification foundation, external portal feedback, analytics
-            // projections). The expected head remains explicit — the sentinel
-            // is not weakened.
-            , "20260912.1"   // R2 workflow notification foundation
-            , "20260912.2"   // R2 workflow external portal feedback
-            , "20260912.3"   // R2 workflow analytics projections
-            // R0C13 forward-only continuation after the R2 ledger claim.
-            , "20260912.4"   // r0c13 subscription billing persistence foundation
-            , "20260912.5"   // r0c13 verified provider-webhook SELECT-only RLS resolution
-            , "20260912.6"   // r0c13 G07 provider-unavailable reconciliation classification
-            // TEST_ALIGNMENT_REASON = Legitimate forward-only feature migration (HRM G1 T7):
-            // V20260913_1 adds ONLY additive DDL (offer approval correlation columns, the
-            // §11.2 one-open-approval partial unique index, lookup indexes, and the DB-level
-            // append-only guard on hr_offer_versions). No migration bytes are modified, no
-            // migration is deleted, and the sentinel remains explicit — not weakened.
-            , "20260913.1"   // hrm g1 t7 offer approval correlation + immutable version identity
-            // TEST_ALIGNMENT_REASON = Current-main PATH-B G1-B forward-only migration.
-            , "20260914.1"   // PATH-B G1-B application catalog status lifecycle widening
-            // TEST_ALIGNMENT_REASON = Legitimate forward-only defect-fix migration (HRM G1 T7
-            // closure §10/T7-A26): V20260914_2 rebuilds uq_wf_instances_idempotency with NULLS
-            // NOT DISTINCT (same columns, same predicate, same name) so the engine idempotency
-            // key is enforced even for the NULL trigger_type rows the Y2 adapters produce.
-            // Additive strengthening only — no migration bytes modified, none deleted.
-            , "20260914.2"   // workflow idempotency index NULLS NOT DISTINCT rebuild
-            , "20260914.3"   // hrm g1 t8 hire conversion governance (T8-MIG-001 person FK congruence rebuild + T8.8 policy store)
-            // TEST_ALIGNMENT_REASON = Legitimate forward-only HRM G1 T9 migration.
-            // V20260918_1 adds governed onboarding runtime state and RLS-protected
-            // workflow transition idempotency without rewriting prior migrations.
-            , "20260918.1"   // hrm g1 t9 governed onboarding
+            , "20260910.1"   // workflow y2 SLA and cancellation hardening
+            , "20260911.1"   // R1 module entitlement policy
+            , "20260911.2"   // R1 attachments/external foundation
+            , "20260911.3"   // R1 journey/time governance
+            , "20260912.1"   // R2 notification foundation
+            , "20260912.2"   // R2 external portal feedback
+            , "20260912.3"   // R2 analytics projections
+            , "20260912.4"   // R0C13 subscription billing foundation
+            , "20260912.5"   // R0C13 verified webhook resolution
+            , "20260912.6"   // R0C13 provider-unavailable classification
+            , "20260914.1"   // production ledger floor: application catalog lifecycle
+            , "20260914.2"   // workflow idempotency index NULLS NOT DISTINCT
+            // HRM-G1 was merged after production had already crossed 20260914.1.
+            // Keep the complete dependency chain strictly forward of that floor.
+            , "20260918.2"   // hr g1 recruitment + onboarding schema
+            , "20260918.3"   // hr g1 fail-closed RLS policies
+            , "20260918.4"   // hr g1 onboarding checklist template seed
+            , "20260918.5"   // hrm g1 t7 offer approval correlation + immutable version identity
+            , "20260918.6"   // hrm g1 t8 hire conversion governance
+            , "20260918.7"   // hrm g1 t9 governed onboarding
     );
 
 
