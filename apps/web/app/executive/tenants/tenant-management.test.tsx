@@ -12,6 +12,7 @@ const createTenantMock = vi.fn();
 const tenantMock = vi.fn();
 const updateTenantMock = vi.fn();
 const changeTenantStatusMock = vi.fn();
+const recordTenantLoginLinkEventMock = vi.fn();
 
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: { tenants: (...args: unknown[]) => tenantsMock(...args) },
@@ -23,6 +24,7 @@ vi.mock("@/lib/api/executive-api", () => ({
     tenant: (...args: unknown[]) => tenantMock(...args),
     updateTenant: (...args: unknown[]) => updateTenantMock(...args),
     changeTenantStatus: (...args: unknown[]) => changeTenantStatusMock(...args),
+    recordTenantLoginLinkEvent: (...args: unknown[]) => recordTenantLoginLinkEventMock(...args),
   },
 }));
 
@@ -74,6 +76,8 @@ beforeEach(() => {
   tenantMock.mockReset();
   updateTenantMock.mockReset();
   changeTenantStatusMock.mockReset();
+  recordTenantLoginLinkEventMock.mockReset();
+  recordTenantLoginLinkEventMock.mockResolvedValue(undefined);
   hasMock.mockReset();
 });
 
@@ -94,6 +98,92 @@ describe("Executive tenant management controls", () => {
       "/executive/subscriptions?tenantId=11111111-1111-1111-1111-111111111111&intent=upgrade",
     );
     expect(hasMock).toHaveBeenCalledWith("EXECUTIVE_MANAGE");
+  });
+
+  it("opens a synchronous placeholder and navigates it only after the audit event succeeds", async () => {
+    const user = userEvent.setup();
+    const popup = { close: vi.fn(), location: { href: "about:blank" } } as unknown as Window;
+    const openMock = vi.spyOn(window, "open").mockReturnValue(popup);
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await screen.findByText("Acme");
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.openLogin" }));
+
+    expect(recordTenantLoginLinkEventMock).toHaveBeenCalledWith(
+      "11111111-1111-1111-1111-111111111111",
+      "OPEN",
+    );
+    expect(openMock).toHaveBeenCalledWith("about:blank", "_blank", "noopener,noreferrer");
+    expect(popup.location.href).toBe(
+      "http://localhost:3000/?tenantId=11111111-1111-1111-1111-111111111111",
+    );
+    openMock.mockRestore();
+  });
+
+  it("copies an active tenant login URL and records the copy event", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await screen.findByText("Acme");
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.copyLogin" }));
+
+    expect(recordTenantLoginLinkEventMock).toHaveBeenCalledWith(
+      "11111111-1111-1111-1111-111111111111",
+      "COPY",
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      "http://localhost:3000/?tenantId=11111111-1111-1111-1111-111111111111",
+    );
+    expect(screen.getByText("scp.tenants.notice.loginLinkCopied")).toBeInTheDocument();
+  });
+
+  it("does not expose login-link controls for a non-active tenant", async () => {
+    tenantsMock.mockResolvedValue({
+      ...PAGE,
+      content: [{ ...PAGE.content[0], status: "ARCHIVED", subscriptionStatus: "TERMINATED" }],
+    });
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await screen.findByText("Acme");
+
+    expect(screen.queryByRole("button", { name: "scp.tenants.openLogin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.copyLogin" })).not.toBeInTheDocument();
+  });
+
+  it("does not expose login-link controls when the tenant subscription is terminated", async () => {
+    tenantsMock.mockResolvedValue({
+      ...PAGE,
+      content: [{ ...PAGE.content[0], status: "ACTIVE", subscriptionStatus: "TERMINATED" }],
+    });
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await screen.findByText("Acme");
+
+    expect(screen.queryByRole("button", { name: "scp.tenants.openLogin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scp.tenants.copyLogin" })).not.toBeInTheDocument();
+  });
+
+  it("fails closed and closes the placeholder tab when login-link auditing fails", async () => {
+    const user = userEvent.setup();
+    const popup = { close: vi.fn(), location: { href: "about:blank" } } as unknown as Window;
+    const openMock = vi.spyOn(window, "open").mockReturnValue(popup);
+    recordTenantLoginLinkEventMock.mockRejectedValue(new Error("audit unavailable"));
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+    render(<TenantsPage />);
+    await screen.findByText("Acme");
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.openLogin" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("alert")).not.toHaveTextContent("audit unavailable");
+    expect(openMock).toHaveBeenCalledWith("about:blank", "_blank", "noopener,noreferrer");
+    expect(popup.close).toHaveBeenCalledOnce();
+    expect(popup.location.href).toBe("about:blank");
+    openMock.mockRestore();
   });
 
   it("granular-only/read-only user never receives mutation controls", async () => {
