@@ -80,29 +80,58 @@ jobs:
           echo "::error::Timed out waiting for exact-SHA Post-Merge Main Verification"
           exit 1
 
+      - name: Dispatch or adopt exact-SHA immutable backend image publication
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$CURRENT_MAIN" = "$GITHUB_SHA" || {
+            echo "::error::Main drift before image publication: $CURRENT_MAIN"
+            exit 1
+          }
+
+          EXISTING="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
+          RUN_ID="$(jq -r '[.workflow_runs[] | select(.name == "Publish Render Backend Image" and .head_sha == env.GITHUB_SHA)] | sort_by(.created_at) | last.id // empty' <<<"$EXISTING")"
+
+          if [ -z "$RUN_ID" ]; then
+            DISPATCHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            gh workflow run publish-render-image.yml --ref main
+            echo "Image publication dispatched at $DISPATCHED_AT"
+
+            for _ in $(seq 1 180); do
+              RESPONSE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
+              RUN_ID="$(jq -r --arg started "$DISPATCHED_AT"                 '[.workflow_runs[] | select(.name == "Publish Render Backend Image" and .event == "workflow_dispatch" and .head_sha == env.GITHUB_SHA and .created_at >= $started)] | sort_by(.created_at) | first.id // empty' <<<"$RESPONSE")"
+              [ -n "$RUN_ID" ] && break
+              sleep 10
+            done
+          else
+            echo "Adopting already-created exact-SHA image publication run $RUN_ID"
+          fi
+
+          test -n "$RUN_ID" || {
+            echo "::error::Exact-SHA image publication run was not observed"
+            exit 1
+          }
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
       - name: Wait for exact-SHA immutable backend image publication
         shell: bash
         run: |
           set -euo pipefail
-          RUN_ID=""
+          RUN_ID="${{ steps.image.outputs.run_id }}"
           for _ in $(seq 1 360); do
-            RESPONSE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
-            RUN_ID="$(jq -r '[.workflow_runs[] | select(.name == "Publish Render Backend Image" and .head_sha == env.GITHUB_SHA)] | sort_by(.created_at) | last.id // empty' <<<"$RESPONSE")"
-            if [ -n "$RUN_ID" ]; then
-              STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")"
-              STATUS="$(jq -r '.status' <<<"$STATE")"
-              CONCLUSION="$(jq -r '.conclusion // ""' <<<"$STATE")"
-              echo "Image publication run $RUN_ID: status=$STATUS conclusion=$CONCLUSION"
-              if [ "$STATUS" = "completed" ]; then
-                test "$CONCLUSION" = "success" || {
-                  echo "::error::Exact-SHA backend image publication did not succeed"
-                  exit 1
-                }
-                echo "EXACT_IMAGE_PUBLICATION=PASS"
-                exit 0
-              fi
-            else
-              echo "Waiting for exact-SHA image publication..."
+            STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")"
+            STATUS="$(jq -r '.status' <<<"$STATE")"
+            CONCLUSION="$(jq -r '.conclusion // ""' <<<"$STATE")"
+            echo "Image publication run $RUN_ID: status=$STATUS conclusion=$CONCLUSION"
+            if [ "$STATUS" = "completed" ]; then
+              test "$CONCLUSION" = "success" || {
+                echo "::error::Exact-SHA backend image publication did not succeed"
+                exit 1
+              }
+              echo "EXACT_IMAGE_PUBLICATION=PASS"
+              exit 0
             fi
             sleep 10
           done
