@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class HrRecruitmentIdempotencyApiContractTest {
 
     private static final String PATH =
-            "/hr/api/v2/recruitment/offers/{id}/hire-conversion";
+            "/api/v2/hr/recruitment/offers/{id}/hire-conversion";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
