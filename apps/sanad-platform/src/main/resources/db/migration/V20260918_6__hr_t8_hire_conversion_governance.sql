@@ -1,5 +1,5 @@
 -- ============================================================
--- HRM-G1 T8 — hire conversion governance (directive T8.2–T8.12)
+-- V20260918_6 — HRM-G1 T8 hire conversion governance (directive T8.2–T8.12)
 -- Forward-only, additive:
 --   1. hr_hire_conversions.person_reused  — §7.3 case 1 requires the ledger
 --      to record that an existing Person was linked instead of created.

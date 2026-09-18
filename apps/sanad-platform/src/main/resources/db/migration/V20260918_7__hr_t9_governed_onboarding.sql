@@ -1,5 +1,5 @@
 -- ============================================================================
--- V20260918_1 — HRM-G1 T9 governed onboarding execution
+-- V20260918_7 — HRM-G1 T9 governed onboarding execution
 -- Additive, forward-only: immutable checklist snapshots, optional Y2 link
 -- marker, Y2 apply idempotency ledger, and the canonical entity_id outbox
 -- envelope field required by the G1 contract.

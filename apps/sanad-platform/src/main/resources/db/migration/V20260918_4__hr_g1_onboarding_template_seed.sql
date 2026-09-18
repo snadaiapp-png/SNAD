@@ -1,12 +1,12 @@
 -- ============================================================
--- V20260908_3 — HRM-G1: seed one generic onboarding checklist template
+-- V20260918_4 — HRM-G1: seed one generic onboarding checklist template
 --               (design §17; G0 V20260807_2 tenant-scoped seed pattern)
 -- ============================================================
 -- Tenant-scoped, versioned, idempotent (WHERE NOT EXISTS): for every ACTIVE
 -- tenant that does not yet have the GENERIC-ONBOARDING template, insert the
 -- version-1 generic template.
 --
--- FORCE RLS is already live on this table (V20260908_2), so the seed sets
+-- FORCE RLS is already live on this table (V20260918_3), so the seed sets
 -- app.tenant_id per tenant via set_config(..., is_local => true) — the same
 -- scoped path the application uses. No BYPASSRLS, no superuser: each INSERT
 -- passes the policy's WITH CHECK by carrying the matching tenant context.

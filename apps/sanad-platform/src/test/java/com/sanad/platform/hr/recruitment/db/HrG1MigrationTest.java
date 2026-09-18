@@ -31,12 +31,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class HrG1MigrationTest {
 
-    // Repository truth: G1 chain renumbered from 20260908.1-.3 to
-    // 20260908.2-.4 so main's workflow incident optimistic lock keeps
-    // 20260908.1 (forward-only, no out-of-order, no history rewrite).
-    static final String G1_SCHEMA_VERSION = "20260908.2";
-    static final String G1_RLS_VERSION = "20260908.3";
-    static final String G1_SEED_VERSION = "20260908.4";
+    // Production ledger had already advanced through 20260914.1 before the
+    // HRM-G1 chain reached main. Keep the entire dependent HRM sequence
+    // strictly above that immutable production floor: no out-of-order, no
+    // repair, and no Flyway history rewrite.
+    static final String PRODUCTION_LEDGER_FLOOR_VERSION = "20260914.1";
+    static final String G1_SCHEMA_VERSION = "20260918.2";
+    static final String G1_RLS_VERSION = "20260918.3";
+    static final String G1_SEED_VERSION = "20260918.4";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
@@ -246,13 +248,81 @@ class HrG1MigrationTest {
 
     // ==================== T7.12 — offer approval correlation schema ====================
 
-    static final String T7_CORRELATION_VERSION = "20260914.1";
+    static final String T7_CORRELATION_VERSION = "20260918.5";
 
     // TEST_ALIGNMENT_REASON = forward-only defect-fix migration (T7 closure §10/T7-A26):
     // V20260914_2 rebuilds the engine idempotency index with NULLS NOT DISTINCT.
     static final String T7_IDEMPOTENCY_NULLS_NOT_DISTINCT_VERSION = "20260914.2";
 
-    static final String T8_HIRE_CONVERSION_VERSION = "20260914.3";
+    static final String T8_HIRE_CONVERSION_VERSION = "20260918.6";
+    static final String T9_GOVERNED_ONBOARDING_VERSION = "20260918.7";
+
+    @Test
+    void hrmG1VersionsAreStrictlyForwardOfTheProductionLedgerFloorAndDependencyOrdered() {
+        org.flywaydb.core.api.MigrationVersion floor =
+                org.flywaydb.core.api.MigrationVersion.fromVersion(PRODUCTION_LEDGER_FLOOR_VERSION);
+        List<org.flywaydb.core.api.MigrationVersion> chain = List.of(
+                org.flywaydb.core.api.MigrationVersion.fromVersion(G1_SCHEMA_VERSION),
+                org.flywaydb.core.api.MigrationVersion.fromVersion(G1_RLS_VERSION),
+                org.flywaydb.core.api.MigrationVersion.fromVersion(G1_SEED_VERSION),
+                org.flywaydb.core.api.MigrationVersion.fromVersion(T7_CORRELATION_VERSION),
+                org.flywaydb.core.api.MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION),
+                org.flywaydb.core.api.MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION));
+
+        assertThat(chain).allSatisfy(version -> assertThat(version).isGreaterThan(floor));
+        assertThat(chain).isSortedAccordingTo(org.flywaydb.core.api.MigrationVersion::compareTo);
+    }
+
+    @Test
+    void productionLedgerHeadUpgradesForwardWithStrictValidationAndNoOutOfOrder() {
+        String testMigrationUrl = url.replaceFirst("/sanad", "/test_migration");
+        Flyway baseline = canonicalFlyway(PRODUCTION_LEDGER_FLOOR_VERSION, true);
+        baseline.clean();
+        baseline.migrate();
+
+        String baselineLatest = jdbc.queryForObject(
+                "SELECT version FROM flyway_schema_history "
+                        + "WHERE success = true AND version IS NOT NULL "
+                        + "ORDER BY installed_rank DESC LIMIT 1",
+                String.class);
+        assertThat(baselineLatest).isEqualTo(PRODUCTION_LEDGER_FLOOR_VERSION);
+
+        Flyway upgrade = canonicalFlyway(null, true);
+        upgrade.migrate();
+        upgrade.validate();
+
+        List<String> applied = jdbc.queryForList(
+                "SELECT version FROM flyway_schema_history "
+                        + "WHERE success = true AND version IS NOT NULL "
+                        + "ORDER BY installed_rank",
+                String.class);
+        assertThat(applied)
+                .contains(G1_SCHEMA_VERSION, G1_RLS_VERSION, G1_SEED_VERSION,
+                        T7_CORRELATION_VERSION, T8_HIRE_CONVERSION_VERSION,
+                        T9_GOVERNED_ONBOARDING_VERSION)
+                .doesNotContain("20260908.2", "20260908.3", "20260908.4",
+                        "20260913.1", "20260914.3", "20260918.1");
+
+        String latest = jdbc.queryForObject(
+                "SELECT version FROM flyway_schema_history "
+                        + "WHERE success = true AND version IS NOT NULL "
+                        + "ORDER BY installed_rank DESC LIMIT 1",
+                String.class);
+        assertThat(latest).isEqualTo(T9_GOVERNED_ONBOARDING_VERSION);
+    }
+
+    private Flyway canonicalFlyway(String targetVersion, boolean validateOnMigrate) {
+        org.flywaydb.core.api.configuration.FluentConfiguration builder = Flyway.configure()
+                .dataSource(url.replaceFirst("/sanad", "/test_migration"), username, password)
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .validateOnMigrate(validateOnMigrate)
+                .cleanDisabled(false)
+                .outOfOrder(false);
+        if (targetVersion != null) {
+            builder.target(org.flywaydb.core.api.MigrationVersion.fromVersion(targetVersion));
+        }
+        return builder.load();
+    }
 
     @Test
     void t8HireConversionLedgerColumnsExist() {

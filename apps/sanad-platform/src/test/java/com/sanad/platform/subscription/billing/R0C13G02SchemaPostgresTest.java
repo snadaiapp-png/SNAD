@@ -92,13 +92,11 @@ class R0C13G02SchemaPostgresTest {
                         + "ORDER BY installed_rank DESC LIMIT 1");
              ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).isTrue();
-            // TEST_ALIGNMENT_REASON: union of the unmerged HRM G1 chain with
-            // current-main PATH-B authority. HRM T7 is forward-renumbered to
-            // V20260913_1; main owns V20260914_1 (application catalog lifecycle);
-            // V20260914_2 strengthens workflow idempotency, V20260914_3 carries
-            // T8 hire-conversion governance, and V20260918_1 adds governed T9
-            // onboarding runtime state. No prior migration is rewritten.
-            assertThat(rs.getString(1)).isEqualTo("20260918.1");
+            // TEST_ALIGNMENT_REASON: production had already crossed V20260914_1
+            // before HRM-G1 reached main. The complete HRM dependency chain is
+            // therefore forward-renumbered to V20260918_2..V20260918_7; no
+            // out-of-order execution, repair, or production history rewrite.
+            assertThat(rs.getString(1)).isEqualTo("20260918.7");
         }
     }
 

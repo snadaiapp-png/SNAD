@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260908_2 — HRM-G1: RLS ENABLE + FORCE + tenant_isolation policies
+-- V20260918_3 — HRM-G1: RLS ENABLE + FORCE + tenant_isolation policies
 --               on every §5.2 table (design §8.1, G0 policy shape)
 -- ============================================================
 -- Policy shape (identical to G0 V20260905_16):
