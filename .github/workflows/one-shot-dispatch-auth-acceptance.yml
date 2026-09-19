@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          current_main="$(gh api --repo "$GITHUB_REPOSITORY" repos/$GITHUB_REPOSITORY/branches/main --jq '.commit.sha')"
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
           test "$current_main" = "$EXPECTED_MAIN_SHA" || {
             echo "::error::Main drift detected: expected=$EXPECTED_MAIN_SHA actual=$current_main"
             exit 1
@@ -48,7 +48,7 @@ jobs:
           started="${{ steps.dispatch.outputs.dispatched_at }}"
           run_id=""
           for _ in $(seq 1 60); do
-            response="$(gh api --repo "$GITHUB_REPOSITORY" "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_MAIN_SHA&per_page=100")"
+            response="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$EXPECTED_MAIN_SHA&per_page=100")"
             run_id="$(jq -r --arg started "$started" '
               [.workflow_runs[]
                 | select(
@@ -77,7 +77,7 @@ jobs:
           set -euo pipefail
           run_id="${{ steps.resolve.outputs.run_id }}"
           for _ in $(seq 1 120); do
-            state="$(gh api --repo "$GITHUB_REPOSITORY" "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
             status="$(jq -r '.status' <<<"$state")"
             conclusion="$(jq -r '.conclusion // ""' <<<"$state")"
             echo "Auth acceptance $run_id: status=$status conclusion=$conclusion"
