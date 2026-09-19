@@ -35,6 +35,8 @@ class HrApiV2AuthorizationTest {
             "HRM.USER_LINK.MANAGE",
             "HRM.AUDIT.VIEW",
             "HRM.COMPLIANCE_OVERRIDE.REQUEST", "HRM.COMPLIANCE_OVERRIDE.APPROVE",
+            "HRM.RECRUITMENT.APPLICATION.SUBMIT", "HRM.RECRUITMENT.APPLICATION.WITHDRAW",
+            "HRM.RECRUITMENT.OFFER.ACCEPT", "HRM.RECRUITMENT.OFFER.DECLINE",
             "HRM.ADMIN");
 
     private static final String DB_URL = System.getenv().getOrDefault(
@@ -83,7 +85,7 @@ class HrApiV2AuthorizationTest {
         List<String> seeded = queryColumn(
                 "SELECT code FROM access_capabilities WHERE code LIKE 'HRM.%' AND status = 'ACTIVE' ORDER BY code");
         assertThat(seeded)
-                .as("exactly the 19 canonical HRM.* capabilities must be seeded ACTIVE")
+                .as("exactly the 23 canonical HRM.* capabilities must be seeded ACTIVE")
                 .containsExactlyInAnyOrderElementsOf(CANONICAL_HRM_CAPABILITIES);
     }
 
@@ -143,7 +145,7 @@ class HrApiV2AuthorizationTest {
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
                 .as("one TENANT-scope grant per ADMIN HRM capability")
-                .isEqualTo("19");
+                .isEqualTo("23");
 
         // Idempotency: re-running the backfill must not duplicate anything.
         applyScopeGrantBackfill();
@@ -151,7 +153,7 @@ class HrApiV2AuthorizationTest {
                 + "JOIN access_capabilities c ON c.id = g.capability_id "
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
-                .isEqualTo("19");
+                .isEqualTo("23");
 
         List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
         assertThat(hrManagerCaps).containsExactlyInAnyOrder(

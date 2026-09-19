@@ -94,9 +94,10 @@ class R0C13G02SchemaPostgresTest {
             assertThat(rs.next()).isTrue();
             // TEST_ALIGNMENT_REASON: production had already crossed V20260914_1
             // before HRM-G1 reached main. The complete HRM dependency chain is
-            // therefore forward-renumbered to V20260918_2..V20260918_7; no
+            // therefore forward-renumbered to V20260918_2..V20260918_8; no
             // out-of-order execution, repair, or production history rewrite.
-            assertThat(rs.getString(1)).isEqualTo("20260918.7");
+            // T10 adds the forward-only candidate self-service migration.
+            assertThat(rs.getString(1)).isEqualTo("20260918.8");
         }
     }
 
