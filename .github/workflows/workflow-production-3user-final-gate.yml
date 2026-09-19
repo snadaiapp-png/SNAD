@@ -26,6 +26,9 @@ jobs:
       PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       PROD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
       PROD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+      PROD_QA_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      PROD_QA_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      PROD_QA_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PROD_EVIDENCE_FILE: workflow-production-3user-journey.json
@@ -51,7 +54,7 @@ jobs:
             echo '::error::Application source changed after the certified baseline; this gate is not authorized for that drift'
             exit 1
           }
-          for name in PRODUCTION_BASE_URL PROD_ADMIN_EMAIL PROD_ADMIN_PASSWORD RENDER_API_KEY RENDER_SERVICE_ID; do
+          for name in PRODUCTION_BASE_URL PROD_ADMIN_EMAIL PROD_ADMIN_PASSWORD PROD_QA_TENANT_ID PROD_QA_ADMIN_EMAIL PROD_QA_ADMIN_PASSWORD RENDER_API_KEY RENDER_SERVICE_ID; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           curl --fail-with-body --silent --show-error --max-time 45 \

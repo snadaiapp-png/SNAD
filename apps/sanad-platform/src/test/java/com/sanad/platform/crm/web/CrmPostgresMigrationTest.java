@@ -453,7 +453,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION),
                         MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
                         MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION),
-                        MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION));
+                        MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION),
+                        MigrationVersion.fromVersion(T10_CANDIDATE_SELF_SERVICE_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -642,7 +643,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G1_ONBOARDING_TEMPLATE_SEED_VERSION),
                         MigrationVersion.fromVersion(T7_OFFER_APPROVAL_CORRELATION_VERSION),
                         MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION),
-                        MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION));
+                        MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION),
+                        MigrationVersion.fromVersion(T10_CANDIDATE_SELF_SERVICE_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
