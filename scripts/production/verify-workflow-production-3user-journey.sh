@@ -149,7 +149,7 @@ record capabilityGuard PASS 'Required QA tenant user and workflow capabilities p
 status="$(request GET '/api/platform/api/v1/workflows/definitions?limit=50' "$WORK_DIR/defs.json" qa)"; expect "$status" 200 definitionsRead
 EXISTING_DEF="$(jq -r '[.[]|select(.publicationState=="PUBLISHED")][0].id // .[0].id // empty' "$WORK_DIR/defs.json")"
 [ -n "$EXISTING_DEF" ] || fail validateBoundary 'No definition exists for boundary check'
-status="$(request POST "/api/platform/api/v1/workflows/definitions/$EXISTING_DEF/validate" "$WORK_DIR/boundary-validate.json" auth '{}')"; expect "$status" 200 validateBoundary
+status="$(request POST "/api/platform/api/v1/workflows/definitions/$EXISTING_DEF/validate" "$WORK_DIR/boundary-validate.json" qa '{}')"; expect "$status" 200 validateBoundary
 
 # 6) Create three production QA users (real tenant user records; no credential bypass).
 RUN_KEY="${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}-${EXPECTED_MAIN_SHA:0:8}"
@@ -179,9 +179,9 @@ status="$(request POST "/api/platform/api/v1/workflows/definitions/$DEF_ID/steps
 END_ID="$(jq -r '.id' "$WORK_DIR/end.json")"
 trans="$(jq -cn --arg from "$START_ID" --arg to "$END_ID" '{fromStepId:$from,toStepId:$to,transitionKey:"complete",outcome:"SUCCESS",priority:10}')"
 status="$(request POST "/api/platform/api/v1/workflows/definitions/$DEF_ID/transitions" "$WORK_DIR/trans.json" qa "$trans")"; expect "$status" 200 transitionCreate
-status="$(request POST "/api/platform/api/v1/workflows/definitions/$DEF_ID/validate" "$WORK_DIR/validate.json" auth '{}')"; expect "$status" 200 definitionValidate
+status="$(request POST "/api/platform/api/v1/workflows/definitions/$DEF_ID/validate" "$WORK_DIR/validate.json" qa '{}')"; expect "$status" 200 definitionValidate
 jq -e '.valid==true and (.errors|length)==0' "$WORK_DIR/validate.json" >/dev/null || fail definitionValidate 'Validation not clean'
-status="$(request POST "/api/platform/api/v1/workflows/definitions/$DEF_ID/simulate" "$WORK_DIR/simulate.json" auth '{}')"; expect "$status" 200 definitionSimulate
+status="$(request POST "/api/platform/api/v1/workflows/definitions/$DEF_ID/simulate" "$WORK_DIR/simulate.json" qa '{}')"; expect "$status" 200 definitionSimulate
 jq -e '.valid==true and .simulated==true' "$WORK_DIR/simulate.json" >/dev/null || fail definitionSimulate 'Simulation failed'
 pub="$(jq -cn --argjson expected "$VERSION_LOCK" '{expectedVersion:$expected}')"
 status="$(request POST "/api/platform/api/v1/workflows/definitions/$DEF_ID/publish" "$WORK_DIR/publish.json" qa "$pub")"; expect "$status" 200 definitionPublish
