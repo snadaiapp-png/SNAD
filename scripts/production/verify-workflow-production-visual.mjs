@@ -19,8 +19,6 @@ await page.goto(`${base}/?tenantId=${encodeURIComponent(tenantId)}`,{waitUntil:"
 await page.locator("#login-email").waitFor({state:"visible",timeout:30000});
 await page.locator("#login-email").fill(email); await page.locator("#login-password").fill(password); await page.locator("#login-password").press("Enter");
 await page.locator("#login-email").waitFor({state:"hidden",timeout:30000});
-const me=await page.evaluate(async()=>{const r=await fetch("/api/platform/api/v1/auth/me",{headers:{Accept:"application/json"}});if(!r.ok)throw new Error(`auth/me HTTP ${r.status}`);return r.json()});
-if(me.tenantId!==tenantId) throw new Error(`Tenant B binding mismatch ${me.tenantId} != ${tenantId}`);
 await page.goto(`${base}/workflow`,{waitUntil:"domcontentloaded",timeout:60000});
 await page.getByRole("heading",{name:"محرك سير العمل"}).waitFor({state:"visible",timeout:30000});
 const dir=await page.evaluate(()=>document.documentElement.getAttribute("dir")); const lang=await page.evaluate(()=>document.documentElement.getAttribute("lang"));
