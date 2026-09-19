@@ -29,6 +29,7 @@ jobs:
       PROD_QA_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
       PROD_QA_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       PROD_QA_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+      PROD_QA_PLAN_CODE: ${{ vars.WORKFLOW_PROD_QA_PLAN_CODE || 'WORKFLOW_PROD_QA' }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PROD_EVIDENCE_FILE: workflow-production-3user-journey.json
@@ -167,6 +168,21 @@ jobs:
             exit 1
           }
           echo 'Canonical Y2 capability guard alignment: PASS'
+
+      - name: Enforce final-gate safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          journey='scripts/production/verify-workflow-production-3user-journey.sh'
+          visual='scripts/production/verify-workflow-production-visual.mjs'
+          ! grep -F "request POST '/api/platform/api/v1/executive/plans'" "$journey" >/dev/null
+          ! grep -F 'version-create.json' "$journey" >/dev/null
+          grep -F 'Control Plane token attempted non-Executive API' "$journey" >/dev/null
+          grep -F 'Tenant B token attempted Executive API' "$journey" >/dev/null
+          grep -F 'PROD_QA_ADMIN_EMAIL' "$visual" >/dev/null
+          grep -F 'PROD_QA_TENANT_ID' "$visual" >/dev/null
+          ! grep -F 'PROD_ADMIN_EMAIL' "$visual" >/dev/null
+          echo 'Final-gate safety contract: PASS'
 
       - name: Execute entitlement-safe 3-user Workflow journey
         shell: bash
