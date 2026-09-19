@@ -21,7 +21,7 @@ jobs:
     environment: production
     timeout-minutes: 40
     env:
-      BASELINE_APP_SHA: 93b66b0c0b5dc8def2e297052147e9b506cbe7ed
+      BASELINE_APP_SHA: 89d7226e31a10a13bac8fb1d055a63ecf83eb731
       EXPECTED_MAIN_SHA: ${{ github.sha }}
       PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       PROD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
@@ -29,6 +29,7 @@ jobs:
       PROD_QA_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
       PROD_QA_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       PROD_QA_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+      PROD_QA_PLAN_CODE: ${{ vars.WORKFLOW_PROD_QA_PLAN_CODE || 'WORKFLOW_PROD_QA' }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PROD_EVIDENCE_FILE: workflow-production-3user-journey.json
@@ -148,8 +149,7 @@ jobs:
           script='scripts/production/verify-workflow-production-3user-journey.sh'
           controller='apps/sanad-platform/src/main/java/com/sanad/platform/workflow/api/WorkflowController.java'
           migration='apps/sanad-platform/src/main/resources/db/migration/V20260904_1__workflow_y2_production_reconciliation.sql'
-          expected='WORKFLOW.VALIDATE WORKFLOW.SIMULATE WORKFLOW.PUBLISH'
-          replacement='WORKFLOW.VALIDATE WORKFLOW.PUBLISH'
+          expected='WORKFLOW.VALIDATE WORKFLOW.PUBLISH'
 
           grep -A1 -F '@PostMapping("/definitions/{id}/simulate")' "$controller" | grep -F '@RequireCapability("WORKFLOW.VALIDATE")' >/dev/null || {
             echo '::error::Canonical simulate authorization is not WORKFLOW.VALIDATE'
@@ -159,17 +159,30 @@ jobs:
             echo '::error::Canonical Y2 capability migration no longer maps validate+simulate to WORKFLOW.VALIDATE'
             exit 1
           }
-          count="$(grep -oF "$expected" "$script" | wc -l | tr -d ' ')"
-          [ "$count" = 1 ] || {
-            echo "::error::Expected exactly one stale WORKFLOW.SIMULATE guard sequence; found $count"
+          grep -F "$expected" "$script" >/dev/null || {
+            echo '::error::Canonical Workflow capability guard sequence missing from exact-head script'
             exit 1
           }
-          sed -i "s/$expected/$replacement/" "$script"
           ! grep -qF 'WORKFLOW.SIMULATE' "$script" || {
-            echo '::error::Stale WORKFLOW.SIMULATE capability guard remains after canonical alignment'
+            echo '::error::Stale WORKFLOW.SIMULATE capability guard exists in exact-head script'
             exit 1
           }
           echo 'Canonical Y2 capability guard alignment: PASS'
+
+      - name: Enforce final-gate safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          journey='scripts/production/verify-workflow-production-3user-journey.sh'
+          visual='scripts/production/verify-workflow-production-visual.mjs'
+          ! grep -F "request POST '/api/platform/api/v1/executive/plans'" "$journey" >/dev/null
+          ! grep -F 'version-create.json' "$journey" >/dev/null
+          grep -F 'Control Plane token attempted non-Executive API' "$journey" >/dev/null
+          grep -F 'Tenant B token attempted Executive API' "$journey" >/dev/null
+          grep -F 'PROD_QA_ADMIN_EMAIL' "$visual" >/dev/null
+          grep -F 'PROD_QA_TENANT_ID' "$visual" >/dev/null
+          ! grep -F 'PROD_ADMIN_EMAIL' "$visual" >/dev/null
+          echo 'Final-gate safety contract: PASS'
 
       - name: Execute entitlement-safe 3-user Workflow journey
         shell: bash
@@ -216,7 +229,10 @@ jobs:
             echo "- Live backend source-equivalent SHA: $LIVE_BACKEND_SHA"
             echo '- Production backend readiness: PASS'
             echo '- Workflow capability contract: canonical Y2 validate+simulate via WORKFLOW.VALIDATE'
-            echo '- Workflow entitlement: ACTIVE through audited control-plane path'
+            echo '- Control Plane operator: Executive APIs only'
+            echo '- Tenant B: Workflow + users + authenticated UI'
+            echo '- Workflow plan: existing catalog plan only; no plan/version creation'
+            echo '- Workflow entitlement: ACTIVE through audited Executive API path'
             echo '- Production QA users: 3 created'
             echo '- DRAFT → validate → simulate → PUBLISHED(Y2): PASS'
             echo '- User-linked Workflow instances: 3/3 COMPLETED'
