@@ -1,0 +1,98 @@
+name: Diagnose Production Subscription State
+
+on:
+  push:
+    branches:
+      - ops/diagnose-prod-subscription-19357501
+    paths:
+      - ".github/workflows/diagnose-prod-subscription-state.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Read-only production subscription diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      EXPECTED_MAIN_SHA: 193575017b0ed587d8e4d5b810e90c540e5ec5a0
+      PRODUCTION_BASE_URL: https://snad-app.vercel.app
+      RENDER_SERVICE_ID: srv-d8ragqkm0tmc73bviqq0
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      PROD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      PROD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Verify current main lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git ls-remote https://github.com/${GITHUB_REPOSITORY}.git refs/heads/main | awk '{print $1}')"
+          test "$current" = "$EXPECTED_MAIN_SHA" || {
+            echo "::error::Main drift detected: expected=$EXPECTED_MAIN_SHA actual=$current"
+            exit 1
+          }
+
+      - name: Resolve production tenant identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RENDER_API_KEY"
+          curl --fail-with-body --silent --show-error --max-time 45             -H "Authorization: Bearer $RENDER_API_KEY" -H 'Accept: application/json'             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars?limit=100" > "$RUNNER_TEMP/render-env.json"
+          test "$(jq 'length' "$RUNNER_TEMP/render-env.json")" -lt 100
+          tenant_id="$(jq -r '[.[]? | (.envVar // .) | select(.key=="SANAD_CONTROL_PLANE_TENANT_ID")][0].value // empty' "$RUNNER_TEMP/render-env.json")"
+          [[ "$tenant_id" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Production tenant id unavailable"; exit 1; }
+          echo "::add-mask::$tenant_id"
+          echo "PROD_TENANT_ID=$tenant_id" >> "$GITHUB_ENV"
+
+      - name: Authenticate through production BFF
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(jq -cn --arg email "$PROD_ADMIN_EMAIL" --arg password "$PROD_ADMIN_PASSWORD" --arg tenantId "$PROD_TENANT_ID" '{email:$email,password:$password,tenantId:$tenantId}')"
+          code="$(curl --silent --show-error --location --max-time 60             -H 'Content-Type: application/json' -H 'Accept: application/json'             -o "$RUNNER_TEMP/login.json" -w '%{http_code}'             -X POST "$PRODUCTION_BASE_URL/api/platform/api/v1/auth/login"             --data "$payload")"
+          test "$code" = 200 || { echo "::error::Admin login failed HTTP $code"; exit 1; }
+          token="$(jq -r '.accessToken // empty' "$RUNNER_TEMP/login.json")"
+          test -n "$token"
+          echo "::add-mask::$token"
+          echo "ACCESS_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Read subscriptions via audited executive API
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth=(-H "Authorization: Bearer $ACCESS_TOKEN" -H 'Accept: application/json')
+
+          code="$(curl --silent --show-error --location --max-time 60             "${auth[@]}" -o "$RUNNER_TEMP/legacy.json" -w '%{http_code}'             "$PRODUCTION_BASE_URL/api/platform/api/v1/executive/subscriptions?tenantId=$PROD_TENANT_ID")"
+          test "$code" = 200 || { echo "::error::Legacy subscriptions HTTP $code"; exit 1; }
+
+          code="$(curl --silent --show-error --location --max-time 60             "${auth[@]}" -o "$RUNNER_TEMP/v2.json" -w '%{http_code}'             "$PRODUCTION_BASE_URL/api/platform/api/v1/executive/subscriptions/v2?tenantId=$PROD_TENANT_ID&page=0&size=100")"
+          test "$code" = 200 || { echo "::error::V2 subscriptions HTTP $code"; exit 1; }
+
+          jq -n             --arg schema "snad.production-subscription-diagnostic.v1"             --arg mainSha "$EXPECTED_MAIN_SHA"             --slurpfile legacy "$RUNNER_TEMP/legacy.json"             --slurpfile v2 "$RUNNER_TEMP/v2.json"             '{
+              schema:$schema,
+              mainSha:$mainSha,
+              legacyCount: (($legacy[0] // []) | length),
+              legacy: (($legacy[0] // []) | map({
+                id, planId, status, billingCycle, seatQuantity,
+                trialEndsAt, currentPeriodStart, currentPeriodEnd,
+                createdAt, updatedAt
+              })),
+              v2TotalElements: ($v2[0].totalElements // 0),
+              v2: (($v2[0].content // []) | map({
+                id, planId, planCode, planVersion, status, billingCycle,
+                seatQuantity, itemCount, trial, trialEndsAt, periodStart, periodEnd
+              }))
+            }' > subscription-diagnostic.json
+
+          echo "SUBSCRIPTION_DIAGNOSTIC=PASS"
+          jq '{legacyCount, v2TotalElements, statuses:([.legacy[].status, .v2[].status] | map(select(.!=null)) | unique)}' subscription-diagnostic.json
+
+      - name: Upload sanitized diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-subscription-diagnostic-${{ github.run_id }}
+          path: subscription-diagnostic.json
+          retention-days: 30
