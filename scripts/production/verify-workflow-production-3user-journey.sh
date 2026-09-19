@@ -60,85 +60,41 @@ record controlPlaneCapabilityGuard PASS 'Required executive capabilities present
 [ "$PROD_QA_TENANT_ID" != "$PROD_TENANT_ID" ] || fail qaTenantIsolation 'QA tenant must differ from control-plane tenant'
 record qaTenantIsolation PASS 'Dedicated QA tenant differs from control-plane tenant'
 
-# 3) Ensure the dedicated QA tenant has exactly one ACTIVE subscription, using audited Executive APIs only.
-status="$(request GET "/api/platform/api/v1/executive/subscriptions?tenantId=$PROD_QA_TENANT_ID" "$WORK_DIR/qa-subscriptions.json" auth)"; expect "$status" 200 qaTenantSubscriptions
-ACTIVE_COUNT="$(jq '[.[]|select(.status=="ACTIVE")]|length' "$WORK_DIR/qa-subscriptions.json")"
-TOTAL_COUNT="$(jq 'length' "$WORK_DIR/qa-subscriptions.json")"
-[ "$ACTIVE_COUNT" -le 1 ] || fail qaTenantSubscriptionGuard "Expected at most one ACTIVE QA subscription; found $ACTIVE_COUNT"
+# 3) Resolve the dedicated QA tenant subscription through the global control-plane grid.
+# Never send a foreign tenantId query parameter: JwtAuthenticationFilter intentionally rejects it.
+status="$(request GET '/api/platform/api/v1/executive/plans' "$WORK_DIR/plans.json" auth)"; expect "$status" 200 plansRead
+STARTER_COUNT="$(jq '[.[]|select(.code=="STARTER" and .status=="ACTIVE" and (.trialDays // 0)>0 and (.maxUsers // 0)>=4 and ([.entitlements[]? | select(.featureCode=="WORKFLOW" and .enabled==true)]|length)>=1)]|length' "$WORK_DIR/plans.json")"
+[ "$STARTER_COUNT" = 1 ] || fail starterPlanGuard "Expected exactly one ACTIVE STARTER plan with non-zero trial, >=4 users, and WORKFLOW entitlement; found $STARTER_COUNT"
+PLAN_ID="$(jq -r '[.[]|select(.code=="STARTER" and .status=="ACTIVE")][0].id' "$WORK_DIR/plans.json")"
+STARTER_MAX_USERS="$(jq -r '[.[]|select(.code=="STARTER" and .status=="ACTIVE")][0].maxUsers' "$WORK_DIR/plans.json")"
+[[ "$PLAN_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail starterPlanGuard 'Invalid STARTER plan id'
+record starterPlanGuard PASS "Existing STARTER plan selected; maxUsers=$STARTER_MAX_USERS"
 
-if [ "$ACTIVE_COUNT" = 0 ]; then
-  [ "$TOTAL_COUNT" = 0 ] || fail qaTenantSubscriptionGuard 'QA tenant has subscription history but no ACTIVE subscription; refusing lifecycle bypass'
-
-  status="$(request GET '/api/platform/api/v1/executive/plans' "$WORK_DIR/plans.json" auth)"; expect "$status" 200 plansRead
-  PLAN_ID="$(jq -r '[.[]|select(.code=="WORKFLOW_PROD_QA")][0].id // empty' "$WORK_DIR/plans.json")"
-  if [ -z "$PLAN_ID" ]; then
-    plan_payload='{"code":"WORKFLOW_PROD_QA","name":"Workflow Production QA","description":"Dedicated zero-price production certification plan","currencyCode":"SAR","monthlyPriceMinor":0,"annualPriceMinor":0,"trialDays":0,"maxUsers":20,"maxOrganizations":5,"storageMb":0,"entitlements":[]}'
-    status="$(request POST '/api/platform/api/v1/executive/plans' "$WORK_DIR/plan-create.json" auth "$plan_payload")"; expect "$status" 200 qaPlanCreate
-    PLAN_ID="$(jq -r '.id // empty' "$WORK_DIR/plan-create.json")"
-    [[ "$PLAN_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail qaPlanCreate 'Invalid plan id'
-    record qaPlanProvisioning PASS 'Dedicated QA plan created through Executive API'
-  else
-    jq -e '[.[]|select(.code=="WORKFLOW_PROD_QA" and .status=="ACTIVE")]|length==1' "$WORK_DIR/plans.json" >/dev/null || fail qaPlanProvisioning 'Dedicated QA plan exists but is not ACTIVE'
-    record qaPlanProvisioning PASS 'Dedicated QA plan reused'
-  fi
-
-  status="$(request GET "/api/platform/api/v1/executive/plans/$PLAN_ID/versions" "$WORK_DIR/plan-versions.json" auth)"; expect "$status" 200 qaPlanVersions
-  ACTIVE_VERSION_COUNT="$(jq '[.[]|select(.status=="ACTIVE")]|length' "$WORK_DIR/plan-versions.json")"
-  [ "$ACTIVE_VERSION_COUNT" -le 1 ] || fail qaPlanVersionGuard "Expected at most one ACTIVE plan version; found $ACTIVE_VERSION_COUNT"
-  if [ "$ACTIVE_VERSION_COUNT" = 0 ]; then
-    version_payload='{"currencyCode":"SAR","monthlyPriceMinor":0,"annualPriceMinor":0,"trialDays":0,"maxUsers":20,"maxOrganizations":5,"storageMb":0}'
-    status="$(request POST "/api/platform/api/v1/executive/plans/$PLAN_ID/versions" "$WORK_DIR/version-create.json" auth "$version_payload")"; expect "$status" 200 qaPlanVersionCreate
-    VERSION_ID="$(jq -r '.id // empty' "$WORK_DIR/version-create.json")"
-    [[ "$VERSION_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail qaPlanVersionCreate 'Invalid version id'
-    status="$(request POST "/api/platform/api/v1/executive/plans/$PLAN_ID/versions/$VERSION_ID/activate" "$WORK_DIR/version-activate.json" auth '{}')"; expect "$status" 200 qaPlanVersionActivate
-    jq -e '.status=="ACTIVE"' "$WORK_DIR/version-activate.json" >/dev/null || fail qaPlanVersionActivate 'Plan version did not become ACTIVE'
-    record qaPlanVersionProvisioning PASS 'Dedicated QA plan version activated'
-  else
-    record qaPlanVersionProvisioning PASS 'Dedicated QA ACTIVE plan version reused'
-  fi
-
-  subscription_payload="$(jq -cn --arg tenantId "$PROD_QA_TENANT_ID" --arg planId "$PLAN_ID" '{tenantId:$tenantId,planId:$planId,billingCycle:"MONTHLY",seatQuantity:10,trialDays:0}')"
-  status="$(request POST '/api/platform/api/v1/executive/subscriptions' "$WORK_DIR/subscription-create.json" auth "$subscription_payload")"; expect "$status" 200 qaSubscriptionCreate
-  jq -e '.status=="ACTIVE"' "$WORK_DIR/subscription-create.json" >/dev/null || fail qaSubscriptionCreate 'QA subscription was not created ACTIVE'
-  SUB_ID="$(jq -r '.id // empty' "$WORK_DIR/subscription-create.json")"
-  record qaSubscriptionProvisioning PASS 'ACTIVE QA subscription created through Executive API'
-else
-  PLAN_ID="$(jq -r '[.[]|select(.status=="ACTIVE")][0].planId' "$WORK_DIR/qa-subscriptions.json")"
-  SUB_ID="$(jq -r '[.[]|select(.status=="ACTIVE")][0].id' "$WORK_DIR/qa-subscriptions.json")"
-  record qaSubscriptionProvisioning PASS 'Existing ACTIVE QA subscription reused'
-fi
-[[ "$PLAN_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail qaTenantSubscriptionGuard 'Invalid planId'
-[[ "$SUB_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail qaTenantSubscriptionGuard 'Invalid subscriptionId'
-
-# Prove the QA plan is exclusive among ACTIVE subscriptions before any entitlement mutation.
-: > "$WORK_DIR/all-active.jsonl"; page=0
+: > "$WORK_DIR/all-subscriptions.jsonl"; page=0
 while :; do
-  status="$(request GET "/api/platform/api/v1/executive/subscriptions/v2?status=ACTIVE&page=$page&size=100" "$WORK_DIR/page.json" auth)"; expect "$status" 200 "activeSubscriptionsPage${page}"
-  jq -c '.content[]?' "$WORK_DIR/page.json" >> "$WORK_DIR/all-active.jsonl"
-  totalPages="$(jq -r '.totalPages' "$WORK_DIR/page.json")"; [ "$page" -ge $((totalPages-1)) ] && break
-  page=$((page+1)); [ "$page" -lt 100 ] || fail planExclusivity 'Pagination safety limit exceeded'
+  status="$(request GET "/api/platform/api/v1/executive/subscriptions/v2?page=$page&size=100" "$WORK_DIR/sub-page.json" auth)"; expect "$status" 200 "subscriptionsPage${page}"
+  jq -c '.content[]?' "$WORK_DIR/sub-page.json" >> "$WORK_DIR/all-subscriptions.jsonl"
+  totalPages="$(jq -r '.totalPages' "$WORK_DIR/sub-page.json")"
+  [ "$page" -ge $((totalPages-1)) ] && break
+  page=$((page+1)); [ "$page" -lt 100 ] || fail qaTenantSubscriptionGuard 'Subscription pagination safety limit exceeded'
 done
-jq -s '.' "$WORK_DIR/all-active.jsonl" > "$WORK_DIR/all-active.json"
-PLAN_ACTIVE_COUNT="$(jq --arg plan "$PLAN_ID" '[.[]|select(.planId==$plan)]|length' "$WORK_DIR/all-active.json")"
-PLAN_TENANT="$(jq -r --arg plan "$PLAN_ID" '[.[]|select(.planId==$plan)][0].tenantId // empty' "$WORK_DIR/all-active.json")"
-[ "$PLAN_ACTIVE_COUNT" = 1 ] && [ "$PLAN_TENANT" = "$PROD_QA_TENANT_ID" ] || fail planExclusivity "Dedicated QA plan is shared by $PLAN_ACTIVE_COUNT ACTIVE subscriptions"
-record planExclusivity PASS 'Dedicated QA plan is exclusive to the QA tenant'
+jq -s '.' "$WORK_DIR/all-subscriptions.jsonl" > "$WORK_DIR/all-subscriptions.json"
+QA_ACTIVE_COUNT="$(jq --arg tenant "$PROD_QA_TENANT_ID" '[.[]|select(.tenantId==$tenant and .status=="ACTIVE")]|length' "$WORK_DIR/all-subscriptions.json")"
+[ "$QA_ACTIVE_COUNT" = 1 ] || fail qaTenantSubscriptionGuard "Dedicated QA tenant requires exactly one governed ACTIVE subscription before the final journey; found $QA_ACTIVE_COUNT"
+SUB_ID="$(jq -r --arg tenant "$PROD_QA_TENANT_ID" '[.[]|select(.tenantId==$tenant and .status=="ACTIVE")][0].id' "$WORK_DIR/all-subscriptions.json")"
+ACTIVE_PLAN_ID="$(jq -r --arg tenant "$PROD_QA_TENANT_ID" '[.[]|select(.tenantId==$tenant and .status=="ACTIVE")][0].planId' "$WORK_DIR/all-subscriptions.json")"
+[ "$ACTIVE_PLAN_ID" = "$PLAN_ID" ] || fail qaTenantSubscriptionGuard 'Dedicated QA tenant ACTIVE subscription must use the existing STARTER plan'
+STARTER_ACTIVE_COUNT="$(jq --arg plan "$PLAN_ID" '[.[]|select(.planId==$plan and .status=="ACTIVE")]|length' "$WORK_DIR/all-subscriptions.json")"
+STARTER_ACTIVE_TENANT="$(jq -r --arg plan "$PLAN_ID" '[.[]|select(.planId==$plan and .status=="ACTIVE")][0].tenantId // empty' "$WORK_DIR/all-subscriptions.json")"
+[ "$STARTER_ACTIVE_COUNT" = 1 ] && [ "$STARTER_ACTIVE_TENANT" = "$PROD_QA_TENANT_ID" ] || fail planExclusivity "STARTER is not exclusive to the dedicated QA tenant"
+record qaSubscriptionProvisioning PASS 'Existing governed ACTIVE STARTER subscription verified; final gate performs no subscription/catalog creation'
+record planExclusivity PASS 'STARTER ACTIVE subscription is exclusive to the dedicated QA tenant'
 
-# 4) Enable Workflow only through audited executive entitlement APIs.
-status="$(request GET '/api/platform/api/v1/executive/modules/WORKFLOW' "$WORK_DIR/module.json" auth)"; expect "$status" 200 workflowModule
-MODULE_ID="$(jq -r '.id // empty' "$WORK_DIR/module.json")"; [[ "$MODULE_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail workflowModule 'Invalid WORKFLOW module id'
-status="$(request GET "/api/platform/api/v1/executive/tenants/$PROD_QA_TENANT_ID/entitlements" "$WORK_DIR/ent-before.json" auth)"; expect "$status" 200 entitlementsBefore
-ENABLED_BEFORE="$(jq -r '[.[]|select(.moduleCode=="WORKFLOW")][0].moduleEnabled // false' "$WORK_DIR/ent-before.json")"
-if [ "$ENABLED_BEFORE" != true ]; then
-  entitlement_payload="$(jq -cn --arg moduleId "$MODULE_ID" '{moduleId:$moduleId,moduleEnabled:true,capabilityCode:null,capabilityValue:null,limitValue:null,quotaValue:null,quotaPeriod:null}')"
-  status="$(request PUT "/api/platform/api/v1/executive/plans/$PLAN_ID/modules/WORKFLOW" "$WORK_DIR/enable.json" auth "$entitlement_payload")"; expect "$status" 200 enableWorkflowEntitlement
-  status="$(request POST "/api/platform/api/v1/executive/tenants/$PROD_QA_TENANT_ID/entitlements/recalculate" "$WORK_DIR/recalc.json" auth '{}')"; expect "$status" 200 recalculateEntitlements
-  record entitlementMutation PASS 'Enabled through audited executive API on dedicated QA plan'
-else
-  record entitlementMutation PASS 'Already enabled; no mutation required'
-fi
+# 4) Recalculate QA tenant entitlements only; never mutate the shared STARTER catalog.
+status="$(request POST "/api/platform/api/v1/executive/tenants/$PROD_QA_TENANT_ID/entitlements/recalculate" "$WORK_DIR/recalc.json" auth '{}')"; expect "$status" 200 recalculateEntitlements
 status="$(request GET "/api/platform/api/v1/executive/tenants/$PROD_QA_TENANT_ID/entitlements" "$WORK_DIR/ent-after.json" auth)"; expect "$status" 200 entitlementsAfter
-jq -e '[.[]|select(.moduleCode=="WORKFLOW" and .moduleEnabled==true)]|length==1' "$WORK_DIR/ent-after.json" >/dev/null || fail entitlementsAfter 'WORKFLOW entitlement not active'
+jq -e '[.[]|select(.moduleCode=="WORKFLOW" and .moduleEnabled==true)]|length==1' "$WORK_DIR/ent-after.json" >/dev/null || fail entitlementsAfter 'STARTER did not resolve an active WORKFLOW entitlement for the QA tenant'
+record entitlementGuard PASS 'WORKFLOW entitlement resolved from existing STARTER catalog; plan/catalog mutations NONE'
 
 # Switch to the dedicated QA tenant identity for all tenant-scoped Workflow operations.
 qa_login_payload="$(jq -cn --arg email "$PROD_QA_ADMIN_EMAIL" --arg password "$PROD_QA_ADMIN_PASSWORD" --arg tenantId "$PROD_QA_TENANT_ID" '{email:$email,password:$password,tenantId:$tenantId}')"
@@ -152,23 +108,38 @@ for cap in USER.CREATE USER.READ USER.WRITE WORKFLOW.WRITE WORKFLOW.DESIGN WORKF
 done
 record capabilityGuard PASS 'Required QA tenant user and workflow capabilities present'
 
-# 5) Verify previously failing validate boundary is now open.
-status="$(request GET '/api/platform/api/v1/workflows/definitions?limit=50' "$WORK_DIR/defs.json" auth)"; expect "$status" 200 definitionsRead
-EXISTING_DEF="$(jq -r '[.[]|select(.publicationState=="PUBLISHED")][0].id // .[0].id // empty' "$WORK_DIR/defs.json")"
-[ -n "$EXISTING_DEF" ] || fail validateBoundary 'No definition exists for boundary check'
-status="$(request POST "/api/platform/api/v1/workflows/definitions/$EXISTING_DEF/validate" "$WORK_DIR/boundary-validate.json" auth '{}')"; expect "$status" 200 validateBoundary
+# 5) Full validate/simulate authorization is proven below against the definition created by this run.
+# 6) Ensure exactly three stable production QA user identities exist; create only missing identities.
+status="$(request GET "/api/platform/api/v1/users?tenantId=$PROD_QA_TENANT_ID" "$WORK_DIR/users-before.json" auth)"; expect "$status" 200 qaUsersRead
+EXISTING_USER_COUNT="$(jq 'length' "$WORK_DIR/users-before.json")"
+MISSING_QA_USERS=0
+for n in 1 2 3; do
+  email="workflow-prod-qa${n}@qa.snad.invalid"
+  count="$(jq --arg email "$email" '[.[]|select((.email|ascii_downcase)==($email|ascii_downcase))]|length' "$WORK_DIR/users-before.json")"
+  [ "$count" -le 1 ] || fail threeQaUsers "Duplicate QA identity found for $email"
+  [ "$count" = 1 ] || MISSING_QA_USERS=$((MISSING_QA_USERS+1))
+done
+[ $((EXISTING_USER_COUNT + MISSING_QA_USERS)) -le "$STARTER_MAX_USERS" ] || fail qaSeatGuard "STARTER seat capacity would be exceeded by the three QA identities"
+record qaSeatGuard PASS "Existing users=$EXISTING_USER_COUNT missing fixed QA users=$MISSING_QA_USERS maxUsers=$STARTER_MAX_USERS"
 
-# 6) Create three production QA users (real tenant user records; no credential bypass).
-RUN_KEY="${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}-${EXPECTED_MAIN_SHA:0:8}"
 USERS='[]'
 for n in 1 2 3; do
-  email="workflow-prod-qa${n}-${RUN_KEY}@example.invalid"; display="Workflow Production QA $n"
-  payload="$(jq -cn --arg email "$email" --arg display "$display" '{email:$email,displayName:$display,status:"ACTIVE"}')"
-  status="$(request POST "/api/platform/api/v1/users?tenantId=$PROD_QA_TENANT_ID" "$WORK_DIR/user$n.json" auth "$payload")"; expect "$status" 201 "createQaUser${n}"
-  uid="$(jq -r '.id // empty' "$WORK_DIR/user$n.json")"; [[ "$uid" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "createQaUser${n}" 'Invalid user id'
+  email="workflow-prod-qa${n}@qa.snad.invalid"; display="Workflow Production QA $n"
+  count="$(jq --arg email "$email" '[.[]|select((.email|ascii_downcase)==($email|ascii_downcase))]|length' "$WORK_DIR/users-before.json")"
+  if [ "$count" = 0 ]; then
+    payload="$(jq -cn --arg email "$email" --arg display "$display" '{email:$email,displayName:$display,status:"ACTIVE"}')"
+    status="$(request POST "/api/platform/api/v1/users?tenantId=$PROD_QA_TENANT_ID" "$WORK_DIR/user$n.json" auth "$payload")"; expect "$status" 201 "createQaUser${n}"
+    uid="$(jq -r '.id // empty' "$WORK_DIR/user$n.json")"; user_status="$(jq -r '.status // empty' "$WORK_DIR/user$n.json")"
+  else
+    uid="$(jq -r --arg email "$email" '[.[]|select((.email|ascii_downcase)==($email|ascii_downcase))][0].id' "$WORK_DIR/users-before.json")"
+    user_status="$(jq -r --arg email "$email" '[.[]|select((.email|ascii_downcase)==($email|ascii_downcase))][0].status' "$WORK_DIR/users-before.json")"
+  fi
+  [[ "$uid" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "qaUser${n}" 'Invalid user id'
+  [ "$user_status" = ACTIVE ] || fail "qaUser${n}" "QA user $n is not ACTIVE"
   USERS="$(jq -cn --argjson a "$USERS" --arg id "$uid" --arg email "$email" --arg display "$display" '$a + [{id:$id,email:$email,displayName:$display}]')"
 done
-record threeQaUsers PASS '3 production QA user records created'
+jq -e 'map(.id)|unique|length==3' <<<"$USERS" >/dev/null || fail threeQaUsers 'QA user identities are not three distinct users'
+record threeQaUsers PASS '3 stable isolated production QA user identities verified (created only when absent)'
 
 # 7) Full Workflow lifecycle: DRAFT -> graph -> validate -> simulate -> publish(Y2).
 WF_CODE="PROD-3USER-${EXPECTED_MAIN_SHA:0:8}-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}"
