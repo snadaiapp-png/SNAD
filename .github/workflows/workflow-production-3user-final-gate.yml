@@ -171,6 +171,10 @@ jobs:
           }
           echo 'Canonical Y2 capability guard alignment: PASS'
 
+      - name: Verify final 3-user gate contract
+        shell: bash
+        run: python3 scripts/production/tests/test_workflow_production_3user_final_gate.py
+
       - name: Execute entitlement-safe 3-user Workflow journey
         shell: bash
         run: bash scripts/production/verify-workflow-production-3user-journey.sh
@@ -216,12 +220,13 @@ jobs:
             echo "- Live backend source-equivalent SHA: $LIVE_BACKEND_SHA"
             echo '- Production backend readiness: PASS'
             echo '- Workflow capability contract: canonical Y2 validate+simulate via WORKFLOW.VALIDATE'
-            echo '- Workflow entitlement: ACTIVE through audited control-plane path'
-            echo '- Production QA users: 3 created'
+            echo '- QA tenant subscription: governed existing STARTER subscription, verified through subscriptions/v2'
+            echo '- Workflow entitlement: ACTIVE after tenant-scoped recalculation; plan/catalog mutations NONE'
+            echo '- Production QA users: 3 stable isolated identities verified'
             echo '- DRAFT → validate → simulate → PUBLISHED(Y2): PASS'
             echo '- User-linked Workflow instances: 3/3 COMPLETED'
             echo '- Published immutability: PASS (409)'
-            echo '- Authenticated Vercel Workflow UI: PASS'
+            echo '- Authenticated Vercel Workflow UI: PASS on dedicated QA tenant'
             echo '- Desktop + mobile visual evidence: CAPTURED'
             echo '- Direct database writes: NONE'
           } >> "$GITHUB_STEP_SUMMARY"
