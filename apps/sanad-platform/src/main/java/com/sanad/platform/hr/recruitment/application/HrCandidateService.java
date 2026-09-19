@@ -46,6 +46,11 @@ public class HrCandidateService {
 
     public UUID create(HrCommandContext ctx, String displayName, String email, String phone,
                        String compensationExpectations) {
+        return create(ctx, displayName, email, phone, compensationExpectations, null);
+    }
+
+    public UUID create(HrCommandContext ctx, String displayName, String email, String phone,
+                       String compensationExpectations, UUID iamUserId) {
         authorization.requireCandidateManage(ctx, null);
         HrCandidate.StoredContact emailContact = seal(ctx.tenantId(), PURPOSE_CONTACT_EMAIL, email);
         HrCandidate.StoredContact phoneContact = seal(ctx.tenantId(), PURPOSE_CONTACT_PHONE, phone);
@@ -55,7 +60,7 @@ public class HrCandidateService {
         HrCandidate candidate = new HrCandidate(UUID.randomUUID(), ctx.tenantId(), null,
                 displayName, emailContact, phoneContact, compensationCipher,
                 HrCandidate.STATE_ACTIVE, 0L);
-        HrCandidate inserted = repository.insert(candidate, ctx.actorUserId(), ctx.correlationId());
+        HrCandidate inserted = repository.insert(candidate, iamUserId, ctx.actorUserId(), ctx.correlationId());
         emitDuplicateWarnings(ctx, inserted, emailContact, phoneContact);
         return inserted.id();
     }

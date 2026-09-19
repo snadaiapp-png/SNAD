@@ -53,11 +53,15 @@ public class JdbcHrCandidateRepository {
 
     /** Inserts a new ACTIVE candidate, allocating a tenant-unique candidate number. */
     public HrCandidate insert(HrCandidate candidate, UUID actorId, UUID correlationId) {
+        return insert(candidate, null, actorId, correlationId);
+    }
+
+    public HrCandidate insert(HrCandidate candidate, UUID iamUserId, UUID actorId, UUID correlationId) {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
                 setTenantLocal(connection, candidate.tenantId());
-                HrCandidate inserted = insertWithinTx(connection, candidate, actorId, correlationId);
+                HrCandidate inserted = insertWithinTx(connection, candidate, iamUserId, actorId, correlationId);
                 connection.commit();
                 return inserted;
             } catch (SQLException | RuntimeException e) {
@@ -70,8 +74,8 @@ public class JdbcHrCandidateRepository {
         }
     }
 
-    private HrCandidate insertWithinTx(Connection connection, HrCandidate candidate, UUID actorId,
-                                       UUID correlationId) throws SQLException {
+    private HrCandidate insertWithinTx(Connection connection, HrCandidate candidate, UUID iamUserId,
+                                       UUID actorId, UUID correlationId) throws SQLException {
         String year = String.valueOf(OffsetDateTime.now().getYear());
         SQLException lastConflict = null;
         for (int attempt = 0; attempt < 5; attempt++) {
@@ -80,8 +84,8 @@ public class JdbcHrCandidateRepository {
             try (PreparedStatement ps = connection.prepareStatement(
                     "INSERT INTO hr_candidates (id, tenant_id, candidate_number, display_name, "
                             + "contact_email_ciphertext, contact_email_hash, contact_phone_ciphertext, "
-                            + "contact_phone_hash, pool_state, compensation_expectations_cipher, version) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)")) {
+                            + "contact_phone_hash, pool_state, compensation_expectations_cipher, version, iam_user_id) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)")) {
                 ps.setObject(1, candidate.id());
                 ps.setObject(2, candidate.tenantId());
                 ps.setString(3, number);
@@ -93,6 +97,11 @@ public class JdbcHrCandidateRepository {
                     ps.setNull(10, Types.VARCHAR);
                 } else {
                     ps.setString(10, candidate.compensationExpectationsCiphertext());
+                }
+                if (iamUserId == null) {
+                    ps.setNull(11, Types.OTHER);
+                } else {
+                    ps.setObject(11, iamUserId);
                 }
                 ps.executeUpdate();
             } catch (SQLException e) {

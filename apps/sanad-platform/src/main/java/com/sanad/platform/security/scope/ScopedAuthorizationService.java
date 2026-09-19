@@ -80,7 +80,15 @@ public class ScopedAuthorizationService {
 
         return switch (grant.scopeType()) {
             case SELF -> resourceContextResolver.isSelf(
-                    request.tenantId(), request.userId(), resource.personId());
+                    request.tenantId(), request.userId(), resource.personId())
+                    || resourceContextResolver.isCandidateSelf(
+                    request.tenantId(), request.userId(), resource.candidateId())
+                    || ("HR_APPLICATION".equals(resource.resourceType())
+                    && resourceContextResolver.isApplicationCandidateSelf(
+                    request.tenantId(), request.userId(), resource.resourceId()))
+                    || ("HR_OFFER".equals(resource.resourceType())
+                    && resourceContextResolver.isOfferCandidateSelf(
+                    request.tenantId(), request.userId(), resource.resourceId()));
             case DIRECT_REPORTS -> resourceContextResolver.isDirectReport(
                     request.tenantId(), request.userId(), resource.employmentId(), authorizationDate);
             case REPORTING_TREE -> resourceContextResolver.isInReportingTree(

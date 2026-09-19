@@ -256,6 +256,7 @@ class HrG1MigrationTest {
 
     static final String T8_HIRE_CONVERSION_VERSION = "20260918.6";
     static final String T9_GOVERNED_ONBOARDING_VERSION = "20260918.7";
+    static final String T10_CANDIDATE_SELF_SERVICE_VERSION = "20260918.8";
 
     @Test
     void hrmG1VersionsAreStrictlyForwardOfTheProductionLedgerFloorAndDependencyOrdered() {
@@ -267,7 +268,8 @@ class HrG1MigrationTest {
                 org.flywaydb.core.api.MigrationVersion.fromVersion(G1_SEED_VERSION),
                 org.flywaydb.core.api.MigrationVersion.fromVersion(T7_CORRELATION_VERSION),
                 org.flywaydb.core.api.MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION),
-                org.flywaydb.core.api.MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION));
+                org.flywaydb.core.api.MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION),
+                org.flywaydb.core.api.MigrationVersion.fromVersion(T10_CANDIDATE_SELF_SERVICE_VERSION));
 
         assertThat(chain).allSatisfy(version -> assertThat(version).isGreaterThan(floor));
         assertThat(chain).isSortedAccordingTo(org.flywaydb.core.api.MigrationVersion::compareTo);
@@ -299,7 +301,7 @@ class HrG1MigrationTest {
         assertThat(applied)
                 .contains(G1_SCHEMA_VERSION, G1_RLS_VERSION, G1_SEED_VERSION,
                         T7_CORRELATION_VERSION, T8_HIRE_CONVERSION_VERSION,
-                        T9_GOVERNED_ONBOARDING_VERSION)
+                        T9_GOVERNED_ONBOARDING_VERSION, T10_CANDIDATE_SELF_SERVICE_VERSION)
                 .doesNotContain("20260908.2", "20260908.3", "20260908.4",
                         "20260913.1", "20260914.3", "20260918.1");
 
@@ -308,7 +310,7 @@ class HrG1MigrationTest {
                         + "WHERE success = true AND version IS NOT NULL "
                         + "ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
-        assertThat(latest).isEqualTo(T9_GOVERNED_ONBOARDING_VERSION);
+        assertThat(latest).isEqualTo(T10_CANDIDATE_SELF_SERVICE_VERSION);
     }
 
     private Flyway canonicalFlyway(String targetVersion, boolean validateOnMigrate) {

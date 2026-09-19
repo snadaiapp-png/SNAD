@@ -269,23 +269,35 @@ public class HrOfferService {
 
     public void accept(HrCommandContext ctx, UUID offerId) {
         authorization.requireOfferManage(ctx, offerId);
+        acceptAuthorized(ctx, offerId);
+    }
+
+    public void acceptCandidate(HrCommandContext ctx, UUID offerId) {
+        authorization.requireOfferAccept(ctx, offerId);
+        acceptAuthorized(ctx, offerId);
+    }
+
+    private void acceptAuthorized(HrCommandContext ctx, UUID offerId) {
         HrOffer offer = load(ctx, offerId);
         HrTransitionDecision decision = HrOfferTransitions.check(
                 new HrTransitionContext(ctx.tenantId(), String.valueOf(ctx.actorUserId()), null),
                 offer.state(), HrOfferState.ACCEPTED);
         if (!decision.allowed()) {
-            throw new IllegalStateException("HRM_TRANSITION_FORBIDDEN: " + offer.state() + " \u2192 "
+            throw new IllegalStateException("HRM_TRANSITION_FORBIDDEN: " + offer.state() + " \\u2192 "
                     + HrOfferState.ACCEPTED
                     + (decision.violationCode() == null ? "" : " (" + decision.violationCode() + ")"));
         }
-        // §8: the expiry gate uses the DATABASE clock inside the governed
-        // mutation — acceptance after expiry fails closed, no client clock.
         repository.acceptIfNotExpired(ctx.tenantId(), offerId, ctx.actorUserId(), ctx.correlationId());
-        // §T7.10: the application is NOT touched — HIRED is conversion-only (T8).
     }
 
     public void decline(HrCommandContext ctx, UUID offerId) {
         transition(ctx, offerId, HrOfferState.DECLINED, null,
+                JdbcHrOfferRepository.ACTION_DECLINED, null);
+    }
+
+    public void declineCandidate(HrCommandContext ctx, UUID offerId) {
+        authorization.requireOfferDecline(ctx, offerId);
+        transitionAuthorized(ctx, offerId, HrOfferState.DECLINED, null,
                 JdbcHrOfferRepository.ACTION_DECLINED, null);
     }
 
@@ -347,6 +359,11 @@ public class HrOfferService {
     private void transition(HrCommandContext ctx, UUID offerId, HrOfferState to, OffsetDateTime expiresAt,
                             String auditAction, String reasonCode) {
         authorization.requireOfferManage(ctx, offerId);
+        transitionAuthorized(ctx, offerId, to, expiresAt, auditAction, reasonCode);
+    }
+
+    private void transitionAuthorized(HrCommandContext ctx, UUID offerId, HrOfferState to,
+                                      OffsetDateTime expiresAt, String auditAction, String reasonCode) {
         HrOffer offer = load(ctx, offerId);
         HrTransitionDecision decision = HrOfferTransitions.check(
                 new HrTransitionContext(ctx.tenantId(), String.valueOf(ctx.actorUserId()), reasonCode),

@@ -46,6 +46,15 @@ public class HrApplicationService {
 
     public UUID apply(HrCommandContext ctx, UUID candidateId, UUID jobOpeningId) {
         authorization.requireApplicationManage(ctx, null);
+        return insertApplication(ctx, candidateId, jobOpeningId);
+    }
+
+    public UUID applyCandidate(HrCommandContext ctx, UUID candidateId, UUID jobOpeningId) {
+        authorization.requireApplicationSubmit(ctx, candidateId);
+        return insertApplication(ctx, candidateId, jobOpeningId);
+    }
+
+    private UUID insertApplication(HrCommandContext ctx, UUID candidateId, UUID jobOpeningId) {
         HrApplication application = new HrApplication(UUID.randomUUID(), ctx.tenantId(),
                 candidateId, jobOpeningId, HrApplicationState.APPLIED, 0L);
         HrApplication inserted = repository.insert(application, ctx.actorUserId(), ctx.correlationId());
@@ -81,6 +90,15 @@ public class HrApplicationService {
 
     public void withdraw(HrCommandContext ctx, UUID applicationId, String reasonCode) {
         authorization.requireApplicationManage(ctx, applicationId);
+        withdrawAuthorized(ctx, applicationId, reasonCode);
+    }
+
+    public void withdrawCandidate(HrCommandContext ctx, UUID applicationId, String reasonCode) {
+        authorization.requireApplicationWithdraw(ctx, applicationId);
+        withdrawAuthorized(ctx, applicationId, reasonCode);
+    }
+
+    private void withdrawAuthorized(HrCommandContext ctx, UUID applicationId, String reasonCode) {
         HrApplication application = load(ctx, applicationId);
         checkGuard(ctx, application.state(), HrApplicationState.WITHDRAWN, reasonCode);
         repository.transition(ctx.tenantId(), applicationId, application.state(),
