@@ -3,7 +3,7 @@ name: SCP Final Identity Reconcile (One-Time)
 on:
   push:
     branches:
-      - ops/scp-final-identity-reconcile-15b1
+      - main
     paths:
       - ".github/workflows/scp-final-identity-reconcile-once.yml"
 
@@ -17,11 +17,12 @@ concurrency:
 jobs:
   reconcile:
     name: Reconcile production Control Plane identity
+    if: contains(github.event.head_commit.message, '[scp-final-reconcile-once]')
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 45
     env:
-      EXPECTED_MAIN_SHA: 15b1b08a398af667c3a5d45f139ba0177c9dd9f9
+      EXPECTED_PARENT_SHA: 15b1b08a398af667c3a5d45f139ba0177c9dd9f9
       IMAGE_REF: ghcr.io/snadaiapp-png/snad-backend:5bc39e17626ca3484bb2cb7a147c9322a6fa32dd
       MODE: reconcile
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -33,26 +34,33 @@ jobs:
       CONTROL_PLANE_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
 
     steps:
-      - name: Checkout operational wrapper
+      - name: Checkout exact main
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
-      - name: Lock to current main and certified application source
+      - name: Enforce one-time exact-parent lock
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
           remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
-          test "$remote_main" = "$EXPECTED_MAIN_SHA" || {
-            echo "::error::MAIN_DRIFT expected=$EXPECTED_MAIN_SHA actual=$remote_main"
+          test "$remote_main" = "$GITHUB_SHA" || {
+            echo "::error::MAIN_DRIFT expected=$GITHUB_SHA actual=$remote_main"
             exit 1
           }
-          git fetch origin main --quiet
-          git diff --quiet "origin/main...HEAD" -- apps/sanad-platform apps/web scripts/production/scp-smoke-identity-reconcile.sh || {
-            echo "::error::Operational branch changes application/reconcile source"
+          parent="$(git rev-parse HEAD^)"
+          test "$parent" = "$EXPECTED_PARENT_SHA" || {
+            echo "::error::ONE_TIME_PARENT_GUARD expected=$EXPECTED_PARENT_SHA actual=$parent"
             exit 1
           }
-          echo "Operational wrapper locked to current main; application source unchanged."
+          changed="$(git diff --name-only HEAD^ HEAD)"
+          test "$changed" = ".github/workflows/scp-final-identity-reconcile-once.yml" || {
+            echo "::error::One-time reconcile merge contains unexpected files"
+            printf '%s\n' "$changed"
+            exit 1
+          }
+          echo "One-time reconcile authorized on exact protected main lineage."
 
       - name: Install PostgreSQL client
         run: |
@@ -69,4 +77,4 @@ jobs:
         if: success()
         run: |
           echo "SCP_IDENTITY_RECONCILE=PASS"
-          echo "Bootstrap was disabled and steady-state protected access was re-verified by the canonical reconcile script."
+          echo "Bootstrap disabled and steady-state protected Executive access re-verified."
