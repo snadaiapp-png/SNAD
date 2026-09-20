@@ -29,7 +29,6 @@ jobs:
       PROD_QA_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
       PROD_QA_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       PROD_QA_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
-      PROD_QA_PLAN_CODE: ${{ vars.WORKFLOW_PROD_QA_PLAN_CODE || 'WORKFLOW_PROD_QA' }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PROD_EVIDENCE_FILE: workflow-production-3user-journey.json
