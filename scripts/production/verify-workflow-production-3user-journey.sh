@@ -71,7 +71,22 @@ record controlPlaneOperatorBoundary PASS 'Control Plane token confined to Execut
 record qaTenantIsolation PASS 'Dedicated QA tenant differs from control-plane tenant'
 
 # 3) Ensure the dedicated QA tenant has exactly one ACTIVE subscription, using audited Executive APIs only.
-status="$(request GET "/api/platform/api/v1/executive/subscriptions?tenantId=$PROD_QA_TENANT_ID" "$WORK_DIR/qa-subscriptions.json" cp)"; expect "$status" 200 qaTenantSubscriptions
+# The global JWT tenant-binding filter correctly rejects cross-tenant ?tenantId= query
+# parameters. Control Plane reads therefore use the unfiltered paginated Executive
+# surface and select Tenant B locally; no tenant-scoped token or RBAC bypass is used.
+: > "$WORK_DIR/qa-subscriptions.jsonl"
+page=0
+while :; do
+  status="$(request GET "/api/platform/api/v1/executive/subscriptions/v2?page=$page&size=100" "$WORK_DIR/qa-subscriptions-page.json" cp)"; expect "$status" 200 "qaTenantSubscriptionsPage${page}"
+  jq -c --arg tenant "$PROD_QA_TENANT_ID" '.content[]? | select(.tenantId==$tenant)' "$WORK_DIR/qa-subscriptions-page.json" >> "$WORK_DIR/qa-subscriptions.jsonl"
+  totalPages="$(jq -r '.totalPages // 0' "$WORK_DIR/qa-subscriptions-page.json")"
+  [[ "$totalPages" =~ ^[0-9]+$ ]] || fail qaTenantSubscriptions 'Invalid subscriptions pagination metadata'
+  [ "$page" -ge $((totalPages-1)) ] && break
+  page=$((page+1))
+  [ "$page" -lt 100 ] || fail qaTenantSubscriptions 'Subscriptions pagination safety limit exceeded'
+done
+jq -s '.' "$WORK_DIR/qa-subscriptions.jsonl" > "$WORK_DIR/qa-subscriptions.json"
+record qaTenantSubscriptions PASS 'Executive paginated read; Tenant B filtered locally'
 ACTIVE_COUNT="$(jq '[.[]|select(.status=="ACTIVE")]|length' "$WORK_DIR/qa-subscriptions.json")"
 TOTAL_COUNT="$(jq 'length' "$WORK_DIR/qa-subscriptions.json")"
 [ "$ACTIVE_COUNT" -le 1 ] || fail qaTenantSubscriptionGuard "Expected at most one ACTIVE QA subscription; found $ACTIVE_COUNT"
