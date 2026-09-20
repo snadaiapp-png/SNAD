@@ -35,7 +35,7 @@ class WorkflowStarterBootstrapContractTest(unittest.TestCase):
         self.assertIn("Expected exactly one eligible existing STARTER plan", text)
         self.assertIn("catalogMutations:", text)
         self.assertIn("planMutations:", text)
-        self.assertIn("Direct database", "Direct database")
+        self.assertNotIn("psql ", text)\n        self.assertNotIn("DATABASE_URL", text)\n        self.assertIn("/api/platform/api/v1/executive/subscriptions", text)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
