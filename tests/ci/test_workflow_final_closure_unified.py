@@ -101,6 +101,13 @@ class WorkflowFinalClosureUnifiedContractTest(unittest.TestCase):
         self.assertIn("desktop", lower)
         self.assertIn("mobile", lower)
 
+    def test_visual_runner_resolves_playwright_from_web_workspace(self):
+        self.assertIn('createRequire(new URL("../../apps/web/package.json", import.meta.url))', self.visual)
+        self.assertIn('require("@playwright/test")', self.visual)
+        self.assertNotIn('import { chromium } from "@playwright/test"', self.visual)
+        self.assertIn("working-directory: apps/web", self.final_wf)
+        self.assertIn("npx playwright install chromium --with-deps", self.final_wf)
+
     def test_one_time_reconcile_is_exact_parent_fail_closed(self):
         self.assertIn("EXPECTED_PARENT_SHA", self.reconcile_wf)
         self.assertIn("ONE_TIME_PARENT_GUARD", self.reconcile_wf)
