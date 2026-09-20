@@ -1,0 +1,72 @@
+name: SCP Final Identity Reconcile (One-Time)
+
+on:
+  push:
+    branches:
+      - ops/scp-final-identity-reconcile-15b1
+    paths:
+      - ".github/workflows/scp-final-identity-reconcile-once.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scp-final-identity-reconcile-once
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile production Control Plane identity
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      EXPECTED_MAIN_SHA: 15b1b08a398af667c3a5d45f139ba0177c9dd9f9
+      IMAGE_REF: ghcr.io/snadaiapp-png/snad-backend:5bc39e17626ca3484bb2cb7a147c9322a6fa32dd
+      MODE: reconcile
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      DATABASE_USERNAME: ${{ secrets.PROD_DB_USER }}
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+      CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+      CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+      CONTROL_PLANE_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
+
+    steps:
+      - name: Checkout operational wrapper
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lock to current main and certified application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$EXPECTED_MAIN_SHA" || {
+            echo "::error::MAIN_DRIFT expected=$EXPECTED_MAIN_SHA actual=$remote_main"
+            exit 1
+          }
+          git fetch origin main --quiet
+          git diff --quiet "origin/main...HEAD" -- apps/sanad-platform apps/web scripts/production/scp-smoke-identity-reconcile.sh || {
+            echo "::error::Operational branch changes application/reconcile source"
+            exit 1
+          }
+          echo "Operational wrapper locked to current main; application source unchanged."
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+
+      - name: Execute canonical surgical reconcile
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/production/scp-smoke-identity-reconcile.sh reconcile
+
+      - name: Record closure handoff
+        if: success()
+        run: |
+          echo "SCP_IDENTITY_RECONCILE=PASS"
+          echo "Bootstrap was disabled and steady-state protected access was re-verified by the canonical reconcile script."
