@@ -58,6 +58,17 @@ set_render_var() {
   case "$status" in 200|201) return 0 ;; *) return 1 ;; esac
 }
 
+delete_render_var() {
+  local key="$1" status rc
+  set +e
+  status="$(curl --silent --show-error -o "$WORK_DIR/deletevar.json" -w '%{http_code}' -X DELETE \
+    "${AUTH_HEADERS[@]}" "${RENDER_API}/env-vars/${key}")"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || return 1
+  case "$status" in 204|404) return 0 ;; *) return 1 ;; esac
+}
+
 trigger_deploy() {
   local payload status rc deploy_id
   payload="$(jq -n --arg image "$IMAGE_REF" '{imageUrl:$image,clearCache:"do_not_clear"}')"
@@ -115,7 +126,7 @@ emergency_disable() {
   log "Emergency cleanup: disabling startup bootstrap."
   set_render_var SANAD_SECURITY_BOOTSTRAP_ENABLED false || true
   set_render_var SANAD_SECURITY_BOOTSTRAP_FORCE_RESET false || true
-  set_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD "" secret || true
+  delete_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD || true
   local cleanup_deploy=""
   cleanup_deploy="$(trigger_deploy 2>/dev/null || true)"
   if [ -n "$cleanup_deploy" ]; then
@@ -189,7 +200,7 @@ echo "::add-mask::$BOOTSTRAP_TEMP_CREDENTIAL"
 log "Arming application-native Tenant B startup bootstrap."
 set_render_var SANAD_SECURITY_BOOTSTRAP_FORCE_RESET true || fail renderEnv 'Failed to set bootstrap force-reset'
 set_render_var SANAD_SECURITY_BOOTSTRAP_CREDENTIAL_ONLY false || fail renderEnv 'Failed to set bootstrap credential-only'
-set_render_var SANAD_SECURITY_BOOTSTRAP_TENANT_ID "" || fail renderEnv 'Failed to clear bootstrap tenant-id'
+delete_render_var SANAD_SECURITY_BOOTSTRAP_TENANT_ID || fail renderEnv 'Failed to delete bootstrap tenant-id'
 set_render_var SANAD_SECURITY_BOOTSTRAP_TENANT_NAME "$PROD_QA_TENANT_NAME" || fail renderEnv 'Failed to set bootstrap tenant name'
 set_render_var SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN "$PROD_QA_TENANT_CODE" || fail renderEnv 'Failed to set bootstrap tenant code'
 set_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL "$PROD_QA_ADMIN_EMAIL" secret || fail renderEnv 'Failed to set bootstrap admin email'
@@ -235,7 +246,7 @@ pass 'Tenant B credential rotated from one-time bootstrap credential'
 log "Disabling startup bootstrap before steady-state deploy."
 set_render_var SANAD_SECURITY_BOOTSTRAP_ENABLED false || fail renderEnvDisable 'Failed to disable bootstrap'
 set_render_var SANAD_SECURITY_BOOTSTRAP_FORCE_RESET false || fail renderEnvDisable 'Failed to disable force-reset'
-set_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD "" secret || fail renderEnvDisable 'Failed to clear bootstrap password'
+delete_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD || fail renderEnvDisable 'Failed to delete bootstrap password'
 BOOTSTRAP_ARMED=false
 
 deploy_id="$(trigger_deploy)" || fail steadyStateDeploy 'Failed to trigger steady-state deploy'
