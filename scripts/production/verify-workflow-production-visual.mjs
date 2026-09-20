@@ -17,33 +17,28 @@ if(rel.commitSha!==expectedSha) throw new Error(`Vercel SHA mismatch ${rel.commi
 const browser=await chromium.launch({headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const consoleErrors=[]; page.on("console",m=>{if(m.type()==="error")consoleErrors.push(m.text())}); page.on("pageerror",e=>consoleErrors.push(`pageerror:${e.message}`));
-await page.route("**/api/platform/api/v1/auth/login",async route=>{
-  const request=route.request();
-  if(request.method()!=="POST"){await route.continue();return;}
-  const requestBody=request.postDataJSON()||{};
-  await route.continue({
-    headers:{...request.headers(),"content-type":"application/json"},
-    postData:JSON.stringify({...requestBody,tenantId}),
-  });
-},{times:1});
 await page.goto(base,{waitUntil:"domcontentloaded",timeout:60000});
-await page.locator("#login-email").waitFor({state:"visible",timeout:30000});
-await page.locator("#login-email").fill(email);
-await page.locator("#login-password").fill(password);
-const loginRequestPromise=page.waitForRequest(request=>
-  request.method()==="POST" &&
-  request.url().includes("/api/platform/api/v1/auth/login"),
-{timeout:30000});
-await page.locator('form button[type="submit"]').click();
-const loginRequest=await loginRequestPromise;
-const loginResponse=await loginRequest.response();
-if(!loginResponse) throw new Error("Tenant B UI login produced no HTTP response");
-if(!loginResponse.ok()) throw new Error(`Tenant B UI login HTTP ${loginResponse.status()}`);
-const loginBody=await loginResponse.json();
-if(loginBody?.user?.tenantId!==tenantId) throw new Error("Tenant B UI login resolved to unexpected tenant");
-if(loginBody?.credentialRotationRequired===true) throw new Error("Tenant B UI login unexpectedly requires credential rotation");
+const loginResult=await page.evaluate(async ({email,password,tenantId})=>{
+  const response=await fetch("/api/platform/api/v1/auth/login",{
+    method:"POST",
+    credentials:"include",
+    headers:{"accept":"application/json","content-type":"application/json"},
+    body:JSON.stringify({email,password,tenantId}),
+  });
+  let body=null;
+  try{body=await response.json();}catch{}
+  return {ok:response.ok,status:response.status,body};
+},{email,password,tenantId});
+if(!loginResult.ok) throw new Error(`Tenant B browser BFF login HTTP ${loginResult.status}`);
+if(loginResult.body?.user?.tenantId!==tenantId) throw new Error("Tenant B browser BFF login resolved to unexpected tenant");
+if(loginResult.body?.credentialRotationRequired===true) throw new Error("Tenant B browser BFF login unexpectedly requires credential rotation");
+const browserCookies=await page.context().cookies(base);
+const refreshCookie=browserCookies.find(cookie=>cookie.name==="sanad_refresh");
+if(!refreshCookie||refreshCookie.httpOnly!==true) throw new Error("Tenant B browser BFF login did not establish HttpOnly refresh cookie");
+const hasSessionHint=await page.evaluate(()=>document.cookie.split(";").map(part=>part.trim()).includes("sanad_session_hint=1"));
+if(!hasSessionHint) throw new Error("Tenant B browser BFF login did not establish session hint");
+await page.reload({waitUntil:"domcontentloaded",timeout:60000});
 await page.waitForURL(url=>url.pathname==="/workspace"||url.pathname.startsWith("/workspace/"),{timeout:30000});
-await page.locator("#login-email").waitFor({state:"hidden",timeout:30000});
 await page.goto(`${base}/workflow`,{waitUntil:"domcontentloaded",timeout:60000});
 await page.getByRole("heading",{name:"محرك سير العمل"}).waitFor({state:"visible",timeout:30000});
 const dir=await page.evaluate(()=>document.documentElement.getAttribute("dir")); const lang=await page.evaluate(()=>document.documentElement.getAttribute("lang"));
@@ -62,5 +57,5 @@ await palette.waitFor({state:"visible"}); await inspector.waitFor({state:"visibl
 await page.screenshot({path:`${out}/workflow-production-designer-desktop.png`,fullPage:true});
 await page.setViewportSize({width:390,height:844}); await palette.waitFor({state:"visible"}); await inspector.waitFor({state:"visible"}); await canvas.waitFor({state:"visible"});
 await page.screenshot({path:`${out}/workflow-production-designer-mobile.png`,fullPage:true});
-fs.writeFileSync(`${out}/visual-evidence.json`,JSON.stringify({result:"PASS",baseUrl:base,releaseSha:expectedSha,tenantId,definitionId:defId,definitionCode:code,rtl:dir,lang,screenshots:["workflow-production-home-desktop.png","workflow-production-definition-row.png","workflow-production-designer-desktop.png","workflow-production-designer-mobile.png"],consoleErrors},null,2));
+fs.writeFileSync(`${out}/visual-evidence.json`,JSON.stringify({result:"PASS",baseUrl:base,releaseSha:expectedSha,tenantId,definitionId:defId,definitionCode:code,rtl:dir,lang,authBootstrap:"BROWSER_BFF_LOGIN_REFRESH",screenshots:["workflow-production-home-desktop.png","workflow-production-definition-row.png","workflow-production-designer-desktop.png","workflow-production-designer-mobile.png"],consoleErrors},null,2));
 await browser.close(); console.log("Production Workflow visual proof: PASSED");
