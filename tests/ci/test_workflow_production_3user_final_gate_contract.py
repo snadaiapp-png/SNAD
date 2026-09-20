@@ -7,6 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "workflow-production-3user-final-gate.yml"
 JOURNEY = ROOT / "scripts" / "production" / "verify-workflow-production-3user-journey.sh"
+BOOTSTRAP = ROOT / "scripts" / "production" / "bootstrap-workflow-production-qa-subscription.sh"
 
 
 class WorkflowProduction3UserFinalGateContractTest(unittest.TestCase):
@@ -55,6 +56,29 @@ class WorkflowProduction3UserFinalGateContractTest(unittest.TestCase):
             "Executive paginated read; Tenant B filtered locally",
             text,
         )
+
+
+    def test_final_gate_uses_existing_starter_and_governed_bootstrap(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        journey = JOURNEY.read_text(encoding="utf-8")
+        bootstrap = BOOTSTRAP.read_text(encoding="utf-8")
+
+        self.assertIn("PROD_QA_PLAN_CODE: STARTER", workflow)
+        self.assertIn("Bootstrap governed STARTER QA subscription", workflow)
+        self.assertIn('select(.code=="STARTER"', journey)
+        self.assertIn('select(.code=="STARTER"', bootstrap)
+        self.assertNotIn("WORKFLOW_PROD_QA", journey)
+        self.assertNotIn("request POST '/api/platform/api/v1/executive/plans'", bootstrap)
+        self.assertNotIn("plans/$PLAN_ID/modules/WORKFLOW", bootstrap)
+
+    def test_bootstrap_is_non_financial_and_canonical(self):
+        bootstrap = BOOTSTRAP.read_text(encoding="utf-8")
+
+        self.assertIn("trialDays:$trialDays", bootstrap)
+        self.assertIn("/api/platform/api/v1/executive/subscriptions/$SUB_ID/provision", bootstrap)
+        self.assertIn('paidInvoicePath:"NOT_USED"', bootstrap)
+        self.assertNotIn("trialDays:0", bootstrap)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
