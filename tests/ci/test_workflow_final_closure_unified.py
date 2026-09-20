@@ -76,6 +76,15 @@ class WorkflowFinalClosureUnifiedContractTest(unittest.TestCase):
         self.assertIn("requires exactly one governed ACTIVE subscription", self.journey)
         self.assertIn("Existing governed ACTIVE STARTER subscription verified", self.journey)
 
+
+    def test_final_gate_does_not_depend_on_preexisting_definition(self):
+        self.assertNotIn("No definition exists for boundary check", self.journey)
+        self.assertNotIn("EXISTING_DEF=", self.journey)
+        self.assertNotIn("boundary-validate.json", self.journey)
+        self.assertIn("no pre-existing definition required", self.journey)
+        self.assertIn("/definitions/$DEF_ID/validate", self.journey)
+        self.assertIn("/definitions/$DEF_ID/simulate", self.journey)
+
     def test_three_user_y2_and_immutability_contract(self):
         self.assertIn("for n in 1 2 3", self.journey)
         self.assertIn("3/3 QA-user-linked instances reached COMPLETED", self.journey)
