@@ -17,25 +17,26 @@ if(rel.commitSha!==expectedSha) throw new Error(`Vercel SHA mismatch ${rel.commi
 const browser=await chromium.launch({headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const consoleErrors=[]; page.on("console",m=>{if(m.type()==="error")consoleErrors.push(m.text())}); page.on("pageerror",e=>consoleErrors.push(`pageerror:${e.message}`));
-await page.route("**/api/platform/api/v1/auth/login",async route=>{
-  const request=route.request();
-  if(request.method()!=="POST"){await route.continue();return;}
-  const requestBody=request.postDataJSON()||{};
-  await route.continue({
-    headers:{...request.headers(),"content-type":"application/json"},
-    postData:JSON.stringify({...requestBody,tenantId}),
-  });
-},{times:1});
-await page.goto(base,{waitUntil:"domcontentloaded",timeout:60000});
-await page.locator("#login-email").waitFor({state:"visible",timeout:30000});
-await page.locator("#login-email").fill(email);
-await page.locator("#login-password").fill(password);
-const loginRequestPromise=page.waitForRequest(request=>
-  request.method()==="POST" &&
-  request.url().includes("/api/platform/api/v1/auth/login"),
-{timeout:30000});
-await page.locator('form button[type="submit"]').click();
-const loginRequest=await loginRequestPromise;
+await page.goto(`${base}/?tenantId=${encodeURIComponent(tenantId)}`,{waitUntil:"domcontentloaded",timeout:60000});
+const emailInput=page.locator("#login-email");
+const passwordInput=page.locator("#login-password");
+const submitButton=page.locator('form button[type="submit"]');
+await emailInput.waitFor({state:"visible",timeout:30000});
+let loginRequest=null;
+for(let attempt=1;attempt<=6&&!loginRequest;attempt++){
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
+  const requestPromise=page.waitForRequest(request=>
+    request.method()==="POST" &&
+    request.url().includes("/api/platform/api/v1/auth/login"),
+  {timeout:5000}).catch(()=>null);
+  await submitButton.click();
+  loginRequest=await requestPromise;
+  if(!loginRequest) await page.waitForTimeout(750);
+}
+if(!loginRequest) throw new Error("Tenant B UI login did not emit a request after hydration retries");
+const loginRequestBody=loginRequest.postDataJSON()||{};
+if(loginRequestBody.tenantId!==tenantId) throw new Error("Tenant B UI login request missing expected tenant binding");
 const loginResponse=await loginRequest.response();
 if(!loginResponse) throw new Error("Tenant B UI login produced no HTTP response");
 if(!loginResponse.ok()) throw new Error(`Tenant B UI login HTTP ${loginResponse.status()}`);
