@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 45
     environment: production
     env:
-      EXPECTED_PARENT_SHA: 1e6a537cc20df7732b1546029d1a3365a2daec57
+      EXPECTED_PARENT_SHA: 41c3e3e98b77efc67534c9e3bad7a591ede66097
       EXPECTED_MAIN_SHA: ${{ github.sha }}
       PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       PROD_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
@@ -53,13 +53,9 @@ jobs:
           [ "$parent" = "$EXPECTED_PARENT_SHA" ] || { echo "::error::ONE_TIME_PARENT_GUARD expected=$EXPECTED_PARENT_SHA actual=$parent"; exit 1; }
           git diff --name-only HEAD^ HEAD | sort > "$RUNNER_TEMP/changed.txt"
           cat > "$RUNNER_TEMP/allowed.txt" <<'EOF'
-          .github/workflows/ci.yml
-          .github/workflows/workflow-production-3user-final-gate.yml
           .github/workflows/workflow-production-qa-subscription-bootstrap-once.yml
           scripts/production/bootstrap-workflow-production-qa-subscription.sh
-          scripts/production/verify-workflow-production-3user-journey.sh
           tests/ci/test_workflow_final_closure_unified.py
-          tests/ci/test_workflow_starter_bootstrap_contract.py
           EOF
           sort -o "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/allowed.txt"
           diff -u "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/changed.txt" || {
