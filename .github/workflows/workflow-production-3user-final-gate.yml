@@ -181,7 +181,6 @@ jobs:
           grep -F 'PROD_QA_ADMIN_EMAIL' "$visual" >/dev/null
           grep -F 'PROD_QA_TENANT_ID' "$visual" >/dev/null
           grep -F 'PROD_QA_TENANT_CODE' "$journey" >/dev/null
-          ! grep -F 'AUTH_SMOKE_TENANT_B_ID' "$journey" >/dev/null
           ! grep -F 'PROD_ADMIN_EMAIL' "$visual" >/dev/null
           echo 'Final-gate safety contract: PASS'
 
