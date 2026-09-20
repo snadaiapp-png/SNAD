@@ -6,6 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "workflow-production-3user-final-gate.yml"
+JOURNEY = ROOT / "scripts" / "production" / "verify-workflow-production-3user-journey.sh"
 
 
 class WorkflowProduction3UserFinalGateContractTest(unittest.TestCase):
@@ -34,6 +35,26 @@ class WorkflowProduction3UserFinalGateContractTest(unittest.TestCase):
             text,
         )
 
+
+    def test_control_plane_subscription_read_avoids_cross_tenant_query_parameter(self):
+        text = JOURNEY.read_text(encoding="utf-8")
+
+        self.assertNotIn(
+            "/api/platform/api/v1/executive/subscriptions?tenantId=$PROD_QA_TENANT_ID",
+            text,
+        )
+        self.assertIn(
+            "/api/platform/api/v1/executive/subscriptions/v2?page=$page&size=100",
+            text,
+        )
+        self.assertIn(
+            ".content[]? | select(.tenantId==$tenant)",
+            text,
+        )
+        self.assertIn(
+            "Executive paginated read; Tenant B filtered locally",
+            text,
+        )
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
