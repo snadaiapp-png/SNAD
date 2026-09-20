@@ -5,6 +5,7 @@
  * `check-i18n-keys.py` enforces key parity between the two dictionaries.
  */
 import type { TranslationDictionary } from "../types";
+import { HRM_G1_I18N_EN } from "./hrm-g1-i18n";
 
 export const en: TranslationDictionary = {
   // === Brand ===
@@ -1218,4 +1219,7 @@ export const en: TranslationDictionary = {
   "scp.plans.entitlements.disabled": "Disabled",
   "scp.usage.period": "Period: {period}",
   "scp.usage.critical": "Critical",
+
+  // === HRM G1 Recruitment & Onboarding (T11) ===
+  ...HRM_G1_I18N_EN,
 };

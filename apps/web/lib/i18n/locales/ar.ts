@@ -9,6 +9,7 @@
  *   e.g. auth.login.title, nav.workspace, form.validation.required
  */
 import type { TranslationDictionary } from "../types";
+import { HRM_G1_I18N_AR } from "./hrm-g1-i18n";
 
 export const ar: TranslationDictionary = {
   // === Brand ===
@@ -1222,4 +1223,7 @@ export const ar: TranslationDictionary = {
   "scp.plans.entitlements.disabled": "معطّل",
   "scp.usage.period": "الفترة: {period}",
   "scp.usage.critical": "حرج",
+
+  // === HRM G1 Recruitment & Onboarding (T11) ===
+  ...HRM_G1_I18N_AR,
 };
