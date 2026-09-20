@@ -27,6 +27,8 @@ await page.route("**/api/platform/api/v1/auth/login",async route=>{
   });
 },{times:1});
 await page.goto(base,{waitUntil:"domcontentloaded",timeout:60000});
+await page.locator("form").waitFor({state:"visible",timeout:30000});
+await page.waitForFunction(()=>{const form=document.querySelector("form");return !!form && Object.keys(form).some(key=>key.startsWith("__reactProps$")||key.startsWith("__reactFiber$"));},null,{timeout:30000});
 await page.locator("#login-email").waitFor({state:"visible",timeout:30000});
 await page.locator("#login-email").fill(email);
 await page.locator("#login-password").fill(password);
