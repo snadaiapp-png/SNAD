@@ -101,7 +101,7 @@ class WorkflowFinalClosureUnifiedContractTest(unittest.TestCase):
         self.assertIn('credentials:"include"', self.visual)
         self.assertIn("JSON.stringify({email,password,tenantId})", self.visual)
         self.assertIn('cookie.name==="sanad_refresh"', self.visual)
-        self.assertIn('cookie.httpOnly!==true', self.visual)
+        self.assertIn('refreshCookie.httpOnly!==true', self.visual)
         self.assertIn('"sanad_session_hint=1"', self.visual)
         self.assertIn("await page.reload", self.visual)
         self.assertIn('url.pathname==="/workspace"', self.visual)
