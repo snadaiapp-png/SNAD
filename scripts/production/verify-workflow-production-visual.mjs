@@ -17,9 +17,30 @@ if(rel.commitSha!==expectedSha) throw new Error(`Vercel SHA mismatch ${rel.commi
 const browser=await chromium.launch({headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const consoleErrors=[]; page.on("console",m=>{if(m.type()==="error")consoleErrors.push(m.text())}); page.on("pageerror",e=>consoleErrors.push(`pageerror:${e.message}`));
-await page.goto(`${base}/?tenantId=${encodeURIComponent(tenantId)}`,{waitUntil:"domcontentloaded",timeout:60000});
+await page.route("**/api/platform/api/v1/auth/login",async route=>{
+  const request=route.request();
+  if(request.method()!=="POST"){await route.continue();return;}
+  const requestBody=request.postDataJSON()||{};
+  await route.continue({
+    headers:{...request.headers(),"content-type":"application/json"},
+    postData:JSON.stringify({...requestBody,tenantId}),
+  });
+},{times:1});
+await page.goto(base,{waitUntil:"domcontentloaded",timeout:60000});
 await page.locator("#login-email").waitFor({state:"visible",timeout:30000});
-await page.locator("#login-email").fill(email); await page.locator("#login-password").fill(password); await page.locator("#login-password").press("Enter");
+await page.locator("#login-email").fill(email);
+await page.locator("#login-password").fill(password);
+const loginResponsePromise=page.waitForResponse(response=>
+  response.request().method()==="POST" &&
+  response.url().includes("/api/platform/api/v1/auth/login"),
+{timeout:30000});
+await page.locator('form button[type="submit"]').click();
+const loginResponse=await loginResponsePromise;
+if(!loginResponse.ok()) throw new Error(`Tenant B UI login HTTP ${loginResponse.status()}`);
+const loginBody=await loginResponse.json();
+if(loginBody?.user?.tenantId!==tenantId) throw new Error("Tenant B UI login resolved to unexpected tenant");
+if(loginBody?.credentialRotationRequired===true) throw new Error("Tenant B UI login unexpectedly requires credential rotation");
+await page.waitForURL(url=>url.pathname==="/workspace"||url.pathname.startsWith("/workspace/"),{timeout:30000});
 await page.locator("#login-email").waitFor({state:"hidden",timeout:30000});
 await page.goto(`${base}/workflow`,{waitUntil:"domcontentloaded",timeout:60000});
 await page.getByRole("heading",{name:"محرك سير العمل"}).waitFor({state:"visible",timeout:30000});
