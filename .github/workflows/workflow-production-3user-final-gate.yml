@@ -26,7 +26,7 @@ jobs:
       PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       PROD_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
       PROD_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
-      PROD_QA_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      PROD_QA_TENANT_CODE: workflow-prod-qa
       PROD_QA_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       PROD_QA_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -54,7 +54,7 @@ jobs:
             echo '::error::Application source changed after the certified baseline; this gate is not authorized for that drift'
             exit 1
           }
-          for name in PRODUCTION_BASE_URL PROD_ADMIN_EMAIL PROD_ADMIN_PASSWORD PROD_QA_TENANT_ID PROD_QA_ADMIN_EMAIL PROD_QA_ADMIN_PASSWORD RENDER_API_KEY RENDER_SERVICE_ID; do
+          for name in PRODUCTION_BASE_URL PROD_ADMIN_EMAIL PROD_ADMIN_PASSWORD PROD_QA_TENANT_CODE PROD_QA_ADMIN_EMAIL PROD_QA_ADMIN_PASSWORD RENDER_API_KEY RENDER_SERVICE_ID; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           curl --fail-with-body --silent --show-error --max-time 45 \
@@ -180,6 +180,8 @@ jobs:
           grep -F 'Tenant B token attempted Executive API' "$journey" >/dev/null
           grep -F 'PROD_QA_ADMIN_EMAIL' "$visual" >/dev/null
           grep -F 'PROD_QA_TENANT_ID' "$visual" >/dev/null
+          grep -F 'PROD_QA_TENANT_CODE' "$journey" >/dev/null
+          ! grep -F 'AUTH_SMOKE_TENANT_B_ID' "$journey" >/dev/null
           ! grep -F 'PROD_ADMIN_EMAIL' "$visual" >/dev/null
           echo 'Final-gate safety contract: PASS'
 
@@ -229,7 +231,7 @@ jobs:
             echo '- Production backend readiness: PASS'
             echo '- Workflow capability contract: canonical Y2 validate+simulate via WORKFLOW.VALIDATE'
             echo '- Control Plane operator: Executive APIs only'
-            echo '- Tenant B: Workflow + users + authenticated UI'
+            echo '- Tenant B: dynamically resolved from code workflow-prod-qa; Workflow + users + authenticated UI'
             echo '- Workflow plan: existing catalog plan only; no plan/version creation'
             echo '- Workflow entitlement: ACTIVE through audited Executive API path'
             echo '- Production QA users: 3 created'
