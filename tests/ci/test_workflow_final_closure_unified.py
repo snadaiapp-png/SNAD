@@ -82,6 +82,11 @@ class WorkflowFinalClosureUnifiedContractTest(unittest.TestCase):
         self.assertNotIn("No definition exists for boundary check", self.journey)
         self.assertNotIn("EXISTING_DEF=", self.journey)
 
+    def test_visual_playwright_resolves_from_installed_web_workspace(self):
+        visual = (ROOT / "scripts/production/verify-workflow-production-visual.mjs").read_text()
+        self.assertIn('../../apps/web/node_modules/@playwright/test/index.mjs', visual)
+        self.assertNotIn('from "@playwright/test"', visual)
+
     def test_three_user_y2_and_immutability_contract(self):
         self.assertIn("for n in 1 2 3", self.journey)
         self.assertIn("3/3 QA-user-linked instances reached COMPLETED", self.journey)
