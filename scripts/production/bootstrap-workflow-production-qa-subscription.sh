@@ -178,13 +178,13 @@ PROD_TENANT_ID="$(get_render_var SANAD_CONTROL_PLANE_TENANT_ID)"
 echo "::add-mask::$PROD_TENANT_ID"
 export PROD_TENANT_ID
 
-BOOTSTRAP_TEMP_PASSWORD="$(python3 - <<'PY'
+BOOTSTRAP_TEMP_CREDENTIAL="$(python3 - <<'PY'
 import hashlib, os
 seed=(os.environ["PROD_QA_ADMIN_PASSWORD"]+os.environ["EXPECTED_MAIN_SHA"]).encode()
 print("Tmp!" + hashlib.sha256(seed).hexdigest()[:28])
 PY
 )"
-echo "::add-mask::$BOOTSTRAP_TEMP_PASSWORD"
+echo "::add-mask::$BOOTSTRAP_TEMP_CREDENTIAL"
 
 log "Arming application-native Tenant B startup bootstrap."
 set_render_var SANAD_SECURITY_BOOTSTRAP_FORCE_RESET true || fail renderEnv 'Failed to set bootstrap force-reset'
@@ -193,7 +193,7 @@ set_render_var SANAD_SECURITY_BOOTSTRAP_TENANT_ID "" || fail renderEnv 'Failed t
 set_render_var SANAD_SECURITY_BOOTSTRAP_TENANT_NAME "$PROD_QA_TENANT_NAME" || fail renderEnv 'Failed to set bootstrap tenant name'
 set_render_var SANAD_SECURITY_BOOTSTRAP_TENANT_SUBDOMAIN "$PROD_QA_TENANT_CODE" || fail renderEnv 'Failed to set bootstrap tenant code'
 set_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_EMAIL "$PROD_QA_ADMIN_EMAIL" secret || fail renderEnv 'Failed to set bootstrap admin email'
-set_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD "$BOOTSTRAP_TEMP_PASSWORD" secret || fail renderEnv 'Failed to set bootstrap temporary password'
+set_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_PASSWORD "$BOOTSTRAP_TEMP_CREDENTIAL" secret || fail renderEnv 'Failed to set bootstrap temporary password'
 set_render_var SANAD_SECURITY_BOOTSTRAP_ADMIN_DISPLAY_NAME "Workflow Production QA Admin" || fail renderEnv 'Failed to set bootstrap display name'
 set_render_var SANAD_SECURITY_BOOTSTRAP_AUDIT_ACTOR "workflow-production-qa-reconcile" || fail renderEnv 'Failed to set bootstrap audit actor'
 set_render_var SANAD_SECURITY_BOOTSTRAP_ENABLED true || fail renderEnv 'Failed to enable bootstrap'
@@ -220,14 +220,14 @@ export PROD_QA_TENANT_ID
 [ "$PROD_QA_TENANT_ID" != "$PROD_TENANT_ID" ] || fail qaTenantIsolation 'Tenant B resolved to Control Plane tenant'
 pass 'Tenant B resolved dynamically from Executive directory'
 
-qa_temp_login_payload="$(jq -cn --arg email "$PROD_QA_ADMIN_EMAIL" --arg password "$BOOTSTRAP_TEMP_PASSWORD" --arg tenantId "$PROD_QA_TENANT_ID" '{email:$email,password:$password,tenantId:$tenantId}')"
+qa_temp_login_payload="$(jq -cn --arg email "$PROD_QA_ADMIN_EMAIL" --arg password "$BOOTSTRAP_TEMP_CREDENTIAL" --arg tenantId "$PROD_QA_TENANT_ID" '{email:$email,password:$password,tenantId:$tenantId}')"
 status="$(request POST '/api/platform/api/v1/auth/login' "$WORK_DIR/login-qa-temp.json" none "$qa_temp_login_payload")"; expect "$status" 200 qaBootstrapLogin
 QA_TOKEN="$(jq -r '.accessToken // empty' "$WORK_DIR/login-qa-temp.json")"
 [ -n "$QA_TOKEN" ] || fail qaBootstrapLogin 'No Tenant B bootstrap token'
 echo "::add-mask::$QA_TOKEN"
 jq -e '.credentialRotationRequired==true' "$WORK_DIR/login-qa-temp.json" >/dev/null || fail qaBootstrapLogin 'Tenant B bootstrap did not arm credential rotation'
 
-change_payload="$(jq -cn --arg current "$BOOTSTRAP_TEMP_PASSWORD" --arg next "$PROD_QA_ADMIN_PASSWORD" '{currentCredential:$current,newCredential:$next}')"
+change_payload="$(jq -cn --arg current "$BOOTSTRAP_TEMP_CREDENTIAL" --arg next "$PROD_QA_ADMIN_PASSWORD" '{currentCredential:$current,newCredential:$next}')"
 status="$(request POST '/api/platform/api/v1/auth/change-credential' "$WORK_DIR/change-credential.json" qa "$change_payload")"; expect "$status" 204 qaCredentialRotation
 unset QA_TOKEN
 pass 'Tenant B credential rotated from one-time bootstrap credential'
