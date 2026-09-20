@@ -5,7 +5,7 @@ set -Eeuo pipefail
 : "${PROD_ADMIN_EMAIL:?required}"
 : "${PROD_ADMIN_PASSWORD:?required}"
 : "${PROD_TENANT_ID:?required}"
-: "${PROD_QA_TENANT_ID:?required}"
+: "${PROD_QA_TENANT_CODE:?required}"
 : "${PROD_QA_ADMIN_EMAIL:?required}"
 : "${PROD_QA_ADMIN_PASSWORD:?required}"
 : "${EXPECTED_MAIN_SHA:?required}"
@@ -18,7 +18,7 @@ EVIDENCE="${PROD_EVIDENCE_FILE:-workflow-production-3user-journey.json}"
 : > "$CHECKS"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-for secret in "$PROD_ADMIN_EMAIL" "$PROD_ADMIN_PASSWORD" "$PROD_TENANT_ID" "$PROD_QA_TENANT_ID" "$PROD_QA_ADMIN_EMAIL" "$PROD_QA_ADMIN_PASSWORD"; do
+for secret in "$PROD_ADMIN_EMAIL" "$PROD_ADMIN_PASSWORD" "$PROD_TENANT_ID" "$PROD_QA_ADMIN_EMAIL" "$PROD_QA_ADMIN_PASSWORD"; do
   echo "::add-mask::$secret"
 done
 
@@ -67,6 +67,18 @@ CP_TOKEN="$(jq -r '.accessToken // empty' "$WORK_DIR/login-cp.json")"; [ -n "$CP
 status="$(request GET '/api/platform/api/v1/executive/access-check/v2' "$WORK_DIR/cp-access.json" cp)"; expect "$status" 200 controlPlaneAccessCheck
 jq -e '.authenticated==true' "$WORK_DIR/cp-access.json" >/dev/null || fail controlPlaneAccessCheck 'Control Plane access-check is not authenticated'
 record controlPlaneOperatorBoundary PASS 'Control Plane token confined to Executive APIs'
+
+# Resolve Tenant B from the canonical production directory. The historical
+# AUTH_SMOKE_TENANT_B_ID secret is deliberately not trusted here.
+status="$(request GET "/api/platform/api/v1/executive/tenants/v2?search=$PROD_QA_TENANT_CODE&status=ACTIVE&page=0&size=100&sort=code&direction=ASC" "$WORK_DIR/qa-tenant-directory.json" cp)"; expect "$status" 200 qaTenantDirectory
+QA_TENANT_MATCH_COUNT="$(jq --arg code "$PROD_QA_TENANT_CODE" '[.content[]? | select(.code==$code and .status=="ACTIVE")]|length' "$WORK_DIR/qa-tenant-directory.json")"
+[ "$QA_TENANT_MATCH_COUNT" = 1 ] || fail qaTenantResolution "Expected exactly one ACTIVE Tenant B code $PROD_QA_TENANT_CODE; found $QA_TENANT_MATCH_COUNT"
+PROD_QA_TENANT_ID="$(jq -r --arg code "$PROD_QA_TENANT_CODE" '[.content[]? | select(.code==$code and .status=="ACTIVE")][0].id // empty' "$WORK_DIR/qa-tenant-directory.json")"
+[[ "$PROD_QA_TENANT_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail qaTenantResolution 'Resolved Tenant B id is invalid'
+echo "::add-mask::$PROD_QA_TENANT_ID"
+export PROD_QA_TENANT_ID
+if [ -n "${GITHUB_ENV:-}" ]; then echo "PROD_QA_TENANT_ID=$PROD_QA_TENANT_ID" >> "$GITHUB_ENV"; fi
+record qaTenantResolution PASS 'Tenant B resolved dynamically from Executive tenant directory'
 [ "$PROD_QA_TENANT_ID" != "$PROD_TENANT_ID" ] || fail qaTenantIsolation 'QA tenant must differ from control-plane tenant'
 record qaTenantIsolation PASS 'Dedicated QA tenant differs from control-plane tenant'
 
