@@ -30,12 +30,14 @@ await page.goto(base,{waitUntil:"domcontentloaded",timeout:60000});
 await page.locator("#login-email").waitFor({state:"visible",timeout:30000});
 await page.locator("#login-email").fill(email);
 await page.locator("#login-password").fill(password);
-const loginResponsePromise=page.waitForResponse(response=>
-  response.request().method()==="POST" &&
-  response.url().includes("/api/platform/api/v1/auth/login"),
+const loginRequestPromise=page.waitForRequest(request=>
+  request.method()==="POST" &&
+  request.url().includes("/api/platform/api/v1/auth/login"),
 {timeout:30000});
 await page.locator('form button[type="submit"]').click();
-const loginResponse=await loginResponsePromise;
+const loginRequest=await loginRequestPromise;
+const loginResponse=await loginRequest.response();
+if(!loginResponse) throw new Error("Tenant B UI login produced no HTTP response");
 if(!loginResponse.ok()) throw new Error(`Tenant B UI login HTTP ${loginResponse.status()}`);
 const loginBody=await loginResponse.json();
 if(loginBody?.user?.tenantId!==tenantId) throw new Error("Tenant B UI login resolved to unexpected tenant");
