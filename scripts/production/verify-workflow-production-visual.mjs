@@ -1,4 +1,6 @@
-import { chromium } from "@playwright/test";
+import { createRequire } from "node:module";
+const webRequire = createRequire(new URL("../../apps/web/package.json", import.meta.url));
+const { chromium } = webRequire("@playwright/test");
 import fs from "node:fs";
 const base=(process.env.PRODUCTION_BASE_URL||"").replace(/\/$/,"");
 const email=process.env.PROD_QA_ADMIN_EMAIL||"";
