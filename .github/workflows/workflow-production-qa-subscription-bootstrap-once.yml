@@ -22,12 +22,13 @@ jobs:
     timeout-minutes: 30
     environment: production
     env:
-      EXPECTED_PARENT_SHA: 4363e9817fd3672082def4a8845b055c21a4820f
+      EXPECTED_PARENT_SHA: 1e6a537cc20df7732b1546029d1a3365a2daec57
       EXPECTED_MAIN_SHA: ${{ github.sha }}
       PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       PROD_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
       PROD_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
-      PROD_QA_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      PROD_QA_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      PROD_QA_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       BOOTSTRAP_EVIDENCE_FILE: workflow-production-qa-subscription-bootstrap.json
@@ -48,16 +49,9 @@ jobs:
           parent="$(git rev-parse HEAD^)"
           [ "$parent" = "$EXPECTED_PARENT_SHA" ] || { echo "::error::ONE_TIME_PARENT_GUARD expected=$EXPECTED_PARENT_SHA actual=$parent"; exit 1; }
           git diff --name-only HEAD^ HEAD | sort > "$RUNNER_TEMP/changed.txt"
-          cat > "$RUNNER_TEMP/allowed.txt" <<'EOF'
-          .github/workflows/workflow-production-3user-final-gate.yml
-          .github/workflows/workflow-production-qa-subscription-bootstrap-once.yml
-          scripts/production/bootstrap-workflow-production-qa-subscription.sh
-          scripts/production/verify-workflow-production-3user-journey.sh
-          tests/ci/test_workflow_starter_bootstrap_contract.py
-          EOF
-          sort -o "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/allowed.txt"
+          printf '%s\n' '.github/workflows/workflow-production-qa-subscription-bootstrap-once.yml' > "$RUNNER_TEMP/allowed.txt"
           diff -u "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/changed.txt" || {
-            echo "::error::One-time bootstrap merge contains unexpected or missing files"
+            echo "::error::One-time bootstrap correction contains unexpected files"
             exit 1
           }
 
@@ -73,6 +67,30 @@ jobs:
           [[ "$tenant_id" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::SANAD_CONTROL_PLANE_TENANT_ID missing or invalid"; exit 1; }
           echo "::add-mask::$tenant_id"
           echo "PROD_TENANT_ID=$tenant_id" >> "$GITHUB_ENV"
+
+      - name: Resolve Tenant B from canonical email-only login
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${PROD_QA_EMAIL:?AUTH_SMOKE_TENANT_B_EMAIL required}"
+          : "${PROD_QA_PASSWORD:?AUTH_SMOKE_TENANT_B_PASSWORD required}"
+          echo "::add-mask::$PROD_QA_EMAIL"
+          echo "::add-mask::$PROD_QA_PASSWORD"
+          payload="$(jq -cn --arg email "$PROD_QA_EMAIL" --arg password "$PROD_QA_PASSWORD" '{email:$email,password:$password}')"
+          status="$(curl --silent --show-error --location --connect-timeout 12 --max-time 45 \
+            --output "$RUNNER_TEMP/qa-login.json" --write-out '%{http_code}' \
+            -H 'Accept: application/json' -H 'Content-Type: application/json' --data "$payload" \
+            "${PRODUCTION_BASE_URL%/}/api/platform/api/v1/auth/login")"
+          case "$status" in
+            200) ;;
+            401|403) echo "::error::Tenant B canonical credentials rejected (HTTP $status)"; exit 1 ;;
+            409) echo "::error::Tenant B email-only login is ambiguous (HTTP 409)"; exit 1 ;;
+            *) echo "::error::Tenant B identity resolution failed (HTTP $status)"; exit 1 ;;
+          esac
+          tenant_id="$(jq -r '.user.tenantId // .data.user.tenantId // empty' "$RUNNER_TEMP/qa-login.json")"
+          [[ "$tenant_id" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Tenant B login returned no valid user.tenantId"; exit 1; }
+          echo "::add-mask::$tenant_id"
+          echo "PROD_QA_TENANT_ID=$tenant_id" >> "$GITHUB_ENV"
 
       - name: Wait for exact-main Vercel convergence
         shell: bash
@@ -111,7 +129,7 @@ jobs:
           {
             echo '## Workflow Production QA Subscription Bootstrap'
             echo "- Exact main: $EXPECTED_MAIN_SHA"
-            echo '- Tenant: Auth Smoke Tenant B'
+            echo '- Tenant: resolved from canonical Auth Smoke Tenant B email-only login'
             echo '- Existing catalog: STARTER'
             echo '- Subscription mutation: create/provision only when absent'
             echo '- WORKFLOW entitlement: existing catalog + tenant recalculate'
