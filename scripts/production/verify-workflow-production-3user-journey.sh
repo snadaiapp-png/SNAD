@@ -69,7 +69,7 @@ jq -e '.authenticated==true' "$WORK_DIR/cp-access.json" >/dev/null || fail contr
 record controlPlaneOperatorBoundary PASS 'Control Plane token confined to Executive APIs'
 
 # Resolve Tenant B from the canonical production directory. The historical
-# AUTH_SMOKE_TENANT_B_ID secret is deliberately not trusted here.
+# Historical static Tenant B identifiers are deliberately not trusted here.
 status="$(request GET "/api/platform/api/v1/executive/tenants/v2?search=$PROD_QA_TENANT_CODE&status=ACTIVE&page=0&size=100&sort=code&direction=ASC" "$WORK_DIR/qa-tenant-directory.json" cp)"; expect "$status" 200 qaTenantDirectory
 QA_TENANT_MATCH_COUNT="$(jq --arg code "$PROD_QA_TENANT_CODE" '[.content[]? | select(.code==$code and .status=="ACTIVE")]|length' "$WORK_DIR/qa-tenant-directory.json")"
 [ "$QA_TENANT_MATCH_COUNT" = 1 ] || fail qaTenantResolution "Expected exactly one ACTIVE Tenant B code $PROD_QA_TENANT_CODE; found $QA_TENANT_MATCH_COUNT"
