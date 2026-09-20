@@ -117,6 +117,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Unified Workflow final-closure contract
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/ci/test_workflow_final_closure_unified.py
+
       - name: Start host-native PostgreSQL (no containers)
         # G0 reconciliation directive: GITHUB_POSTGRES_SERVICE_CONTAINER is
         # forbidden. The runner image ships a real PostgreSQL server — start
