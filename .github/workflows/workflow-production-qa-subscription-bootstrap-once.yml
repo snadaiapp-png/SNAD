@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 45
     environment: production
     env:
-      EXPECTED_PARENT_SHA: 41c3e3e98b77efc67534c9e3bad7a591ede66097
+      EXPECTED_PARENT_SHA: e136c1c895f6e4ed137c76b213901d6823565524
       EXPECTED_MAIN_SHA: ${{ github.sha }}
       PRODUCTION_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       PROD_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
@@ -54,7 +54,7 @@ jobs:
           git diff --name-only HEAD^ HEAD | sort > "$RUNNER_TEMP/changed.txt"
           cat > "$RUNNER_TEMP/allowed.txt" <<'EOF'
           .github/workflows/workflow-production-qa-subscription-bootstrap-once.yml
-          scripts/production/bootstrap-workflow-production-qa-subscription.sh
+          scripts/production/verify-workflow-production-3user-journey.sh
           tests/ci/test_workflow_final_closure_unified.py
           EOF
           sort -o "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/allowed.txt"
