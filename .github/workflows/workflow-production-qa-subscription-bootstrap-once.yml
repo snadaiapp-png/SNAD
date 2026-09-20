@@ -53,7 +53,7 @@ jobs:
           .github/workflows/workflow-production-qa-subscription-bootstrap-once.yml
           scripts/production/bootstrap-workflow-production-qa-subscription.sh
           scripts/production/verify-workflow-production-3user-journey.sh
-          tests/ci/test_workflow_production_3user_final_gate_contract.py
+          tests/ci/test_workflow_starter_bootstrap_contract.py
           EOF
           sort -o "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/allowed.txt"
           diff -u "$RUNNER_TEMP/allowed.txt" "$RUNNER_TEMP/changed.txt" || {
