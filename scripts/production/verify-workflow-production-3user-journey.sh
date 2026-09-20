@@ -126,11 +126,10 @@ for cap in USER.CREATE USER.READ USER.WRITE WORKFLOW.WRITE WORKFLOW.DESIGN WORKF
 done
 record capabilityGuard PASS 'Required QA tenant user and workflow capabilities present'
 
-# 5) Verify previously failing validate boundary is now open.
-status="$(request GET '/api/platform/api/v1/workflows/definitions?limit=50' "$WORK_DIR/defs.json" qa)"; expect "$status" 200 definitionsRead
-EXISTING_DEF="$(jq -r '[.[]|select(.publicationState=="PUBLISHED")][0].id // .[0].id // empty' "$WORK_DIR/defs.json")"
-[ -n "$EXISTING_DEF" ] || fail validateBoundary 'No definition exists for boundary check'
-status="$(request POST "/api/platform/api/v1/workflows/definitions/$EXISTING_DEF/validate" "$WORK_DIR/boundary-validate.json" qa '{}')"; expect "$status" 200 validateBoundary
+# 5) No pre-existing Workflow definition is required.
+# The authoritative validate/simulate boundary proof is performed below against
+# the DRAFT definition created by this run, keeping the gate self-contained.
+record validateBoundarySetup PASS 'Self-contained definition lifecycle; no pre-existing definition required'
 
 # 6) Ensure exactly three stable production QA user identities exist; create only missing identities.
 status="$(request GET "/api/platform/api/v1/users?tenantId=$PROD_QA_TENANT_ID" "$WORK_DIR/users-before.json" qa)"; expect "$status" 200 qaUsersRead
