@@ -29,7 +29,8 @@ jobs:
       PROD_QA_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
       PROD_QA_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       PROD_QA_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
-      PROD_QA_PLAN_CODE: ${{ vars.WORKFLOW_PROD_QA_PLAN_CODE || 'WORKFLOW_PROD_QA' }}
+      PROD_QA_PLAN_CODE: STARTER
+      BOOTSTRAP_EVIDENCE_FILE: workflow-production-qa-subscription-bootstrap.json
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       PROD_EVIDENCE_FILE: workflow-production-3user-journey.json
@@ -177,12 +178,22 @@ jobs:
           visual='scripts/production/verify-workflow-production-visual.mjs'
           ! grep -F "request POST '/api/platform/api/v1/executive/plans'" "$journey" >/dev/null
           ! grep -F 'version-create.json' "$journey" >/dev/null
+          ! grep -F 'plans/$PLAN_ID/modules/WORKFLOW' "$journey" >/dev/null
+          bootstrap='scripts/production/bootstrap-workflow-production-qa-subscription.sh'
+          ! grep -F "request POST '/api/platform/api/v1/executive/plans'" "$bootstrap" >/dev/null
+          ! grep -F 'plans/$PLAN_ID/modules/WORKFLOW' "$bootstrap" >/dev/null
+          grep -F 'trialDays:$trialDays' "$bootstrap" >/dev/null
+          grep -F '/subscriptions/$SUB_ID/provision' "$bootstrap" >/dev/null
           grep -F 'Control Plane token attempted non-Executive API' "$journey" >/dev/null
           grep -F 'Tenant B token attempted Executive API' "$journey" >/dev/null
           grep -F 'PROD_QA_ADMIN_EMAIL' "$visual" >/dev/null
           grep -F 'PROD_QA_TENANT_ID' "$visual" >/dev/null
           ! grep -F 'PROD_ADMIN_EMAIL' "$visual" >/dev/null
           echo 'Final-gate safety contract: PASS'
+
+      - name: Bootstrap governed STARTER QA subscription
+        shell: bash
+        run: bash scripts/production/bootstrap-workflow-production-qa-subscription.sh
 
       - name: Execute entitlement-safe 3-user Workflow journey
         shell: bash
@@ -214,6 +225,7 @@ jobs:
         with:
           name: workflow-production-3user-final-${{ github.run_id }}
           path: |
+            workflow-production-qa-subscription-bootstrap.json
             workflow-production-3user-journey.json
             apps/web/workflow-production-visual-evidence/
           if-no-files-found: warn
@@ -231,9 +243,10 @@ jobs:
             echo '- Workflow capability contract: canonical Y2 validate+simulate via WORKFLOW.VALIDATE'
             echo '- Control Plane operator: Executive APIs only'
             echo '- Tenant B: Workflow + users + authenticated UI'
-            echo '- Workflow plan: existing catalog plan only; no plan/version creation'
-            echo '- Workflow entitlement: ACTIVE through audited Executive API path'
-            echo '- Production QA users: 3 created'
+            echo '- Workflow plan: existing STARTER only; no plan/version creation or mutation'
+            echo '- Subscription bootstrap: non-zero trial + canonical /provision; paid invoice path NOT USED'
+            echo '- Workflow entitlement: recalculated and ACTIVE; shared catalog unchanged'
+            echo '- Production QA users: 3 stable isolated identities, created only when absent'
             echo '- DRAFT → validate → simulate → PUBLISHED(Y2): PASS'
             echo '- User-linked Workflow instances: 3/3 COMPLETED'
             echo '- Published immutability: PASS (409)'
