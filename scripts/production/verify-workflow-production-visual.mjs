@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test";
+import { chromium } from "../../apps/web/node_modules/@playwright/test/index.mjs";
 import fs from "node:fs";
 const base=(process.env.PRODUCTION_BASE_URL||"").replace(/\/$/,"");
 const email=process.env.PROD_QA_ADMIN_EMAIL||"";
