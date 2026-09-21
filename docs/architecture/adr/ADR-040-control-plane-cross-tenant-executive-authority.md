@@ -26,7 +26,7 @@ another tenant's Executive billing data.
 Permit a foreign `tenantId` through the JWT tenant-binding filter only when:
 
 1. the JWT tenant is the configured `SANAD_CONTROL_PLANE_TENANT_ID`; and
-2. the request path is under `/api/v1/executive/**`.
+2. the request path is an explicit target-aware Executive route that declares a `tenantId` selector.
 
 This is not an authorization grant. It only allows the request to reach the
 existing server-side authorization layers. Executive controllers remain
@@ -35,8 +35,7 @@ responsible for both:
 - `ControlPlaneAccessGuard.require(authentication)`; and
 - an explicit `@RequireCapability(...)`.
 
-All non-Executive APIs retain the original fail-closed foreign-tenant rejection.
-Regular tenant users retain the rejection even when calling an Executive path.
+All non-target-aware APIs retain the original fail-closed foreign-tenant rejection, including Executive diagnostics such as `access-check/v2` that do not consume a target tenant. Regular tenant users retain the rejection on every path.
 
 ## Canonical owner invariant
 
