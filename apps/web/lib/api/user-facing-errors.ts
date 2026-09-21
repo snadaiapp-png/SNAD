@@ -206,6 +206,13 @@ function mapHttpError(err: ApiHttpError, loginRequest: boolean): UserFacingError
     return { title: "يلزم تسجيل الدخول", message: "انتهت الجلسة أو لا توجد جلسة صالحة. سجّل الدخول من جديد.", kind: "validation" };
   }
   if (status === 403) {
+    if (backendMsg && /تعارض في هوية المستأجر/.test(backendMsg)) {
+      return {
+        title: "تعارض في سياق المستأجر",
+        message: "تم رفض الطلب لأن الجلسة مرتبطة بمستأجر مختلف عن المستأجر المستهدف.",
+        kind: "validation",
+      };
+    }
     return { title: "الوصول مرفوض", message: "لا تملك الصلاحية المطلوبة لتنفيذ هذه العملية.", kind: "validation" };
   }
   if (status === 404) {
