@@ -1,5 +1,6 @@
 package com.sanad.platform.security.filter;
 
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -28,13 +29,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final SessionVersionCache sessionVersionCache;
+    private final ControlPlaneAccessGuard controlPlaneAccessGuard;
 
     public JwtAuthenticationFilter(
             JwtTokenProvider jwtTokenProvider,
             SessionVersionCache sessionVersionCache
     ) {
+        this(jwtTokenProvider, sessionVersionCache, null);
+    }
+
+    public JwtAuthenticationFilter(
+            JwtTokenProvider jwtTokenProvider,
+            SessionVersionCache sessionVersionCache,
+            ControlPlaneAccessGuard controlPlaneAccessGuard
+    ) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.sessionVersionCache = sessionVersionCache;
+        this.controlPlaneAccessGuard = controlPlaneAccessGuard;
     }
 
     @Override
@@ -70,7 +81,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (requestTenantIdParam != null && !requestTenantIdParam.isBlank()) {
             try {
                 UUID requestTenantId = UUID.fromString(requestTenantIdParam);
-                if (!requestTenantId.equals(jwtTenantId)) {
+                if (!requestTenantId.equals(jwtTenantId)
+                        && !isGovernedControlPlaneCrossTenantRequest(jwtTenantId, request.getRequestURI())) {
                     log.warn("Tenant binding violation: JWT tenantId={} request tenantId={} path={}",
                             jwtTenantId, requestTenantId, request.getRequestURI());
                     writeError(response, request, 403, "Forbidden",
