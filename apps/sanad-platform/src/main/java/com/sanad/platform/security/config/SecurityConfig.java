@@ -118,7 +118,7 @@ public class SecurityConfig {
                 .securityContext(sc -> sc.requireExplicitSave(false));
 
         http.addFilterBefore(
-                new JwtAuthenticationFilter(jwtTokenProvider, sessionVersionCache),
+                new JwtAuthenticationFilter(jwtTokenProvider, sessionVersionCache, controlPlaneAccessGuard),
                 UsernamePasswordAuthenticationFilter.class
         );
         return http.build();
