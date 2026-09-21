@@ -175,7 +175,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 && controlPlaneAccessGuard.isControlPlaneTenant(jwtTenantId)
                 && CANONICAL_PROJECT_OWNER_USER_ID.equals(userId)
                 && CANONICAL_PROJECT_OWNER_EMAIL.equalsIgnoreCase(emailClaim)
-                && ("/api/v1/executive".equals(uri) || uri.startsWith("/api/v1/executive/"));
+                && ("/api/v1/executive/billing/invoices".equals(uri)
+                    || "/api/v1/executive/usage".equals(uri));
     }
 
     private boolean isRotationSafeEndpoint(String uri) {
