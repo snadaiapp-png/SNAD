@@ -175,8 +175,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 && controlPlaneAccessGuard.isControlPlaneTenant(jwtTenantId)
                 && CANONICAL_PROJECT_OWNER_USER_ID.equals(userId)
                 && CANONICAL_PROJECT_OWNER_EMAIL.equalsIgnoreCase(emailClaim)
-                && ("/api/v1/executive/billing/invoices".equals(uri)
-                    || "/api/v1/executive/usage".equals(uri));
+                && isOwnerCrossTenantExecutiveRoute(uri);
+    }
+
+    private boolean isOwnerCrossTenantExecutiveRoute(String uri) {
+        return "/api/v1/executive/subscriptions".equals(uri)
+                || "/api/v1/executive/subscriptions/v2".equals(uri)
+                || "/api/v1/executive/billing/invoices".equals(uri)
+                || "/api/v1/executive/usage".equals(uri)
+                || "/api/v1/executive/usage/events".equals(uri)
+                || "/api/v1/executive/audit/v2".equals(uri)
+                || "/api/v1/executive/provisioning/jobs".equals(uri);
     }
 
     private boolean isRotationSafeEndpoint(String uri) {
