@@ -406,14 +406,17 @@ class ModuleRegistryUatPostgresAcceptanceTest {
                 .andExpect(jsonPath("$[0].status").value("FAILED"))
                 .andReturn();
 
-        // tenant scoping: a foreign tenantId filter is DENIED (403) by the
-        // tenant-scoped guard — fail-closed deny, never a cross-tenant data listing
+        // Control Plane operators may explicitly target another tenant on this
+        // governed Executive read model. A nonexistent target returns an empty
+        // typed list; ordinary tenant identities are still rejected by the
+        // ControlPlaneAccessGuard and JWT tenant binding.
         mockMvc.perform(
                         get("/api/v1/executive/provisioning/jobs")
                                 .param("tenantId", UUID.randomUUID().toString())
                                 .header("Authorization", "Bearer " + realJwt(admin.tenantId(), admin.userId(), "uat-f@uat-acc.test"))
                                 .header("Accept", "application/json"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
 
         // full-body key audit: snake_case must never leak; nullable column maps to explicit null member
         MvcResult result = mockMvc.perform(
