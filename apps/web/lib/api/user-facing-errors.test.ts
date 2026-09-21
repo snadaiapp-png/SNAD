@@ -96,4 +96,26 @@ describe("toUserFacingError", () => {
     expect(validation.message).toBe("رقم الجوال غير صالح");
     expect(server.message).not.toContain("SQL");
   });
+
+  it("distinguishes tenant binding conflicts from missing permissions", () => {
+    const result = toUserFacingError(httpError(
+      403,
+      "/api/v1/executive/billing/invoices",
+      "تم رفض الوصول: تعارض في هوية المستأجر",
+    ));
+
+    expect(result.title).toBe("تعارض في سياق المستأجر");
+    expect(result.message).toContain("الجلسة مرتبطة بمستأجر مختلف");
+  });
+
+  it("keeps ordinary 403 permission failures generic", () => {
+    const result = toUserFacingError(httpError(
+      403,
+      "/api/v1/executive/audit/v2",
+      "Access denied",
+    ));
+
+    expect(result.title).toBe("الوصول مرفوض");
+    expect(result.message).toContain("الصلاحية المطلوبة");
+  });
 });
