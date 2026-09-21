@@ -26,6 +26,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final List<String> CONTROL_PLANE_TARGET_TENANT_PATHS = List.of(
+            "/api/v1/executive/subscriptions",
+            "/api/v1/executive/subscriptions/v2",
+            "/api/v1/executive/billing/invoices",
+            "/api/v1/executive/usage",
+            "/api/v1/executive/usage/events",
+            "/api/v1/executive/provisioning/jobs",
+            "/api/v1/executive/audit/v2"
+    );
 
     private final JwtTokenProvider jwtTokenProvider;
     private final SessionVersionCache sessionVersionCache;
@@ -157,7 +166,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     ) {
         String uri = request.getRequestURI();
         return uri != null
-                && uri.startsWith("/api/v1/executive/")
+                && CONTROL_PLANE_TARGET_TENANT_PATHS.contains(uri)
                 && controlPlaneAccessGuard.isControlPlaneTenant(jwtTenantId);
     }
 
