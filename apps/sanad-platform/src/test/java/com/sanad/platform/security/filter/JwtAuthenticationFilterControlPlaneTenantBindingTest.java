@@ -47,10 +47,23 @@ class JwtAuthenticationFilterControlPlaneTenantBindingTest {
     }
 
     @Test
-    void controlPlaneTenantDoesNotBypassTenantBindingOutsideExecutiveNamespace() throws Exception {
+    void controlPlaneOwnerMayTargetAnotherTenantOnUsageReadModel() throws Exception {
         Harness h = harness(true);
         MockHttpServletRequest request =
-                request("GET", "/api/v1/users", TARGET_TENANT);
+                request("GET", "/api/v1/executive/usage", TARGET_TENANT);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        h.filter.doFilterInternal(request, response, h.chain);
+
+        verify(h.chain).doFilter(request, response);
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    void controlPlaneOwnerCannotUseForeignTenantIdOnOtherExecutiveRoutes() throws Exception {
+        Harness h = harness(true);
+        MockHttpServletRequest request =
+                request("GET", "/api/v1/executive/access-check/v2", TARGET_TENANT);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         h.filter.doFilterInternal(request, response, h.chain);
