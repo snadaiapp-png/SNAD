@@ -43,14 +43,10 @@ jobs:
         run: |
           set -euo pipefail
           sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          DO $
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_recovery') THEN
-              CREATE ROLE sanad_recovery WITH LOGIN PASSWORD 'recovery_ci_only';
-            END IF;
-          END
-          $;
-          ALTER ROLE sanad_recovery NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE ROLE sanad_recovery WITH LOGIN PASSWORD ''recovery_ci_only'''
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_recovery')\gexec
+          ALTER ROLE sanad_recovery WITH LOGIN PASSWORD 'recovery_ci_only'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           SELECT 'CREATE DATABASE sanad_source OWNER sanad_recovery'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_source')\gexec
           \c sanad_source
