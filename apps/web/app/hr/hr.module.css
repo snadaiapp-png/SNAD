@@ -676,35 +676,35 @@
 }
 
 .badgeNeutral {
-  background: var(--snad-color-surface-secondary, #f3f4f6);
-  border-color: var(--snad-color-border-default, #d1d5db);
-  color: var(--snad-text-default, #1f2937);
+  background: var(--snad-color-surface-secondary);
+  border-color: var(--snad-color-border-default);
+  color: var(--snad-color-text-primary);
 }
 
 .badgeSuccess {
-  background: color-mix(in srgb, var(--snad-success, #16a34a) 12%, transparent);
-  border-color: color-mix(in srgb, var(--snad-success, #16a34a) 40%, transparent);
-  color: color-mix(in srgb, var(--snad-success, #16a34a) 80%, #000);
+  background: color-mix(in srgb, var(--snad-color-success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-success) 40%, transparent);
+  color: color-mix(in srgb, var(--snad-color-success) 80%, var(--snad-color-text-primary));
 }
 
 .badgeWarning {
-  background: color-mix(in srgb, var(--snad-warning, #d97706) 12%, transparent);
-  border-color: color-mix(in srgb, var(--snad-warning, #d97706) 40%, transparent);
-  color: color-mix(in srgb, var(--snad-warning, #d97706) 80%, #000);
+  background: color-mix(in srgb, var(--snad-color-warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-warning) 40%, transparent);
+  color: color-mix(in srgb, var(--snad-color-warning) 80%, var(--snad-color-text-primary));
   /* Overdue emphasis uses font-weight + icon, never color alone. */
   font-weight: 700;
 }
 
 .badgeDanger {
-  background: color-mix(in srgb, var(--snad-danger, #dc2626) 12%, transparent);
-  border-color: color-mix(in srgb, var(--snad-danger, #dc2626) 40%, transparent);
-  color: color-mix(in srgb, var(--snad-danger, #dc2626) 80%, #000);
+  background: color-mix(in srgb, var(--snad-color-error) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-error) 40%, transparent);
+  color: color-mix(in srgb, var(--snad-color-error) 80%, var(--snad-color-text-primary));
 }
 
 .badgeInfo {
-  background: color-mix(in srgb, var(--snad-info, #2563eb) 12%, transparent);
-  border-color: color-mix(in srgb, var(--snad-info, #2563eb) 40%, transparent);
-  color: color-mix(in srgb, var(--snad-info, #2563eb) 80%, #000);
+  background: color-mix(in srgb, var(--snad-color-info) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-info) 40%, transparent);
+  color: color-mix(in srgb, var(--snad-color-info) 80%, var(--snad-color-text-primary));
 }
 
 /* Recruitment dashboard — KPI tile grid using logical CSS grid. */
@@ -790,7 +790,7 @@
 .linkButton {
   background: none;
   border: none;
-  color: var(--snad-info, #2563eb);
+  color: var(--snad-color-info);
   cursor: pointer;
   padding: 0.125rem 0.25rem;
   font-size: inherit;
@@ -799,7 +799,7 @@
 }
 
 .linkButton:focus-visible {
-  outline: 2px solid var(--snad-info, #2563eb);
+  outline: 2px solid var(--snad-color-info);
   outline-offset: 2px;
 }
 
@@ -837,7 +837,7 @@
 }
 
 .taskItemOverdue {
-  border-color: color-mix(in srgb, var(--snad-danger, #dc2626) 50%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-error) 50%, transparent);
   /* Overdue emphasis uses font-weight + icon, never color alone. */
   font-weight: 600;
 }

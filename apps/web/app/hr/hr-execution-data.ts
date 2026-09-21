@@ -72,15 +72,15 @@ export const HR_G0_CLOSURE = {
  * and decomposes G1 into 12 canonical tasks (T1..T12).
  *
  * Implementation status (reconciled to repo reality):
- *   - T1 (schema)               — DONE — PR #998, migration V20260918_2
- *   - T2 (RLS + indexes)        — DONE — PR #998, migration V20260918_3
- *   - T3 (aggregates)           — DONE — PR #998
- *   - T4 (person/identity link) — DONE — PR #998
- *   - T5 (applications)         — DONE — PR #998
- *   - T6 (interviews)           — DONE — PR #998
- *   - T7 (offers + approvals)   — DONE — PR #998, migration V20260918_5
- *   - T8 (candidate→hire conv.) — DONE — PR #998, migration V20260918_6
- *   - T9 (onboarding domain)    — DONE — PR #998, migration V20260918_7
+ *   - T1 (schema)               — DONE — PR-998, migration V20260918_2
+ *   - T2 (RLS + indexes)        — DONE — PR-998, migration V20260918_3
+ *   - T3 (aggregates)           — DONE — PR-998
+ *   - T4 (person/identity link) — DONE — PR-998
+ *   - T5 (applications)         — DONE — PR-998
+ *   - T6 (interviews)           — DONE — PR-998
+ *   - T7 (offers + approvals)   — DONE — PR-998, migration V20260918_5
+ *   - T8 (candidate→hire conv.) — DONE — PR-998, migration V20260918_6
+ *   - T9 (onboarding domain)    — DONE — PR-998, migration V20260918_7
  *   - T10 (V2 API + OpenAPI)    — DONE — PR (b8af9346), migration V20260918_8
  *   - T11 (Web UI)              — IN_PROGRESS (this branch) — 4 of 15 screens
  *                                 scaffolded with i18n/RTL/a11y/tests
@@ -129,7 +129,7 @@ export const HR_G1_CLOSURE = {
   productionAuthorization: "NO" as const,
   /** Historical execution record (never deleted, superseded by current). */
   historicalRecord:
-    "PR #998 (T1-T9) merged at 81a86faa; T10 landed via V20260918_8 + V2 " +
+    "PR-998 (T1-T9) merged at 81a86faa; T10 landed via V20260918_8 + V2 " +
     "controllers in commit b8af9346. T11 partial (this branch) scaffolds 4 " +
     "of 15 §14 screens with i18n/RTL/a11y/tests. T12 closure block + " +
     "evidence doc + regression test scaffolded; final gate PENDING.",

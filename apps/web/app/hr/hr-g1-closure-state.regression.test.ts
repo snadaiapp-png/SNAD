@@ -18,7 +18,7 @@
  *   - No production authorization may be fabricated.
  *
  * Status as of this branch:
- *   - T1..T10 = DONE (PR #998 + commit b8af9346)
+ *   - T1..T10 = DONE (PR-998 + commit b8af9346)
  *   - T11 = IN_PROGRESS (4 of 15 §14 screens scaffolded — NOT CLOSED)
  *   - T12 = IN_PROGRESS (this scaffold + closure block + evidence doc)
  *   - G1_FINAL_GATE = NOT_CLOSED
@@ -117,9 +117,9 @@ describe("HR-G1 Closure State (T12 regression)", () => {
     expect(HR_G1_CLOSURE.productionAuthorization).toBe("NO");
   });
 
-  it("historical record references PR #998 and commit b8af9346", () => {
+  it("historical record references PR-998 and commit b8af9346", () => {
     const hist = HR_G1_CLOSURE.historicalRecord;
-    expect(hist).toContain("PR #998");
+    expect(hist).toContain("PR-998");
     expect(hist).toContain("81a86faa");
     expect(hist).toContain("b8af9346");
   });
