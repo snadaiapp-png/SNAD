@@ -142,7 +142,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private boolean isGovernedControlPlaneCrossTenantRequest(UUID jwtTenantId, String uri) {\n        return controlPlaneAccessGuard != null\n                && controlPlaneAccessGuard.isControlPlaneTenant(jwtTenantId)\n                && ("/api/v1/executive".equals(uri) || uri.startsWith("/api/v1/executive/"));\n    }\n\n    private boolean isRotationSafeEndpoint(String uri) {
+    private boolean isGovernedControlPlaneCrossTenantRequest(UUID jwtTenantId, String uri) {
+        return controlPlaneAccessGuard != null
+                && controlPlaneAccessGuard.isControlPlaneTenant(jwtTenantId)
+                && ("/api/v1/executive".equals(uri) || uri.startsWith("/api/v1/executive/"));
+    }
+
+    private boolean isRotationSafeEndpoint(String uri) {
         return "/api/v1/auth/me".equals(uri)
                 || "/api/v1/auth/change-credential".equals(uri)
                 || "/api/v1/auth/logout".equals(uri);
