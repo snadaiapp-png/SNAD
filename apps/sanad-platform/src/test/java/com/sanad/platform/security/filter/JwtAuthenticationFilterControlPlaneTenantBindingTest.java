@@ -47,6 +47,17 @@ class JwtAuthenticationFilterControlPlaneTenantBindingTest {
     }
 
     @Test
+    void controlPlanePrincipalCannotSmuggleForeignTenantIntoNonTargetAwareExecutiveApi() throws Exception {
+        TestFixture fixture = fixture(CONTROL_TENANT, true);
+        MockHttpServletRequest request = request("/api/v1/executive/access-check/v2", TARGET_TENANT);
+
+        fixture.filter.doFilter(request, fixture.response, fixture.chain);
+
+        assertEquals(403, fixture.response.getStatus());
+        verify(fixture.chain, never()).doFilter(request, fixture.response);
+    }
+
+    @Test
     void controlPlanePrincipalStillCannotBypassTenantBindingOutsideExecutiveApi() throws Exception {
         TestFixture fixture = fixture(CONTROL_TENANT, true);
         MockHttpServletRequest request = request("/api/v1/users", TARGET_TENANT);
