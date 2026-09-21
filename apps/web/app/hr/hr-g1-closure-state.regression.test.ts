@@ -6,8 +6,8 @@
  * Engineering closure evidence:
  *   - implementation PR 1119 exact head: 87cdfba3522f8b576236c901fbb98cfe77d25c13
  *   - protected squash merge on main: eba5aa7d1537fcaff5326963735af5414ce08de7
- *   - Post-Merge Main Verification #1092 / run 35617855980: SUCCESS
- *   - CI #3951 / run 35617855855: SUCCESS
+ *   - Post-Merge Main Verification run 1092 / 35617855980: SUCCESS
+ *   - CI run 3951 / 35617855855: SUCCESS
  *
  * Claim discipline:
  *   - engineering completion does not imply legal certification;
@@ -90,6 +90,6 @@ describe("HR-G1 final engineering closure", () => {
     );
     expect(HR_G1_CLOSURE.historicalRecord).toContain("PR-998");
     expect(HR_G1_CLOSURE.historicalRecord).toContain("PR-1119");
-    expect(HR_G1_CLOSURE.historicalRecord).toContain("PMV #1092");
+    expect(HR_G1_CLOSURE.historicalRecord).toContain("PMV run 1092");
   });
 });

@@ -84,7 +84,7 @@ export const HR_G0_CLOSURE = {
  *   - T10 (V2 API + OpenAPI)    — DONE — PR (b8af9346), migration V20260918_8
  *   - T11 (Web UI)              — DONE — 15/15 §14 screens implemented
  *   - T12 (Security/closure)    — DONE — exact-head gates green, protected
- *                                 merge completed, and PMV #1092 green on
+ *                                 merge completed, and PMV run 1092 green on
  *                                 implementation merge SHA eba5aa7d1537fcaff5326963735af5414ce08de7
  *
  * Claim discipline: G1 engineering closure is complete, but this does NOT
@@ -136,7 +136,7 @@ export const HR_G1_CLOSURE = {
   historicalRecord:
     "PR-998 (T1-T9) merged at 81a86faa; T10 landed via V20260918_8 + V2 " +
     "controllers in commit b8af9346. PR-1119 exact head 87cdfba was independently " +
-    "approved with exact-head CI green, then squash-merged as eba5aa7. PMV #1092 " +
+    "approved with exact-head CI green, then squash-merged as eba5aa7. PMV run 1092 " +
     "on eba5aa7 passed frontend, full PostgreSQL Direct, HRM security/RLS, governance, " +
     "and final evidence aggregation. Engineering G1/T12 closure is PASS; legal and " +
     "production gates remain separate and unclaimed.",
@@ -193,7 +193,7 @@ export const HR_GROUP_DATA = [
     titleEn: "Core Features: Recruitment & Onboarding",
     purposeAr: "تنفيذ التوظيف وإجراءات التأهيل للموظفين الجدد.",
     purposeEn: "Implement recruitment workflows and new hire onboarding processes.",
-    // Reconciled via HR_G1_CLOSURE — T1..T12 DONE; PMV #1092 PASS on eba5aa7.
+    // Reconciled via HR_G1_CLOSURE — T1..T12 DONE; PMV run 1092 PASS on eba5aa7.
     status: "DONE" as GroupStatus,
     dependencies: ["G0"],
     canParallelizeWith: ["G2"],
