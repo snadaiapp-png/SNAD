@@ -476,15 +476,16 @@ class HrComplianceOverrideIntegrationTest {
         setTenant(tenantId);
         Object service = newOverrideService(allowAllAuthorizationPort(), noopAuditPort(), noopEventPort());
 
+        LocalDate today = LocalDate.now();
         UUID resourceId = UUID.randomUUID();
         UUID requestId = requestOverrideForResource(service, tenantId, requester, ruleId,
-                "EMPLOYMENT", resourceId, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 20));
+                "EMPLOYMENT", resourceId, today.minusDays(5), today.plusDays(5));
         approve(service, tenantId, requestId, approver, "windowed");
 
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
-                LocalDate.of(2026, 9, 1))).as("before valid_from must be denied").isFalse();
+                today.minusDays(10))).as("before valid_from must be denied").isFalse();
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", resourceId,
-                LocalDate.of(2026, 9, 15))).as("inside window must authorize").isTrue();
+                today)).as("inside window must authorize").isTrue();
     }
 
     @Test
