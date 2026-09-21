@@ -18,23 +18,40 @@ jobs:
     name: PostgreSQL Logical Backup and Restore
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: sanad_source
-          POSTGRES_USER: sanad_recovery
-          POSTGRES_PASSWORD: recovery_ci_only
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: sanad_recovery
+      PGPASSWORD: recovery_ci_only
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl start postgresql
+          for i in $(seq 1 30); do
+            pg_isready -h "$PGHOST" -p "$PGPORT" >/dev/null 2>&1 && break
+            sleep 1
+          done
+          pg_isready -h "$PGHOST" -p "$PGPORT"
+
+      - name: Provision least-privilege recovery role and source database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT 'CREATE ROLE sanad_recovery WITH LOGIN PASSWORD ''recovery_ci_only'''
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_recovery')\gexec
+          ALTER ROLE sanad_recovery WITH LOGIN PASSWORD 'recovery_ci_only'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad_source OWNER sanad_recovery'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_source')\gexec
+          \c sanad_source
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_recovery;
+          SQL
 
       - name: Resolve expected schema version
         run: |
@@ -104,8 +121,7 @@ jobs:
 
           migration_dir="apps/sanad-platform/src/main/resources/db/migration"
 
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
-            psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 \
+          psql -d sanad_source -v ON_ERROR_STOP=1 \
             -c "CREATE TABLE IF NOT EXISTS flyway_schema_history (installed_rank INT PRIMARY KEY, version VARCHAR(50), description VARCHAR(200), type VARCHAR(20), script VARCHAR(1000), checksum INT, installed_by VARCHAR(100), installed_on TIMESTAMP DEFAULT NOW(), execution_time INT DEFAULT 0, success BOOLEAN NOT NULL);"
 
           rank=1
@@ -117,18 +133,14 @@ jobs:
             description=${filename#*__}
             description=${description%.sql}
 
-            already_applied=$(docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
-              psql -h localhost -U sanad_recovery -d sanad_source -At \
+            already_applied=$(psql -d sanad_source -At \
               -c "SELECT COUNT(*) FROM flyway_schema_history WHERE version='${normalized_version}' AND success=true;" | tr -d '[:space:]')
 
             if [ "$already_applied" = "0" ]; then
               echo "Applying migration: $filename"
-              docker run --rm --network host -e PGPASSWORD=recovery_ci_only \
-                -v "$PWD/$migration_dir:/migrations:ro" postgres:16-alpine \
-                psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 -f "/migrations/$filename"
+              psql -d sanad_source -v ON_ERROR_STOP=1 -f "$migration_dir/$filename"
 
-              docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
-                psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 \
+              psql -d sanad_source -v ON_ERROR_STOP=1 \
                 -c "INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, installed_by, success) VALUES (${rank}, '${normalized_version}', '${description}', 'SQL', '${filename}', 'sanad_recovery', true);"
             else
               echo "Migration already applied: $filename"
@@ -137,8 +149,7 @@ jobs:
             rank=$((rank + 1))
           done < <(find "$migration_dir" -maxdepth 1 -type f -name 'V*__*.sql' -printf '%p\n' | sort -V)
 
-          actual_version=$(docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
-            psql -h localhost -U sanad_recovery -d sanad_source -At \
+          actual_version=$(psql -d sanad_source -At \
             -c "SELECT version FROM flyway_schema_history WHERE success=true ORDER BY installed_rank DESC LIMIT 1;" | tr -d '[:space:]')
 
           echo "SOURCE_VERSION=$actual_version" >> "$GITHUB_ENV"
@@ -146,42 +157,39 @@ jobs:
 
       - name: Capture source schema evidence
         run: |
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
-            psql -h localhost -U sanad_recovery -d sanad_source -v ON_ERROR_STOP=1 \
+          psql -d sanad_source -v ON_ERROR_STOP=1 \
             -c "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank;" \
             -c "SELECT COUNT(*) AS application_table_count FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';"
 
       - name: Create compressed logical backup
         run: |
           start_epoch=$(date +%s)
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only \
-            -v "$PWD:/work" postgres:16-alpine \
-            pg_dump -h localhost -U sanad_recovery -d sanad_source \
-            --format=custom --no-owner --no-privileges --file=/work/sanad_source.dump
+          # Full-cluster logical backup evidence must include rows protected by RLS.
+          # Keep the application/recovery role NOBYPASSRLS; use the runner-local
+          # postgres maintenance identity only for this read-only dump operation.
+          sudo -u postgres pg_dump -d sanad_source \
+            --format=custom --no-owner --no-privileges > sanad_source.dump
           echo "BACKUP_DURATION_SECONDS=$(($(date +%s)-start_epoch))" >> "$GITHUB_ENV"
           test -s sanad_source.dump
 
       - name: Create isolated restore database
         run: |
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
-            psql -h localhost -U sanad_recovery -d postgres -v ON_ERROR_STOP=1 \
+          sudo -u postgres psql -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS sanad_restore;" \
             -c "CREATE DATABASE sanad_restore OWNER sanad_recovery;"
 
       - name: Restore backup and measure recovery time
         run: |
           start_epoch=$(date +%s)
-          docker run --rm --network host -e PGPASSWORD=recovery_ci_only \
-            -v "$PWD:/work" postgres:16-alpine \
-            pg_restore -h localhost -U sanad_recovery -d sanad_restore \
-            --no-owner --no-privileges --exit-on-error /work/sanad_source.dump
+          pg_restore -d sanad_restore \
+            --no-owner --no-privileges --exit-on-error sanad_source.dump
           echo "RESTORE_DURATION_SECONDS=$(($(date +%s)-start_epoch))" >> "$GITHUB_ENV"
 
       - name: Validate restored schema and migration state
         run: |
           query() {
             local db="$1" sql="$2"
-            docker run --rm --network host -e PGPASSWORD=recovery_ci_only postgres:16-alpine \
-              psql -h localhost -U sanad_recovery -d "$db" -At -c "$sql"
+            psql -d "$db" -At -c "$sql"
           }
           source_tables=$(query sanad_source "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';" | tr -d '[:space:]')
           restored_tables=$(query sanad_restore "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'flyway_schema_history';" | tr -d '[:space:]')
@@ -218,6 +226,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Cleanup containers
+      - name: Cleanup recovery artifact
         if: always()
         run: rm -f sanad_source.dump

@@ -82,26 +82,31 @@ export const HR_G0_CLOSURE = {
  *   - T8 (candidate→hire conv.) — DONE — PR-998, migration V20260918_6
  *   - T9 (onboarding domain)    — DONE — PR-998, migration V20260918_7
  *   - T10 (V2 API + OpenAPI)    — DONE — PR (b8af9346), migration V20260918_8
- *   - T11 (Web UI)              — IN_PROGRESS (this branch) — 4 of 15 screens
- *                                 scaffolded with i18n/RTL/a11y/tests
- *   - T12 (Security/closure)    — IN_PROGRESS (this branch) — closure block +
- *                                 evidence doc + regression test scaffolded;
- *                                 final gate requires T11 done + independent
- *                                 approval + CI green on exact closure SHA
+ *   - T11 (Web UI)              — DONE — 15/15 §14 screens implemented
+ *   - T12 (Security/closure)    — DONE — exact-head gates green, protected
+ *                                 merge completed, and PMV run 1092 green on
+ *                                 implementation merge SHA eba5aa7d1537fcaff5326963735af5414ce08de7
  *
- * Claim discipline: this block intentionally does NOT claim
- * G1_CLOSED, PRODUCTION_READY, PRODUCTION_CERTIFIED, or
- * SAUDI_LEGAL_COMPLIANT. Engineering closure is PENDING; legal certification
- * is BLOCKED; production authorization is NO. Independent human approval
- * is required for T11 and T12 merges per the project Constitution §3.5.
+ * Claim discipline: G1 engineering closure is complete, but this does NOT
+ * imply production readiness, production certification, Saudi legal
+ * compliance, or production authorization. Legal certification remains
+ * BLOCKED/PENDING_HUMAN and production authorization remains NO.
  */
 export const HR_G1_CLOSURE = {
   /** Authoritative implementation state of G1. */
-  implementation: "IN_PROGRESS" as GroupStatus,
+  implementation: "DONE" as GroupStatus,
   /** Baseline SHA for T10 (the immediately-preceding task). */
   baselineT10Sha: "b8af9346b21b8f8ac59d348233ef829513904fe4",
-  /** Documented engineering certificate backing this state (pending T12). */
+  /** Documented engineering certificate backing this final state. */
   certificatePath: "docs/hrm/g1/evidence/HRM-G1-ENGINEERING-CLOSURE.md",
+  /** Exact implementation merge SHA whose post-merge verification closed T12. */
+  closureEvidenceMainSha: "eba5aa7d1537fcaff5326963735af5414ce08de7",
+  /** Exact pre-merge head independently approved before PR 1119 merged. */
+  preMergeClosureHeadSha: "87cdfba3522f8b576236c901fbb98cfe77d25c13",
+  /** Post-Merge Main Verification run that passed all A-F jobs. */
+  postMergeVerificationRunId: 35617855980 as const,
+  /** Engineering-only final gate; production authorization remains separate. */
+  engineeringFinalGate: "PASS" as const,
   /** Per-canonical-task implementation status (T1..T12). */
   implementationPerCanonicalTask: {
     T1: "DONE" as const,
@@ -115,12 +120,12 @@ export const HR_G1_CLOSURE = {
     T9: "DONE" as const,
     T10: "DONE" as const,
     T11: "DONE" as const,
-    T12: "PENDING" as const,
+    T12: "DONE" as const,
   } as const,
   /** T11 screen coverage is now 15/15 — all §14 screens implemented. */
   t11ScreenCoverage: "15/15" as const,
-  /** Engineering certification — PENDING until T12 backend sweep + independent approval + exact-head CI green on closure SHA. */
-  engineeringCertification: "PENDING" as "PENDING" | "APPROVED" | "REJECTED",
+  /** Engineering certification — approved by governed exact-SHA + PMV evidence. */
+  engineeringCertification: "APPROVED" as "PENDING" | "APPROVED" | "REJECTED",
   /** Legal certification is an INDEPENDENT human gate. */
   legalCertification: "BLOCKED" as "BLOCKED" | "PENDING" | "APPROVED",
   /** Saudi Country Pack remains DRAFT absent independent human evidence. */
@@ -130,9 +135,11 @@ export const HR_G1_CLOSURE = {
   /** Historical execution record (never deleted, superseded by current). */
   historicalRecord:
     "PR-998 (T1-T9) merged at 81a86faa; T10 landed via V20260918_8 + V2 " +
-    "controllers in commit b8af9346. T11 partial (this branch) scaffolds 4 " +
-    "of 15 §14 screens with i18n/RTL/a11y/tests. T12 closure block + " +
-    "evidence doc + regression test scaffolded; final gate PENDING.",
+    "controllers in commit b8af9346. PR-1119 exact head 87cdfba was independently " +
+    "approved with exact-head CI green, then squash-merged as eba5aa7. PMV run 1092 " +
+    "on eba5aa7 passed frontend, full PostgreSQL Direct, HRM security/RLS, governance, " +
+    "and final evidence aggregation. Engineering G1/T12 closure is PASS; legal and " +
+    "production gates remain separate and unclaimed.",
 } as const;
 
 // ── HR-Specific Task Type ────────────────────────────────────────────────
@@ -186,8 +193,8 @@ export const HR_GROUP_DATA = [
     titleEn: "Core Features: Recruitment & Onboarding",
     purposeAr: "تنفيذ التوظيف وإجراءات التأهيل للموظفين الجدد.",
     purposeEn: "Implement recruitment workflows and new hire onboarding processes.",
-    // Reconciled via HR_G1_CLOSURE — T1..T10 implemented; T11 IN_PROGRESS; T12 PENDING.
-    status: "IN_PROGRESS" as GroupStatus,
+    // Reconciled via HR_G1_CLOSURE — T1..T12 DONE; PMV run 1092 PASS on eba5aa7.
+    status: "DONE" as GroupStatus,
     dependencies: ["G0"],
     canParallelizeWith: ["G2"],
     stageReport: null,
@@ -376,8 +383,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Recruitment dashboard showing open positions and applicant counts per stage",
     type: "Frontend",
     priority: "High",
-    // Reconciled: T11 partial — recruitment dashboard scaffolded at /hr/recruitment.
-    status: "IN_PROGRESS" as TaskStatus,
+    // Reconciled: T11 completed all 15 §14 screens; recruitment UI is delivered.
+    status: "DONE" as TaskStatus,
     dependencies: ["G1-T02"],
     acceptanceCriteriaAr: "لوحة التوظيف تعرض إحصائيات التوظيف الحالية",
     implementationNotesAr: "عرض Kanban للمتقدمين حسب مرحلة التوظيف",
@@ -392,8 +399,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Interactive onboarding checklist for new hires with tasks and tracking",
     type: "Frontend",
     priority: "High",
-    // Reconciled: T11 partial — onboarding dashboard + plan detail scaffolded.
-    status: "IN_PROGRESS" as TaskStatus,
+    // Reconciled: T11 completed onboarding dashboard, plan detail, and task surfaces.
+    status: "DONE" as TaskStatus,
     dependencies: ["G0-T01"],
     acceptanceCriteriaAr: "قائمة التأهيل تتبع إكمال المهام تلقائياً",
     implementationNotesAr: "ربط تلقائي عند تحويل المتقدم إلى موظف",

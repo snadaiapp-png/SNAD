@@ -1,37 +1,18 @@
 /**
- * HR-G1 Closure State Regression Test (T12 deliverable)
+ * HR-G1 Final Engineering Closure State Regression Test
  * -----------------------------------------------------
- * Guards the reconciled G1 execution-dashboard state against regression.
+ * Binds the execution dashboard to the governed HRM-G1 engineering closure.
  *
- * Pattern mirrors `hr-g0-closure-state.regression.test.ts`:
- *   - The reconciliation block (HR_G1_CLOSURE) binds the dashboard state
- *     to a documented certificate path.
- *   - If the certificate is missing or the dashboard state drifts from the
- *     certificate state, this test fails.
- *   - The dashboard state must NEVER claim G1_CLOSED, PRODUCTION_READY,
- *     PRODUCTION_CERTIFIED, or SAUDI_LEGAL_COMPLIANT.
+ * Engineering closure evidence:
+ *   - implementation PR 1119 exact head: 87cdfba3522f8b576236c901fbb98cfe77d25c13
+ *   - protected squash merge on main: eba5aa7d1537fcaff5326963735af5414ce08de7
+ *   - Post-Merge Main Verification run 1092 / 35617855980: SUCCESS
+ *   - CI run 3951 / 35617855855: SUCCESS
  *
- * Claim discipline enforced here:
- *   - Engineering completion must never imply legal approval.
- *   - Engineering certification stays PENDING until T11 + T12 both merge
- *     with independent approval + exact-head CI green on closure SHA.
- *   - No production authorization may be fabricated.
- *
- * Status as of this branch:
- *   - T1..T10 = DONE (PR-998 + commit b8af9346)
- *   - T11 = IN_PROGRESS (4 of 15 §14 screens scaffolded — NOT CLOSED)
- *   - T12 = IN_PROGRESS (this scaffold + closure block + evidence doc)
- *   - G1_FINAL_GATE = NOT_CLOSED
- *
- * This regression test currently EXPECTS:
- *   - implementation = "IN_PROGRESS"
- *   - engineeringCertification = "PENDING"
- *   - legalCertification = "BLOCKED"
- *   - productionAuthorization = "NO"
- *
- * Once T11+T12 are fully merged and independently approved on exact SHA,
- * update HR_G1_CLOSURE to flip implementation → "DONE" and
- * engineeringCertification → "APPROVED", then update the expectations here.
+ * Claim discipline:
+ *   - engineering completion does not imply legal certification;
+ *   - engineering completion does not imply production authorization;
+ *   - G2 remains NOT_AUTHORIZED for implementation.
  */
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
@@ -42,87 +23,73 @@ const REPO_ROOT = resolve(__dirname, "../../../../");
 const CERTIFICATE_PATH = resolve(REPO_ROOT, HR_G1_CLOSURE.certificatePath);
 
 function readCertificate(): string {
-  expect(
-    existsSync(CERTIFICATE_PATH),
-    `G1 closure certificate must exist at ${HR_G1_CLOSURE.certificatePath} — ` +
-      `the dashboard state is bound to a documented evidence source.`,
-  ).toBe(true);
+  expect(existsSync(CERTIFICATE_PATH)).toBe(true);
   return readFileSync(CERTIFICATE_PATH, "utf8");
 }
 
-describe("HR-G1 Closure State (T12 regression)", () => {
-  it("HR_G1_CLOSURE is defined and bound to a certificate path", () => {
-    expect(HR_G1_CLOSURE).toBeDefined();
-    expect(typeof HR_G1_CLOSURE.certificatePath).toBe("string");
-    expect(HR_G1_CLOSURE.certificatePath.length).toBeGreaterThan(0);
-    expect(HR_G1_CLOSURE.certificatePath).toContain("docs/hrm/g1/evidence/");
+describe("HR-G1 final engineering closure", () => {
+  it("is bound to the final engineering closure certificate", () => {
+    expect(HR_G1_CLOSURE.certificatePath).toBe(
+      "docs/hrm/g1/evidence/HRM-G1-ENGINEERING-CLOSURE.md",
+    );
   });
 
-  it("certificate file exists on disk", () => {
-    expect(existsSync(CERTIFICATE_PATH)).toBe(true);
+  it("declares G1 implementation DONE", () => {
+    expect(HR_G1_CLOSURE.implementation).toBe("DONE");
   });
 
-  it("certificate contains a NOT_CLOSED gate declaration", () => {
-    const cert = readCertificate();
-    expect(cert).toContain("G1_FINAL_GATE");
-    expect(cert).toContain("NOT_CLOSED");
-  });
-
-  it("certificate does not claim G1_CLOSED, PRODUCTION_READY, or PRODUCTION_CERTIFIED", () => {
-    const cert = readCertificate();
-    // The certificate explicitly lists what it does NOT claim, so we check
-    // for the "intentionally does NOT claim" header rather than the absence
-    // of these strings entirely.
-    expect(cert).toContain("intentionally does NOT claim");
-  });
-
-  it("implementation state is IN_PROGRESS (T11 implementation complete; T12 + closure PENDING)", () => {
-    // T11 implementation is now complete (15/15 §14 screens); T12 backend
-    // sweep + independent approval + exact-head CI green on closure SHA
-    // remain PENDING. The group status stays IN_PROGRESS until T12 closes.
-    expect(HR_G1_CLOSURE.implementation).toBe("IN_PROGRESS");
-  });
-
-  it("baselineT10Sha matches the user-stated T10 baseline", () => {
-    expect(HR_G1_CLOSURE.baselineT10Sha).toBe("b8af9346b21b8f8ac59d348233ef829513904fe4");
-  });
-
-  it("per-canonical-task matrix reflects T1..T10 DONE, T11 DONE, T12 PENDING", () => {
+  it("declares all canonical tasks T1..T12 DONE", () => {
     const m = HR_G1_CLOSURE.implementationPerCanonicalTask;
-    expect(m.T1).toBe("DONE");
-    expect(m.T2).toBe("DONE");
-    expect(m.T3).toBe("DONE");
-    expect(m.T4).toBe("DONE");
-    expect(m.T5).toBe("DONE");
-    expect(m.T6).toBe("DONE");
-    expect(m.T7).toBe("DONE");
-    expect(m.T8).toBe("DONE");
-    expect(m.T9).toBe("DONE");
-    expect(m.T10).toBe("DONE");
-    expect(m.T11).toBe("DONE");
-    expect(m.T12).toBe("PENDING");
+    for (const key of ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12"] as const) {
+      expect(m[key], key).toBe("DONE");
+    }
   });
 
-  it("T11 screen coverage is 15/15 (all §14 screens implemented)", () => {
+  it("binds closure to the exact implementation merge and PMV run", () => {
+    expect(HR_G1_CLOSURE.closureEvidenceMainSha).toBe(
+      "eba5aa7d1537fcaff5326963735af5414ce08de7",
+    );
+    expect(HR_G1_CLOSURE.preMergeClosureHeadSha).toBe(
+      "87cdfba3522f8b576236c901fbb98cfe77d25c13",
+    );
+    expect(HR_G1_CLOSURE.postMergeVerificationRunId).toBe(35617855980);
+  });
+
+  it("declares the engineering final gate PASS", () => {
+    expect(HR_G1_CLOSURE.engineeringFinalGate).toBe("PASS");
+    expect(HR_G1_CLOSURE.engineeringCertification).toBe("APPROVED");
+    const cert = readCertificate();
+    expect(cert).toMatch(/G1_FINAL_GATE\s*=\s*PASS/);
+    expect(cert).toMatch(/T12_FINAL_GATE\s*=\s*PASS/);
+    expect(cert).toContain("STATUS_AUTHORITY: CURRENT");
+  });
+
+  it("keeps T11 coverage at 15/15", () => {
     expect(HR_G1_CLOSURE.t11ScreenCoverage).toBe("15/15");
   });
 
-  it("engineering certification is PENDING (not auto-approved)", () => {
-    expect(HR_G1_CLOSURE.engineeringCertification).toBe("PENDING");
-  });
-
-  it("legal certification is BLOCKED (independent human gate)", () => {
+  it("does not inflate engineering closure into legal certification", () => {
     expect(HR_G1_CLOSURE.legalCertification).toBe("BLOCKED");
+    expect(HR_G1_CLOSURE.saCountryPack).toBe("DRAFT");
+    const cert = readCertificate();
+    expect(cert).toContain("LEGAL_REVIEW = PENDING_HUMAN");
+    expect(cert).toContain("SA_COUNTRY_PACK = DRAFT");
   });
 
-  it("production authorization is NO", () => {
+  it("does not fabricate production authorization", () => {
     expect(HR_G1_CLOSURE.productionAuthorization).toBe("NO");
+    const cert = readCertificate();
+    expect(cert).toContain("PRODUCTION_AUTHORIZATION = NO");
+    expect(cert).toContain("PRODUCTION_READY = NOT_CLAIMED");
+    expect(cert).toContain("PRODUCTION_CERTIFIED = NOT_CLAIMED");
   });
 
-  it("historical record references PR-998 and commit b8af9346", () => {
-    const hist = HR_G1_CLOSURE.historicalRecord;
-    expect(hist).toContain("PR-998");
-    expect(hist).toContain("81a86faa");
-    expect(hist).toContain("b8af9346");
+  it("preserves canonical historical provenance", () => {
+    expect(HR_G1_CLOSURE.baselineT10Sha).toBe(
+      "b8af9346b21b8f8ac59d348233ef829513904fe4",
+    );
+    expect(HR_G1_CLOSURE.historicalRecord).toContain("PR-998");
+    expect(HR_G1_CLOSURE.historicalRecord).toContain("PR-1119");
+    expect(HR_G1_CLOSURE.historicalRecord).toContain("PMV run 1092");
   });
 });
