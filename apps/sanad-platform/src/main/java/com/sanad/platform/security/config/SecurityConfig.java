@@ -1,6 +1,7 @@
 package com.sanad.platform.security.config;
 
 import com.sanad.platform.config.CorsProperties;
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.filter.JwtAuthenticationFilter;
 import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.security.service.JwtTokenProvider;
@@ -39,15 +40,18 @@ public class SecurityConfig {
     private final CorsProperties corsProperties;
     private final Environment environment;
     private final SessionVersionCache sessionVersionCache;
+    private final ControlPlaneAccessGuard controlPlaneAccessGuard;
 
     public SecurityConfig(JwtTokenProvider jwtTokenProvider,
                           CorsProperties corsProperties,
                           Environment environment,
-                          SessionVersionCache sessionVersionCache) {
+                          SessionVersionCache sessionVersionCache,
+                          ControlPlaneAccessGuard controlPlaneAccessGuard) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.corsProperties = corsProperties;
         this.environment = environment;
         this.sessionVersionCache = sessionVersionCache;
+        this.controlPlaneAccessGuard = controlPlaneAccessGuard;
     }
 
     /**
@@ -118,7 +122,7 @@ public class SecurityConfig {
                 .securityContext(sc -> sc.requireExplicitSave(false));
 
         http.addFilterBefore(
-                new JwtAuthenticationFilter(jwtTokenProvider, sessionVersionCache),
+                new JwtAuthenticationFilter(jwtTokenProvider, sessionVersionCache, controlPlaneAccessGuard),
                 UsernamePasswordAuthenticationFilter.class
         );
         return http.build();

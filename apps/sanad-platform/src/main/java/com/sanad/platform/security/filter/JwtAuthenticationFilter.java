@@ -1,5 +1,6 @@
 package com.sanad.platform.security.filter;
 
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -25,16 +26,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final List<String> CONTROL_PLANE_TARGET_TENANT_PATHS = List.of(
+            "/api/v1/executive/subscriptions",
+            "/api/v1/executive/subscriptions/v2",
+            "/api/v1/executive/billing/invoices",
+            "/api/v1/executive/usage",
+            "/api/v1/executive/usage/events",
+            "/api/v1/executive/provisioning/jobs",
+            "/api/v1/executive/audit/v2"
+    );
 
     private final JwtTokenProvider jwtTokenProvider;
     private final SessionVersionCache sessionVersionCache;
+    private final ControlPlaneAccessGuard controlPlaneAccessGuard;
 
     public JwtAuthenticationFilter(
             JwtTokenProvider jwtTokenProvider,
-            SessionVersionCache sessionVersionCache
+            SessionVersionCache sessionVersionCache,
+            ControlPlaneAccessGuard controlPlaneAccessGuard
     ) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.sessionVersionCache = sessionVersionCache;
+        this.controlPlaneAccessGuard = controlPlaneAccessGuard;
     }
 
     @Override
@@ -71,11 +84,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 UUID requestTenantId = UUID.fromString(requestTenantIdParam);
                 if (!requestTenantId.equals(jwtTenantId)) {
-                    log.warn("Tenant binding violation: JWT tenantId={} request tenantId={} path={}",
-                            jwtTenantId, requestTenantId, request.getRequestURI());
-                    writeError(response, request, 403, "Forbidden",
-                            "تم رفض الوصول: تعارض في هوية المستأجر");
-                    return;
+                    if (isControlPlaneCrossTenantExecutiveRequest(request, jwtTenantId)) {
+                        log.debug("Control-plane cross-tenant executive request: JWT tenantId={} target tenantId={} path={}",
+                                jwtTenantId, requestTenantId, request.getRequestURI());
+                    } else {
+                        log.warn("Tenant binding violation: JWT tenantId={} request tenantId={} path={}",
+                                jwtTenantId, requestTenantId, request.getRequestURI());
+                        writeError(response, request, 403, "Forbidden",
+                                "تم رفض الوصول: تعارض في هوية المستأجر");
+                        return;
+                    }
                 }
             } catch (IllegalArgumentException ignored) {
                 // The controller validates malformed tenant identifiers as a bad request.
@@ -140,6 +158,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isControlPlaneCrossTenantExecutiveRequest(
+            HttpServletRequest request,
+            UUID jwtTenantId
+    ) {
+        String uri = request.getRequestURI();
+        return uri != null
+                && CONTROL_PLANE_TARGET_TENANT_PATHS.contains(uri)
+                && controlPlaneAccessGuard.isControlPlaneTenant(jwtTenantId);
     }
 
     private boolean isRotationSafeEndpoint(String uri) {
