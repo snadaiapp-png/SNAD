@@ -114,12 +114,12 @@ export const HR_G1_CLOSURE = {
     T8: "DONE" as const,
     T9: "DONE" as const,
     T10: "DONE" as const,
-    T11: "IN_PROGRESS" as const,
+    T11: "DONE" as const,
     T12: "PENDING" as const,
   } as const,
-  /** T11 partial: 4 of 15 §14 screens scaffolded. */
-  t11ScreenCoverage: "4/15" as const,
-  /** Engineering certification — PENDING until T11+T12 merge + independent approval. */
+  /** T11 screen coverage is now 15/15 — all §14 screens implemented. */
+  t11ScreenCoverage: "15/15" as const,
+  /** Engineering certification — PENDING until T12 backend sweep + independent approval + exact-head CI green on closure SHA. */
   engineeringCertification: "PENDING" as "PENDING" | "APPROVED" | "REJECTED",
   /** Legal certification is an INDEPENDENT human gate. */
   legalCertification: "BLOCKED" as "BLOCKED" | "PENDING" | "APPROVED",

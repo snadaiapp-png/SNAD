@@ -76,8 +76,10 @@ describe("HR-G1 Closure State (T12 regression)", () => {
     expect(cert).toContain("intentionally does NOT claim");
   });
 
-  it("implementation state is IN_PROGRESS (T11 partial)", () => {
-    // When T11+T12 fully close, update HR_G1_CLOSURE to "DONE" and flip this.
+  it("implementation state is IN_PROGRESS (T11 implementation complete; T12 + closure PENDING)", () => {
+    // T11 implementation is now complete (15/15 §14 screens); T12 backend
+    // sweep + independent approval + exact-head CI green on closure SHA
+    // remain PENDING. The group status stays IN_PROGRESS until T12 closes.
     expect(HR_G1_CLOSURE.implementation).toBe("IN_PROGRESS");
   });
 
@@ -85,7 +87,7 @@ describe("HR-G1 Closure State (T12 regression)", () => {
     expect(HR_G1_CLOSURE.baselineT10Sha).toBe("b8af9346b21b8f8ac59d348233ef829513904fe4");
   });
 
-  it("per-canonical-task matrix reflects T1..T10 DONE, T11 IN_PROGRESS, T12 PENDING", () => {
+  it("per-canonical-task matrix reflects T1..T10 DONE, T11 DONE, T12 PENDING", () => {
     const m = HR_G1_CLOSURE.implementationPerCanonicalTask;
     expect(m.T1).toBe("DONE");
     expect(m.T2).toBe("DONE");
@@ -97,12 +99,12 @@ describe("HR-G1 Closure State (T12 regression)", () => {
     expect(m.T8).toBe("DONE");
     expect(m.T9).toBe("DONE");
     expect(m.T10).toBe("DONE");
-    expect(m.T11).toBe("IN_PROGRESS");
+    expect(m.T11).toBe("DONE");
     expect(m.T12).toBe("PENDING");
   });
 
-  it("T11 screen coverage is 4/15 (partial — not CLOSED)", () => {
-    expect(HR_G1_CLOSURE.t11ScreenCoverage).toBe("4/15");
+  it("T11 screen coverage is 15/15 (all §14 screens implemented)", () => {
+    expect(HR_G1_CLOSURE.t11ScreenCoverage).toBe("15/15");
   });
 
   it("engineering certification is PENDING (not auto-approved)", () => {
