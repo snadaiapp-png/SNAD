@@ -94,6 +94,29 @@ BEGIN
      WHERE lower(email) = owner_email
        AND NOT (tenant_id = control_tenant AND id = owner_id);
 
+    -- Persist the identity invariant beyond this repair: the canonical owner
+    -- email can only ever belong to the deterministic owner row.
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_constraint
+         WHERE conname = 'ck_users_canonical_project_owner_identity'
+           AND conrelid = 'users'::regclass
+    ) THEN
+        ALTER TABLE users
+            ADD CONSTRAINT ck_users_canonical_project_owner_identity
+            CHECK (
+                lower(email) <> 'snad.ai.app@gmail.com'
+                OR (
+                    id = '00000000-0000-0000-0000-000000000010'::uuid
+                    AND tenant_id = '00000000-0000-0000-0000-000000000001'::uuid
+                )
+            );
+    END IF;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_users_canonical_project_owner_email
+        ON users ((lower(email)))
+        WHERE lower(email) = 'snad.ai.app@gmail.com';
+
     -- Make the deterministic owner a tenant-wide ADMIN. Existing organization-
     -- scoped ADMIN grants are retained for history but do not replace this grant.
     UPDATE user_role_assignments
