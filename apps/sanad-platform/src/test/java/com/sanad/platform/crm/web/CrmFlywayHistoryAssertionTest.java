@@ -263,6 +263,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260918.6"   // hrm g1 t8 hire conversion governance
             , "20260918.7"   // hrm g1 t9 governed onboarding
             , "20260918.8"   // hrm g1 t10 candidate self-service identity + scoped capabilities
+            , "20260921.1"   // canonical project-owner permissions and control-plane identity
     );
 
 

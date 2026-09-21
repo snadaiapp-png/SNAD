@@ -91,7 +91,8 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260918_6 = HRM-G1 T8 hire conversion governance
     //   V20260918_7 = HRM-G1 T9 governed onboarding
     //   V20260918_8 = HRM-G1 T10 candidate self-service identity + scoped capabilities
-    private static final String CRM_LATEST_VERSION = "20260918.8"; // terminal versioned migration
+    //   V20260921_1 = canonical project-owner permissions and control-plane identity
+    private static final String CRM_LATEST_VERSION = "20260921.1"; // terminal versioned migration
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");

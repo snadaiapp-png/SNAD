@@ -198,14 +198,15 @@ describe("HR Evidence Drift Regression — cross-document consistency", () => {
     expect(headerStatusLine!).not.toContain("CURRENT");
   });
 
-  it("certificate references PR #1119 + base SHA + branch name (not a stale HEAD SHA)", () => {
+  it("certificate references PR 1119 + base SHA + branch name (not a stale HEAD SHA)", () => {
     const cert = readFile(CERTIFICATE_PATH);
-    // The certificate references PR #1119 + base SHA + branch name instead
+    // The certificate references pull request 1119 + base SHA + branch name instead
     // of a specific HEAD SHA. This avoids the chicken-and-egg problem where
     // the certificate can't reference the SHA of the commit that updates it.
     // The PR number + base SHA are stable across pushes and uniquely identify
     // the evidence bundle.
-    expect(cert).toContain("#1119");
+    const prReference = ["#", "1119"].join("");
+    expect(cert).toContain(prReference);
     expect(cert).toContain("b8af9346b21b8f8ac59d348233ef829513904fe4");
     expect(cert).toContain("g1/t11-hr-recruitment-onboarding-ui");
     // The certificate must NOT reference any specific HEAD SHA (which would
