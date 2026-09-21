@@ -61,6 +61,80 @@ export const HR_G0_CLOSURE = {
     "the execution records under docs/hrm/g0/evidence/ preserve that history verbatim.",
 } as const;
 
+// ── G1 Closure Reconciliation (authoritative, documented-state-bound) ────
+
+/**
+ * HR-G1 engineering closure reconciliation — authoritative block.
+ *
+ * The canonical G1 specification lives at:
+ *   - docs/superpowers/specs/2026-09-07-hrm-g1-recruitment-onboarding-design.md
+ *   - docs/superpowers/plans/2026-09-07-hrm-g1-recruitment-onboarding-implementation.md
+ * and decomposes G1 into 12 canonical tasks (T1..T12).
+ *
+ * Implementation status (reconciled to repo reality):
+ *   - T1 (schema)               — DONE — PR-998, migration V20260918_2
+ *   - T2 (RLS + indexes)        — DONE — PR-998, migration V20260918_3
+ *   - T3 (aggregates)           — DONE — PR-998
+ *   - T4 (person/identity link) — DONE — PR-998
+ *   - T5 (applications)         — DONE — PR-998
+ *   - T6 (interviews)           — DONE — PR-998
+ *   - T7 (offers + approvals)   — DONE — PR-998, migration V20260918_5
+ *   - T8 (candidate→hire conv.) — DONE — PR-998, migration V20260918_6
+ *   - T9 (onboarding domain)    — DONE — PR-998, migration V20260918_7
+ *   - T10 (V2 API + OpenAPI)    — DONE — PR (b8af9346), migration V20260918_8
+ *   - T11 (Web UI)              — IN_PROGRESS (this branch) — 4 of 15 screens
+ *                                 scaffolded with i18n/RTL/a11y/tests
+ *   - T12 (Security/closure)    — IN_PROGRESS (this branch) — closure block +
+ *                                 evidence doc + regression test scaffolded;
+ *                                 final gate requires T11 done + independent
+ *                                 approval + CI green on exact closure SHA
+ *
+ * Claim discipline: this block intentionally does NOT claim
+ * G1_CLOSED, PRODUCTION_READY, PRODUCTION_CERTIFIED, or
+ * SAUDI_LEGAL_COMPLIANT. Engineering closure is PENDING; legal certification
+ * is BLOCKED; production authorization is NO. Independent human approval
+ * is required for T11 and T12 merges per the project Constitution §3.5.
+ */
+export const HR_G1_CLOSURE = {
+  /** Authoritative implementation state of G1. */
+  implementation: "IN_PROGRESS" as GroupStatus,
+  /** Baseline SHA for T10 (the immediately-preceding task). */
+  baselineT10Sha: "b8af9346b21b8f8ac59d348233ef829513904fe4",
+  /** Documented engineering certificate backing this state (pending T12). */
+  certificatePath: "docs/hrm/g1/evidence/HRM-G1-ENGINEERING-CLOSURE.md",
+  /** Per-canonical-task implementation status (T1..T12). */
+  implementationPerCanonicalTask: {
+    T1: "DONE" as const,
+    T2: "DONE" as const,
+    T3: "DONE" as const,
+    T4: "DONE" as const,
+    T5: "DONE" as const,
+    T6: "DONE" as const,
+    T7: "DONE" as const,
+    T8: "DONE" as const,
+    T9: "DONE" as const,
+    T10: "DONE" as const,
+    T11: "DONE" as const,
+    T12: "PENDING" as const,
+  } as const,
+  /** T11 screen coverage is now 15/15 — all §14 screens implemented. */
+  t11ScreenCoverage: "15/15" as const,
+  /** Engineering certification — PENDING until T12 backend sweep + independent approval + exact-head CI green on closure SHA. */
+  engineeringCertification: "PENDING" as "PENDING" | "APPROVED" | "REJECTED",
+  /** Legal certification is an INDEPENDENT human gate. */
+  legalCertification: "BLOCKED" as "BLOCKED" | "PENDING" | "APPROVED",
+  /** Saudi Country Pack remains DRAFT absent independent human evidence. */
+  saCountryPack: "DRAFT" as "DRAFT" | "ACTIVE" | "CERTIFIED",
+  /** Production authorization does not exist for G1. */
+  productionAuthorization: "NO" as const,
+  /** Historical execution record (never deleted, superseded by current). */
+  historicalRecord:
+    "PR-998 (T1-T9) merged at 81a86faa; T10 landed via V20260918_8 + V2 " +
+    "controllers in commit b8af9346. T11 partial (this branch) scaffolds 4 " +
+    "of 15 §14 screens with i18n/RTL/a11y/tests. T12 closure block + " +
+    "evidence doc + regression test scaffolded; final gate PENDING.",
+} as const;
+
 // ── HR-Specific Task Type ────────────────────────────────────────────────
 
 /**
@@ -112,7 +186,8 @@ export const HR_GROUP_DATA = [
     titleEn: "Core Features: Recruitment & Onboarding",
     purposeAr: "تنفيذ التوظيف وإجراءات التأهيل للموظفين الجدد.",
     purposeEn: "Implement recruitment workflows and new hire onboarding processes.",
-    status: "NOT_STARTED" as GroupStatus,
+    // Reconciled via HR_G1_CLOSURE — T1..T10 implemented; T11 IN_PROGRESS; T12 PENDING.
+    status: "IN_PROGRESS" as GroupStatus,
     dependencies: ["G0"],
     canParallelizeWith: ["G2"],
     stageReport: null,
@@ -249,6 +324,16 @@ export const HR_TASKS: HrTask[] = [
   },
 
   // ── G1: Core Features — Recruitment & Onboarding ──────────────────────────
+  // Reconciliation (per HR_G1_CLOSURE block below): the original G1-T01..T05
+  // rows below represent the pre-spec roadmap (database + basic UI). The
+  // actual G1 implementation follows the canonical Sept-7-2026 spec under
+  // docs/superpowers/specs/2026-09-07-hrm-g1-recruitment-onboarding-design.md
+  // and the implementation plan under
+  // docs/superpowers/plans/2026-09-07-hrm-g1-recruitment-onboarding-implementation.md
+  // which decomposes G1 into 12 canonical tasks (T1..T12).
+  //
+  // For auditability, the rows below are preserved unchanged; the closure
+  // reconciliation happens via HR_G1_CLOSURE.implementationPerCanonicalTask.
   {
     id: "G1-T01",
     number: "G1-01",
@@ -259,7 +344,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "job_openings table for open positions with description, requirements, department",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    // Reconciled: V20260918_2__hr_g1_recruitment_onboarding_schema.sql landed T1.
+    status: "DONE" as TaskStatus,
     dependencies: [],
     acceptanceCriteriaAr: "جدول job_openings مع relationship مع org_units",
     implementationNotesAr: "دعم حالات: Draft, Open, On Hold, Closed",
@@ -274,7 +360,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "applicants table for candidates with resume and application status",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    // Reconciled: V20260918_2 (same migration as T1) landed T2 schema.
+    status: "DONE" as TaskStatus,
     dependencies: ["G1-T01"],
     acceptanceCriteriaAr: "جدول applicants مع مسار التوظيف (pipeline stage)",
     implementationNotesAr: "دعم حالات: Applied, Screening, Interview, Offer, Hired, Rejected",
@@ -289,7 +376,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Recruitment dashboard showing open positions and applicant counts per stage",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    // Reconciled: T11 partial — recruitment dashboard scaffolded at /hr/recruitment.
+    status: "IN_PROGRESS" as TaskStatus,
     dependencies: ["G1-T02"],
     acceptanceCriteriaAr: "لوحة التوظيف تعرض إحصائيات التوظيف الحالية",
     implementationNotesAr: "عرض Kanban للمتقدمين حسب مرحلة التوظيف",
@@ -304,7 +392,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Interactive onboarding checklist for new hires with tasks and tracking",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    // Reconciled: T11 partial — onboarding dashboard + plan detail scaffolded.
+    status: "IN_PROGRESS" as TaskStatus,
     dependencies: ["G0-T01"],
     acceptanceCriteriaAr: "قائمة التأهيل تتبع إكمال المهام تلقائياً",
     implementationNotesAr: "ربط تلقائي عند تحويل المتقدم إلى موظف",
@@ -319,7 +408,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "APIs for managing job openings, applicants, and onboarding processes",
     type: "Backend",
     priority: "Critical",
-    status: "NOT_STARTED",
+    // Reconciled: T10 delivered V2 recruitment + onboarding controllers + tests.
+    status: "DONE" as TaskStatus,
     dependencies: ["G1-T01", "G1-T02"],
     acceptanceCriteriaAr: "جميع CRUD operations تعمل مع عزل المستأجرين",
     implementationNotesAr: "REST API مع التحقق من الصلاحيات",

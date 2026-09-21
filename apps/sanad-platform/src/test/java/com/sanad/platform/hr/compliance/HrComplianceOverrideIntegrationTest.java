@@ -295,12 +295,13 @@ class HrComplianceOverrideIntegrationTest {
         setTenant(tenantId);
         Object service = newOverrideService(allowAllAuthorizationPort(), noopAuditPort(), noopEventPort());
 
+        LocalDate today = LocalDate.now();
         UUID requestId = requestOverrideWindowed(service, tenantId, requester, ruleId,
-                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 31));
+                today.minusDays(10), today.minusDays(5));
         approve(service, tenantId, requestId, approver, "approved then expired");
 
         boolean stillAuthorizes = authorizes(service, tenantId, requestId, ruleId,
-                "EMPLOYMENT", UUID.randomUUID(), LocalDate.of(2026, 2, 1));
+                "EMPLOYMENT", UUID.randomUUID(), today.minusDays(4));
 
         assertThat(stillAuthorizes).as("expired override cannot authorize action").isFalse();
         assertThat(overrideStatus(requestId)).as("APPROVED -> EXPIRED transition must be recorded").isEqualTo("EXPIRED");
@@ -321,7 +322,7 @@ class HrComplianceOverrideIntegrationTest {
         revoke(service, tenantId, requestId, approver, "withdrawn by governance");
 
         assertThat(authorizes(service, tenantId, requestId, ruleId,
-                "EMPLOYMENT", UUID.randomUUID(), LocalDate.of(2026, 9, 15))).isFalse();
+                "EMPLOYMENT", UUID.randomUUID(), LocalDate.now())).isFalse();
         assertThat(overrideStatus(requestId)).isEqualTo("REVOKED");
     }
 
@@ -339,7 +340,7 @@ class HrComplianceOverrideIntegrationTest {
         reject(service, tenantId, requestId, approver, "not justified");
 
         assertThat(authorizes(service, tenantId, requestId, ruleId,
-                "EMPLOYMENT", UUID.randomUUID(), LocalDate.of(2026, 9, 15))).isFalse();
+                "EMPLOYMENT", UUID.randomUUID(), LocalDate.now())).isFalse();
         assertThat(overrideStatus(requestId)).isEqualTo("REJECTED");
     }
 
@@ -355,7 +356,7 @@ class HrComplianceOverrideIntegrationTest {
         UUID requestId = requestOverride(service, tenantId, requester, ruleId);
 
         assertThat(authorizes(service, tenantId, requestId, ruleId,
-                "EMPLOYMENT", UUID.randomUUID(), LocalDate.of(2026, 9, 15))).isFalse();
+                "EMPLOYMENT", UUID.randomUUID(), LocalDate.now())).isFalse();
         assertThat(overrideStatus(requestId)).isEqualTo("PENDING_APPROVAL");
     }
 
@@ -369,19 +370,20 @@ class HrComplianceOverrideIntegrationTest {
         setTenant(tenantId);
         Object service = newOverrideService(allowAllAuthorizationPort(), noopAuditPort(), noopEventPort());
 
+        LocalDate today = LocalDate.now();
         UUID resourceId = UUID.randomUUID();
         UUID requestId = requestOverrideForResource(service, tenantId, requester, ruleId,
-                "EMPLOYMENT", resourceId, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30));
+                "EMPLOYMENT", resourceId, today.minusDays(5), today.plusDays(5));
         approve(service, tenantId, requestId, approver, "scoped");
 
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", resourceId,
-                LocalDate.of(2026, 9, 15))).as("exact match authorizes").isTrue();
+                today)).as("exact match authorizes").isTrue();
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
-                LocalDate.of(2026, 9, 15))).as("different resource must not match").isFalse();
+                today)).as("different resource must not match").isFalse();
         assertThat(authorizes(service, tenantId, requestId, UUID.randomUUID(), "EMPLOYMENT", resourceId,
-                LocalDate.of(2026, 9, 15))).as("different rule must not match").isFalse();
+                today)).as("different rule must not match").isFalse();
         assertThat(authorizes(service, tenantId, requestId, ruleId, "PAYROLL", resourceId,
-                LocalDate.of(2026, 9, 15))).as("different resource type must not match").isFalse();
+                today)).as("different resource type must not match").isFalse();
     }
 
     @Test
@@ -402,7 +404,7 @@ class HrComplianceOverrideIntegrationTest {
         setTenant(tenantB);
 
         assertThat(authorizes(service, tenantB, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
-                LocalDate.of(2026, 9, 15))).as("cross-tenant override must be invisible").isFalse();
+                LocalDate.now())).as("cross-tenant override must be invisible").isFalse();
         assertThatThrownBy(() -> approve(service, tenantB, requestId, approverB, "cross tenant"))
                 .as("cross-tenant approval must fail closed").hasMessageContaining("HRM_OVERRIDE_NOT_FOUND");
     }
@@ -428,7 +430,7 @@ class HrComplianceOverrideIntegrationTest {
         }
 
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
-                LocalDate.of(2026, 9, 15))).as("prior approval must NOT bypass a hardened rule").isFalse();
+                LocalDate.now())).as("prior approval must NOT bypass a hardened rule").isFalse();
     }
 
     @Test
@@ -450,7 +452,7 @@ class HrComplianceOverrideIntegrationTest {
             ps.executeUpdate();
         }
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
-                LocalDate.of(2026, 9, 15))).as("suspended rule requires a fresh compliance decision").isFalse();
+                LocalDate.now())).as("suspended rule requires a fresh compliance decision").isFalse();
 
         try (PreparedStatement ps = connection.prepareStatement(
                 "UPDATE hr_compliance_rules SET status = 'ACTIVE' WHERE id = ?")) {
@@ -463,7 +465,7 @@ class HrComplianceOverrideIntegrationTest {
             ps.executeUpdate();
         }
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
-                LocalDate.of(2026, 9, 15))).as("suspended pack requires a fresh compliance decision").isFalse();
+                LocalDate.now())).as("suspended pack requires a fresh compliance decision").isFalse();
     }
 
     @Test
@@ -476,16 +478,26 @@ class HrComplianceOverrideIntegrationTest {
         setTenant(tenantId);
         Object service = newOverrideService(allowAllAuthorizationPort(), noopAuditPort(), noopEventPort());
 
+        // Use relative dates so the test is future-proof and does not
+        // become a time-bomb when "today" crosses the hardcoded boundary.
+        // The compliance service calls repository.expireIfPastValidity(...,
+        // LocalDate.now()) which expires overrides whose validUntil is
+        // before today. Hardcoded 2026-09-* dates expired on 2026-09-21.
         LocalDate today = LocalDate.now();
+        LocalDate validFrom = today.minusDays(5);   // 5 days ago
+        LocalDate validUntil = today.plusDays(5);   // 5 days from now
+        LocalDate beforeWindow = today.minusDays(10); // 10 days ago (before validFrom)
+        LocalDate insideWindow = today;              // today (inside the window)
+
         UUID resourceId = UUID.randomUUID();
         UUID requestId = requestOverrideForResource(service, tenantId, requester, ruleId,
-                "EMPLOYMENT", resourceId, today.minusDays(5), today.plusDays(5));
+                "EMPLOYMENT", resourceId, validFrom, validUntil);
         approve(service, tenantId, requestId, approver, "windowed");
 
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
-                today.minusDays(10))).as("before valid_from must be denied").isFalse();
+                beforeWindow)).as("before valid_from must be denied").isFalse();
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", resourceId,
-                today)).as("inside window must authorize").isTrue();
+                insideWindow)).as("inside window must authorize").isTrue();
     }
 
     @Test
@@ -580,8 +592,9 @@ class HrComplianceOverrideIntegrationTest {
     }
 
     private UUID requestOverride(Object service, UUID tenantId, UUID requester, UUID ruleId) throws Throwable {
+        LocalDate today = LocalDate.now();
         return requestOverrideForResource(service, tenantId, requester, ruleId, "EMPLOYMENT",
-                UUID.randomUUID(), LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30));
+                UUID.randomUUID(), today.minusDays(5), today.plusDays(5));
     }
 
     private UUID requestOverrideWindowed(Object service, UUID tenantId, UUID requester, UUID ruleId,

@@ -18,7 +18,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { describe, it, expect } from "vitest";
-import { HR_GROUP_DATA, HR_TASKS, HR_G0_CLOSURE } from "./hr-execution-data";
+import { HR_GROUP_DATA, HR_TASKS, HR_G0_CLOSURE, HR_G1_CLOSURE } from "./hr-execution-data";
 import { HrExecutionProvider } from "./hr-execution-provider";
 
 const REPO_ROOT = resolve(__dirname, "../../../../");
@@ -51,13 +51,20 @@ describe("HR-G0 closure state reconciliation", () => {
     }
   });
 
-  it("does not touch future-phase groups (G1..G5 remain not-started)", () => {
-    const future = HR_GROUP_DATA.filter((g) => g.code !== "G0");
+  it("does not touch future-phase groups (G2..G5 remain not-started; G1 is reconciled via HR_G1_CLOSURE)", () => {
+    // G1 is now reconciled to IN_PROGRESS via the HR_G1_CLOSURE block —
+    // see hr-g1-closure-state.regression.test.ts for the binding regression.
+    // All other future-phase groups (G2..G5) remain NOT_STARTED.
+    const future = HR_GROUP_DATA.filter((g) => g.code !== "G0" && g.code !== "G1");
     for (const group of future) {
-      expect(group.status, `${group.code} is not part of G0 closure`).toBe(
+      expect(group.status, `${group.code} is not part of G0 or G1 closure`).toBe(
         "NOT_STARTED"
       );
     }
+    // G1 is bound to its own closure certificate; verify state matches
+    // HR_G1_CLOSURE.implementation (currently IN_PROGRESS).
+    const g1Group = HR_GROUP_DATA.find((g) => g.code === "G1");
+    expect(g1Group?.status).toBe(HR_G1_CLOSURE.implementation);
   });
 
   it("binds the dashboard state to the committed closure certificate", () => {

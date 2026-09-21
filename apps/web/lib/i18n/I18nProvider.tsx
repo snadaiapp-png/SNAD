@@ -41,14 +41,30 @@ import {
 } from "./types";
 import { translations } from "./index";
 
-interface I18nContextValue {
+export interface I18nContextValue {
   locale: Locale;
   direction: "rtl" | "ltr";
   setLocale: (locale: Locale) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-const I18nContext = createContext<I18nContextValue | null>(null);
+export const I18nContext = createContext<I18nContextValue | null>(null);
+
+/**
+ * Internal interpolation helper — exported for route-scoped augmenters
+ * (e.g., HrI18nAugmenter) that need to compose dictionaries without
+ * duplicating the {param} template logic.
+ */
+export function interpolate(
+  template: string,
+  params?: Record<string, string | number>,
+): string {
+  if (!params) return template;
+  return template.replace(/\{(\w+)\}/g, (_, key: string) => {
+    const value = params[key];
+    return value === undefined || value === null ? `{${key}}` : String(value);
+  });
+}
 
 function isLocale(value: unknown): value is Locale {
   return typeof value === "string" && (LOCALES as readonly string[]).includes(value);
@@ -80,17 +96,6 @@ function applyHtmlAttributes(locale: Locale): void {
   const direction = LOCALE_DIRECTION[locale];
   document.documentElement.lang = locale;
   document.documentElement.dir = direction;
-}
-
-function interpolate(
-  template: string,
-  params?: Record<string, string | number>,
-): string {
-  if (!params) return template;
-  return template.replace(/\{(\w+)\}/g, (_, key: string) => {
-    const value = params[key];
-    return value === undefined || value === null ? `{${key}}` : String(value);
-  });
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {

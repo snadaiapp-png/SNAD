@@ -652,3 +652,206 @@
     overflow-x: auto;
   }
 }
+
+/* ============================== G1-T11 shared ============================== */
+/* State badge tones — color is NEVER the only signal (WCAG). The tone class
+   sets border + background; the inner label sets the readable text. */
+.stateBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  font-weight: 600;
+  /* Logical CSS only — no left/right physical properties. */
+  inset-inline-start: 0;
+}
+
+.stateBadgeIcon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.badgeNeutral {
+  background: var(--snad-color-surface-secondary);
+  border-color: var(--snad-color-border-default);
+  color: var(--snad-color-text-primary);
+}
+
+.badgeSuccess {
+  background: color-mix(in srgb, var(--snad-color-success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-success) 40%, transparent);
+  color: color-mix(in srgb, var(--snad-color-success) 80%, var(--snad-color-text-primary));
+}
+
+.badgeWarning {
+  background: color-mix(in srgb, var(--snad-color-warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-warning) 40%, transparent);
+  color: color-mix(in srgb, var(--snad-color-warning) 80%, var(--snad-color-text-primary));
+  /* Overdue emphasis uses font-weight + icon, never color alone. */
+  font-weight: 700;
+}
+
+.badgeDanger {
+  background: color-mix(in srgb, var(--snad-color-error) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-error) 40%, transparent);
+  color: color-mix(in srgb, var(--snad-color-error) 80%, var(--snad-color-text-primary));
+}
+
+.badgeInfo {
+  background: color-mix(in srgb, var(--snad-color-info) 12%, transparent);
+  border-color: color-mix(in srgb, var(--snad-color-info) 40%, transparent);
+  color: color-mix(in srgb, var(--snad-color-info) 80%, var(--snad-color-text-primary));
+}
+
+/* Recruitment dashboard — KPI tile grid using logical CSS grid. */
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 1rem;
+  margin-block-end: 1.5rem;
+}
+
+.kpiTile {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.5rem;
+  background: var(--snad-color-surface-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.kpiValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.kpiLabel {
+  color: var(--snad-text-muted);
+  font-size: 0.8125rem;
+}
+
+.kpiHint {
+  font-size: 0.75rem;
+  color: var(--snad-text-muted);
+}
+
+/* Activity list — semantic <ol>, no left/right physical. */
+.activityList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.activityItem {
+  padding: 0.5rem 0.75rem;
+  border-inline-start: 2px solid var(--snad-color-border-default);
+  background: var(--snad-color-surface-secondary);
+  border-radius: 0.25rem;
+}
+
+.activityTimestamp {
+  color: var(--snad-text-muted);
+  font-size: 0.75rem;
+}
+
+/* Filter bar — flex with logical gap. */
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block-end: 1rem;
+}
+
+.filterSelect {
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.25rem;
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-text-default);
+  font-size: 0.875rem;
+}
+
+/* Action row inside a table cell. */
+.actionRow {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  color: var(--snad-color-info);
+  cursor: pointer;
+  padding: 0.125rem 0.25rem;
+  font-size: inherit;
+  text-decoration: underline;
+  border-radius: 0.25rem;
+}
+
+.linkButton:focus-visible {
+  outline: 2px solid var(--snad-color-info);
+  outline-offset: 2px;
+}
+
+/* Reason dialog (mandatory reason textarea for reject/withdraw/waive). */
+.reasonTextarea {
+  width: 100%;
+  min-height: 4rem;
+  padding: 0.5rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.25rem;
+  font-family: inherit;
+  font-size: 0.875rem;
+  resize: vertical;
+}
+
+/* Onboarding task list — semantic <ul> with completion emphasis. */
+.taskList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.taskItem {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.25rem;
+  background: var(--snad-color-surface-primary);
+}
+
+.taskItemOverdue {
+  border-color: color-mix(in srgb, var(--snad-color-error) 50%, transparent);
+  /* Overdue emphasis uses font-weight + icon, never color alone. */
+  font-weight: 600;
+}
+
+.taskCheckbox {
+  /* Logical CSS: the checkbox is on the inline-start edge. */
+  margin-inline-end: 0.25rem;
+}
+
+.taskTitle {
+  font-weight: 500;
+}
+
+.taskMeta {
+  color: var(--snad-text-muted);
+  font-size: 0.75rem;
+}
