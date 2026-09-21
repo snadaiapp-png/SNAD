@@ -97,7 +97,8 @@ class R0C13G02SchemaPostgresTest {
             // therefore forward-renumbered to V20260918_2..V20260918_8; no
             // out-of-order execution, repair, or production history rewrite.
             // T10 adds the forward-only candidate self-service migration.
-            assertThat(rs.getString(1)).isEqualTo("20260918.8");
+            // V20260921_1 adds the forward-only canonical project-owner permissions repair.
+            assertThat(rs.getString(1)).isEqualTo("20260921.1");
         }
     }
 

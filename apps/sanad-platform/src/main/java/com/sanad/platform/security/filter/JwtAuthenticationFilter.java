@@ -1,5 +1,6 @@
 package com.sanad.platform.security.filter;
 
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.service.JwtTokenProvider;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -25,16 +26,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final UUID CANONICAL_PROJECT_OWNER_USER_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000010");
+    private static final String CANONICAL_PROJECT_OWNER_EMAIL = "snad.ai.app@gmail.com";
 
     private final JwtTokenProvider jwtTokenProvider;
     private final SessionVersionCache sessionVersionCache;
+    private final ControlPlaneAccessGuard controlPlaneAccessGuard;
 
     public JwtAuthenticationFilter(
             JwtTokenProvider jwtTokenProvider,
             SessionVersionCache sessionVersionCache
     ) {
+        this(jwtTokenProvider, sessionVersionCache, null);
+    }
+
+    public JwtAuthenticationFilter(
+            JwtTokenProvider jwtTokenProvider,
+            SessionVersionCache sessionVersionCache,
+            ControlPlaneAccessGuard controlPlaneAccessGuard
+    ) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.sessionVersionCache = sessionVersionCache;
+        this.controlPlaneAccessGuard = controlPlaneAccessGuard;
     }
 
     @Override
@@ -70,7 +84,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (requestTenantIdParam != null && !requestTenantIdParam.isBlank()) {
             try {
                 UUID requestTenantId = UUID.fromString(requestTenantIdParam);
-                if (!requestTenantId.equals(jwtTenantId)) {
+                if (!requestTenantId.equals(jwtTenantId)
+                        && !isGovernedControlPlaneCrossTenantRequest(
+                                jwtTenantId, claims.getSubject(), claims.get("email", String.class),
+                                request.getRequestURI())) {
                     log.warn("Tenant binding violation: JWT tenantId={} request tenantId={} path={}",
                             jwtTenantId, requestTenantId, request.getRequestURI());
                     writeError(response, request, 403, "Forbidden",
@@ -140,6 +157,35 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isGovernedControlPlaneCrossTenantRequest(
+            UUID jwtTenantId,
+            String userIdClaim,
+            String emailClaim,
+            String uri
+    ) {
+        UUID userId;
+        try {
+            userId = UUID.fromString(userIdClaim);
+        } catch (IllegalArgumentException | NullPointerException ignored) {
+            return false;
+        }
+        return controlPlaneAccessGuard != null
+                && controlPlaneAccessGuard.isControlPlaneTenant(jwtTenantId)
+                && CANONICAL_PROJECT_OWNER_USER_ID.equals(userId)
+                && CANONICAL_PROJECT_OWNER_EMAIL.equalsIgnoreCase(emailClaim)
+                && isOwnerCrossTenantExecutiveRoute(uri);
+    }
+
+    private boolean isOwnerCrossTenantExecutiveRoute(String uri) {
+        return "/api/v1/executive/subscriptions".equals(uri)
+                || "/api/v1/executive/subscriptions/v2".equals(uri)
+                || "/api/v1/executive/billing/invoices".equals(uri)
+                || "/api/v1/executive/usage".equals(uri)
+                || "/api/v1/executive/usage/events".equals(uri)
+                || "/api/v1/executive/audit/v2".equals(uri)
+                || "/api/v1/executive/provisioning/jobs".equals(uri);
     }
 
     private boolean isRotationSafeEndpoint(String uri) {

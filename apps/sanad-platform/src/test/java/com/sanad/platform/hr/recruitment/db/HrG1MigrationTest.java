@@ -39,6 +39,7 @@ class HrG1MigrationTest {
     static final String G1_SCHEMA_VERSION = "20260918.2";
     static final String G1_RLS_VERSION = "20260918.3";
     static final String G1_SEED_VERSION = "20260918.4";
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20260921.1";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
@@ -310,7 +311,7 @@ class HrG1MigrationTest {
                         + "WHERE success = true AND version IS NOT NULL "
                         + "ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
-        assertThat(latest).isEqualTo(T10_CANDIDATE_SELF_SERVICE_VERSION);
+        assertThat(latest).isEqualTo(REPOSITORY_LEDGER_HEAD_VERSION);
     }
 
     private Flyway canonicalFlyway(String targetVersion, boolean validateOnMigrate) {
