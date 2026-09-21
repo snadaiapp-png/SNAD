@@ -198,17 +198,30 @@ describe("HR Evidence Drift Regression — cross-document consistency", () => {
     expect(headerStatusLine!).not.toContain("CURRENT");
   });
 
-  it("certificate references the real branch HEAD SHA (not a stale SHA)", () => {
+  it("certificate references PR #1119 + base SHA + branch name (not a stale HEAD SHA)", () => {
     const cert = readFile(CERTIFICATE_PATH);
-    // The certificate must reference SHA 3872fb1a (the current branch HEAD
-    // at the time of this evidence reconciliation). If the SHA changes
-    // (new commit), this test must be updated to the new SHA.
-    // This prevents the certificate from drifting to a stale SHA.
-    //
-    // NOTE: when a new commit is pushed, this expected SHA MUST be updated
-    // to the new branch HEAD. This is intentional — it forces evidence
-    // reconciliation on every push.
-    expect(cert).toContain("3872fb1a2006705aa3e3aa3d58855b1dd1851520");
+    // The certificate references PR #1119 + base SHA + branch name instead
+    // of a specific HEAD SHA. This avoids the chicken-and-egg problem where
+    // the certificate can't reference the SHA of the commit that updates it.
+    // The PR number + base SHA are stable across pushes and uniquely identify
+    // the evidence bundle.
+    expect(cert).toContain("#1119");
+    expect(cert).toContain("b8af9346b21b8f8ac59d348233ef829513904fe4");
+    expect(cert).toContain("g1/t11-hr-recruitment-onboarding-ui");
+    // The certificate must NOT reference any specific HEAD SHA (which would
+    // become stale on the next push). Check for the absence of any 40-char
+    // hex string that looks like a git SHA in the "certified SHA" header.
+    const headerLines = cert.split("\n").slice(0, 15).join("\n");
+    const shaInHeader = headerLines.match(/\b[0-9a-f]{40}\b/);
+    // The base SHA IS 40 chars and IS in the header — that's OK. But there
+    // should NOT be any OTHER 40-char SHA in the header (which would be a
+    // stale HEAD SHA reference).
+    if (shaInHeader) {
+      expect(
+        shaInHeader[0],
+        "The only 40-char SHA in the certificate header should be the base SHA (b8af9346...)",
+      ).toBe("b8af9346b21b8f8ac59d348233ef829513904fe4");
+    }
   });
 
   it("certificate references base SHA b8af9346 (origin/main at branch creation)", () => {

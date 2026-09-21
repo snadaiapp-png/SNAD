@@ -476,15 +476,26 @@ class HrComplianceOverrideIntegrationTest {
         setTenant(tenantId);
         Object service = newOverrideService(allowAllAuthorizationPort(), noopAuditPort(), noopEventPort());
 
+        // Use relative dates so the test is future-proof and does not
+        // become a time-bomb when "today" crosses the hardcoded boundary.
+        // The compliance service calls repository.expireIfPastValidity(...,
+        // LocalDate.now()) which expires overrides whose validUntil is
+        // before today. Hardcoded 2026-09-* dates expired on 2026-09-21.
+        LocalDate today = LocalDate.now();
+        LocalDate validFrom = today.minusDays(5);   // 5 days ago
+        LocalDate validUntil = today.plusDays(5);   // 5 days from now
+        LocalDate beforeWindow = today.minusDays(10); // 10 days ago (before validFrom)
+        LocalDate insideWindow = today;              // today (inside the window)
+
         UUID resourceId = UUID.randomUUID();
         UUID requestId = requestOverrideForResource(service, tenantId, requester, ruleId,
-                "EMPLOYMENT", resourceId, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 20));
+                "EMPLOYMENT", resourceId, validFrom, validUntil);
         approve(service, tenantId, requestId, approver, "windowed");
 
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", UUID.randomUUID(),
-                LocalDate.of(2026, 9, 1))).as("before valid_from must be denied").isFalse();
+                beforeWindow)).as("before valid_from must be denied").isFalse();
         assertThat(authorizes(service, tenantId, requestId, ruleId, "EMPLOYMENT", resourceId,
-                LocalDate.of(2026, 9, 15))).as("inside window must authorize").isTrue();
+                insideWindow)).as("inside window must authorize").isTrue();
     }
 
     @Test

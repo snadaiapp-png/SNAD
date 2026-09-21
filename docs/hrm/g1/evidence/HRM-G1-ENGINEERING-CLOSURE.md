@@ -3,7 +3,7 @@
 > **STATUS_AUTHORITY:** DRAFT — PRE-MERGE  
 > **Stage:** G1 (Core Features — Recruitment & Onboarding)  
 > **Closure gate:** `G1_FINAL_GATE = NOT_CLOSED`  
-> **Certified SHA (this branch HEAD):** `3872fb1a2006705aa3e3aa3d58855b1dd1851520`  
+> **PR:** #1119  
 > **Base SHA:** `b8af9346b21b8f8ac59d348233ef829513904fe4` (origin/main at branch creation)  
 > **Reconciliation bound to:** `apps/web/app/hr/hr-execution-data.ts → HR_G1_CLOSURE`  
 > **Regression tests:**  
@@ -63,14 +63,14 @@ NOT_PROVEN — these can only be proven after merge.
 | T8 — Candidate → Hire conversion (atomic/idempotent ledger) | DONE | `V20260918_6__hr_t8_hire_conversion_governance.sql` | `81a86faa` | `HrHireConversionIntegrationTest`, `HrHireConversionArchitectureBoundaryTest` |
 | T9 — Onboarding domain (template, plan, task, waive-with-reason) | DONE | `V20260918_7__hr_t9_governed_onboarding.sql` | `81a86faa` | `HrOnboardingServiceIntegrationTest`, `HrOnboardingServiceTest`, `HrOnboardingStateTransitionGuardTest`, `OnboardingCapabilityNamingContractTest`, `OnboardingReasonCodeValidationTest` |
 | T10 — V2 API + OpenAPI + idempotency executor + error mapping | DONE | `V20260918_8__hr_t10_candidate_self_service.sql`, `hr/api/v2/recruitment/HrRecruitmentV2Controller.java`, `hr/api/v2/onboarding/HrOnboardingV2Controller.java`, `hr/api/v2/HrmIdempotentCommandExecutor.java`, `HrApiErrorCode.java`, `HrApiErrorResponse.java`, `HrApiExceptionHandler.java` | `b8af9346` | `HrT10CandidateSelfServiceSecurityContractTest`, `HrRecruitmentApiErrorMappingTest`, `HrRecruitmentIdempotencyApiContractTest`, `HrRecruitmentOpenApiContractTest`, `HrmIdempotentCommandExecutorReplayProjectionTest` |
-| **T11 — Web UI (15 §14 screens)** | **DONE** | see §4 below | `3872fb1a` (this branch) | see §4 for per-screen evidence |
-| **T12 — Security/integration/closure** | **PARTIAL→DONE (frontend + backend test surface)** | this file + matrices + regression tests + frontend security suite + backend tests in §5 | `3872fb1a` (this branch) | see §5 for per-requirement backend test bindings |
+| **T11 — Web UI (15 §14 screens)** | **DONE** | see §4 below | PR #1119 head (see git log) | see §4 for per-screen evidence |
+| **T12 — Security/integration/closure** | **PARTIAL→DONE (frontend + backend test surface)** | this file + matrices + regression tests + frontend security suite + backend tests in §5 | PR #1119 head (see git log) | see §5 for per-requirement backend test bindings |
 
 ## 4. T11 — Web UI (15/15 §14 screens IMPLEMENTED)
 
 Per `docs/superpowers/specs/2026-09-07-hrm-g1-recruitment-onboarding-design.md` §14,
 the official screen count is **15**. All 15 are implemented on this branch
-(`3872fb1a`) with production-grade quality: real API integration, loading/
+(PR #1119 head) with production-grade quality: real API integration, loading/
 empty/error/permission-denied states, Arabic + English i18n keys (no
 hard-coded strings), RTL via logical CSS, WCAG a11y, SDS tokens (no
 hardcoded colors), idempotency keys on every mutation.
@@ -119,7 +119,7 @@ v20260907.1 policy — Docker/Testcontainers are prohibited).
 
 ### 5.1 RLS full matrix — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | Database requirement | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | Database requirement | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- | --- |
 | RLS fail-closed on all HR G1 tables (own-tenant read allowed; cross-tenant read denied empty set; cross-tenant write denied 42501; no-context denied; FORCE RLS) | `apps/sanad-platform/src/test/java/com/sanad/platform/hr/recruitment/db/HrG1RlsFailClosedIntegrationTest.java` | `@TestInstance(PER_CLASS)` — exercises real `sanad` role (NOSUPERUSER NOBYPASSRLS) against `sanad` database; SET app.tenant_id on single connection | host-native PostgreSQL Direct (no Docker) | `Maven Test Suite` (CI on GitHub Actions) | PENDING (suite running — see §7) |
 | RLS fail-closed on HR module (G0 pattern) | `apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java` | G0 RLS probe pattern | host-native PostgreSQL Direct | `Maven Test Suite` | PENDING |
@@ -127,14 +127,14 @@ v20260907.1 policy — Docker/Testcontainers are prohibited).
 
 ### 5.2 Cross-tenant denial matrix — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | Cross-tenant recruitment access denial | `HrG1RlsFailClosedIntegrationTest` (cross-tenant probe) + `HrTenantContextRegressionTest` | cross-tenant probe on all HR G1 tables; tenant context regression via MockMvc | `Maven Test Suite` | PENDING |
 | Cross-tenant onboarding access denial | `HrG1RlsFailClosedIntegrationTest` (covers onboarding_plans, onboarding_tasks) + `HrOnboardingServiceIntegrationTest` | RLS probe + service-level tenant scoping | `Maven Test Suite` | PENDING |
 
 ### 5.3 Authorization matrix (RBAC) — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | HR scoped authorization scope matrix (G0 pattern, extended for G1) | `HrScopedAuthorizationScopeMatrixIntegrationTest` | full capability × endpoint matrix incl. separation of duties | `Maven Test Suite` | PENDING |
 | HR scoped authorization integration | `HrScopedAuthorizationIntegrationTest` | scoped authorization enforcement | `Maven Test Suite` | PENDING |
@@ -146,7 +146,7 @@ v20260907.1 policy — Docker/Testcontainers are prohibited).
 
 ### 5.4 Candidate sensitive-data authorization — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | Sensitive-read audit (PII reads audit-logged) | `HrSensitiveReadAuditIntegrationTest` | sensitive-read audit fail-closed | `Maven Test Suite` | PENDING |
 | HR API v2 sensitive contract | `HrApiV2SensitiveContractTest` | API-level sensitive data contract | `Maven Test Suite` | PENDING |
@@ -154,13 +154,13 @@ v20260907.1 policy — Docker/Testcontainers are prohibited).
 
 ### 5.5 Interview authorization — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | Interview service integration (scheduling, scorecard, participant-only visibility) | `HrInterviewServiceIntegrationTest` | service-level authorization + scorecard schema | `Maven Test Suite` | PENDING |
 
 ### 5.6 Hire conversion isolation + idempotency — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | Hire conversion end-to-end (atomic, idempotent, RLS, RBAC, audit, outbox) | `HrHireConversionIntegrationTest` | full journey: candidate → application → interview → offer → accept → convert → employment + onboarding plan; atomicity + idempotency + tenant isolation + RLS + RBAC + audit + outbox + duplicate prevention + state invariants | `Maven Test Suite` | PENDING |
 | Hire conversion architecture boundary | `HrHireConversionArchitectureBoundaryTest` | architecture boundary enforcement | `Maven Test Suite` | PENDING |
@@ -171,7 +171,7 @@ v20260907.1 policy — Docker/Testcontainers are prohibited).
 
 ### 5.7 Onboarding ownership — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | Onboarding service integration (plan creation, task lifecycle, ownership, status transitions, completion, authorization, tenant isolation, audit) | `HrOnboardingServiceIntegrationTest` | full onboarding lifecycle | `Maven Test Suite` | PENDING |
 | Onboarding service unit | `HrOnboardingServiceTest` | unit-level invariants | `Maven Test Suite` | PENDING |
@@ -181,7 +181,7 @@ v20260907.1 policy — Docker/Testcontainers are prohibited).
 
 ### 5.8 Audit persistence — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | Audit + outbox atomicity (transactional mutation boundary; failure injection on hr_audit_ledger + hr_domain_event_outbox triggers) | `HrAuditOutboxAtomicityIntegrationTest` | WS4 Task 4 — audit/outbox atomicity with DB-level failure injection | `Maven Test Suite` | PENDING |
 | T7 evidence atomicity (audit write, outbox write, business state = ONE transaction) | `HrT7EvidenceAtomicityTest` | T7-A23/T7-A24 — BEFORE INSERT trigger failure injection | `Maven Test Suite` | PENDING |
@@ -190,7 +190,7 @@ v20260907.1 policy — Docker/Testcontainers are prohibited).
 
 ### 5.9 Outbox/event emission — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | Outbox delivery integration | `HrOutboxDeliveryIntegrationTest` | outbox delivery semantics | `Maven Test Suite` | PENDING |
 | Audit + outbox atomicity | `HrAuditOutboxAtomicityIntegrationTest` | atomicity (see §5.8) | `Maven Test Suite` | PENDING |
@@ -198,7 +198,7 @@ v20260907.1 policy — Docker/Testcontainers are prohibited).
 
 ### 5.10 Module boundary — DONE (backend test exists)
 
-| Requirement | Backend test class | Test method/suite | GitHub job | Result on SHA `3872fb1a` |
+| Requirement | Backend test class | Test method/suite | GitHub job | Result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | HR module boundary architecture (no cross-context dependencies; no cross-module DB access) | `HrModuleBoundaryArchitectureTest` | ArchUnit — production packages must not depend on other bounded contexts' implementation packages; HR production SQL must never reference other modules' tables | `Maven Test Suite` | PENDING |
 
@@ -213,7 +213,7 @@ is PROVEN. Until then: **NOT_PROVEN** (CI runtime constraint).
 
 ### 5.12 Frontend security regression (DONE — local + CI green)
 
-| Requirement | Frontend test class | Test count | Local result | CI result on SHA `3872fb1a` |
+| Requirement | Frontend test class | Test count | Local result | CI result on PR #1119 head SHA |
 | --- | --- | --- | --- | --- |
 | Capability deny matrix + cross-tenant 403 + 409 concurrency + idempotency + privilege escalation | `apps/web/app/hr/hr-g1-t12-security-regression.test.tsx` | 8 tests | PASS | `G4 Web Test Lint Build` = SUCCESS ✅ |
 | Candidate→Hire journey contract (7 steps + Idempotency-Key + no tenantId) | `apps/web/app/hr/hr-g1-candidate-hire-journey.test.tsx` | 2 tests | PASS | `G4 Web Test Lint Build` = SUCCESS ✅ |
@@ -246,7 +246,7 @@ flips to DONE (the test class exists and ran successfully). The 3
 NOT_PROVEN items are post-merge-only (PMV, final merge SHA, final stage
 exit) and are explicitly allowed to remain NOT_PROVEN per §15.
 
-## 7. CI evidence on exact SHA `3872fb1a`
+## 7. CI evidence on exact PR #1119 head SHA
 
 | Check | Status | Conclusion |
 | --- | --- | --- |
@@ -291,7 +291,7 @@ exit) and are explicitly allowed to remain NOT_PROVEN per §15.
 
 ## 8. Blockers (fail-closed)
 
-1. **Maven Test Suite completion on exact SHA `3872fb1a`** — currently in_progress (~155min runtime on GitHub Actions). The suite covers all backend tests listed in §5. Once it completes with SUCCESS, the 5 PARTIAL items flip to DONE. **NOT a human-only blocker** — CI runtime constraint per §43.
+1. **Maven Test Suite completion on exact PR #1119 head SHA** — currently in_progress (~155min runtime on GitHub Actions). The suite covers all backend tests listed in §5. Once it completes with SUCCESS, the 5 PARTIAL items flip to DONE. **NOT a human-only blocker** — CI runtime constraint per §43.
 2. **Independent human approval** on final SHA — Constitution §3.5 mandates this; cannot self-approve. Human-only gate.
 3. **Branch protection on main** — NOT yet configured per Constitution §3.5; owner action required. Human-only gate.
 4. **Post-merge verification** — BLOCKED pending merge (which is BLOCKED pending approval + branch protection).
@@ -323,7 +323,7 @@ authorized; post-merge verification not yet executed.
 
 To flip `G1_FINAL_GATE = NOT_CLOSED` → `PASS`:
 
-1. Wait for Maven Test Suite on SHA `3872fb1a` to reach terminal state (~155min). The 5 PARTIAL items flip to DONE.
+1. Wait for Maven Test Suite on PR #1119 head SHA to reach terminal state (~155min). The 5 PARTIAL items flip to DONE.
 2. If any failure: investigate root cause → fix → push new SHA → re-run exact-head CI on new SHA → re-bind evidence.
 3. Once all required workflows at SUCCESS on exact SHA: request independent human review on PR #1119.
 4. Independent approval = APPROVED on the final SHA.
