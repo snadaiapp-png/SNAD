@@ -47,16 +47,25 @@ class JwtAuthenticationFilterControlPlaneTenantBindingTest {
     }
 
     @Test
-    void controlPlaneOwnerMayTargetAnotherTenantOnUsageReadModel() throws Exception {
-        Harness h = harness(true);
-        MockHttpServletRequest request =
-                request("GET", "/api/v1/executive/usage", TARGET_TENANT);
-        MockHttpServletResponse response = new MockHttpServletResponse();
+    void canonicalOwnerMayTargetForeignTenantOnExplicitExecutiveCrossTenantSurfaces() throws Exception {
+        for (String path : java.util.List.of(
+                "/api/v1/executive/subscriptions",
+                "/api/v1/executive/subscriptions/v2",
+                "/api/v1/executive/billing/invoices",
+                "/api/v1/executive/usage",
+                "/api/v1/executive/usage/events",
+                "/api/v1/executive/audit/v2",
+                "/api/v1/executive/provisioning/jobs")) {
+            SecurityContextHolder.clearContext();
+            Harness h = harness(true);
+            MockHttpServletRequest request = request("GET", path, TARGET_TENANT);
+            MockHttpServletResponse response = new MockHttpServletResponse();
 
-        h.filter.doFilterInternal(request, response, h.chain);
+            h.filter.doFilterInternal(request, response, h.chain);
 
-        verify(h.chain).doFilter(request, response);
-        assertEquals(200, response.getStatus());
+            verify(h.chain).doFilter(request, response);
+            assertEquals(200, response.getStatus(), path);
+        }
     }
 
     @Test
