@@ -32,7 +32,7 @@ tenant.
 The exception is intentionally narrow:
 
 - the authenticated JWT tenant must equal `SANAD_CONTROL_PLANE_TENANT_ID`;
-- the request path must be under `/api/v1/executive/**`;
+- the request path must be one of the explicitly target-aware Executive routes that declares a `tenantId` selector;
 - `ControlPlaneAccessGuard.require()` still validates Control Plane tenancy;
 - `@RequireCapability` still evaluates the caller's effective capability;
 - normal tenant-scoped APIs continue to reject a foreign `tenantId` with 403;
