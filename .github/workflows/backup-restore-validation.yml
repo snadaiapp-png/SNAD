@@ -164,8 +164,11 @@ jobs:
       - name: Create compressed logical backup
         run: |
           start_epoch=$(date +%s)
-          pg_dump -d sanad_source \
-            --format=custom --no-owner --no-privileges --file=sanad_source.dump
+          # Full-cluster logical backup evidence must include rows protected by RLS.
+          # Keep the application/recovery role NOBYPASSRLS; use the runner-local
+          # postgres maintenance identity only for this read-only dump operation.
+          sudo -u postgres pg_dump -d sanad_source \
+            --format=custom --no-owner --no-privileges > sanad_source.dump
           echo "BACKUP_DURATION_SECONDS=$(($(date +%s)-start_epoch))" >> "$GITHUB_ENV"
           test -s sanad_source.dump
 
