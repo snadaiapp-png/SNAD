@@ -26,6 +26,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final UUID CANONICAL_PROJECT_OWNER_USER_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000010");
+    private static final String CANONICAL_PROJECT_OWNER_EMAIL = "snad.ai.app@gmail.com";
 
     private final JwtTokenProvider jwtTokenProvider;
     private final SessionVersionCache sessionVersionCache;
@@ -82,7 +85,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 UUID requestTenantId = UUID.fromString(requestTenantIdParam);
                 if (!requestTenantId.equals(jwtTenantId)
-                        && !isGovernedControlPlaneCrossTenantRequest(jwtTenantId, request.getRequestURI())) {
+                        && !isGovernedControlPlaneCrossTenantRequest(
+                                jwtTenantId, claims.getSubject(), claims.get("email", String.class),
+                                request.getRequestURI())) {
                     log.warn("Tenant binding violation: JWT tenantId={} request tenantId={} path={}",
                             jwtTenantId, requestTenantId, request.getRequestURI());
                     writeError(response, request, 403, "Forbidden",
@@ -154,9 +159,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private boolean isGovernedControlPlaneCrossTenantRequest(UUID jwtTenantId, String uri) {
+    private boolean isGovernedControlPlaneCrossTenantRequest(
+            UUID jwtTenantId,
+            String userIdClaim,
+            String emailClaim,
+            String uri
+    ) {
+        UUID userId;
+        try {
+            userId = UUID.fromString(userIdClaim);
+        } catch (IllegalArgumentException | NullPointerException ignored) {
+            return false;
+        }
         return controlPlaneAccessGuard != null
                 && controlPlaneAccessGuard.isControlPlaneTenant(jwtTenantId)
+                && CANONICAL_PROJECT_OWNER_USER_ID.equals(userId)
+                && CANONICAL_PROJECT_OWNER_EMAIL.equalsIgnoreCase(emailClaim)
                 && ("/api/v1/executive".equals(uri) || uri.startsWith("/api/v1/executive/"));
     }
 
