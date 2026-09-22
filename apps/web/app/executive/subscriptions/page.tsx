@@ -144,6 +144,10 @@ function SubscriptionsContent() {
     }
   }
 
+  const canOfferCreation = page !== null
+    && (page.content.length === 0
+      || page.content.every((subscription) => subscription.status === "EXPIRED"));
+
   if (loading && !page) {
     return (
       <ScpPage title={t("scp.subscriptions.title")}>
@@ -195,7 +199,7 @@ function SubscriptionsContent() {
       {notice ? <ScpNotice>{notice}</ScpNotice> : null}
       {error ? <ScpError message={error} onRetry={load} /> : null}
 
-      {canManage && tenantIdParam && intentParam === "upgrade" && page?.content.length === 0 ? (
+      {canManage && tenantIdParam && intentParam === "upgrade" && canOfferCreation ? (
         <section className={styles.panel} aria-labelledby="scp-create-subscription-heading">
           <h2 id="scp-create-subscription-heading" className={styles.pageSubtitle}>
             {t("scp.subscriptions.createForTenant")}
