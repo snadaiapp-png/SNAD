@@ -52,7 +52,13 @@ public class WebsiteDomainService {
     public String generateDefaultDomain(String websiteSlug) {
         String baseDomain = resolvePlatformBaseDomain();
         if (baseDomain == null || baseDomain.isBlank()) return null;
-        return hostRoutingService.normalizeHostname(websiteSlug + "." + baseDomain);
+        String hostname = hostRoutingService.normalizeHostname(websiteSlug + "." + baseDomain);
+        if (hostname == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "configured platform base domain cannot produce a valid website hostname");
+        }
+        return hostname;
     }
 
     /**
@@ -63,8 +69,14 @@ public class WebsiteDomainService {
         String baseDomain = resolvePlatformBaseDomain();
         if (baseDomain == null || baseDomain.isBlank()) return null;
         String tenantSubdomain = tenantSubdomain(tenantId);
-        return hostRoutingService.normalizeHostname(
+        String hostname = hostRoutingService.normalizeHostname(
                 websiteSlug + "." + tenantSubdomain + "." + baseDomain);
+        if (hostname == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "configured platform base domain cannot produce a valid tenant-scoped website hostname");
+        }
+        return hostname;
     }
 
     /**
