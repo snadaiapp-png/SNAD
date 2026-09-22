@@ -259,8 +259,8 @@ public class StoreDomainService {
     }
 
     private void audit(UUID tenantId, Authentication auth, String action, UUID resourceId, String reason) {
-        try { auditService.success(auth, tenantId, action, "STORE_DOMAIN", resourceId == null ? null : resourceId.toString(), reason, null, null); }
-        catch (Exception ignored) {}
+        auditService.success(auth, tenantId, action, "STORE_DOMAIN",
+                resourceId == null ? null : resourceId.toString(), reason, null, null);
     }
 
     private DomainResponse mapRow(ResultSet rs, int rowNum) throws SQLException {
