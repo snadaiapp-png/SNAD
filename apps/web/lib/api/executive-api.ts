@@ -152,8 +152,16 @@ export const executiveApi = {
   accessCheck: () => apiClient.get<{ authenticated: boolean; canRead: boolean; canWrite: boolean }>(`${root}/access-check`),
   tenants: () => apiClient.get<ManagedTenant[]>(`${root}/tenants`),
   tenant: (tenantId: string) => apiClient.get<ManagedTenant>(`${root}/tenants/${tenantId}`),
-  createTenant: (body: { name: string; subdomain: string; adminEmail: string; adminDisplayName: string }) =>
-    apiClient.post<ManagedTenant, typeof body>(`${root}/tenants`, body),
+  createTenant: (body: {
+    name: string;
+    subdomain: string;
+    adminEmail: string;
+    adminDisplayName: string;
+    countryCode?: string;
+    locale?: string;
+    timezone?: string;
+    currencyCode?: string;
+  }) => apiClient.post<ManagedTenant, typeof body>(`${root}/tenants`, body),
   updateTenant: (tenantId: string, body: TenantProfileUpdate) =>
     apiClient.patch<ManagedTenant, TenantProfileUpdate>(`${root}/tenants/${tenantId}`, body),
   changeTenantStatus: (tenantId: string, status: string, reason: string) =>
@@ -229,6 +237,16 @@ export const executiveApi = {
     `${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}/applications/${applicationId}`,
     { enabled },
   ),
+  bindSubscriptionResource: (
+    subscriptionId: string,
+    organizationId: string,
+    resourceType: "WEBSITE" | "STORE",
+    resourceId: string,
+  ) => apiClient.put<void, { organizationId: string }>(
+    `${root}/subscriptions/${subscriptionId}/resources/${resourceType}/${resourceId}`,
+    { organizationId },
+  ),
+
   unbindSubscriptionResource: (
     subscriptionId: string,
     resourceType: "WEBSITE" | "STORE" | "POS_LOCATION",
