@@ -65,15 +65,15 @@ public class PlatformOperationsCommandController {
 
     @PostMapping("/tenants/{tenantId}/login-link-events")
     @RequireCapability("EXECUTIVE_MANAGE")
-    public ResponseEntity<AdminDtos.TenantLoginLinkEventResponse> recordTenantLoginLinkEvent(
+    public ResponseEntity<Void> recordTenantLoginLinkEvent(
             Authentication authentication,
             @PathVariable String tenantId,
             @Valid @RequestBody AdminDtos.TenantLoginLinkEventRequest request
     ) {
         accessGuard.require(authentication);
-        String hostname = adminService.recordTenantLoginLinkEvent(
+        adminService.recordTenantLoginLinkEvent(
                 java.util.UUID.fromString(tenantId), request.action(), authentication);
-        return ResponseEntity.ok(new AdminDtos.TenantLoginLinkEventResponse(hostname));
+        return ResponseEntity.noContent().build();
     }
 
 }
