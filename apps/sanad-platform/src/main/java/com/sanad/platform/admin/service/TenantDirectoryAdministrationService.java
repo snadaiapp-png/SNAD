@@ -102,6 +102,17 @@ public class TenantDirectoryAdministrationService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Organization name already exists for the tenant");
         }
         String unitType = normalizeUnitType(request.unitType(), before.unitType());
+        if (!unitType.equals(before.unitType())) {
+            long activeBindings = count(
+                    "SELECT COUNT(*) FROM subscription_operating_units "
+                            + "WHERE tenant_id = ? AND organization_id = ? AND status = 'ACTIVE'",
+                    tenantId, organizationId);
+            if (activeBindings > 0) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "deactivate subscription operating-unit bindings before changing unit type");
+            }
+        }
         jdbcTemplate.update(
                 "UPDATE organizations SET name = ?, description = ?, unit_type = ?, updated_at = ? "
                         + "WHERE tenant_id = ? AND id = ?",
@@ -126,9 +137,46 @@ public class TenantDirectoryAdministrationService {
         if (!ORGANIZATION_STATUSES.contains(status)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported organization status");
         }
+        Instant now = Instant.now();
+        if (!"ACTIVE".equals(status)) {
+            // Organization deactivation must atomically retire every branch-scoped
+            // subscription projection. Leaving active bindings behind would leak
+            // pricing/resource state through an inactive operating unit.
+            jdbcTemplate.update("""
+                    UPDATE websites SET organization_id = NULL
+                     WHERE tenant_id = ? AND organization_id = ?
+                    """, tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE commerce_stores SET organization_id = NULL
+                     WHERE tenant_id = ? AND organization_id = ?
+                    """, tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE subscription_unit_applications
+                       SET enabled = FALSE, updated_at = ?
+                     WHERE tenant_id = ? AND organization_id = ?
+                    """, Timestamp.from(now), tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE subscription_resource_bindings
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND organization_id = ?
+                       AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE subscription_billing_profiles
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND organization_id = ?
+                       AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE subscription_operating_units
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND organization_id = ?
+                       AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, organizationId);
+        }
         jdbcTemplate.update(
                 "UPDATE organizations SET status = ?, updated_at = ? WHERE tenant_id = ? AND id = ?",
-                status, Timestamp.from(Instant.now()), tenantId, organizationId);
+                status, Timestamp.from(now), tenantId, organizationId);
         OrganizationAdminResponse after = getOrganization(tenantId, organizationId);
         auditService.success(authentication, tenantId, "ORGANIZATION.STATUS.CHANGE", "ORGANIZATION",
                 organizationId.toString(), reason, before, after);
