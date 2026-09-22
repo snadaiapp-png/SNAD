@@ -194,7 +194,7 @@ public class ExecutivePlatformService {
         return after;
     }
 
-    public void recordTenantLoginLinkEvent(UUID tenantId, String requestedAction, Authentication authentication) {
+    public String recordTenantLoginLinkEvent(UUID tenantId, String requestedAction, Authentication authentication) {
         String action = requestedAction == null ? "" : requestedAction.trim().toUpperCase(Locale.ROOT);
         if (!Set.of("OPEN", "COPY").contains(action)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -218,6 +218,14 @@ public class ExecutivePlatformService {
                     "Tenant login link requires exactly one effective subscription");
         }
 
+        var defaultDomain = tenantDomainService.ensureDefaultDomain(
+                tenantId, tenant.subdomain(), DomainType.APPLICATION, authentication);
+        if (defaultDomain == null || defaultDomain.hostname() == null || defaultDomain.hostname().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Tenant login link requires a configured platform base domain");
+        }
+
         auditService.success(
                 authentication,
                 tenantId,
@@ -226,8 +234,9 @@ public class ExecutivePlatformService {
                 tenantId.toString(),
                 "Executive " + ("OPEN".equals(action) ? "opened" : "copied") + " tenant sign-in link",
                 null,
-                Map.of("action", action)
+                Map.of("action", action, "hostname", defaultDomain.hostname())
         );
+        return defaultDomain.hostname();
     }
 
     public record AccessCheck(boolean authenticated, boolean canRead, boolean canWrite) {}
