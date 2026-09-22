@@ -416,11 +416,12 @@ export default function TenantsPage() {
               <tbody>
                 {page.content.map((tenant) => {
                   const archived = tenant.status === "ARCHIVED";
-                  const terminalSubscription = !tenant.subscriptionStatus
-                    || ["CANCELLED", "EXPIRED", "TERMINATED"].includes(tenant.subscriptionStatus);
+                  const loginEligibleSubscription = tenant.subscriptionStatus !== null
+                    && ["TRIAL", "TRIALING", "ACTIVE", "PAST_DUE", "GRACE_PERIOD"]
+                      .includes(tenant.subscriptionStatus);
                   const canUseLoginLink = canManage
                     && tenant.status === "ACTIVE"
-                    && !terminalSubscription;
+                    && loginEligibleSubscription;
                   const canFreeze = tenant.status === "ACTIVE" || tenant.status === "PAST_DUE";
                   const canReactivate = tenant.status === "SUSPENDED";
                   return (
