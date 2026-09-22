@@ -7,10 +7,12 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 150;
 
 const REFRESH_COOKIE = "sanad_refresh";
-const TENANT_REFRESH_COOKIE = "sanad_tenant_refresh";
+const TENANT_REFRESH_COOKIE_PREFIX = "sanad_tenant_refresh_";
 const SESSION_HINT_COOKIE = "sanad_session_hint";
-const TENANT_SESSION_HINT_COOKIE = "sanad_tenant_session_hint";
+const TENANT_SESSION_HINT_COOKIE_PREFIX = "sanad_tenant_session_hint_";
 const SESSION_SCOPE_HEADER = "x-sanad-session-scope";
+const SESSION_TENANT_HEADER = "x-sanad-session-tenant";
+const TENANT_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const REFRESH_HEADER = "x-sanad-refresh-token";
 const ENTITY_TAG_HEADER = "x-snad-entity-tag";
 const AUTH_PATH_PREFIX = "/api/v1/auth";
@@ -159,12 +161,22 @@ function sessionScope(request: NextRequest): SessionScope {
     : "default";
 }
 
-function refreshCookieName(scope: SessionScope): string {
-  return scope === "tenant" ? TENANT_REFRESH_COOKIE : REFRESH_COOKIE;
+function sessionTenantId(request: NextRequest): string | null {
+  if (sessionScope(request) !== "tenant") return null;
+  const value = request.headers.get(SESSION_TENANT_HEADER)?.trim() ?? "";
+  return TENANT_ID_PATTERN.test(value) ? value.toLowerCase() : null;
 }
 
-function sessionHintCookieName(scope: SessionScope): string {
-  return scope === "tenant" ? TENANT_SESSION_HINT_COOKIE : SESSION_HINT_COOKIE;
+function refreshCookieName(scope: SessionScope, tenantId?: string | null): string {
+  if (scope !== "tenant") return REFRESH_COOKIE;
+  if (!tenantId) throw new Error("Tenant session requires a valid tenant id");
+  return `${TENANT_REFRESH_COOKIE_PREFIX}${tenantId}`;
+}
+
+function sessionHintCookieName(scope: SessionScope, tenantId?: string | null): string {
+  if (scope !== "tenant") return SESSION_HINT_COOKIE;
+  if (!tenantId) throw new Error("Tenant session requires a valid tenant id");
+  return `${TENANT_SESSION_HINT_COOKIE_PREFIX}${tenantId}`;
 }
 
 function requestHeaders(request: NextRequest, path: string, baseUrl: string, id: string): Headers {
@@ -188,7 +200,9 @@ function requestHeaders(request: NextRequest, path: string, baseUrl: string, id:
   if (ifMatchValue) headers.set("if-match", ifMatchValue);
 
   if (path === REFRESH_PATH) {
-    const refreshToken = request.cookies.get(refreshCookieName(sessionScope(request)))?.value;
+    const scope = sessionScope(request);
+    const tenantId = sessionTenantId(request);
+    const refreshToken = request.cookies.get(refreshCookieName(scope, tenantId))?.value;
     if (refreshToken) headers.set(REFRESH_HEADER, refreshToken);
   }
   return headers;
@@ -218,9 +232,13 @@ function responseHeaders(upstream: Response, id: string, attempts: number): Head
   return headers;
 }
 
-function clearRefreshCookie(response: NextResponse, scope: SessionScope): void {
+function clearRefreshCookie(
+  response: NextResponse,
+  scope: SessionScope,
+  tenantId?: string | null,
+): void {
   response.cookies.set({
-    name: refreshCookieName(scope),
+    name: refreshCookieName(scope, tenantId),
     value: "",
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -230,9 +248,13 @@ function clearRefreshCookie(response: NextResponse, scope: SessionScope): void {
   });
 }
 
-function setSessionHint(response: NextResponse, scope: SessionScope): void {
+function setSessionHint(
+  response: NextResponse,
+  scope: SessionScope,
+  tenantId?: string | null,
+): void {
   response.cookies.set({
-    name: sessionHintCookieName(scope),
+    name: sessionHintCookieName(scope, tenantId),
     value: "1",
     httpOnly: false,
     secure: process.env.NODE_ENV === "production",
@@ -242,9 +264,13 @@ function setSessionHint(response: NextResponse, scope: SessionScope): void {
   });
 }
 
-function clearSessionHint(response: NextResponse, scope: SessionScope): void {
+function clearSessionHint(
+  response: NextResponse,
+  scope: SessionScope,
+  tenantId?: string | null,
+): void {
   response.cookies.set({
-    name: sessionHintCookieName(scope),
+    name: sessionHintCookieName(scope, tenantId),
     value: "",
     httpOnly: false,
     secure: process.env.NODE_ENV === "production",
@@ -261,22 +287,23 @@ function applySessionCookiePolicy(
   path: string,
 ): void {
   const scope = sessionScope(request);
+  const tenantId = sessionTenantId(request);
   if (path === LOGOUT_PATH || (path === CHANGE_CREDENTIAL_PATH && upstream.ok)) {
-    clearRefreshCookie(response, scope);
-    clearSessionHint(response, scope);
+    clearRefreshCookie(response, scope, tenantId);
+    clearSessionHint(response, scope, tenantId);
     return;
   }
 
   if (path === REFRESH_PATH && (upstream.status === 401 || upstream.status === 403)) {
-    clearRefreshCookie(response, scope);
-    clearSessionHint(response, scope);
+    clearRefreshCookie(response, scope, tenantId);
+    clearSessionHint(response, scope, tenantId);
     return;
   }
 
   const refreshToken = upstream.headers.get(REFRESH_HEADER);
   if (refreshToken && path.startsWith(AUTH_PATH_PREFIX)) {
     response.cookies.set({
-      name: refreshCookieName(scope),
+      name: refreshCookieName(scope, tenantId),
       value: refreshToken,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -287,7 +314,7 @@ function applySessionCookiePolicy(
   }
 
   if ((path === LOGIN_PATH || path === REFRESH_PATH) && upstream.ok) {
-    setSessionHint(response, scope);
+    setSessionHint(response, scope, tenantId);
   }
 }
 
@@ -351,6 +378,11 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   if (isStateChanging(request.method) && !hasValidOrigin(request)) {
     return jsonError("Forbidden", 403, id);
   }
+  const scope = sessionScope(request);
+  const tenantSessionId = sessionTenantId(request);
+  if (scope === "tenant" && !tenantSessionId) {
+    return jsonError("Tenant session requires a valid tenant id", 400, id);
+  }
 
   const params = await context.params;
   const path = backendPath(params.path);
@@ -361,8 +393,8 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
     console.error("Platform BFF backend URL is not configured or violates the production Render policy", { path, requestId: id });
     const response = jsonError("Service unavailable", 503, id);
     if (path === LOGOUT_PATH) {
-      clearRefreshCookie(response, sessionScope(request));
-      clearSessionHint(response, sessionScope(request));
+      clearRefreshCookie(response, scope, tenantSessionId);
+      clearSessionHint(response, scope, tenantSessionId);
     }
     return response;
   }
@@ -381,8 +413,43 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   try {
     const supportsBody = !["GET", "HEAD"].includes(request.method);
     const body = supportsBody ? await request.arrayBuffer() : undefined;
+    if (scope === "tenant" && path === LOGIN_PATH && tenantSessionId && body?.byteLength) {
+      try {
+        const payload = JSON.parse(new TextDecoder().decode(body)) as { tenantId?: unknown };
+        const requestedTenant = typeof payload.tenantId === "string"
+          ? payload.tenantId.trim().toLowerCase()
+          : "";
+        if (requestedTenant !== tenantSessionId) {
+          return jsonError("Tenant session target mismatch", 400, id);
+        }
+      } catch {
+        return jsonError("Invalid tenant login payload", 400, id);
+      }
+    }
     const result = await fetchBackend(target, path, request, headers, body);
     const upstream = result.response;
+    if (scope === "tenant"
+        && tenantSessionId
+        && upstream.ok
+        && (path === LOGIN_PATH || path === REFRESH_PATH)) {
+      try {
+        const payload = await upstream.clone().json() as { user?: { tenantId?: unknown } };
+        const responseTenant = typeof payload.user?.tenantId === "string"
+          ? payload.user.tenantId.trim().toLowerCase()
+          : "";
+        if (responseTenant !== tenantSessionId) {
+          const mismatch = jsonError("Tenant session response mismatch", 502, id);
+          clearRefreshCookie(mismatch, scope, tenantSessionId);
+          clearSessionHint(mismatch, scope, tenantSessionId);
+          return mismatch;
+        }
+      } catch {
+        const malformed = jsonError("Invalid tenant authentication response", 502, id);
+        clearRefreshCookie(malformed, scope, tenantSessionId);
+        clearSessionHint(malformed, scope, tenantSessionId);
+        return malformed;
+      }
+    }
     const response = new NextResponse(
       upstream.status === 204 || upstream.status === 304 ? null : upstream.body,
       { status: upstream.status, headers: responseHeaders(upstream, id, result.attempts) },
@@ -409,8 +476,8 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
       failure.kind,
     );
     if (path === LOGOUT_PATH) {
-      clearRefreshCookie(response, sessionScope(request));
-      clearSessionHint(response, sessionScope(request));
+      clearRefreshCookie(response, scope, tenantSessionId);
+      clearSessionHint(response, scope, tenantSessionId);
     }
     return response;
   }
