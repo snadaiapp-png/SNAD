@@ -54,6 +54,37 @@ public class SubscriptionOperatingUnitController {
         return ResponseEntity.ok(service.list(subscriptionId));
     }
 
+    @GetMapping("/operating-units/{organizationId}/applications")
+    @RequireCapability("EXECUTIVE_VIEW")
+    public ResponseEntity<List<SubscriptionOperatingUnitService.UnitApplication>> listApplications(
+            @PathVariable UUID subscriptionId,
+            @PathVariable UUID organizationId,
+            Authentication authentication
+    ) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(service.listApplications(subscriptionId, organizationId));
+    }
+
+    @GetMapping("/billing-profiles")
+    @RequireCapability("EXECUTIVE_VIEW")
+    public ResponseEntity<List<SubscriptionOperatingUnitService.BillingProfile>> listBillingProfiles(
+            @PathVariable UUID subscriptionId,
+            Authentication authentication
+    ) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(service.listBillingProfiles(subscriptionId));
+    }
+
+    @GetMapping("/resource-bindings")
+    @RequireCapability("EXECUTIVE_VIEW")
+    public ResponseEntity<List<SubscriptionOperatingUnitService.ResourceBinding>> listResourceBindings(
+            @PathVariable UUID subscriptionId,
+            Authentication authentication
+    ) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(service.listResourceBindings(subscriptionId));
+    }
+
     @PutMapping("/operating-units/{organizationId}")
     @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SubscriptionOperatingUnitService.OperatingUnit> bind(
@@ -128,6 +159,19 @@ public class SubscriptionOperatingUnitController {
                 resourceType,
                 resourceId,
                 authentication);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/resources/{resourceType}/{resourceId}")
+    @RequireCapability("EXECUTIVE_MANAGE")
+    public ResponseEntity<Void> unbindResource(
+            @PathVariable UUID subscriptionId,
+            @PathVariable String resourceType,
+            @PathVariable UUID resourceId,
+            Authentication authentication
+    ) {
+        accessGuard.require(authentication);
+        service.unbindResource(subscriptionId, resourceType, resourceId, authentication);
         return ResponseEntity.noContent().build();
     }
 }
