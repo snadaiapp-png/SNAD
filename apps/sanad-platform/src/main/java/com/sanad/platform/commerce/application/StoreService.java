@@ -64,9 +64,10 @@ public class StoreService {
         String slug = normalizeSlug(request.slug() != null ? request.slug() : request.name());
         String code = (request.code() != null && !request.code().isBlank())
                 ? normalizeCode(request.code()) : slug.toUpperCase();
-        String locale = request.defaultLocale() != null && !request.defaultLocale().isBlank()
-                ? request.defaultLocale().trim()
-                : tenantLocale(tenantId);
+        String locale = normalizeLocale(
+                request.defaultLocale() != null && !request.defaultLocale().isBlank()
+                        ? request.defaultLocale()
+                        : tenantLocale(tenantId));
         String currency = request.defaultCurrency() != null && !request.defaultCurrency().isBlank()
                 ? request.defaultCurrency().trim().toUpperCase()
                 : tenantCurrency(tenantId);
@@ -102,7 +103,8 @@ public class StoreService {
         }
         if (request.defaultLocale() != null) {
             String locale = request.defaultLocale().trim();
-            if (locale.isEmpty() || locale.length() > 10) {
+            if (locale.isEmpty() || locale.length() > 10
+                    || !locale.matches("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "defaultLocale is invalid");
             }
             jdbc.update("UPDATE commerce_stores SET default_locale = ?, updated_at = ?, version = version + 1 "
@@ -212,6 +214,15 @@ public class StoreService {
         }
     }
 
+    private String normalizeLocale(String value) {
+        String locale = value == null ? "" : value.trim();
+        if (locale.isEmpty() || locale.length() > 10
+                || !locale.matches("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "defaultLocale is invalid");
+        }
+        return locale;
+    }
+
     private String tenantLocale(UUID tenantId) {
         String locale = jdbc.queryForObject(
                 "SELECT locale FROM tenants WHERE id = ?",
@@ -286,8 +297,11 @@ public class StoreService {
     }
 
     private String toJson(Map<String, Object> map) {
-        try { return objectMapper.writeValueAsString(map); }
-        catch (Exception e) { return "{}"; }
+        try {
+            return objectMapper.writeValueAsString(map);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "settings is not valid JSON data", e);
+        }
     }
 
     @SuppressWarnings("unchecked")
