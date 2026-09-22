@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.domain.CommerceDomain;
+import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
 import com.sanad.platform.tenancy.routing.HostRoutingService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -40,6 +41,7 @@ public class StoreDomainService {
     private final PlatformAuditService auditService;
     private final ObjectMapper objectMapper;
     private final HostRoutingService hostRoutingService;
+    private final DomainOwnershipVerifier ownershipVerifier;
 
     public StoreDomainService(
             JdbcTemplate jdbc,
