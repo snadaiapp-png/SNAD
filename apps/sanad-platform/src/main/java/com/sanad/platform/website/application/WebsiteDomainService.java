@@ -3,6 +3,7 @@ package com.sanad.platform.website.application;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.website.api.WebsiteDtos.*;
 import com.sanad.platform.website.domain.WebsiteDomain;
+import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
 import com.sanad.platform.tenancy.routing.HostRoutingService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -29,6 +30,7 @@ public class WebsiteDomainService {
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
     private final HostRoutingService hostRoutingService;
+    private final DomainOwnershipVerifier ownershipVerifier;
 
     public WebsiteDomainService(
             JdbcTemplate jdbc,
