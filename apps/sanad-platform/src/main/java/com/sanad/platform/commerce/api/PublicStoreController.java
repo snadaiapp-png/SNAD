@@ -51,7 +51,7 @@ public class PublicStoreController {
 
     private boolean isStoreEntitled(UUID tenantId) {
         return entitlementResolver == null
-                || entitlementResolver.isModuleEnabled(tenantId, "ECOMMERCE_CX");
+                || entitlementResolver.hasExplicitModuleEntitlement(tenantId, "ECOMMERCE_CX");
     }
 
     @GetMapping("/resolve")
