@@ -47,9 +47,19 @@ class UsageMeteringServiceTest {
         service = new UsageMeteringService(jdbc, tenantRlsContext);
     }
 
+
+    private void stubUsageEligibleSubscription() {
+        when(jdbc.queryForObject(
+                contains("FROM tenant_subscriptions"),
+                eq(Integer.class),
+                eq(TENANT_ID)))
+                .thenReturn(1);
+    }
+
     @Test
     @DisplayName("ingest: records the event and upserts the monthly aggregate")
     void ingestWritesEventAndAggregate() {
+        stubUsageEligibleSubscription();
         UsageMeteringService.IngestResult result = service.ingest(
                 TENANT_ID, "ai_tokens", 1500L, "workflow-runner", "job-42",
                 Instant.parse("2026-08-29T10:00:00Z"));
@@ -64,15 +74,25 @@ class UsageMeteringServiceTest {
     @Test
     @DisplayName("ingest: duplicate idempotency key is a no-op (tenant-scoped)")
     void ingestIsIdempotent() {
+        stubUsageEligibleSubscription();
         when(jdbc.update(contains("INSERT INTO usage_events"), any(), any(), any(), any(),
                 any(), any(), any()))
                 .thenThrow(new org.springframework.dao.DuplicateKeyException("dup"));
+        UUID persistedEventId = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        when(jdbc.queryForObject(
+                contains("SELECT id FROM usage_events"),
+                eq(UUID.class),
+                eq(TENANT_ID),
+                eq("ai_tokens"),
+                eq("job-42")))
+                .thenReturn(persistedEventId);
 
         UsageMeteringService.IngestResult result = service.ingest(
                 TENANT_ID, "ai_tokens", 1500L, "workflow-runner", "job-42",
                 Instant.parse("2026-08-29T10:00:00Z"));
 
         assertThat(result.duplicate()).isTrue();
+        assertThat(result.eventId()).isEqualTo(persistedEventId);
         verify(jdbc, never()).update(contains("INSERT INTO usage_aggregates"),
                 any(), any(), any(), any(), any(), any());
     }
@@ -80,6 +100,7 @@ class UsageMeteringServiceTest {
     @Test
     @DisplayName("ingest: scopes the transaction to the tenant (FORCE RLS contract)")
     void ingestAppliesTenantRlsScope() {
+        stubUsageEligibleSubscription();
         service.ingest(TENANT_ID, "ai_tokens", 10L, "src", "key-1", Instant.now());
         verify(tenantRlsContext).applyForCurrentTransaction(TENANT_ID);
     }
