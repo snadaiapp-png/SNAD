@@ -252,7 +252,7 @@ describe("Executive tenant management controls", () => {
     expect(alertText).not.toMatch(/[\^$\\]|(?:\(\?)/);
   });
 
-  it("validates tenant edit country and currency structurally with human-readable messages", async () => {
+  it("uses governed selectors for country, locale, timezone and currency and saves canonical values", async () => {
     const user = userEvent.setup();
     hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
     tenantMock.mockResolvedValue({
@@ -271,6 +271,7 @@ describe("Executive tenant management controls", () => {
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
     });
+    updateTenantMock.mockResolvedValue(undefined);
     render(<TenantsPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
@@ -278,28 +279,32 @@ describe("Executive tenant management controls", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "scp.tenants.editDialogTitle" })).toBeInTheDocument());
 
     const country = screen.getByLabelText("scp.tenants.form.countryCode");
-    await user.clear(country);
-    await user.type(country, "S1");
-    await user.click(screen.getByRole("button", { name: "form.action.save" }));
-
-    expect(updateTenantMock).not.toHaveBeenCalled();
-    const countryAlert = screen.getByRole("alert");
-    expect(countryAlert.textContent).toMatch(/scp\.tenants\.validation\.countryInvalid/);
-    expect(countryAlert.textContent).not.toMatch(/[\^$\\[\]{}]/);
-
-    // Fix the country, then break the currency: the currency message is the one surfaced.
-    const countryFixed = screen.getByLabelText("scp.tenants.form.countryCode");
-    await user.clear(countryFixed);
-    await user.type(countryFixed, "SA");
+    const locale = screen.getByLabelText("scp.tenants.form.locale");
+    const timezone = screen.getByLabelText("scp.tenants.form.timezone");
     const currency = screen.getByLabelText("scp.tenants.form.currencyCode");
-    await user.clear(currency);
-    await user.type(currency, "EU4");
+
+    expect(country.tagName).toBe("SELECT");
+    expect(locale.tagName).toBe("SELECT");
+    expect(timezone.tagName).toBe("SELECT");
+    expect(currency.tagName).toBe("SELECT");
+    expect(within(country).getByRole("option", { name: "AE" })).toBeInTheDocument();
+    expect(within(currency).getByRole("option", { name: "AED" })).toBeInTheDocument();
+
+    await user.selectOptions(country, "AE");
+    await user.selectOptions(locale, "en-GB");
+    await user.selectOptions(timezone, "Asia/Dubai");
+    await user.selectOptions(currency, "AED");
     await user.click(screen.getByRole("button", { name: "form.action.save" }));
 
-    expect(updateTenantMock).not.toHaveBeenCalled();
-    const currencyAlert = screen.getByRole("alert");
-    expect(currencyAlert.textContent).toMatch(/scp\.tenants\.validation\.currencyInvalid/);
-    expect(currencyAlert.textContent).not.toMatch(/[\^$\\[\]{}]/);
+    await waitFor(() => expect(updateTenantMock).toHaveBeenCalledWith(
+      "11111111-1111-1111-1111-111111111111",
+      expect.objectContaining({
+        countryCode: "AE",
+        locale: "en-GB",
+        timezone: "Asia/Dubai",
+        currencyCode: "AED",
+      }),
+    ));
   });
 
   it("surfaces localized backend errors inside the create dialog without raw internals", async () => {
