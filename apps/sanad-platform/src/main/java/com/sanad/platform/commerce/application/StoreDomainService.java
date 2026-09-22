@@ -136,8 +136,8 @@ public class StoreDomainService {
         ensureStore(tenantId, storeId);
         if (request == null || request.hostname() == null || request.hostname().isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is required");
-        String hostname = request.hostname().trim().toLowerCase(Locale.ROOT);
-        if (!isValidHostname(hostname))
+        String hostname = hostRoutingService.normalizeHostname(request.hostname());
+        if (hostname == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid hostname format");
         if (CommerceDomain.isReservedHostname(hostname))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is reserved or protected");
