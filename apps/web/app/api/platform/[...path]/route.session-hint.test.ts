@@ -64,7 +64,7 @@ describe("platform BFF session hint policy", () => {
   });
 
   it("sets isolated tenant cookies without overwriting control-plane cookies", async () => {
-    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ accessToken: "tenant-access" }), {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ accessToken: "tenant-access", user: { tenantId: TENANT_ID } }), {
       status: 200,
       headers: {
         "content-type": "application/json",
@@ -91,7 +91,7 @@ describe("platform BFF session hint policy", () => {
   });
 
   it("forwards only the isolated tenant refresh token for tenant-scoped refresh", async () => {
-    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ accessToken: "tenant-access" }), {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ accessToken: "tenant-access", user: { tenantId: TENANT_ID } }), {
       status: 200,
       headers: { "content-type": "application/json" },
     }));
