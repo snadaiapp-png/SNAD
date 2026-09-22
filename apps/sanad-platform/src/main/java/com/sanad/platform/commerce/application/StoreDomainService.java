@@ -308,10 +308,7 @@ public class StoreDomainService {
     }
 
     private String resolvePlatformBaseDomain() {
-        String base = System.getProperty("sanad.tenancy.domains.base-domain");
-        if (base == null || base.isBlank()) base = System.getenv("SANAD_BASE_DOMAIN");
-        if (base == null || base.isBlank()) base = System.getenv("PLATFORM_BASE_DOMAIN");
-        return (base != null && !base.isBlank()) ? base.trim().toLowerCase(Locale.ROOT) : null;
+        return hostRoutingService.configuredBaseDomain();
     }
 
     private String tenantSubdomain(UUID tenantId) {
