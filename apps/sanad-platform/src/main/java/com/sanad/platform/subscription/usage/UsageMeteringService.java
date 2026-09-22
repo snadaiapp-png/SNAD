@@ -51,8 +51,28 @@ public class UsageMeteringService {
     @Transactional
     public IngestResult ingest(UUID tenantId, String metricCode, long quantity,
                                String source, String idempotencyKey, Instant occurredAt) {
+        return ingest(tenantId, null, metricCode, quantity, source, idempotencyKey, occurredAt);
+    }
+
+    /**
+     * Branch-aware usage ingestion. organizationId is optional for backward
+     * compatible tenant-wide events, but when present it must belong to the
+     * same tenant. Tenant aggregates remain authoritative for subscription
+     * limits while an additional operating-unit aggregate preserves attribution.
+     */
+    @Transactional
+    public IngestResult ingest(UUID tenantId, UUID organizationId, String metricCode, long quantity,
+                               String source, String idempotencyKey, Instant occurredAt) {
         if (quantity < 0) {
             throw new IllegalArgumentException("usage quantity must be non-negative");
+        }
+        if (organizationId != null) {
+            Integer count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
+                    Integer.class, tenantId, organizationId);
+            if (count == null || count != 1) {
+                throw new IllegalArgumentException("organization does not belong to active tenant context");
+            }
         }
         // usage tables are FORCE-RLS fail-closed — trusted paths must scope the
         // transaction to the tenant before touching them
@@ -61,17 +81,21 @@ public class UsageMeteringService {
         try {
             jdbc.update("""
                             INSERT INTO usage_events (
-                                id, tenant_id, metric_code, quantity, source,
+                                id, tenant_id, organization_id, metric_code, quantity, source,
                                 idempotency_key, occurred_at, created_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
                             """,
-                    eventId, tenantId, metricCode, quantity, source, idempotencyKey,
+                    eventId, tenantId, organizationId, metricCode, quantity, source, idempotencyKey,
                     Timestamp.from(occurredAt));
         } catch (DuplicateKeyException e) {
             // idempotent replay: the same (tenant, metric, key) event already landed
             return new IngestResult(eventId, true);
         }
         upsertMonthlyAggregate(tenantId, metricCode, quantity, occurredAt);
+        if (organizationId != null) {
+            upsertOperatingUnitMonthlyAggregate(
+                    tenantId, organizationId, metricCode, quantity, occurredAt);
+        }
         return new IngestResult(eventId, false);
     }
 
@@ -90,6 +114,74 @@ public class UsageMeteringService {
                         """,
                 UUID.randomUUID(), tenantId, metricCode,
                 Timestamp.from(periodStart), quantity);
+    }
+
+    private void upsertOperatingUnitMonthlyAggregate(
+            UUID tenantId,
+            UUID organizationId,
+            String metricCode,
+            long quantity,
+            Instant occurredAt
+    ) {
+        Instant periodStart = ZonedDateTime.ofInstant(occurredAt, ZoneOffset.UTC)
+                .truncatedTo(ChronoUnit.DAYS)
+                .withDayOfMonth(1)
+                .toInstant();
+        jdbc.update("""
+                        INSERT INTO usage_operating_unit_aggregates (
+                            id, tenant_id, organization_id, metric_code,
+                            period_type, period_start, total, updated_at
+                        ) VALUES (?, ?, ?, ?, 'MONTHLY', ?, ?, NOW())
+                        ON CONFLICT (tenant_id, organization_id, metric_code, period_type, period_start)
+                        DO UPDATE SET total = usage_operating_unit_aggregates.total
+                                              + EXCLUDED.total,
+                                      updated_at = NOW()
+                        """,
+                UUID.randomUUID(), tenantId, organizationId, metricCode,
+                Timestamp.from(periodStart), quantity);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UsageSnapshot> usageSnapshots(UUID tenantId, UUID organizationId) {
+        if (organizationId == null) {
+            return usageSnapshots(tenantId);
+        }
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
+                Integer.class, tenantId, organizationId);
+        if (count == null || count != 1) {
+            throw new IllegalArgumentException("organization does not belong to active tenant context");
+        }
+
+        List<Map<String, Object>> aggRows = jdbc.queryForList("""
+                        SELECT u.metric_code, u.total, u.period_start
+                          FROM usage_operating_unit_aggregates u
+                         WHERE u.tenant_id = ?
+                           AND u.organization_id = ?
+                           AND u.period_type = 'MONTHLY'
+                           AND u.period_start =
+                               ((date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))
+                                AT TIME ZONE 'UTC')
+                         ORDER BY u.metric_code
+                        """, tenantId, organizationId);
+        if (aggRows.isEmpty()) {
+            return List.of();
+        }
+        List<String> metricCodes = aggRows.stream()
+                .map(row -> (String) row.get("metric_code"))
+                .toList();
+        Map<String, Long> limits = loadEntitlementLimits(tenantId, metricCodes);
+        Map<String, String> kinds = loadMetricKinds();
+        List<UsageSnapshot> snapshots = new java.util.ArrayList<>(aggRows.size());
+        for (Map<String, Object> row : aggRows) {
+            String metricCode = (String) row.get("metric_code");
+            long current = ((Number) row.get("total")).longValue();
+            Instant periodStart = ((java.sql.Timestamp) row.get("period_start")).toInstant();
+            snapshots.add(buildSnapshot(metricCode, current, periodStart,
+                    limits.get(capabilityCode(metricCode)), kinds.get(metricCode)));
+        }
+        return List.copyOf(snapshots);
     }
 
     @Transactional(readOnly = true)
