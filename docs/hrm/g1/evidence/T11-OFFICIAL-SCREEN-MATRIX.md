@@ -6,22 +6,22 @@ Source of truth: `docs/superpowers/specs/2026-09-07-hrm-g1-recruitment-onboardin
 |---|---|---|---|---|---|
 | 1 | Recruitment Dashboard | `/hr/recruitment` | HRM.RECRUITMENT.OPENING.VIEW + CANDIDATE.VIEW + APPLICATION.MANAGE | listOpenings + listCandidates + listApplications | DONE |
 | 2 | Job Openings List | `/hr/recruitment/openings` | HRM.RECRUITMENT.OPENING.VIEW + .MANAGE + .PUBLISH | listOpenings + createOpening + submitOpening + approveOpening + rejectOpening + pauseOpening + closeOpening | DONE |
-| 3 | Job Opening Detail | `/hr/recruitment/openings/[openingId]` | HRM.RECRUITMENT.OPENING.VIEW + .MANAGE + .PUBLISH | getOpening + submitOpening + approveOpening + rejectOpening + pauseOpening + closeOpening | **NOT_IMPLEMENTED** |
+| 3 | Job Opening Detail | `/hr/recruitment/openings/[openingId]` | HRM.RECRUITMENT.OPENING.VIEW + .MANAGE + .PUBLISH | getOpening + submitOpening + approveOpening + rejectOpening + pauseOpening + closeOpening | DONE |
 | 4 | Candidate Directory | `/hr/recruitment/candidates` | HRM.RECRUITMENT.CANDIDATE.VIEW + .MANAGE | listCandidates + archiveCandidate | DONE |
-| 5 | Candidate Profile | `/hr/recruitment/candidates/[candidateId]` | HRM.RECRUITMENT.CANDIDATE.VIEW + .MANAGE | getCandidate + archiveCandidate | **NOT_IMPLEMENTED** |
-| 6 | Applications Board (Pipeline) | `/hr/recruitment/applications` | HRM.RECRUITMENT.APPLICATION.MANAGE + .ADVANCE + .REJECT | listApplications + getApplicationPipeline + advanceApplication + rejectApplication | **NOT_IMPLEMENTED** |
-| 7 | Application Detail | `/hr/recruitment/applications/[applicationId]` | HRM.RECRUITMENT.APPLICATION.MANAGE + .ADVANCE + .REJECT + .WITHDRAW | getApplication + advanceApplication + rejectApplication + withdrawApplication + createInterview | **NOT_IMPLEMENTED** |
-| 8 | Interview Scheduling | `/hr/recruitment/interviews/schedule` | HRM.RECRUITMENT.INTERVIEW.SCHEDULE + .MANAGE | listApplications + scheduleInterview + getInterview | **NOT_IMPLEMENTED** |
-| 9 | Interview Feedback | `/hr/recruitment/interviews/[interviewId]/feedback` | HRM.RECRUITMENT.INTERVIEW.MANAGE | getInterview + getInterviewFeedback + putInterviewFeedback | **NOT_IMPLEMENTED** |
-| 10 | Offer Editor | `/hr/recruitment/offers/[offerId]/edit` | HRM.RECRUITMENT.OFFER.MANAGE + .EXTEND | createOffer + extendOffer | **NOT_IMPLEMENTED** |
-| 11 | Offer Approval | `/hr/recruitment/offers/[offerId]/approve` | HRM.RECRUITMENT.OFFER.ACCEPT + .DECLINE | extendOffer + acceptOffer + declineOffer + withdrawOffer | **NOT_IMPLEMENTED** |
-| 12 | Hire Conversion | `/hr/recruitment/offers/[offerId]/convert` | HRM.RECRUITMENT.HIRE.CONVERT | convertOfferToHire | **NOT_IMPLEMENTED** |
-| 13 | Onboarding Dashboard | `/hr/onboarding` | HRM.ONBOARDING.PLAN.VIEW + .MANAGE | listPlans | DONE |
-| 14 | Onboarding Plan Detail | `/hr/onboarding/plans/[planId]` | HRM.ONBOARDING.PLAN.VIEW + .MANAGE + TASK.COMPLETE + .WAIVE | getPlan + completeTask + waiveTask + cancelPlan | DONE |
-| 15 | Onboarding Tasks (my tasks) | `/hr/onboarding/tasks` | HRM.ONBOARDING.TASK.COMPLETE + .WAIVE | listPlans (filtered by assignee) + completeTask + waiveTask | **NOT_IMPLEMENTED** |
+| 5 | Candidate Profile | `/hr/recruitment/candidates/[candidateId]` | HRM.RECRUITMENT.CANDIDATE.VIEW + .MANAGE | getCandidate + archiveCandidate | DONE |
+| 6 | Applications Board (Pipeline) | `/hr/recruitment/applications` | HRM.RECRUITMENT.APPLICATION.MANAGE + .ADVANCE + .REJECT | listApplications + getApplicationPipeline + advanceApplication + rejectApplication | DONE |
+| 7 | Application Detail | `/hr/recruitment/applications/[applicationId]` | HRM.RECRUITMENT.APPLICATION.MANAGE + .ADVANCE + .REJECT + .WITHDRAW | getApplication + advanceApplication + rejectApplication + withdrawApplication + createInterview | DONE |
+| 8 | Interview Scheduling | `/hr/recruitment/interviews/schedule` | HRM.RECRUITMENT.INTERVIEW.SCHEDULE + .MANAGE | listApplications + scheduleInterview + getInterview | DONE |
+| 9 | Interview Feedback | `/hr/recruitment/interviews/[interviewId]/feedback` | HRM.RECRUITMENT.INTERVIEW.MANAGE | getInterview + getInterviewFeedback + putInterviewFeedback | DONE |
+| 10 | Offer Editor | `/hr/recruitment/offers/[offerId]/edit` | HRM.RECRUITMENT.OFFER.MANAGE + .EXTEND | createOffer + extendOffer | DONE |
+| 11 | Offer Approval | `/hr/recruitment/offers/[offerId]/approve` | HRM.RECRUITMENT.OFFER.ACCEPT + .DECLINE | extendOffer + acceptOffer + declineOffer + withdrawOffer | DONE |
+| 12 | Hire Conversion | `/hr/recruitment/offers/[offerId]/convert` | HRM.RECRUITMENT.HIRE.CONVERT | convertOfferToHire | DONE |
+| 13 | Onboarding Dashboard | `/hr/onboarding` | HRM.ONBOARDING.PLAN.MANAGE | listPlans | DONE |
+| 14 | Onboarding Plan Detail | `/hr/onboarding/plans/[planId]` | HRM.ONBOARDING.PLAN.MANAGE + TASK.COMPLETE + .WAIVE | getPlan + completeTask + waiveTask + cancelPlan | DONE |
+| 15 | Onboarding Tasks (my tasks) | `/hr/onboarding/tasks` | HRM.ONBOARDING.TASK.COMPLETE + .WAIVE | listPlans (filtered by assignee) + completeTask + waiveTask | DONE |
 
-**Coverage as of checkpoint `64a27b45`:** 5/15 = 33%  
-**Target:** 15/15 = 100%
+**Final governed coverage:** 15/15 = 100%  
+**Evidence:** implementation PR 1119 exact-head + protected merge + PMV 1092; all 15 §14 route files are present on current main.
 
 Quality requirements per screen (production-grade, not scaffold):
 - Real API integration via `hrmRecruitmentApi` / `hrmOnboardingApi`
