@@ -66,6 +66,9 @@ public class UsageMeteringService {
         if (quantity < 0) {
             throw new IllegalArgumentException("usage quantity must be non-negative");
         }
+        // Scope first: organization and usage tables may both be protected by
+        // tenant RLS, so validation must never run before the transaction GUC.
+        tenantRlsContext.applyForCurrentTransaction(tenantId);
         if (organizationId != null) {
             Integer count = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
@@ -74,9 +77,6 @@ public class UsageMeteringService {
                 throw new IllegalArgumentException("organization does not belong to active tenant context");
             }
         }
-        // usage tables are FORCE-RLS fail-closed — trusted paths must scope the
-        // transaction to the tenant before touching them
-        tenantRlsContext.applyForCurrentTransaction(tenantId);
         UUID eventId = UUID.randomUUID();
         try {
             jdbc.update("""
@@ -88,8 +88,16 @@ public class UsageMeteringService {
                     eventId, tenantId, organizationId, metricCode, quantity, source, idempotencyKey,
                     Timestamp.from(occurredAt));
         } catch (DuplicateKeyException e) {
-            // idempotent replay: the same (tenant, metric, key) event already landed
-            return new IngestResult(eventId, true);
+            // Idempotent replay must return the canonical persisted event id,
+            // never a newly generated id that does not exist in the database.
+            UUID existingEventId = jdbc.queryForObject("""
+                    SELECT id FROM usage_events
+                     WHERE tenant_id = ? AND metric_code = ? AND idempotency_key = ?
+                    """, UUID.class, tenantId, metricCode, idempotencyKey);
+            if (existingEventId == null) {
+                throw e;
+            }
+            return new IngestResult(existingEventId, true);
         }
         upsertMonthlyAggregate(tenantId, metricCode, quantity, occurredAt);
         if (organizationId != null) {
