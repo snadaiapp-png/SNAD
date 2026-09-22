@@ -430,13 +430,12 @@ public class TenantDomainService {
 
     private void audit(UUID tenantId, Authentication auth, String action,
                        UUID resourceId, String resourceType, String hostname) {
-        try {
-            auditService.success(auth, tenantId, action, resourceType,
-                    resourceId == null ? null : resourceId.toString(),
-                    "domain=" + hostname, null, null);
-        } catch (Exception ignored) {
-            // audit failure must not break the business operation
-        }
+        // Mutations in this closure path are audit-governed. A failed audit
+        // write must roll the surrounding transaction back rather than leaving
+        // an untraceable domain mutation behind.
+        auditService.success(auth, tenantId, action, resourceType,
+                resourceId == null ? null : resourceId.toString(),
+                "domain=" + hostname, null, null);
     }
 
     private DomainResponse mapRow(ResultSet rs, int rowNum) throws SQLException {
