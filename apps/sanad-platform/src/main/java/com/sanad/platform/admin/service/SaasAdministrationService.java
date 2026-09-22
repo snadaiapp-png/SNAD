@@ -26,6 +26,7 @@ import com.sanad.platform.subscription.pricing.PriceEntity;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.subscription.pricing.PriceTier;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -80,6 +81,7 @@ public class SaasAdministrationService {
     private final ExpiredSuccessorGate successorGate;
     private final SubscriptionFinancePort subscriptionFinancePort;
     private final BillingOutbox billingOutbox;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
     @Autowired
     public SaasAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService,
@@ -90,7 +92,8 @@ public class SaasAdministrationService {
                                      SubscriptionResolutionService resolution,
                                      ExpiredSuccessorGate successorGate,
                                      SubscriptionFinancePort subscriptionFinancePort,
-                                     BillingOutbox billingOutbox) {
+                                     BillingOutbox billingOutbox,
+                                     TenantRlsTransactionContext tenantRlsContext) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.eventPublisher = eventPublisher;
@@ -103,6 +106,8 @@ public class SaasAdministrationService {
                 subscriptionFinancePort, "subscriptionFinancePort");
         this.billingOutbox = java.util.Objects.requireNonNull(
                 billingOutbox, "billingOutbox");
+        this.tenantRlsContext = java.util.Objects.requireNonNull(
+                tenantRlsContext, "tenantRlsContext");
     }
 
     /**
@@ -127,6 +132,7 @@ public class SaasAdministrationService {
         this.successorGate = successorGate;
         this.subscriptionFinancePort = null;
         this.billingOutbox = null;
+        this.tenantRlsContext = null;
     }
 
     /**
@@ -983,6 +989,12 @@ public class SaasAdministrationService {
                 }
                 int quantity = seatQuantity;
                 if ("PER_BRANCH".equals(effectivePrice.getPriceModel())) {
+                    // The operating-unit ledger is FORCE-RLS. Control-plane
+                    // billing must establish the target tenant GUC before
+                    // reading branch quantity or the query silently returns 0.
+                    if (tenantRlsContext != null) {
+                        tenantRlsContext.applyForCurrentTransaction(subscription.tenantId());
+                    }
                     Integer branchCount = jdbcTemplate.queryForObject("""
                             SELECT COUNT(*)
                               FROM subscription_operating_units sou
