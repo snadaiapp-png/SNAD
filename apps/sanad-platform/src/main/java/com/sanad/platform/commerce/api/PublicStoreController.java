@@ -2,7 +2,9 @@ package com.sanad.platform.commerce.api;
 
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.tenancy.routing.HostRoutingService;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.commerce.domain.CommerceDomain;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,10 +31,27 @@ public class PublicStoreController {
 
     private final HostRoutingService hostRoutingService;
     private final JdbcTemplate jdbc;
+    private final EntitlementResolver entitlementResolver;
 
-    public PublicStoreController(HostRoutingService hostRoutingService, JdbcTemplate jdbc) {
+    @Autowired
+    public PublicStoreController(
+            HostRoutingService hostRoutingService,
+            JdbcTemplate jdbc,
+            EntitlementResolver entitlementResolver
+    ) {
         this.hostRoutingService = hostRoutingService;
         this.jdbc = jdbc;
+        this.entitlementResolver = entitlementResolver;
+    }
+
+    /** Backward-compatible direct-instantiation constructor for legacy tests. */
+    public PublicStoreController(HostRoutingService hostRoutingService, JdbcTemplate jdbc) {
+        this(hostRoutingService, jdbc, null);
+    }
+
+    private boolean isStoreEntitled(UUID tenantId) {
+        return entitlementResolver == null
+                || entitlementResolver.isModuleEnabled(tenantId, "ECOMMERCE_CX");
     }
 
     @GetMapping("/resolve")
@@ -42,7 +61,9 @@ public class PublicStoreController {
         var route = hostRoutingService
                 .resolve(host, HostRoutingService.Surface.STORE)
                 .orElse(null);
-        if (route == null) return ResponseEntity.notFound().build();
+        if (route == null || !isStoreEntitled(route.tenantId())) {
+            return ResponseEntity.notFound().build();
+        }
         try {
             Map<String, Object> store = jdbc.queryForMap(
                     "SELECT id, tenant_id, name, slug, default_locale, default_currency "
@@ -92,7 +113,7 @@ public class PublicStoreController {
         var route = hostRoutingService
                 .resolve(host, HostRoutingService.Surface.STORE)
                 .orElse(null);
-        if (route == null) return null;
+        if (route == null || !isStoreEntitled(route.tenantId())) return null;
         Integer active = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM commerce_stores "
                         + "WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
