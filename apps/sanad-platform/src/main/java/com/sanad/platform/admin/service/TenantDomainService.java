@@ -99,6 +99,10 @@ public class TenantDomainService {
         }
         VerificationMethod method = request.verificationMethod() == null
                 ? VerificationMethod.DNS_TXT : request.verificationMethod();
+        if (method == VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "HTTP domain verification is disabled; use DNS_TXT or DNS_CNAME");
+        }
 
         hostRoutingService.requireHostnameAvailable(
                 hostname,
