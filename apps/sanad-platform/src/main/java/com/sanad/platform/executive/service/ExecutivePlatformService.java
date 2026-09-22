@@ -32,9 +32,6 @@ public class ExecutivePlatformService {
 
     private static final Set<String> TENANT_STATUSES = Set.of(
             "PENDING", "TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED", "ARCHIVED");
-    private static final Set<String> LOGIN_ELIGIBLE_SUBSCRIPTION_STATUSES = Set.of(
-            "TRIAL", "TRIALING", "ACTIVE", "PAST_DUE", "GRACE_PERIOD");
-
     private static final Map<String, Set<String>> TENANT_TRANSITIONS = Map.of(
             "PENDING", Set.of("TRIAL", "ACTIVE", "CANCELLED", "ARCHIVED"),
             "TRIAL", Set.of("ACTIVE", "PAST_DUE", "CANCELLED", "ARCHIVED"),
