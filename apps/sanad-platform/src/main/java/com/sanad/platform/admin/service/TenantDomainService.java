@@ -9,6 +9,7 @@ import com.sanad.platform.admin.api.TenantDomainDtos.Status;
 import com.sanad.platform.admin.api.TenantDomainDtos.UpdateDomainRequest;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerificationMethod;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerifyDomainRequest;
+import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
 import com.sanad.platform.tenancy.routing.HostRoutingService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -31,10 +32,9 @@ import java.util.UUID;
  * application/store/website surfaces.
  *
  * <p>This service backs the {@code /api/v1/executive/tenants/{tenantId}/domains}
- * API surface and the future {@code DomainRoutingFilter}. It does NOT
- * perform DNS resolution or SSL cert provisioning — those are external
- * concerns handled by the CDN/reverse-proxy layer (Vercel in production,
- * localhost otherwise). This service is responsible for:
+ * API surface and the future {@code DomainRoutingFilter}. Custom-domain
+ * ownership is proven against public DNS; SSL certificate provisioning remains
+ * an external CDN/reverse-proxy concern. This service is responsible for:
  * <ul>
  *   <li>Persisting the tenant's claim on a hostname.</li>
  *   <li>Issuing a verification challenge token.</li>
@@ -59,15 +59,18 @@ public class TenantDomainService {
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
     private final HostRoutingService hostRoutingService;
+    private final DomainOwnershipVerifier ownershipVerifier;
 
     public TenantDomainService(
             JdbcTemplate jdbc,
             PlatformAuditService auditService,
-            HostRoutingService hostRoutingService
+            HostRoutingService hostRoutingService,
+            DomainOwnershipVerifier ownershipVerifier
     ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.hostRoutingService = hostRoutingService;
+        this.ownershipVerifier = ownershipVerifier;
     }
 
     // ============================================================
@@ -313,7 +316,15 @@ public class TenantDomainService {
         }
         if (!request.verificationToken().equals(existing.verificationToken())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "verification token mismatch — DNS challenge not satisfied");
+                    "verification token mismatch");
+        }
+        if (existing.origin() == Origin.CUSTOM
+                && !ownershipVerifier.verify(
+                        existing.hostname(),
+                        DomainOwnershipVerifier.Method.valueOf(existing.verificationMethod().name()),
+                        existing.verificationToken())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "external domain ownership challenge is not satisfied");
         }
         Instant now = Instant.now();
         // Verify transitions UNVERIFIED → VERIFIED. If ACTIVE/INACTIVE, verification is a no-op refresh.
