@@ -51,7 +51,11 @@ public class WebsiteDomainService {
      */
     public String generateDefaultDomain(String websiteSlug) {
         String baseDomain = resolvePlatformBaseDomain();
-        if (baseDomain == null || baseDomain.isBlank()) return null;
+        if (baseDomain == null || baseDomain.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SANAD_BASE_DOMAIN is required for generated website hostnames");
+        }
         String hostname = hostRoutingService.normalizeHostname(websiteSlug + "." + baseDomain);
         if (hostname == null) {
             throw new ResponseStatusException(
@@ -67,7 +71,11 @@ public class WebsiteDomainService {
      */
     public String generateDefaultDomain(UUID tenantId, String websiteSlug) {
         String baseDomain = resolvePlatformBaseDomain();
-        if (baseDomain == null || baseDomain.isBlank()) return null;
+        if (baseDomain == null || baseDomain.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SANAD_BASE_DOMAIN is required for generated website hostnames");
+        }
         String tenantSubdomain = tenantSubdomain(tenantId);
         String hostname = hostRoutingService.normalizeHostname(
                 websiteSlug + "." + tenantSubdomain + "." + baseDomain);
@@ -126,7 +134,6 @@ public class WebsiteDomainService {
     public DomainResponse generateAndRegisterDefaultDomain(UUID tenantId, UUID websiteId, String websiteSlug, Authentication auth) {
         ensureWebsite(tenantId, websiteId);
         String hostname = generateDefaultDomain(tenantId, websiteSlug);
-        if (hostname == null) return null; // no base domain configured
 
         hostRoutingService.requireHostnameAvailable(
                 hostname, HostRoutingService.Surface.WEBSITE, tenantId, websiteId, true);
@@ -274,7 +281,6 @@ public class WebsiteDomainService {
     /** Find an active website domain by hostname (used by public resolver). */
     @Transactional(readOnly = true)
     public DomainResponse findByHostname(String hostname) {
-        if (hostname == null) return null;
         try {
             return jdbc.queryForObject(
                     "SELECT * FROM website_domains WHERE hostname = ? AND activation_status = 'ACTIVE'",
