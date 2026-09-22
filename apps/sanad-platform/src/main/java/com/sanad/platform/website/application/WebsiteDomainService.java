@@ -52,7 +52,7 @@ public class WebsiteDomainService {
     public String generateDefaultDomain(String websiteSlug) {
         String baseDomain = resolvePlatformBaseDomain();
         if (baseDomain == null || baseDomain.isBlank()) return null;
-        return (websiteSlug + "." + baseDomain).toLowerCase(Locale.ROOT);
+        return hostRoutingService.normalizeHostname(websiteSlug + "." + baseDomain);
     }
 
     /**
@@ -63,7 +63,8 @@ public class WebsiteDomainService {
         String baseDomain = resolvePlatformBaseDomain();
         if (baseDomain == null || baseDomain.isBlank()) return null;
         String tenantSubdomain = tenantSubdomain(tenantId);
-        return (websiteSlug + "." + tenantSubdomain + "." + baseDomain).toLowerCase(Locale.ROOT);
+        return hostRoutingService.normalizeHostname(
+                websiteSlug + "." + tenantSubdomain + "." + baseDomain);
     }
 
     /**
@@ -160,7 +161,14 @@ public class WebsiteDomainService {
         DomainResponse domain = getOrThrow(tenantId, websiteId, domainId);
         if (domain.verificationToken() == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "no verification token for this domain");
-        return switch (domain.verificationMethod() != null ? domain.verificationMethod() : WebsiteDomain.VerificationMethod.DNS_TXT) {
+        WebsiteDomain.VerificationMethod method = domain.verificationMethod() != null
+                ? domain.verificationMethod()
+                : WebsiteDomain.VerificationMethod.DNS_TXT;
+        if (method == WebsiteDomain.VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "HTTP domain verification is disabled; migrate the domain to DNS_TXT or DNS_CNAME");
+        }
+        return switch (method) {
             case DNS_TXT -> new DomainVerificationInstructions(
                     domain.hostname(), "DNS_TXT",
                     "_snad-verify." + domain.hostname(), domain.verificationToken(),
@@ -169,10 +177,7 @@ public class WebsiteDomainService {
                     domain.hostname(), "DNS_CNAME",
                     null, null,
                     domain.hostname() + " → snad-verify.vercel-dns.com", null, null);
-            case HTTP -> new DomainVerificationInstructions(
-                    domain.hostname(), "HTTP",
-                    null, null,
-                    null, "/.well-known/snad-verify.txt", domain.verificationToken());
+            case HTTP -> throw new IllegalStateException("HTTP verification is disabled");
         };
     }
 
@@ -186,6 +191,10 @@ public class WebsiteDomainService {
         WebsiteDomain.VerificationMethod method = existing.verificationMethod() != null
                 ? existing.verificationMethod()
                 : WebsiteDomain.VerificationMethod.DNS_TXT;
+        if (method == WebsiteDomain.VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "HTTP domain verification is disabled; migrate the domain to DNS_TXT or DNS_CNAME");
+        }
         if (!ownershipVerifier.verify(
                 existing.hostname(),
                 DomainOwnershipVerifier.Method.valueOf(method.name()),
