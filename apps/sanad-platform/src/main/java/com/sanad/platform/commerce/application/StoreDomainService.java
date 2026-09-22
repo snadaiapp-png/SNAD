@@ -45,12 +45,14 @@ public class StoreDomainService {
             JdbcTemplate jdbc,
             PlatformAuditService auditService,
             ObjectMapper objectMapper,
-            HostRoutingService hostRoutingService
+            HostRoutingService hostRoutingService,
+            DomainOwnershipVerifier ownershipVerifier
     ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.hostRoutingService = hostRoutingService;
+        this.ownershipVerifier = ownershipVerifier;
     }
 
     /**
@@ -171,6 +173,13 @@ public class StoreDomainService {
         DomainResponse existing = getOrThrow(tenantId, storeId, domainId);
         if (verificationToken == null || !verificationToken.equals(existing.verificationToken()))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "verification token mismatch");
+        if (!ownershipVerifier.verify(
+                existing.hostname(),
+                DomainOwnershipVerifier.Method.DNS_TXT,
+                existing.verificationToken())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "external domain ownership challenge is not satisfied");
+        }
         Instant now = Instant.now();
         jdbc.update("UPDATE commerce_store_domains SET verification_status = 'VERIFIED', "
                         + "verified_at = ?, updated_at = ?, version = version + 1 "
