@@ -1115,6 +1115,8 @@ export const en: TranslationDictionary = {
   "scp.detail.operatingUnits": "Branches and operating units",
   "scp.detail.operatingUnitsHelp": "Bind branches to the subscription and configure applications, billing and resources per branch.",
   "scp.detail.createBranch": "Create branch",
+  "scp.detail.existingBranch": "Existing unbound branch",
+  "scp.detail.bindExistingBranch": "Bind existing branch",
   "scp.detail.branchName": "Branch name",
   "scp.detail.bindUnit": "Bind to subscription",
   "scp.detail.unbindUnit": "Unbind branch",
