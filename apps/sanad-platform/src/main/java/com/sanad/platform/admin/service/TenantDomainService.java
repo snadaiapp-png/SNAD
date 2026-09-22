@@ -364,13 +364,20 @@ public class TenantDomainService {
     @Transactional
     public void deleteDomain(UUID tenantId, UUID domainId, Authentication auth) {
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
-        int rows = jdbc.update(
-                "DELETE FROM tenant_domains WHERE tenant_id = ? AND id = ?",
-                tenantId, domainId);
-        if (rows == 0) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "domain not found");
-        }
-        audit(tenantId, auth, "DOMAIN.DELETED", domainId, "tenant_domains", existing.hostname());
+        // Preserve routing history. The public DELETE contract is retained for
+        // compatibility, but its storage semantics are a governed soft remove.
+        jdbc.update(
+                "UPDATE tenant_domains "
+                        + "SET status = ?, is_primary = FALSE, failure_reason = ?, "
+                        + "updated_at = ?, version = version + 1 "
+                        + "WHERE tenant_id = ? AND id = ?",
+                Status.INACTIVE.name(),
+                "REMOVED_BY_OPERATOR",
+                Timestamp.from(Instant.now()),
+                tenantId,
+                domainId
+        );
+        audit(tenantId, auth, "DOMAIN.REMOVED", domainId, "tenant_domains", existing.hostname());
     }
 
     // ============================================================
