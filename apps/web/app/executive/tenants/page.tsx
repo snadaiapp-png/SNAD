@@ -30,6 +30,10 @@ const EMPTY_CREATE = {
   subdomain: "",
   adminEmail: "",
   adminDisplayName: "",
+  countryCode: "SA",
+  locale: "ar-SA",
+  timezone: "Asia/Riyadh",
+  currencyCode: "SAR",
 };
 
 const EMPTY_EDIT = {
@@ -99,6 +103,12 @@ function validateCreateTenant(form: typeof EMPTY_CREATE, t: Translate): string {
     return t("scp.tenants.validation.adminEmailInvalid");
   }
   if (!form.adminDisplayName.trim()) return t("scp.tenants.validation.adminDisplayNameRequired");
+  if (form.countryCode.trim() && !COUNTRY_PATTERN.test(form.countryCode.trim().toUpperCase())) {
+    return t("scp.tenants.validation.countryInvalid");
+  }
+  if (form.currencyCode.trim() && !CURRENCY_PATTERN.test(form.currencyCode.trim().toUpperCase())) {
+    return t("scp.tenants.validation.currencyInvalid");
+  }
   return "";
 }
 
@@ -183,6 +193,10 @@ export default function TenantsPage() {
         subdomain: createForm.subdomain.trim().toLowerCase(),
         adminEmail: createForm.adminEmail.trim().toLowerCase(),
         adminDisplayName: createForm.adminDisplayName.trim(),
+        countryCode: createForm.countryCode.trim().toUpperCase() || undefined,
+        locale: createForm.locale.trim() || undefined,
+        timezone: createForm.timezone.trim() || undefined,
+        currencyCode: createForm.currencyCode.trim().toUpperCase() || undefined,
       });
       setDialog(null);
       setCreateForm(EMPTY_CREATE);
@@ -492,6 +506,54 @@ export default function TenantsPage() {
           <Input label={t("scp.tenants.form.subdomain")} aria-label={t("scp.tenants.form.subdomain")} required placeholder="acme" hint={t("scp.tenants.form.subdomainHint")} value={createForm.subdomain} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, subdomain: e.target.value.toLowerCase().replace(/\s+/g, "") }); }} />
           <Input type="email" label={t("scp.tenants.form.adminEmail")} aria-label={t("scp.tenants.form.adminEmail")} required placeholder="admin@example.com" value={createForm.adminEmail} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, adminEmail: e.target.value }); }} />
           <Input label={t("scp.tenants.form.adminDisplayName")} aria-label={t("scp.tenants.form.adminDisplayName")} required placeholder={t("scp.tenants.form.adminDisplayNamePlaceholder")} value={createForm.adminDisplayName} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, adminDisplayName: e.target.value }); }} />
+          <label>
+            <span>{t("scp.tenants.form.countryCode")}</span>
+            <select
+              aria-label={t("scp.tenants.form.countryCode")}
+              value={createForm.countryCode}
+              onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, countryCode: e.target.value }); }}
+            >
+              <option value="">—</option>
+              {COUNTRY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
+            </select>
+            <span className={styles.appCardMeta}>{t("scp.tenants.form.countryHint")}</span>
+          </label>
+          <label>
+            <span>{t("scp.tenants.form.locale")}</span>
+            <select
+              aria-label={t("scp.tenants.form.locale")}
+              value={createForm.locale}
+              onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, locale: e.target.value }); }}
+            >
+              <option value="">—</option>
+              {LOCALES.map((locale) => <option key={locale} value={locale}>{locale}</option>)}
+            </select>
+            <span className={styles.appCardMeta}>{t("scp.tenants.form.localeHint")}</span>
+          </label>
+          <label>
+            <span>{t("scp.tenants.form.timezone")}</span>
+            <select
+              aria-label={t("scp.tenants.form.timezone")}
+              value={createForm.timezone}
+              onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, timezone: e.target.value }); }}
+            >
+              <option value="">—</option>
+              {TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
+            </select>
+            <span className={styles.appCardMeta}>{t("scp.tenants.form.timezoneHint")}</span>
+          </label>
+          <label>
+            <span>{t("scp.tenants.form.currencyCode")}</span>
+            <select
+              aria-label={t("scp.tenants.form.currencyCode")}
+              value={createForm.currencyCode}
+              onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, currencyCode: e.target.value }); }}
+            >
+              <option value="">—</option>
+              {CURRENCY_CODES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+            </select>
+            <span className={styles.appCardMeta}>{t("scp.tenants.form.currencyHint")}</span>
+          </label>
           {dialogError ? <ScpError message={dialogError} /> : null}
         </div>
       </Modal>
