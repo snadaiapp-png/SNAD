@@ -31,6 +31,12 @@ vi.mock("@/lib/api/scp-api", () => ({
 vi.mock("@/lib/api/executive-api", () => ({
   executiveApi: {
     plans: (...args: unknown[]) => plansMock(...args),
+    organizations: vi.fn().mockResolvedValue([]),
+    operatingUnits: vi.fn().mockResolvedValue([]),
+    subscriptionBillingProfiles: vi.fn().mockResolvedValue([]),
+    subscriptionResourceBindings: vi.fn().mockResolvedValue([]),
+    subscriptionAvailableResources: vi.fn().mockResolvedValue([]),
+    operatingUnitApplications: vi.fn().mockResolvedValue([]),
     cancelSubscription: (...args: unknown[]) => cancelSubscriptionMock(...args),
     renewSubscription: (...args: unknown[]) => renewSubscriptionMock(...args),
     resumeSubscription: (...args: unknown[]) => resumeSubscriptionMock(...args),
