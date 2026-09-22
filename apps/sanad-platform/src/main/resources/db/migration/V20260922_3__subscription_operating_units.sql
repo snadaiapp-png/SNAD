@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS subscription_unit_applications (
         REFERENCES tenant_subscriptions(tenant_id, id),
     CONSTRAINT fk_sub_unit_app_organization
         FOREIGN KEY (tenant_id, organization_id) REFERENCES organizations(tenant_id, id),
+    CONSTRAINT fk_sub_unit_app_operating_unit
+        FOREIGN KEY (subscription_id, organization_id)
+        REFERENCES subscription_operating_units(subscription_id, organization_id),
     CONSTRAINT fk_sub_unit_app_application
         FOREIGN KEY (application_id) REFERENCES applications(id),
     CONSTRAINT uk_sub_unit_app UNIQUE (subscription_id, organization_id, application_id)
@@ -87,6 +90,9 @@ CREATE TABLE IF NOT EXISTS subscription_billing_profiles (
         REFERENCES tenant_subscriptions(tenant_id, id),
     CONSTRAINT fk_sub_billing_profile_organization
         FOREIGN KEY (tenant_id, organization_id) REFERENCES organizations(tenant_id, id),
+    CONSTRAINT fk_sub_billing_profile_operating_unit
+        FOREIGN KEY (subscription_id, organization_id)
+        REFERENCES subscription_operating_units(subscription_id, organization_id),
     CONSTRAINT ck_sub_billing_profile_mode CHECK (billing_mode IN ('CONSOLIDATED','SEPARATE')),
     CONSTRAINT ck_sub_billing_profile_scope_mode CHECK (
         (organization_id IS NULL AND billing_mode = 'CONSOLIDATED')
@@ -189,6 +195,9 @@ CREATE TABLE IF NOT EXISTS subscription_resource_bindings (
         REFERENCES tenant_subscriptions(tenant_id, id),
     CONSTRAINT fk_sub_resource_binding_organization
         FOREIGN KEY (tenant_id, organization_id) REFERENCES organizations(tenant_id, id),
+    CONSTRAINT fk_sub_resource_binding_operating_unit
+        FOREIGN KEY (subscription_id, organization_id)
+        REFERENCES subscription_operating_units(subscription_id, organization_id),
     CONSTRAINT uk_sub_resource_binding UNIQUE (subscription_id, resource_type, resource_id),
     CONSTRAINT ck_sub_resource_binding_type
         CHECK (resource_type IN ('WEBSITE','STORE','POS_LOCATION')),
