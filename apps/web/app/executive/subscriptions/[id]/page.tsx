@@ -588,6 +588,272 @@ export default function SubscriptionDetailPage() {
         )}
       </section>
 
+      <section className={styles.panel} aria-labelledby="scp-operating-units-heading">
+        <h2 id="scp-operating-units-heading" className={styles.pageSubtitle}>
+          {t("scp.detail.operatingUnits")}
+        </h2>
+        <p className={styles.appCardMeta}>{t("scp.detail.operatingUnitsHelp")}</p>
+
+        {canManage ? (
+          <div className={styles.filters}>
+            <Input
+              label={t("scp.detail.branchName")}
+              aria-label={t("scp.detail.branchName")}
+              value={branchName}
+              maxLength={200}
+              onChange={(event) => setBranchName(event.target.value)}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busy || !branchName.trim()}
+              onClick={() => void createAndBindBranch()}
+            >
+              {t("scp.detail.createBranch")}
+            </Button>
+          </div>
+        ) : null}
+
+        {operatingUnits.length > 0 ? (
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th scope="col">{t("scp.detail.branchName")}</th>
+                  <th scope="col">{t("scp.subscriptions.status")}</th>
+                  <th scope="col">{t("scp.detail.billingMode")}</th>
+                  <th scope="col">{t("scp.common.actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {operatingUnits.map((unit) => (
+                  <tr key={unit.organizationId}>
+                    <td>{unit.organizationName}</td>
+                    <td><ScpStatusPill value={unit.status} /></td>
+                    <td>
+                      {canManage && unit.status === "ACTIVE" ? (
+                        <select
+                          aria-label={`${t("scp.detail.billingMode")} — ${unit.organizationName}`}
+                          value={unit.billingMode}
+                          disabled={busy}
+                          onChange={(event) => void updateOperatingUnit(
+                            unit.organizationId,
+                            event.target.value as "CONSOLIDATED" | "SEPARATE",
+                          )}
+                        >
+                          <option value="CONSOLIDATED">{t("scp.detail.consolidated")}</option>
+                          <option value="SEPARATE">{t("scp.detail.separate")}</option>
+                        </select>
+                      ) : unit.billingMode}
+                    </td>
+                    <td>
+                      <div className={styles.filters}>
+                        {unit.status === "ACTIVE" ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => setSelectedOrganizationId(unit.organizationId)}
+                          >
+                            {t("scp.detail.selectBranch")}
+                          </Button>
+                        ) : null}
+                        {canManage && unit.status === "ACTIVE" ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => void unbindOperatingUnit(unit.organizationId)}
+                          >
+                            {t("scp.detail.unbindUnit")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <ScpEmpty message={t("scp.state.empty")} />
+        )}
+
+        {selectedOrganizationId ? (
+          <>
+            <h3 className={styles.pageSubtitle}>{t("scp.detail.applications")}</h3>
+            {unitApplications.length > 0 ? (
+              <div className={styles.filters}>
+                {unitApplications.map((application) => (
+                  <Button
+                    key={application.applicationId}
+                    variant={application.enabled ? "primary" : "secondary"}
+                    size="sm"
+                    disabled={busy || !canManage}
+                    aria-pressed={application.enabled}
+                    aria-label={application.enabled
+                      ? `${t("scp.detail.disableApplication")} — ${application.applicationName}`
+                      : `${t("scp.detail.enableApplication")} — ${application.applicationName}`}
+                    onClick={() => void toggleUnitApplication(application)}
+                  >
+                    {application.applicationName} ({application.applicationCode})
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <ScpEmpty message={t("scp.state.empty")} />
+            )}
+
+            <h3 className={styles.pageSubtitle}>{t("scp.detail.resources")}</h3>
+            {canManage ? (
+              <div className={styles.filters}>
+                <select
+                  aria-label={t("scp.detail.selectResource")}
+                  value={selectedResource}
+                  onChange={(event) => setSelectedResource(event.target.value)}
+                >
+                  <option value="">{t("scp.detail.selectResource")}</option>
+                  {availableResources
+                    .filter((resource) => !resource.boundOrganizationId
+                      || resource.boundOrganizationId === selectedOrganizationId)
+                    .map((resource) => (
+                      <option
+                        key={`${resource.resourceType}:${resource.resourceId}`}
+                        value={`${resource.resourceType}:${resource.resourceId}`}
+                      >
+                        {resource.resourceName} ({resource.resourceType})
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={busy || !selectedResource}
+                  onClick={() => void bindResource()}
+                >
+                  {t("scp.detail.assignResource")}
+                </Button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        {resourceBindings.length > 0 ? (
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th scope="col">{t("scp.detail.resource")}</th>
+                  <th scope="col">{t("scp.detail.branchName")}</th>
+                  <th scope="col">{t("scp.subscriptions.status")}</th>
+                  <th scope="col">{t("scp.common.actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resourceBindings.map((binding) => {
+                  const unit = operatingUnits.find(
+                    (candidate) => candidate.organizationId === binding.organizationId,
+                  );
+                  return (
+                    <tr key={`${binding.resourceType}:${binding.resourceId}`}>
+                      <td>{binding.resourceName ?? binding.resourceId} ({binding.resourceType})</td>
+                      <td>{unit?.organizationName ?? binding.organizationId}</td>
+                      <td><ScpStatusPill value={binding.status} /></td>
+                      <td>
+                        {canManage && binding.status === "ACTIVE" ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => void unbindResource(binding)}
+                          >
+                            {t("scp.detail.unbindResource")}
+                          </Button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        <h3 className={styles.pageSubtitle}>{t("scp.detail.billingProfiles")}</h3>
+        {billingProfiles.length > 0 ? (
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th scope="col">{t("scp.detail.profileName")}</th>
+                  <th scope="col">{t("scp.detail.branchName")}</th>
+                  <th scope="col">{t("scp.detail.billingMode")}</th>
+                  <th scope="col">{t("scp.subscriptions.status")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {billingProfiles.map((profile) => (
+                  <tr key={profile.id}>
+                    <td>{profile.profileName}</td>
+                    <td>{profile.organizationId
+                      ? operatingUnits.find((unit) => unit.organizationId === profile.organizationId)?.organizationName
+                        ?? profile.organizationId
+                      : t("scp.detail.consolidated")}</td>
+                    <td>{profile.billingMode}</td>
+                    <td><ScpStatusPill value={profile.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {canManage ? (
+          <div className={styles.filters}>
+            <label>
+              <span>{t("scp.detail.billingMode")}</span>
+              <select
+                aria-label={t("scp.detail.billingMode")}
+                value={billingProfileOrganizationId}
+                onChange={(event) => setBillingProfileOrganizationId(event.target.value)}
+              >
+                <option value="">{t("scp.detail.consolidated")}</option>
+                {operatingUnits
+                  .filter((unit) => unit.status === "ACTIVE")
+                  .map((unit) => (
+                    <option key={unit.organizationId} value={unit.organizationId}>
+                      {unit.organizationName} — {t("scp.detail.separate")}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <Input
+              label={t("scp.detail.profileName")}
+              aria-label={t("scp.detail.profileName")}
+              value={billingProfileName}
+              maxLength={160}
+              onChange={(event) => setBillingProfileName(event.target.value)}
+            />
+            <Input
+              type="email"
+              label={t("scp.detail.billingEmail")}
+              aria-label={t("scp.detail.billingEmail")}
+              value={billingEmail}
+              maxLength={255}
+              onChange={(event) => setBillingEmail(event.target.value)}
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy || !billingProfileName.trim() || !String(overview.currencyCode ?? "")}
+              onClick={() => void saveBillingProfile()}
+            >
+              {t("scp.detail.saveBillingProfile")}
+            </Button>
+          </div>
+        ) : null}
+      </section>
+
       <section className={styles.panel} aria-labelledby="scp-lifecycle-heading">
         <h2 id="scp-lifecycle-heading" className={styles.pageSubtitle}>{t("scp.detail.lifecycleCommands")}</h2>
         <label className={styles.appCardMeta}>
