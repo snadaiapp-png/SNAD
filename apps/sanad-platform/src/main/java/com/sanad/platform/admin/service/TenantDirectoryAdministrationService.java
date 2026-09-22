@@ -59,6 +59,8 @@ public class TenantDirectoryAdministrationService {
             Authentication authentication
     ) {
         ensureTenant(tenantId);
+        jdbcTemplate.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null, "ORGANIZATION_LIMIT:" + tenantId);
         LimitSnapshot limits = limits(tenantId);
         long current = count(
                 "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND status <> 'ARCHIVED'",
@@ -152,6 +154,8 @@ public class TenantDirectoryAdministrationService {
             Authentication authentication
     ) {
         getOrganization(tenantId, organizationId);
+        jdbcTemplate.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null, "SEAT_LIMIT:" + tenantId);
         LimitSnapshot limits = limits(tenantId);
         long occupiedSeats = count(
                 "SELECT COUNT(DISTINCT LOWER(email)) FROM organization_memberships "
