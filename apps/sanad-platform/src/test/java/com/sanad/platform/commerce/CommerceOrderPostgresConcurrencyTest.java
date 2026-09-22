@@ -3,12 +3,14 @@ package com.sanad.platform.commerce;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.application.*;
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,6 +33,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 /**
  * PostgreSQL Direct concurrency certification tests (v20260820.4).
@@ -83,6 +88,13 @@ class CommerceOrderPostgresConcurrencyTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private org.springframework.transaction.support.TransactionTemplate transactions;
     @Autowired private org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate namedJdbc;
+    @MockBean private EntitlementResolver entitlementResolver;
+
+    @BeforeEach
+    void configureSubscriptionPrerequisites() {
+        System.setProperty("sanad.tenancy.domains.base-domain", "snad.example");
+        when(entitlementResolver.getLimit(any(UUID.class), anyString(), anyString())).thenReturn(100L);
+    }
 
     // Unique run_id namespace — every record created by this test run is
     // tagged with this prefix so cleanup can target ONLY records from this
@@ -96,6 +108,7 @@ class CommerceOrderPostgresConcurrencyTest {
 
     @AfterEach
     void cleanup() {
+        System.clearProperty("sanad.tenancy.domains.base-domain");
         // Deterministic cleanup — delete in reverse-dependency order.
         // Each delete targets records by id, never deleting anything not
         // created by this test run.
