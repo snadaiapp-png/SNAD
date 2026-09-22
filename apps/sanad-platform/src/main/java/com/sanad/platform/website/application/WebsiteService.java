@@ -152,6 +152,12 @@ public class WebsiteService {
 
     // ===== Helpers =====
     private void enforceCreationLimit(UUID tenantId) {
+        if (!entitlementResolver.hasExplicitModuleEntitlement(tenantId, MODULE_CODE)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "explicit website subscription entitlement is required"
+            );
+        }
         jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
                 rs -> null, "WEBSITE_LIMIT:" + tenantId);
         long limit = entitlementResolver.getLimit(tenantId, MODULE_CODE, WEBSITE_LIMIT_CODE);
@@ -206,6 +212,12 @@ public class WebsiteService {
         WebsiteDomain.WebsiteStatus target = WebsiteDomain.WebsiteStatus.valueOf(newStatus);
         WebsiteDomain.WebsiteStatus current = existing.status();
         if (current == target) return existing;
+        if (target == WebsiteDomain.WebsiteStatus.ACTIVE
+                && !entitlementResolver.hasExplicitModuleEntitlement(tenantId, MODULE_CODE)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "explicit website subscription entitlement is required for activation");
+        }
 
         boolean allowed = switch (current) {
             case DRAFT -> target == WebsiteDomain.WebsiteStatus.ACTIVE
