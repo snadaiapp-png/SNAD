@@ -101,14 +101,23 @@ public class StoreService {
                     request.name().trim(), Timestamp.from(now), tenantId, storeId);
         }
         if (request.defaultLocale() != null) {
+            String locale = request.defaultLocale().trim();
+            if (locale.isEmpty() || locale.length() > 10) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "defaultLocale is invalid");
+            }
             jdbc.update("UPDATE commerce_stores SET default_locale = ?, updated_at = ?, version = version + 1 "
                             + "WHERE tenant_id = ? AND id = ?",
-                    request.defaultLocale(), Timestamp.from(now), tenantId, storeId);
+                    locale, Timestamp.from(now), tenantId, storeId);
         }
         if (request.defaultCurrency() != null) {
+            String currency = request.defaultCurrency().trim().toUpperCase();
+            if (!currency.matches("^[A-Z]{3}$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "defaultCurrency must be an ISO-4217 currency code");
+            }
             jdbc.update("UPDATE commerce_stores SET default_currency = ?, updated_at = ?, version = version + 1 "
                             + "WHERE tenant_id = ? AND id = ?",
-                    request.defaultCurrency(), Timestamp.from(now), tenantId, storeId);
+                    currency, Timestamp.from(now), tenantId, storeId);
         }
         if (request.settings() != null) {
             jdbc.update("UPDATE commerce_stores SET settings = ?::jsonb, updated_at = ?, version = version + 1 "
