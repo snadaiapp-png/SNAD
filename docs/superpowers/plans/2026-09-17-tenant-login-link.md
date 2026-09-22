@@ -28,7 +28,7 @@
 
 **Interfaces:**
 - Consumes: tenant UUID, authenticated control-plane principal, action `OPEN|COPY`.
-- Produces: `POST /api/v1/executive/tenants/{tenantId}/login-link-events` returning HTTP 204 and a durable platform audit row.
+- Produces: `POST /api/v1/executive/tenants/{tenantId}/login-link-events` returning HTTP 200 with the authoritative platform-owned `{hostname}` plus a durable platform audit row. The backend reconciles the tenant's generated APPLICATION hostname and fails closed when no routable base domain is configured.
 
 - [x] Add failing controller/service tests for authorization, active-status validation, enum validation, and audit action.
 - [ ] Run the focused Maven test and confirm the expected RED failure. *(Blocked before compilation: Spring Boot parent POM is unavailable and Maven Central DNS is restricted.)*
@@ -61,7 +61,7 @@
 
 **Interfaces:**
 - Consumes: active tenant ID and `executiveApi.recordTenantLoginLinkEvent(tenantId, action)`.
-- Produces: audited open-in-new-tab and clipboard copy behavior plus user-visible success/error feedback.
+- Produces: audited open-in-new-tab and clipboard copy behavior using only the backend-returned isolated tenant hostname, plus user-visible success/error feedback. Same-origin fallback is forbidden because it would share the control-plane refresh cookie.
 
 - [x] Add failing UI tests for active visibility, inactive hiding, literal URL, open/copy behavior, and audit failure.
 - [x] Run the focused Vitest test and confirm RED.
