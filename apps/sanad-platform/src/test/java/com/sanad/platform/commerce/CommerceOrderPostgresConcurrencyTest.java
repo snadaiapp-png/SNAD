@@ -93,6 +93,7 @@ class CommerceOrderPostgresConcurrencyTest {
     @BeforeEach
     void configureSubscriptionPrerequisites() {
         System.setProperty("sanad.tenancy.domains.base-domain", "snad.example");
+        when(entitlementResolver.hasExplicitModuleEntitlement(any(UUID.class), anyString())).thenReturn(true);
         when(entitlementResolver.getLimit(any(UUID.class), anyString(), anyString())).thenReturn(100L);
     }
 

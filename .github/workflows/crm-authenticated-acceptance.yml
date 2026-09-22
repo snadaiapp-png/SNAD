@@ -169,6 +169,10 @@ jobs:
             -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
             -v ON_ERROR_STOP=1 \
             -f src/test/resources/sql/crm-acceptance-seed.sql
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -f src/test/resources/sql/crm-acceptance-subscription-seed.sql
 
       - name: Validate seeded identities and roles
         shell: bash

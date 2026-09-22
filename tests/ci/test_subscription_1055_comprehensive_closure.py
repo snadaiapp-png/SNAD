@@ -31,6 +31,21 @@ class Subscription1055ClosureContract(unittest.TestCase):
         self.assertIn("X-SNAD-Session-Tenant", auth)
         self.assertIn("createTenantAuthApi(tenantSessionId)", provider)
         self.assertIn("TENANT_SESSION_HINT_COOKIE_PREFIX", hints)
+        self.assertNotIn("sessionScopeRef", provider)
+        self.assertNotIn("requestedTenantIdRef", provider)
+
+    def test_discovered_acceptance_fixtures_respect_subscription_authority(self):
+        crm_seed = self.read("apps/sanad-platform/src/test/resources/sql/crm-acceptance-subscription-seed.sql")
+        playwright = self.read(".github/workflows/playwright-ci.yml")
+        crm_workflow = self.read(".github/workflows/crm-authenticated-acceptance.yml")
+        workflow_bootstrap = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/workflow/config/WorkflowE2eBootstrapConfig.java")
+        commerce_test = self.read("apps/sanad-platform/src/test/java/com/sanad/platform/commerce/CommerceOrderPostgresConcurrencyTest.java")
+        self.assertIn("CRM-ACCEPTANCE", crm_seed)
+        self.assertIn("crm-acceptance-subscription-seed.sql", playwright)
+        self.assertIn("crm-acceptance-subscription-seed.sql", crm_workflow)
+        self.assertIn("WF-E2E-BASE-PLAN-B", workflow_bootstrap)
+        self.assertIn("intentionally no", workflow_bootstrap)
+        self.assertIn("hasExplicitModuleEntitlement", commerce_test)
 
     def test_ws1_pending_tenant_can_be_governedly_activated(self):
         page = self.read("apps/web/app/executive/tenants/page.tsx")

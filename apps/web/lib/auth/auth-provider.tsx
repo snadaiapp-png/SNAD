@@ -105,14 +105,7 @@ function browserSessionScope(): SessionHintScope {
   const params = new URLSearchParams(window.location.search);
   if (params.get("tenantLogin") === "1") {
     const target = params.get("tenantId")?.trim() ?? "";
-    if (TENANT_ID_PATTERN.test(target)) {
-      window.sessionStorage.setItem(TAB_SESSION_SCOPE_KEY, "tenant");
-      window.sessionStorage.setItem(TAB_TENANT_TARGET_KEY, target.toLowerCase());
-      return "tenant";
-    }
-    window.sessionStorage.removeItem(TAB_SESSION_SCOPE_KEY);
-    window.sessionStorage.removeItem(TAB_TENANT_TARGET_KEY);
-    return "default";
+    return TENANT_ID_PATTERN.test(target) ? "tenant" : "default";
   }
   if (window.sessionStorage.getItem(TAB_SESSION_SCOPE_KEY) !== "tenant") {
     return "default";
@@ -122,10 +115,8 @@ function browserSessionScope(): SessionHintScope {
     return "tenant";
   }
   // A tenant scope without a valid tenant target must never fall back to the
-  // default/admin auth channel. Clear malformed stale state and fail closed to
-  // the normal anonymous/default entry path.
-  window.sessionStorage.removeItem(TAB_SESSION_SCOPE_KEY);
-  window.sessionStorage.removeItem(TAB_TENANT_TARGET_KEY);
+  // default/admin auth channel. Persistence cleanup happens in a layout effect
+  // so render remains pure.
   return "default";
 }
 
@@ -153,14 +144,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshEnabledRef = useRef(true);
   const sessionGenerationRef = useRef(0);
   const bootstrapStartedRef = useRef(false);
-  const sessionScopeRef = useRef<SessionHintScope | null>(null);
-  const requestedTenantIdRef = useRef<string | null>(null);
-  if (typeof window !== "undefined" && sessionScopeRef.current === null) {
-    sessionScopeRef.current = browserSessionScope();
-    requestedTenantIdRef.current = requestedTenantIdFromLocation();
-  }
-  const sessionScope = sessionScopeRef.current ?? "default";
-  const tenantSessionId = requestedTenantIdRef.current;
+  const [sessionScope] = useState<SessionHintScope>(() => browserSessionScope());
+  const [tenantSessionId] = useState<string | null>(() => requestedTenantIdFromLocation());
   const scopedAuthApi = useMemo(
     () => sessionScope === "tenant" && tenantSessionId
       ? createTenantAuthApi(tenantSessionId)
@@ -168,6 +153,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [sessionScope, tenantSessionId],
   );
   const session = useInMemorySession();
+
+  // Persist only the tab-scoped tenant-session selector. This deliberately
+  // happens after render so React rendering stays pure while subsequent
+  // navigations in the subscriber tab retain the isolated session channel.
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sessionScope === "tenant" && tenantSessionId) {
+      window.sessionStorage.setItem(TAB_SESSION_SCOPE_KEY, "tenant");
+      window.sessionStorage.setItem(TAB_TENANT_TARGET_KEY, tenantSessionId.toLowerCase());
+      return;
+    }
+    window.sessionStorage.removeItem(TAB_SESSION_SCOPE_KEY);
+    window.sessionStorage.removeItem(TAB_TENANT_TARGET_KEY);
+  }, [sessionScope, tenantSessionId]);
 
   if (refreshFlightRef.current === null) {
     refreshFlightRef.current = new SingleFlight<AuthResponse>();
@@ -219,8 +218,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await runRefresh();
       if (sessionScope === "tenant"
-          && requestedTenantIdRef.current
-          && response.user.tenantId !== requestedTenantIdRef.current) {
+          && tenantSessionId
+          && response.user.tenantId !== tenantSessionId) {
         // A previous subscriber tab must never satisfy a new tenant-targeted
         // login link. Revoke only the isolated tenant session and show login.
         await scopedAuthApi.logout().catch(() => undefined);
@@ -241,7 +240,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCanRetrySessionRestore(true);
       setState("ERROR");
     }
-  }, [clearIdentity, runRefresh, scopedAuthApi, sessionScope]);
+  }, [clearIdentity, runRefresh, scopedAuthApi, sessionScope, tenantSessionId]);
 
   useEffect(() => {
     apiClient.setUnauthorizedHandler(async () => {
@@ -269,7 +268,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     queueMicrotask(() => { void restoreSession(); });
-  }, [restoreSession, sessionScope]);
+  }, [restoreSession, sessionScope, tenantSessionId]);
 
   const login = useCallback(async (req: LoginRequest) => {
     refreshEnabledRef.current = true;

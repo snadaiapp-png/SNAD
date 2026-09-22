@@ -7,12 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const subscriptionsMock = vi.fn();
 const provisionMock = vi.fn();
 const plansMock = vi.fn();
+const planVersionsMock = vi.fn();
 const createSubscriptionMock = vi.fn();
 const pushMock = vi.fn();
 
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: {
     subscriptions: (...args: unknown[]) => subscriptionsMock(...args),
+    planVersions: (...args: unknown[]) => planVersionsMock(...args),
     provision: (...args: unknown[]) => provisionMock(...args),
   },
 }));
@@ -89,6 +91,9 @@ describe("Subscription tenant upgrade creation flow", () => {
       skippedSteps: [],
     });
     plansMock.mockReset().mockResolvedValue([ACTIVE_PLAN]);
+    planVersionsMock.mockReset().mockResolvedValue([
+      { id: "version-1", planId: "plan-1", versionNumber: 1, status: "ACTIVE" },
+    ]);
     createSubscriptionMock.mockReset().mockResolvedValue({
       id: "sub-1",
       tenantId: "11111111-1111-1111-1111-111111111111",
@@ -146,5 +151,20 @@ describe("Subscription tenant upgrade creation flow", () => {
 
     await screen.findByRole("option", { name: "Starter (STARTER)" });
     expect(screen.queryByRole("option", { name: "Old (OLD)" })).not.toBeInTheDocument();
+    expect(planVersionsMock).toHaveBeenCalledWith("plan-1");
+    expect(planVersionsMock).not.toHaveBeenCalledWith("retired");
+  });
+
+  it("does not expose an active plan without an active plan version", async () => {
+    planVersionsMock.mockResolvedValue([
+      { id: "version-1", planId: "plan-1", versionNumber: 1, status: "RETIRED" },
+    ]);
+    render(<SubscriptionsPage />);
+
+    await waitFor(() => expect(planVersionsMock).toHaveBeenCalledWith("plan-1"));
+    expect(screen.queryByRole("option", { name: "Starter (STARTER)" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "scp.subscriptions.createAndProvision",
+    })).toBeDisabled();
   });
 });
