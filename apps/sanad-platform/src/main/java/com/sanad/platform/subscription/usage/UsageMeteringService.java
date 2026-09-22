@@ -70,12 +70,7 @@ public class UsageMeteringService {
         // tenant RLS, so validation must never run before the transaction GUC.
         tenantRlsContext.applyForCurrentTransaction(tenantId);
         if (organizationId != null) {
-            Integer count = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
-                    Integer.class, tenantId, organizationId);
-            if (count == null || count != 1) {
-                throw new IllegalArgumentException("organization does not belong to active tenant context");
-            }
+            requireActiveUsageOperatingUnit(tenantId, organizationId);
         }
         UUID eventId = UUID.randomUUID();
         try {
@@ -105,6 +100,28 @@ public class UsageMeteringService {
                     tenantId, organizationId, metricCode, quantity, occurredAt);
         }
         return new IngestResult(eventId, false);
+    }
+
+    private void requireActiveUsageOperatingUnit(UUID tenantId, UUID organizationId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM subscription_operating_units sou
+                  JOIN organizations o
+                    ON o.tenant_id = sou.tenant_id
+                   AND o.id = sou.organization_id
+                  JOIN tenant_subscriptions ts
+                    ON ts.tenant_id = sou.tenant_id
+                   AND ts.id = sou.subscription_id
+                 WHERE sou.tenant_id = ?
+                   AND sou.organization_id = ?
+                   AND sou.status = 'ACTIVE'
+                   AND o.status = 'ACTIVE'
+                   AND ts.status IN ('TRIALING','TRIAL','ACTIVE','PAST_DUE')
+                """, Integer.class, tenantId, organizationId);
+        if (count == null || count != 1) {
+            throw new IllegalArgumentException(
+                    "organization is not an active operating unit on the effective subscription");
+        }
     }
 
     private void upsertMonthlyAggregate(UUID tenantId, String metricCode, long quantity,
@@ -155,12 +172,7 @@ public class UsageMeteringService {
             return usageSnapshots(tenantId);
         }
         tenantRlsContext.applyForCurrentTransaction(tenantId);
-        Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
-                Integer.class, tenantId, organizationId);
-        if (count == null || count != 1) {
-            throw new IllegalArgumentException("organization does not belong to active tenant context");
-        }
+        requireActiveUsageOperatingUnit(tenantId, organizationId);
 
         List<Map<String, Object>> aggRows = jdbc.queryForList("""
                         SELECT u.metric_code, u.total, u.period_start
