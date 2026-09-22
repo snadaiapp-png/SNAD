@@ -15,7 +15,12 @@ class Subscription1055ClosureContract(unittest.TestCase):
         self.assertNotIn('window.open("about:blank", "_blank", "noopener,noreferrer")', page)
         self.assertIn("requires exactly one login-eligible subscription", service)
         self.assertIn("TENANT_LOGIN_LINK_", service)
-        self.assertIn("return defaultDomain.hostname()", service)
+        self.assertIn('url.searchParams.set("tenantLogin", "1")', page)
+        self.assertNotIn("return defaultDomain.hostname()", service)
+        bff = self.read("apps/web/app/api/platform/[...path]/route.ts")
+        self.assertIn("TENANT_REFRESH_COOKIE", bff)
+        self.assertIn("TENANT_SESSION_HINT_COOKIE", bff)
+        self.assertIn("x-sanad-session-scope", bff)
 
     def test_ws3_generic_lifecycle_cannot_bypass_governed_routes(self):
         controller = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/subscription/api/LifecycleController.java")
