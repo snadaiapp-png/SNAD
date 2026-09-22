@@ -167,7 +167,7 @@ export const executiveApi = {
   changeTenantStatus: (tenantId: string, status: string, reason: string) =>
     apiClient.patch<ManagedTenant, { status: string; reason: string }>(`${root}/tenants/${tenantId}/status`, { status, reason }),
   recordTenantLoginLinkEvent: (tenantId: string, action: "OPEN" | "COPY") =>
-    apiClient.post<void, { action: "OPEN" | "COPY" }>(
+    apiClient.post<{ hostname: string }, { action: "OPEN" | "COPY" }>(
       `${root}/tenants/${tenantId}/login-link-events`,
       { action },
     ),
