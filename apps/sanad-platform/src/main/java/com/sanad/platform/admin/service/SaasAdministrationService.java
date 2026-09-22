@@ -66,8 +66,8 @@ public class SaasAdministrationService {
     private static final Logger log = LoggerFactory.getLogger(SaasAdministrationService.class);
 
     private static final Set<String> PLAN_STATUSES = Set.of("ACTIVE", "INACTIVE", "ARCHIVED");
-    private static final Set<String> SUBSCRIPTION_STATUSES = Set.of(
-            "TRIALING", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED");
+    private static final Set<String> COMMERCIAL_MUTATION_STATUSES = Set.of(
+            "TRIAL", "TRIALING", "ACTIVE", "PAST_DUE", "GRACE_PERIOD");
     private static final Set<String> BILLING_CYCLES = Set.of("MONTHLY", "ANNUAL");
     private static final DateTimeFormatter INVOICE_DAY = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
 
@@ -292,13 +292,13 @@ public class SaasAdministrationService {
         PlanResponse before = getPlan(planId);
         long highestSeatUsage = scalarLong(
                 "SELECT COALESCE(MAX(seat_quantity), 0) FROM tenant_subscriptions "
-                        + "WHERE plan_id = ? AND status IN ('TRIALING', 'ACTIVE', 'PAST_DUE', 'SUSPENDED')",
+                        + "WHERE plan_id = ? AND status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')",
                 planId);
         long highestOrganizationUsage = scalarLong(
                 "SELECT COALESCE(MAX(organization_count), 0) FROM ("
                         + "SELECT s.tenant_id, COUNT(o.id) AS organization_count FROM tenant_subscriptions s "
                         + "LEFT JOIN organizations o ON o.tenant_id = s.tenant_id AND o.status <> 'ARCHIVED' "
-                        + "WHERE s.plan_id = ? AND s.status IN ('TRIALING', 'ACTIVE', 'PAST_DUE', 'SUSPENDED') "
+                        + "WHERE s.plan_id = ? AND s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED') "
                         + "GROUP BY s.tenant_id) usage",
                 planId);
         if (request.maxUsers() < highestSeatUsage || request.maxOrganizations() < highestOrganizationUsage) {
@@ -485,7 +485,7 @@ public class SaasAdministrationService {
             Authentication authentication
     ) {
         SubscriptionResponse before = getSubscription(subscriptionId);
-        ensureMutableSubscription(before);
+        ensureCommerciallyMutableSubscription(before);
         PlanResponse targetPlan = activePlan(request.planId());
         validateUsageAgainstPlan(before.tenantId(), before.seatQuantity(), targetPlan);
         String targetCycle = normalizeCycle(request.billingCycle());
@@ -551,7 +551,7 @@ public class SaasAdministrationService {
             Authentication authentication
     ) {
         SubscriptionResponse before = getSubscription(subscriptionId);
-        ensureMutableSubscription(before);
+        ensureCommerciallyMutableSubscription(before);
         PlanResponse plan = getPlan(before.planId());
         validateUsageAgainstPlan(before.tenantId(), request.seatQuantity(), plan);
         int oldSeats = before.seatQuantity();
@@ -599,7 +599,13 @@ public class SaasAdministrationService {
             Authentication authentication
     ) {
         SubscriptionResponse before = getSubscription(subscriptionId);
-        ensureMutableSubscription(before);
+        String cancelCommand = request.immediate() ? "CANCEL" : "SCHEDULE_CANCELLATION";
+        if (!com.sanad.platform.subscription.lifecycle.SubscriptionLifecycle.isLegal(
+                cancelCommand, before.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Cancellation is not allowed in subscription state " + before.status());
+        }
         Instant now = Instant.now();
         if (request.immediate()) {
             // R0C-7: the status transition flows through the canonical command
@@ -823,9 +829,11 @@ public class SaasAdministrationService {
         return plan;
     }
 
-    private void ensureMutableSubscription(SubscriptionResponse subscription) {
-        if (!SUBSCRIPTION_STATUSES.contains(subscription.status()) || "CANCELLED".equals(subscription.status())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Subscription is not mutable in its current state");
+    private void ensureCommerciallyMutableSubscription(SubscriptionResponse subscription) {
+        if (!COMMERCIAL_MUTATION_STATUSES.contains(subscription.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Plan and seat changes are not allowed in subscription state " + subscription.status());
         }
     }
 
