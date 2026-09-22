@@ -92,11 +92,22 @@ export type AuthSessionScope = "default" | "tenant";
 export function createAuthApi(
   client: ApiClient = apiClient,
   sessionScope: AuthSessionScope = "default",
+  tenantSessionId?: string,
 ) {
+  const normalizedTenantSessionId = tenantSessionId?.trim().toLowerCase();
   const scopedOptions = (timeoutMs: number) => ({
     timeoutMs,
     ...(sessionScope === "tenant"
-      ? { context: { headers: { "X-SNAD-Session-Scope": "tenant" } } }
+      ? {
+          context: {
+            headers: {
+              "X-SNAD-Session-Scope": "tenant",
+              ...(normalizedTenantSessionId
+                ? { "X-SNAD-Session-Tenant": normalizedTenantSessionId }
+                : {}),
+            },
+          },
+        }
       : {}),
   });
 
@@ -162,4 +173,7 @@ export function createAuthApi(
 }
 
 export const authApi = createAuthApi();
-export const tenantAuthApi = createAuthApi(apiClient, "tenant");
+
+export function createTenantAuthApi(tenantId: string) {
+  return createAuthApi(apiClient, "tenant", tenantId);
+}
