@@ -7,7 +7,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 150;
 
 const REFRESH_COOKIE = "sanad_refresh";
+const TENANT_REFRESH_COOKIE = "sanad_tenant_refresh";
 const SESSION_HINT_COOKIE = "sanad_session_hint";
+const TENANT_SESSION_HINT_COOKIE = "sanad_tenant_session_hint";
+const SESSION_SCOPE_HEADER = "x-sanad-session-scope";
 const REFRESH_HEADER = "x-sanad-refresh-token";
 const ENTITY_TAG_HEADER = "x-snad-entity-tag";
 const AUTH_PATH_PREFIX = "/api/v1/auth";
@@ -148,6 +151,22 @@ function hasValidOrigin(request: NextRequest): boolean {
   return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
+type SessionScope = "default" | "tenant";
+
+function sessionScope(request: NextRequest): SessionScope {
+  return request.headers.get(SESSION_SCOPE_HEADER)?.trim().toLowerCase() === "tenant"
+    ? "tenant"
+    : "default";
+}
+
+function refreshCookieName(scope: SessionScope): string {
+  return scope === "tenant" ? TENANT_REFRESH_COOKIE : REFRESH_COOKIE;
+}
+
+function sessionHintCookieName(scope: SessionScope): string {
+  return scope === "tenant" ? TENANT_SESSION_HINT_COOKIE : SESSION_HINT_COOKIE;
+}
+
 function requestHeaders(request: NextRequest, path: string, baseUrl: string, id: string): Headers {
   const headers = new Headers();
   for (const name of FORWARDED_REQUEST_HEADERS) {
@@ -169,7 +188,7 @@ function requestHeaders(request: NextRequest, path: string, baseUrl: string, id:
   if (ifMatchValue) headers.set("if-match", ifMatchValue);
 
   if (path === REFRESH_PATH) {
-    const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
+    const refreshToken = request.cookies.get(refreshCookieName(sessionScope(request)))?.value;
     if (refreshToken) headers.set(REFRESH_HEADER, refreshToken);
   }
   return headers;
@@ -199,9 +218,9 @@ function responseHeaders(upstream: Response, id: string, attempts: number): Head
   return headers;
 }
 
-function clearRefreshCookie(response: NextResponse): void {
+function clearRefreshCookie(response: NextResponse, scope: SessionScope): void {
   response.cookies.set({
-    name: REFRESH_COOKIE,
+    name: refreshCookieName(scope),
     value: "",
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -211,9 +230,9 @@ function clearRefreshCookie(response: NextResponse): void {
   });
 }
 
-function setSessionHint(response: NextResponse): void {
+function setSessionHint(response: NextResponse, scope: SessionScope): void {
   response.cookies.set({
-    name: SESSION_HINT_COOKIE,
+    name: sessionHintCookieName(scope),
     value: "1",
     httpOnly: false,
     secure: process.env.NODE_ENV === "production",
@@ -223,9 +242,9 @@ function setSessionHint(response: NextResponse): void {
   });
 }
 
-function clearSessionHint(response: NextResponse): void {
+function clearSessionHint(response: NextResponse, scope: SessionScope): void {
   response.cookies.set({
-    name: SESSION_HINT_COOKIE,
+    name: sessionHintCookieName(scope),
     value: "",
     httpOnly: false,
     secure: process.env.NODE_ENV === "production",
@@ -235,23 +254,29 @@ function clearSessionHint(response: NextResponse): void {
   });
 }
 
-function applySessionCookiePolicy(response: NextResponse, upstream: Response, path: string): void {
+function applySessionCookiePolicy(
+  request: NextRequest,
+  response: NextResponse,
+  upstream: Response,
+  path: string,
+): void {
+  const scope = sessionScope(request);
   if (path === LOGOUT_PATH || (path === CHANGE_CREDENTIAL_PATH && upstream.ok)) {
-    clearRefreshCookie(response);
-    clearSessionHint(response);
+    clearRefreshCookie(response, scope);
+    clearSessionHint(response, scope);
     return;
   }
 
   if (path === REFRESH_PATH && (upstream.status === 401 || upstream.status === 403)) {
-    clearRefreshCookie(response);
-    clearSessionHint(response);
+    clearRefreshCookie(response, scope);
+    clearSessionHint(response, scope);
     return;
   }
 
   const refreshToken = upstream.headers.get(REFRESH_HEADER);
   if (refreshToken && path.startsWith(AUTH_PATH_PREFIX)) {
     response.cookies.set({
-      name: REFRESH_COOKIE,
+      name: refreshCookieName(scope),
       value: refreshToken,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -262,7 +287,7 @@ function applySessionCookiePolicy(response: NextResponse, upstream: Response, pa
   }
 
   if ((path === LOGIN_PATH || path === REFRESH_PATH) && upstream.ok) {
-    setSessionHint(response);
+    setSessionHint(response, scope);
   }
 }
 
@@ -336,8 +361,8 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
     console.error("Platform BFF backend URL is not configured or violates the production Render policy", { path, requestId: id });
     const response = jsonError("Service unavailable", 503, id);
     if (path === LOGOUT_PATH) {
-      clearRefreshCookie(response);
-      clearSessionHint(response);
+      clearRefreshCookie(response, sessionScope(request));
+      clearSessionHint(response, sessionScope(request));
     }
     return response;
   }
@@ -362,7 +387,7 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
       upstream.status === 204 || upstream.status === 304 ? null : upstream.body,
       { status: upstream.status, headers: responseHeaders(upstream, id, result.attempts) },
     );
-    applySessionCookiePolicy(response, upstream, path);
+    applySessionCookiePolicy(request, response, upstream, path);
     return response;
   } catch (error) {
     const failure = error instanceof BackendRequestError
@@ -384,8 +409,8 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
       failure.kind,
     );
     if (path === LOGOUT_PATH) {
-      clearRefreshCookie(response);
-      clearSessionHint(response);
+      clearRefreshCookie(response, sessionScope(request));
+      clearSessionHint(response, sessionScope(request));
     }
     return response;
   }
