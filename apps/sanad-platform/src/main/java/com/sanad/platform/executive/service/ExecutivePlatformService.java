@@ -9,6 +9,8 @@ import com.sanad.platform.admin.api.TenantDomainDtos.DomainType;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
+import com.sanad.platform.security.filter.SessionVersionCache;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -46,17 +48,31 @@ public class ExecutivePlatformService {
     private final PlatformAuditService auditService;
     private final RegistrationProvisioner registrationProvisioner;
     private final TenantDomainService tenantDomainService;
+    private final SessionVersionCache sessionVersionCache;
 
+    @Autowired
+    public ExecutivePlatformService(
+            JdbcTemplate jdbcTemplate,
+            PlatformAuditService auditService,
+            RegistrationProvisioner registrationProvisioner,
+            TenantDomainService tenantDomainService,
+            SessionVersionCache sessionVersionCache
+    ) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.auditService = auditService;
+        this.registrationProvisioner = registrationProvisioner;
+        this.tenantDomainService = tenantDomainService;
+        this.sessionVersionCache = sessionVersionCache;
+    }
+
+    /** Backward-compatible direct-instantiation constructor for focused tests. */
     public ExecutivePlatformService(
             JdbcTemplate jdbcTemplate,
             PlatformAuditService auditService,
             RegistrationProvisioner registrationProvisioner,
             TenantDomainService tenantDomainService
     ) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.auditService = auditService;
-        this.registrationProvisioner = registrationProvisioner;
-        this.tenantDomainService = tenantDomainService;
+        this(jdbcTemplate, auditService, registrationProvisioner, tenantDomainService, null);
     }
 
     public DashboardResponse dashboard() {
@@ -188,6 +204,28 @@ public class ExecutivePlatformService {
                 targetStatus,
                 Set.of("SUSPENDED", "CANCELLED", "ARCHIVED").contains(targetStatus) ? request.reason() : null,
                 tenantId);
+
+        if (Set.of("SUSPENDED", "CANCELLED", "ARCHIVED").contains(targetStatus)) {
+            // Tenant deactivation is a security boundary, not only a UI state.
+            // Revoke refresh families and increment every user session version
+            // in the same transaction so existing access tokens stop working.
+            List<UUID> userIds = jdbcTemplate.queryForList(
+                    "SELECT id FROM users WHERE tenant_id = ?",
+                    UUID.class,
+                    tenantId);
+            jdbcTemplate.update(
+                    "UPDATE refresh_tokens SET status = 'REVOKED' "
+                            + "WHERE tenant_id = ? AND status = 'ACTIVE'",
+                    tenantId);
+            jdbcTemplate.update(
+                    "UPDATE users SET session_version = session_version + 1, updated_at = NOW() "
+                            + "WHERE tenant_id = ?",
+                    tenantId);
+            if (sessionVersionCache != null) {
+                userIds.forEach(userId -> sessionVersionCache.invalidate(tenantId, userId));
+            }
+        }
+
         TenantResponse after = getTenant(tenantId);
         auditService.success(authentication, tenantId, "CHANGE_TENANT_STATUS", "TENANT", tenantId.toString(),
                 request.reason(), before, after);
