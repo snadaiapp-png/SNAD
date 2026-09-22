@@ -110,7 +110,7 @@ public class SubscriptionOperatingUnitController {
 
     @DeleteMapping("/operating-units/{organizationId}")
     @RequireCapability("EXECUTIVE_MANAGE")
-    public ResponseEntity<Void> deactivate(
+    public ResponseEntity<Void> deactivateOperatingUnit(
             @PathVariable UUID subscriptionId,
             @PathVariable UUID organizationId,
             Authentication authentication
