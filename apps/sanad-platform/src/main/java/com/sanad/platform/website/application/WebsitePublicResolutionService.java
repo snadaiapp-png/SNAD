@@ -1,5 +1,6 @@
 package com.sanad.platform.website.application;
 
+import com.sanad.platform.tenancy.routing.HostRoutingService;
 import com.sanad.platform.website.api.WebsiteDtos.*;
 import com.sanad.platform.website.domain.WebsiteDomain;
 import org.springframework.http.HttpStatus;
@@ -25,11 +26,11 @@ import java.util.UUID;
 public class WebsitePublicResolutionService {
 
     private final JdbcTemplate jdbc;
-    private final WebsiteDomainService domainService;
+    private final HostRoutingService hostRoutingService;
 
-    public WebsitePublicResolutionService(JdbcTemplate jdbc, WebsiteDomainService domainService) {
+    public WebsitePublicResolutionService(JdbcTemplate jdbc, HostRoutingService hostRoutingService) {
         this.jdbc = jdbc;
-        this.domainService = domainService;
+        this.hostRoutingService = hostRoutingService;
     }
 
     /**
@@ -38,20 +39,22 @@ public class WebsitePublicResolutionService {
      */
     @Transactional(readOnly = true)
     public PublicWebsiteResponse resolveWebsite(String hostname) {
-        var domain = domainService.findByHostname(hostname);
-        if (domain == null) return null;
+        var route = hostRoutingService
+                .resolve(hostname, HostRoutingService.Surface.WEBSITE)
+                .orElse(null);
+        if (route == null) return null;
         // Fetch website — must be ACTIVE
         try {
             Map<String, Object> website = jdbc.queryForMap(
                     "SELECT * FROM websites WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE'",
-                    domain.websiteId(), domain.tenantId());
+                    route.resourceId(), route.tenantId());
             return new PublicWebsiteResponse(
-                    domain.websiteId(),
+                    route.resourceId(),
                     (String) website.get("name"),
                     (String) website.get("slug"),
                     (String) website.get("default_locale"),
                     null, // theme config parsed separately if needed
-                    listPublishedPages(domain.tenantId(), domain.websiteId()),
+                    listPublishedPages(route.tenantId(), route.resourceId()),
                     List.of() // navigation fetched separately
             );
         } catch (org.springframework.dao.EmptyResultDataAccessException e) {
@@ -65,21 +68,23 @@ public class WebsitePublicResolutionService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public PublicPageResponse resolvePage(String hostname, String pageSlug) {
-        var domain = domainService.findByHostname(hostname);
-        if (domain == null) return null;
+        var route = hostRoutingService
+                .resolve(hostname, HostRoutingService.Surface.WEBSITE)
+                .orElse(null);
+        if (route == null) return null;
         try {
             Map<String, Object> page = jdbc.queryForMap(
                     "SELECT * FROM website_pages WHERE tenant_id = ? AND website_id = ? AND slug = ? AND status = 'PUBLISHED'",
-                    domain.tenantId(), domain.websiteId(), pageSlug);
+                    route.tenantId(), route.resourceId(), pageSlug);
             Map<String, Object> theme = null;
             try {
                 var themeRow = jdbc.queryForMap(
                         "SELECT * FROM website_theme_settings WHERE tenant_id = ? AND website_id = ?",
-                        domain.tenantId(), domain.websiteId());
+                        route.tenantId(), route.resourceId());
                 // return minimal theme info
             } catch (Exception ignored) {}
             return new PublicPageResponse(
-                    (UUID) page.get("id"), domain.websiteId(),
+                    (UUID) page.get("id"), route.resourceId(),
                     (String) page.get("title"), (String) page.get("slug"),
                     WebsiteDomain.PageType.valueOf((String) page.get("page_type")),
                     null, // content layout
