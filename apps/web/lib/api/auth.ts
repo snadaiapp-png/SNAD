@@ -87,12 +87,24 @@ export function authResponseToMe(response: AuthResponse): MeResponse {
   };
 }
 
-export function createAuthApi(client: ApiClient = apiClient) {
+export type AuthSessionScope = "default" | "tenant";
+
+export function createAuthApi(
+  client: ApiClient = apiClient,
+  sessionScope: AuthSessionScope = "default",
+) {
+  const scopedOptions = (timeoutMs: number) => ({
+    timeoutMs,
+    ...(sessionScope === "tenant"
+      ? { context: { headers: { "X-SNAD-Session-Scope": "tenant" } } }
+      : {}),
+  });
+
   return {
     async login(req: LoginRequest): Promise<AuthResponse> {
       try {
         return await client.post<AuthResponse, LoginRequest>("/api/v1/auth/login", req, {
-          timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+          ...scopedOptions(AUTH_REQUEST_TIMEOUT_MS),
         });
       } catch (err) {
         if (err instanceof ApiHttpError && err.status === 409) {
@@ -110,14 +122,14 @@ export function createAuthApi(client: ApiClient = apiClient) {
       return client.post<AuthResponse, { refreshToken?: string }>(
         "/api/v1/auth/refresh",
         refreshToken ? { refreshToken } : undefined,
-        { timeoutMs: AUTH_REQUEST_TIMEOUT_MS },
+        scopedOptions(AUTH_REQUEST_TIMEOUT_MS),
       );
     },
     async logout(): Promise<void> {
-      await client.post<void>("/api/v1/auth/logout", undefined, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS });
+      await client.post<void>("/api/v1/auth/logout", undefined, scopedOptions(AUTH_REQUEST_TIMEOUT_MS));
     },
     async me(): Promise<MeResponse> {
-      return client.get<MeResponse>("/api/v1/auth/me", { timeoutMs: AUTH_REQUEST_TIMEOUT_MS });
+      return client.get<MeResponse>("/api/v1/auth/me", scopedOptions(AUTH_REQUEST_TIMEOUT_MS));
     },
     async forgotPassword(req: ForgotPasswordRequest): Promise<ForgotPasswordResponse> {
       return client.post<ForgotPasswordResponse, ForgotPasswordRequest>("/api/v1/auth/forgot-password", req, {
@@ -141,10 +153,11 @@ export function createAuthApi(client: ApiClient = apiClient) {
       return client.post<{ message: string }, AdminResetPasswordRequest>(
         `/api/v1/auth/admin-reset-password/${userId}`,
         req,
-        { timeoutMs: AUTH_REQUEST_TIMEOUT_MS },
+        scopedOptions(AUTH_REQUEST_TIMEOUT_MS),
       );
     },
   };
 }
 
 export const authApi = createAuthApi();
+export const tenantAuthApi = createAuthApi(apiClient, "tenant");
