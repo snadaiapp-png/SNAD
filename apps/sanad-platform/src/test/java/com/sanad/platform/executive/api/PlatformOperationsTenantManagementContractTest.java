@@ -42,5 +42,7 @@ class PlatformOperationsTenantManagementContractTest {
         RequireCapability capability = endpoint.getAnnotation(RequireCapability.class);
         assertThat(capability).isNotNull();
         assertThat(capability.value()).isEqualTo("EXECUTIVE_MANAGE");
+        assertThat(endpoint.getGenericReturnType().getTypeName())
+                .contains("AdminDtos$TenantLoginLinkEventResponse");
     }
 }
