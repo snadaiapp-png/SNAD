@@ -3,11 +3,22 @@
  * restoration is worth attempting. It never proves authentication.
  */
 export const SESSION_HINT_COOKIE = "sanad_session_hint";
+export const TENANT_SESSION_HINT_COOKIE = "sanad_tenant_session_hint";
 
-export function hasSessionHint(cookieHeader?: string): boolean {
+export type SessionHintScope = "default" | "tenant";
+
+export function sessionHintCookie(scope: SessionHintScope = "default"): string {
+  return scope === "tenant" ? TENANT_SESSION_HINT_COOKIE : SESSION_HINT_COOKIE;
+}
+
+export function hasSessionHint(
+  cookieHeader?: string,
+  scope: SessionHintScope = "default",
+): boolean {
   const source = cookieHeader ?? (typeof document === "undefined" ? "" : document.cookie);
+  const cookie = sessionHintCookie(scope);
   return source
     .split(";")
     .map((part) => part.trim())
-    .some((part) => part === `${SESSION_HINT_COOKIE}=1`);
+    .some((part) => part === `${cookie}=1`);
 }
