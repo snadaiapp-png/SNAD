@@ -158,7 +158,7 @@ public class StoreService {
     @Transactional
     public StoreResponse setPrimary(UUID tenantId, UUID storeId, Authentication auth) {
         StoreResponse store = getOrThrow(tenantId, storeId);
-        if (!"ACTIVE".equals(store.status())) {
+        if (store.status() != CommerceDomain.StoreStatus.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "store must be ACTIVE before setting primary");
         }
@@ -256,10 +256,48 @@ public class StoreService {
 
     private StoreResponse transition(UUID tenantId, UUID storeId, String newStatus, String auditAction, Authentication auth) {
         StoreResponse existing = getOrThrow(tenantId, storeId);
+        CommerceDomain.StoreStatus target = CommerceDomain.StoreStatus.valueOf(newStatus);
+        CommerceDomain.StoreStatus current = existing.status();
+        if (current == target) return existing;
+
+        boolean allowed = switch (current) {
+            case DRAFT -> target == CommerceDomain.StoreStatus.ACTIVE
+                    || target == CommerceDomain.StoreStatus.ARCHIVED;
+            case ACTIVE -> target == CommerceDomain.StoreStatus.SUSPENDED
+                    || target == CommerceDomain.StoreStatus.ARCHIVED;
+            case SUSPENDED -> target == CommerceDomain.StoreStatus.ACTIVE
+                    || target == CommerceDomain.StoreStatus.ARCHIVED;
+            case ARCHIVED -> false;
+        };
+        if (!allowed) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "invalid store lifecycle transition: " + current + " -> " + target);
+        }
+
         Instant now = Instant.now();
+        if (target == CommerceDomain.StoreStatus.ARCHIVED) {
+            jdbc.update("""
+                    UPDATE commerce_store_domains
+                       SET activation_status = 'DISABLED', is_primary = FALSE,
+                           updated_at = ?, version = version + 1
+                     WHERE tenant_id = ? AND store_id = ?
+                    """, Timestamp.from(now), tenantId, storeId);
+            jdbc.update("""
+                    UPDATE subscription_resource_bindings
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND resource_type = 'STORE'
+                       AND resource_id = ? AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, storeId);
+            jdbc.update("""
+                    UPDATE commerce_stores
+                       SET organization_id = NULL
+                     WHERE tenant_id = ? AND id = ?
+                    """, tenantId, storeId);
+        }
         jdbc.update("UPDATE commerce_stores SET status = ?, updated_at = ?, version = version + 1 "
-                        + "WHERE tenant_id = ? AND id = ?", newStatus, Timestamp.from(now), tenantId, storeId);
-        audit(tenantId, auth, auditAction, storeId, "name=" + existing.name() + ",to=" + newStatus);
+                        + "WHERE tenant_id = ? AND id = ?", target.name(), Timestamp.from(now), tenantId, storeId);
+        audit(tenantId, auth, auditAction, storeId, "name=" + existing.name() + ",to=" + target);
         return getOrThrow(tenantId, storeId);
     }
 
