@@ -6,6 +6,8 @@ import com.sanad.platform.admin.api.SaasAdminDtos.MembershipAdminResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.OrganizationAdminResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.UpdateMembershipAdminRequest;
 import com.sanad.platform.admin.api.SaasAdminDtos.UpdateOrganizationAdminRequest;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -35,10 +37,31 @@ public class TenantDirectoryAdministrationService {
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
-    public TenantDirectoryAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService) {
+    @Autowired
+    public TenantDirectoryAdministrationService(
+            JdbcTemplate jdbcTemplate,
+            PlatformAuditService auditService,
+            TenantRlsTransactionContext tenantRlsContext
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
+        this.tenantRlsContext = tenantRlsContext;
+    }
+
+    /** Backward-compatible direct-instantiation constructor for legacy tests. */
+    public TenantDirectoryAdministrationService(
+            JdbcTemplate jdbcTemplate,
+            PlatformAuditService auditService
+    ) {
+        this(jdbcTemplate, auditService, null);
+    }
+
+    private void applyTenantRls(UUID tenantId) {
+        if (tenantRlsContext != null) {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -103,6 +126,8 @@ public class TenantDirectoryAdministrationService {
         }
         String unitType = normalizeUnitType(request.unitType(), before.unitType());
         if (!unitType.equals(before.unitType())) {
+            // subscription_operating_units is FORCE-RLS.
+            applyTenantRls(tenantId);
             long activeBindings = count(
                     "SELECT COUNT(*) FROM subscription_operating_units "
                             + "WHERE tenant_id = ? AND organization_id = ? AND status = 'ACTIVE'",
@@ -139,6 +164,8 @@ public class TenantDirectoryAdministrationService {
         }
         Instant now = Instant.now();
         if (!"ACTIVE".equals(status)) {
+            // Branch-scoped subscription projection tables are FORCE-RLS.
+            applyTenantRls(tenantId);
             // Organization deactivation must atomically retire every branch-scoped
             // subscription projection. Leaving active bindings behind would leak
             // pricing/resource state through an inactive operating unit.
