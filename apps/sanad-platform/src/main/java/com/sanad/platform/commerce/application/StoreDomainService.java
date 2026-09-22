@@ -65,7 +65,13 @@ public class StoreDomainService {
     public String generateDefaultDomain(String storeSlug) {
         String baseDomain = resolvePlatformBaseDomain();
         if (baseDomain == null || baseDomain.isBlank()) return null;
-        return (storeSlug + "." + baseDomain).toLowerCase(Locale.ROOT);
+        String hostname = hostRoutingService.normalizeHostname(storeSlug + "." + baseDomain);
+        if (hostname == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "configured platform base domain cannot produce a valid storefront hostname");
+        }
+        return hostname;
     }
 
     /** Tenant-scoped generated storefront hostname. */
