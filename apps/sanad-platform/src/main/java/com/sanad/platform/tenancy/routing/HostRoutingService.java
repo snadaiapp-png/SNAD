@@ -167,6 +167,27 @@ public class HostRoutingService {
     }
 
     /**
+     * Resolve the single platform base-domain configuration used by every
+     * generated tenant/website/store hostname. Keeping this chain here avoids
+     * three subtly different environment fallbacks that can make one surface
+     * routable while another fails.
+     */
+    public String configuredBaseDomain() {
+        String raw = System.getProperty("sanad.tenancy.domains.base-domain");
+        if (raw == null || raw.isBlank()) raw = System.getenv("SANAD_BASE_DOMAIN");
+        if (raw == null || raw.isBlank()) raw = System.getenv("PLATFORM_BASE_DOMAIN");
+        if (raw == null || raw.isBlank()) return null;
+
+        String normalized = normalizeHostname(raw);
+        if (normalized == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "configured platform base domain is not a valid DNS hostname");
+        }
+        return normalized;
+    }
+
+    /**
      * Normalize an HTTP Host value to the persisted DNS hostname form.
      * Browser-visible ports are accepted for local/dev routing but never stored.
      */
