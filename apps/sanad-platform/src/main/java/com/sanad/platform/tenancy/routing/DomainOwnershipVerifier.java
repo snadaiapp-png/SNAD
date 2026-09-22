@@ -82,8 +82,11 @@ public class DomainOwnershipVerifier {
         environment.put("java.naming.factory.initial", "com.sun.jndi.dns.DnsContextFactory");
         environment.put("com.sun.jndi.dns.timeout.initial", "2000");
         environment.put("com.sun.jndi.dns.timeout.retries", "1");
-        try (DirContext context = new InitialDirContext(environment)) {
+        DirContext context = new InitialDirContext(environment);
+        try {
             return context.getAttributes(name, new String[]{type});
+        } finally {
+            context.close();
         }
     }
 
