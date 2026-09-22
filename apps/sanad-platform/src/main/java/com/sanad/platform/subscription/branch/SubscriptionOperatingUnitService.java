@@ -1,6 +1,7 @@
 package com.sanad.platform.subscription.branch;
 
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -12,6 +13,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -24,6 +26,9 @@ import java.util.UUID;
  */
 @Service
 public class SubscriptionOperatingUnitService {
+
+    private static final Set<String> MUTABLE_SUBSCRIPTION_STATUSES =
+            Set.of("TRIALING", "TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED");
 
     public record OperatingUnit(
             UUID organizationId,
@@ -45,10 +50,16 @@ public class SubscriptionOperatingUnitService {
 
     private final JdbcTemplate jdbc;
     private final PlatformAuditService audit;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
-    public SubscriptionOperatingUnitService(JdbcTemplate jdbc, PlatformAuditService audit) {
+    public SubscriptionOperatingUnitService(
+            JdbcTemplate jdbc,
+            PlatformAuditService audit,
+            TenantRlsTransactionContext tenantRlsContext
+    ) {
         this.jdbc = jdbc;
         this.audit = audit;
+        this.tenantRlsContext = tenantRlsContext;
     }
 
     @Transactional(readOnly = true)
@@ -80,7 +91,7 @@ public class SubscriptionOperatingUnitService {
             String billingMode,
             Authentication authentication
     ) {
-        UUID tenantId = tenantId(subscriptionId);
+        UUID tenantId = mutableTenantId(subscriptionId);
         requireOrganization(tenantId, organizationId);
         String mode = normalizeBillingMode(billingMode);
         Instant now = Instant.now();
@@ -111,7 +122,7 @@ public class SubscriptionOperatingUnitService {
             UUID organizationId,
             Authentication authentication
     ) {
-        UUID tenantId = tenantId(subscriptionId);
+        UUID tenantId = mutableTenantId(subscriptionId);
         requireOrganization(tenantId, organizationId);
         int changed = jdbc.update("""
                 UPDATE subscription_operating_units
@@ -144,9 +155,11 @@ public class SubscriptionOperatingUnitService {
             boolean enabled,
             Authentication authentication
     ) {
-        UUID tenantId = tenantId(subscriptionId);
+        UUID tenantId = mutableTenantId(subscriptionId);
         requireActiveBinding(tenantId, subscriptionId, organizationId);
-        requireApplicationEntitled(subscriptionId, applicationId);
+        if (enabled) {
+            requireApplicationEntitled(subscriptionId, applicationId);
+        }
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO subscription_unit_applications
@@ -175,14 +188,27 @@ public class SubscriptionOperatingUnitService {
             String billingMode,
             Authentication authentication
     ) {
-        UUID tenantId = tenantId(subscriptionId);
+        SubscriptionScope scope = mutableSubscriptionScope(subscriptionId);
+        UUID tenantId = scope.tenantId();
         if (organizationId != null) {
             requireActiveBinding(tenantId, subscriptionId, organizationId);
         }
         String mode = normalizeBillingMode(billingMode);
+        if (organizationId == null && !"CONSOLIDATED".equals(mode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "tenant billing profile must use CONSOLIDATED mode");
+        }
+        if (organizationId != null && !"SEPARATE".equals(mode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "operating-unit billing profile must use SEPARATE mode");
+        }
         String currency = currencyCode == null ? "" : currencyCode.trim().toUpperCase();
         if (!currency.matches("^[A-Z]{3}$")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "currencyCode must be ISO-4217");
+        }
+        if (scope.currencyCode() == null || !currency.equals(scope.currencyCode())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "billing profile currency must match the subscription pinned currency");
         }
         if (profileName == null || profileName.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "profileName is required");
@@ -235,10 +261,19 @@ public class SubscriptionOperatingUnitService {
             UUID resourceId,
             Authentication authentication
     ) {
-        UUID tenantId = tenantId(subscriptionId);
+        UUID tenantId = mutableTenantId(subscriptionId);
         requireActiveBinding(tenantId, subscriptionId, organizationId);
         String type = normalizeResourceType(resourceType);
         requireResourceOwnership(tenantId, type, resourceId);
+        Integer conflicting = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM subscription_resource_bindings
+                 WHERE tenant_id = ? AND resource_type = ? AND resource_id = ?
+                   AND status = 'ACTIVE' AND subscription_id <> ?
+                """, Integer.class, tenantId, type, resourceId, subscriptionId);
+        if (conflicting != null && conflicting > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "resource is already bound to another active subscription");
+        }
 
         Instant now = Instant.now();
         jdbc.update("""
@@ -311,10 +346,42 @@ public class SubscriptionOperatingUnitService {
                 id, tenantId);
     }
 
+    private record SubscriptionScope(UUID tenantId, String status, String currencyCode) {}
+
     private UUID tenantId(UUID subscriptionId) {
-        List<UUID> rows = jdbc.queryForList(
-                "SELECT tenant_id FROM tenant_subscriptions WHERE id = ?",
-                UUID.class, subscriptionId);
+        SubscriptionScope scope = subscriptionScope(subscriptionId);
+        tenantRlsContext.applyForCurrentTransaction(scope.tenantId());
+        return scope.tenantId();
+    }
+
+    private UUID mutableTenantId(UUID subscriptionId) {
+        return mutableSubscriptionScope(subscriptionId).tenantId();
+    }
+
+    private SubscriptionScope mutableSubscriptionScope(UUID subscriptionId) {
+        SubscriptionScope scope = subscriptionScope(subscriptionId);
+        if (!MUTABLE_SUBSCRIPTION_STATUSES.contains(scope.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "terminal subscription cannot be mutated");
+        }
+        tenantRlsContext.applyForCurrentTransaction(scope.tenantId());
+        return scope;
+    }
+
+    private SubscriptionScope subscriptionScope(UUID subscriptionId) {
+        List<SubscriptionScope> rows = jdbc.query("""
+                SELECT s.tenant_id, s.status,
+                       COALESCE(pv.currency_code, p.currency_code) AS currency_code
+                  FROM tenant_subscriptions s
+                  LEFT JOIN plan_versions pv ON pv.id = s.plan_version_id
+                  LEFT JOIN saas_plans p ON p.id = s.plan_id
+                 WHERE s.id = ?
+                """,
+                (rs, rowNum) -> new SubscriptionScope(
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getString("status"),
+                        rs.getString("currency_code")),
+                subscriptionId);
         if (rows.size() != 1) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "subscription not found");
         }
