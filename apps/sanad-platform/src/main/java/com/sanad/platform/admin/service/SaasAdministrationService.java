@@ -713,6 +713,7 @@ public class SaasAdministrationService {
             // R0C-7: the lifecycle status change (RENEW, e.g. TRIALING -> ACTIVE)
             // flows through the canonical command authority too.
             UUID pendingVersionId = changeService.resolveActivePlanVersion(planId);
+            String pendingVersionCurrency = planVersionCurrency(pendingVersionId);
             jdbcTemplate.update(
                     "UPDATE tenant_subscriptions SET billing_cycle = ?, pending_plan_id = NULL, "
                             + "pending_billing_cycle = NULL, trial_ends_at = NULL, "
@@ -720,7 +721,7 @@ public class SaasAdministrationService {
                     billingCycle, Timestamp.from(now), Timestamp.from(periodEnd), Timestamp.from(now), subscriptionId);
             canonicalTransition(subscriptionId, "RENEW", "Renewal processed", authentication);
             changeService.applyCanonicalPlanCompositionChange(subscriptionId, planId, pendingVersionId,
-                    price(plan, billingCycle), plan.currencyCode(), before.seatQuantity(),
+                    price(plan, billingCycle), pendingVersionCurrency, before.seatQuantity(),
                     "Scheduled plan change applied at renewal", before.tenantId(), null);
         } else {
             jdbcTemplate.update(
