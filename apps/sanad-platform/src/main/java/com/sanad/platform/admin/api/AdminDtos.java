@@ -98,6 +98,11 @@ public final class AdminDtos {
     ) {
     }
 
+    public record TenantLoginLinkEventResponse(
+            @NotBlank String hostname
+    ) {
+    }
+
     public record SystemServiceResponse(
             UUID id,
             String code,
