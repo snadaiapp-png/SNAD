@@ -112,7 +112,7 @@ export default function SubscriptionDetailPage() {
     } catch (reason) {
       setError(scpErrorMessage(reason));
     }
-  }, [loadOperatingGovernance, subscriptionId]);
+  }, [subscriptionId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,7 +137,7 @@ export default function SubscriptionDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [subscriptionId]);
+  }, [loadOperatingGovernance, subscriptionId]);
 
   useEffect(() => {
     void load();
