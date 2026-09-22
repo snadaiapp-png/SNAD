@@ -8,7 +8,7 @@ import { AuthProvider } from "@/lib/auth/auth-provider";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { AuthEntry } from "./auth-entry";
 
-const { authApiMock, tenantAuthApiMock, replaceMock, prefetchMock } = vi.hoisted(() => ({
+const { authApiMock, tenantAuthApiMock, createTenantAuthApiMock, replaceMock, prefetchMock } = vi.hoisted(() => ({
   authApiMock: {
     refresh: vi.fn(),
     login: vi.fn(),
@@ -23,13 +23,14 @@ const { authApiMock, tenantAuthApiMock, replaceMock, prefetchMock } = vi.hoisted
     me: vi.fn(),
     changeCredential: vi.fn(),
   },
+  createTenantAuthApiMock: vi.fn(),
   replaceMock: vi.fn(),
   prefetchMock: vi.fn(),
 }));
 
 vi.mock("@/lib/api/auth", () => ({
   authApi: authApiMock,
-  tenantAuthApi: tenantAuthApiMock,
+  createTenantAuthApi: (...args: unknown[]) => createTenantAuthApiMock(...args),
   authResponseToMe: (response: AuthResponse) => ({
     ...response.user,
     lastLoginAt: response.lastLoginAt,
@@ -86,6 +87,8 @@ describe("AuthEntry session bootstrap", () => {
     window.sessionStorage.clear();
     for (const mock of Object.values(authApiMock)) mock.mockReset();
     for (const mock of Object.values(tenantAuthApiMock)) mock.mockReset();
+    createTenantAuthApiMock.mockReset();
+    createTenantAuthApiMock.mockReturnValue(tenantAuthApiMock);
     replaceMock.mockReset();
     prefetchMock.mockReset();
     window.history.replaceState({}, "", "/");
