@@ -43,6 +43,6 @@ class PlatformOperationsTenantManagementContractTest {
         assertThat(capability).isNotNull();
         assertThat(capability.value()).isEqualTo("EXECUTIVE_MANAGE");
         assertThat(endpoint.getGenericReturnType().getTypeName())
-                .contains("AdminDtos$TenantLoginLinkEventResponse");
+                .contains("java.lang.Void");
     }
 }
