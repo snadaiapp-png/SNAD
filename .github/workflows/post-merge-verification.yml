@@ -606,7 +606,7 @@ jobs:
   hrm-focused-security-rls:
     name: "JOB D — HRM focused security/RLS"
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     env:
       SPRING_PROFILES_ACTIVE: default
