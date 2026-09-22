@@ -290,12 +290,13 @@ export default function TenantsPage() {
     }
   }
 
-  function tenantLoginUrl(tenantId: string, hostname: string): string {
-    // Subscriber sign-in must be host-isolated from the control-plane cookie.
-    // The backend reconciles and returns the platform-owned hostname; there is
-    // deliberately no same-origin fallback.
-    const url = new URL("/", `https://${hostname}`);
+  function tenantLoginUrl(tenantId: string): string {
+    // Use the already-proven frontend origin. Session isolation is handled by
+    // a separate tenant refresh-cookie namespace in the BFF, so the control
+    // plane session in the originating tab is never replaced.
+    const url = new URL("/", window.location.origin);
     url.searchParams.set("tenantId", tenantId);
+    url.searchParams.set("tenantLogin", "1");
     return url.toString();
   }
 
@@ -321,8 +322,8 @@ export default function TenantsPage() {
     setError("");
     setNotice("");
     try {
-      const target = await executiveApi.recordTenantLoginLinkEvent(tenantId, action);
-      const url = tenantLoginUrl(tenantId, target.hostname);
+      await executiveApi.recordTenantLoginLinkEvent(tenantId, action);
+      const url = tenantLoginUrl(tenantId);
       if (action === "OPEN") {
         popup!.location.href = url;
       } else {
