@@ -93,6 +93,11 @@ public class PublicStoreController {
                 .resolve(host, HostRoutingService.Surface.STORE)
                 .orElse(null);
         if (route == null) return null;
+        Integer active = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM commerce_stores "
+                        + "WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
+                Integer.class, route.tenantId(), route.resourceId());
+        if (active == null || active != 1) return null;
         return new UUID[] { route.tenantId(), route.resourceId() };
     }
 
