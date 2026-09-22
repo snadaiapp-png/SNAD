@@ -1140,6 +1140,8 @@ export const en: TranslationDictionary = {
   "scp.detail.branchBound": "Branch binding updated.",
   "scp.detail.branchUnbound": "Branch unbound.",
   "scp.detail.applicationUpdated": "Branch application updated.",
+  "scp.detail.enableApplication": "Enable application for branch",
+  "scp.detail.disableApplication": "Disable application for branch",
   "scp.detail.billingProfileSaved": "Billing profile saved.",
   "scp.detail.resourceBound": "Resource assigned to branch.",
   "scp.detail.resourceUnbound": "Resource unbound.",
