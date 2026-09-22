@@ -204,7 +204,9 @@ class CrmPostgresMigrationTest {
     private static final String T10_CANDIDATE_SELF_SERVICE_VERSION = "20260918.8";
     private static final String PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION = "20260921.1";
     private static final String HR_G1_OPERATOR_CAPABILITIES_VERSION = "20260922.1";
-    private static final String LATEST_MIGRATION_VERSION = HR_G1_OPERATOR_CAPABILITIES_VERSION;
+    private static final String SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION = "20260922.2";
+    private static final String SUBSCRIPTION_OPERATING_UNITS_VERSION = "20260922.3";
+    private static final String LATEST_MIGRATION_VERSION = SUBSCRIPTION_OPERATING_UNITS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
