@@ -20,6 +20,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.*;
 
 /**
@@ -108,9 +109,14 @@ public class ExecutivePlatformService {
         // previous implementation inserted one tenant here and then called the
         // provisioner, which created a second tenant containing the administrator
         // and roles. Use the provisioner's tenant id and update that same row.
+        String countryCode = normalizeCountryCode(request.countryCode());
+        String locale = normalizeLocale(request.locale(), "en");
+        String timezone = normalizeTimezone(request.timezone(), "UTC");
+        String currencyCode = normalizeCurrencyCode(request.currencyCode(), "SAR");
+
         RegistrationProvisioner.ProvisionedRegistration provisioned = registrationProvisioner.provision(
                 request.adminEmail(), request.adminDisplayName(), request.name(), request.subdomain(),
-                null, request.countryCode());
+                null, countryCode);
         UUID tenantId = provisioned.tenantId();
 
         Timestamp trialEndsAt = request.trialDays() != null && request.trialDays() > 0
@@ -120,10 +126,8 @@ public class ExecutivePlatformService {
                 "UPDATE tenants SET name=?, legal_name=?, subdomain=?, status='PENDING', billing_email=?, "
                         + "country_code=?, locale=?, timezone=?, currency_code=?, trial_ends_at=?, updated_at=NOW() "
                         + "WHERE id=?",
-                request.name(), request.legalName(), request.subdomain(), request.billingEmail(), request.countryCode(),
-                request.locale() != null ? request.locale() : "en",
-                request.timezone() != null ? request.timezone() : "UTC",
-                request.currencyCode() != null ? request.currencyCode() : "SAR",
+                request.name().trim(), trimToNull(request.legalName()), request.subdomain().trim().toLowerCase(Locale.ROOT),
+                lowerEmail(request.billingEmail()), countryCode, locale, timezone, currencyCode,
                 trialEndsAt, tenantId);
 
         tenantDomainService.ensureDefaultDomain(
@@ -156,9 +160,10 @@ public class ExecutivePlatformService {
                         + "timezone = COALESCE(?, timezone), "
                         + "currency_code = COALESCE(?, currency_code), "
                         + "updated_at = NOW() WHERE id = ?",
-                trimToNull(request.name()), trimToNull(request.legalName()), trimToNull(request.billingEmail()),
-                trimToNull(request.countryCode()), trimToNull(request.locale()), trimToNull(request.timezone()),
-                trimToNull(request.currencyCode()), tenantId);
+                trimToNull(request.name()), trimToNull(request.legalName()), lowerEmail(request.billingEmail()),
+                normalizeCountryCode(request.countryCode()), normalizeLocale(request.locale(), null),
+                normalizeTimezone(request.timezone(), null), normalizeCurrencyCode(request.currencyCode(), null),
+                tenantId);
 
         TenantResponse after = getTenant(tenantId);
         auditService.success(authentication, tenantId, "UPDATE_TENANT", "TENANT", tenantId.toString(),
@@ -254,5 +259,52 @@ public class ExecutivePlatformService {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String lowerEmail(String value) {
+        String trimmed = trimToNull(value);
+        return trimmed == null ? null : trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeCountryCode(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) return null;
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        if (!normalized.matches("^[A-Z]{2}$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "countryCode must be ISO-3166 alpha-2");
+        }
+        return normalized;
+    }
+
+    private static String normalizeCurrencyCode(String value, String fallback) {
+        String normalized = trimToNull(value);
+        if (normalized == null) normalized = fallback;
+        if (normalized == null) return null;
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        if (!normalized.matches("^[A-Z]{3}$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "currencyCode must be ISO-4217");
+        }
+        return normalized;
+    }
+
+    private static String normalizeLocale(String value, String fallback) {
+        String normalized = trimToNull(value);
+        if (normalized == null) normalized = fallback;
+        if (normalized == null) return null;
+        if (!normalized.matches("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "locale must be a valid language tag");
+        }
+        return normalized;
+    }
+
+    private static String normalizeTimezone(String value, String fallback) {
+        String normalized = trimToNull(value);
+        if (normalized == null) normalized = fallback;
+        if (normalized == null) return null;
+        try {
+            return ZoneId.of(normalized).getId();
+        } catch (RuntimeException invalidZone) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "timezone must be a valid IANA zone", invalidZone);
+        }
     }
 }
