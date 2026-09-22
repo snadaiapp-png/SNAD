@@ -107,6 +107,11 @@ public class SubscriptionOperatingUnitService {
                 SELECT a.id, a.code, a.name,
                        COALESCE(sua.enabled, FALSE) AS enabled
                   FROM applications a
+                  LEFT JOIN subscription_unit_applications sua
+                    ON sua.tenant_id = ?
+                   AND sua.subscription_id = ?
+                   AND sua.organization_id = ?
+                   AND sua.application_id = a.id
                  WHERE a.status = 'ACTIVE'
                    AND (
                        EXISTS (
@@ -130,11 +135,6 @@ public class SubscriptionOperatingUnitService {
                               AND upper(m.code) = upper(a.code)
                        )
                    )
-                  LEFT JOIN subscription_unit_applications sua
-                    ON sua.tenant_id = ?
-                   AND sua.subscription_id = ?
-                   AND sua.organization_id = ?
-                   AND sua.application_id = a.id
                  ORDER BY a.display_order, a.code
                 """,
                 (rs, rowNum) -> new UnitApplication(
@@ -142,8 +142,8 @@ public class SubscriptionOperatingUnitService {
                         rs.getString("code"),
                         rs.getString("name"),
                         rs.getBoolean("enabled")),
-                subscriptionId, subscriptionId,
-                tenantId, subscriptionId, organizationId);
+                tenantId, subscriptionId, organizationId,
+                subscriptionId, subscriptionId);
     }
 
     @Transactional(readOnly = true)
