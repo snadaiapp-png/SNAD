@@ -3,6 +3,7 @@ package com.sanad.platform.website.application;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.website.api.WebsiteDtos.*;
 import com.sanad.platform.website.domain.WebsiteDomain;
+import com.sanad.platform.tenancy.routing.HostRoutingService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,10 +28,16 @@ public class WebsiteDomainService {
 
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
+    private final HostRoutingService hostRoutingService;
 
-    public WebsiteDomainService(JdbcTemplate jdbc, PlatformAuditService auditService) {
+    public WebsiteDomainService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            HostRoutingService hostRoutingService
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
+        this.hostRoutingService = hostRoutingService;
     }
 
     /**
@@ -42,6 +49,17 @@ public class WebsiteDomainService {
         String baseDomain = resolvePlatformBaseDomain();
         if (baseDomain == null || baseDomain.isBlank()) return null;
         return (websiteSlug + "." + baseDomain).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Tenant-scoped generated website hostname. The tenant segment prevents
+     * identical website slugs in different tenants from colliding globally.
+     */
+    public String generateDefaultDomain(UUID tenantId, String websiteSlug) {
+        String baseDomain = resolvePlatformBaseDomain();
+        if (baseDomain == null || baseDomain.isBlank()) return null;
+        String tenantSubdomain = tenantSubdomain(tenantId);
+        return (websiteSlug + "." + tenantSubdomain + "." + baseDomain).toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -58,6 +76,9 @@ public class WebsiteDomainService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid hostname format");
         if (WebsiteDomain.isReservedHostname(hostname))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is reserved or protected");
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname, HostRoutingService.Surface.WEBSITE, tenantId, websiteId, false);
 
         UUID id = UUID.randomUUID();
         String token = "snad-site-" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
@@ -83,8 +104,11 @@ public class WebsiteDomainService {
     @Transactional
     public DomainResponse generateAndRegisterDefaultDomain(UUID tenantId, UUID websiteId, String websiteSlug, Authentication auth) {
         ensureWebsite(tenantId, websiteId);
-        String hostname = generateDefaultDomain(websiteSlug);
+        String hostname = generateDefaultDomain(tenantId, websiteSlug);
         if (hostname == null) return null; // no base domain configured
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname, HostRoutingService.Surface.WEBSITE, tenantId, websiteId, true);
 
         DomainResponse existing = findExactHostname(hostname);
         if (existing != null) {
@@ -243,6 +267,18 @@ public class WebsiteDomainService {
             base = System.getenv("PLATFORM_BASE_DOMAIN");
         }
         return (base != null && !base.isBlank()) ? base.trim().toLowerCase(Locale.ROOT) : null;
+    }
+
+    private String tenantSubdomain(UUID tenantId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT subdomain FROM tenants WHERE id = ?",
+                    String.class,
+                    tenantId
+            );
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "tenant not found");
+        }
     }
 
     private void ensureWebsite(UUID tenantId, UUID websiteId) {
