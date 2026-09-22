@@ -1,7 +1,7 @@
 package com.sanad.platform.commerce.api;
 
 import com.sanad.platform.commerce.api.CommerceDtos.*;
-import com.sanad.platform.commerce.application.StoreDomainService;
+import com.sanad.platform.tenancy.routing.HostRoutingService;
 import com.sanad.platform.commerce.domain.CommerceDomain;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
@@ -27,11 +27,11 @@ import java.util.UUID;
 @RequestMapping("/api/v1/public/stores")
 public class PublicStoreController {
 
-    private final StoreDomainService domainService;
+    private final HostRoutingService hostRoutingService;
     private final JdbcTemplate jdbc;
 
-    public PublicStoreController(StoreDomainService domainService, JdbcTemplate jdbc) {
-        this.domainService = domainService;
+    public PublicStoreController(HostRoutingService hostRoutingService, JdbcTemplate jdbc) {
+        this.hostRoutingService = hostRoutingService;
         this.jdbc = jdbc;
     }
 
@@ -39,16 +39,18 @@ public class PublicStoreController {
     public ResponseEntity<PublicStoreResponse> resolveStore(
             @RequestHeader(value = "Host", required = false) String host) {
         if (host == null || host.isBlank()) return ResponseEntity.badRequest().build();
-        var domain = domainService.findByHostname(host);
-        if (domain == null) return ResponseEntity.notFound().build();
+        var route = hostRoutingService
+                .resolve(host, HostRoutingService.Surface.STORE)
+                .orElse(null);
+        if (route == null) return ResponseEntity.notFound().build();
         try {
             Map<String, Object> store = jdbc.queryForMap(
                     "SELECT id, tenant_id, name, slug, default_locale, default_currency "
                             + "FROM commerce_stores WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE'",
-                    domain.storeId(), domain.tenantId());
-            List<PublicCollectionResponse> collections = listPublicCollections(domain.tenantId(), domain.storeId());
+                    route.resourceId(), route.tenantId());
+            List<PublicCollectionResponse> collections = listPublicCollections(route.tenantId(), route.resourceId());
             return ResponseEntity.ok(new PublicStoreResponse(
-                    domain.storeId(), domain.tenantId(),
+                    route.resourceId(), route.tenantId(),
                     (String) store.get("name"), (String) store.get("slug"),
                     (String) store.get("default_locale"), (String) store.get("default_currency"),
                     collections));
@@ -87,9 +89,11 @@ public class PublicStoreController {
     // ===== Helpers =====
     private UUID[] resolveTenantAndStore(String host) {
         if (host == null || host.isBlank()) return null;
-        var domain = domainService.findByHostname(host);
-        if (domain == null) return null;
-        return new UUID[] { domain.tenantId(), domain.storeId() };
+        var route = hostRoutingService
+                .resolve(host, HostRoutingService.Surface.STORE)
+                .orElse(null);
+        if (route == null) return null;
+        return new UUID[] { route.tenantId(), route.resourceId() };
     }
 
     private List<PublicProductResponse> listPublicProducts(UUID tenantId, UUID storeId, String slugFilter) {
