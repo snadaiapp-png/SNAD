@@ -56,6 +56,61 @@ public class StoreDomainService {
         return (storeSlug + "." + baseDomain).toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Generate and register the platform-owned default storefront hostname.
+     * The operation is idempotent and reconciles an existing generated row.
+     */
+    @Transactional
+    public DomainResponse generateAndRegisterDefaultDomain(
+            UUID tenantId,
+            UUID storeId,
+            String storeSlug,
+            Authentication auth
+    ) {
+        ensureStore(tenantId, storeId);
+        String hostname = generateDefaultDomain(storeSlug);
+        if (hostname == null) return null;
+
+        DomainResponse existing = findExactHostname(hostname);
+        if (existing != null) {
+            if (!tenantId.equals(existing.tenantId())
+                    || !storeId.equals(existing.storeId())
+                    || existing.domainType() != CommerceDomain.DomainType.DEFAULT_GENERATED) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "hostname already claimed: " + hostname);
+            }
+            Instant now = Instant.now();
+            jdbc.update("UPDATE commerce_store_domains SET is_primary = FALSE, updated_at = ? "
+                            + "WHERE tenant_id = ? AND store_id = ? AND id <> ?",
+                    Timestamp.from(now), tenantId, storeId, existing.id());
+            jdbc.update("UPDATE commerce_store_domains SET verification_status = 'VERIFIED', "
+                            + "activation_status = 'ACTIVE', is_primary = TRUE, failure_reason = NULL, "
+                            + "updated_at = ?, version = version + 1 "
+                            + "WHERE tenant_id = ? AND store_id = ? AND id = ?",
+                    Timestamp.from(now), tenantId, storeId, existing.id());
+            audit(tenantId, auth, "STORE_DOMAIN.DEFAULT_RECONCILED", existing.id(), "hostname=" + hostname);
+            return getOrThrow(tenantId, storeId, existing.id());
+        }
+
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.now();
+        jdbc.update("UPDATE commerce_store_domains SET is_primary = FALSE, updated_at = ? "
+                        + "WHERE tenant_id = ? AND store_id = ?",
+                Timestamp.from(now), tenantId, storeId);
+        try {
+            jdbc.update("INSERT INTO commerce_store_domains "
+                            + "(id, tenant_id, store_id, hostname, domain_type, verification_status, "
+                            + " activation_status, is_primary, verification_token, verification_method, "
+                            + " version, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, ?, 'DEFAULT_GENERATED', 'VERIFIED', 'ACTIVE', TRUE, "
+                            + " NULL, NULL, 0, ?, ?)",
+                    id, tenantId, storeId, hostname, Timestamp.from(now), Timestamp.from(now));
+        } catch (DuplicateKeyException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "hostname already claimed: " + hostname, e);
+        }
+        audit(tenantId, auth, "STORE_DOMAIN.DEFAULT_CREATED", id, "hostname=" + hostname);
+        return getOrThrow(tenantId, storeId, id);
+    }
+
     @Transactional
     public DomainResponse registerCustomDomain(UUID tenantId, UUID storeId,
                                                   CreateDomainRequest request, Authentication auth) {
@@ -154,6 +209,18 @@ public class StoreDomainService {
     }
 
     // ===== Helpers =====
+    private DomainResponse findExactHostname(String hostname) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT * FROM commerce_store_domains WHERE lower(hostname) = lower(?)",
+                    this::mapRow,
+                    hostname
+            );
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
     private String resolvePlatformBaseDomain() {
         String base = System.getProperty("sanad.tenancy.domains.base-domain");
         if (base == null || base.isBlank()) base = System.getenv("SANAD_BASE_DOMAIN");
