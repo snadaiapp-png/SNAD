@@ -111,13 +111,10 @@ class SubscriptionOperatingUnitPostgresTest {
         assertThat(count("SELECT COUNT(*) FROM subscription_operating_units")).isZero();
 
         setTenant(tenantA);
-        Throwable wrongTenantContext = catchThrowable(
-                () -> insertOperatingUnit(tenantB, subB, orgB, "CONSOLIDATED"));
-        assertThat(wrongTenantContext).isInstanceOf(SQLException.class);
-
-        Throwable mixedTenantForeignKey = catchThrowable(
-                () -> insertOperatingUnit(tenantA, subA, orgB, "CONSOLIDATED"));
-        assertThat(mixedTenantForeignKey).isInstanceOf(SQLException.class);
+        assertSqlFailure(() -> insertOperatingUnit(
+                tenantB, subB, orgB, "CONSOLIDATED"));
+        assertSqlFailure(() -> insertOperatingUnit(
+                tenantA, subA, orgB, "CONSOLIDATED"));
     }
 
     @Test
@@ -134,17 +131,12 @@ class SubscriptionOperatingUnitPostgresTest {
         insertBillingProfile(tenant, subscription, null, "CONSOLIDATED", "SAR");
         insertBillingProfile(tenant, subscription, branch, "SEPARATE", "SAR");
 
-        Throwable tenantSeparate = catchThrowable(
-                () -> insertBillingProfile(tenant, subscription, null, "SEPARATE", "SAR"));
-        assertThat(tenantSeparate).isInstanceOf(SQLException.class);
-
-        Throwable branchConsolidated = catchThrowable(
-                () -> insertBillingProfile(tenant, subscription, branch, "CONSOLIDATED", "SAR"));
-        assertThat(branchConsolidated).isInstanceOf(SQLException.class);
-
-        Throwable invalidCurrency = catchThrowable(
-                () -> insertBillingProfile(tenant, subscription, null, "CONSOLIDATED", "S4R"));
-        assertThat(invalidCurrency).isInstanceOf(SQLException.class);
+        assertSqlFailure(() -> insertBillingProfile(
+                tenant, subscription, null, "SEPARATE", "SAR"));
+        assertSqlFailure(() -> insertBillingProfile(
+                tenant, subscription, branch, "CONSOLIDATED", "SAR"));
+        assertSqlFailure(() -> insertBillingProfile(
+                tenant, subscription, null, "CONSOLIDATED", "S4R"));
     }
 
     private void seedTenant(UUID tenant, String suffix) throws SQLException {
@@ -214,6 +206,16 @@ class SubscriptionOperatingUnitPostgresTest {
             ps.setString(7, mode);
             ps.executeUpdate();
         }
+    }
+
+    @FunctionalInterface
+    private interface SqlAction { void run() throws SQLException; }
+
+    private void assertSqlFailure(SqlAction action) throws SQLException {
+        Savepoint savepoint = connection.setSavepoint();
+        Throwable failure = catchThrowable(action::run);
+        assertThat(failure).isInstanceOf(SQLException.class);
+        connection.rollback(savepoint);
     }
 
     private void setTenant(UUID tenant) throws SQLException {
