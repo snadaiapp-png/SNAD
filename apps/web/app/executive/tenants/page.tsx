@@ -47,6 +47,47 @@ const COUNTRY_PATTERN = /^[A-Z]{2}$/;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const COUNTRY_CODES = (
+  "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW"
+).split(" ");
+
+const LOCALES = [
+  "ar-SA", "ar-AE", "ar-EG", "ar-BH", "ar-KW", "ar-OM", "ar-QA", "ar-JO", "ar-MA",
+  "en-US", "en-GB", "en-AU", "fr-FR", "de-DE", "es-ES", "it-IT", "pt-BR",
+  "tr-TR", "id-ID", "ms-MY", "hi-IN", "ur-PK", "zh-CN", "ja-JP", "ko-KR",
+];
+
+const FALLBACK_TIMEZONES = [
+  "UTC", "Asia/Riyadh", "Asia/Dubai", "Asia/Kuwait", "Asia/Qatar", "Asia/Bahrain",
+  "Asia/Muscat", "Asia/Amman", "Asia/Baghdad", "Asia/Beirut", "Africa/Cairo",
+  "Africa/Casablanca", "Europe/London", "Europe/Paris", "Europe/Berlin",
+  "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+  "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney",
+];
+
+const FALLBACK_CURRENCIES = [
+  "SAR", "AED", "BHD", "KWD", "OMR", "QAR", "USD", "EUR", "GBP", "EGP", "JOD",
+  "MAD", "TRY", "INR", "PKR", "CNY", "JPY", "AUD", "CAD", "SGD",
+];
+
+function supportedIntlValues(kind: "currency" | "timeZone", fallback: string[]): string[] {
+  const intl = Intl as typeof Intl & { supportedValuesOf?: (key: "currency" | "timeZone") => string[] };
+  try {
+    const values = intl.supportedValuesOf?.(kind);
+    return values && values.length > 0 ? values : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const TIMEZONES = supportedIntlValues("timeZone", FALLBACK_TIMEZONES);
+const CURRENCY_CODES = supportedIntlValues("currency", FALLBACK_CURRENCIES);
+
+function withCurrentOption(options: readonly string[], current: string): string[] {
+  const value = current.trim();
+  return value && !options.includes(value) ? [value, ...options] : [...options];
+}
+
 type Translate = (key: string) => string;
 
 function validateCreateTenant(form: typeof EMPTY_CREATE, t: Translate): string {
@@ -463,10 +504,62 @@ export default function TenantsPage() {
           <Input label={t("scp.tenants.form.name")} aria-label={t("scp.tenants.form.name")} required value={editForm.name} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, name: e.target.value }); }} />
           <Input label={t("scp.tenants.form.legalName")} aria-label={t("scp.tenants.form.legalName")} value={editForm.legalName} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, legalName: e.target.value }); }} />
           <Input type="email" label={t("scp.tenants.form.billingEmail")} aria-label={t("scp.tenants.form.billingEmail")} value={editForm.billingEmail} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, billingEmail: e.target.value }); }} />
-          <Input label={t("scp.tenants.form.countryCode")} aria-label={t("scp.tenants.form.countryCode")} hint={t("scp.tenants.form.countryHint")} value={editForm.countryCode} maxLength={2} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, countryCode: e.target.value.toUpperCase() }); }} />
-          <Input label={t("scp.tenants.form.locale")} aria-label={t("scp.tenants.form.locale")} hint={t("scp.tenants.form.localeHint")} value={editForm.locale} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, locale: e.target.value }); }} />
-          <Input label={t("scp.tenants.form.timezone")} aria-label={t("scp.tenants.form.timezone")} hint={t("scp.tenants.form.timezoneHint")} value={editForm.timezone} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, timezone: e.target.value }); }} />
-          <Input label={t("scp.tenants.form.currencyCode")} aria-label={t("scp.tenants.form.currencyCode")} hint={t("scp.tenants.form.currencyHint")} value={editForm.currencyCode} maxLength={3} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, currencyCode: e.target.value.toUpperCase() }); }} />
+          <label>
+            <span>{t("scp.tenants.form.countryCode")}</span>
+            <select
+              aria-label={t("scp.tenants.form.countryCode")}
+              value={editForm.countryCode}
+              onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, countryCode: e.target.value }); }}
+            >
+              <option value="">—</option>
+              {withCurrentOption(COUNTRY_CODES, editForm.countryCode).map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
+            <span className={styles.appCardMeta}>{t("scp.tenants.form.countryHint")}</span>
+          </label>
+          <label>
+            <span>{t("scp.tenants.form.locale")}</span>
+            <select
+              aria-label={t("scp.tenants.form.locale")}
+              value={editForm.locale}
+              onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, locale: e.target.value }); }}
+            >
+              <option value="">—</option>
+              {withCurrentOption(LOCALES, editForm.locale).map((locale) => (
+                <option key={locale} value={locale}>{locale}</option>
+              ))}
+            </select>
+            <span className={styles.appCardMeta}>{t("scp.tenants.form.localeHint")}</span>
+          </label>
+          <label>
+            <span>{t("scp.tenants.form.timezone")}</span>
+            <select
+              aria-label={t("scp.tenants.form.timezone")}
+              value={editForm.timezone}
+              onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, timezone: e.target.value }); }}
+            >
+              <option value="">—</option>
+              {withCurrentOption(TIMEZONES, editForm.timezone).map((timezone) => (
+                <option key={timezone} value={timezone}>{timezone}</option>
+              ))}
+            </select>
+            <span className={styles.appCardMeta}>{t("scp.tenants.form.timezoneHint")}</span>
+          </label>
+          <label>
+            <span>{t("scp.tenants.form.currencyCode")}</span>
+            <select
+              aria-label={t("scp.tenants.form.currencyCode")}
+              value={editForm.currencyCode}
+              onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, currencyCode: e.target.value }); }}
+            >
+              <option value="">—</option>
+              {withCurrentOption(CURRENCY_CODES, editForm.currencyCode).map((currency) => (
+                <option key={currency} value={currency}>{currency}</option>
+              ))}
+            </select>
+            <span className={styles.appCardMeta}>{t("scp.tenants.form.currencyHint")}</span>
+          </label>
           <p className={styles.appCardMeta}>{t("scp.tenants.form.subdomainImmutableNote")}</p>
           {dialogError ? <ScpError message={dialogError} /> : null}
         </div>
