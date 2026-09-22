@@ -1144,6 +1144,8 @@ export const ar: TranslationDictionary = {
   "scp.detail.branchBound": "تم تحديث ربط الفرع.",
   "scp.detail.branchUnbound": "تم إلغاء ربط الفرع.",
   "scp.detail.applicationUpdated": "تم تحديث تطبيقات الفرع.",
+  "scp.detail.enableApplication": "تفعيل التطبيق للفرع",
+  "scp.detail.disableApplication": "تعطيل التطبيق للفرع",
   "scp.detail.billingProfileSaved": "تم حفظ ملف الفوترة.",
   "scp.detail.resourceBound": "تم ربط المورد بالفرع.",
   "scp.detail.resourceUnbound": "تم إلغاء ربط المورد.",
