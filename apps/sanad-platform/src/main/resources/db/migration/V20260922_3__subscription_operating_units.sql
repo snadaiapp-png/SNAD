@@ -183,7 +183,7 @@ DROP POLICY IF EXISTS usage_operating_unit_aggregates_tenant_isolation
     ON usage_operating_unit_aggregates;
 CREATE POLICY usage_operating_unit_aggregates_tenant_isolation
     ON usage_operating_unit_aggregates
-    USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    USING (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid);
 CREATE INDEX IF NOT EXISTS idx_websites_tenant_org
     ON websites(tenant_id, organization_id) WHERE organization_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_commerce_stores_tenant_org
@@ -232,8 +232,8 @@ DROP POLICY IF EXISTS subscription_operating_units_tenant_isolation
     ON subscription_operating_units;
 CREATE POLICY subscription_operating_units_tenant_isolation
     ON subscription_operating_units
-    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    USING (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid);
 
 ALTER TABLE subscription_unit_applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscription_unit_applications FORCE ROW LEVEL SECURITY;
@@ -241,8 +241,8 @@ DROP POLICY IF EXISTS subscription_unit_applications_tenant_isolation
     ON subscription_unit_applications;
 CREATE POLICY subscription_unit_applications_tenant_isolation
     ON subscription_unit_applications
-    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    USING (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid);
 
 ALTER TABLE subscription_billing_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscription_billing_profiles FORCE ROW LEVEL SECURITY;
@@ -250,8 +250,8 @@ DROP POLICY IF EXISTS subscription_billing_profiles_tenant_isolation
     ON subscription_billing_profiles;
 CREATE POLICY subscription_billing_profiles_tenant_isolation
     ON subscription_billing_profiles
-    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    USING (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid);
 
 ALTER TABLE subscription_resource_bindings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscription_resource_bindings FORCE ROW LEVEL SECURITY;
@@ -259,5 +259,5 @@ DROP POLICY IF EXISTS subscription_resource_bindings_tenant_isolation
     ON subscription_resource_bindings;
 CREATE POLICY subscription_resource_bindings_tenant_isolation
     ON subscription_resource_bindings
-    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    USING (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid);
