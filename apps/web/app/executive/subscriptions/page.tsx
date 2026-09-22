@@ -129,7 +129,10 @@ function SubscriptionsContent() {
         trialDays: plan.trialDays,
       });
       try {
-        await scpApi.provision(created.id);
+        const outcome = await scpApi.provision(created.id);
+        if (outcome.status !== "SUCCEEDED") {
+          throw new Error("Provisioning did not complete successfully");
+        }
         setNotice(t("scp.subscriptions.createdAndProvisioned"));
       } catch (provisionReason) {
         setNotice(t("scp.subscriptions.createdProvisionPending"));
