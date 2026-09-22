@@ -421,6 +421,7 @@ public class SaasAdministrationService {
         // R0C-4: canonical target version resolution — fail closed BEFORE any
         // row is written when the plan has no ACTIVE version.
         UUID planVersionId = changeService.resolveActivePlanVersion(request.planId());
+        String planVersionCurrency = planVersionCurrency(planVersionId);
         String billingCycle = normalizeCycle(request.billingCycle());
         validateUsageAgainstPlan(request.tenantId(), request.seatQuantity(), plan);
 
@@ -457,7 +458,7 @@ public class SaasAdministrationService {
         // R0C-4: canonical birth of the initial ACTIVE PLAN item — every
         // subscription is born inside the canonical composition model.
         changeService.insertInitialPlanItem(id, request.tenantId(), request.planId(), planVersionId,
-                price(plan, billingCycle), plan.currencyCode(), request.seatQuantity());
+                price(plan, billingCycle), planVersionCurrency, request.seatQuantity());
         recordEvent(id, request.tenantId(), "SUBSCRIPTION.CREATED", null, request.planId(), "IMMEDIATE", 0,
                 "Subscription created", now, authentication);
         SubscriptionResponse created = getSubscription(id);
@@ -497,7 +498,12 @@ public class SaasAdministrationService {
             // R0C-4: canonical target version resolution — fail closed before
             // any mutation when the target plan has no ACTIVE version.
             UUID targetVersionId = changeService.resolveActivePlanVersion(targetPlan.id());
-            long adjustment = proratedAdjustment(before, oldPlan, targetPlan, targetCycle);
+            String targetVersionCurrency = planVersionCurrency(targetVersionId);
+            if (!targetVersionCurrency.equals(before.currencyCode())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Immediate plan change cannot prorate across different pinned currencies");
+            }
+            long adjustment = proratedAdjustment(before, oldPlan, targetPlan, targetVersionId, targetCycle);
             if (adjustment < 0) {
                 jdbcTemplate.update(
                         "UPDATE tenant_subscriptions SET credit_balance_minor = credit_balance_minor + ?, "
@@ -515,7 +521,7 @@ public class SaasAdministrationService {
             // writes plan_id directly. Billing, proration, invoices, events,
             // audit and entitlement publishing stay exactly as before.
             changeService.applyCanonicalPlanCompositionChange(subscriptionId, targetPlan.id(), targetVersionId,
-                    price(targetPlan, targetCycle), targetPlan.currencyCode(), before.seatQuantity(),
+                    price(targetPlan, targetCycle), targetVersionCurrency, before.seatQuantity(),
                     request.reason(), before.tenantId(), null);
             if (adjustment > 0) {
                 issueInvoice(getSubscription(subscriptionId), adjustment,
@@ -546,8 +552,10 @@ public class SaasAdministrationService {
         int newSeats = request.seatQuantity();
         long adjustment = 0;
         if (oldSeats != newSeats) {
-            long unitPrice = price(plan, before.billingCycle());
-            adjustment = prorate((long) (newSeats - oldSeats) * unitPrice,
+            UUID planVersionId = currentPlanVersionId(subscriptionId);
+            long oldAmount = recurringAmount(before, planVersionId, plan, before.billingCycle(), oldSeats);
+            long newAmount = recurringAmount(before, planVersionId, plan, before.billingCycle(), newSeats);
+            adjustment = prorate(newAmount - oldAmount,
                     before.currentPeriodStart(), before.currentPeriodEnd());
             if (adjustment < 0) {
                 jdbcTemplate.update(
@@ -924,11 +932,29 @@ public class SaasAdministrationService {
      * units instead of incorrectly multiplying by licensed user seats.
      */
     private long recurringSubtotal(SubscriptionResponse subscription, PlanResponse plan) {
-        UUID planVersionId = jdbcTemplate.queryForObject(
-                "SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?",
-                UUID.class,
-                subscription.id()
+        UUID planVersionId = currentPlanVersionId(subscription.id());
+        return recurringAmount(
+                subscription,
+                planVersionId,
+                plan,
+                subscription.billingCycle(),
+                subscription.seatQuantity()
         );
+    }
+
+    /**
+     * Resolve the immutable plan-version price model for a subscription.
+     * PER_BRANCH is quantified from ACTIVE BRANCH operating units; other
+     * models receive the licensed seat quantity. Legacy plan-row pricing is
+     * only a compatibility fallback when no governed price exists.
+     */
+    private long recurringAmount(
+            SubscriptionResponse subscription,
+            UUID planVersionId,
+            PlanResponse legacyPlan,
+            String billingCycle,
+            int seatQuantity
+    ) {
         if (planVersionId != null) {
             String country = jdbcTemplate.queryForObject(
                     "SELECT country_code FROM tenants WHERE id = ?",
@@ -942,12 +968,19 @@ public class SaasAdministrationService {
                     .resolveForPlanVersion(
                             planVersionId,
                             priceCountry,
-                            subscription.billingCycle(),
+                            normalizeCycle(billingCycle),
                             Instant.now()
                     );
             if (resolved.isPresent()) {
                 PriceEntity effectivePrice = resolved.get();
-                int quantity = subscription.seatQuantity();
+                String pinnedCurrency = planVersionCurrency(planVersionId);
+                if (!pinnedCurrency.equals(effectivePrice.getCurrencyCode())) {
+                    throw new ResponseStatusException(
+                            HttpStatus.CONFLICT,
+                            "Effective price currency does not match pinned plan-version currency"
+                    );
+                }
+                int quantity = seatQuantity;
                 if ("PER_BRANCH".equals(effectivePrice.getPriceModel())) {
                     Integer branchCount = jdbcTemplate.queryForObject("""
                             SELECT COUNT(*)
@@ -980,7 +1013,25 @@ public class SaasAdministrationService {
                 );
             }
         }
-        return Math.multiplyExact(price(plan, subscription.billingCycle()), subscription.seatQuantity());
+        return Math.multiplyExact(price(legacyPlan, billingCycle), seatQuantity);
+    }
+
+    private UUID currentPlanVersionId(UUID subscriptionId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?",
+                UUID.class,
+                subscriptionId
+        );
+    }
+
+    private String planVersionCurrency(UUID planVersionId) {
+        String currency = jdbcTemplate.queryForObject(
+                "SELECT currency_code FROM plan_versions WHERE id = ?",
+                String.class,
+                planVersionId
+        );
+        String normalized = normalizeCurrency(currency);
+        return normalized;
     }
 
     private void issueInvoice(
@@ -1038,10 +1089,16 @@ public class SaasAdministrationService {
             SubscriptionResponse subscription,
             PlanResponse oldPlan,
             PlanResponse newPlan,
+            UUID targetPlanVersionId,
             String newCycle
     ) {
-        long oldAmount = Math.multiplyExact(price(oldPlan, subscription.billingCycle()), subscription.seatQuantity());
-        long newAmount = Math.multiplyExact(price(newPlan, newCycle), subscription.seatQuantity());
+        UUID currentVersionId = currentPlanVersionId(subscription.id());
+        long oldAmount = recurringAmount(
+                subscription, currentVersionId, oldPlan,
+                subscription.billingCycle(), subscription.seatQuantity());
+        long newAmount = recurringAmount(
+                subscription, targetPlanVersionId, newPlan,
+                newCycle, subscription.seatQuantity());
         return prorate(newAmount - oldAmount, subscription.currentPeriodStart(), subscription.currentPeriodEnd());
     }
 
@@ -1095,10 +1152,11 @@ public class SaasAdministrationService {
     private String subscriptionSelect() {
         return "SELECT s.id, s.tenant_id, t.name AS tenant_name, s.plan_id, p.code AS plan_code, p.name AS plan_name, "
                 + "s.pending_plan_id, pp.code AS pending_plan_code, s.status, s.billing_cycle, s.pending_billing_cycle, "
-                + "s.seat_quantity, s.credit_balance_minor, p.currency_code, s.started_at, s.trial_ends_at, "
-                + "s.current_period_start, s.current_period_end, s.cancel_at_period_end, s.cancelled_at, "
-                + "s.created_at, s.updated_at FROM tenant_subscriptions s "
+                + "s.seat_quantity, s.credit_balance_minor, COALESCE(pv.currency_code, p.currency_code) AS currency_code, "
+                + "s.started_at, s.trial_ends_at, s.current_period_start, s.current_period_end, "
+                + "s.cancel_at_period_end, s.cancelled_at, s.created_at, s.updated_at FROM tenant_subscriptions s "
                 + "JOIN tenants t ON t.id = s.tenant_id JOIN saas_plans p ON p.id = s.plan_id "
+                + "LEFT JOIN plan_versions pv ON pv.id = s.plan_version_id "
                 + "LEFT JOIN saas_plans pp ON pp.id = s.pending_plan_id";
     }
 
