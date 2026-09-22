@@ -33,11 +33,13 @@ public class WebsiteDomainService {
     public WebsiteDomainService(
             JdbcTemplate jdbc,
             PlatformAuditService auditService,
-            HostRoutingService hostRoutingService
+            HostRoutingService hostRoutingService,
+            DomainOwnershipVerifier ownershipVerifier
     ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.hostRoutingService = hostRoutingService;
+        this.ownershipVerifier = ownershipVerifier;
     }
 
     /**
@@ -172,8 +174,19 @@ public class WebsiteDomainService {
     @Transactional
     public DomainResponse verifyDomain(UUID tenantId, UUID websiteId, UUID domainId, VerifyDomainRequest request, Authentication auth) {
         DomainResponse existing = getOrThrow(tenantId, websiteId, domainId);
-        if (request == null || request.verificationToken() == null || !request.verificationToken().equals(existing.verificationToken()))
+        if (request == null || request.verificationToken() == null
+                || !request.verificationToken().equals(existing.verificationToken()))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "verification token mismatch");
+        WebsiteDomain.VerificationMethod method = existing.verificationMethod() != null
+                ? existing.verificationMethod()
+                : WebsiteDomain.VerificationMethod.DNS_TXT;
+        if (!ownershipVerifier.verify(
+                existing.hostname(),
+                DomainOwnershipVerifier.Method.valueOf(method.name()),
+                existing.verificationToken())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "external domain ownership challenge is not satisfied");
+        }
         Instant now = Instant.now();
         UUID actor = actorUserId(auth);
         jdbc.update("UPDATE website_domains SET verification_status = 'VERIFIED', verified_at = ?, verified_by = ?, "
