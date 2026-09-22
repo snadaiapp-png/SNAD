@@ -124,6 +124,19 @@ describe("Subscription tenant upgrade creation flow", () => {
     );
   });
 
+  it("keeps a provisioning failure visible instead of navigating away", async () => {
+    const user = userEvent.setup();
+    provisionMock.mockResolvedValue({ jobId: "job-2", status: "FAILED", skippedSteps: [] });
+    render(<SubscriptionsPage />);
+
+    await user.click(await screen.findByRole("button", {
+      name: "scp.subscriptions.createAndProvision",
+    }));
+
+    await waitFor(() => expect(provisionMock).toHaveBeenCalledWith("sub-1"));
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(await screen.findByText("scp.subscriptions.createdProvisionPending")).toBeInTheDocument();
+  });
   it("does not expose retired plans as subscription creation choices", async () => {
     plansMock.mockResolvedValue([
       ACTIVE_PLAN,
