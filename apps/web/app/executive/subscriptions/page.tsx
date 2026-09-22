@@ -96,14 +96,21 @@ function SubscriptionsContent() {
     }
     let active = true;
     executiveApi.plans()
-      .then((result) => {
-        if (!active) return;
+      .then(async (result) => {
         const activePlans = result.filter((plan) => plan.status === "ACTIVE");
-        setPlans(activePlans);
+        const eligible = await Promise.all(
+          activePlans.map(async (plan) => {
+            const versions = await scpApi.planVersions(plan.id);
+            return versions.some((version) => version.status === "ACTIVE") ? plan : null;
+          }),
+        );
+        if (!active) return;
+        const creatablePlans = eligible.filter((plan): plan is SaasPlan => plan !== null);
+        setPlans(creatablePlans);
         setSelectedPlanId((current) =>
-          current && activePlans.some((plan) => plan.id === current)
+          current && creatablePlans.some((plan) => plan.id === current)
             ? current
-            : activePlans[0]?.id ?? "");
+            : creatablePlans[0]?.id ?? "");
       })
       .catch((reason) => {
         if (active) setError(scpErrorMessage(reason));
