@@ -142,9 +142,11 @@ export function createAuthApi(
       });
     },
     async changeCredential(req: ChangeCredentialRequest): Promise<void> {
-      await client.post<void, ChangeCredentialRequest>("/api/v1/auth/change-credential", req, {
-        timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
-      });
+      await client.post<void, ChangeCredentialRequest>(
+        "/api/v1/auth/change-credential",
+        req,
+        scopedOptions(AUTH_REQUEST_TIMEOUT_MS),
+      );
     },
     async adminResetPassword(
       userId: string,
