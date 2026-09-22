@@ -3,6 +3,7 @@ package com.sanad.platform.commerce;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.application.*;
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -30,6 +32,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 /**
  * Concurrency tests for the atomic order-number allocator and the
@@ -67,12 +72,15 @@ class CommerceOrderConcurrencyTest {
     @Autowired private CheckoutService checkoutService;
     @Autowired private OrderService orderService;
     @Autowired private JdbcTemplate jdbc;
+    @MockBean private EntitlementResolver entitlementResolver;
 
     private UUID tenantId;
     private UUID userId;
 
     @BeforeEach
     void setUp() {
+        System.setProperty("sanad.tenancy.domains.base-domain", "snad.example");
+        when(entitlementResolver.getLimit(any(UUID.class), anyString(), anyString())).thenReturn(100L);
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
@@ -91,6 +99,7 @@ class CommerceOrderConcurrencyTest {
     @AfterEach
     void clearContext() {
         RlsTestSupport.clearSecurityContext();
+        System.clearProperty("sanad.tenancy.domains.base-domain");
     }
 
     // ===== Test 1: 20 parallel checkouts produce 20 unique order numbers =====
