@@ -9,6 +9,7 @@ import com.sanad.platform.admin.api.TenantDomainDtos.Status;
 import com.sanad.platform.admin.api.TenantDomainDtos.UpdateDomainRequest;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerificationMethod;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerifyDomainRequest;
+import com.sanad.platform.tenancy.routing.HostRoutingService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,10 +58,16 @@ public class TenantDomainService {
 
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
+    private final HostRoutingService hostRoutingService;
 
-    public TenantDomainService(JdbcTemplate jdbc, PlatformAuditService auditService) {
+    public TenantDomainService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            HostRoutingService hostRoutingService
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
+        this.hostRoutingService = hostRoutingService;
     }
 
     // ============================================================
@@ -81,6 +88,14 @@ public class TenantDomainService {
         Origin origin = request.origin() == null ? Origin.CUSTOM : request.origin();
         VerificationMethod method = request.verificationMethod() == null
                 ? VerificationMethod.DNS_TXT : request.verificationMethod();
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname,
+                HostRoutingService.Surface.TENANT_APPLICATION,
+                tenantId,
+                tenantId,
+                false
+        );
 
         UUID id = UUID.randomUUID();
         String token = generateToken();
@@ -128,6 +143,14 @@ public class TenantDomainService {
         if (hostname == null || hostname.isBlank()) {
             return null;
         }
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname,
+                HostRoutingService.Surface.TENANT_APPLICATION,
+                tenantId,
+                tenantId,
+                true
+        );
 
         List<DomainResponse> existing = jdbc.query(
                 "SELECT * FROM tenant_domains WHERE lower(hostname) = lower(?) ORDER BY created_at, id",
