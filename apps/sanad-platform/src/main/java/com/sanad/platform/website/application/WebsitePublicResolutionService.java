@@ -74,7 +74,10 @@ public class WebsitePublicResolutionService {
         if (route == null) return null;
         try {
             Map<String, Object> page = jdbc.queryForMap(
-                    "SELECT * FROM website_pages WHERE tenant_id = ? AND website_id = ? AND slug = ? AND status = 'PUBLISHED'",
+                    "SELECT p.* FROM website_pages p "
+                            + "JOIN websites w ON w.tenant_id = p.tenant_id AND w.id = p.website_id "
+                            + "WHERE p.tenant_id = ? AND p.website_id = ? AND p.slug = ? "
+                            + "AND p.status = 'PUBLISHED' AND w.status = 'ACTIVE'",
                     route.tenantId(), route.resourceId(), pageSlug);
             Map<String, Object> theme = null;
             try {
