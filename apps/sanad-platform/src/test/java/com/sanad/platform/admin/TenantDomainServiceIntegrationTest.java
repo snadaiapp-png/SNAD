@@ -274,6 +274,37 @@ class TenantDomainServiceIntegrationTest {
     }
 
     @Test
+    void ensureDefaultDomain_preservesExistingCustomPrimary() {
+        var custom = createDomain("customer.example.com");
+        verifyAndActivate(custom);
+        domainService.updateDomain(
+                tenantId,
+                custom.id(),
+                new UpdateDomainRequest(null, true),
+                null);
+
+        System.setProperty("sanad.tenancy.domains.base-domain", "snad.example");
+        try {
+            var generated = domainService.ensureDefaultDomain(
+                    tenantId,
+                    "tenant-a",
+                    DomainType.APPLICATION,
+                    null);
+
+            assertThat(generated).isNotNull();
+            assertThat(generated.hostname()).isEqualTo("tenant-a.snad.example");
+            assertThat(generated.status()).isEqualTo(Status.ACTIVE);
+            assertThat(generated.isPrimary()).isFalse();
+
+            var customReloaded = domainService.getDomain(tenantId, custom.id());
+            assertThat(customReloaded.status()).isEqualTo(Status.ACTIVE);
+            assertThat(customReloaded.isPrimary()).isTrue();
+        } finally {
+            System.clearProperty("sanad.tenancy.domains.base-domain");
+        }
+    }
+
+    @Test
     void generateDefaultHostname_returnsNullWhenBaseDomainUnset() {
         // No SANAD_BASE_DOMAIN env or system property in tests by default.
         String result = domainService.generateDefaultHostname("acme", DomainType.APPLICATION);
