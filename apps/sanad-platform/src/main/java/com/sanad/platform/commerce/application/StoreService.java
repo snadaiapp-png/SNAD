@@ -2,6 +2,7 @@ package com.sanad.platform.commerce.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.domain.CommerceDomain;
 import org.springframework.dao.DuplicateKeyException;
@@ -32,20 +33,34 @@ import java.util.UUID;
 @Service
 public class StoreService {
 
+    private static final String MODULE_CODE = "ECOMMERCE_CX";
+    private static final String STORE_LIMIT_CODE = "ECOMMERCE_CX.MAX_STORES";
+
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
     private final ObjectMapper objectMapper;
+    private final EntitlementResolver entitlementResolver;
+    private final StoreDomainService domainService;
 
-    public StoreService(JdbcTemplate jdbc, PlatformAuditService auditService, ObjectMapper objectMapper) {
+    public StoreService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            ObjectMapper objectMapper,
+            EntitlementResolver entitlementResolver,
+            StoreDomainService domainService
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
+        this.entitlementResolver = entitlementResolver;
+        this.domainService = domainService;
     }
 
     @Transactional
     public StoreResponse create(UUID tenantId, CreateStoreRequest request, Authentication auth) {
         if (request == null || request.name() == null || request.name().isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        enforceCreationLimit(tenantId);
         String slug = normalizeSlug(request.slug() != null ? request.slug() : request.name());
         String code = (request.code() != null && !request.code().isBlank())
                 ? normalizeCode(request.code()) : slug.toUpperCase();
@@ -65,6 +80,7 @@ public class StoreService {
         } catch (DuplicateKeyException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "slug already exists for this tenant: " + slug);
         }
+        domainService.generateAndRegisterDefaultDomain(tenantId, id, slug, auth);
         audit(tenantId, auth, "STORE.CREATED", id, "slug=" + slug);
         return getOrThrow(tenantId, id);
     }
@@ -153,6 +169,28 @@ public class StoreService {
     }
 
     // ===== Helpers =====
+    private void enforceCreationLimit(UUID tenantId) {
+        long limit = entitlementResolver.getLimit(tenantId, MODULE_CODE, STORE_LIMIT_CODE);
+        if (limit <= 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "active ecommerce subscription entitlement is required"
+            );
+        }
+        Long current = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM commerce_stores WHERE tenant_id = ? AND status <> 'ARCHIVED'",
+                Long.class,
+                tenantId
+        );
+        long used = current == null ? 0 : current;
+        if (used >= limit) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "store limit for the subscription has been reached"
+            );
+        }
+    }
+
     private StoreResponse getOrThrow(UUID tenantId, UUID storeId) {
         try {
             return jdbc.queryForObject("SELECT * FROM commerce_stores WHERE tenant_id = ? AND id = ?",
