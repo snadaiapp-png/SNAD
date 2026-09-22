@@ -455,12 +455,9 @@ public class TenantDomainService {
         if (subdomain == null || subdomain.isBlank()) {
             return null;
         }
-        String baseDomain = System.getenv("SANAD_BASE_DOMAIN");
-        if (baseDomain == null || baseDomain.isBlank()) {
-            baseDomain = System.getProperty("sanad.tenancy.domains.base-domain");
-        }
-        if (baseDomain == null || baseDomain.isBlank()) {
-            return null; // caller decides how to handle (e.g. skip default-generation)
+        String baseDomain = hostRoutingService.configuredBaseDomain();
+        if (baseDomain == null) {
+            return null; // caller decides whether generated routing is mandatory
         }
         String prefix = switch (type) {
             case APPLICATION -> subdomain;
