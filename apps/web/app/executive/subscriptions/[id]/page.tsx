@@ -248,17 +248,35 @@ export default function SubscriptionDetailPage() {
     setBusy(true);
     setError("");
     setNotice("");
+    let createdOrganizationId = "";
     try {
       const organization = await executiveApi.createOrganization(tenantId, {
         name: branchName.trim(),
         unitType: "BRANCH",
       });
+      createdOrganizationId = organization.id;
       await executiveApi.bindOperatingUnit(subscriptionId, organization.id, "CONSOLIDATED");
       setBranchName("");
       setSelectedOrganizationId(organization.id);
       setNotice(t("scp.detail.branchCreated"));
       await loadOperatingGovernance();
     } catch (reason) {
+      // The UI spans two governed commands. If subscription binding fails
+      // after organization creation, archive the just-created branch so the
+      // operator is not left with an orphan operating unit.
+      if (createdOrganizationId) {
+        try {
+          await executiveApi.changeOrganizationStatus(
+            tenantId,
+            createdOrganizationId,
+            "ARCHIVED",
+            "Rollback failed subscription operating-unit binding",
+          );
+        } catch {
+          // Preserve the authoritative original failure. A rollback failure is
+          // still visible in audit/organization state and must not mask it.
+        }
+      }
       setError(scpErrorMessage(reason));
     } finally {
       setBusy(false);
