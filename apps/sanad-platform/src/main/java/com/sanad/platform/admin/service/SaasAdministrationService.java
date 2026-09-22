@@ -21,8 +21,11 @@ import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
 import com.sanad.platform.subscription.billing.application.BillingOutbox;
 import com.sanad.platform.subscription.billing.domain.SubscriptionFinancePort;
 import com.sanad.platform.subscription.item.SubscriptionItemRepository;
+import com.sanad.platform.subscription.pricing.PriceCalculator;
+import com.sanad.platform.subscription.pricing.PriceEntity;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
+import com.sanad.platform.subscription.pricing.PriceTier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -909,8 +912,74 @@ public class SaasAdministrationService {
     }
 
     private void issueRecurringInvoice(SubscriptionResponse subscription, PlanResponse plan, String description) {
-        long subtotal = Math.multiplyExact(price(plan, subscription.billingCycle()), subscription.seatQuantity());
+        long subtotal = recurringSubtotal(subscription, plan);
         issueInvoice(subscription, subtotal, description, subscription.currentPeriodStart(), subscription.currentPeriodEnd());
+    }
+
+    /**
+     * Prefer the governed price model pinned to the subscription's plan
+     * version. Legacy inline plan pricing remains the backward-compatible
+     * fallback. PER_BRANCH derives its quantity from ACTIVE BRANCH operating
+     * units instead of incorrectly multiplying by licensed user seats.
+     */
+    private long recurringSubtotal(SubscriptionResponse subscription, PlanResponse plan) {
+        UUID planVersionId = jdbcTemplate.queryForObject(
+                "SELECT plan_version_id FROM tenant_subscriptions WHERE id = ?",
+                UUID.class,
+                subscription.id()
+        );
+        if (planVersionId != null) {
+            String country = jdbcTemplate.queryForObject(
+                    "SELECT country_code FROM tenants WHERE id = ?",
+                    String.class,
+                    subscription.tenantId()
+            );
+            String priceCountry = country == null || country.isBlank()
+                    ? PriceResolver.GLOBAL
+                    : country.trim().toUpperCase(Locale.ROOT);
+            Optional<PriceEntity> resolved = new PriceResolver(new PriceRepository(jdbcTemplate))
+                    .resolveForPlanVersion(
+                            planVersionId,
+                            priceCountry,
+                            subscription.billingCycle(),
+                            Instant.now()
+                    );
+            if (resolved.isPresent()) {
+                PriceEntity effectivePrice = resolved.get();
+                int quantity = subscription.seatQuantity();
+                if ("PER_BRANCH".equals(effectivePrice.getPriceModel())) {
+                    Integer branchCount = jdbcTemplate.queryForObject("""
+                            SELECT COUNT(*)
+                              FROM subscription_operating_units sou
+                              JOIN organizations o
+                                ON o.tenant_id = sou.tenant_id
+                               AND o.id = sou.organization_id
+                             WHERE sou.subscription_id = ?
+                               AND sou.tenant_id = ?
+                               AND sou.status = 'ACTIVE'
+                               AND o.status = 'ACTIVE'
+                               AND o.unit_type = 'BRANCH'
+                            """,
+                            Integer.class,
+                            subscription.id(),
+                            subscription.tenantId()
+                    );
+                    quantity = branchCount == null ? 0 : branchCount;
+                }
+                List<PriceTier> tiers = PriceRepository.parseTiers(effectivePrice.getTiersJson());
+                return PriceCalculator.computeWithBounds(
+                        effectivePrice.getPriceModel(),
+                        effectivePrice.getBaseAmountMinor(),
+                        effectivePrice.getUnitAmountMinor(),
+                        tiers.isEmpty() ? null : tiers,
+                        quantity,
+                        0,
+                        effectivePrice.getMinAmountMinor(),
+                        effectivePrice.getMaxAmountMinor()
+                );
+            }
+        }
+        return Math.multiplyExact(price(plan, subscription.billingCycle()), subscription.seatQuantity());
     }
 
     private void issueInvoice(
