@@ -51,14 +51,14 @@ export default function SubscriptionDetailPage() {
   const subscriptionsHref = `/executive/subscriptions${backQuery ? `?${backQuery}` : ""}`;
   const { t } = useI18n();
   const { money, day, number } = useScpFormat();
-  const { has, hasAll } = useScpAccess();
-  const canManageLifecycle = hasAll([
-    "subscription.create",
-    "subscription.change_plan",
-    "subscription.cancel",
-    "subscription.suspend",
-  ]);
-  const canChangePlan = has("subscription.change_plan");
+  const { has } = useScpAccess();
+  // Mutation controls must mirror the backend authority exactly. The command,
+  // change-plan and provisioning endpoints are EXECUTIVE_MANAGE-gated; granular
+  // mirrors are informative only and must never expose a control that the
+  // backend will reject (or hide a control from the canonical owner).
+  const canManage = has("EXECUTIVE_MANAGE");
+  const canManageLifecycle = canManage;
+  const canChangePlan = canManage;
 
   const [detail, setDetail] = useState<SubscriptionDetail | null>(null);
   const [items, setItems] = useState<SubscriptionItem[] | null>(null);
@@ -101,6 +101,12 @@ export default function SubscriptionDetailPage() {
   }, [load]);
 
   useEffect(() => {
+    if (!canChangePlan) {
+      setPlans(null);
+      setChangePlanId("");
+      setChangePreview(null);
+      return;
+    }
     let active = true;
     executiveApi
       .plans()
@@ -113,7 +119,7 @@ export default function SubscriptionDetailPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [canChangePlan]);
 
   async function runCommand(command: string) {
     setBusy(true);
@@ -403,50 +409,52 @@ export default function SubscriptionDetailPage() {
         ) : null}
       </section>
 
-      <section className={styles.panel} aria-labelledby="scp-change-heading">
-        <h2 id="scp-change-heading" className={styles.pageSubtitle}>{t("scp.detail.changePlan")}</h2>
-        <div className={styles.filters}>
-          <select
-            value={changePlanId}
-            onChange={(event) => setChangePlanId(event.target.value)}
-            aria-label={t("scp.detail.targetPlan")}
-          >
-            <option value="">{t("scp.detail.targetPlan")}</option>
-            {(plans ?? []).map((plan) => (
-              <option key={plan.id} value={plan.id}>
-                {plan.name} ({plan.code})
-              </option>
-            ))}
-          </select>
-          <Button variant="secondary" size="sm" disabled={busy || !changePlanId} onClick={() => void previewPlanChange()}>
-            {t("scp.detail.preview")}
-          </Button>
-        </div>
-        {changePreview ? (
-          <div>
-            <p className={styles.pageSubtitle}>
-              {t("scp.detail.currentTotal")}: {money(changePreview.currentMonthlyMinor, changePreview.currentCurrencyCode ?? changePreview.currencyCode)}
-              {" · "}
-              {t("scp.detail.targetTotal")}: {money(changePreview.targetMonthlyMinor, changePreview.targetCurrencyCode ?? changePreview.currencyCode)}
-              {" · "}
-              {t("scp.detail.delta")}: {changePreview.deltaMonthlyMinor === null
-                ? "—"
-                : money(changePreview.deltaMonthlyMinor, changePreview.currencyCode)}
-            </p>
-            {changePreview.warnings.length > 0 ? (
-              <ul>
-                {changePreview.warnings.map((warning, index) => (
-                  <li key={index} className={styles.appCardMeta}>⚠ {warning}</li>
-                ))}
-              </ul>
-            ) : canChangePlan ? (
-              <Button variant="primary" size="sm" disabled={busy} onClick={() => void confirmPlanChange()}>
-                {t("scp.detail.confirmChange")}
-              </Button>
-            ) : null}
+      {canChangePlan ? (
+        <section className={styles.panel} aria-labelledby="scp-change-heading">
+          <h2 id="scp-change-heading" className={styles.pageSubtitle}>{t("scp.detail.changePlan")}</h2>
+          <div className={styles.filters}>
+            <select
+              value={changePlanId}
+              onChange={(event) => setChangePlanId(event.target.value)}
+              aria-label={t("scp.detail.targetPlan")}
+            >
+              <option value="">{t("scp.detail.targetPlan")}</option>
+              {(plans ?? []).map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {plan.name} ({plan.code})
+                </option>
+              ))}
+            </select>
+            <Button variant="secondary" size="sm" disabled={busy || !changePlanId} onClick={() => void previewPlanChange()}>
+              {t("scp.detail.preview")}
+            </Button>
           </div>
-        ) : null}
-      </section>
+          {changePreview ? (
+            <div>
+              <p className={styles.pageSubtitle}>
+                {t("scp.detail.currentTotal")}: {money(changePreview.currentMonthlyMinor, changePreview.currentCurrencyCode ?? changePreview.currencyCode)}
+                {" · "}
+                {t("scp.detail.targetTotal")}: {money(changePreview.targetMonthlyMinor, changePreview.targetCurrencyCode ?? changePreview.currencyCode)}
+                {" · "}
+                {t("scp.detail.delta")}: {changePreview.deltaMonthlyMinor === null
+                  ? "—"
+                  : money(changePreview.deltaMonthlyMinor, changePreview.currencyCode)}
+              </p>
+              {changePreview.warnings.length > 0 ? (
+                <ul>
+                  {changePreview.warnings.map((warning, index) => (
+                    <li key={index} className={styles.appCardMeta}>⚠ {warning}</li>
+                  ))}
+                </ul>
+              ) : (
+                <Button variant="primary" size="sm" disabled={busy} onClick={() => void confirmPlanChange()}>
+                  {t("scp.detail.confirmChange")}
+                </Button>
+              )}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className={styles.panel} aria-labelledby="scp-audit-heading">
         <h2 id="scp-audit-heading" className={styles.pageSubtitle}>{t("scp.detail.audit")}</h2>
