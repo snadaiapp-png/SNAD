@@ -5,7 +5,9 @@ import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.api.AdminDtos.CreateTenantRequest;
 import com.sanad.platform.admin.api.AdminDtos.UpdateTenantRequest;
 import com.sanad.platform.admin.api.AdminDtos.ChangeTenantStatusRequest;
+import com.sanad.platform.admin.api.TenantDomainDtos.DomainType;
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -42,15 +44,18 @@ public class ExecutivePlatformService {
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
     private final RegistrationProvisioner registrationProvisioner;
+    private final TenantDomainService tenantDomainService;
 
     public ExecutivePlatformService(
             JdbcTemplate jdbcTemplate,
             PlatformAuditService auditService,
-            RegistrationProvisioner registrationProvisioner
+            RegistrationProvisioner registrationProvisioner,
+            TenantDomainService tenantDomainService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.registrationProvisioner = registrationProvisioner;
+        this.tenantDomainService = tenantDomainService;
     }
 
     public DashboardResponse dashboard() {
@@ -120,6 +125,13 @@ public class ExecutivePlatformService {
                 request.timezone() != null ? request.timezone() : "UTC",
                 request.currencyCode() != null ? request.currencyCode() : "SAR",
                 trialEndsAt, tenantId);
+
+        tenantDomainService.ensureDefaultDomain(
+                tenantId,
+                request.subdomain(),
+                DomainType.APPLICATION,
+                authentication
+        );
 
         TenantResponse created = getTenant(tenantId);
         auditService.success(authentication, tenantId, "CREATE_TENANT", "TENANT", tenantId.toString(),
