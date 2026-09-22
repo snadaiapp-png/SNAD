@@ -86,16 +86,39 @@ public class WebsiteDomainService {
         String hostname = generateDefaultDomain(websiteSlug);
         if (hostname == null) return null; // no base domain configured
 
+        DomainResponse existing = findExactHostname(hostname);
+        if (existing != null) {
+            if (!tenantId.equals(existing.tenantId())
+                    || !websiteId.equals(existing.websiteId())
+                    || existing.domainType() != WebsiteDomain.DomainType.DEFAULT_GENERATED) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "hostname already claimed: " + hostname);
+            }
+            Instant now = Instant.now();
+            jdbc.update("UPDATE website_domains SET is_primary = FALSE, updated_at = ? "
+                            + "WHERE tenant_id = ? AND website_id = ? AND id <> ?",
+                    Timestamp.from(now), tenantId, websiteId, existing.id());
+            jdbc.update("UPDATE website_domains SET verification_status = 'VERIFIED', activation_status = 'ACTIVE', "
+                            + "is_primary = TRUE, failure_reason = NULL, updated_at = ?, version = version + 1 "
+                            + "WHERE tenant_id = ? AND website_id = ? AND id = ?",
+                    Timestamp.from(now), tenantId, websiteId, existing.id());
+            audit(tenantId, auth, "DOMAIN.DEFAULT_RECONCILED", existing.id(), "hostname=" + hostname);
+            return getOrThrow(tenantId, websiteId, existing.id());
+        }
+
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
+        jdbc.update("UPDATE website_domains SET is_primary = FALSE, updated_at = ? "
+                        + "WHERE tenant_id = ? AND website_id = ?",
+                Timestamp.from(now), tenantId, websiteId);
         try {
             jdbc.update("INSERT INTO website_domains (id, tenant_id, website_id, hostname, domain_type, "
                             + "verification_status, activation_status, is_primary, version, created_at, updated_at) "
                             + "VALUES (?, ?, ?, ?, 'DEFAULT_GENERATED', 'VERIFIED', 'ACTIVE', TRUE, 0, ?, ?)",
                     id, tenantId, websiteId, hostname, Timestamp.from(now), Timestamp.from(now));
         } catch (DuplicateKeyException e) {
-            // Already exists — return existing
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "hostname already claimed: " + hostname, e);
         }
+        audit(tenantId, auth, "DOMAIN.DEFAULT_CREATED", id, "hostname=" + hostname);
         return getOrThrow(tenantId, websiteId, id);
     }
 
@@ -198,6 +221,18 @@ public class WebsiteDomainService {
     }
 
     // ===== Helpers =====
+    private DomainResponse findExactHostname(String hostname) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT * FROM website_domains WHERE lower(hostname) = lower(?)",
+                    this::mapRow,
+                    hostname
+            );
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
     private String resolvePlatformBaseDomain() {
         // Check system property first, then env var
         String base = System.getProperty("sanad.tenancy.domains.base-domain");
