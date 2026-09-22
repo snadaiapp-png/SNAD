@@ -197,6 +197,15 @@ export const executiveApi = {
     `${root}/tenants/${tenantId}/organizations/${organizationId}`,
     body,
   ),
+  changeOrganizationStatus: (
+    tenantId: string,
+    organizationId: string,
+    status: "ACTIVE" | "INACTIVE" | "ARCHIVED",
+    reason: string,
+  ) => apiClient.patch<ManagedOrganization, { status: string; reason: string }>(
+    `${root}/tenants/${tenantId}/organizations/${organizationId}/status`,
+    { status, reason },
+  ),
   memberships: (tenantId: string, organizationId: string) =>
     apiClient.get<ManagedMembership[]>(`${root}/tenants/${tenantId}/organizations/${organizationId}/memberships`),
 
