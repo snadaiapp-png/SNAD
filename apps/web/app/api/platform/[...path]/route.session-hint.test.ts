@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "./route";
 
+const TENANT_ID = "11111111-1111-1111-1111-111111111111";
+
 function context(...path: string[]) {
   return { params: Promise.resolve({ path }) };
 }
@@ -11,6 +13,7 @@ function request(
   body?: object,
   cookie?: string,
   sessionScope?: "tenant",
+  sessionTenant?: string,
 ): NextRequest {
   return new NextRequest(`https://snad-app.vercel.app/api/platform${path}`, {
     method: "POST",
@@ -19,6 +22,7 @@ function request(
       "content-type": "application/json",
       ...(cookie ? { cookie } : {}),
       ...(sessionScope ? { "x-sanad-session-scope": sessionScope } : {}),
+      ...(sessionTenant ? { "x-sanad-session-tenant": sessionTenant } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -71,17 +75,18 @@ describe("platform BFF session hint policy", () => {
     const response = await POST(
       request(
         "/api/v1/auth/login",
-        { email: "tenant@example.com", password: "secret", tenantId: "11111111-1111-1111-1111-111111111111" },
+        { email: "tenant@example.com", password: "secret", tenantId: TENANT_ID },
         "sanad_refresh=control-plane-refresh; sanad_session_hint=1",
         "tenant",
+        TENANT_ID,
       ),
       context("api", "v1", "auth", "login"),
     );
 
     const setCookie = response.headers.get("set-cookie") ?? "";
     expect(response.status).toBe(200);
-    expect(setCookie).toContain("sanad_tenant_refresh=tenant-refresh-secret");
-    expect(setCookie).toContain("sanad_tenant_session_hint=1");
+    expect(setCookie).toContain("sanad_tenant_refresh_11111111-1111-1111-1111-111111111111=tenant-refresh-secret");
+    expect(setCookie).toContain("sanad_tenant_session_hint_11111111-1111-1111-1111-111111111111=1");
     expect(setCookie).not.toContain("sanad_refresh=tenant-refresh-secret");
   });
 
@@ -95,8 +100,9 @@ describe("platform BFF session hint policy", () => {
       request(
         "/api/v1/auth/refresh",
         undefined,
-        "sanad_refresh=control-plane-refresh; sanad_tenant_refresh=tenant-refresh",
+        "sanad_refresh=control-plane-refresh; sanad_tenant_refresh_11111111-1111-1111-1111-111111111111=tenant-refresh",
         "tenant",
+        TENANT_ID,
       ),
       context("api", "v1", "auth", "refresh"),
     );
@@ -134,16 +140,17 @@ describe("platform BFF session hint policy", () => {
       request(
         "/api/v1/auth/refresh",
         undefined,
-        "sanad_refresh=control-plane; sanad_session_hint=1; sanad_tenant_refresh=stale; sanad_tenant_session_hint=1",
+        "sanad_refresh=control-plane; sanad_session_hint=1; sanad_tenant_refresh_11111111-1111-1111-1111-111111111111=stale; sanad_tenant_session_hint_11111111-1111-1111-1111-111111111111=1",
         "tenant",
+        TENANT_ID,
       ),
       context("api", "v1", "auth", "refresh"),
     );
 
     const setCookie = response.headers.get("set-cookie") ?? "";
     expect(response.status).toBe(401);
-    expect(setCookie).toContain("sanad_tenant_refresh=");
-    expect(setCookie).toContain("sanad_tenant_session_hint=");
+    expect(setCookie).toContain("sanad_tenant_refresh_11111111-1111-1111-1111-111111111111=");
+    expect(setCookie).toContain("sanad_tenant_session_hint_11111111-1111-1111-1111-111111111111=");
     expect(setCookie).not.toContain("sanad_refresh=");
     expect(setCookie).not.toContain("sanad_session_hint=");
   });
