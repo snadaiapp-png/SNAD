@@ -5,7 +5,7 @@
  * ============================================================================
  * Plans by state + overdue tasks emphasis. KPI tiles for plans, in-progress,
  * completed, overdue, tasks-due. Permission-scoped: tiles hidden if user lacks
- * HRM.ONBOARDING.PLAN.VIEW.
+ * HRM.ONBOARDING.PLAN.MANAGE.
  *
  * Arabic/RTL: logical CSS only; onboardingPlanStateLabel(dict, code) resolves
  * backend state codes to localized labels with raw-code fallback.
@@ -37,8 +37,9 @@ export default function OnboardingDashboardPage() {
   const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
 
-  const canView = capabilities.includes(HRM_CAPABILITIES.ONBOARDING_PLAN_VIEW)
-    || capabilities.includes(HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE);
+  const canView = capabilities.includes(HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE);
+  const canUseTasks = capabilities.includes(HRM_CAPABILITIES.ONBOARDING_TASK_COMPLETE)
+    || capabilities.includes(HRM_CAPABILITIES.ONBOARDING_TASK_WAIVE);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -138,6 +139,13 @@ export default function OnboardingDashboardPage() {
       <header>
         <h1>{t("hrm.onboarding.dashboard.title")}</h1>
         <p className={styles.kpiHint}>{t("hrm.onboarding.dashboard.subtitle")}</p>
+        {canUseTasks ? (
+          <p>
+            <Link href="/hr/onboarding/tasks" className={styles.linkButton}>
+              {t("hrm.onboarding.myTasks.title")}
+            </Link>
+          </p>
+        ) : null}
       </header>
 
       {loading ? (

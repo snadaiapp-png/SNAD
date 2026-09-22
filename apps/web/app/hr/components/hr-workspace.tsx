@@ -18,8 +18,10 @@ import styles from "../hr.module.css";
 export interface HrWorkspaceLink {
   href: string;
   label: string;
-  /** UX-only capability gate (backend authorization stays authoritative). */
+  /** UX-only single-capability gate (backend authorization stays authoritative). */
   capability?: string;
+  /** UX-only any-of capability gate for composite workspaces such as G1. */
+  capabilitiesAny?: readonly string[];
 }
 
 /** The authoritative workspace navigation set (plan Task 8 Step 4). */
@@ -31,6 +33,27 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
   { href: "/hr/positions", label: "المناصب", capability: HRM_CAPABILITIES.ORG_STRUCTURE_VIEW },
   { href: "/hr/assignments", label: "الإسنادات", capability: HRM_CAPABILITIES.ASSIGNMENT_VIEW },
   { href: "/hr/compliance", label: "الالتزام", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
+  {
+    href: "/hr/recruitment",
+    label: "التوظيف",
+    capabilitiesAny: [
+      HRM_CAPABILITIES.RECRUITMENT_OPENING_VIEW,
+      HRM_CAPABILITIES.RECRUITMENT_CANDIDATE_VIEW,
+      HRM_CAPABILITIES.RECRUITMENT_APPLICATION_MANAGE,
+      HRM_CAPABILITIES.RECRUITMENT_INTERVIEW_MANAGE,
+      HRM_CAPABILITIES.RECRUITMENT_OFFER_MANAGE,
+      HRM_CAPABILITIES.RECRUITMENT_HIRE_CONVERT,
+    ],
+  },
+  {
+    href: "/hr/onboarding",
+    label: "التأهيل",
+    capabilitiesAny: [
+      HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE,
+      HRM_CAPABILITIES.ONBOARDING_TASK_COMPLETE,
+      HRM_CAPABILITIES.ONBOARDING_TASK_WAIVE,
+    ],
+  },
   // The execution dashboard is part of the workspace foundation — always reachable.
   { href: "/hr/execution", label: "لوحة التنفيذ" },
 ];
@@ -49,7 +72,7 @@ export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceP
       <header className={styles.workspaceHeader}>
         <h1 className={styles.workspaceTitle}>مساحة عمل الموارد البشرية</h1>
         <p className={styles.workspaceSubtitle}>
-          إدارة الموظفين والهيكل التنظيمي والإسنادات والعقود والالتزام
+          إدارة الموظفين والهيكل التنظيمي والتوظيف والتأهيل والإسنادات والعقود والالتزام
         </p>
       </header>
       <nav aria-label="أقسام الموارد البشرية" className={styles.workspaceNav}>
@@ -60,7 +83,12 @@ export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceP
             if (link.capability && !capabilities.includes(link.capability)) {
               return null;
             }
-            const isActive = link.href === activeHref;
+            if (link.capabilitiesAny && !link.capabilitiesAny.some((capability) => capabilities.includes(capability))) {
+              return null;
+            }
+            const isActive = link.href === "/hr"
+              ? activeHref === "/hr"
+              : activeHref === link.href || activeHref.startsWith(`${link.href}/`);
             return (
               <li key={link.href} className={styles.workspaceNavItem}>
                 <Link
