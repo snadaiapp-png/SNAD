@@ -70,6 +70,50 @@ class Subscription1055ClosureContract(unittest.TestCase):
         self.assertIn("/subscriptions/{id}/provision", controller)
         self.assertIn("/subscriptions/{id}/renew", controller)
 
+    def test_ws2_application_catalog_lifecycle_is_governed_and_non_destructive(self):
+        controller = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/subscription/api/CatalogController.java")
+        page = self.read("apps/web/app/executive/applications/page.tsx")
+        migration = self.read("apps/sanad-platform/src/main/resources/db/migration/V20260914_1__scp_application_catalog_lifecycle.sql")
+        self.assertIn('@PostMapping("/applications")', controller)
+        self.assertIn('@PutMapping("/applications/{id}")', controller)
+        self.assertIn('@RequireCapability("EXECUTIVE_MANAGE")', controller)
+        self.assertNotIn('@DeleteMapping("/applications', controller)
+        self.assertIn('"ARCHIVED"', page)
+        self.assertIn('"DEPRECATED"', page)
+        self.assertNotIn("deleteApplication", page)
+        self.assertIn("ARCHIVED", migration)
+        self.assertIn("DEPRECATED", migration)
+
+    def test_ws4_subscription_navigation_preserves_canonical_owner_and_tenant_isolation(self):
+        jwt_filter = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/security/filter/JwtAuthenticationFilter.java")
+        binding_test = self.read("apps/sanad-platform/src/test/java/com/sanad/platform/security/filter/JwtAuthenticationFilterControlPlaneTenantBindingTest.java")
+        self.assertIn("CANONICAL_PROJECT_OWNER_USER_ID", jwt_filter)
+        self.assertIn("CANONICAL_PROJECT_OWNER_EMAIL", jwt_filter)
+        self.assertIn('"/api/v1/executive/subscriptions/v2"', jwt_filter)
+        self.assertIn('"/api/v1/executive/billing/invoices"', jwt_filter)
+        self.assertIn('"/api/v1/executive/usage"', jwt_filter)
+        self.assertIn("controlPlaneAccessGuard.isControlPlaneTenant", jwt_filter)
+        self.assertIn("canonical owner", binding_test.lower())
+        self.assertIn("403", binding_test)
+        self.assertIn("/api/v1/executive/subscriptions/v2", binding_test)
+
+    def test_ws5_billing_and_read_models_use_pinned_contract_and_utc_periods(self):
+        grid = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/subscription/read/SubscriptionGridQueryService.java")
+        detail = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/subscription/read/SubscriptionDetailService.java")
+        usage = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/subscription/usage/UsageMeteringService.java")
+        billing_page = self.read("apps/web/app/executive/billing/page.tsx")
+        subscriptions_page = self.read("apps/web/app/executive/subscriptions/page.tsx")
+        self.assertIn("COALESCE(pv.currency_code, p.currency_code)", grid)
+        self.assertIn("COALESCE(pv.currency_code, p.currency_code)", detail)
+        self.assertIn("s.current_period_end", grid)
+        self.assertIn("s.seat_quantity", grid)
+        self.assertIn("CURRENT_TIMESTAMP AT TIME ZONE 'UTC'", usage)
+        self.assertIn("ZoneOffset.UTC", usage)
+        self.assertIn("if (!tenantId) return", billing_page)
+        self.assertIn("executiveApi.invoices(tenantId)", billing_page)
+        self.assertIn("currentPeriodEnd", subscriptions_page)
+        self.assertIn("cancelsAtPeriodEnd", subscriptions_page)
+
     def test_ws6_domain_provisioning_is_centralized_and_fail_closed(self):
         domain = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/admin/service/TenantDomainService.java")
         routing = self.read("apps/sanad-platform/src/main/java/com/sanad/platform/tenancy/routing/HostRoutingService.java")
@@ -110,6 +154,15 @@ class Subscription1055ClosureContract(unittest.TestCase):
         self.assertIn("reconcilePerBranchQuantity", branch)
         self.assertIn("FOR UPDATE", branch)
         self.assertIn("Serialize all operating-unit mutations", branch)
+
+        # POS business persistence is not implemented yet by the POS module.
+        # Subscription governance reserves the binding type but must fail
+        # closed rather than inventing POS business tables here.
+        self.assertIn('"POS_LOCATION"', branch)
+        self.assertIn(
+            "POS location binding is unavailable until the POS module is active",
+            branch,
+        )
 
     def test_executive_ui_exposes_branch_billing_and_resource_governance(self):
         page = self.read("apps/web/app/executive/subscriptions/[id]/page.tsx")
