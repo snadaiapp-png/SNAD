@@ -203,7 +203,8 @@ class CrmPostgresMigrationTest {
     private static final String T9_GOVERNED_ONBOARDING_VERSION = "20260918.7";
     private static final String T10_CANDIDATE_SELF_SERVICE_VERSION = "20260918.8";
     private static final String PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION = "20260921.1";
-    private static final String LATEST_MIGRATION_VERSION = PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION;
+    private static final String HR_G1_OPERATOR_CAPABILITIES_VERSION = "20260922.1";
+    private static final String LATEST_MIGRATION_VERSION = HR_G1_OPERATOR_CAPABILITIES_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -456,7 +457,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION),
                         MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION),
                         MigrationVersion.fromVersion(T10_CANDIDATE_SELF_SERVICE_VERSION),
-                        MigrationVersion.fromVersion(PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION));
+                        MigrationVersion.fromVersion(PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_OPERATOR_CAPABILITIES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -647,7 +649,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(T8_HIRE_CONVERSION_VERSION),
                         MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION),
                         MigrationVersion.fromVersion(T10_CANDIDATE_SELF_SERVICE_VERSION),
-                        MigrationVersion.fromVersion(PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION));
+                        MigrationVersion.fromVersion(PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION),
+                        MigrationVersion.fromVersion(HR_G1_OPERATOR_CAPABILITIES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -917,6 +920,25 @@ class CrmPostgresMigrationTest {
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'", Long.class)).isEqualTo(87L);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'", Long.class)).isEqualTo(2L);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'HRM.RECRUITMENT.%' AND status='ACTIVE'", Long.class))
+                .isEqualTo(19L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'HRM.ONBOARDING.%' AND status='ACTIVE'", Long.class))
+                .isEqualTo(3L);
+
+        Long activeAdminRoleCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM roles WHERE code='ADMIN' AND status='ACTIVE'", Long.class);
+        if (activeAdminRoleCount != null && activeAdminRoleCount > 0) {
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM role_capabilities rc " +
+                            "JOIN roles r ON r.id=rc.role_id AND r.tenant_id=rc.tenant_id " +
+                            "JOIN access_capabilities c ON c.id=rc.capability_id " +
+                            "WHERE r.code='ADMIN' AND r.status='ACTIVE' " +
+                            "AND (c.code LIKE 'HRM.RECRUITMENT.%' OR c.code LIKE 'HRM.ONBOARDING.%')",
+                    Long.class)).isEqualTo(activeAdminRoleCount * 22L);
+        }
     }
 
     private List<String> allCrmTables() {
