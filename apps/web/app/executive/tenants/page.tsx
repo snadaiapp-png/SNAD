@@ -290,21 +290,17 @@ export default function TenantsPage() {
     }
   }
 
-  function tenantLoginUrl(tenantId: string, applicationHostname?: string | null): string {
-    // A platform-generated tenant hostname isolates the subscriber session from
-    // the control-plane refresh cookie. Custom tenant-controlled hostnames are
-    // intentionally not used for operator-generated sign-in links.
-    const base = applicationHostname
-      ? `https://${applicationHostname}`
-      : window.location.origin;
-    const url = new URL("/", base);
+  function tenantLoginUrl(tenantId: string, hostname: string): string {
+    // Subscriber sign-in must be host-isolated from the control-plane cookie.
+    // The backend reconciles and returns the platform-owned hostname; there is
+    // deliberately no same-origin fallback.
+    const url = new URL("/", `https://${hostname}`);
     url.searchParams.set("tenantId", tenantId);
     return url.toString();
   }
 
   async function handleTenantLoginLink(
     tenantId: string,
-    applicationHostname: string | null | undefined,
     action: "OPEN" | "COPY",
   ) {
     // Keep a live Window handle so the audited async step can navigate the tab.
@@ -325,8 +321,8 @@ export default function TenantsPage() {
     setError("");
     setNotice("");
     try {
-      await executiveApi.recordTenantLoginLinkEvent(tenantId, action);
-      const url = tenantLoginUrl(tenantId, applicationHostname);
+      const target = await executiveApi.recordTenantLoginLinkEvent(tenantId, action);
+      const url = tenantLoginUrl(tenantId, target.hostname);
       if (action === "OPEN") {
         popup!.location.href = url;
       } else {
@@ -446,10 +442,10 @@ export default function TenantsPage() {
                           </Link>
                           {canUseLoginLink ? (
                             <>
-                              <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void handleTenantLoginLink(tenant.id, tenant.applicationHostname, "OPEN")}>
+                              <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void handleTenantLoginLink(tenant.id, "OPEN")}>
                                 {t("scp.tenants.openLogin")}
                               </Button>
-                              <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void handleTenantLoginLink(tenant.id, tenant.applicationHostname, "COPY")}>
+                              <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void handleTenantLoginLink(tenant.id, "COPY")}>
                                 {t("scp.tenants.copyLogin")}
                               </Button>
                             </>
