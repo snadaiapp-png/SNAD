@@ -206,6 +206,17 @@ public class ExecutivePlatformService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Tenant login link is available only for active tenants");
         }
+        Integer effectiveSubscriptions = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                  FROM tenant_subscriptions
+                 WHERE tenant_id = ?
+                   AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')
+                """, Integer.class, tenantId);
+        if (effectiveSubscriptions == null || effectiveSubscriptions != 1) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Tenant login link requires exactly one effective subscription");
+        }
 
         auditService.success(
                 authentication,
