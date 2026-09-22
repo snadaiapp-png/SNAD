@@ -53,9 +53,10 @@ public class WebsiteService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
         enforceCreationLimit(tenantId);
         String slug = normalizeSlug(request.slug() != null ? request.slug() : request.name());
-        String locale = request.defaultLocale() != null && !request.defaultLocale().isBlank()
-                ? request.defaultLocale().trim()
-                : tenantLocale(tenantId);
+        String locale = normalizeLocale(
+                request.defaultLocale() != null && !request.defaultLocale().isBlank()
+                        ? request.defaultLocale()
+                        : tenantLocale(tenantId));
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         try {
@@ -81,8 +82,9 @@ public class WebsiteService {
                     request.name().trim(), Timestamp.from(now), tenantId, websiteId);
         }
         if (request.defaultLocale() != null) {
+            String locale = normalizeLocale(request.defaultLocale());
             jdbc.update("UPDATE websites SET default_locale = ?, updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
-                    request.defaultLocale(), Timestamp.from(now), tenantId, websiteId);
+                    locale, Timestamp.from(now), tenantId, websiteId);
         }
         if (request.themeConfig() != null) {
             jdbc.update("UPDATE websites SET theme_config = ?::jsonb, updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
@@ -173,6 +175,15 @@ public class WebsiteService {
         }
     }
 
+    private String normalizeLocale(String value) {
+        String locale = value == null ? "" : value.trim();
+        if (locale.isEmpty() || locale.length() > 10
+                || !locale.matches("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "defaultLocale is invalid");
+        }
+        return locale;
+    }
+
     private String tenantLocale(UUID tenantId) {
         String locale = jdbc.queryForObject(
                 "SELECT locale FROM tenants WHERE id = ?",
@@ -219,8 +230,11 @@ public class WebsiteService {
     }
 
     private String toJson(Map<String, Object> map) {
-        try { return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(map); }
-        catch (Exception e) { return "{}"; }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(map);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "themeConfig is not valid JSON data", e);
+        }
     }
 
     @SuppressWarnings("unchecked")
