@@ -118,6 +118,31 @@ class SubscriptionOperatingUnitPostgresTest {
     }
 
     @Test
+    void nonBranchOrganizationCannotMasqueradeAsBillableBranch() throws SQLException {
+        UUID tenant = UUID.randomUUID();
+        UUID subscription = UUID.randomUUID();
+        UUID department = UUID.randomUUID();
+        seedTenant(tenant, "non-branch");
+        seedSubscription(subscription, tenant);
+        seedOrganization(department, tenant, "DEPARTMENT");
+        setTenant(tenant);
+
+        // Storage FKs alone permit an organization reference; runtime branch
+        // authority must reject non-BRANCH types so PER_BRANCH pricing cannot
+        // be bypassed by relabeling an operating unit.
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT COUNT(*) FROM organizations "
+                        + "WHERE tenant_id=? AND id=? AND status='ACTIVE' AND unit_type='BRANCH'")) {
+            ps.setObject(1, tenant);
+            ps.setObject(2, department);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                assertThat(rs.getInt(1)).isZero();
+            }
+        }
+    }
+
+    @Test
     void billingProfileScopeAndCurrencyShapeAreStorageEnforced() throws SQLException {
         UUID tenant = UUID.randomUUID();
         UUID subscription = UUID.randomUUID();
