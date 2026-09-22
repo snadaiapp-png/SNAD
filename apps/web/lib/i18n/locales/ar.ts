@@ -1119,6 +1119,8 @@ export const ar: TranslationDictionary = {
   "scp.detail.operatingUnits": "الفروع ووحدات التشغيل",
   "scp.detail.operatingUnitsHelp": "اربط الفروع بالاشتراك وحدد التطبيقات والفوترة والموارد لكل فرع.",
   "scp.detail.createBranch": "إنشاء فرع",
+  "scp.detail.existingBranch": "فرع قائم غير مربوط",
+  "scp.detail.bindExistingBranch": "ربط الفرع القائم",
   "scp.detail.branchName": "اسم الفرع",
   "scp.detail.bindUnit": "ربط بالاشتراك",
   "scp.detail.unbindUnit": "إلغاء ربط الفرع",
