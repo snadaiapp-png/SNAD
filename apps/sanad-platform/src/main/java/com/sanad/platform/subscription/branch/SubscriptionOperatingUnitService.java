@@ -109,6 +109,15 @@ public class SubscriptionOperatingUnitService {
                 UUID.randomUUID(), tenantId, subscriptionId, organizationId,
                 mode, Timestamp.from(now), Timestamp.from(now));
 
+        if ("CONSOLIDATED".equals(mode)) {
+            jdbc.update("""
+                    UPDATE subscription_billing_profiles
+                       SET status = 'INACTIVE', updated_at = NOW()
+                     WHERE tenant_id = ? AND subscription_id = ?
+                       AND organization_id = ? AND status = 'ACTIVE'
+                    """, tenantId, subscriptionId, organizationId);
+        }
+
         audit.success(authentication, tenantId, "SUBSCRIPTION_OPERATING_UNIT_BOUND",
                 "SUBSCRIPTION_OPERATING_UNIT", organizationId.toString(),
                 "subscription=" + subscriptionId + ";billingMode=" + mode,
@@ -141,6 +150,12 @@ public class SubscriptionOperatingUnitService {
                 UPDATE subscription_resource_bindings
                    SET status = 'INACTIVE', updated_at = NOW()
                  WHERE tenant_id = ? AND subscription_id = ? AND organization_id = ?
+                """, tenantId, subscriptionId, organizationId);
+        jdbc.update("""
+                UPDATE subscription_billing_profiles
+                   SET status = 'INACTIVE', updated_at = NOW()
+                 WHERE tenant_id = ? AND subscription_id = ? AND organization_id = ?
+                   AND status = 'ACTIVE'
                 """, tenantId, subscriptionId, organizationId);
         audit.success(authentication, tenantId, "SUBSCRIPTION_OPERATING_UNIT_DEACTIVATED",
                 "SUBSCRIPTION_OPERATING_UNIT", organizationId.toString(),
@@ -213,6 +228,15 @@ public class SubscriptionOperatingUnitService {
         if (profileName == null || profileName.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "profileName is required");
         }
+        if (profileName.trim().length() > 200) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "profileName is too long");
+        }
+        String normalizedEmail = blankToNull(billingEmail);
+        if (normalizedEmail != null
+                && (normalizedEmail.length() > 320
+                    || !normalizedEmail.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "billingEmail is invalid");
+        }
 
         List<UUID> existing = organizationId == null
                 ? jdbc.queryForList("""
@@ -234,7 +258,7 @@ public class SubscriptionOperatingUnitService {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
                     """,
                     id, tenantId, subscriptionId, organizationId, profileName.trim(),
-                    blankToNull(billingEmail), currency, mode, Timestamp.from(now), Timestamp.from(now));
+                    normalizedEmail, currency, mode, Timestamp.from(now), Timestamp.from(now));
         } else {
             jdbc.update("""
                     UPDATE subscription_billing_profiles
@@ -242,7 +266,7 @@ public class SubscriptionOperatingUnitService {
                            billing_mode = ?, updated_at = ?
                      WHERE id = ? AND tenant_id = ?
                     """,
-                    profileName.trim(), blankToNull(billingEmail), currency, mode,
+                    profileName.trim(), normalizedEmail, currency, mode,
                     Timestamp.from(now), id, tenantId);
         }
 
@@ -412,14 +436,32 @@ public class SubscriptionOperatingUnitService {
     private void requireApplicationEntitled(UUID subscriptionId, UUID applicationId) {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*)
-                  FROM subscription_items si
-                 WHERE si.subscription_id = ?
-                   AND si.status = 'ACTIVE'
-                   AND (si.application_id = ?
-                        OR si.product_id IN (
-                            SELECT p.id FROM products p WHERE p.application_id = ?
-                        ))
-                """, Integer.class, subscriptionId, applicationId, applicationId);
+                  FROM applications a
+                 WHERE a.id = ?
+                   AND a.status = 'ACTIVE'
+                   AND (
+                       EXISTS (
+                           SELECT 1
+                             FROM subscription_items si
+                            WHERE si.subscription_id = ?
+                              AND si.status = 'ACTIVE'
+                              AND (si.application_id = a.id
+                                   OR si.product_id IN (
+                                       SELECT p.id FROM products p WHERE p.application_id = a.id
+                                   ))
+                       )
+                       OR EXISTS (
+                           SELECT 1
+                             FROM tenant_subscriptions ts
+                             JOIN plan_module_entitlements pme
+                               ON pme.plan_id = ts.plan_id
+                              AND pme.module_enabled = TRUE
+                             JOIN modules m ON m.id = pme.module_id
+                            WHERE ts.id = ?
+                              AND upper(m.code) = upper(a.code)
+                       )
+                   )
+                """, Integer.class, applicationId, subscriptionId, subscriptionId);
         if (count == null || count == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "application is not entitled by this subscription");
@@ -441,7 +483,8 @@ public class SubscriptionOperatingUnitService {
                     "POS location binding is unavailable until the POS module is active");
         }
         Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM " + table + " WHERE tenant_id = ? AND id = ?",
+                "SELECT COUNT(*) FROM " + table
+                        + " WHERE tenant_id = ? AND id = ? AND status <> 'ARCHIVED'",
                 Integer.class, tenantId, resourceId);
         if (count == null || count != 1) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "resource not found in tenant");
