@@ -10,12 +10,14 @@ import com.sanad.platform.admin.api.TenantDomainDtos.UpdateDomainRequest;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerificationMethod;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerifyDomainRequest;
 import com.sanad.platform.admin.service.TenantDomainService;
+import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,6 +31,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 /**
  * Integration test for the Tenant Domain Management capability (V20260815.20+).
@@ -45,6 +50,7 @@ class TenantDomainServiceIntegrationTest {
 
     @Autowired private TenantDomainService domainService;
     @Autowired private JdbcTemplate jdbc;
+    @MockBean private DomainOwnershipVerifier ownershipVerifier;
 
     private UUID tenantId;
 
@@ -55,6 +61,8 @@ class TenantDomainServiceIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "td-" + tenantId.toString().substring(0, 8), now, now);
+        when(ownershipVerifier.verify(anyString(), any(DomainOwnershipVerifier.Method.class), anyString()))
+                .thenReturn(true);
     }
 
     @Test
@@ -93,7 +101,7 @@ class TenantDomainServiceIntegrationTest {
     }
 
     @Test
-    void createDomain_allowsSameHostnameForDifferentTenants() {
+    void createDomain_rejectsSameHostnameAcrossTenants() {
         var otherTenant = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
@@ -102,11 +110,11 @@ class TenantDomainServiceIntegrationTest {
 
         var req = new CreateDomainRequest(
                 "shared.example.com", DomainType.APPLICATION, Origin.CUSTOM, VerificationMethod.DNS_TXT);
-        var first = domainService.createDomain(tenantId, req, null);
-        var second = domainService.createDomain(otherTenant, req, null);
+        domainService.createDomain(tenantId, req, null);
 
-        assertThat(first.tenantId()).isEqualTo(tenantId);
-        assertThat(second.tenantId()).isEqualTo(otherTenant);
+        assertThatThrownBy(() -> domainService.createDomain(otherTenant, req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("statusCode").isEqualTo(HttpStatus.CONFLICT);
     }
 
     @Test
@@ -126,6 +134,21 @@ class TenantDomainServiceIntegrationTest {
 
         assertThat(verified.status()).isEqualTo(Status.VERIFIED);
         assertThat(verified.verifiedAt()).isNotNull();
+    }
+
+    @Test
+    void verifyDomain_reverificationPreservesActiveRoutingState() {
+        var created = createDomain("active-reverify.example.com");
+        verifyAndActivate(created);
+
+        var refreshed = domainService.verifyDomain(
+                tenantId,
+                created.id(),
+                new VerifyDomainRequest(created.verificationToken()),
+                null);
+
+        assertThat(refreshed.status()).isEqualTo(Status.ACTIVE);
+        assertThat(refreshed.lastVerifiedAt()).isNotNull();
     }
 
     @Test
@@ -155,6 +178,8 @@ class TenantDomainServiceIntegrationTest {
     void updateDomain_settingPrimaryDemotesOtherPrimariesOfSameType() {
         var first = createDomain("first.example.com");
         var second = createDomain("second.example.com");
+        verifyAndActivate(first);
+        verifyAndActivate(second);
 
         domainService.updateDomain(tenantId, first.id(),
                 new UpdateDomainRequest(null, true), null);
@@ -169,27 +194,25 @@ class TenantDomainServiceIntegrationTest {
     }
 
     @Test
-    void updateDomain_primaryIndependenceAcrossTypes() {
-        var app = createDomain("app.example.com", DomainType.APPLICATION);
-        var store = createDomain("store.example.com", DomainType.STORE);
-
-        domainService.updateDomain(tenantId, app.id(),
-                new UpdateDomainRequest(null, true), null);
-        domainService.updateDomain(tenantId, store.id(),
-                new UpdateDomainRequest(null, true), null);
-
-        // Both should be primary of their own type
-        assertThat(domainService.getDomain(tenantId, app.id()).isPrimary()).isTrue();
-        assertThat(domainService.getDomain(tenantId, store.id()).isPrimary()).isTrue();
+    void createDomain_rejectsWebsiteAndStoreTypesOnTenantLevelApi() {
+        for (DomainType type : List.of(DomainType.WEBSITE, DomainType.STORE)) {
+            var req = new CreateDomainRequest(
+                    type.name().toLowerCase() + ".example.com",
+                    type,
+                    Origin.CUSTOM,
+                    VerificationMethod.DNS_TXT);
+            assertThatThrownBy(() -> domainService.createDomain(tenantId, req, null))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .extracting("statusCode").isEqualTo(HttpStatus.BAD_REQUEST);
+        }
     }
 
     @Test
     void deactivateDomain_clearsPrimaryAndSetsInactive() {
         var created = createDomain("deact.example.com");
+        verifyAndActivate(created);
         domainService.updateDomain(tenantId, created.id(),
                 new UpdateDomainRequest(null, true), null);
-        domainService.verifyDomain(tenantId, created.id(),
-                new VerifyDomainRequest(created.verificationToken()), null);
 
         var deactivated = domainService.deactivateDomain(tenantId, created.id(), "test", null);
 
@@ -199,18 +222,16 @@ class TenantDomainServiceIntegrationTest {
     }
 
     @Test
-    void listDomains_filtersByType() {
-        createDomain("a.example.com", DomainType.APPLICATION);
-        createDomain("s.example.com", DomainType.STORE);
-        createDomain("w.example.com", DomainType.WEBSITE);
+    void listDomains_returnsTenantApplicationDomainsOnly() {
+        createDomain("a.example.com");
+        createDomain("b.example.com");
 
-        List<DomainResponse> onlyStores = domainService.listDomains(tenantId, DomainType.STORE);
-        assertThat(onlyStores).hasSize(1);
-        assertThat(onlyStores.get(0).domainType()).isEqualTo(DomainType.STORE);
-        assertThat(onlyStores.get(0).hostname()).isEqualTo("s.example.com");
+        List<DomainResponse> applications = domainService.listDomains(tenantId, DomainType.APPLICATION);
+        assertThat(applications).hasSize(2);
+        assertThat(applications).allMatch(row -> row.domainType() == DomainType.APPLICATION);
 
-        List<DomainResponse> all = domainService.listDomains(tenantId, null);
-        assertThat(all).hasSize(3);
+        assertThat(domainService.listDomains(tenantId, DomainType.STORE)).isEmpty();
+        assertThat(domainService.listDomains(tenantId, DomainType.WEBSITE)).isEmpty();
     }
 
     @Test
@@ -242,12 +263,14 @@ class TenantDomainServiceIntegrationTest {
     }
 
     @Test
-    void deleteDomain_removesRow() {
+    void deleteDomain_softRemovesAndPreservesHistory() {
         var created = createDomain("delete.example.com");
         domainService.deleteDomain(tenantId, created.id(), null);
-        assertThatThrownBy(() -> domainService.getDomain(tenantId, created.id()))
-                .isInstanceOf(ResponseStatusException.class)
-                .extracting("statusCode").isEqualTo(HttpStatus.NOT_FOUND);
+
+        var removed = domainService.getDomain(tenantId, created.id());
+        assertThat(removed.status()).isEqualTo(Status.INACTIVE);
+        assertThat(removed.isPrimary()).isFalse();
+        assertThat(removed.failureReason()).isEqualTo("REMOVED_BY_OPERATOR");
     }
 
     @Test
@@ -278,12 +301,17 @@ class TenantDomainServiceIntegrationTest {
     }
 
     private DomainResponse createDomain(String hostname) {
-        return createDomain(hostname, DomainType.APPLICATION);
+        var req = new CreateDomainRequest(
+                hostname, DomainType.APPLICATION, Origin.CUSTOM, VerificationMethod.DNS_TXT);
+        return domainService.createDomain(tenantId, req, null);
     }
 
-    private DomainResponse createDomain(String hostname, DomainType type) {
-        var req = new CreateDomainRequest(
-                hostname, type, Origin.CUSTOM, VerificationMethod.DNS_TXT);
-        return domainService.createDomain(tenantId, req, null);
+    private void verifyAndActivate(DomainResponse domain) {
+        domainService.verifyDomain(
+                tenantId,
+                domain.id(),
+                new VerifyDomainRequest(domain.verificationToken()),
+                null);
+        domainService.activateDomain(tenantId, domain.id(), null);
     }
 }
