@@ -49,7 +49,7 @@ public class WebsitePublicResolutionService {
 
     private boolean isWebsiteEntitled(UUID tenantId) {
         return entitlementResolver == null
-                || entitlementResolver.isModuleEnabled(tenantId, "WEBSITES");
+                || entitlementResolver.hasExplicitModuleEntitlement(tenantId, "WEBSITES");
     }
 
     /**
