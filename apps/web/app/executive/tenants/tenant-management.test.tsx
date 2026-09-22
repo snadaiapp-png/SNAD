@@ -77,7 +77,7 @@ beforeEach(() => {
   updateTenantMock.mockReset();
   changeTenantStatusMock.mockReset();
   recordTenantLoginLinkEventMock.mockReset();
-  recordTenantLoginLinkEventMock.mockResolvedValue(undefined);
+  recordTenantLoginLinkEventMock.mockResolvedValue({ hostname: "acme.apps.snad.example" });
   hasMock.mockReset();
 });
 
@@ -117,7 +117,7 @@ describe("Executive tenant management controls", () => {
     expect(openMock).toHaveBeenCalledWith("about:blank", "_blank");
     expect(popup.opener).toBeNull();
     expect(popup.location.href).toBe(
-      "http://localhost:3000/?tenantId=11111111-1111-1111-1111-111111111111",
+      "https://acme.apps.snad.example/?tenantId=11111111-1111-1111-1111-111111111111",
     );
     openMock.mockRestore();
   });
@@ -137,7 +137,7 @@ describe("Executive tenant management controls", () => {
       "COPY",
     );
     expect(writeText).toHaveBeenCalledWith(
-      "http://localhost:3000/?tenantId=11111111-1111-1111-1111-111111111111",
+      "https://acme.apps.snad.example/?tenantId=11111111-1111-1111-1111-111111111111",
     );
     expect(screen.getByText("scp.tenants.notice.loginLinkCopied")).toBeInTheDocument();
   });
