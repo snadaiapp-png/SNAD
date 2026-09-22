@@ -65,9 +65,15 @@ public class StoreService {
         String code = (request.code() != null && !request.code().isBlank())
                 ? normalizeCode(request.code()) : slug.toUpperCase();
         String locale = request.defaultLocale() != null && !request.defaultLocale().isBlank()
-                ? request.defaultLocale() : "ar";
+                ? request.defaultLocale().trim()
+                : tenantLocale(tenantId);
         String currency = request.defaultCurrency() != null && !request.defaultCurrency().isBlank()
-                ? request.defaultCurrency() : "SAR";
+                ? request.defaultCurrency().trim().toUpperCase()
+                : tenantCurrency(tenantId);
+        if (!currency.matches("^[A-Z]{3}$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "defaultCurrency must be an ISO-4217 currency code");
+        }
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         try {
@@ -141,6 +147,10 @@ public class StoreService {
     @Transactional
     public StoreResponse setPrimary(UUID tenantId, UUID storeId, Authentication auth) {
         StoreResponse store = getOrThrow(tenantId, storeId);
+        if (!"ACTIVE".equals(store.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "store must be ACTIVE before setting primary");
+        }
         Instant now = Instant.now();
         jdbc.update("UPDATE commerce_stores SET is_primary = FALSE, updated_at = ? "
                         + "WHERE tenant_id = ? AND is_primary = TRUE", Timestamp.from(now), tenantId);
@@ -170,6 +180,8 @@ public class StoreService {
 
     // ===== Helpers =====
     private void enforceCreationLimit(UUID tenantId) {
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null, "STORE_LIMIT:" + tenantId);
         long limit = entitlementResolver.getLimit(tenantId, MODULE_CODE, STORE_LIMIT_CODE);
         if (limit <= 0) {
             throw new ResponseStatusException(
@@ -189,6 +201,28 @@ public class StoreService {
                     "store limit for the subscription has been reached"
             );
         }
+    }
+
+    private String tenantLocale(UUID tenantId) {
+        String locale = jdbc.queryForObject(
+                "SELECT locale FROM tenants WHERE id = ?",
+                String.class,
+                tenantId
+        );
+        return locale == null || locale.isBlank() ? "ar-SA" : locale;
+    }
+
+    private String tenantCurrency(UUID tenantId) {
+        String currency = jdbc.queryForObject(
+                "SELECT currency_code FROM tenants WHERE id = ?",
+                String.class,
+                tenantId
+        );
+        if (currency == null || !currency.trim().toUpperCase().matches("^[A-Z]{3}$")) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "tenant currency is not configured");
+        }
+        return currency.trim().toUpperCase();
     }
 
     private StoreResponse getOrThrow(UUID tenantId, UUID storeId) {
