@@ -252,6 +252,18 @@ public class SubscriptionOperatingUnitService {
         UUID tenantId = mutableTenantId(subscriptionId);
         requireOrganization(tenantId, organizationId);
         String mode = normalizeBillingMode(billingMode);
+        if ("SEPARATE".equals(mode)) {
+            Integer profileCount = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM subscription_billing_profiles
+                     WHERE tenant_id = ? AND subscription_id = ?
+                       AND organization_id = ? AND status = 'ACTIVE'
+                    """, Integer.class, tenantId, subscriptionId, organizationId);
+            if (profileCount == null || profileCount != 1) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "SEPARATE billing requires one active operating-unit billing profile");
+            }
+        }
         Instant now = Instant.now();
 
         jdbc.update("""
@@ -304,6 +316,30 @@ public class SubscriptionOperatingUnitService {
                    SET enabled = FALSE, updated_at = NOW()
                  WHERE tenant_id = ? AND subscription_id = ? AND organization_id = ?
                 """, tenantId, subscriptionId, organizationId);
+        // Keep resource ownership projection consistent with the binding ledger.
+        // A deactivated branch must not remain attached to websites or stores.
+        jdbc.update("""
+                UPDATE websites
+                   SET organization_id = NULL
+                 WHERE tenant_id = ? AND organization_id = ?
+                   AND id IN (
+                       SELECT resource_id FROM subscription_resource_bindings
+                        WHERE tenant_id = ? AND subscription_id = ?
+                          AND organization_id = ? AND resource_type = 'WEBSITE'
+                          AND status = 'ACTIVE'
+                   )
+                """, tenantId, organizationId, tenantId, subscriptionId, organizationId);
+        jdbc.update("""
+                UPDATE commerce_stores
+                   SET organization_id = NULL
+                 WHERE tenant_id = ? AND organization_id = ?
+                   AND id IN (
+                       SELECT resource_id FROM subscription_resource_bindings
+                        WHERE tenant_id = ? AND subscription_id = ?
+                          AND organization_id = ? AND resource_type = 'STORE'
+                          AND status = 'ACTIVE'
+                   )
+                """, tenantId, organizationId, tenantId, subscriptionId, organizationId);
         jdbc.update("""
                 UPDATE subscription_resource_bindings
                    SET status = 'INACTIVE', updated_at = NOW()
@@ -426,6 +462,15 @@ public class SubscriptionOperatingUnitService {
                     """,
                     profileName.trim(), normalizedEmail, currency, mode,
                     Timestamp.from(now), id, tenantId);
+        }
+
+        if (organizationId != null) {
+            jdbc.update("""
+                    UPDATE subscription_operating_units
+                       SET billing_mode = 'SEPARATE', updated_at = NOW()
+                     WHERE tenant_id = ? AND subscription_id = ?
+                       AND organization_id = ? AND status = 'ACTIVE'
+                    """, tenantId, subscriptionId, organizationId);
         }
 
         audit.success(authentication, tenantId, "SUBSCRIPTION_BILLING_PROFILE_UPSERTED",
