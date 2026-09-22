@@ -70,6 +70,24 @@ export interface ManagedMembership {
   roleCode: string; status: string; createdAt: string; updatedAt: string;
 }
 
+export interface SubscriptionOperatingUnit {
+  organizationId: string;
+  organizationName: string;
+  unitType: "GENERAL" | "LEGAL_ENTITY" | "BRANCH" | "DEPARTMENT" | "LOCATION";
+  status: "ACTIVE" | "INACTIVE";
+  billingMode: "CONSOLIDATED" | "SEPARATE";
+}
+
+export interface SubscriptionBillingProfile {
+  id: string;
+  organizationId: string | null;
+  profileName: string;
+  billingEmail: string | null;
+  currencyCode: string;
+  billingMode: "CONSOLIDATED" | "SEPARATE";
+  status: "ACTIVE" | "INACTIVE";
+}
+
 export interface Entitlement {
   id?: string; featureCode: string; enabled: boolean; limitValue: number | null;
 }
@@ -134,6 +152,41 @@ export const executiveApi = {
   organizations: (tenantId: string) => apiClient.get<ManagedOrganization[]>(`${root}/tenants/${tenantId}/organizations`),
   memberships: (tenantId: string, organizationId: string) =>
     apiClient.get<ManagedMembership[]>(`${root}/tenants/${tenantId}/organizations/${organizationId}/memberships`),
+
+  operatingUnits: (subscriptionId: string) =>
+    apiClient.get<SubscriptionOperatingUnit[]>(`${root}/subscriptions/${subscriptionId}/operating-units`),
+  bindOperatingUnit: (
+    subscriptionId: string,
+    organizationId: string,
+    billingMode: "CONSOLIDATED" | "SEPARATE",
+  ) => apiClient.put<SubscriptionOperatingUnit, { billingMode: string }>(
+    `${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}`,
+    { billingMode },
+  ),
+  deactivateOperatingUnit: (subscriptionId: string, organizationId: string) =>
+    apiClient.delete<void>(`${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}`),
+  setOperatingUnitApplication: (
+    subscriptionId: string,
+    organizationId: string,
+    applicationId: string,
+    enabled: boolean,
+  ) => apiClient.put<void, { enabled: boolean }>(
+    `${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}/applications/${applicationId}`,
+    { enabled },
+  ),
+  upsertSubscriptionBillingProfile: (
+    subscriptionId: string,
+    body: {
+      organizationId?: string | null;
+      profileName: string;
+      billingEmail?: string | null;
+      currencyCode: string;
+      billingMode: "CONSOLIDATED" | "SEPARATE";
+    },
+  ) => apiClient.put<SubscriptionBillingProfile, typeof body>(
+    `${root}/subscriptions/${subscriptionId}/billing-profile`,
+    body,
+  ),
 
   // Module Registry + Entitlements (EXECUTIVE V2)
   modules: () => apiClient.get<ModuleResponse[]>(`${root}/modules`),
