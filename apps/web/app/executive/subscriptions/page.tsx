@@ -137,6 +137,8 @@ function SubscriptionsContent() {
       } catch (provisionReason) {
         setNotice(t("scp.subscriptions.createdProvisionPending"));
         setError(scpErrorMessage(provisionReason));
+        await load();
+        return;
       }
       await load();
       router.push(`/executive/subscriptions/${created.id}?tenantId=${encodeURIComponent(tenantIdParam)}`);
