@@ -8,6 +8,8 @@ on:
     paths:
       - "apps/sanad-platform/**"
       - ".github/workflows/publish-render-image.yml"
+      - ".github/workflows/workflow-y2-production-release-orchestrator.yml"
+      - ".github/workflows/production-release.yml"
   workflow_dispatch:
 
 permissions:
