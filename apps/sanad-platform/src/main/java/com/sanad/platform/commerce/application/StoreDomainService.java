@@ -73,7 +73,14 @@ public class StoreDomainService {
         String baseDomain = resolvePlatformBaseDomain();
         if (baseDomain == null || baseDomain.isBlank()) return null;
         String tenantSubdomain = tenantSubdomain(tenantId);
-        return (storeSlug + "." + tenantSubdomain + "." + baseDomain).toLowerCase(Locale.ROOT);
+        String hostname = hostRoutingService.normalizeHostname(
+                storeSlug + "." + tenantSubdomain + "." + baseDomain);
+        if (hostname == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "configured platform base domain cannot produce a valid tenant-scoped storefront hostname");
+        }
+        return hostname;
     }
 
     /**
