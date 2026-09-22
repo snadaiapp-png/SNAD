@@ -22,7 +22,7 @@ import styles from "../scp.module.css";
 type TenantDialog =
   | { kind: "create" }
   | { kind: "edit"; tenantId: string }
-  | { kind: "status"; tenantId: string; targetStatus: "SUSPENDED" | "ACTIVE" | "ARCHIVED" }
+  | { kind: "status"; tenantId: string; targetStatus: "SUSPENDED" | "ACTIVE" | "ARCHIVED"; sourceStatus: string }
   | null;
 
 const EMPTY_CREATE = {
@@ -424,7 +424,7 @@ export default function TenantsPage() {
                     && tenant.status === "ACTIVE"
                     && loginEligibleSubscription;
                   const canFreeze = tenant.status === "ACTIVE" || tenant.status === "PAST_DUE";
-                  const canReactivate = tenant.status === "SUSPENDED";
+                  const canActivate = ["PENDING", "TRIAL", "PAST_DUE", "SUSPENDED"].includes(tenant.status);
                   return (
                     <tr key={tenant.id}>
                       <td data-label={t("scp.tenants.code")}>{tenant.code || tenant.id}</td>
@@ -458,16 +458,18 @@ export default function TenantsPage() {
                                 {t("scp.tenants.update")}
                               </Button>
                               {canFreeze ? (
-                                <Button type="button" variant="secondary" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "SUSPENDED" }); }}>
+                                <Button type="button" variant="secondary" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "SUSPENDED", sourceStatus: tenant.status }); }}>
                                   {t("scp.tenants.freeze")}
                                 </Button>
                               ) : null}
-                              {canReactivate ? (
-                                <Button type="button" variant="secondary" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ACTIVE" }); }}>
-                                  {t("scp.tenants.reactivate")}
+                              {canActivate ? (
+                                <Button type="button" variant="secondary" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ACTIVE", sourceStatus: tenant.status }); }}>
+                                  {tenant.status === "PENDING" || tenant.status === "TRIAL"
+                                    ? t("scp.tenants.activate")
+                                    : t("scp.tenants.reactivate")}
                                 </Button>
                               ) : null}
-                              <Button type="button" variant="danger" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ARCHIVED" }); }}>
+                              <Button type="button" variant="danger" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ARCHIVED", sourceStatus: tenant.status }); }}>
                                 {t("scp.tenants.archive")}
                               </Button>
                               <Link href={`/executive/subscriptions?tenantId=${tenant.id}&intent=upgrade`}>
@@ -640,7 +642,13 @@ export default function TenantsPage() {
       <Modal
         isOpen={dialog?.kind === "status"}
         onClose={() => !busy && setDialog(null)}
-        title={dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED" ? t("scp.tenants.archiveDialogTitle") : dialog?.kind === "status" && dialog.targetStatus === "SUSPENDED" ? t("scp.tenants.freezeDialogTitle") : t("scp.tenants.reactivateDialogTitle")}
+        title={dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED"
+          ? t("scp.tenants.archiveDialogTitle")
+          : dialog?.kind === "status" && dialog.targetStatus === "SUSPENDED"
+            ? t("scp.tenants.freezeDialogTitle")
+            : dialog?.kind === "status" && (dialog.sourceStatus === "PENDING" || dialog.sourceStatus === "TRIAL")
+              ? t("scp.tenants.activateDialogTitle")
+              : t("scp.tenants.reactivateDialogTitle")}
         closeButtonLabel={t("common.close")}
         footer={
           <>
