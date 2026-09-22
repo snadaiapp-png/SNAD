@@ -142,6 +142,31 @@ describe("Executive tenant management controls", () => {
     expect(screen.getByText("scp.tenants.notice.loginLinkCopied")).toBeInTheDocument();
   });
 
+  it("allows a governed PENDING tenant to transition to ACTIVE", async () => {
+    const user = userEvent.setup();
+    tenantsMock.mockResolvedValue({
+      ...PAGE,
+      content: [{ ...PAGE.content[0], status: "PENDING", subscriptionStatus: "ACTIVE" }],
+    });
+    changeTenantStatusMock.mockResolvedValue(undefined);
+    hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
+
+    render(<TenantsPage />);
+    await screen.findByText("Acme");
+
+    await user.click(screen.getByRole("button", { name: "scp.tenants.activate" }));
+    expect(screen.getByRole("dialog", { name: "scp.tenants.activateDialogTitle" })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("scp.tenants.form.reason"), "Subscription provisioned");
+    await user.click(screen.getByRole("button", { name: "form.action.confirm" }));
+
+    await waitFor(() => expect(changeTenantStatusMock).toHaveBeenCalledWith(
+      "11111111-1111-1111-1111-111111111111",
+      "ACTIVE",
+      "Subscription provisioned",
+    ));
+  });
+
   it("does not expose login-link controls for a non-active tenant", async () => {
     tenantsMock.mockResolvedValue({
       ...PAGE,
