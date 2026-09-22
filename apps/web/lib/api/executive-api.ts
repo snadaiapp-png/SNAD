@@ -173,6 +173,13 @@ export const executiveApi = {
     ),
   plans: () => apiClient.get<SaasPlan[]>(`${root}/plans`),
   subscriptions: () => apiClient.get<TenantSubscription[]>(`${root}/subscriptions`),
+  createSubscription: (body: {
+    tenantId: string;
+    planId: string;
+    billingCycle: "MONTHLY" | "ANNUAL";
+    seatQuantity: number;
+    trialDays?: number | null;
+  }) => apiClient.post<TenantSubscription, typeof body>(`${root}/subscriptions`, body),
   cancelSubscription: (subscriptionId: string, body: { immediate: boolean; reason: string }) =>
     apiClient.patch<TenantSubscription, typeof body>(`${root}/subscriptions/${subscriptionId}/cancel`, body),
   resumeSubscription: (subscriptionId: string) =>
