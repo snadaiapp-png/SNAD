@@ -659,12 +659,27 @@ public class SubscriptionOperatingUnitService {
     }
 
     private SubscriptionScope mutableSubscriptionScope(UUID subscriptionId) {
+        SubscriptionScope initial = subscriptionScope(subscriptionId);
+        tenantRlsContext.applyForCurrentTransaction(initial.tenantId());
+
+        // Serialize all operating-unit mutations on the canonical subscription
+        // row. Without this lock two concurrent branch binds can observe the
+        // same previous branch count and both bill the same PER_BRANCH delta.
+        // Lock first, then re-read status/currency so lifecycle changes that
+        // won the race remain authoritative.
+        UUID locked = jdbc.queryForObject(
+                "SELECT id FROM tenant_subscriptions WHERE id = ? FOR UPDATE",
+                UUID.class,
+                subscriptionId);
+        if (locked == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "subscription not found");
+        }
+
         SubscriptionScope scope = subscriptionScope(subscriptionId);
         if (!MUTABLE_SUBSCRIPTION_STATUSES.contains(scope.status())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "terminal subscription cannot be mutated");
         }
-        tenantRlsContext.applyForCurrentTransaction(scope.tenantId());
         return scope;
     }
 
