@@ -494,7 +494,7 @@ export default function TenantsPage() {
   );
 }
 
-export function Pagination({
+function Pagination({
   page,
   onPage,
 }: {
