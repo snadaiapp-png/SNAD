@@ -110,6 +110,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_sub_billing_profile_org_scope
     ON subscription_billing_profiles(subscription_id, organization_id)
     WHERE organization_id IS NOT NULL AND status = 'ACTIVE';
 
+-- Harden legacy usage RLS before schema validation.  The original G4 policy
+-- casts current_setting(..., true) directly to UUID; Flyway/maintenance sessions
+-- can expose the setting as an empty string, which is fail-closed semantically
+-- but raises 22P02 during FK validation instead of evaluating to no rows.
+-- NULLIF preserves fail-closed behavior while making migration/maintenance safe.
+DROP POLICY IF EXISTS usage_events_tenant_isolation ON usage_events;
+CREATE POLICY usage_events_tenant_isolation ON usage_events
+    USING (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid);
+DROP POLICY IF EXISTS usage_aggregates_tenant_isolation ON usage_aggregates;
+CREATE POLICY usage_aggregates_tenant_isolation ON usage_aggregates
+    USING (tenant_id = NULLIF(BTRIM(current_setting('app.tenant_id', true)), '')::uuid);
+
 ALTER TABLE subscription_items ADD COLUMN IF NOT EXISTS organization_id UUID;
 ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS organization_id UUID;
 ALTER TABLE websites ADD COLUMN IF NOT EXISTS organization_id UUID;
