@@ -376,10 +376,10 @@ public class TenantDomainService {
         // Verify transitions UNVERIFIED → VERIFIED. If ACTIVE/INACTIVE, verification is a no-op refresh.
         jdbc.update(
                 "UPDATE tenant_domains "
-                        + "SET status = ?, verified_at = ?, verified_by = ?, last_verified_at = ?, "
-                        + " failure_reason = NULL, updated_at = ?, version = version + 1 "
+                        + "SET status = CASE WHEN status = 'UNVERIFIED' THEN 'VERIFIED' ELSE status END, "
+                        + " verified_at = COALESCE(verified_at, ?), verified_by = COALESCE(verified_by, ?), "
+                        + " last_verified_at = ?, failure_reason = NULL, updated_at = ?, version = version + 1 "
                         + "WHERE tenant_id = ? AND id = ?",
-                Status.VERIFIED.name(),
                 Timestamp.from(now), actorUserId(auth), Timestamp.from(now),
                 Timestamp.from(now), tenantId, domainId);
         audit(tenantId, auth, "DOMAIN.VERIFIED", domainId, "tenant_domains", existing.hostname());
