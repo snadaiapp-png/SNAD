@@ -64,7 +64,11 @@ public class StoreDomainService {
      */
     public String generateDefaultDomain(String storeSlug) {
         String baseDomain = resolvePlatformBaseDomain();
-        if (baseDomain == null || baseDomain.isBlank()) return null;
+        if (baseDomain == null || baseDomain.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SANAD_BASE_DOMAIN is required for generated storefront hostnames");
+        }
         String hostname = hostRoutingService.normalizeHostname(storeSlug + "." + baseDomain);
         if (hostname == null) {
             throw new ResponseStatusException(
@@ -77,7 +81,11 @@ public class StoreDomainService {
     /** Tenant-scoped generated storefront hostname. */
     public String generateDefaultDomain(UUID tenantId, String storeSlug) {
         String baseDomain = resolvePlatformBaseDomain();
-        if (baseDomain == null || baseDomain.isBlank()) return null;
+        if (baseDomain == null || baseDomain.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SANAD_BASE_DOMAIN is required for generated storefront hostnames");
+        }
         String tenantSubdomain = tenantSubdomain(tenantId);
         String hostname = hostRoutingService.normalizeHostname(
                 storeSlug + "." + tenantSubdomain + "." + baseDomain);
@@ -102,7 +110,6 @@ public class StoreDomainService {
     ) {
         ensureStore(tenantId, storeId);
         String hostname = generateDefaultDomain(tenantId, storeSlug);
-        if (hostname == null) return null;
 
         hostRoutingService.requireHostnameAvailable(
                 hostname, HostRoutingService.Surface.STORE, tenantId, storeId, true);
@@ -266,7 +273,6 @@ public class StoreDomainService {
     /** Find an active storefront domain by hostname (used by public resolver). */
     @Transactional(readOnly = true)
     public DomainResponse findByHostname(String hostname) {
-        if (hostname == null) return null;
         try {
             return jdbc.queryForObject(
                     "SELECT * FROM commerce_store_domains WHERE hostname = ? AND activation_status = 'ACTIVE'",
