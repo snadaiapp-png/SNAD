@@ -69,6 +69,7 @@ public class UsageMeteringService {
         // Scope first: organization and usage tables may both be protected by
         // tenant RLS, so validation must never run before the transaction GUC.
         tenantRlsContext.applyForCurrentTransaction(tenantId);
+        requireUsageEligibleSubscription(tenantId);
         if (organizationId != null) {
             requireActiveUsageOperatingUnit(tenantId, organizationId);
         }
@@ -102,6 +103,19 @@ public class UsageMeteringService {
         return new IngestResult(eventId, false);
     }
 
+    private void requireUsageEligibleSubscription(UUID tenantId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM tenant_subscriptions
+                 WHERE tenant_id = ?
+                   AND status IN ('TRIALING','TRIAL','ACTIVE','PAST_DUE','GRACE_PERIOD')
+                """, Integer.class, tenantId);
+        if (count == null || count != 1) {
+            throw new IllegalArgumentException(
+                    "tenant does not have exactly one usage-eligible effective subscription");
+        }
+    }
+
     private void requireActiveUsageOperatingUnit(UUID tenantId, UUID organizationId) {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*)
@@ -116,7 +130,7 @@ public class UsageMeteringService {
                    AND sou.organization_id = ?
                    AND sou.status = 'ACTIVE'
                    AND o.status = 'ACTIVE'
-                   AND ts.status IN ('TRIALING','TRIAL','ACTIVE','PAST_DUE')
+                   AND ts.status IN ('TRIALING','TRIAL','ACTIVE','PAST_DUE','GRACE_PERIOD')
                 """, Integer.class, tenantId, organizationId);
         if (count == null || count != 1) {
             throw new IllegalArgumentException(
@@ -280,14 +294,17 @@ public class UsageMeteringService {
                     SELECT pme.capability_code, pme.limit_value
                     FROM tenant_subscriptions ts
                     JOIN plan_module_entitlements pme ON pme.plan_id = ts.plan_id
-                    WHERE ts.tenant_id = ? AND ts.status IN ('ACTIVE', 'TRIALING', 'TRIAL')
+                    WHERE ts.tenant_id = ?
+                      AND ts.status IN ('ACTIVE', 'TRIALING', 'TRIAL', 'PAST_DUE', 'GRACE_PERIOD')
                       AND pme.capability_code IN (%s)
                     UNION ALL
                     SELECT pel.capability_code, pel.limit_value
                     FROM tenant_subscriptions ts
                     JOIN subscription_items si ON si.subscription_id = ts.id AND si.status = 'ACTIVE'
                     JOIN product_entitlements pel ON pel.product_id = si.product_id
-                    WHERE ts.tenant_id = ? AND pel.capability_code IN (%s)
+                    WHERE ts.tenant_id = ?
+                      AND ts.status IN ('ACTIVE', 'TRIALING', 'TRIAL', 'PAST_DUE', 'GRACE_PERIOD')
+                      AND pel.capability_code IN (%s)
                 ) pe
                 WHERE pe.limit_value IS NOT NULL
                 GROUP BY pe.capability_code
