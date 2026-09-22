@@ -338,12 +338,12 @@ public class SubscriptionOperatingUnitService {
         if (profileName == null || profileName.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "profileName is required");
         }
-        if (profileName.trim().length() > 200) {
+        if (profileName.trim().length() > 160) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "profileName is too long");
         }
         String normalizedEmail = blankToNull(billingEmail);
         if (normalizedEmail != null
-                && (normalizedEmail.length() > 320
+                && (normalizedEmail.length() > 255
                     || !normalizedEmail.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "billingEmail is invalid");
         }
