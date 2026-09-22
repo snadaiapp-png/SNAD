@@ -85,6 +85,16 @@ public class SubscriptionOperatingUnitController {
         return ResponseEntity.ok(service.listResourceBindings(subscriptionId));
     }
 
+    @GetMapping("/available-resources")
+    @RequireCapability("EXECUTIVE_VIEW")
+    public ResponseEntity<List<SubscriptionOperatingUnitService.AvailableResource>> listAvailableResources(
+            @PathVariable UUID subscriptionId,
+            Authentication authentication
+    ) {
+        accessGuard.require(authentication);
+        return ResponseEntity.ok(service.listAvailableResources(subscriptionId));
+    }
+
     @PutMapping("/operating-units/{organizationId}")
     @RequireCapability("EXECUTIVE_MANAGE")
     public ResponseEntity<SubscriptionOperatingUnitService.OperatingUnit> bind(
