@@ -2,6 +2,7 @@ package com.sanad.platform.subscription.branch;
 
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -28,7 +29,7 @@ import java.util.UUID;
 public class SubscriptionOperatingUnitService {
 
     private static final Set<String> MUTABLE_SUBSCRIPTION_STATUSES =
-            Set.of("TRIALING", "TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED");
+            Set.of("TRIALING", "TRIAL", "ACTIVE", "PAST_DUE", "GRACE_PERIOD");
 
     public record OperatingUnit(
             UUID organizationId,
@@ -74,15 +75,18 @@ public class SubscriptionOperatingUnitService {
     private final JdbcTemplate jdbc;
     private final PlatformAuditService audit;
     private final TenantRlsTransactionContext tenantRlsContext;
+    private final EntitlementResolver entitlementResolver;
 
     public SubscriptionOperatingUnitService(
             JdbcTemplate jdbc,
             PlatformAuditService audit,
-            TenantRlsTransactionContext tenantRlsContext
+            TenantRlsTransactionContext tenantRlsContext,
+            EntitlementResolver entitlementResolver
     ) {
         this.jdbc = jdbc;
         this.audit = audit;
         this.tenantRlsContext = tenantRlsContext;
+        this.entitlementResolver = entitlementResolver;
     }
 
     @Transactional(readOnly = true)
@@ -205,7 +209,9 @@ public class SubscriptionOperatingUnitService {
     @Transactional(readOnly = true)
     public List<AvailableResource> listAvailableResources(UUID subscriptionId) {
         UUID tenantId = tenantId(subscriptionId);
-        return jdbc.query("""
+        boolean websitesEnabled = entitlementResolver.isModuleEnabled(tenantId, "WEBSITES");
+        boolean storesEnabled = entitlementResolver.isModuleEnabled(tenantId, "ECOMMERCE_CX");
+        List<AvailableResource> resources = jdbc.query("""
                 SELECT resource_type, resource_id, resource_name, resource_status,
                        bound_organization_id
                   FROM (
@@ -240,6 +246,10 @@ public class SubscriptionOperatingUnitService {
                         rs.getString("resource_status"),
                         rs.getObject("bound_organization_id", UUID.class)),
                 tenantId, tenantId);
+        return resources.stream()
+                .filter(resource -> ("WEBSITE".equals(resource.resourceType()) && websitesEnabled)
+                        || ("STORE".equals(resource.resourceType()) && storesEnabled))
+                .toList();
     }
 
     @Transactional
@@ -491,6 +501,7 @@ public class SubscriptionOperatingUnitService {
         UUID tenantId = mutableTenantId(subscriptionId);
         requireActiveBinding(tenantId, subscriptionId, organizationId);
         String type = normalizeResourceType(resourceType);
+        requireResourceEntitlement(tenantId, type);
         requireResourceOwnership(tenantId, type, resourceId);
         Integer conflicting = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM subscription_resource_bindings
@@ -714,6 +725,20 @@ public class SubscriptionOperatingUnitService {
         if (count == null || count == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "application is not entitled by this subscription");
+        }
+    }
+
+    private void requireResourceEntitlement(UUID tenantId, String type) {
+        String moduleCode = switch (type) {
+            case "WEBSITE" -> "WEBSITES";
+            case "STORE" -> "ECOMMERCE_CX";
+            case "POS_LOCATION" -> "POS";
+            default -> null;
+        };
+        if (moduleCode == null || !entitlementResolver.isModuleEnabled(tenantId, moduleCode)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "resource module is not entitled by the effective subscription");
         }
     }
 
