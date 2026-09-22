@@ -29,6 +29,8 @@ import java.util.UUID;
 public class TenantDirectoryAdministrationService {
 
     private static final Set<String> ORGANIZATION_STATUSES = Set.of("ACTIVE", "INACTIVE", "ARCHIVED");
+    private static final Set<String> ORGANIZATION_UNIT_TYPES =
+            Set.of("GENERAL", "LEGAL_ENTITY", "BRANCH", "DEPARTMENT", "LOCATION");
     private static final Set<String> MEMBERSHIP_STATUSES = Set.of("INVITED", "ACTIVE", "INACTIVE", "REMOVED");
 
     private final JdbcTemplate jdbcTemplate;
@@ -43,7 +45,7 @@ public class TenantDirectoryAdministrationService {
     public List<OrganizationAdminResponse> listOrganizations(UUID tenantId) {
         ensureTenant(tenantId);
         return jdbcTemplate.query(
-                "SELECT id, tenant_id, name, description, status, created_at, updated_at "
+                "SELECT id, tenant_id, name, description, status, unit_type, created_at, updated_at "
                         + "FROM organizations WHERE tenant_id = ? ORDER BY created_at",
                 this::mapOrganization,
                 tenantId
@@ -69,12 +71,14 @@ public class TenantDirectoryAdministrationService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Organization name already exists for the tenant");
         }
 
+        String unitType = normalizeUnitType(request.unitType(), "GENERAL");
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         jdbcTemplate.update(
-                "INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)",
-                id, tenantId, name, blankToNull(request.description()), Timestamp.from(now), Timestamp.from(now));
+                "INSERT INTO organizations (id, tenant_id, name, description, status, unit_type, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?)",
+                id, tenantId, name, blankToNull(request.description()), unitType,
+                Timestamp.from(now), Timestamp.from(now));
         OrganizationAdminResponse created = getOrganization(tenantId, id);
         auditService.success(authentication, tenantId, "ORGANIZATION.CREATE", "ORGANIZATION", id.toString(),
                 "Created from control plane", null, created);
@@ -95,9 +99,12 @@ public class TenantDirectoryAdministrationService {
                 tenantId, organizationId, name) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Organization name already exists for the tenant");
         }
+        String unitType = normalizeUnitType(request.unitType(), before.unitType());
         jdbcTemplate.update(
-                "UPDATE organizations SET name = ?, description = ?, updated_at = ? WHERE tenant_id = ? AND id = ?",
-                name, blankToNull(request.description()), Timestamp.from(Instant.now()), tenantId, organizationId);
+                "UPDATE organizations SET name = ?, description = ?, unit_type = ?, updated_at = ? "
+                        + "WHERE tenant_id = ? AND id = ?",
+                name, blankToNull(request.description()), unitType,
+                Timestamp.from(Instant.now()), tenantId, organizationId);
         OrganizationAdminResponse after = getOrganization(tenantId, organizationId);
         auditService.success(authentication, tenantId, "ORGANIZATION.UPDATE", "ORGANIZATION", organizationId.toString(),
                 "Updated from control plane", before, after);
@@ -223,7 +230,7 @@ public class TenantDirectoryAdministrationService {
     @Transactional(readOnly = true)
     public OrganizationAdminResponse getOrganization(UUID tenantId, UUID organizationId) {
         List<OrganizationAdminResponse> rows = jdbcTemplate.query(
-                "SELECT id, tenant_id, name, description, status, created_at, updated_at "
+                "SELECT id, tenant_id, name, description, status, unit_type, created_at, updated_at "
                         + "FROM organizations WHERE tenant_id = ? AND id = ?",
                 this::mapOrganization,
                 tenantId, organizationId);
@@ -333,6 +340,7 @@ public class TenantDirectoryAdministrationService {
                 rs.getString("name"),
                 rs.getString("description"),
                 rs.getString("status"),
+                rs.getString("unit_type"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at")
         );
@@ -364,6 +372,16 @@ public class TenantDirectoryAdministrationService {
 
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeUnitType(String value, String fallback) {
+        String normalized = value == null || value.isBlank()
+                ? (fallback == null ? "GENERAL" : fallback.trim().toUpperCase(Locale.ROOT))
+                : value.trim().toUpperCase(Locale.ROOT);
+        if (!ORGANIZATION_UNIT_TYPES.contains(normalized)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported organization unit type");
+        }
+        return normalized;
     }
 
     private static String normalizeRoleCode(String value) {
