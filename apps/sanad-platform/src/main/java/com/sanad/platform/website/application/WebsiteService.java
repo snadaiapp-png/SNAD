@@ -54,7 +54,8 @@ public class WebsiteService {
         enforceCreationLimit(tenantId);
         String slug = normalizeSlug(request.slug() != null ? request.slug() : request.name());
         String locale = request.defaultLocale() != null && !request.defaultLocale().isBlank()
-                ? request.defaultLocale() : "ar";
+                ? request.defaultLocale().trim()
+                : tenantLocale(tenantId);
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         try {
@@ -117,6 +118,10 @@ public class WebsiteService {
     @Transactional
     public WebsiteResponse setPrimary(UUID tenantId, UUID websiteId, Authentication auth) {
         WebsiteResponse website = getOrThrow(tenantId, websiteId);
+        if (!"ACTIVE".equals(website.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "website must be ACTIVE before setting primary");
+        }
         jdbc.update("UPDATE websites SET is_primary = FALSE, updated_at = ? WHERE tenant_id = ? AND is_primary = TRUE",
                 Timestamp.from(Instant.now()), tenantId);
         jdbc.update("UPDATE websites SET is_primary = TRUE, updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
@@ -145,6 +150,8 @@ public class WebsiteService {
 
     // ===== Helpers =====
     private void enforceCreationLimit(UUID tenantId) {
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null, "WEBSITE_LIMIT:" + tenantId);
         long limit = entitlementResolver.getLimit(tenantId, MODULE_CODE, WEBSITE_LIMIT_CODE);
         if (limit <= 0) {
             throw new ResponseStatusException(
@@ -164,6 +171,15 @@ public class WebsiteService {
                     "website limit for the subscription has been reached"
             );
         }
+    }
+
+    private String tenantLocale(UUID tenantId) {
+        String locale = jdbc.queryForObject(
+                "SELECT locale FROM tenants WHERE id = ?",
+                String.class,
+                tenantId
+        );
+        return locale == null || locale.isBlank() ? "ar-SA" : locale;
     }
 
     private WebsiteResponse getOrThrow(UUID tenantId, UUID websiteId) {
