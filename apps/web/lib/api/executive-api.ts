@@ -88,6 +88,21 @@ export interface SubscriptionBillingProfile {
   status: "ACTIVE" | "INACTIVE";
 }
 
+export interface SubscriptionUnitApplication {
+  applicationId: string;
+  applicationCode: string;
+  applicationName: string;
+  enabled: boolean;
+}
+
+export interface SubscriptionResourceBinding {
+  organizationId: string;
+  resourceType: "WEBSITE" | "STORE" | "POS_LOCATION";
+  resourceId: string;
+  resourceName: string | null;
+  status: "ACTIVE" | "INACTIVE";
+}
+
 export interface Entitlement {
   id?: string; featureCode: string; enabled: boolean; limitValue: number | null;
 }
@@ -155,6 +170,18 @@ export const executiveApi = {
 
   operatingUnits: (subscriptionId: string) =>
     apiClient.get<SubscriptionOperatingUnit[]>(`${root}/subscriptions/${subscriptionId}/operating-units`),
+  operatingUnitApplications: (subscriptionId: string, organizationId: string) =>
+    apiClient.get<SubscriptionUnitApplication[]>(
+      `${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}/applications`,
+    ),
+  subscriptionBillingProfiles: (subscriptionId: string) =>
+    apiClient.get<SubscriptionBillingProfile[]>(
+      `${root}/subscriptions/${subscriptionId}/billing-profiles`,
+    ),
+  subscriptionResourceBindings: (subscriptionId: string) =>
+    apiClient.get<SubscriptionResourceBinding[]>(
+      `${root}/subscriptions/${subscriptionId}/resource-bindings`,
+    ),
   bindOperatingUnit: (
     subscriptionId: string,
     organizationId: string,
@@ -174,6 +201,14 @@ export const executiveApi = {
     `${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}/applications/${applicationId}`,
     { enabled },
   ),
+  unbindSubscriptionResource: (
+    subscriptionId: string,
+    resourceType: "WEBSITE" | "STORE" | "POS_LOCATION",
+    resourceId: string,
+  ) => apiClient.delete<void>(
+    `${root}/subscriptions/${subscriptionId}/resources/${resourceType}/${resourceId}`,
+  ),
+
   upsertSubscriptionBillingProfile: (
     subscriptionId: string,
     body: {
