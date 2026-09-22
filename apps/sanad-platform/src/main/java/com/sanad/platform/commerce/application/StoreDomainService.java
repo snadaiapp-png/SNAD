@@ -219,6 +219,40 @@ public class StoreDomainService {
         return getOrThrow(tenantId, storeId, domainId);
     }
 
+    @Transactional
+    public DomainResponse disable(UUID tenantId, UUID storeId, UUID domainId, Authentication auth) {
+        DomainResponse existing = getOrThrow(tenantId, storeId, domainId);
+        Instant now = Instant.now();
+        jdbc.update(
+                "UPDATE commerce_store_domains "
+                        + "SET activation_status = 'DISABLED', is_primary = FALSE, "
+                        + "updated_at = ?, version = version + 1 "
+                        + "WHERE tenant_id = ? AND store_id = ? AND id = ?",
+                Timestamp.from(now), tenantId, storeId, domainId);
+        audit(tenantId, auth, "STORE_DOMAIN.DISABLED", domainId, "hostname=" + existing.hostname());
+        return getOrThrow(tenantId, storeId, domainId);
+    }
+
+    @Transactional
+    public DomainResponse setPrimary(UUID tenantId, UUID storeId, UUID domainId, Authentication auth) {
+        DomainResponse existing = getOrThrow(tenantId, storeId, domainId);
+        if (existing.activationStatus() != CommerceDomain.ActivationStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "domain must be ACTIVE before setting primary");
+        }
+        Instant now = Instant.now();
+        jdbc.update(
+                "UPDATE commerce_store_domains SET is_primary = FALSE, updated_at = ? "
+                        + "WHERE tenant_id = ? AND store_id = ? AND id <> ?",
+                Timestamp.from(now), tenantId, storeId, domainId);
+        jdbc.update(
+                "UPDATE commerce_store_domains SET is_primary = TRUE, updated_at = ?, version = version + 1 "
+                        + "WHERE tenant_id = ? AND store_id = ? AND id = ?",
+                Timestamp.from(now), tenantId, storeId, domainId);
+        audit(tenantId, auth, "STORE_DOMAIN.SET_PRIMARY", domainId, "hostname=" + existing.hostname());
+        return getOrThrow(tenantId, storeId, domainId);
+    }
+
     @Transactional(readOnly = true)
     public List<DomainResponse> list(UUID tenantId, UUID storeId) {
         ensureStore(tenantId, storeId);
