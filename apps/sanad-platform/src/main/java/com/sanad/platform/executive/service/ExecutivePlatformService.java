@@ -146,12 +146,17 @@ public class ExecutivePlatformService {
                 lowerEmail(request.billingEmail()), countryCode, locale, timezone, currencyCode,
                 trialEndsAt, tenantId);
 
-        tenantDomainService.ensureDefaultDomain(
+        var defaultDomain = tenantDomainService.ensureDefaultDomain(
                 tenantId,
                 request.subdomain(),
                 DomainType.APPLICATION,
                 authentication
         );
+        if (defaultDomain == null || defaultDomain.hostname() == null || defaultDomain.hostname().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Platform base domain is not configured; tenant routing cannot be provisioned");
+        }
 
         TenantResponse created = getTenant(tenantId);
         auditService.success(authentication, tenantId, "CREATE_TENANT", "TENANT", tenantId.toString(),
