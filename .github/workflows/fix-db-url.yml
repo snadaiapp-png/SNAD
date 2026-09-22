@@ -86,11 +86,18 @@ jobs:
         run: sleep 90
 
       - name: Test login
+        env:
+          SANAD_ADMIN_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+          SANAD_ADMIN_PASSWORD: ${{ secrets.SANAD_ADMIN_PASSWORD }}
         run: |
+          set -euo pipefail
+          test -n "$SANAD_ADMIN_EMAIL" || { echo "::error::SANAD_ADMIN_EMAIL secret is required"; exit 1; }
+          test -n "$SANAD_ADMIN_PASSWORD" || { echo "::error::SANAD_ADMIN_PASSWORD secret is required"; exit 1; }
           for i in 1 2 3 4 5; do
+            LOGIN_PAYLOAD=$(jq -cn --arg email "$SANAD_ADMIN_EMAIL" --arg password "$SANAD_ADMIN_PASSWORD" '{email:$email,password:$password}')
             RESULT=$(curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
               -H "Content-Type: application/json" \
-              -d '{"email":"admin@snad.ai","password":"SNad@2026"}' \
+              --data "$LOGIN_PAYLOAD" \
               -w "\n%{http_code}" 2>/dev/null || echo "timeout\n000")
             CODE=$(echo "$RESULT" | tail -1)
             echo "  Login $i: HTTP $CODE"
