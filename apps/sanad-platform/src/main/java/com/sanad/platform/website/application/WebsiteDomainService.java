@@ -86,6 +86,10 @@ public class WebsiteDomainService {
         String token = "snad-site-" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
         Instant now = Instant.now();
         var method = request.verificationMethod() != null ? request.verificationMethod() : WebsiteDomain.VerificationMethod.DNS_TXT;
+        if (method == WebsiteDomain.VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "HTTP domain verification is disabled; use DNS_TXT or DNS_CNAME");
+        }
         try {
             jdbc.update("INSERT INTO website_domains (id, tenant_id, website_id, hostname, domain_type, "
                             + "verification_status, activation_status, is_primary, verification_token, verification_method, "
