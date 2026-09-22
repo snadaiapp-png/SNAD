@@ -63,6 +63,14 @@ public class SubscriptionOperatingUnitService {
             String status
     ) {}
 
+    public record AvailableResource(
+            String resourceType,
+            UUID resourceId,
+            String resourceName,
+            String resourceStatus,
+            UUID boundOrganizationId
+    ) {}
+
     private final JdbcTemplate jdbc;
     private final PlatformAuditService audit;
     private final TenantRlsTransactionContext tenantRlsContext;
@@ -192,6 +200,46 @@ public class SubscriptionOperatingUnitService {
                         rs.getString("resource_name"),
                         rs.getString("status")),
                 tenantId, subscriptionId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AvailableResource> listAvailableResources(UUID subscriptionId) {
+        UUID tenantId = tenantId(subscriptionId);
+        return jdbc.query("""
+                SELECT resource_type, resource_id, resource_name, resource_status,
+                       bound_organization_id
+                  FROM (
+                        SELECT 'WEBSITE' AS resource_type, w.id AS resource_id,
+                               w.name AS resource_name, w.status AS resource_status,
+                               srb.organization_id AS bound_organization_id
+                          FROM websites w
+                          LEFT JOIN subscription_resource_bindings srb
+                            ON srb.tenant_id = w.tenant_id
+                           AND srb.resource_type = 'WEBSITE'
+                           AND srb.resource_id = w.id
+                           AND srb.status = 'ACTIVE'
+                         WHERE w.tenant_id = ? AND w.status <> 'ARCHIVED'
+                        UNION ALL
+                        SELECT 'STORE' AS resource_type, s.id AS resource_id,
+                               s.name AS resource_name, s.status AS resource_status,
+                               srb.organization_id AS bound_organization_id
+                          FROM commerce_stores s
+                          LEFT JOIN subscription_resource_bindings srb
+                            ON srb.tenant_id = s.tenant_id
+                           AND srb.resource_type = 'STORE'
+                           AND srb.resource_id = s.id
+                           AND srb.status = 'ACTIVE'
+                         WHERE s.tenant_id = ? AND s.status <> 'ARCHIVED'
+                  ) resources
+                 ORDER BY resource_type, resource_name, resource_id
+                """,
+                (rs, rowNum) -> new AvailableResource(
+                        rs.getString("resource_type"),
+                        rs.getObject("resource_id", UUID.class),
+                        rs.getString("resource_name"),
+                        rs.getString("resource_status"),
+                        rs.getObject("bound_organization_id", UUID.class)),
+                tenantId, tenantId);
     }
 
     @Transactional
