@@ -13,7 +13,7 @@ import {
 } from "react";
 import {
   authApi,
-  tenantAuthApi,
+  createTenantAuthApi,
   authResponseToMe,
   type AuthResponse,
   type AuthUser,
@@ -104,12 +104,15 @@ function browserSessionScope(): SessionHintScope {
   if (typeof window === "undefined") return "default";
   const params = new URLSearchParams(window.location.search);
   if (params.get("tenantLogin") === "1") {
-    window.sessionStorage.setItem(TAB_SESSION_SCOPE_KEY, "tenant");
     const target = params.get("tenantId")?.trim() ?? "";
     if (TENANT_ID_PATTERN.test(target)) {
-      window.sessionStorage.setItem(TAB_TENANT_TARGET_KEY, target);
+      window.sessionStorage.setItem(TAB_SESSION_SCOPE_KEY, "tenant");
+      window.sessionStorage.setItem(TAB_TENANT_TARGET_KEY, target.toLowerCase());
+      return "tenant";
     }
-    return "tenant";
+    window.sessionStorage.removeItem(TAB_SESSION_SCOPE_KEY);
+    window.sessionStorage.removeItem(TAB_TENANT_TARGET_KEY);
+    return "default";
   }
   return window.sessionStorage.getItem(TAB_SESSION_SCOPE_KEY) === "tenant"
     ? "tenant"
@@ -147,7 +150,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     requestedTenantIdRef.current = requestedTenantIdFromLocation();
   }
   const sessionScope = sessionScopeRef.current ?? "default";
-  const scopedAuthApi = sessionScope === "tenant" ? tenantAuthApi : authApi;
+  const tenantSessionId = requestedTenantIdRef.current;
+  const scopedAuthApi = useMemo(
+    () => sessionScope === "tenant" && tenantSessionId
+      ? createTenantAuthApi(tenantSessionId)
+      : authApi,
+    [sessionScope, tenantSessionId],
+  );
   const session = useInMemorySession();
 
   if (refreshFlightRef.current === null) {
@@ -245,7 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     if (bootstrapStartedRef.current) return;
     bootstrapStartedRef.current = true;
-    if (!hasSessionHint(undefined, sessionScope)) {
+    if (!hasSessionHint(undefined, sessionScope, tenantSessionId)) {
       queueMicrotask(() => setState("ANONYMOUS"));
       return;
     }
