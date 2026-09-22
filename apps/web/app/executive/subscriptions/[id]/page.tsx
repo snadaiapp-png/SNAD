@@ -12,7 +12,15 @@ import {
   type SubscriptionItem,
   type UsageSnapshot,
 } from "@/lib/api/scp-api";
-import { executiveApi, type SaasPlan } from "@/lib/api/executive-api";
+import {
+  executiveApi,
+  type SaasPlan,
+  type SubscriptionOperatingUnit,
+  type SubscriptionBillingProfile,
+  type SubscriptionUnitApplication,
+  type SubscriptionResourceBinding,
+  type SubscriptionAvailableResource,
+} from "@/lib/api/executive-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { Button, Input } from "@/components/sds";
 import {
@@ -71,6 +79,40 @@ export default function SubscriptionDetailPage() {
   const [busy, setBusy] = useState(false);
   const [changePlanId, setChangePlanId] = useState("");
   const [changePreview, setChangePreview] = useState<ChangePreview | null>(null);
+  const [operatingUnits, setOperatingUnits] = useState<SubscriptionOperatingUnit[]>([]);
+  const [unitApplications, setUnitApplications] = useState<SubscriptionUnitApplication[]>([]);
+  const [billingProfiles, setBillingProfiles] = useState<SubscriptionBillingProfile[]>([]);
+  const [resourceBindings, setResourceBindings] = useState<SubscriptionResourceBinding[]>([]);
+  const [availableResources, setAvailableResources] = useState<SubscriptionAvailableResource[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [branchName, setBranchName] = useState("");
+  const [billingProfileOrganizationId, setBillingProfileOrganizationId] = useState("");
+  const [billingProfileName, setBillingProfileName] = useState("");
+  const [billingEmail, setBillingEmail] = useState("");
+  const [selectedResource, setSelectedResource] = useState("");
+
+  const loadOperatingGovernance = useCallback(async () => {
+    try {
+      const [units, profiles, bindings, resources] = await Promise.all([
+        executiveApi.operatingUnits(subscriptionId),
+        executiveApi.subscriptionBillingProfiles(subscriptionId),
+        executiveApi.subscriptionResourceBindings(subscriptionId),
+        executiveApi.subscriptionAvailableResources(subscriptionId),
+      ]);
+      setOperatingUnits(units);
+      setBillingProfiles(profiles);
+      setResourceBindings(bindings);
+      setAvailableResources(resources);
+      setSelectedOrganizationId((current) => {
+        if (current && units.some((unit) => unit.organizationId === current && unit.status === "ACTIVE")) {
+          return current;
+        }
+        return units.find((unit) => unit.status === "ACTIVE")?.organizationId ?? "";
+      });
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    }
+  }, [loadOperatingGovernance, subscriptionId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +124,7 @@ export default function SubscriptionDetailPage() {
       ]);
       setDetail(detailResult);
       setItems(itemsResult);
+      void loadOperatingGovernance();
       const tenantId = String(detailResult.overview.tenantId ?? "");
       if (tenantId) {
         scpApi.usage(tenantId).then(setUsage).catch((reason) => {
@@ -99,6 +142,25 @@ export default function SubscriptionDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!selectedOrganizationId) {
+      setUnitApplications([]);
+      return;
+    }
+    let active = true;
+    executiveApi
+      .operatingUnitApplications(subscriptionId, selectedOrganizationId)
+      .then((applications) => {
+        if (active) setUnitApplications(applications);
+      })
+      .catch((reason) => {
+        if (active) setError(scpErrorMessage(reason));
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedOrganizationId, subscriptionId]);
 
   useEffect(() => {
     if (!canChangePlan) {
@@ -166,6 +228,146 @@ export default function SubscriptionDetailPage() {
       );
       setNotice(t("scp.detail.commandApplied", { command: result.command, from: result.fromStatus, to: result.toStatus }));
       await load();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createAndBindBranch() {
+    const tenantId = String(detail?.overview.tenantId ?? "");
+    if (!tenantId || !branchName.trim()) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const organization = await executiveApi.createOrganization(tenantId, {
+        name: branchName.trim(),
+        unitType: "BRANCH",
+      });
+      await executiveApi.bindOperatingUnit(subscriptionId, organization.id, "CONSOLIDATED");
+      setBranchName("");
+      setSelectedOrganizationId(organization.id);
+      setNotice(t("scp.detail.branchCreated"));
+      await loadOperatingGovernance();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateOperatingUnit(
+    organizationId: string,
+    billingMode: "CONSOLIDATED" | "SEPARATE",
+  ) {
+    setBusy(true);
+    setError("");
+    try {
+      await executiveApi.bindOperatingUnit(subscriptionId, organizationId, billingMode);
+      setNotice(t("scp.detail.branchBound"));
+      await loadOperatingGovernance();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unbindOperatingUnit(organizationId: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await executiveApi.deactivateOperatingUnit(subscriptionId, organizationId);
+      setNotice(t("scp.detail.branchUnbound"));
+      if (selectedOrganizationId === organizationId) setSelectedOrganizationId("");
+      await loadOperatingGovernance();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleUnitApplication(application: SubscriptionUnitApplication) {
+    if (!selectedOrganizationId) return;
+    setBusy(true);
+    setError("");
+    try {
+      await executiveApi.setOperatingUnitApplication(
+        subscriptionId,
+        selectedOrganizationId,
+        application.applicationId,
+        !application.enabled,
+      );
+      setNotice(t("scp.detail.applicationUpdated"));
+      setUnitApplications(await executiveApi.operatingUnitApplications(subscriptionId, selectedOrganizationId));
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveBillingProfile() {
+    const currencyCode = String(detail?.overview.currencyCode ?? "").trim().toUpperCase();
+    if (!billingProfileName.trim() || !currencyCode) return;
+    setBusy(true);
+    setError("");
+    try {
+      await executiveApi.upsertSubscriptionBillingProfile(subscriptionId, {
+        organizationId: billingProfileOrganizationId || null,
+        profileName: billingProfileName.trim(),
+        billingEmail: billingEmail.trim() || null,
+        currencyCode,
+        billingMode: billingProfileOrganizationId ? "SEPARATE" : "CONSOLIDATED",
+      });
+      setBillingProfileName("");
+      setBillingEmail("");
+      setNotice(t("scp.detail.billingProfileSaved"));
+      await loadOperatingGovernance();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bindResource() {
+    if (!selectedOrganizationId || !selectedResource) return;
+    const [resourceType, resourceId] = selectedResource.split(":");
+    if ((resourceType !== "WEBSITE" && resourceType !== "STORE") || !resourceId) return;
+    setBusy(true);
+    setError("");
+    try {
+      await executiveApi.bindSubscriptionResource(
+        subscriptionId,
+        selectedOrganizationId,
+        resourceType,
+        resourceId,
+      );
+      setSelectedResource("");
+      setNotice(t("scp.detail.resourceBound"));
+      await loadOperatingGovernance();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unbindResource(binding: SubscriptionResourceBinding) {
+    setBusy(true);
+    setError("");
+    try {
+      await executiveApi.unbindSubscriptionResource(
+        subscriptionId,
+        binding.resourceType,
+        binding.resourceId,
+      );
+      setNotice(t("scp.detail.resourceUnbound"));
+      await loadOperatingGovernance();
     } catch (reason) {
       setError(scpErrorMessage(reason));
     } finally {
