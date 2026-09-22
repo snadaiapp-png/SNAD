@@ -61,7 +61,8 @@ export interface BillingInvoice {
 
 export interface ManagedOrganization {
   id: string; tenantId: string; name: string; description: string | null;
-  status: string; createdAt: string; updatedAt: string;
+  status: string; unitType: "GENERAL" | "LEGAL_ENTITY" | "BRANCH" | "DEPARTMENT" | "LOCATION";
+  createdAt: string; updatedAt: string;
 }
 
 export interface ManagedMembership {
@@ -165,6 +166,21 @@ export const executiveApi = {
   invoices: (tenantId: string) =>
     apiClient.get<BillingInvoice[]>(`${root}/billing/invoices?tenantId=${encodeURIComponent(tenantId)}`),
   organizations: (tenantId: string) => apiClient.get<ManagedOrganization[]>(`${root}/tenants/${tenantId}/organizations`),
+  createOrganization: (
+    tenantId: string,
+    body: { name: string; description?: string | null; unitType?: ManagedOrganization["unitType"] },
+  ) => apiClient.post<ManagedOrganization, typeof body>(
+    `${root}/tenants/${tenantId}/organizations`,
+    body,
+  ),
+  updateOrganization: (
+    tenantId: string,
+    organizationId: string,
+    body: { name: string; description?: string | null; unitType?: ManagedOrganization["unitType"] },
+  ) => apiClient.put<ManagedOrganization, typeof body>(
+    `${root}/tenants/${tenantId}/organizations/${organizationId}`,
+    body,
+  ),
   memberships: (tenantId: string, organizationId: string) =>
     apiClient.get<ManagedMembership[]>(`${root}/tenants/${tenantId}/organizations/${organizationId}/memberships`),
 
