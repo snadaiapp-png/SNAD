@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS subscription_operating_units (
     CONSTRAINT fk_sub_operating_unit_tenant
         FOREIGN KEY (tenant_id) REFERENCES tenants(id),
     CONSTRAINT fk_sub_operating_unit_subscription
-        FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions(id),
+        FOREIGN KEY (tenant_id, subscription_id)
+        REFERENCES tenant_subscriptions(tenant_id, id),
     CONSTRAINT fk_sub_operating_unit_organization
         FOREIGN KEY (tenant_id, organization_id) REFERENCES organizations(tenant_id, id),
     CONSTRAINT uk_sub_operating_unit UNIQUE (subscription_id, organization_id),
@@ -54,7 +55,8 @@ CREATE TABLE IF NOT EXISTS subscription_unit_applications (
     CONSTRAINT fk_sub_unit_app_tenant
         FOREIGN KEY (tenant_id) REFERENCES tenants(id),
     CONSTRAINT fk_sub_unit_app_subscription
-        FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions(id),
+        FOREIGN KEY (tenant_id, subscription_id)
+        REFERENCES tenant_subscriptions(tenant_id, id),
     CONSTRAINT fk_sub_unit_app_organization
         FOREIGN KEY (tenant_id, organization_id) REFERENCES organizations(tenant_id, id),
     CONSTRAINT fk_sub_unit_app_application
@@ -81,10 +83,15 @@ CREATE TABLE IF NOT EXISTS subscription_billing_profiles (
     CONSTRAINT fk_sub_billing_profile_tenant
         FOREIGN KEY (tenant_id) REFERENCES tenants(id),
     CONSTRAINT fk_sub_billing_profile_subscription
-        FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions(id),
+        FOREIGN KEY (tenant_id, subscription_id)
+        REFERENCES tenant_subscriptions(tenant_id, id),
     CONSTRAINT fk_sub_billing_profile_organization
         FOREIGN KEY (tenant_id, organization_id) REFERENCES organizations(tenant_id, id),
     CONSTRAINT ck_sub_billing_profile_mode CHECK (billing_mode IN ('CONSOLIDATED','SEPARATE')),
+    CONSTRAINT ck_sub_billing_profile_scope_mode CHECK (
+        (organization_id IS NULL AND billing_mode = 'CONSOLIDATED')
+        OR (organization_id IS NOT NULL AND billing_mode = 'SEPARATE')
+    ),
     CONSTRAINT ck_sub_billing_profile_status CHECK (status IN ('ACTIVE','INACTIVE')),
     CONSTRAINT ck_sub_billing_profile_currency CHECK (currency_code ~ '^[A-Z]{3}$')
 );
@@ -178,7 +185,8 @@ CREATE TABLE IF NOT EXISTS subscription_resource_bindings (
     CONSTRAINT fk_sub_resource_binding_tenant
         FOREIGN KEY (tenant_id) REFERENCES tenants(id),
     CONSTRAINT fk_sub_resource_binding_subscription
-        FOREIGN KEY (subscription_id) REFERENCES tenant_subscriptions(id),
+        FOREIGN KEY (tenant_id, subscription_id)
+        REFERENCES tenant_subscriptions(tenant_id, id),
     CONSTRAINT fk_sub_resource_binding_organization
         FOREIGN KEY (tenant_id, organization_id) REFERENCES organizations(tenant_id, id),
     CONSTRAINT uk_sub_resource_binding UNIQUE (subscription_id, resource_type, resource_id),
@@ -189,3 +197,46 @@ CREATE TABLE IF NOT EXISTS subscription_resource_bindings (
 
 CREATE INDEX IF NOT EXISTS idx_sub_resource_binding_org
     ON subscription_resource_bindings(tenant_id, organization_id, resource_type, status);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_sub_resource_binding_active_resource
+    ON subscription_resource_bindings(tenant_id, resource_type, resource_id)
+    WHERE status = 'ACTIVE';
+
+-- Every new tenant-scoped table is FORCE-RLS. Executive/control-plane services
+-- must establish app.tenant_id for the target subscription before touching
+-- these rows; missing tenant context therefore fails closed.
+ALTER TABLE subscription_operating_units ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscription_operating_units FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS subscription_operating_units_tenant_isolation
+    ON subscription_operating_units;
+CREATE POLICY subscription_operating_units_tenant_isolation
+    ON subscription_operating_units
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+ALTER TABLE subscription_unit_applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscription_unit_applications FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS subscription_unit_applications_tenant_isolation
+    ON subscription_unit_applications;
+CREATE POLICY subscription_unit_applications_tenant_isolation
+    ON subscription_unit_applications
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+ALTER TABLE subscription_billing_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscription_billing_profiles FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS subscription_billing_profiles_tenant_isolation
+    ON subscription_billing_profiles;
+CREATE POLICY subscription_billing_profiles_tenant_isolation
+    ON subscription_billing_profiles
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+ALTER TABLE subscription_resource_bindings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscription_resource_bindings FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS subscription_resource_bindings_tenant_isolation
+    ON subscription_resource_bindings;
+CREATE POLICY subscription_resource_bindings_tenant_isolation
+    ON subscription_resource_bindings
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
