@@ -1,8 +1,10 @@
 package com.sanad.platform.website.application;
 
 import com.sanad.platform.tenancy.routing.HostRoutingService;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.website.api.WebsiteDtos.*;
 import com.sanad.platform.website.domain.WebsiteDomain;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -27,10 +29,27 @@ public class WebsitePublicResolutionService {
 
     private final JdbcTemplate jdbc;
     private final HostRoutingService hostRoutingService;
+    private final EntitlementResolver entitlementResolver;
 
-    public WebsitePublicResolutionService(JdbcTemplate jdbc, HostRoutingService hostRoutingService) {
+    @Autowired
+    public WebsitePublicResolutionService(
+            JdbcTemplate jdbc,
+            HostRoutingService hostRoutingService,
+            EntitlementResolver entitlementResolver
+    ) {
         this.jdbc = jdbc;
         this.hostRoutingService = hostRoutingService;
+        this.entitlementResolver = entitlementResolver;
+    }
+
+    /** Backward-compatible direct-instantiation constructor for legacy tests. */
+    public WebsitePublicResolutionService(JdbcTemplate jdbc, HostRoutingService hostRoutingService) {
+        this(jdbc, hostRoutingService, null);
+    }
+
+    private boolean isWebsiteEntitled(UUID tenantId) {
+        return entitlementResolver == null
+                || entitlementResolver.isModuleEnabled(tenantId, "WEBSITES");
     }
 
     /**
@@ -42,7 +61,7 @@ public class WebsitePublicResolutionService {
         var route = hostRoutingService
                 .resolve(hostname, HostRoutingService.Surface.WEBSITE)
                 .orElse(null);
-        if (route == null) return null;
+        if (route == null || !isWebsiteEntitled(route.tenantId())) return null;
         // Fetch website — must be ACTIVE
         try {
             Map<String, Object> website = jdbc.queryForMap(
@@ -71,7 +90,7 @@ public class WebsitePublicResolutionService {
         var route = hostRoutingService
                 .resolve(hostname, HostRoutingService.Surface.WEBSITE)
                 .orElse(null);
-        if (route == null) return null;
+        if (route == null || !isWebsiteEntitled(route.tenantId())) return null;
         try {
             Map<String, Object> page = jdbc.queryForMap(
                     "SELECT p.* FROM website_pages p "
