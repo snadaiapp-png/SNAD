@@ -20,6 +20,9 @@ class HrmG1CapabilityCatalogMigrationContractTest {
         try (InputStream input = getClass().getClassLoader().getResourceAsStream(MIGRATION)) {
             assertNotNull(input, "HRM-G1 capability migration must exist");
             String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            String executableSql = sql.lines()
+                    .filter(line -> !line.stripLeading().startsWith("--"))
+                    .collect(java.util.stream.Collectors.joining("\n"));
 
             List<String> expected = List.of(
                     "HRM.RECRUITMENT.OPENING.VIEW",
@@ -51,10 +54,10 @@ class HrmG1CapabilityCatalogMigrationContractTest {
                     "Non-canonical PLAN.VIEW must not be introduced");
             assertTrue(sql.contains("INSERT INTO role_capabilities"));
             assertTrue(sql.contains("INSERT INTO access_scope_grants"));
-            assertTrue(sql.contains("code = 'ADMIN'"));
-            assertTrue(sql.contains("scope_type = 'TENANT'"));
-            assertFalse(sql.contains("HR_MANAGER"),
-                    "G1 capability backfill must not silently widen HR_MANAGER");
+            assertTrue(executableSql.contains("code = 'ADMIN'"));
+            assertTrue(executableSql.contains("scope_type = 'TENANT'"));
+            assertFalse(executableSql.contains("HR_MANAGER"),
+                    "G1 capability backfill executable SQL must not widen HR_MANAGER");
         }
     }
 }
