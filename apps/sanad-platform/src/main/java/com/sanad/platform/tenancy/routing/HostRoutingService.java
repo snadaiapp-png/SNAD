@@ -195,6 +195,25 @@ public class HostRoutingService {
         if (value.isEmpty() || value.length() > 253) {
             return null;
         }
+
+        // Persist and resolve only canonical DNS hostnames. Reject empty labels,
+        // overlong labels, underscores and leading/trailing hyphens instead of
+        // allowing an invalid claim that can never resolve at the edge.
+        String[] labels = value.split("\\.", -1);
+        for (String label : labels) {
+            if (label.isEmpty() || label.length() > 63
+                    || label.startsWith("-") || label.endsWith("-")) {
+                return null;
+            }
+            for (int i = 0; i < label.length(); i++) {
+                char ch = label.charAt(i);
+                if (!((ch >= 'a' && ch <= 'z')
+                        || (ch >= '0' && ch <= '9')
+                        || ch == '-')) {
+                    return null;
+                }
+            }
+        }
         return value;
     }
 }
