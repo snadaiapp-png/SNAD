@@ -190,14 +190,22 @@ public class TenantDomainService {
                     ));
             if (owned.status() != Status.ACTIVE || !owned.isPrimary()) {
                 Instant now = Instant.now();
+                Boolean otherPrimary = jdbc.queryForObject(
+                        "SELECT EXISTS (SELECT 1 FROM tenant_domains "
+                                + "WHERE tenant_id = ? AND domain_type = ? AND id <> ? "
+                                + "AND is_primary = TRUE AND status = ?)",
+                        Boolean.class, tenantId, effectiveType.name(), owned.id(), Status.ACTIVE.name());
+                boolean shouldBePrimary = !Boolean.TRUE.equals(otherPrimary);
+                if (shouldBePrimary) {
+                    jdbc.update(
+                            "UPDATE tenant_domains SET is_primary = FALSE, updated_at = ?, version = version + 1 "
+                                    + "WHERE tenant_id = ? AND domain_type = ? AND id <> ?",
+                            Timestamp.from(now), tenantId, effectiveType.name(), owned.id());
+                }
                 jdbc.update(
-                        "UPDATE tenant_domains SET is_primary = FALSE, updated_at = ?, version = version + 1 "
-                                + "WHERE tenant_id = ? AND domain_type = ? AND id <> ?",
-                        Timestamp.from(now), tenantId, effectiveType.name(), owned.id());
-                jdbc.update(
-                        "UPDATE tenant_domains SET status = ?, is_primary = TRUE, failure_reason = NULL, "
+                        "UPDATE tenant_domains SET status = ?, is_primary = ?, failure_reason = NULL, "
                                 + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
-                        Status.ACTIVE.name(), Timestamp.from(now), tenantId, owned.id());
+                        Status.ACTIVE.name(), shouldBePrimary, Timestamp.from(now), tenantId, owned.id());
                 audit(tenantId, auth, "DOMAIN.DEFAULT_RECONCILED", owned.id(), "tenant_domains", hostname);
                 return getDomainOrThrow(tenantId, owned.id());
             }
@@ -206,19 +214,20 @@ public class TenantDomainService {
 
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update(
-                "UPDATE tenant_domains SET is_primary = FALSE, updated_at = ?, version = version + 1 "
-                        + "WHERE tenant_id = ? AND domain_type = ?",
-                Timestamp.from(now), tenantId, effectiveType.name());
+        Boolean currentPrimary = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM tenant_domains "
+                        + "WHERE tenant_id = ? AND domain_type = ? AND is_primary = TRUE AND status = ?)",
+                Boolean.class, tenantId, effectiveType.name(), Status.ACTIVE.name());
+        boolean makePrimary = !Boolean.TRUE.equals(currentPrimary);
         try {
             jdbc.update(
                     "INSERT INTO tenant_domains "
                             + "(id, tenant_id, hostname, domain_type, origin, status, verification_token, "
                             + " verification_method, verified_at, verified_by, is_primary, version, "
                             + " created_at, updated_at, created_by) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, TRUE, 0, ?, ?, ?)",
+                            + "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 0, ?, ?, ?)",
                     id, tenantId, hostname, effectiveType.name(), Origin.DEFAULT_GENERATED.name(),
-                    Status.ACTIVE.name(), Timestamp.from(now), actorUserId(auth),
+                    Status.ACTIVE.name(), Timestamp.from(now), actorUserId(auth), makePrimary,
                     Timestamp.from(now), Timestamp.from(now), actorUserId(auth)
             );
         } catch (DuplicateKeyException duplicate) {
