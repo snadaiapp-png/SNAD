@@ -342,7 +342,7 @@ public class TenantDirectoryAdministrationService {
                         + "FROM tenant_subscriptions s "
                         + "JOIN saas_plans p ON p.id = s.plan_id "
                         + "LEFT JOIN plan_versions pv ON pv.id = s.plan_version_id "
-                        + "WHERE s.tenant_id = ? AND s.status IN ('TRIALING', 'ACTIVE', 'PAST_DUE') "
+                        + "WHERE s.tenant_id = ? AND s.status IN ('TRIAL', 'TRIALING', 'ACTIVE', 'PAST_DUE', 'GRACE_PERIOD') "
                         + "ORDER BY s.created_at DESC, s.id DESC",
                 (rs, rowNum) -> new LimitSnapshot(rs.getInt("max_users"), rs.getInt("max_organizations")),
                 tenantId);
