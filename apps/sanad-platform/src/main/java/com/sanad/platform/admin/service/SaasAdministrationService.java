@@ -186,6 +186,33 @@ public class SaasAdministrationService {
     }
 
     /**
+     * Run billing-state recovery only after the invoice payment is durable.
+     * BillingStateService uses REQUIRES_NEW for this callback because Spring
+     * invokes afterCommit before the original transactional resources are
+     * fully cleaned up.
+     */
+    private void scheduleBillingReevaluationAfterCommit(UUID tenantId) {
+        Runnable reevaluate = () -> {
+            try {
+                billingStateService.evaluateAndTransitionAfterCommit(tenantId);
+            } catch (Exception e) {
+                log.error("Invoice payment committed but billing-state re-evaluation failed for tenant {}",
+                        tenantId, e);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    reevaluate.run();
+                }
+            });
+        } else {
+            reevaluate.run();
+        }
+    }
+
+    /**
      * Publish an entitlement recalculation event AFTER the current transaction commits.
      * This ensures the entitlement cache is only refreshed if the subscription
      * change actually persisted.
