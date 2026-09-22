@@ -120,7 +120,7 @@ public class WebsiteService {
     @Transactional
     public WebsiteResponse setPrimary(UUID tenantId, UUID websiteId, Authentication auth) {
         WebsiteResponse website = getOrThrow(tenantId, websiteId);
-        if (!"ACTIVE".equals(website.status())) {
+        if (website.status() != WebsiteDomain.WebsiteStatus.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "website must be ACTIVE before setting primary");
         }
@@ -203,10 +203,48 @@ public class WebsiteService {
 
     private WebsiteResponse transition(UUID tenantId, UUID websiteId, String newStatus, String auditAction, Authentication auth) {
         WebsiteResponse existing = getOrThrow(tenantId, websiteId);
+        WebsiteDomain.WebsiteStatus target = WebsiteDomain.WebsiteStatus.valueOf(newStatus);
+        WebsiteDomain.WebsiteStatus current = existing.status();
+        if (current == target) return existing;
+
+        boolean allowed = switch (current) {
+            case DRAFT -> target == WebsiteDomain.WebsiteStatus.ACTIVE
+                    || target == WebsiteDomain.WebsiteStatus.ARCHIVED;
+            case ACTIVE -> target == WebsiteDomain.WebsiteStatus.SUSPENDED
+                    || target == WebsiteDomain.WebsiteStatus.ARCHIVED;
+            case SUSPENDED -> target == WebsiteDomain.WebsiteStatus.ACTIVE
+                    || target == WebsiteDomain.WebsiteStatus.ARCHIVED;
+            case ARCHIVED -> false;
+        };
+        if (!allowed) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "invalid website lifecycle transition: " + current + " -> " + target);
+        }
+
         Instant now = Instant.now();
+        if (target == WebsiteDomain.WebsiteStatus.ARCHIVED) {
+            jdbc.update("""
+                    UPDATE website_domains
+                       SET activation_status = 'DISABLED', is_primary = FALSE,
+                           updated_at = ?, version = version + 1
+                     WHERE tenant_id = ? AND website_id = ?
+                    """, Timestamp.from(now), tenantId, websiteId);
+            jdbc.update("""
+                    UPDATE subscription_resource_bindings
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND resource_type = 'WEBSITE'
+                       AND resource_id = ? AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, websiteId);
+            jdbc.update("""
+                    UPDATE websites
+                       SET organization_id = NULL
+                     WHERE tenant_id = ? AND id = ?
+                    """, tenantId, websiteId);
+        }
         jdbc.update("UPDATE websites SET status = ?, updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
-                newStatus, Timestamp.from(now), tenantId, websiteId);
-        audit(tenantId, auth, auditAction, websiteId, "name=" + existing.name() + ",to=" + newStatus);
+                target.name(), Timestamp.from(now), tenantId, websiteId);
+        audit(tenantId, auth, auditAction, websiteId, "name=" + existing.name() + ",to=" + target);
         return getOrThrow(tenantId, websiteId);
     }
 
