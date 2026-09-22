@@ -1,6 +1,7 @@
 package com.sanad.platform.website.application;
 
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.website.api.WebsiteDtos.*;
 import com.sanad.platform.website.domain.WebsiteDomain;
 import org.springframework.dao.DuplicateKeyException;
@@ -26,18 +27,31 @@ import java.util.UUID;
 @Service
 public class WebsiteService {
 
+    private static final String MODULE_CODE = "WEBSITES";
+    private static final String WEBSITE_LIMIT_CODE = "WEBSITES.MAX_WEBSITES";
+
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
+    private final EntitlementResolver entitlementResolver;
+    private final WebsiteDomainService domainService;
 
-    public WebsiteService(JdbcTemplate jdbc, PlatformAuditService auditService) {
+    public WebsiteService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            EntitlementResolver entitlementResolver,
+            WebsiteDomainService domainService
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
+        this.entitlementResolver = entitlementResolver;
+        this.domainService = domainService;
     }
 
     @Transactional
     public WebsiteResponse create(UUID tenantId, CreateWebsiteRequest request, Authentication auth) {
         if (request == null || request.name() == null || request.name().isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        enforceCreationLimit(tenantId);
         String slug = normalizeSlug(request.slug() != null ? request.slug() : request.name());
         String locale = request.defaultLocale() != null && !request.defaultLocale().isBlank()
                 ? request.defaultLocale() : "ar";
@@ -52,6 +66,7 @@ public class WebsiteService {
         } catch (DuplicateKeyException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "slug already exists for this tenant: " + slug);
         }
+        domainService.generateAndRegisterDefaultDomain(tenantId, id, slug, auth);
         audit(tenantId, auth, "WEBSITE.CREATED", id, "slug=" + slug);
         return getOrThrow(tenantId, id);
     }
@@ -129,6 +144,28 @@ public class WebsiteService {
     }
 
     // ===== Helpers =====
+    private void enforceCreationLimit(UUID tenantId) {
+        long limit = entitlementResolver.getLimit(tenantId, MODULE_CODE, WEBSITE_LIMIT_CODE);
+        if (limit <= 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "active website subscription entitlement is required"
+            );
+        }
+        Long current = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM websites WHERE tenant_id = ? AND status <> 'ARCHIVED'",
+                Long.class,
+                tenantId
+        );
+        long used = current == null ? 0 : current;
+        if (used >= limit) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "website limit for the subscription has been reached"
+            );
+        }
+    }
+
     private WebsiteResponse getOrThrow(UUID tenantId, UUID websiteId) {
         try {
             return jdbc.queryForObject("SELECT * FROM websites WHERE tenant_id = ? AND id = ?", this::mapRow, tenantId, websiteId);
