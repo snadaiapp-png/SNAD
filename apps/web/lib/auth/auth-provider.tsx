@@ -114,9 +114,19 @@ function browserSessionScope(): SessionHintScope {
     window.sessionStorage.removeItem(TAB_TENANT_TARGET_KEY);
     return "default";
   }
-  return window.sessionStorage.getItem(TAB_SESSION_SCOPE_KEY) === "tenant"
-    ? "tenant"
-    : "default";
+  if (window.sessionStorage.getItem(TAB_SESSION_SCOPE_KEY) !== "tenant") {
+    return "default";
+  }
+  const storedTarget = window.sessionStorage.getItem(TAB_TENANT_TARGET_KEY)?.trim() ?? "";
+  if (TENANT_ID_PATTERN.test(storedTarget)) {
+    return "tenant";
+  }
+  // A tenant scope without a valid tenant target must never fall back to the
+  // default/admin auth channel. Clear malformed stale state and fail closed to
+  // the normal anonymous/default entry path.
+  window.sessionStorage.removeItem(TAB_SESSION_SCOPE_KEY);
+  window.sessionStorage.removeItem(TAB_TENANT_TARGET_KEY);
+  return "default";
 }
 
 function requestedTenantIdFromLocation(): string | null {
