@@ -433,7 +433,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "attendance table for daily employee clock-in and clock-out records",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    // Reconciled: V20260923_1__hr_g2_time_attendance_leave_schema.sql
+    status: "DONE",
     dependencies: [],
     acceptanceCriteriaAr: "جدول attendance مع timestamp وحساب ساعات العمل",
     implementationNotesAr: "دعم تسجيل يدوي ואلي",
@@ -448,7 +449,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "leave_requests table for leave applications with approval workflow",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    // Reconciled: V20260923_1__hr_g2_time_attendance_leave_schema.sql
+    status: "DONE",
     dependencies: ["G0-T01"],
     acceptanceCriteriaAr: "جدول leave_requests مع أنواع الإجازات ورصيد الإجازات",
     implementationNotesAr: "أنواع: سنوية، مرضية، عادية، أمومة، أبوة",
@@ -463,7 +465,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Interface for clock-in/out and viewing monthly attendance records",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    // Reconciled: apps/web/app/hr/attendance/page.tsx
+    status: "DONE",
     dependencies: ["G2-T01"],
     acceptanceCriteriaAr: "زر تسجيل دخول/خروج يعمل مع عرض السجل",
     implementationNotesAr: "عرض تقويم شهري مع ملخص ساعات العمل",
@@ -478,7 +481,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Interface for requesting leave, viewing balance, and manager approval",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    // Reconciled: apps/web/app/hr/leave/page.tsx
+    status: "DONE",
     dependencies: ["G2-T02"],
     acceptanceCriteriaAr: "طلب إجازة يمر بخط الموافقة (Manager -> HR)",
     implementationNotesAr: "عرض رصيد الإجازات المتبقية",
