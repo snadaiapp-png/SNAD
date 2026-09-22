@@ -122,6 +122,24 @@ public class SubscriptionChangeService {
         long currentMonthly = planItem.map(i -> nvl(i.getUnitAmountMinor())).orElse(0L);
         String currentCurrency = planItem.map(SubscriptionItemEntity::getCurrencyCode).orElse(null);
 
+        // A PER_BRANCH price is quantity-dynamic. The anchored item's monetary
+        // snapshot can become stale whenever an operating unit is bound or
+        // deactivated, so preview must recompute the CURRENT side from the
+        // pinned version using the same active-branch authority as billing.
+        if (planItem.isPresent() && planItem.get().getPlanVersionId() != null) {
+            Optional<PriceEntity> currentPrice = priceResolver.resolveForPlanVersion(
+                    planItem.get().getPlanVersionId(), pricingCountry, billingInterval, at);
+            if (currentPrice.isPresent()
+                    && "PER_BRANCH".equals(currentPrice.get().getPriceModel())) {
+                currentMonthly = compute(
+                        currentPrice.get(),
+                        subscriptionId,
+                        ctx.tenantId(),
+                        planItem.get().getQuantity());
+                currentCurrency = currentPrice.get().getCurrencyCode();
+            }
+        }
+
         List<String> warnings = new ArrayList<>();
         Long targetMonthly = null;
         Long delta = null;
