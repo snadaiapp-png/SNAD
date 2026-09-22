@@ -104,6 +104,14 @@ export interface SubscriptionResourceBinding {
   status: "ACTIVE" | "INACTIVE";
 }
 
+export interface SubscriptionAvailableResource {
+  resourceType: "WEBSITE" | "STORE";
+  resourceId: string;
+  resourceName: string;
+  resourceStatus: string;
+  boundOrganizationId: string | null;
+}
+
 export interface Entitlement {
   id?: string; featureCode: string; enabled: boolean; limitValue: number | null;
 }
@@ -197,6 +205,10 @@ export const executiveApi = {
   subscriptionResourceBindings: (subscriptionId: string) =>
     apiClient.get<SubscriptionResourceBinding[]>(
       `${root}/subscriptions/${subscriptionId}/resource-bindings`,
+    ),
+  subscriptionAvailableResources: (subscriptionId: string) =>
+    apiClient.get<SubscriptionAvailableResource[]>(
+      `${root}/subscriptions/${subscriptionId}/available-resources`,
     ),
   bindOperatingUnit: (
     subscriptionId: string,
