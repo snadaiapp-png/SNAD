@@ -127,6 +127,38 @@ CREATE INDEX IF NOT EXISTS idx_subscription_items_tenant_org
 CREATE INDEX IF NOT EXISTS idx_usage_events_tenant_org_period
     ON usage_events(tenant_id, organization_id, metric_code, occurred_at DESC)
     WHERE organization_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS usage_operating_unit_aggregates (
+    id                UUID NOT NULL,
+    tenant_id         UUID NOT NULL,
+    organization_id   UUID NOT NULL,
+    metric_code       VARCHAR(80) NOT NULL,
+    period_type       VARCHAR(20) NOT NULL,
+    period_start      TIMESTAMP WITH TIME ZONE NOT NULL,
+    total             BIGINT NOT NULL DEFAULT 0,
+    updated_at        TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_usage_operating_unit_aggregates PRIMARY KEY (id),
+    CONSTRAINT fk_usage_ou_agg_tenant
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    CONSTRAINT fk_usage_ou_agg_organization
+        FOREIGN KEY (tenant_id, organization_id) REFERENCES organizations(tenant_id, id),
+    CONSTRAINT uk_usage_ou_agg
+        UNIQUE (tenant_id, organization_id, metric_code, period_type, period_start),
+    CONSTRAINT ck_usage_ou_agg_period CHECK (period_type IN ('DAILY','MONTHLY','YEARLY','TOTAL')),
+    CONSTRAINT ck_usage_ou_agg_total CHECK (total >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_ou_agg_lookup
+    ON usage_operating_unit_aggregates
+       (tenant_id, organization_id, metric_code, period_start DESC);
+
+ALTER TABLE usage_operating_unit_aggregates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE usage_operating_unit_aggregates FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS usage_operating_unit_aggregates_tenant_isolation
+    ON usage_operating_unit_aggregates;
+CREATE POLICY usage_operating_unit_aggregates_tenant_isolation
+    ON usage_operating_unit_aggregates
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 CREATE INDEX IF NOT EXISTS idx_websites_tenant_org
     ON websites(tenant_id, organization_id) WHERE organization_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_commerce_stores_tenant_org
