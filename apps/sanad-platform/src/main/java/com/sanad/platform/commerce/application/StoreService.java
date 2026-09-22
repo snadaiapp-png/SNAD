@@ -238,8 +238,8 @@ public class StoreService {
     }
 
     private void audit(UUID tenantId, Authentication auth, String action, UUID resourceId, String reason) {
-        try { auditService.success(auth, tenantId, action, "STORE", resourceId == null ? null : resourceId.toString(), reason, null, null); }
-        catch (Exception ignored) {}
+        auditService.success(auth, tenantId, action, "STORE",
+                resourceId == null ? null : resourceId.toString(), reason, null, null);
     }
 
     private String toJson(Map<String, Object> map) {
