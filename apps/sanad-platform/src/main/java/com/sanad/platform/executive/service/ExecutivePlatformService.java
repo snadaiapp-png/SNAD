@@ -32,6 +32,9 @@ public class ExecutivePlatformService {
 
     private static final Set<String> TENANT_STATUSES = Set.of(
             "PENDING", "TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED", "ARCHIVED");
+    private static final Set<String> LOGIN_ELIGIBLE_SUBSCRIPTION_STATUSES = Set.of(
+            "TRIAL", "TRIALING", "ACTIVE", "PAST_DUE", "GRACE_PERIOD");
+
     private static final Map<String, Set<String>> TENANT_TRANSITIONS = Map.of(
             "PENDING", Set.of("TRIAL", "ACTIVE", "CANCELLED", "ARCHIVED"),
             "TRIAL", Set.of("ACTIVE", "PAST_DUE", "CANCELLED", "ARCHIVED"),
@@ -210,12 +213,12 @@ public class ExecutivePlatformService {
                 SELECT COUNT(*)
                   FROM tenant_subscriptions
                  WHERE tenant_id = ?
-                   AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')
+                   AND status IN ('TRIAL','TRIALING','ACTIVE','PAST_DUE','GRACE_PERIOD')
                 """, Integer.class, tenantId);
         if (effectiveSubscriptions == null || effectiveSubscriptions != 1) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Tenant login link requires exactly one effective subscription");
+                    "Tenant login link requires exactly one login-eligible subscription");
         }
 
         var defaultDomain = tenantDomainService.ensureDefaultDomain(
