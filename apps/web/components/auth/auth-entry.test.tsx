@@ -83,6 +83,7 @@ function clearHint() {
 describe("AuthEntry session bootstrap", () => {
   beforeEach(() => {
     clearHint();
+    window.sessionStorage.clear();
     for (const mock of Object.values(authApiMock)) mock.mockReset();
     for (const mock of Object.values(tenantAuthApiMock)) mock.mockReset();
     replaceMock.mockReset();
@@ -93,6 +94,7 @@ describe("AuthEntry session bootstrap", () => {
   afterEach(() => {
     cleanup();
     clearHint();
+    window.sessionStorage.clear();
   });
 
   it("renders the login form immediately for a new visitor and skips refresh", async () => {
@@ -175,6 +177,25 @@ describe("AuthEntry session bootstrap", () => {
     await waitFor(() => expect(tenantAuthApiMock.refresh).toHaveBeenCalledTimes(1));
     expect(authApiMock.refresh).not.toHaveBeenCalled();
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/workspace"));
+  });
+
+  it("keeps tenant session scope after navigation removes the login query", async () => {
+    const tenantId = "11111111-1111-1111-1111-111111111111";
+    window.sessionStorage.setItem("snad_session_scope", "tenant");
+    window.sessionStorage.setItem("snad_tenant_target_id", tenantId);
+    document.cookie = "sanad_session_hint=1; Path=/";
+    document.cookie = "sanad_tenant_session_hint=1; Path=/";
+    window.history.replaceState({}, "", "/workspace");
+    tenantAuthApiMock.refresh.mockResolvedValue({
+      ...bootstrap,
+      user: { ...bootstrap.user, tenantId },
+      tenantContext: { ...bootstrap.tenantContext, tenantId },
+    });
+
+    renderEntry();
+
+    await waitFor(() => expect(tenantAuthApiMock.refresh).toHaveBeenCalledTimes(1));
+    expect(authApiMock.refresh).not.toHaveBeenCalled();
   });
 
   it("rejects a stale isolated tenant session bound to another tenant", async () => {
