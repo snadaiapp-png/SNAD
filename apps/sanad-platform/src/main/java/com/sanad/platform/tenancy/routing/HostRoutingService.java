@@ -42,6 +42,71 @@ public class HostRoutingService {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Serialize hostname claims across all three routing tables and reject any
+     * cross-surface duplicate before it can become ambiguous at runtime.
+     *
+     * <p>The PostgreSQL transaction-scoped advisory lock closes the race that
+     * three independent per-table UNIQUE constraints cannot close. A default
+     * generated hostname may reconcile its own existing row when
+     * {@code allowExistingOwner} is true; custom registrations must pass false.
+     */
+    @Transactional
+    public void requireHostnameAvailable(
+            String rawHostname,
+            Surface ownerSurface,
+            UUID tenantId,
+            UUID resourceId,
+            boolean allowExistingOwner
+    ) {
+        String hostname = normalizeHostname(rawHostname);
+        if (hostname == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid hostname");
+        }
+        if (ownerSurface == null || tenantId == null || resourceId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname owner is required");
+        }
+
+        jdbc.query(
+                "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null,
+                hostname
+        );
+
+        List<Map<String, Object>> claims = jdbc.queryForList("""
+                SELECT 'TENANT_APPLICATION' AS surface,
+                       d.tenant_id,
+                       d.tenant_id AS resource_id
+                  FROM tenant_domains d
+                 WHERE lower(d.hostname) = ?
+                UNION ALL
+                SELECT 'WEBSITE' AS surface,
+                       d.tenant_id,
+                       d.website_id AS resource_id
+                  FROM website_domains d
+                 WHERE lower(d.hostname) = ?
+                UNION ALL
+                SELECT 'STORE' AS surface,
+                       d.tenant_id,
+                       d.store_id AS resource_id
+                  FROM commerce_store_domains d
+                 WHERE lower(d.hostname) = ?
+                """, hostname, hostname, hostname);
+
+        if (claims.isEmpty()) {
+            return;
+        }
+        if (allowExistingOwner && claims.size() == 1) {
+            Map<String, Object> claim = claims.get(0);
+            if (ownerSurface.name().equals(claim.get("surface"))
+                    && tenantId.equals(claim.get("tenant_id"))
+                    && resourceId.equals(claim.get("resource_id"))) {
+                return;
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "hostname already claimed: " + hostname);
+    }
+
     @Transactional(readOnly = true)
     public Optional<RouteTarget> resolve(String rawHostname) {
         String hostname = normalizeHostname(rawHostname);
