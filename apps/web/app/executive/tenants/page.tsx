@@ -242,12 +242,19 @@ export default function TenantsPage() {
   }
 
   async function handleTenantLoginLink(tenantId: string, action: "OPEN" | "COPY") {
+    // Keep a live Window handle so the audited async step can navigate the tab.
+    // Passing "noopener" to window.open can cause Chromium to return null even
+    // when it successfully created the tab, which strands it on about:blank.
     const popup = action === "OPEN"
-      ? window.open("about:blank", "_blank", "noopener,noreferrer")
+      ? window.open("about:blank", "_blank")
       : null;
     if (action === "OPEN" && !popup) {
       setError(t("scp.tenants.error.popupBlocked"));
       return;
+    }
+    if (popup) {
+      // Isolate the new tab synchronously before any asynchronous work.
+      popup.opener = null;
     }
     setBusy(true);
     setError("");
