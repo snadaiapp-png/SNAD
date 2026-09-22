@@ -97,17 +97,31 @@ function isTerminalSessionFailure(error: unknown): boolean {
 
 const TENANT_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
+const TAB_SESSION_SCOPE_KEY = "snad_session_scope";
+const TAB_TENANT_TARGET_KEY = "snad_tenant_target_id";
+
 function browserSessionScope(): SessionHintScope {
   if (typeof window === "undefined") return "default";
-  return new URLSearchParams(window.location.search).get("tenantLogin") === "1"
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("tenantLogin") === "1") {
+    window.sessionStorage.setItem(TAB_SESSION_SCOPE_KEY, "tenant");
+    const target = params.get("tenantId")?.trim() ?? "";
+    if (TENANT_ID_PATTERN.test(target)) {
+      window.sessionStorage.setItem(TAB_TENANT_TARGET_KEY, target);
+    }
+    return "tenant";
+  }
+  return window.sessionStorage.getItem(TAB_SESSION_SCOPE_KEY) === "tenant"
     ? "tenant"
     : "default";
 }
 
 function requestedTenantIdFromLocation(): string | null {
   if (typeof window === "undefined") return null;
-  const value = new URLSearchParams(window.location.search).get("tenantId")?.trim() ?? "";
-  return TENANT_ID_PATTERN.test(value) ? value : null;
+  const queryValue = new URLSearchParams(window.location.search).get("tenantId")?.trim() ?? "";
+  if (TENANT_ID_PATTERN.test(queryValue)) return queryValue;
+  const stored = window.sessionStorage.getItem(TAB_TENANT_TARGET_KEY)?.trim() ?? "";
+  return TENANT_ID_PATTERN.test(stored) ? stored : null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
