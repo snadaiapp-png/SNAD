@@ -58,10 +58,13 @@ describe("HR-G1 final evidence drift guard", () => {
     }
   });
 
-  it("keeps T11 at 15/15", () => {
+  it("keeps T11 at 15/15 with no stale NOT_IMPLEMENTED rows", () => {
+    const t11 = read(T11_MATRIX_PATH);
     expect(HR_G1_CLOSURE.t11ScreenCoverage).toBe("15/15");
     expect(read(CERTIFICATE_PATH)).toContain("15/15");
-    expect(read(T11_MATRIX_PATH)).toContain("15/15");
+    expect(t11).toContain("15/15 = 100%");
+    expect(t11).not.toContain("NOT_IMPLEMENTED");
+    expect((t11.match(/\|\s*DONE\s*\|/g) ?? []).length).toBe(15);
   });
 
   it("contains no unresolved T12 closure status in the final T12 matrix", () => {

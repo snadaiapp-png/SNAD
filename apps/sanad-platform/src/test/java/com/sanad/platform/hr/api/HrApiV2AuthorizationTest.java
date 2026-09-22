@@ -35,8 +35,17 @@ class HrApiV2AuthorizationTest {
             "HRM.USER_LINK.MANAGE",
             "HRM.AUDIT.VIEW",
             "HRM.COMPLIANCE_OVERRIDE.REQUEST", "HRM.COMPLIANCE_OVERRIDE.APPROVE",
-            "HRM.RECRUITMENT.APPLICATION.SUBMIT", "HRM.RECRUITMENT.APPLICATION.WITHDRAW",
-            "HRM.RECRUITMENT.OFFER.ACCEPT", "HRM.RECRUITMENT.OFFER.DECLINE",
+            "HRM.RECRUITMENT.OPENING.VIEW", "HRM.RECRUITMENT.OPENING.MANAGE", "HRM.RECRUITMENT.OPENING.PUBLISH",
+            "HRM.RECRUITMENT.CANDIDATE.VIEW", "HRM.RECRUITMENT.CANDIDATE.MANAGE",
+            "HRM.RECRUITMENT.APPLICATION.MANAGE", "HRM.RECRUITMENT.APPLICATION.SUBMIT",
+            "HRM.RECRUITMENT.APPLICATION.WITHDRAW", "HRM.RECRUITMENT.APPLICATION.ADVANCE",
+            "HRM.RECRUITMENT.APPLICATION.REJECT",
+            "HRM.RECRUITMENT.INTERVIEW.MANAGE", "HRM.RECRUITMENT.INTERVIEW.SCHEDULE",
+            "HRM.RECRUITMENT.INTERVIEW.RECORD_OUTCOME",
+            "HRM.RECRUITMENT.OFFER.MANAGE", "HRM.RECRUITMENT.OFFER.ACCEPT",
+            "HRM.RECRUITMENT.OFFER.DECLINE", "HRM.RECRUITMENT.OFFER.EXTEND",
+            "HRM.RECRUITMENT.OFFER.APPROVE", "HRM.RECRUITMENT.HIRE.CONVERT",
+            "HRM.ONBOARDING.PLAN.MANAGE", "HRM.ONBOARDING.TASK.COMPLETE", "HRM.ONBOARDING.TASK.WAIVE",
             "HRM.ADMIN");
 
     private static final String DB_URL = System.getenv().getOrDefault(
@@ -85,7 +94,7 @@ class HrApiV2AuthorizationTest {
         List<String> seeded = queryColumn(
                 "SELECT code FROM access_capabilities WHERE code LIKE 'HRM.%' AND status = 'ACTIVE' ORDER BY code");
         assertThat(seeded)
-                .as("exactly the 23 canonical HRM.* capabilities must be seeded ACTIVE")
+                .as("exactly the %d canonical HRM.* capabilities must be seeded ACTIVE", CANONICAL_HRM_CAPABILITIES.size())
                 .containsExactlyInAnyOrderElementsOf(CANONICAL_HRM_CAPABILITIES);
     }
 
@@ -145,7 +154,7 @@ class HrApiV2AuthorizationTest {
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
                 .as("one TENANT-scope grant per ADMIN HRM capability")
-                .isEqualTo("23");
+                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
 
         // Idempotency: re-running the backfill must not duplicate anything.
         applyScopeGrantBackfill();
@@ -153,7 +162,7 @@ class HrApiV2AuthorizationTest {
                 + "JOIN access_capabilities c ON c.id = g.capability_id "
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
-                .isEqualTo("23");
+                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
 
         List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
         assertThat(hrManagerCaps).containsExactlyInAnyOrder(

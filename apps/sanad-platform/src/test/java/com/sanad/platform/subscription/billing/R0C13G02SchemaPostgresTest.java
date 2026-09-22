@@ -98,7 +98,8 @@ class R0C13G02SchemaPostgresTest {
             // out-of-order execution, repair, or production history rewrite.
             // T10 adds the forward-only candidate self-service migration.
             // V20260921_1 adds the forward-only canonical project-owner permissions repair.
-            assertThat(rs.getString(1)).isEqualTo("20260921.1");
+            // V20260922_1 adds HRM-G1 canonical operator capabilities and ADMIN tenant scopes.
+            assertThat(rs.getString(1)).isEqualTo("20260922.1");
         }
     }
 

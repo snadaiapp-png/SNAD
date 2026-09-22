@@ -31,6 +31,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
@@ -147,6 +148,23 @@ export default function RecruitmentDashboardPage() {
       <header>
         <h1>{t("hrm.recruitment.dashboard.title")}</h1>
         <p className={styles.kpiHint}>{t("hrm.recruitment.dashboard.subtitle")}</p>
+        <nav aria-label={t("hrm.recruitment.dashboard.title")} className={styles.toolbar}>
+          {canViewOpenings ? (
+            <Link href="/hr/recruitment/openings" className={styles.linkButton}>
+              {t("hrm.recruitment.openings.title")}
+            </Link>
+          ) : null}
+          {canViewCandidates ? (
+            <Link href="/hr/recruitment/candidates" className={styles.linkButton}>
+              {t("hrm.recruitment.candidates.title")}
+            </Link>
+          ) : null}
+          {canManageApplications ? (
+            <Link href="/hr/recruitment/applications" className={styles.linkButton}>
+              {t("hrm.recruitment.applications.title")}
+            </Link>
+          ) : null}
+        </nav>
       </header>
 
       {loading ? (

@@ -7,7 +7,7 @@
  * complete/waive-with-reason actions, and plan cancel action.
  *
  * Permission scoping:
- *   - HRM.ONBOARDING.PLAN.VIEW required to view.
+ *   - HRM.ONBOARDING.PLAN.MANAGE required to view and cancel plans.
  *   - HRM.ONBOARDING.TASK.COMPLETE to see "complete" action.
  *   - HRM.ONBOARDING.TASK.WAIVE to see "waive" action.
  *   - HRM.ONBOARDING.PLAN.MANAGE to see "cancel plan" action.
@@ -60,8 +60,7 @@ export default function OnboardingPlanDetailPage() {
   const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
 
-  const canView = capabilities.includes(HRM_CAPABILITIES.ONBOARDING_PLAN_VIEW)
-    || capabilities.includes(HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE);
+  const canView = capabilities.includes(HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE);
   const canComplete = capabilities.includes(HRM_CAPABILITIES.ONBOARDING_TASK_COMPLETE);
   const canWaive = capabilities.includes(HRM_CAPABILITIES.ONBOARDING_TASK_WAIVE);
   const canManagePlan = capabilities.includes(HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE);
