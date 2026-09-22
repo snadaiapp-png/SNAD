@@ -1,21 +1,6 @@
 import type { Metadata } from "next";
-import { Noto_Sans, Noto_Sans_Arabic } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
-
-const arabicFont = Noto_Sans_Arabic({
-  subsets: ["arabic"],
-  display: "swap",
-  variable: "--font-snad-arabic",
-  weight: ["400", "500", "600", "700", "800"],
-});
-
-const latinFont = Noto_Sans({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-snad-latin",
-  weight: ["400", "500", "600", "700", "800"],
-});
 
 export const metadata: Metadata = {
   title: "SNAD | سند — نظام تشغيل الأعمال",
@@ -69,11 +54,17 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" data-theme="light" suppressHydrationWarning>
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;500;600;700;800&display=swap"
+        />
         <script
           dangerouslySetInnerHTML={{ __html: NO_FLASH_SCRIPT }}
         />
       </head>
-      <body className={`${arabicFont.variable} ${latinFont.variable}`}>
+      <body>
         <Providers>{children}</Providers>
       </body>
     </html>

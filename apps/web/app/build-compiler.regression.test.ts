@@ -1,24 +1,33 @@
 /**
- * Web build compiler regression.
+ * Production font/build stability regression.
  *
- * Next 16 defaults to Turbopack. The current next/font/google resolver has
- * produced deterministic CI failures resolving
- * @vercel/turbopack-next/internal/font/google/font for the SNAD Noto font
- * loaders. Production/CI builds are therefore pinned to the supported webpack
- * compiler path until the Turbopack font resolver is explicitly re-certified.
+ * The application must not depend on next/font/google at build time because
+ * that resolver failed across both Turbopack and webpack CI paths. Fonts are
+ * loaded by the browser from the approved Google Fonts stylesheet, while CSS
+ * tokens keep deterministic local fallbacks.
  */
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { describe, expect, it } from "vitest";
 
-describe("web production build compiler", () => {
-  it("pins next build to webpack while next/font/google is in use", () => {
-    const packageJson = JSON.parse(
-      readFileSync(resolve(__dirname, "../package.json"), "utf8"),
-    ) as { scripts?: Record<string, string> };
-    const layout = readFileSync(resolve(__dirname, "layout.tsx"), "utf8");
+const APP_ROOT = resolve(__dirname);
 
-    expect(layout).toContain('from "next/font/google"');
-    expect(packageJson.scripts?.build).toBe("next build --webpack");
+describe("web production font/build contract", () => {
+  it("removes build-time Google font resolution and keeps the default build path", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(APP_ROOT, "../package.json"), "utf8"),
+    ) as { scripts?: Record<string, string> };
+    const layout = readFileSync(resolve(APP_ROOT, "layout.tsx"), "utf8");
+    const tokens = readFileSync(resolve(APP_ROOT, "snad-tokens.css"), "utf8");
+
+    expect(packageJson.scripts?.build).toBe("next build");
+    expect(layout).not.toContain('next/font/google');
+    expect(layout).toContain("https://fonts.googleapis.com/css2?");
+    expect(layout).toContain("Noto+Sans+Arabic");
+    expect(layout).toContain("Noto+Sans");
+    expect(tokens).toContain('--snad-font-arabic: "Noto Sans Arabic"');
+    expect(tokens).toContain('--snad-font-latin:  "Noto Sans"');
+    expect(tokens).not.toContain("var(--font-snad-arabic)");
+    expect(tokens).not.toContain("var(--font-snad-latin)");
   });
 });

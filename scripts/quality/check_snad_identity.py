@@ -35,9 +35,11 @@ def main() -> int:
         errors.append("Missing apps/web/app/layout.tsx")
     else:
         layout = LAYOUT.read_text(encoding="utf-8")
-        for required in ("Noto_Sans_Arabic", "Noto_Sans", "--font-snad-arabic", "--font-snad-latin"):
+        for required in ("fonts.googleapis.com", "Noto+Sans+Arabic", "Noto+Sans"):
             if required not in layout:
-                errors.append(f"Missing font loader contract: {required}")
+                errors.append(f"Missing runtime font stylesheet contract: {required}")
+        if 'next/font/google' in layout:
+            errors.append("Build-time next/font/google dependency is forbidden; use the runtime stylesheet contract")
         if re.search(r'\bSANAD\b', layout):
             errors.append("Legacy SANAD label is forbidden in active layout metadata")
 

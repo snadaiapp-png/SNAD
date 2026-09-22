@@ -74,8 +74,8 @@
   --snad-info-soft:            var(--snad-color-info-soft);
 
   /* ---- v1.x font aliases (preserved verbatim for SDS v1 consumers) --- */
-  --snad-font-arabic: var(--font-snad-arabic), "Noto Sans Arabic", Tahoma, Arial, sans-serif;
-  --snad-font-latin:  var(--font-snad-latin),  "Noto Sans", Arial, sans-serif;
+  --snad-font-arabic: "Noto Sans Arabic", Tahoma, Arial, sans-serif;
+  --snad-font-latin:  "Noto Sans", Arial, sans-serif;
   --snad-font-body:    var(--snad-font-arabic);
   --snad-font-display: var(--snad-font-arabic);
   --snad-font-label:   var(--snad-font-arabic);
@@ -102,8 +102,8 @@
 
   /* v1.x font tokens are theme-independent — keep them defined here too
    * so a dark-only import surface doesn't lose them. */
-  --snad-font-arabic: var(--font-snad-arabic), "Noto Sans Arabic", Tahoma, Arial, sans-serif;
-  --snad-font-latin:  var(--font-snad-latin),  "Noto Sans", Arial, sans-serif;
+  --snad-font-arabic: "Noto Sans Arabic", Tahoma, Arial, sans-serif;
+  --snad-font-latin:  "Noto Sans", Arial, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
