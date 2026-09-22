@@ -154,6 +154,12 @@ public class TenantDomainService {
     ) {
         ensureTenant(tenantId);
         DomainType effectiveType = type == null ? DomainType.APPLICATION : type;
+        if (effectiveType != DomainType.APPLICATION) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "tenant default routing supports APPLICATION only; website/store defaults use their resource services"
+            );
+        }
         String hostname = generateDefaultHostname(subdomain, effectiveType);
         if (hostname == null || hostname.isBlank()) {
             return null;
@@ -297,6 +303,10 @@ public class TenantDomainService {
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
         Instant now = Instant.now();
 
+        if (request.verificationMethod() == VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "HTTP domain verification is disabled; use DNS_TXT or DNS_CNAME");
+        }
         if (request.verificationMethod() != null
                 && request.verificationMethod() != existing.verificationMethod()) {
             if (existing.origin() != Origin.CUSTOM) {
@@ -342,12 +352,20 @@ public class TenantDomainService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "verificationToken is required");
         }
+        if (existing.origin() != Origin.CUSTOM) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "platform-generated domains do not require external ownership verification");
+        }
+        if (existing.verificationMethod() == null
+                || existing.verificationMethod() == VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "custom domain has no supported DNS verification method");
+        }
         if (!request.verificationToken().equals(existing.verificationToken())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "verification token mismatch");
         }
-        if (existing.origin() == Origin.CUSTOM
-                && !ownershipVerifier.verify(
+        if (!ownershipVerifier.verify(
                         existing.hostname(),
                         DomainOwnershipVerifier.Method.valueOf(existing.verificationMethod().name()),
                         existing.verificationToken())) {
@@ -440,7 +458,14 @@ public class TenantDomainService {
             case STORE -> "store." + subdomain;
             case WEBSITE -> "www." + subdomain;
         };
-        return (prefix + "." + baseDomain).toLowerCase(Locale.ROOT);
+        String generated = hostRoutingService.normalizeHostname(prefix + "." + baseDomain);
+        if (generated == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SANAD_BASE_DOMAIN does not produce a valid routable hostname"
+            );
+        }
+        return generated;
     }
 
     private DomainResponse getDomainOrThrow(UUID tenantId, UUID domainId) {
