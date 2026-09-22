@@ -3,7 +3,6 @@ package com.sanad.platform.executive.service;
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.TenantDomainService;
-import com.sanad.platform.admin.api.TenantDomainDtos.DomainResponse;
 import com.sanad.platform.security.service.RegistrationProvisioner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,18 +50,12 @@ class ExecutivePlatformLoginLinkTest {
                 .thenReturn(List.of(tenant("ACTIVE")));
         when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
                 .thenReturn(1);
-        DomainResponse domain = mock(DomainResponse.class);
-        when(domain.hostname()).thenReturn("acme.apps.snad.example");
-        when(domains.ensureDefaultDomain(
-                eq(TENANT_ID), eq("acme"), any(), eq(authentication))).thenReturn(domain);
+        service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication);
 
-        org.assertj.core.api.Assertions.assertThat(
-                service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication))
-                .isEqualTo("acme.apps.snad.example");
-
+        verify(domains, never()).ensureDefaultDomain(any(), anyString(), any(), any());
         verify(audit).success(authentication, TENANT_ID, "TENANT_LOGIN_LINK_OPEN", "TENANT",
                 TENANT_ID.toString(), "Executive opened tenant sign-in link", null,
-                java.util.Map.of("action", "OPEN", "hostname", "acme.apps.snad.example"));
+                java.util.Map.of("action", "OPEN", "sessionScope", "TENANT"));
     }
 
     @Test
@@ -71,24 +64,6 @@ class ExecutivePlatformLoginLinkTest {
                 .thenReturn(List.of(tenant("ARCHIVED")));
 
         assertThatThrownBy(() -> service.recordTenantLoginLinkEvent(TENANT_ID, "COPY", authentication))
-                .isInstanceOfSatisfying(ResponseStatusException.class,
-                        error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
-                                .isEqualTo(HttpStatus.CONFLICT));
-
-        verify(audit, never()).success(any(), any(), anyString(), anyString(), anyString(),
-                anyString(), any(), any());
-    }
-
-    @Test
-    void rejectsLoginLinkWhenPlatformBaseDomainCannotProduceHostname() {
-        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(TENANT_ID)))
-                .thenReturn(List.of(tenant("ACTIVE")));
-        when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
-                .thenReturn(1);
-        when(domains.ensureDefaultDomain(
-                eq(TENANT_ID), eq("acme"), any(), eq(authentication))).thenReturn(null);
-
-        assertThatThrownBy(() -> service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
                                 .isEqualTo(HttpStatus.CONFLICT));
