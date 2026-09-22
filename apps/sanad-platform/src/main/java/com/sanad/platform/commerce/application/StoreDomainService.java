@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.domain.CommerceDomain;
+import com.sanad.platform.tenancy.routing.HostRoutingService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
@@ -38,11 +39,18 @@ public class StoreDomainService {
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
     private final ObjectMapper objectMapper;
+    private final HostRoutingService hostRoutingService;
 
-    public StoreDomainService(JdbcTemplate jdbc, PlatformAuditService auditService, ObjectMapper objectMapper) {
+    public StoreDomainService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            ObjectMapper objectMapper,
+            HostRoutingService hostRoutingService
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
+        this.hostRoutingService = hostRoutingService;
     }
 
     /**
@@ -54,6 +62,14 @@ public class StoreDomainService {
         String baseDomain = resolvePlatformBaseDomain();
         if (baseDomain == null || baseDomain.isBlank()) return null;
         return (storeSlug + "." + baseDomain).toLowerCase(Locale.ROOT);
+    }
+
+    /** Tenant-scoped generated storefront hostname. */
+    public String generateDefaultDomain(UUID tenantId, String storeSlug) {
+        String baseDomain = resolvePlatformBaseDomain();
+        if (baseDomain == null || baseDomain.isBlank()) return null;
+        String tenantSubdomain = tenantSubdomain(tenantId);
+        return (storeSlug + "." + tenantSubdomain + "." + baseDomain).toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -68,8 +84,11 @@ public class StoreDomainService {
             Authentication auth
     ) {
         ensureStore(tenantId, storeId);
-        String hostname = generateDefaultDomain(storeSlug);
+        String hostname = generateDefaultDomain(tenantId, storeSlug);
         if (hostname == null) return null;
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname, HostRoutingService.Surface.STORE, tenantId, storeId, true);
 
         DomainResponse existing = findExactHostname(hostname);
         if (existing != null) {
@@ -122,6 +141,9 @@ public class StoreDomainService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid hostname format");
         if (CommerceDomain.isReservedHostname(hostname))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is reserved or protected");
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname, HostRoutingService.Surface.STORE, tenantId, storeId, false);
 
         UUID id = UUID.randomUUID();
         String token = "snad-store-" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
@@ -226,6 +248,18 @@ public class StoreDomainService {
         if (base == null || base.isBlank()) base = System.getenv("SANAD_BASE_DOMAIN");
         if (base == null || base.isBlank()) base = System.getenv("PLATFORM_BASE_DOMAIN");
         return (base != null && !base.isBlank()) ? base.trim().toLowerCase(Locale.ROOT) : null;
+    }
+
+    private String tenantSubdomain(UUID tenantId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT subdomain FROM tenants WHERE id = ?",
+                    String.class,
+                    tenantId
+            );
+        } catch (EmptyResultDataAccessException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "tenant not found");
+        }
     }
 
     private void ensureStore(UUID tenantId, UUID storeId) {
