@@ -191,6 +191,12 @@ public class StoreService {
 
     // ===== Helpers =====
     private void enforceCreationLimit(UUID tenantId) {
+        if (!entitlementResolver.hasExplicitModuleEntitlement(tenantId, MODULE_CODE)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "explicit ecommerce subscription entitlement is required"
+            );
+        }
         jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
                 rs -> null, "STORE_LIMIT:" + tenantId);
         long limit = entitlementResolver.getLimit(tenantId, MODULE_CODE, STORE_LIMIT_CODE);
@@ -259,6 +265,12 @@ public class StoreService {
         CommerceDomain.StoreStatus target = CommerceDomain.StoreStatus.valueOf(newStatus);
         CommerceDomain.StoreStatus current = existing.status();
         if (current == target) return existing;
+        if (target == CommerceDomain.StoreStatus.ACTIVE
+                && !entitlementResolver.hasExplicitModuleEntitlement(tenantId, MODULE_CODE)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "explicit ecommerce subscription entitlement is required for activation");
+        }
 
         boolean allowed = switch (current) {
             case DRAFT -> target == CommerceDomain.StoreStatus.ACTIVE
