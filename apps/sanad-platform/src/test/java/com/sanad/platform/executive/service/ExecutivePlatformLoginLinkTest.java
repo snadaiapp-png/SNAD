@@ -2,6 +2,7 @@ package com.sanad.platform.executive.service;
 
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,13 +38,16 @@ class ExecutivePlatformLoginLinkTest {
         jdbc = mock(JdbcTemplate.class);
         audit = mock(PlatformAuditService.class);
         authentication = mock(Authentication.class);
-        service = new ExecutivePlatformService(jdbc, audit, mock(RegistrationProvisioner.class));
+        service = new ExecutivePlatformService(
+                jdbc, audit, mock(RegistrationProvisioner.class), mock(TenantDomainService.class));
     }
 
     @Test
     void recordsAnOpenEventForAnActiveTenantWithoutCreatingCredentials() {
         when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(TENANT_ID)))
                 .thenReturn(List.of(tenant("ACTIVE")));
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
+                .thenReturn(1);
 
         service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication);
 
@@ -58,6 +62,22 @@ class ExecutivePlatformLoginLinkTest {
                 .thenReturn(List.of(tenant("ARCHIVED")));
 
         assertThatThrownBy(() -> service.recordTenantLoginLinkEvent(TENANT_ID, "COPY", authentication))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
+                                .isEqualTo(HttpStatus.CONFLICT));
+
+        verify(audit, never()).success(any(), any(), anyString(), anyString(), anyString(),
+                anyString(), any(), any());
+    }
+
+    @Test
+    void rejectsActiveTenantWhenEffectiveSubscriptionIsNotUnique() {
+        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(TENANT_ID)))
+                .thenReturn(List.of(tenant("ACTIVE")));
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
+                .thenReturn(2);
+
+        assertThatThrownBy(() -> service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
                                 .isEqualTo(HttpStatus.CONFLICT));
