@@ -385,3 +385,13 @@ def test_24_aggregation_fails_when_fragments_are_missing():
     assert "'missing'" in script or '"missing"' in script, (
         "manifest must mark outcomes from missing fragments as missing (fail-closed)"
     )
+
+
+def test_25_hrm_focused_gate_has_runtime_budget_for_observed_suite_duration():
+    timeout_minutes = _job("hrm-focused-security-rls").get("timeout-minutes")
+    assert isinstance(timeout_minutes, int)
+    assert timeout_minutes >= 120, (
+        "JOB D HRM focused suite exceeded the former 60-minute ceiling in "
+        "post-merge verification; keep at least a 120-minute runtime budget "
+        "so the gate records the real test result instead of CANCELLED"
+    )
