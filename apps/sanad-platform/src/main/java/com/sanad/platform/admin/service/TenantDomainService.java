@@ -107,6 +107,88 @@ public class TenantDomainService {
         return getDomainOrThrow(tenantId, id);
     }
 
+    /**
+     * Ensure the platform-generated tenant hostname exists and is active.
+     *
+     * <p>The generated hostname is a platform-owned routing address, not a
+     * customer custom domain, so it is activated without an external DNS
+     * ownership challenge. This method is idempotent and is used by tenant
+     * provisioning/reconciliation.
+     */
+    @Transactional
+    public DomainResponse ensureDefaultDomain(
+            UUID tenantId,
+            String subdomain,
+            DomainType type,
+            Authentication auth
+    ) {
+        ensureTenant(tenantId);
+        DomainType effectiveType = type == null ? DomainType.APPLICATION : type;
+        String hostname = generateDefaultHostname(subdomain, effectiveType);
+        if (hostname == null || hostname.isBlank()) {
+            return null;
+        }
+
+        List<DomainResponse> existing = jdbc.query(
+                "SELECT * FROM tenant_domains WHERE lower(hostname) = lower(?) ORDER BY created_at, id",
+                this::mapRow,
+                hostname
+        );
+        if (!existing.isEmpty()) {
+            DomainResponse owned = existing.stream()
+                    .filter(row -> tenantId.equals(row.tenantId())
+                            && row.domainType() == effectiveType
+                            && row.origin() == Origin.DEFAULT_GENERATED)
+                    .findFirst()
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.CONFLICT,
+                            "generated hostname is already claimed: " + hostname
+                    ));
+            if (owned.status() != Status.ACTIVE || !owned.isPrimary()) {
+                Instant now = Instant.now();
+                jdbc.update(
+                        "UPDATE tenant_domains SET is_primary = FALSE, updated_at = ?, version = version + 1 "
+                                + "WHERE tenant_id = ? AND domain_type = ? AND id <> ?",
+                        Timestamp.from(now), tenantId, effectiveType.name(), owned.id());
+                jdbc.update(
+                        "UPDATE tenant_domains SET status = ?, is_primary = TRUE, failure_reason = NULL, "
+                                + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
+                        Status.ACTIVE.name(), Timestamp.from(now), tenantId, owned.id());
+                audit(tenantId, auth, "DOMAIN.DEFAULT_RECONCILED", owned.id(), "tenant_domains", hostname);
+                return getDomainOrThrow(tenantId, owned.id());
+            }
+            return owned;
+        }
+
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.now();
+        jdbc.update(
+                "UPDATE tenant_domains SET is_primary = FALSE, updated_at = ?, version = version + 1 "
+                        + "WHERE tenant_id = ? AND domain_type = ?",
+                Timestamp.from(now), tenantId, effectiveType.name());
+        try {
+            jdbc.update(
+                    "INSERT INTO tenant_domains "
+                            + "(id, tenant_id, hostname, domain_type, origin, status, verification_token, "
+                            + " verification_method, verified_at, verified_by, is_primary, version, "
+                            + " created_at, updated_at, created_by) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, TRUE, 0, ?, ?, ?)",
+                    id, tenantId, hostname, effectiveType.name(), Origin.DEFAULT_GENERATED.name(),
+                    Status.ACTIVE.name(), Timestamp.from(now), actorUserId(auth),
+                    Timestamp.from(now), Timestamp.from(now), actorUserId(auth)
+            );
+        } catch (DuplicateKeyException duplicate) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "generated hostname is already claimed: " + hostname,
+                    duplicate
+            );
+        }
+
+        audit(tenantId, auth, "DOMAIN.DEFAULT_CREATED", id, "tenant_domains", hostname);
+        return getDomainOrThrow(tenantId, id);
+    }
+
     // ============================================================
     // READ
     // ============================================================
