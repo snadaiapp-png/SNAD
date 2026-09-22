@@ -78,6 +78,7 @@ public class TenantDirectoryQueryService {
                                (SELECT d.hostname FROM tenant_domains d
                                 WHERE d.tenant_id = t.id
                                   AND d.domain_type = 'APPLICATION'
+                                  AND d.origin = 'DEFAULT_GENERATED'
                                   AND d.status = 'ACTIVE'
                                 ORDER BY d.is_primary DESC, d.created_at ASC, d.id ASC
                                 LIMIT 1) AS application_hostname
