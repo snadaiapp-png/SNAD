@@ -690,10 +690,11 @@ public class SubscriptionOperatingUnitService {
 
     private void requireOrganization(UUID tenantId, UUID organizationId) {
         Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
+                "SELECT COUNT(*) FROM organizations "
+                        + "WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE' AND unit_type = 'BRANCH'",
                 Integer.class, tenantId, organizationId);
         if (count == null || count != 1) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "active operating unit not found");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "active branch not found");
         }
     }
 
