@@ -935,6 +935,118 @@ public class SaasAdministrationService {
                 instant(rs, "created_at"), instant(rs, "updated_at"));
     }
 
+    /**
+     * Reconcile a change in ACTIVE BRANCH quantity against the subscription's
+     * pinned PER_BRANCH price. The operating-unit mutation and this billing
+     * adjustment run in the same transaction, so a billing/audit failure rolls
+     * the branch change back instead of leaving an unbilled branch active.
+     */
+    @Transactional
+    public void reconcilePerBranchQuantity(
+            UUID subscriptionId,
+            int previousBranchCount,
+            int currentBranchCount,
+            Authentication authentication
+    ) {
+        if (previousBranchCount < 0 || currentBranchCount < 0) {
+            throw new IllegalArgumentException("branch counts must be non-negative");
+        }
+        if (previousBranchCount == currentBranchCount) {
+            return;
+        }
+
+        SubscriptionResponse subscription = getSubscription(subscriptionId);
+        ensureCommerciallyMutableSubscription(subscription);
+        if ("TRIAL".equals(subscription.status()) || "TRIALING".equals(subscription.status())) {
+            // Trial periods remain non-billable. Renewal/activation will price
+            // the then-current branch quantity through issueRecurringInvoice.
+            return;
+        }
+
+        UUID planVersionId = currentPlanVersionId(subscriptionId);
+        if (planVersionId == null) {
+            return; // Legacy unpinned subscriptions cannot claim PER_BRANCH authority.
+        }
+
+        String country = jdbcTemplate.queryForObject(
+                "SELECT country_code FROM tenants WHERE id = ?",
+                String.class,
+                subscription.tenantId()
+        );
+        String priceCountry = country == null || country.isBlank()
+                ? PriceResolver.GLOBAL
+                : country.trim().toUpperCase(Locale.ROOT);
+        Optional<PriceEntity> resolved = new PriceResolver(new PriceRepository(jdbcTemplate))
+                .resolveForPlanVersion(
+                        planVersionId,
+                        priceCountry,
+                        normalizeCycle(subscription.billingCycle()),
+                        Instant.now()
+                );
+        if (resolved.isEmpty() || !"PER_BRANCH".equals(resolved.get().getPriceModel())) {
+            return;
+        }
+
+        PriceEntity price = resolved.get();
+        String pinnedCurrency = planVersionCurrency(planVersionId);
+        if (!pinnedCurrency.equals(price.getCurrencyCode())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Effective PER_BRANCH price currency does not match pinned plan-version currency"
+            );
+        }
+
+        List<PriceTier> tiers = PriceRepository.parseTiers(price.getTiersJson());
+        long previousAmount = PriceCalculator.computeWithBounds(
+                price.getPriceModel(), price.getBaseAmountMinor(), price.getUnitAmountMinor(),
+                tiers.isEmpty() ? null : tiers, previousBranchCount, 0,
+                price.getMinAmountMinor(), price.getMaxAmountMinor());
+        long currentAmount = PriceCalculator.computeWithBounds(
+                price.getPriceModel(), price.getBaseAmountMinor(), price.getUnitAmountMinor(),
+                tiers.isEmpty() ? null : tiers, currentBranchCount, 0,
+                price.getMinAmountMinor(), price.getMaxAmountMinor());
+
+        long adjustment = prorate(
+                Math.subtractExact(currentAmount, previousAmount),
+                subscription.currentPeriodStart(),
+                subscription.currentPeriodEnd());
+        if (adjustment < 0) {
+            jdbcTemplate.update(
+                    "UPDATE tenant_subscriptions "
+                            + "SET credit_balance_minor = credit_balance_minor + ?, updated_at = ? "
+                            + "WHERE id = ?",
+                    Math.abs(adjustment), Timestamp.from(Instant.now()), subscriptionId);
+        } else if (adjustment > 0) {
+            issueInvoice(
+                    getSubscription(subscriptionId),
+                    adjustment,
+                    "Prorated branch quantity increase",
+                    subscription.currentPeriodStart(),
+                    subscription.currentPeriodEnd());
+        }
+
+        recordEvent(
+                subscriptionId,
+                subscription.tenantId(),
+                "BRANCHES.CHANGED",
+                subscription.planId(),
+                subscription.planId(),
+                "IMMEDIATE",
+                adjustment,
+                "branchQuantity=" + previousBranchCount + "->" + currentBranchCount,
+                Instant.now(),
+                authentication);
+        auditService.success(
+                authentication,
+                subscription.tenantId(),
+                "SUBSCRIPTION.BRANCHES.CHANGE",
+                "TENANT_SUBSCRIPTION",
+                subscriptionId.toString(),
+                "branchQuantity=" + previousBranchCount + "->" + currentBranchCount,
+                previousBranchCount,
+                currentBranchCount);
+    }
+
     private void issueRecurringInvoice(SubscriptionResponse subscription, PlanResponse plan, String description) {
         long subtotal = recurringSubtotal(subscription, plan);
         issueInvoice(subscription, subtotal, description, subscription.currentPeriodStart(), subscription.currentPeriodEnd());
