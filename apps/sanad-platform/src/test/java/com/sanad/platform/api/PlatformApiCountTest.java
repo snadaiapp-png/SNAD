@@ -78,7 +78,8 @@ class PlatformApiCountTest {
      *  + 38 HRM-G1 T10 recruitment/onboarding canonical v2 operations
      *  under /api/v2/hr/recruitment and /api/v2/hr/onboarding = 894.
      *  + 11 Subscription WS8 operating-unit governance operations
-     *  (read units/apps/billing/resources + bind/deactivate/app/profile/resource commands) = 905.
+     *  (read units/apps/billing/resources + bind/deactivate/app/profile/resource commands;
+     *  /api/v1/executive group 82 → 93) = 905.
      *  + 2 Store-domain lifecycle operations (disable + set-primary) = 907. */
     private static final long EXPECTED_TOTAL_OPS = 907;
     private static final long EXPECTED_HRM_V2_OPS = 96;
@@ -97,7 +98,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(82);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(93);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
