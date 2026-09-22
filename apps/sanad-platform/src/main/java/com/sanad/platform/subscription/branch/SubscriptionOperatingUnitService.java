@@ -48,6 +48,21 @@ public class SubscriptionOperatingUnitService {
             String status
     ) {}
 
+    public record UnitApplication(
+            UUID applicationId,
+            String applicationCode,
+            String applicationName,
+            boolean enabled
+    ) {}
+
+    public record ResourceBinding(
+            UUID organizationId,
+            String resourceType,
+            UUID resourceId,
+            String resourceName,
+            String status
+    ) {}
+
     private final JdbcTemplate jdbc;
     private final PlatformAuditService audit;
     private final TenantRlsTransactionContext tenantRlsContext;
@@ -82,6 +97,101 @@ public class SubscriptionOperatingUnitService {
                         rs.getString("status"),
                         rs.getString("billing_mode")),
                 subscriptionId, tenantId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UnitApplication> listApplications(UUID subscriptionId, UUID organizationId) {
+        UUID tenantId = tenantId(subscriptionId);
+        requireActiveBinding(tenantId, subscriptionId, organizationId);
+        return jdbc.query("""
+                SELECT a.id, a.code, a.name,
+                       COALESCE(sua.enabled, FALSE) AS enabled
+                  FROM applications a
+                 WHERE a.status = 'ACTIVE'
+                   AND (
+                       EXISTS (
+                           SELECT 1
+                             FROM subscription_items si
+                            WHERE si.subscription_id = ?
+                              AND si.status = 'ACTIVE'
+                              AND (si.application_id = a.id
+                                   OR si.product_id IN (
+                                       SELECT p.id FROM products p WHERE p.application_id = a.id
+                                   ))
+                       )
+                       OR EXISTS (
+                           SELECT 1
+                             FROM tenant_subscriptions ts
+                             JOIN plan_module_entitlements pme
+                               ON pme.plan_id = ts.plan_id
+                              AND pme.module_enabled = TRUE
+                             JOIN modules m ON m.id = pme.module_id
+                            WHERE ts.id = ?
+                              AND upper(m.code) = upper(a.code)
+                       )
+                   )
+                  LEFT JOIN subscription_unit_applications sua
+                    ON sua.tenant_id = ?
+                   AND sua.subscription_id = ?
+                   AND sua.organization_id = ?
+                   AND sua.application_id = a.id
+                 ORDER BY a.display_order, a.code
+                """,
+                (rs, rowNum) -> new UnitApplication(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("code"),
+                        rs.getString("name"),
+                        rs.getBoolean("enabled")),
+                subscriptionId, subscriptionId,
+                tenantId, subscriptionId, organizationId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BillingProfile> listBillingProfiles(UUID subscriptionId) {
+        UUID tenantId = tenantId(subscriptionId);
+        return jdbc.query("""
+                SELECT id, organization_id, profile_name, billing_email, currency_code,
+                       billing_mode, status
+                  FROM subscription_billing_profiles
+                 WHERE tenant_id = ? AND subscription_id = ?
+                 ORDER BY status DESC, organization_id NULLS FIRST, profile_name
+                """,
+                (rs, rowNum) -> new BillingProfile(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("organization_id", UUID.class),
+                        rs.getString("profile_name"),
+                        rs.getString("billing_email"),
+                        rs.getString("currency_code"),
+                        rs.getString("billing_mode"),
+                        rs.getString("status")),
+                tenantId, subscriptionId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ResourceBinding> listResourceBindings(UUID subscriptionId) {
+        UUID tenantId = tenantId(subscriptionId);
+        return jdbc.query("""
+                SELECT srb.organization_id, srb.resource_type, srb.resource_id, srb.status,
+                       CASE srb.resource_type
+                           WHEN 'WEBSITE' THEN (SELECT w.name FROM websites w
+                                                WHERE w.tenant_id = srb.tenant_id
+                                                  AND w.id = srb.resource_id)
+                           WHEN 'STORE' THEN (SELECT s.name FROM commerce_stores s
+                                              WHERE s.tenant_id = srb.tenant_id
+                                                AND s.id = srb.resource_id)
+                           ELSE NULL
+                       END AS resource_name
+                  FROM subscription_resource_bindings srb
+                 WHERE srb.tenant_id = ? AND srb.subscription_id = ?
+                 ORDER BY srb.status DESC, srb.resource_type, resource_name, srb.resource_id
+                """,
+                (rs, rowNum) -> new ResourceBinding(
+                        rs.getObject("organization_id", UUID.class),
+                        rs.getString("resource_type"),
+                        rs.getObject("resource_id", UUID.class),
+                        rs.getString("resource_name"),
+                        rs.getString("status")),
+                tenantId, subscriptionId);
     }
 
     @Transactional
@@ -322,6 +432,52 @@ public class SubscriptionOperatingUnitService {
         }
 
         audit.success(authentication, tenantId, "SUBSCRIPTION_RESOURCE_BOUND",
+                type, resourceId.toString(),
+                "subscription=" + subscriptionId + ";organization=" + organizationId,
+                null, null);
+    }
+
+    @Transactional
+    public void unbindResource(
+            UUID subscriptionId,
+            String resourceType,
+            UUID resourceId,
+            Authentication authentication
+    ) {
+        UUID tenantId = mutableTenantId(subscriptionId);
+        String type = normalizeResourceType(resourceType);
+        List<UUID> organizations = jdbc.queryForList("""
+                SELECT organization_id
+                  FROM subscription_resource_bindings
+                 WHERE tenant_id = ? AND subscription_id = ?
+                   AND resource_type = ? AND resource_id = ?
+                   AND status = 'ACTIVE'
+                """, UUID.class, tenantId, subscriptionId, type, resourceId);
+        if (organizations.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "active resource binding not found");
+        }
+        UUID organizationId = organizations.get(0);
+        jdbc.update("""
+                UPDATE subscription_resource_bindings
+                   SET status = 'INACTIVE', updated_at = NOW()
+                 WHERE tenant_id = ? AND subscription_id = ?
+                   AND resource_type = ? AND resource_id = ?
+                   AND status = 'ACTIVE'
+                """, tenantId, subscriptionId, type, resourceId);
+
+        if ("WEBSITE".equals(type)) {
+            jdbc.update("""
+                    UPDATE websites SET organization_id = NULL
+                     WHERE tenant_id = ? AND id = ? AND organization_id = ?
+                    """, tenantId, resourceId, organizationId);
+        } else if ("STORE".equals(type)) {
+            jdbc.update("""
+                    UPDATE commerce_stores SET organization_id = NULL
+                     WHERE tenant_id = ? AND id = ? AND organization_id = ?
+                    """, tenantId, resourceId, organizationId);
+        }
+
+        audit.success(authentication, tenantId, "SUBSCRIPTION_RESOURCE_UNBOUND",
                 type, resourceId.toString(),
                 "subscription=" + subscriptionId + ";organization=" + organizationId,
                 null, null);
