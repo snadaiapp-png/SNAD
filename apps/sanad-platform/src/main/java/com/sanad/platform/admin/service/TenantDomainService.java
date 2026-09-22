@@ -88,7 +88,15 @@ public class TenantDomainService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is required");
         }
         DomainType type = request.domainType() == null ? DomainType.APPLICATION : request.domainType();
+        if (type != DomainType.APPLICATION) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "tenant-level domains support APPLICATION only; website/store domains require their resource API");
+        }
         Origin origin = request.origin() == null ? Origin.CUSTOM : request.origin();
+        if (origin != Origin.CUSTOM) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "DEFAULT_GENERATED domains are platform-managed");
+        }
         VerificationMethod method = request.verificationMethod() == null
                 ? VerificationMethod.DNS_TXT : request.verificationMethod();
 
@@ -285,13 +293,29 @@ public class TenantDomainService {
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
         Instant now = Instant.now();
 
-        if (request.verificationMethod() != null) {
+        if (request.verificationMethod() != null
+                && request.verificationMethod() != existing.verificationMethod()) {
+            if (existing.origin() != Origin.CUSTOM) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "platform-generated domain verification method is immutable");
+            }
+            if (existing.status() == Status.ACTIVE) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "deactivate the domain before changing its verification method");
+            }
             jdbc.update(
-                    "UPDATE tenant_domains SET verification_method = ?, updated_at = ?, version = version + 1 "
-                            + "WHERE tenant_id = ? AND id = ?",
-                    request.verificationMethod().name(), Timestamp.from(now), tenantId, domainId);
+                    "UPDATE tenant_domains SET verification_method = ?, status = ?, "
+                            + "verified_at = NULL, verified_by = NULL, last_verified_at = NULL, "
+                            + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
+                    request.verificationMethod().name(), Status.UNVERIFIED.name(),
+                    Timestamp.from(now), tenantId, domainId);
         }
         if (Boolean.TRUE.equals(request.isPrimary())) {
+            DomainResponse current = getDomainOrThrow(tenantId, domainId);
+            if (current.status() != Status.ACTIVE) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "domain must be ACTIVE before setting primary");
+            }
             // Demote any other primary of the same domain_type first
             jdbc.update(
                     "UPDATE tenant_domains SET is_primary = FALSE, updated_at = ?, version = version + 1 "
