@@ -20,6 +20,7 @@ import {
   type SubscriptionUnitApplication,
   type SubscriptionResourceBinding,
   type SubscriptionAvailableResource,
+  type ManagedOrganization,
 } from "@/lib/api/executive-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { Button, Input } from "@/components/sds";
@@ -90,6 +91,8 @@ export default function SubscriptionDetailPage() {
   const [billingProfileName, setBillingProfileName] = useState("");
   const [billingEmail, setBillingEmail] = useState("");
   const [selectedResource, setSelectedResource] = useState("");
+  const [tenantOrganizations, setTenantOrganizations] = useState<ManagedOrganization[]>([]);
+  const [existingOrganizationId, setExistingOrganizationId] = useState("");
 
   const loadOperatingGovernance = useCallback(async () => {
     try {
@@ -129,6 +132,10 @@ export default function SubscriptionDetailPage() {
       if (tenantId) {
         scpApi.usage(tenantId).then(setUsage).catch((reason) => {
           setUsage(null);
+          setError(scpErrorMessage(reason));
+        });
+        executiveApi.organizations(tenantId).then(setTenantOrganizations).catch((reason) => {
+          setTenantOrganizations([]);
           setError(scpErrorMessage(reason));
         });
       }
@@ -250,6 +257,27 @@ export default function SubscriptionDetailPage() {
       setBranchName("");
       setSelectedOrganizationId(organization.id);
       setNotice(t("scp.detail.branchCreated"));
+      await loadOperatingGovernance();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bindExistingOperatingUnit() {
+    if (!existingOrganizationId) return;
+    setBusy(true);
+    setError("");
+    try {
+      await executiveApi.bindOperatingUnit(
+        subscriptionId,
+        existingOrganizationId,
+        "CONSOLIDATED",
+      );
+      setSelectedOrganizationId(existingOrganizationId);
+      setExistingOrganizationId("");
+      setNotice(t("scp.detail.branchBound"));
       await loadOperatingGovernance();
     } catch (reason) {
       setError(scpErrorMessage(reason));
@@ -611,6 +639,32 @@ export default function SubscriptionDetailPage() {
             >
               {t("scp.detail.createBranch")}
             </Button>
+            <select
+              aria-label={t("scp.detail.existingBranch")}
+              value={existingOrganizationId}
+              onChange={(event) => setExistingOrganizationId(event.target.value)}
+            >
+              <option value="">{t("scp.detail.existingBranch")}</option>
+              {tenantOrganizations
+                .filter((organization) =>
+                  organization.status === "ACTIVE"
+                  && organization.unitType === "BRANCH"
+                  && !operatingUnits.some((unit) =>
+                    unit.organizationId === organization.id && unit.status === "ACTIVE"))
+                .map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+            </select>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy || !existingOrganizationId}
+              onClick={() => void bindExistingOperatingUnit()}
+            >
+              {t("scp.detail.bindExistingBranch")}
+            </Button>
           </div>
         ) : null}
 
@@ -642,7 +696,14 @@ export default function SubscriptionDetailPage() {
                           )}
                         >
                           <option value="CONSOLIDATED">{t("scp.detail.consolidated")}</option>
-                          <option value="SEPARATE">{t("scp.detail.separate")}</option>
+                          <option
+                            value="SEPARATE"
+                            disabled={!billingProfiles.some((profile) =>
+                              profile.organizationId === unit.organizationId
+                              && profile.status === "ACTIVE")}
+                          >
+                            {t("scp.detail.separate")}
+                          </option>
                         </select>
                       ) : unit.billingMode}
                     </td>
