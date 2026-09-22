@@ -93,6 +93,8 @@ class Subscription1055ClosureContract(unittest.TestCase):
         self.assertIn("reconcilePerBranchQuantity", admin)
         self.assertIn("BRANCHES.CHANGED", admin)
         self.assertIn("reconcilePerBranchQuantity", branch)
+        self.assertIn("FOR UPDATE", branch)
+        self.assertIn("Serialize all operating-unit mutations", branch)
 
     def test_executive_ui_exposes_branch_billing_and_resource_governance(self):
         page = self.read("apps/web/app/executive/subscriptions/[id]/page.tsx")
