@@ -1,6 +1,7 @@
 package com.sanad.platform.subscription.branch;
 
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.admin.service.SaasAdministrationService;
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.module.entitlement.EntitlementResolver;
 import org.springframework.http.HttpStatus;
@@ -76,17 +77,20 @@ public class SubscriptionOperatingUnitService {
     private final PlatformAuditService audit;
     private final TenantRlsTransactionContext tenantRlsContext;
     private final EntitlementResolver entitlementResolver;
+    private final SaasAdministrationService saasAdministrationService;
 
     public SubscriptionOperatingUnitService(
             JdbcTemplate jdbc,
             PlatformAuditService audit,
             TenantRlsTransactionContext tenantRlsContext,
-            EntitlementResolver entitlementResolver
+            EntitlementResolver entitlementResolver,
+            SaasAdministrationService saasAdministrationService
     ) {
         this.jdbc = jdbc;
         this.audit = audit;
         this.tenantRlsContext = tenantRlsContext;
         this.entitlementResolver = entitlementResolver;
+        this.saasAdministrationService = saasAdministrationService;
     }
 
     @Transactional(readOnly = true)
@@ -274,6 +278,7 @@ public class SubscriptionOperatingUnitService {
                         "SEPARATE billing requires one active operating-unit billing profile");
             }
         }
+        int previousBranchCount = activeBranchCountForTenant(tenantId, subscriptionId);
         Instant now = Instant.now();
 
         jdbc.update("""
@@ -298,6 +303,9 @@ public class SubscriptionOperatingUnitService {
                     """, tenantId, subscriptionId, organizationId);
         }
 
+        int currentBranchCount = activeBranchCountForTenant(tenantId, subscriptionId);
+        saasAdministrationService.reconcilePerBranchQuantity(
+                subscriptionId, previousBranchCount, currentBranchCount, authentication);
         audit.success(authentication, tenantId, "SUBSCRIPTION_OPERATING_UNIT_BOUND",
                 "SUBSCRIPTION_OPERATING_UNIT", organizationId.toString(),
                 "subscription=" + subscriptionId + ";billingMode=" + mode,
@@ -313,6 +321,7 @@ public class SubscriptionOperatingUnitService {
     ) {
         UUID tenantId = mutableTenantId(subscriptionId);
         requireOrganization(tenantId, organizationId);
+        int previousBranchCount = activeBranchCountForTenant(tenantId, subscriptionId);
         int changed = jdbc.update("""
                 UPDATE subscription_operating_units
                    SET status = 'INACTIVE', updated_at = NOW()
@@ -361,6 +370,9 @@ public class SubscriptionOperatingUnitService {
                  WHERE tenant_id = ? AND subscription_id = ? AND organization_id = ?
                    AND status = 'ACTIVE'
                 """, tenantId, subscriptionId, organizationId);
+        int currentBranchCount = activeBranchCountForTenant(tenantId, subscriptionId);
+        saasAdministrationService.reconcilePerBranchQuantity(
+                subscriptionId, previousBranchCount, currentBranchCount, authentication);
         audit.success(authentication, tenantId, "SUBSCRIPTION_OPERATING_UNIT_DEACTIVATED",
                 "SUBSCRIPTION_OPERATING_UNIT", organizationId.toString(),
                 "subscription=" + subscriptionId, null, null);
@@ -590,6 +602,10 @@ public class SubscriptionOperatingUnitService {
     @Transactional(readOnly = true)
     public int activeBranchCount(UUID subscriptionId) {
         UUID tenantId = tenantId(subscriptionId);
+        return activeBranchCountForTenant(tenantId, subscriptionId);
+    }
+
+    private int activeBranchCountForTenant(UUID tenantId, UUID subscriptionId) {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*)
                   FROM subscription_operating_units sou
