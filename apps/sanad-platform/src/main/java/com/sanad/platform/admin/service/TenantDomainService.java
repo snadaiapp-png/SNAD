@@ -80,7 +80,7 @@ public class TenantDomainService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body is required");
         }
-        String hostname = normalizeHostname(request.hostname());
+        String hostname = hostRoutingService.normalizeHostname(request.hostname());
         if (hostname == null || hostname.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is required");
         }
