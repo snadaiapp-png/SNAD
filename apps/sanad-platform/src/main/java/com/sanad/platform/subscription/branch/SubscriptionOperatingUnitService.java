@@ -209,8 +209,8 @@ public class SubscriptionOperatingUnitService {
     @Transactional(readOnly = true)
     public List<AvailableResource> listAvailableResources(UUID subscriptionId) {
         UUID tenantId = tenantId(subscriptionId);
-        boolean websitesEnabled = entitlementResolver.isModuleEnabled(tenantId, "WEBSITES");
-        boolean storesEnabled = entitlementResolver.isModuleEnabled(tenantId, "ECOMMERCE_CX");
+        boolean websitesEnabled = entitlementResolver.hasExplicitModuleEntitlement(tenantId, "WEBSITES");
+        boolean storesEnabled = entitlementResolver.hasExplicitModuleEntitlement(tenantId, "ECOMMERCE_CX");
         List<AvailableResource> resources = jdbc.query("""
                 SELECT resource_type, resource_id, resource_name, resource_status,
                        bound_organization_id
@@ -735,7 +735,7 @@ public class SubscriptionOperatingUnitService {
             case "POS_LOCATION" -> "POS";
             default -> null;
         };
-        if (moduleCode == null || !entitlementResolver.isModuleEnabled(tenantId, moduleCode)) {
+        if (moduleCode == null || !entitlementResolver.hasExplicitModuleEntitlement(tenantId, moduleCode)) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "resource module is not entitled by the effective subscription");
