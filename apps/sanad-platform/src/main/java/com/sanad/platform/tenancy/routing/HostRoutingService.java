@@ -120,25 +120,35 @@ public class HostRoutingService {
                        d.tenant_id AS resource_id,
                        d.hostname
                   FROM tenant_domains d
+                  JOIN tenants t ON t.id = d.tenant_id
                  WHERE lower(d.hostname) = ?
                    AND d.domain_type = 'APPLICATION'
                    AND d.status = 'ACTIVE'
+                   AND t.status IN ('TRIAL','ACTIVE','PAST_DUE')
                 UNION ALL
                 SELECT 'WEBSITE' AS surface,
                        d.tenant_id,
                        d.website_id AS resource_id,
                        d.hostname
                   FROM website_domains d
+                  JOIN tenants t ON t.id = d.tenant_id
+                  JOIN websites w ON w.tenant_id = d.tenant_id AND w.id = d.website_id
                  WHERE lower(d.hostname) = ?
                    AND d.activation_status = 'ACTIVE'
+                   AND w.status = 'ACTIVE'
+                   AND t.status IN ('TRIAL','ACTIVE','PAST_DUE')
                 UNION ALL
                 SELECT 'STORE' AS surface,
                        d.tenant_id,
                        d.store_id AS resource_id,
                        d.hostname
                   FROM commerce_store_domains d
+                  JOIN tenants t ON t.id = d.tenant_id
+                  JOIN commerce_stores s ON s.tenant_id = d.tenant_id AND s.id = d.store_id
                  WHERE lower(d.hostname) = ?
                    AND d.activation_status = 'ACTIVE'
+                   AND s.status = 'ACTIVE'
+                   AND t.status IN ('TRIAL','ACTIVE','PAST_DUE')
                 """, hostname, hostname, hostname);
 
         if (rows.isEmpty()) {
