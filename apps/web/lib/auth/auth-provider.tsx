@@ -176,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       applyAuthResponse(response);
       return response;
     });
-  }, [applyAuthResponse]);
+  }, [applyAuthResponse, scopedAuthApi]);
 
   const restoreSession = useCallback(async () => {
     refreshEnabledRef.current = true;
@@ -236,7 +236,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     queueMicrotask(() => { void restoreSession(); });
-  }, [restoreSession]);
+  }, [restoreSession, sessionScope]);
 
   const login = useCallback(async (req: LoginRequest) => {
     refreshEnabledRef.current = true;
@@ -262,7 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastLoginPasswordRef.current = "";
       }
     }
-  }, [applyAuthResponse]);
+  }, [applyAuthResponse, scopedAuthApi]);
 
   const loginWithTenant = useCallback(async (tenantId: string) => {
     refreshEnabledRef.current = true;
@@ -288,7 +288,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastLoginPasswordRef.current = "";
       }
     }
-  }, [applyAuthResponse, lastLoginEmail]);
+  }, [applyAuthResponse, lastLoginEmail, scopedAuthApi]);
 
   const dismissAmbiguousTenant = useCallback(() => {
     setAmbiguousTenantIds([]);
@@ -310,7 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCanRetrySessionRestore(false);
     setState("ANONYMOUS");
     lastLoginPasswordRef.current = "";
-  }, [clearIdentity]);
+  }, [clearIdentity, scopedAuthApi]);
 
   const refresh = useCallback(async () => {
     refreshEnabledRef.current = true;
@@ -337,7 +337,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setError(toUserFacingError(err));
     }
-  }, []);
+  }, [scopedAuthApi]);
 
   const changeCredential = useCallback(async (currentPassword: string, newPassword: string) => {
     const email = lastLoginEmail || user?.email || "";
@@ -370,7 +370,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setCredentialProcessing(false);
     }
-  }, [applyAuthResponse, clearIdentity, lastLoginEmail, user]);
+  }, [applyAuthResponse, clearIdentity, lastLoginEmail, scopedAuthApi, user]);
 
   const clearError = useCallback(() => {
     setError(null);
