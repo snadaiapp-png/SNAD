@@ -1,5 +1,8 @@
 package com.sanad.platform.subscription.read;
 
+import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
+import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,13 +26,27 @@ public class TenantDirectoryQueryService {
     public record TenantRow(UUID id, String name, String code, String status,
                             String countryCode, String currencyCode,
                             int subscriptionCount, String subscriptionStatus,
+                            UUID effectiveSubscriptionId, String billingState,
+                            String accessDecision, String commercialAction,
+                            String anomalyCode, boolean loginAllowed,
                             java.time.Instant createdAt) {
     }
 
     private final JdbcTemplate jdbc;
+    private final TenantCommercialStateService commercialStateService;
 
-    public TenantDirectoryQueryService(JdbcTemplate jdbc) {
+    @Autowired
+    public TenantDirectoryQueryService(
+            JdbcTemplate jdbc,
+            TenantCommercialStateService commercialStateService
+    ) {
         this.jdbc = jdbc;
+        this.commercialStateService = commercialStateService;
+    }
+
+    /** Backward-compatible constructor for direct test harnesses. */
+    public TenantDirectoryQueryService(JdbcTemplate jdbc) {
+        this(jdbc, new TenantCommercialStateService(new SubscriptionResolutionService(jdbc)));
     }
 
     @Transactional(readOnly = true)
@@ -67,8 +84,6 @@ public class TenantDirectoryQueryService {
         // Current subscription state follows the same EFFECTIVE predicate as
         // SubscriptionResolutionService. Terminal rows are historical evidence
         // only and must never replace the tenant's current commercial state.
-        // The partial unique index uk_tenant_subscriptions_effective guarantees
-        // cardinality 0..1; deliberately do not LIMIT an ambiguous result.
         List<Map<String, Object>> rows = jdbc.queryForList("""
                         SELECT t.id, t.name, t.subdomain AS code, t.status, t.country_code, t.currency_code,
                                t.created_at,
@@ -83,17 +98,29 @@ public class TenantDirectoryQueryService {
                 append(args, List.of(safeSize, safePage * safeSize)).toArray());
 
         List<TenantRow> content = rows.stream()
-                .map(r -> new TenantRow(
-                        (UUID) r.get("id"),
-                        (String) r.get("name"),
-                        (String) r.get("code"),
-                        (String) r.get("status"),
-                        (String) r.get("country_code"),
-                        (String) r.get("currency_code"),
-                        ((Number) r.getOrDefault("subscription_count", 0)).intValue(),
-                        (String) r.get("subscription_status"),
-                        r.get("created_at") == null ? null
-                                : ((java.sql.Timestamp) r.get("created_at")).toInstant()))
+                .map(r -> {
+                    UUID tenantId = (UUID) r.get("id");
+                    String tenantStatus = (String) r.get("status");
+                    TenantCommercialStateService.TenantCommercialState commercial =
+                            commercialStateService.resolve(tenantId, tenantStatus);
+                    return new TenantRow(
+                            tenantId,
+                            (String) r.get("name"),
+                            (String) r.get("code"),
+                            tenantStatus,
+                            (String) r.get("country_code"),
+                            (String) r.get("currency_code"),
+                            ((Number) r.getOrDefault("subscription_count", 0)).intValue(),
+                            commercial.effectiveSubscriptionStatus(),
+                            commercial.effectiveSubscriptionId(),
+                            commercial.billingState(),
+                            commercial.accessDecision().name(),
+                            commercial.commercialAction().name(),
+                            commercial.anomalyCode(),
+                            commercial.loginAllowed(),
+                            r.get("created_at") == null ? null
+                                    : ((java.sql.Timestamp) r.get("created_at")).toInstant());
+                })
                 .toList();
 
         return PageResponse.of(content, safePage, safeSize, total == null ? 0 : total);
