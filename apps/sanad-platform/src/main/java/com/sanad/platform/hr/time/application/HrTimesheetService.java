@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -32,9 +33,11 @@ import java.util.UUID;
 public class HrTimesheetService {
 
     private final JdbcTemplate jdbc;
+    private final Clock clock;
 
-    public HrTimesheetService(JdbcTemplate jdbc) {
+    public HrTimesheetService(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
     }
 
     @Transactional
@@ -54,7 +57,7 @@ public class HrTimesheetService {
         int updated = jdbc.update(
                 "UPDATE hr_timesheets SET state = 'SUBMITTED', submitted_at = ?, updated_at = NOW() " +
                 "WHERE id = ? AND tenant_id = ? AND employment_id = ? AND state = 'DRAFT'",
-                Instant.now(), timesheetId, tenantId, employmentId
+                clock.instant(), timesheetId, tenantId, employmentId
         );
         if (updated == 0) {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: timesheet not in DRAFT state");
@@ -68,7 +71,7 @@ public class HrTimesheetService {
                 "UPDATE hr_timesheets SET state = 'APPROVED', approver_id = ?, approved_at = ?, " +
                 "approver_comment = ?, updated_at = NOW() " +
                 "WHERE id = ? AND tenant_id = ? AND state = 'SUBMITTED'",
-                approverId, Instant.now(), comment, timesheetId, tenantId
+                approverId, clock.instant(), comment, timesheetId, tenantId
         );
         if (updated == 0) {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: timesheet not in SUBMITTED state");
@@ -82,7 +85,7 @@ public class HrTimesheetService {
                 "UPDATE hr_timesheets SET state = 'REJECTED', approver_id = ?, approved_at = ?, " +
                 "approver_comment = ?, updated_at = NOW() " +
                 "WHERE id = ? AND tenant_id = ? AND state = 'SUBMITTED'",
-                approverId, Instant.now(), reason, timesheetId, tenantId
+                approverId, clock.instant(), reason, timesheetId, tenantId
         );
         if (updated == 0) {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: timesheet not in SUBMITTED state");
@@ -135,7 +138,7 @@ public class HrTimesheetService {
     private void writeAuditAndOutbox(UUID tenantId, String eventType, UUID resourceId) {
         UUID auditId = UUID.randomUUID();
         UUID outboxId = UUID.randomUUID();
-        Instant now = Instant.now();
+        Instant now = clock.instant();
 
         jdbc.update(
                 "INSERT INTO hr_audit_ledger (id, tenant_id, resource_type, resource_id, action, " +

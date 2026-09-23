@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -37,9 +38,11 @@ import java.util.UUID;
 public class HrLeaveLedgerService {
 
     private final JdbcTemplate jdbc;
+    private final Clock clock;
 
-    public HrLeaveLedgerService(JdbcTemplate jdbc) {
+    public HrLeaveLedgerService(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
     }
 
     /**
@@ -48,7 +51,7 @@ public class HrLeaveLedgerService {
     @Transactional
     public void reserve(UUID tenantId, UUID employmentId, UUID leaveTypeId,
                         BigDecimal days, UUID leaveRequestId) {
-        int year = LocalDate.now().getYear();
+        int year = LocalDate.now(clock).getYear();
         jdbc.update(
                 "INSERT INTO hr_leave_ledger_entries " +
                 "(id, tenant_id, employment_id, leave_type_id, entry_type, year, days, reference_type, reference_id) " +
@@ -63,7 +66,7 @@ public class HrLeaveLedgerService {
     @Transactional
     public void release(UUID tenantId, UUID employmentId, UUID leaveTypeId,
                         BigDecimal days, UUID leaveRequestId) {
-        int year = LocalDate.now().getYear();
+        int year = LocalDate.now(clock).getYear();
         // Only release if there's a matching RESERVATION entry (idempotent)
         Integer existing = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM hr_leave_ledger_entries " +
@@ -89,7 +92,7 @@ public class HrLeaveLedgerService {
     @Transactional
     public void consume(UUID tenantId, UUID employmentId, UUID leaveTypeId,
                         BigDecimal days, UUID leaveRequestId) {
-        int year = LocalDate.now().getYear();
+        int year = LocalDate.now(clock).getYear();
         // Only consume if there's a matching RESERVATION entry (prevents double consumption)
         Integer existing = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM hr_leave_ledger_entries " +
