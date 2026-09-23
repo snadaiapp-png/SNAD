@@ -169,17 +169,18 @@ public class HrLeaveService {
         }
 
         // Find and approve the pending Manager approval
-        Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApproval(tenantId, workflowInstanceId);
+        Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApprovalForCurrentStep(
+                tenantId, workflowInstanceId, "manager_approval");
         if (pending.isEmpty()) {
-            throw new IllegalStateException("HRM_INVALID_STATE: no pending workflow approval found");
+            throw new IllegalStateException("HRM_INVALID_STATE: no pending Manager workflow approval found");
         }
-        workflowAdapter.approveApproval(tenantId, pending.get().id(), managerId, request.comment());
+        workflowAdapter.approveApproval(tenantId, pending.get().id(), managerId,
+                pending.get().version(), request.comment());
 
-        // VERIFY graph advanced to hr_approval — reload workflow instance
-        String newStep = workflowAdapter.getCurrentStepKey(tenantId, workflowInstanceId);
-        if (!"hr_approval".equals(newStep) && !workflowAdapter.isTerminal(tenantId, workflowInstanceId)) {
+        // VERIFY graph is RUNNING at hr_approval — NOT terminal
+        if (!workflowAdapter.isRunningAt(tenantId, workflowInstanceId, "hr_approval")) {
             throw new IllegalStateException(
-                "HRM_WORKFLOW_INCONSISTENT: expected hr_approval after manager approve, got " + newStep);
+                "HRM_WORKFLOW_INCONSISTENT: expected RUNNING at hr_approval after manager approve");
         }
 
         // Only now update HR state — workflow progression verified
@@ -203,16 +204,18 @@ public class HrLeaveService {
                 "HRM_INVALID_STATE: expected manager_approval step, got " + currentStep);
         }
 
-        Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApproval(tenantId, workflowInstanceId);
+        Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApprovalForCurrentStep(
+                tenantId, workflowInstanceId, "manager_approval");
         if (pending.isEmpty()) {
-            throw new IllegalStateException("HRM_INVALID_STATE: no pending workflow approval found");
+            throw new IllegalStateException("HRM_INVALID_STATE: no pending Manager workflow approval found");
         }
-        workflowAdapter.rejectApproval(tenantId, pending.get().id(), managerId, request.reason());
+        workflowAdapter.rejectApproval(tenantId, pending.get().id(), managerId,
+                pending.get().version(), request.reason());
 
-        // Verify workflow reached terminal (rejected path)
-        if (!workflowAdapter.isTerminal(tenantId, workflowInstanceId)) {
+        // VERIFY workflow is COMPLETED at end_rejected (strict terminal)
+        if (!workflowAdapter.isCompletedAt(tenantId, workflowInstanceId, "end_rejected")) {
             throw new IllegalStateException(
-                "HRM_WORKFLOW_INCONSISTENT: workflow not terminal after manager reject");
+                "HRM_WORKFLOW_INCONSISTENT: expected COMPLETED at end_rejected after manager reject");
         }
 
         transitionState(tenantId, requestId, "PENDING_MANAGER", "REJECTED",
@@ -236,16 +239,18 @@ public class HrLeaveService {
                 "HRM_INVALID_STATE: expected hr_approval step, got " + currentStep);
         }
 
-        Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApproval(tenantId, workflowInstanceId);
+        Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApprovalForCurrentStep(
+                tenantId, workflowInstanceId, "hr_approval");
         if (pending.isEmpty()) {
-            throw new IllegalStateException("HRM_INVALID_STATE: no pending workflow approval found");
+            throw new IllegalStateException("HRM_INVALID_STATE: no pending HR workflow approval found");
         }
-        workflowAdapter.approveApproval(tenantId, pending.get().id(), hrUserId, request.comment());
+        workflowAdapter.approveApproval(tenantId, pending.get().id(), hrUserId,
+                pending.get().version(), request.comment());
 
-        // VERIFY workflow reached COMPLETED (terminal approved) — NOT just any terminal
-        if (!workflowAdapter.isCompleted(tenantId, workflowInstanceId)) {
+        // VERIFY workflow is COMPLETED at end_approved (strict terminal)
+        if (!workflowAdapter.isCompletedAt(tenantId, workflowInstanceId, "end_approved")) {
             throw new IllegalStateException(
-                "HRM_WORKFLOW_INCONSISTENT: workflow not COMPLETED after HR approve");
+                "HRM_WORKFLOW_INCONSISTENT: expected COMPLETED at end_approved after HR approve");
         }
 
         transitionState(tenantId, requestId, "PENDING_HR", "APPROVED",
@@ -269,15 +274,18 @@ public class HrLeaveService {
                 "HRM_INVALID_STATE: expected hr_approval step, got " + currentStep);
         }
 
-        Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApproval(tenantId, workflowInstanceId);
+        Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApprovalForCurrentStep(
+                tenantId, workflowInstanceId, "hr_approval");
         if (pending.isEmpty()) {
-            throw new IllegalStateException("HRM_INVALID_STATE: no pending workflow approval found");
+            throw new IllegalStateException("HRM_INVALID_STATE: no pending HR workflow approval found");
         }
-        workflowAdapter.rejectApproval(tenantId, pending.get().id(), hrUserId, request.reason());
+        workflowAdapter.rejectApproval(tenantId, pending.get().id(), hrUserId,
+                pending.get().version(), request.reason());
 
-        if (!workflowAdapter.isTerminal(tenantId, workflowInstanceId)) {
+        // VERIFY workflow is COMPLETED at end_rejected (strict terminal)
+        if (!workflowAdapter.isCompletedAt(tenantId, workflowInstanceId, "end_rejected")) {
             throw new IllegalStateException(
-                "HRM_WORKFLOW_INCONSISTENT: workflow not terminal after HR reject");
+                "HRM_WORKFLOW_INCONSISTENT: expected COMPLETED at end_rejected after HR reject");
         }
 
         transitionState(tenantId, requestId, "PENDING_HR", "REJECTED",
