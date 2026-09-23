@@ -76,12 +76,13 @@ class CommercialConsistencyDiagnosticsPostgresTest {
         jdbc = new JdbcTemplate(ds);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(ds));
         rls = new TenantRlsTransactionContext(jdbc);
-        service = new CommercialConsistencyDiagnosticsService(jdbc);
+        service = new CommercialConsistencyDiagnosticsService(jdbc, rls);
     }
 
     @Test
     void globalControlPlaneScanMustSeeTenantScopedOpenCurrencyMismatchBehindForceRls() {
         UUID tenant = seedTenant("diagnostic-rls");
+        UUID otherTenant = seedTenant("diagnostic-other");
         UUID subscription = seedSubscription(tenant);
         UUID invoice = seedInvoice(tenant, subscription);
         UUID run = UUID.randomUUID();
@@ -104,9 +105,14 @@ class CommercialConsistencyDiagnosticsPostgresTest {
                     """, UUID.randomUUID(), tenant, run, invoice);
         });
 
-        var anomalies = service.scan();
+        // A second tenant guarantees that the scan must re-scope the same
+        // transaction instead of relying on a single ambient tenant value.
+        seedSubscription(otherTenant);
+
+        var anomalies = transaction.execute(ignored -> service.scan());
 
         assertThat(anomalies)
+                .isNotNull()
                 .anySatisfy(anomaly -> {
                     assertThat(anomaly.code()).isEqualTo("CURRENCY_MISMATCH");
                     assertThat(anomaly.tenantId()).isEqualTo(tenant);
