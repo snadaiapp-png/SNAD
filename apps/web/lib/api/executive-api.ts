@@ -86,6 +86,37 @@ export interface BillingInvoice {
   createdAt: string; updatedAt: string;
 }
 
+export interface ExecutiveBillingRow {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  subscriptionId: string;
+  invoiceNumber: string;
+  projectionStatus: string;
+  currencyCode: string;
+  subtotalMinor: number;
+  creditAppliedMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  amountPaidMinor: number;
+  outstandingMinor: number;
+  description: string | null;
+  periodStart: string;
+  periodEnd: string;
+  dueAt: string;
+  paidAt: string | null;
+  paymentReference: string | null;
+  financeLinkId: string | null;
+  financeInvoiceId: string | null;
+  financeStatus: string;
+  settlementState: string;
+  reconciliationClassification: string | null;
+  reconciliationState: string;
+  accountingSourceOfTruth: "FINANCE";
+  projectionSource: "SCP_BILLING_PROJECTION";
+  createdAt: string;
+}
+
 export interface ManagedOrganization {
   id: string; tenantId: string; name: string; description: string | null;
   status: string; createdAt: string; updatedAt: string;
@@ -160,6 +191,8 @@ export const executiveApi = {
     apiClient.post<TenantSubscription, Record<string, never>>(`${root}/subscriptions/${subscriptionId}/renew`, {}),
   invoices: (tenantId: string) =>
     apiClient.get<BillingInvoice[]>(`${root}/billing/invoices?tenantId=${encodeURIComponent(tenantId)}`),
+  billingV2: (tenantId: string) =>
+    apiClient.get<ExecutiveBillingRow[]>(`${root}/billing/v2?tenantId=${encodeURIComponent(tenantId)}`),
   organizations: (tenantId: string) => apiClient.get<ManagedOrganization[]>(`${root}/tenants/${tenantId}/organizations`),
   memberships: (tenantId: string, organizationId: string) =>
     apiClient.get<ManagedMembership[]>(`${root}/tenants/${tenantId}/organizations/${organizationId}/memberships`),
