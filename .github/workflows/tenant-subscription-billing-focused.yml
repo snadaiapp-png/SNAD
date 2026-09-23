@@ -122,6 +122,7 @@ jobs:
         run: >-
           npm test -- --run
           app/executive/tenants/tenant-management.test.tsx
+          app/executive/tenants/tenant-commercial-actions.test.tsx
           app/executive/billing/billing-page.test.tsx
         env:
           CI: 'true'
