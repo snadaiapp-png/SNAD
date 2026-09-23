@@ -36,6 +36,19 @@ function renderLoginForm(overrides: Partial<React.ComponentProps<typeof LoginFor
   );
 }
 
+function fireCapsLockEvent(
+  target: Element,
+  type: "keydown" | "keyup",
+  active: boolean,
+): void {
+  const event = new KeyboardEvent(type, { key: "A", bubbles: true });
+  Object.defineProperty(event, "getModifierState", {
+    configurable: true,
+    value: (key: string) => key === "CapsLock" && active,
+  });
+  fireEvent(target, event);
+}
+
 describe("LoginForm", () => {
   beforeEach(() => {
     onLoginMock.mockReset();
@@ -139,10 +152,10 @@ describe("LoginForm", () => {
   it("shows and clears the Caps Lock advisory without disabling submit", () => {
     renderLoginForm();
     const password = screen.getByPlaceholderText("••••••••");
-    fireEvent.keyDown(password, { key: "A", getModifierState: (key: string) => key === "CapsLock" });
+    fireCapsLockEvent(password, "keydown", true);
     expect(screen.getByText("مفتاح الأحرف الكبيرة Caps Lock مفعّل.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "تسجيل الدخول" })).not.toBeDisabled();
-    fireEvent.keyUp(password, { key: "a", getModifierState: () => false });
+    fireCapsLockEvent(password, "keyup", false);
     expect(screen.queryByText("مفتاح الأحرف الكبيرة Caps Lock مفعّل.")).not.toBeInTheDocument();
   });
 
