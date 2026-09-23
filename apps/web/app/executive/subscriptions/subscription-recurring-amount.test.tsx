@@ -69,8 +69,11 @@ describe("subscription recurring amount semantics", () => {
 
     render(<SubscriptionsPage />);
 
-    expect(await screen.findByText("240000:SAR")).toBeInTheDocument();
-    expect(screen.getByText("scp.subscriptions.annualRecurringAmount")).toBeInTheDocument();
+    const amountCell = await screen.findByRole("cell", {
+      name: /240000:SAR.*scp\.subscriptions\.annualRecurringAmount/,
+    });
+    expect(amountCell).toBeInTheDocument();
+    expect(amountCell).not.toHaveTextContent("20000:SAR");
     expect(screen.queryByText("20000:SAR")).not.toBeInTheDocument();
   });
 });
