@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import styles from "./auth.module.css";
+import v2Styles from "./auth-login-v2.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
 import { SnadLogo } from "@/components/sds";
@@ -40,7 +41,7 @@ export function LoginForm({
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [retryingSession, setRetryingSession] = useState(false);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   function validate(): boolean {
     let valid = true;
@@ -95,6 +96,7 @@ export function LoginForm({
     passwordError ? "login-password-error" : null,
     capsLockOn ? "login-caps-lock-status" : null,
   ].filter(Boolean).join(" ") || undefined;
+  const capsLockMessage = locale === "ar" ? "مفتاح Caps Lock مفعّل." : "Caps Lock is on.";
 
   return (
     <div className={styles.loginCard}>
@@ -135,7 +137,7 @@ export function LoginForm({
               spellCheck={false}
               inputMode="email"
               dir="ltr"
-              className={styles.authInput}
+              className={`${styles.authInput} ${v2Styles.authInput}`}
               placeholder={t("auth.login.emailPlaceholder")}
               value={email}
               onChange={(event) => {
@@ -164,7 +166,7 @@ export function LoginForm({
               type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               dir="ltr"
-              className={styles.authInput}
+              className={`${styles.authInput} ${v2Styles.authInput}`}
               placeholder={t("auth.login.passwordPlaceholder")}
               value={password}
               onChange={(event) => {
@@ -181,7 +183,7 @@ export function LoginForm({
             />
             <button
               type="button"
-              className={styles.passwordToggle}
+              className={`${styles.passwordToggle} ${v2Styles.passwordToggle}`}
               onClick={() => setShowPassword((current) => !current)}
               aria-label={showPassword ? t("auth.login.hidePassword") : t("auth.login.showPassword")}
             >
@@ -206,11 +208,11 @@ export function LoginForm({
           {capsLockOn && (
             <p
               id="login-caps-lock-status"
-              className={styles.authCapsLockStatus}
+              className={v2Styles.capsLockStatus}
               role="status"
               aria-live="polite"
             >
-              مفتاح Caps Lock مفعّل.
+              {capsLockMessage}
             </p>
           )}
         </div>
