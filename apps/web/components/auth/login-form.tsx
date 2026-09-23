@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import styles from "./auth.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
 import { SnadLogo } from "@/components/sds";
-import { useTheme } from "@/lib/hooks/useTheme";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 function AuthenticatingLabel({ pending, delayed }: { pending: string; delayed: string }) {
@@ -36,13 +35,12 @@ export function LoginForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [retryingSession, setRetryingSession] = useState(false);
   const { t } = useI18n();
-  const { theme } = useTheme();
-  const logoVariant = theme === "dark" ? "white" : "primary";
 
   function validate(): boolean {
     let valid = true;
@@ -62,6 +60,10 @@ export function LoginForm({
       setPasswordError(null);
     }
     return valid;
+  }
+
+  function updateCapsLock(event: KeyboardEvent<HTMLInputElement>) {
+    setCapsLockOn(event.getModifierState("CapsLock"));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -89,11 +91,16 @@ export function LoginForm({
       }
     : error;
 
+  const passwordDescribedBy = [
+    passwordError ? "login-password-error" : null,
+    capsLockOn ? "login-caps-lock-status" : null,
+  ].filter(Boolean).join(" ") || undefined;
+
   return (
     <div className={styles.loginCard}>
       <div className={styles.loginBrandMark}>
         <SnadLogo
-          variant={logoVariant}
+          variant="official-wordmark"
           size="responsive"
           href="/"
           alt={t("auth.login.logoAlt")}
@@ -131,7 +138,10 @@ export function LoginForm({
               className={styles.authInput}
               placeholder={t("auth.login.emailPlaceholder")}
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                if (emailError) setEmailError(null);
+              }}
               aria-invalid={!!emailError}
               aria-describedby={emailError ? "login-email-error" : undefined}
               disabled={authenticating}
@@ -157,9 +167,15 @@ export function LoginForm({
               className={styles.authInput}
               placeholder={t("auth.login.passwordPlaceholder")}
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                if (passwordError) setPasswordError(null);
+              }}
+              onKeyDown={updateCapsLock}
+              onKeyUp={updateCapsLock}
+              onBlur={() => setCapsLockOn(false)}
               aria-invalid={!!passwordError}
-              aria-describedby={passwordError ? "login-password-error" : undefined}
+              aria-describedby={passwordDescribedBy}
               disabled={authenticating}
               required
             />
@@ -186,6 +202,16 @@ export function LoginForm({
             <span id="login-password-error" className={styles.authErrorMessage} role="alert">
               {passwordError}
             </span>
+          )}
+          {capsLockOn && (
+            <p
+              id="login-caps-lock-status"
+              className={styles.authCapsLockStatus}
+              role="status"
+              aria-live="polite"
+            >
+              مفتاح Caps Lock مفعّل.
+            </p>
           )}
         </div>
 
