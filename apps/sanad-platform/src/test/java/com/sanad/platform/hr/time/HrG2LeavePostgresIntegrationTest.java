@@ -285,8 +285,18 @@ class HrG2LeavePostgresIntegrationTest {
         // 3. Insert HR step instance (PENDING)
         // 4. Update workflow_instance.current_step_key = "hr_approval"
         // 5. Insert HR approval request bound to HR step instance
-        WorkflowStepInstance completedManager = stepInstanceRepo.save(
-                managerStepInstance.start().complete("Approved by manager"));
+        //
+        // Phase 2.E fix: save each transition separately to avoid stale entity
+        // OptimisticLockingFailureException. The previous code called
+        // managerStepInstance.start().complete(...) in one chain, then save() —
+        // but start() bumps version 0→1 and complete() bumps 1→2, so save()
+        // tried UPDATE WHERE version=1 against a DB row at version=0 → 0 rows
+        // affected → OptimisticLockingFailureException.
+        // The fix: save after start() (version 0→1 persisted), then save after
+        // complete() (version 1→2 persisted). Each save()'s UPDATE WHERE
+        // version=N-1 matches the DB's current version.
+        WorkflowStepInstance started = stepInstanceRepo.save(managerStepInstance.start());
+        WorkflowStepInstance completedManager = stepInstanceRepo.save(started.complete("Approved by manager"));
         WorkflowApprovalRequest approvedManager = approvalRepo.save(
                 managerApproval.approve(managerUserId, "ok"));
 
@@ -353,7 +363,11 @@ class HrG2LeavePostgresIntegrationTest {
         // Move workflow to hr_approval but DON'T mark Manager approval as APPROVED
         // (simulates a stale/buggy state — resolver must still fail closed by step instance id)
         // Mark Manager step as COMPLETED but leave approval as PENDING.
-        stepInstanceRepo.save(managerStepInstance.start().complete("Completed without approval"));
+        //
+        // Phase 2.E fix: save each transition separately to avoid stale entity
+        // OptimisticLockingFailureException (same root cause as the other test).
+        WorkflowStepInstance started = stepInstanceRepo.save(managerStepInstance.start());
+        stepInstanceRepo.save(started.complete("Completed without approval"));
 
         // Insert HR step instance (PENDING)
         hrStepInstance = WorkflowStepInstance.create(

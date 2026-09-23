@@ -1,6 +1,6 @@
 {
   "generatedFrom": "runtime platform contract export",
-  "hrmV2Operations": 96,
+  "hrmV2Operations": 119,
   "paths": {
     "/api/v2/hr/assignments": {
       "get": "hrAssignmentsList",
@@ -106,6 +106,37 @@
     },
     "/api/v2/hr/jobs/{jobId}/revise": {
       "post": "hrStructureReviseJob"
+    },
+    "/api/v2/hr/leave/balances": {
+      "get": "hrLeaveBalancesList"
+    },
+    "/api/v2/hr/leave/requests": {
+      "get": "hrLeaveRequestsList",
+      "post": "hrLeaveRequestCreate"
+    },
+    "/api/v2/hr/leave/requests/{requestId}/cancel": {
+      "post": "hrLeaveRequestCancel"
+    },
+    "/api/v2/hr/leave/requests/{requestId}/hr-approve": {
+      "post": "hrLeaveRequestHrApprove"
+    },
+    "/api/v2/hr/leave/requests/{requestId}/hr-reject": {
+      "post": "hrLeaveRequestHrReject"
+    },
+    "/api/v2/hr/leave/requests/{requestId}/manager-approve": {
+      "post": "hrLeaveRequestManagerApprove"
+    },
+    "/api/v2/hr/leave/requests/{requestId}/manager-reject": {
+      "post": "hrLeaveRequestManagerReject"
+    },
+    "/api/v2/hr/leave/requests/{requestId}/submit": {
+      "post": "hrLeaveRequestSubmit"
+    },
+    "/api/v2/hr/leave/requests/{requestId}/withdraw": {
+      "post": "hrLeaveRequestWithdraw"
+    },
+    "/api/v2/hr/leave/types": {
+      "get": "hrLeaveTypesList"
     },
     "/api/v2/hr/onboarding/plans": {
       "get": "hrOnboardingPlanList",
@@ -255,6 +286,38 @@
     },
     "/api/v2/hr/recruitment/openings/{id}/submit": {
       "post": "hrRecruitmentOpeningSubmit"
+    },
+    "/api/v2/hr/time/attendance": {
+      "get": "hrAttendanceList"
+    },
+    "/api/v2/hr/time/attendance/clock-in": {
+      "post": "hrAttendanceClockIn"
+    },
+    "/api/v2/hr/time/attendance/monthly-report": {
+      "get": "hrAttendanceMonthlyReport"
+    },
+    "/api/v2/hr/time/attendance/{recordId}/clock-out": {
+      "post": "hrAttendanceClockOut"
+    },
+    "/api/v2/hr/time/schedules": {
+      "get": "hrSchedulesList",
+      "post": "hrScheduleCreate"
+    },
+    "/api/v2/hr/time/schedules/assign": {
+      "post": "hrScheduleAssign"
+    },
+    "/api/v2/hr/time/timesheets": {
+      "get": "hrTimesheetsList",
+      "post": "hrTimesheetCreate"
+    },
+    "/api/v2/hr/time/timesheets/{timesheetId}/approve": {
+      "post": "hrTimesheetApprove"
+    },
+    "/api/v2/hr/time/timesheets/{timesheetId}/reject": {
+      "post": "hrTimesheetReject"
+    },
+    "/api/v2/hr/time/timesheets/{timesheetId}/submit": {
+      "post": "hrTimesheetSubmit"
     }
   }
 }

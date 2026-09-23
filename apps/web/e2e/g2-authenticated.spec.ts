@@ -58,7 +58,7 @@ test.describe("G2 Desktop Journey @desktop", () => {
 
     // Navigate to leave page
     await employeePage.goto(`${BASE_URL}/hr/leave`);
-    await expect(employeePage.locator("h1")).toContainText(/Leave/i);
+    await expect(employeePage.locator("h1").first()).toContainText(/Leave/i);
 
     // Open the request form
     await employeePage.locator('[data-testid="request-leave-toggle"]').click();
@@ -123,7 +123,7 @@ test.describe("G2 Desktop Journey @desktop", () => {
 
     // Open the leave approval queue
     await managerPage.goto(`${BASE_URL}/hr/leave/approvals`);
-    await expect(managerPage.locator("h1")).toContainText(/Leave Approval Queue/i);
+    await expect(managerPage.locator("h1").first()).toContainText(/Leave Approval Queue/i);
     await expect(managerPage.locator("table")).toBeVisible({ timeout: 15_000 });
 
     // Find the same leave request by reason text
@@ -167,7 +167,7 @@ test.describe("G2 Desktop Journey @desktop", () => {
 
     // Open the leave approval queue
     await hrPage.goto(`${BASE_URL}/hr/leave/approvals`);
-    await expect(hrPage.locator("h1")).toContainText(/Leave Approval Queue/i);
+    await expect(hrPage.locator("h1").first()).toContainText(/Leave Approval Queue/i);
     await expect(hrPage.locator("table")).toBeVisible({ timeout: 15_000 });
 
     // Find the same leave request (now in PENDING_HR state)
@@ -217,13 +217,13 @@ test.describe("G2 Manager Nav @desktop", () => {
     await loginThroughUi(page, "manager");
 
     await page.goto(`${BASE_URL}/hr/team-attendance`);
-    await expect(page.locator("h1")).toContainText(/Team Attendance/i);
+    await expect(page.locator("h1").first()).toContainText(/Team Attendance/i);
 
     await page.goto(`${BASE_URL}/hr/team-timesheets`);
-    await expect(page.locator("h1")).toContainText(/Team Timesheets/i);
+    await expect(page.locator("h1").first()).toContainText(/Team Timesheets/i);
 
     await page.goto(`${BASE_URL}/hr/leave/approvals`);
-    await expect(page.locator("h1")).toContainText(/Leave Approval Queue/i);
+    await expect(page.locator("h1").first()).toContainText(/Leave Approval Queue/i);
   });
 });
 
@@ -235,16 +235,16 @@ test.describe("G2 HR Nav @desktop", () => {
     await loginThroughUi(page, "hr");
 
     await page.goto(`${BASE_URL}/hr/schedules`);
-    await expect(page.locator("h1")).toContainText(/Schedules/i);
+    await expect(page.locator("h1").first()).toContainText(/Schedules/i);
 
     await page.goto(`${BASE_URL}/hr/attendance/admin`);
-    await expect(page.locator("h1")).toContainText(/Attendance Administration/i);
+    await expect(page.locator("h1").first()).toContainText(/Attendance Administration/i);
 
     await page.goto(`${BASE_URL}/hr/leave/policies`);
-    await expect(page.locator("h1")).toContainText(/Leave Policies/i);
+    await expect(page.locator("h1").first()).toContainText(/Leave Policies/i);
 
     await page.goto(`${BASE_URL}/hr/reports/attendance`);
-    await expect(page.locator("h1")).toContainText(/Monthly Attendance Report/i);
+    await expect(page.locator("h1").first()).toContainText(/Monthly Attendance Report/i);
   });
 });
 
@@ -256,7 +256,9 @@ test.describe("G2 Employee Journey @mobile", () => {
   test("employee mobile: login → attendance → perform real clock mutation → verify persisted state", async ({ page }) => {
     await loginThroughUi(page, "employee");
     await page.goto(`${BASE_URL}/hr/attendance`);
-    await expect(page.locator("h1")).toBeVisible();
+    await expect(page.locator("h1").first()).toBeVisible();
+    // Wait for the attendance page to fully load (API calls + render)
+    await page.waitForLoadState("networkidle");
 
     // Determine canonical starting state: if "Clock In" is visible, the employee
     // is currently clocked OUT; if "Clock Out" is visible, they are clocked IN.
@@ -266,11 +268,13 @@ test.describe("G2 Employee Journey @mobile", () => {
     const clockInBtn = page.locator('button:has-text("Clock In")');
     const clockOutBtn = page.locator('button:has-text("Clock Out")');
 
+    // Wait for at least one clock button to be visible (10s timeout for slow CI)
+    await expect(clockInBtn.or(clockOutBtn)).toBeVisible({ timeout: 10_000 });
+
     // Assert EXACTLY ONE of the two buttons is visible (deterministic —
-    // fail-closed if neither or both are present).
+    // fail-closed if both are present which would be a state invariant violation).
     const inBtnVisible = await clockInBtn.isVisible();
     const outBtnVisible = await clockOutBtn.isVisible();
-    expect(inBtnVisible || outBtnVisible, "At least one clock action button must be visible").toBe(true);
     expect(inBtnVisible && outBtnVisible, "Both clock buttons cannot be visible simultaneously (state invariant)").toBe(false);
 
     // Perform the REAL mutation: click whichever button is visible, wait for

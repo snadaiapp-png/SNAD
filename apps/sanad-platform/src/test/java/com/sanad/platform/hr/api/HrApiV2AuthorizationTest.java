@@ -46,6 +46,15 @@ class HrApiV2AuthorizationTest {
             "HRM.RECRUITMENT.OFFER.DECLINE", "HRM.RECRUITMENT.OFFER.EXTEND",
             "HRM.RECRUITMENT.OFFER.APPROVE", "HRM.RECRUITMENT.HIRE.CONVERT",
             "HRM.ONBOARDING.PLAN.MANAGE", "HRM.ONBOARDING.TASK.COMPLETE", "HRM.ONBOARDING.TASK.WAIVE",
+            // G2 Time & Attendance + Leave + Timesheet capabilities (V20260923_3 seed).
+            // Phase 2.F sync: these 13 capabilities are real and seeded by the canonical
+            // G2 RBAC migration. The prior test expected 41 and got 54 — the 13-capability
+            // delta is the G2 surface, not drift.
+            "HRM.ATTENDANCE.SELF_RECORD", "HRM.ATTENDANCE.SELF_VIEW",
+            "HRM.ATTENDANCE.TEAM_VIEW", "HRM.ATTENDANCE.ADMIN", "HRM.ATTENDANCE.CORRECT",
+            "HRM.LEAVE.SELF_REQUEST", "HRM.LEAVE.SELF_VIEW",
+            "HRM.LEAVE.TEAM_APPROVE", "HRM.LEAVE.HR_APPROVE", "HRM.LEAVE.POLICY_ADMIN",
+            "HRM.TIMESHEET.SELF_VIEW", "HRM.TIMESHEET.SELF_SUBMIT", "HRM.TIMESHEET.TEAM_APPROVE",
             "HRM.ADMIN");
 
     private static final String DB_URL = System.getenv().getOrDefault(
