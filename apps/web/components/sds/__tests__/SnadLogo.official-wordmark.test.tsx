@@ -33,6 +33,17 @@ describe("SnadLogo official wordmark", () => {
     expect(style).toMatch(/aspect-ratio:\s*3\.44/);
   });
 
+  it("leaves responsive dimensions to the governed CSS sizing model", () => {
+    const { container } = render(
+      <SnadLogo variant="official-wordmark" size="responsive" />,
+    );
+    const image = container.querySelector("img");
+    expect(image).not.toBeNull();
+    expect(image?.style.width).toBe("");
+    expect(image?.style.height).toBe("");
+    expect(image?.style.aspectRatio).toMatch(/^3\.44/);
+  });
+
   it("does not enter theme-auto dual rendering when explicitly selected", () => {
     const { container } = render(
       <SnadLogo variant="official-wordmark" theme="auto" />,
