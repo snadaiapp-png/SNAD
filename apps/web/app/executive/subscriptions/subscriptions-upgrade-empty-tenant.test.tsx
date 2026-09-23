@@ -39,6 +39,12 @@ vi.mock("next/navigation", () => ({
     ),
 }));
 
+vi.mock("../_components/ScpAccess", () => ({
+  useScpAccess: () => ({
+    has: (capability: string) => capability === "EXECUTIVE_MANAGE",
+  }),
+}));
+
 vi.mock("../_components/format", () => ({
   useScpFormat: () => ({
     money: (value: number, currency: string) => `${value} ${currency}`,
@@ -125,17 +131,17 @@ describe("Subscription tenant upgrade entry flow", () => {
     render(<SubscriptionsPage />);
 
     expect(
-      await screen.findByText("scp.subscriptions.noSubscriptionUpgradeTitle"),
+      await screen.findByRole("heading", { name: "scp.tenants.upgrade" }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("scp.subscriptions.targetPlan"), {
+    fireEvent.change(screen.getByLabelText("scp.detail.targetPlan"), {
       target: { value: starterPlan.id },
     });
-    fireEvent.change(screen.getByLabelText("scp.subscriptions.seatQuantity"), {
+    fireEvent.change(screen.getByLabelText("scp.detail.seats"), {
       target: { value: "4" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "scp.subscriptions.startUpgrade" }),
+      screen.getByRole("button", { name: "scp.tenants.upgrade" }),
     );
 
     await waitFor(() => {
