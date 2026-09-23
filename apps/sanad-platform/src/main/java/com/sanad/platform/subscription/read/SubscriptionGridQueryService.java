@@ -14,6 +14,10 @@ import java.util.UUID;
  * Paginated subscription grid read model — one row per subscription with
  * tenant, plan, items, billing and trial columns. Server-side filtering,
  * search, sorting and pagination (replaces the legacy load-everything call).
+ *
+ * <p>{@code monthlyPriceMinor} is retained as a compatibility alias for
+ * {@code monthlyEquivalentMinor}; new consumers must use
+ * {@code recurringAmountMinor} for the actual recurring charge.</p>
  */
 @Service
 public class SubscriptionGridQueryService {
@@ -26,7 +30,6 @@ public class SubscriptionGridQueryService {
             String status, String billingCycle, int seatQuantity,
             UUID planId, String planName, String planCode, String planVersion,
             String currencyCode, Long recurringAmountMinor, Long monthlyEquivalentMinor,
-            /** @deprecated compatibility alias for monthlyEquivalentMinor. */
             Long monthlyPriceMinor, int itemCount,
             boolean trial, boolean cancelAtPeriodEnd, java.time.Instant currentPeriodEnd) {
     }
