@@ -50,9 +50,8 @@ public class HrAttendanceCalculationService {
      */
     @Transactional(readOnly = true)
     public AttendanceSummary calculate(UUID tenantId, UUID employmentId, LocalDate date) {
-        // Get effective schedule for this date
-        ScheduleService.ScheduleAssignmentResponse schedule = null; // delegate to HrScheduleService
-        // (In production, this would call HrScheduleService.getEffectiveSchedule)
+        // Get effective schedule for this date (would be injected in production)
+        HrScheduleService.ScheduleAssignmentResponse schedule = null;
 
         // Get all events for this employment + date
         List<EventRow> events = jdbc.query(
