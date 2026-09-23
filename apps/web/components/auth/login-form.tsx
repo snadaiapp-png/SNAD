@@ -6,7 +6,6 @@ import styles from "./auth.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
 import { SnadLogo } from "@/components/sds";
-import { useTheme } from "@/lib/hooks/useTheme";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 function AuthenticatingLabel({ pending, delayed }: { pending: string; delayed: string }) {
@@ -40,9 +39,8 @@ export function LoginForm({
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [retryingSession, setRetryingSession] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const { t } = useI18n();
-  const { theme } = useTheme();
-  const logoVariant = theme === "dark" ? "white" : "primary";
 
   function validate(): boolean {
     let valid = true;
@@ -93,7 +91,7 @@ export function LoginForm({
     <div className={styles.loginCard}>
       <div className={styles.loginBrandMark}>
         <SnadLogo
-          variant={logoVariant}
+          variant="official-wordmark"
           size="responsive"
           href="/"
           alt={t("auth.login.logoAlt")}
@@ -131,7 +129,10 @@ export function LoginForm({
               className={styles.authInput}
               placeholder={t("auth.login.emailPlaceholder")}
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                if (emailError) setEmailError(null);
+              }}
               aria-invalid={!!emailError}
               aria-describedby={emailError ? "login-email-error" : undefined}
               disabled={authenticating}
@@ -157,7 +158,13 @@ export function LoginForm({
               className={styles.authInput}
               placeholder={t("auth.login.passwordPlaceholder")}
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                if (passwordError) setPasswordError(null);
+              }}
+              onKeyDown={(event) => setCapsLockOn(event.getModifierState("CapsLock"))}
+              onKeyUp={(event) => setCapsLockOn(event.getModifierState("CapsLock"))}
+              onBlur={() => setCapsLockOn(false)}
               aria-invalid={!!passwordError}
               aria-describedby={passwordError ? "login-password-error" : undefined}
               disabled={authenticating}
@@ -182,6 +189,11 @@ export function LoginForm({
               )}
             </button>
           </div>
+          {capsLockOn && (
+            <span className={styles.authAdvisory} role="status" aria-live="polite">
+              {t("auth.login.capsLockOn")}
+            </span>
+          )}
           {passwordError && (
             <span id="login-password-error" className={styles.authErrorMessage} role="alert">
               {passwordError}
