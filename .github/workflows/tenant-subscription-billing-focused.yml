@@ -30,8 +30,15 @@ jobs:
       run:
         working-directory: apps/sanad-platform
     steps:
-      - name: Checkout repository
+      - name: Checkout exact PR head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove checked-out SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git rev-parse HEAD
       - name: Start host-native PostgreSQL
         run: |
           set -euo pipefail
@@ -102,8 +109,15 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - name: Checkout repository
+      - name: Checkout exact PR head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove checked-out SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git rev-parse HEAD
       - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
@@ -115,6 +129,7 @@ jobs:
       - name: Run focused web tests
         run: >-
           npm test -- --run
+          app/executive/_components/executive-commercial-l10n.test.ts
           app/executive/tenants/tenant-management.test.tsx
           app/executive/tenants/tenant-commercial-actions.test.tsx
           app/executive/subscriptions/subscription-recurring-amount.test.tsx
