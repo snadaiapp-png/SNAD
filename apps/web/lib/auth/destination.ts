@@ -22,6 +22,7 @@ function destinationRoot(path: string): string {
   if (exact) return exact;
   if (pathname.startsWith("/crm/")) return "/crm";
   if (pathname.startsWith("/control-plane/")) return "/control-plane";
+  if (pathname.startsWith("/executive/")) return "/executive";
   if (pathname.startsWith("/workspace/")) return "/workspace";
   if (pathname.startsWith("/workflow/")) return "/workflow";
   return pathname;
