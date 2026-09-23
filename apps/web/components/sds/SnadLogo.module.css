@@ -45,8 +45,12 @@
   background: transparent;
   /* Reserve a baseline-aligned box so the logo never pushes neighbours. */
   vertical-align: middle;
-  /* Allow consumer overrides via custom properties to take effect. */
-  container-type: inline-size;
+  /*
+   * Do NOT apply inline-size containment here. SnadLogo is intentionally an
+   * intrinsic-size inline-flex element; size containment makes an auto-width
+   * wrapper ignore its image contribution and can collapse responsive logos
+   * to zero width (observed by the Login v2 Playwright mobile gate).
+   */
 }
 
 .logo > img,
@@ -88,7 +92,8 @@
 
 /*
  * Responsive (header default): height-driven clamp between 28px and 48px.
- * Width auto-computes from the variant's aspect ratio.
+ * Width auto-computes from the variant's aspect ratio. Consumer-supplied
+ * width/height props are inline custom properties and override this preset.
  */
 .size-responsive {
   --snad-logo-height: clamp(28px, 5vw, 48px);
@@ -101,10 +106,9 @@
 
 .image {
   display: block;
-  /* The intrinsic dimensions are written inline by the component; here we
- *  ensure the image never exceeds its container. */
+  /* The intrinsic dimensions are written by the component; here we ensure
+   * the image never exceeds its containing layout box. */
   max-width: 100%;
-  height: auto;
 }
 
 /* ----------------------------------------------------------------------------
@@ -173,7 +177,7 @@
   border-radius: var(--snad-radius-sm);
   padding: var(--snad-space-1);
   /* Match the wrapper's inline-flex behavior so layout is identical whether
- *  the logo is wrapped in a link or not. */
+   * the logo is wrapped in a link or not. */
   margin-inline: calc(var(--snad-space-1) * -1);
 }
 
@@ -183,8 +187,8 @@
 }
 
 /* Honor reduced-motion: the only motion in this component is the focus
- *  outline appearing/disappearing, which is already instant. This block is
- *  here for completeness and to document the intent. */
+ * outline appearing/disappearing, which is already instant. This block is
+ * here for completeness and to document the intent. */
 @media (prefers-reduced-motion: reduce) {
   .link {
     transition: none;
