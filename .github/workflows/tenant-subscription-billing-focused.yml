@@ -8,6 +8,10 @@ on:
       - 'apps/web/**'
       - '.github/workflows/tenant-subscription-billing-focused.yml'
 
+concurrency:
+  group: tenant-subscription-billing-focused-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
