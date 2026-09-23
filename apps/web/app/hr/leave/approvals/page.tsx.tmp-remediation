@@ -1,0 +1,83 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { useAuth } from "@/lib/auth/auth-provider";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { hrG2Api, type G2LeaveRequest } from "@/lib/api/hr-g2-api";
+import { HrWorkspace } from "../../components/hr-workspace";
+import { HrErrorState, HrLoading, hrmErrorMessage } from "../../components/hr-feedback";
+import { HrDataTable, type HrColumn } from "../../components/hr-data-table";
+import { HrStateBadge, toneForState } from "../../components/hr-state-badge";
+import { formatArabicDate } from "../../hr-labels";
+import styles from "../../hr.module.css";
+
+export default function LeaveApprovalsPage() {
+  const { state, me } = useAuth();
+  const { t } = useI18n();
+  const capabilities = me?.capabilities ?? [];
+  const canManagerApprove = capabilities.includes("HRM.LEAVE.TEAM_APPROVE");
+  const canHrApprove = capabilities.includes("HRM.LEAVE.HR_APPROVE");
+  const canView = canManagerApprove || canHrApprove;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+  const [requests, setRequests] = useState<G2LeaveRequest[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const groups = await Promise.all([
+        canManagerApprove ? hrG2Api.listLeaveRequests("PENDING_MANAGER") : Promise.resolve([]),
+        canHrApprove ? hrG2Api.listLeaveRequests("PENDING_HR") : Promise.resolve([]),
+      ]);
+      const deduped = new Map<string, G2LeaveRequest>();
+      groups.flat().forEach((request) => deduped.set(request.id, request));
+      setRequests(Array.from(deduped.values()));
+    } catch (err) { setError(err); }
+    finally { setLoading(false); }
+  }, [canManagerApprove, canHrApprove]);
+
+  useEffect(() => {
+    if (state !== "AUTHENTICATED") return;
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [state, load]);
+
+  async function act(action: "manager-approve" | "manager-reject" | "hr-approve" | "hr-reject", id: string) {
+    setBusy(true);
+    try {
+      if (action === "manager-approve") await hrG2Api.managerApproveLeave(id, "Manager approved (G2 E2E)");
+      if (action === "manager-reject") await hrG2Api.managerRejectLeave(id, "Manager rejected (G2 E2E)");
+      if (action === "hr-approve") await hrG2Api.hrApproveLeave(id, "HR approved (G2 E2E)");
+      if (action === "hr-reject") await hrG2Api.hrRejectLeave(id, "HR rejected (G2 E2E)");
+      setNotice(action === "manager-approve" ? "Manager approved — request escalated to HR" : action === "hr-approve" ? "HR approved — leave request is now APPROVED" : action.includes("manager") ? "Manager rejected" : "HR rejected");
+      await load();
+    } catch (err) { setNotice(hrmErrorMessage(err).message); }
+    finally { setBusy(false); }
+  }
+
+  if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
+  if (!canView) return <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/approvals"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
+
+  const columns: HrColumn<G2LeaveRequest>[] = [
+    { key: "startDate", header: "From", render: (r) => formatArabicDate(r.startDate) },
+    { key: "endDate", header: "To", render: (r) => formatArabicDate(r.endDate) },
+    { key: "daysCount", header: "Days", align: "end" },
+    { key: "reason", header: "Reason", render: (r) => r.reason ?? "—" },
+    { key: "state", header: "State", render: (r) => <HrStateBadge label={r.state} code={r.state} tone={toneForState(r.state)} /> },
+    { key: "actions", header: "Actions", render: (r) => <span className={styles.actionRow}>
+      {r.state === "PENDING_MANAGER" && canManagerApprove ? <><button type="button" className={styles.linkButton} onClick={() => void act("manager-approve", r.id)} disabled={busy} data-testid={`manager-approve-${r.id}`}>Manager Approve</button><button type="button" className={styles.linkButton} onClick={() => void act("manager-reject", r.id)} disabled={busy} data-testid={`manager-reject-${r.id}`}>Manager Reject</button></> : null}
+      {r.state === "PENDING_HR" && canHrApprove ? <><button type="button" className={styles.linkButton} onClick={() => void act("hr-approve", r.id)} disabled={busy} data-testid={`hr-approve-${r.id}`}>HR Approve</button><button type="button" className={styles.linkButton} onClick={() => void act("hr-reject", r.id)} disabled={busy} data-testid={`hr-reject-${r.id}`}>HR Reject</button></> : null}
+    </span> },
+  ];
+
+  return (
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/approvals">
+      <header><h1 data-testid="g2-page-title">Leave Approval Queue</h1></header>
+      {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
+      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <HrDataTable<G2LeaveRequest> caption="Pending Leave Requests" columns={columns} rows={requests} rowKey={(r) => r.id} emptyTitle="No pending leave requests" />}
+    </HrWorkspace>
+  );
+}
