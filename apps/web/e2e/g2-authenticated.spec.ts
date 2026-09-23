@@ -3,6 +3,7 @@
  *
  * MANDATORY for G2 certification. FAILS (not skips) if credentials absent.
  * No swallowed errors. No test.skip. No soft-success fallback.
+ * No if(isVisible) for mandatory business actions.
  */
 
 import { test, expect, type Page } from "@playwright/test";
@@ -33,27 +34,21 @@ test.describe("G2 Employee Journey @desktop", () => {
   test("employee: login → attendance → clock-in → timesheet → leave request", async ({ page }) => {
     await loginAs(page, "employee");
 
-    // Attendance — clock in
+    // Attendance — clock in (MANDATORY action, no if/isVisible)
     await page.goto(`${BASE_URL}/hr/attendance`);
     await expect(page.locator("h1")).toContainText(/Attendance/i);
-    const clockInBtn = page.locator('button:has-text("Clock In")');
-    if (await clockInBtn.isVisible()) {
-      await clockInBtn.click();
-      await expect(page.locator('[role="status"]')).toBeVisible({ timeout: 10000 });
-    }
+    await page.locator('button:has-text("Clock In")').click();
+    await expect(page.locator('[role="status"]')).toBeVisible({ timeout: 10000 });
 
-    // Timesheets
+    // Timesheets — verify page renders
     await page.goto(`${BASE_URL}/hr/timesheets`);
     await expect(page.locator("h1")).toContainText(/Timesheets/i);
 
-    // Leave — create request
+    // Leave — click Request Leave (MANDATORY, no if/isVisible)
     await page.goto(`${BASE_URL}/hr/leave`);
     await expect(page.locator("h1")).toContainText(/Leave/i);
-    const requestBtn = page.locator('button:has-text("Request Leave")');
-    if (await requestBtn.isVisible()) {
-      await requestBtn.click();
-      await expect(page.locator("form")).toBeVisible();
-    }
+    await page.locator('button:has-text("Request Leave")').click();
+    await expect(page.locator("form")).toBeVisible();
   });
 });
 
@@ -92,14 +87,13 @@ test.describe("G2 HR Journey @desktop", () => {
 
 test.describe("G2 Employee Journey @mobile", () => {
   test.use({ viewport: { width: 375, height: 667 } });
-  test("employee mobile: login → attendance page renders and clock-in button is present", async ({ page }) => {
+  test("employee mobile: login → attendance → clock-in button present", async ({ page }) => {
     await loginAs(page, "employee");
     await page.goto(`${BASE_URL}/hr/attendance`);
     await expect(page.locator("h1")).toBeVisible();
-    // Verify the clock-in button exists on mobile (even if already clocked in)
+    // At least one clock action button must be present (Clock In or Clock Out)
     const clockInBtn = page.locator('button:has-text("Clock In")');
     const clockOutBtn = page.locator('button:has-text("Clock Out")');
-    // At least one should be visible
-    expect(await clockInBtn.isVisible() || await clockOutBtn.isVisible()).toBeTruthy();
+    await expect(clockInBtn.or(clockOutBtn)).toBeVisible();
   });
 });
