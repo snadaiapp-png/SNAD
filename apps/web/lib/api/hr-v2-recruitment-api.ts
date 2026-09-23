@@ -155,7 +155,7 @@ async function fetchAllCursorPages<T>(path: string, options?: ReqOptions): Promi
   let cursor: string | null = null;
 
   do {
-    const response = await apiClient.request<CursorPage<T> | T[]>({
+    const response: CursorPage<T> | T[] = await apiClient.request<CursorPage<T> | T[]>({
       method: "GET",
       path,
       query: {
@@ -173,7 +173,7 @@ async function fetchAllCursorPages<T>(path: string, options?: ReqOptions): Promi
     }
 
     rows.push(...(response?.items ?? []));
-    const next = response?.nextCursor ?? null;
+    const next: string | null = response?.nextCursor ?? null;
     if (next && seen.has(next)) {
       throw new Error("HRM cursor pagination returned a repeated cursor");
     }
