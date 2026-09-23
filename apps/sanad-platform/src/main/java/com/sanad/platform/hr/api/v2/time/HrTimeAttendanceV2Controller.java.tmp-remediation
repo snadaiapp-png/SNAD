@@ -1,0 +1,498 @@
+package com.sanad.platform.hr.time.application;
+
+import com.sanad.platform.hr.time.TimeAttendanceCapabilities;
+import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.security.SecurityContextUtils;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/v2/hr")
+@Tag(name = "HRM-G2 Time & Attendance + Leave")
+public class HrTimeAttendanceV2Controller {
+
+    private final HrTimeAttendanceService timeService;
+    private final HrLeaveService leaveService;
+    private final HrScheduleService scheduleService;
+    private final HrTimesheetService timesheetService;
+    private final HrG2AccessScopeService accessScope;
+
+    public HrTimeAttendanceV2Controller(
+            HrTimeAttendanceService timeService,
+            HrLeaveService leaveService,
+            HrScheduleService scheduleService,
+            HrTimesheetService timesheetService,
+            HrG2AccessScopeService accessScope
+    ) {
+        this.timeService = timeService;
+        this.leaveService = leaveService;
+        this.scheduleService = scheduleService;
+        this.timesheetService = timesheetService;
+        this.accessScope = accessScope;
+    }
+
+    // ==================== Schedules ====================
+
+    @GetMapping("/time/schedules")
+    @Operation(operationId = "hrSchedulesList")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW)
+    public ResponseEntity<List<HrScheduleService.ScheduleResponse>> listSchedules(Authentication authentication) {
+        return ResponseEntity.ok(scheduleService.listSchedules(SecurityContextUtils.tenantId(authentication)));
+    }
+
+    @PostMapping("/time/schedules")
+    @Operation(operationId = "hrScheduleCreate")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_ADMIN)
+    public ResponseEntity<CreateIdResponse> createSchedule(
+            Authentication authentication,
+            @Valid @RequestBody HrScheduleService.CreateScheduleRequest request
+    ) {
+        return ResponseEntity.ok(new CreateIdResponse(
+                scheduleService.createSchedule(SecurityContextUtils.tenantId(authentication), request)));
+    }
+
+    @PostMapping("/time/schedules/assign")
+    @Operation(operationId = "hrScheduleAssign")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_ADMIN)
+    public ResponseEntity<CreateIdResponse> assignSchedule(
+            Authentication authentication,
+            @Valid @RequestBody HrScheduleService.AssignScheduleRequest request
+    ) {
+        return ResponseEntity.ok(new CreateIdResponse(
+                scheduleService.assignSchedule(SecurityContextUtils.tenantId(authentication), request)));
+    }
+
+    // ==================== Timesheets ====================
+
+    @GetMapping("/time/timesheets")
+    @Operation(operationId = "hrTimesheetsList")
+    public ResponseEntity<List<HrTimesheetService.TimesheetResponse>> listTimesheets(
+            Authentication authentication,
+            @RequestParam(required = false) UUID employmentId,
+            @RequestParam(required = false) String state
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        if (hasCapability(authentication, TimeAttendanceCapabilities.TIMESHEET_TEAM_APPROVE)) {
+            return ResponseEntity.ok(flatMapTimesheets(
+                    tenantId, restrictRequested(accessScope.directReportEmploymentIds(tenantId, userId), employmentId), state));
+        }
+        if (hasCapability(authentication, TimeAttendanceCapabilities.TIMESHEET_SELF_VIEW)) {
+            UUID self = accessScope.requireSelfEmployment(tenantId, userId, employmentId);
+            return ResponseEntity.ok(timesheetService.listTimesheets(tenantId, self, state));
+        }
+        throw denied("Timesheet read capability is required");
+    }
+
+    @PostMapping("/time/timesheets")
+    @Operation(operationId = "hrTimesheetCreate")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_SELF_SUBMIT)
+    public ResponseEntity<CreateIdResponse> createTimesheet(
+            Authentication authentication,
+            @Valid @RequestBody CreateTimesheetRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID self = accessScope.requireSelfEmployment(
+                tenantId, SecurityContextUtils.userId(authentication), request.employmentId());
+        return ResponseEntity.ok(new CreateIdResponse(
+                timesheetService.createTimesheet(tenantId, self, request.periodStart(), request.periodEnd())));
+    }
+
+    @PostMapping("/time/timesheets/{timesheetId}/submit")
+    @Operation(operationId = "hrTimesheetSubmit")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_SELF_SUBMIT)
+    public ResponseEntity<Void> submitTimesheet(
+            Authentication authentication,
+            @PathVariable UUID timesheetId,
+            @RequestParam(required = false) UUID employmentId
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID self = accessScope.requireSelfEmployment(tenantId, userId, employmentId);
+        accessScope.requireOwnedTimesheet(tenantId, userId, timesheetId);
+        timesheetService.submit(tenantId, timesheetId, self);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/time/timesheets/{timesheetId}/approve")
+    @Operation(operationId = "hrTimesheetApprove")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_TEAM_APPROVE)
+    public ResponseEntity<Void> approveTimesheet(
+            Authentication authentication,
+            @PathVariable UUID timesheetId,
+            @Valid @RequestBody ApproveRejectRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        accessScope.requireDirectReportTimesheet(tenantId, userId, timesheetId);
+        timesheetService.approve(tenantId, timesheetId, userId, request.comment());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/time/timesheets/{timesheetId}/reject")
+    @Operation(operationId = "hrTimesheetReject")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_TEAM_APPROVE)
+    public ResponseEntity<Void> rejectTimesheet(
+            Authentication authentication,
+            @PathVariable UUID timesheetId,
+            @Valid @RequestBody ApproveRejectRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        accessScope.requireDirectReportTimesheet(tenantId, userId, timesheetId);
+        timesheetService.reject(tenantId, timesheetId, userId, request.reason());
+        return ResponseEntity.noContent().build();
+    }
+
+    // ==================== Attendance ====================
+
+    @GetMapping("/time/attendance")
+    @Operation(operationId = "hrAttendanceList")
+    public ResponseEntity<List<HrAttendanceRecordResponse>> listAttendance(
+            Authentication authentication,
+            @RequestParam(required = false) UUID employmentId,
+            @RequestParam(required = false) LocalDate startDate,
+            @RequestParam(required = false) LocalDate endDate
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        if (hasAny(authentication,
+                TimeAttendanceCapabilities.ATTENDANCE_ADMIN,
+                TimeAttendanceCapabilities.ATTENDANCE_CORRECT)) {
+            return ResponseEntity.ok(timeService.listAttendance(tenantId, employmentId, startDate, endDate));
+        }
+        if (hasCapability(authentication, TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW)) {
+            return ResponseEntity.ok(flatMapAttendance(
+                    tenantId, restrictRequested(accessScope.directReportEmploymentIds(tenantId, userId), employmentId),
+                    startDate, endDate));
+        }
+        if (hasCapability(authentication, TimeAttendanceCapabilities.ATTENDANCE_SELF_VIEW)) {
+            UUID self = accessScope.requireSelfEmployment(tenantId, userId, employmentId);
+            return ResponseEntity.ok(timeService.listAttendance(tenantId, self, startDate, endDate));
+        }
+        throw denied("Attendance read capability is required");
+    }
+
+    @PostMapping("/time/attendance/clock-in")
+    @Operation(operationId = "hrAttendanceClockIn")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_SELF_RECORD)
+    public ResponseEntity<HrAttendanceRecordResponse> clockIn(
+            Authentication authentication,
+            @Valid @RequestBody ClockInRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID self = accessScope.requireSelfEmployment(tenantId, userId, request.employmentId());
+        return ResponseEntity.ok(timeService.clockIn(
+                tenantId, userId, new ClockInRequest(self, request.recordDate())));
+    }
+
+    @PostMapping("/time/attendance/{recordId}/clock-out")
+    @Operation(operationId = "hrAttendanceClockOut")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_SELF_RECORD)
+    public ResponseEntity<HrAttendanceRecordResponse> clockOut(
+            Authentication authentication,
+            @PathVariable UUID recordId
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        accessScope.requireOwnedAttendanceRecord(tenantId, userId, recordId);
+        return ResponseEntity.ok(timeService.clockOut(tenantId, userId, recordId));
+    }
+
+    // ==================== Leave ====================
+
+    @GetMapping("/leave/types")
+    @Operation(operationId = "hrLeaveTypesList")
+    public ResponseEntity<List<HrLeaveTypeResponse>> listLeaveTypes(Authentication authentication) {
+        requireAny(authentication,
+                TimeAttendanceCapabilities.LEAVE_SELF_VIEW,
+                TimeAttendanceCapabilities.LEAVE_POLICY_ADMIN);
+        return ResponseEntity.ok(leaveService.listLeaveTypes(SecurityContextUtils.tenantId(authentication)));
+    }
+
+    @GetMapping("/leave/requests")
+    @Operation(operationId = "hrLeaveRequestsList")
+    public ResponseEntity<List<HrLeaveRequestResponse>> listLeaveRequests(
+            Authentication authentication,
+            @RequestParam(required = false) UUID employmentId,
+            @RequestParam(required = false) String state
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        if (hasCapability(authentication, TimeAttendanceCapabilities.LEAVE_HR_APPROVE)) {
+            return ResponseEntity.ok(leaveService.listLeaveRequests(tenantId, employmentId, state));
+        }
+        if (hasCapability(authentication, TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE)) {
+            return ResponseEntity.ok(flatMapLeaveRequests(
+                    tenantId, restrictRequested(accessScope.directReportEmploymentIds(tenantId, userId), employmentId), state));
+        }
+        if (hasCapability(authentication, TimeAttendanceCapabilities.LEAVE_SELF_VIEW)) {
+            UUID self = accessScope.requireSelfEmployment(tenantId, userId, employmentId);
+            return ResponseEntity.ok(leaveService.listLeaveRequests(tenantId, self, state));
+        }
+        throw denied("Leave read capability is required");
+    }
+
+    @PostMapping("/leave/requests")
+    @Operation(operationId = "hrLeaveRequestCreate")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_REQUEST)
+    public ResponseEntity<CreateLeaveRequestResponse> createLeaveRequest(
+            Authentication authentication,
+            @Valid @RequestBody CreateLeaveRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID self = accessScope.requireSelfEmployment(tenantId, userId, request.employmentId());
+        return ResponseEntity.ok(leaveService.createLeaveRequest(
+                tenantId,
+                userId,
+                new CreateLeaveRequest(self, request.leaveTypeId(), request.startDate(), request.endDate(),
+                        request.reason(), request.attachmentUrl())));
+    }
+
+    @PostMapping("/leave/requests/{requestId}/submit")
+    @Operation(operationId = "hrLeaveRequestSubmit")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_REQUEST)
+    public ResponseEntity<Void> submitLeaveRequest(Authentication authentication, @PathVariable UUID requestId) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        accessScope.requireOwnedLeaveRequest(tenantId, userId, requestId);
+        leaveService.submitLeaveRequest(tenantId, requestId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/manager-approve")
+    @Operation(operationId = "hrLeaveRequestManagerApprove")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE)
+    public ResponseEntity<Void> managerApproveLeave(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @Valid @RequestBody ApproveLeaveRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        accessScope.requireDirectReportLeaveRequest(tenantId, userId, requestId);
+        leaveService.managerApprove(tenantId, requestId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/manager-reject")
+    @Operation(operationId = "hrLeaveRequestManagerReject")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE)
+    public ResponseEntity<Void> managerRejectLeave(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @Valid @RequestBody RejectLeaveRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        accessScope.requireDirectReportLeaveRequest(tenantId, userId, requestId);
+        leaveService.managerReject(tenantId, requestId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/hr-approve")
+    @Operation(operationId = "hrLeaveRequestHrApprove")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_HR_APPROVE)
+    public ResponseEntity<Void> hrApproveLeave(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @Valid @RequestBody ApproveLeaveRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        leaveService.hrApprove(tenantId, requestId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/hr-reject")
+    @Operation(operationId = "hrLeaveRequestHrReject")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_HR_APPROVE)
+    public ResponseEntity<Void> hrRejectLeave(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @Valid @RequestBody RejectLeaveRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        leaveService.hrReject(tenantId, requestId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/withdraw")
+    @Operation(operationId = "hrLeaveRequestWithdraw")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_REQUEST)
+    public ResponseEntity<Void> withdrawLeaveRequest(Authentication authentication, @PathVariable UUID requestId) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        accessScope.requireOwnedLeaveRequest(tenantId, userId, requestId);
+        leaveService.withdraw(tenantId, requestId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/cancel")
+    @Operation(operationId = "hrLeaveRequestCancel")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_HR_APPROVE)
+    public ResponseEntity<Void> cancelLeaveRequest(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @RequestParam String reason
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        leaveService.cancel(tenantId, requestId, userId, reason);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/leave/balances")
+    @Operation(operationId = "hrLeaveBalancesList")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_VIEW)
+    public ResponseEntity<List<HrLeaveBalanceResponse>> listLeaveBalances(
+            Authentication authentication,
+            @RequestParam(required = false) UUID employmentId,
+            @RequestParam(required = false) Integer year
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID self = accessScope.requireSelfEmployment(
+                tenantId, SecurityContextUtils.userId(authentication), employmentId);
+        int y = year != null ? year : LocalDate.now().getYear();
+        return ResponseEntity.ok(leaveService.listLeaveBalances(tenantId, self, y));
+    }
+
+    @GetMapping("/time/attendance/monthly-report")
+    @Operation(operationId = "hrAttendanceMonthlyReport")
+    public ResponseEntity<List<MonthlyAttendanceReportRow>> monthlyAttendanceReport(
+            Authentication authentication,
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(required = false) UUID employmentId
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        if (hasAny(authentication,
+                TimeAttendanceCapabilities.ATTENDANCE_ADMIN,
+                TimeAttendanceCapabilities.ATTENDANCE_CORRECT)) {
+            return ResponseEntity.ok(timeService.monthlyAttendanceReport(tenantId, year, month, employmentId));
+        }
+        if (hasCapability(authentication, TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW)) {
+            List<MonthlyAttendanceReportRow> rows = new ArrayList<>();
+            for (UUID reportId : restrictRequested(accessScope.directReportEmploymentIds(tenantId, userId), employmentId)) {
+                rows.addAll(timeService.monthlyAttendanceReport(tenantId, year, month, reportId));
+            }
+            return ResponseEntity.ok(rows);
+        }
+        throw denied("Attendance report capability is required");
+    }
+
+    private List<HrAttendanceRecordResponse> flatMapAttendance(
+            UUID tenantId, List<UUID> employmentIds, LocalDate startDate, LocalDate endDate) {
+        List<HrAttendanceRecordResponse> rows = new ArrayList<>();
+        for (UUID id : employmentIds) rows.addAll(timeService.listAttendance(tenantId, id, startDate, endDate));
+        return rows;
+    }
+
+    private List<HrTimesheetService.TimesheetResponse> flatMapTimesheets(
+            UUID tenantId, List<UUID> employmentIds, String state) {
+        List<HrTimesheetService.TimesheetResponse> rows = new ArrayList<>();
+        for (UUID id : employmentIds) rows.addAll(timesheetService.listTimesheets(tenantId, id, state));
+        return rows;
+    }
+
+    private List<HrLeaveRequestResponse> flatMapLeaveRequests(
+            UUID tenantId, List<UUID> employmentIds, String state) {
+        Map<UUID, HrLeaveRequestResponse> deduped = new LinkedHashMap<>();
+        for (UUID id : employmentIds) {
+            for (HrLeaveRequestResponse row : leaveService.listLeaveRequests(tenantId, id, state)) {
+                deduped.put(row.id(), row);
+            }
+        }
+        return List.copyOf(deduped.values());
+    }
+
+    private List<UUID> restrictRequested(List<UUID> allowed, UUID requested) {
+        if (requested == null) return allowed;
+        if (!allowed.contains(requested)) throw denied("Requested employee is outside TEAM scope");
+        return List.of(requested);
+    }
+
+    private void requireAny(Authentication authentication, String... capabilities) {
+        if (!hasAny(authentication, capabilities)) throw denied("Required HR capability is missing");
+    }
+
+    private boolean hasAny(Authentication authentication, String... capabilities) {
+        for (String capability : capabilities) if (hasCapability(authentication, capability)) return true;
+        return false;
+    }
+
+    private boolean hasCapability(Authentication authentication, String capability) {
+        if (authentication == null || !authentication.isAuthenticated()) return false;
+        String prefixed = "CAPABILITY_" + capability;
+        return authentication.getAuthorities().stream().anyMatch(authority ->
+                capability.equalsIgnoreCase(authority.getAuthority())
+                        || prefixed.equalsIgnoreCase(authority.getAuthority()));
+    }
+
+    private AccessDeniedException denied(String message) {
+        return new AccessDeniedException(message);
+    }
+
+    public record ClockInRequest(UUID employmentId, LocalDate recordDate) {}
+    public record CreateLeaveRequest(UUID employmentId, UUID leaveTypeId, LocalDate startDate, LocalDate endDate, String reason, String attachmentUrl) {}
+    public record ApproveLeaveRequest(String comment) {}
+    public record RejectLeaveRequest(String reason) {}
+    public record CreateLeaveRequestResponse(UUID requestId) {}
+
+    public record HrAttendanceRecordResponse(
+            UUID id, UUID employmentId, LocalDate recordDate,
+            java.time.Instant clockIn, java.time.Instant clockOut,
+            Integer breakMinutes, Integer workedMinutes, String source, String state
+    ) {}
+
+    public record HrLeaveTypeResponse(
+            UUID id, String code, String nameAr, String nameEn,
+            Boolean isPaid, Boolean requiresAttachment, Integer defaultDaysPerYear, String state
+    ) {}
+
+    public record HrLeaveRequestResponse(
+            UUID id, UUID employmentId, UUID leaveTypeId,
+            LocalDate startDate, LocalDate endDate, java.math.BigDecimal daysCount,
+            String reason, String state, java.time.Instant submittedAt,
+            java.time.Instant approvedAt, String approverComment
+    ) {}
+
+    public record HrLeaveBalanceResponse(
+            UUID id, UUID employmentId, UUID leaveTypeId, Integer year,
+            java.math.BigDecimal entitledDays, java.math.BigDecimal usedDays,
+            java.math.BigDecimal pendingDays, java.math.BigDecimal carriedOverDays
+    ) {}
+
+    public record MonthlyAttendanceReportRow(
+            UUID employmentId,
+            Integer scheduledDays,
+            Integer scheduledMinutes,
+            Integer workedMinutes,
+            Integer absentDays,
+            Integer leaveDays,
+            Integer lateOccurrences,
+            Integer earlyDepartures,
+            Integer missingPunches,
+            String attendanceStatus
+    ) {}
+
+    public record CreateIdResponse(UUID id) {}
+    public record CreateTimesheetRequest(UUID employmentId, LocalDate periodStart, LocalDate periodEnd) {}
+    public record ApproveRejectRequest(String comment, String reason) {}
+}
