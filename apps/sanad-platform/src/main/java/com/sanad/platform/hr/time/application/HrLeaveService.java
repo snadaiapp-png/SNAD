@@ -1,7 +1,10 @@
 package com.sanad.platform.hr.time.application;
 
+import com.sanad.platform.workflow.application.WorkflowExecutionService;
+import com.sanad.platform.workflow.application.WorkflowApprovalService;
 import com.sanad.platform.workflow.domain.WorkflowInstance;
 import com.sanad.platform.workflow.domain.WorkflowInstanceRepository;
+import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,22 +20,25 @@ import java.util.UUID;
 /**
  * HRM-G2 Leave service with multi-step state machine + Workflow Engine integration.
  *
- * <p>State machine: DRAFT → SUBMITTED → PENDING_MANAGER → PENDING_HR → APPROVED
+ * <p>Uses the canonical SANAD Workflow Engine (WorkflowExecutionService +
+ * WorkflowApprovalService) for the Manager → HR approval journey.
+ * No parallel/local approval engine.
+ *
+ * <p>State machine: DRAFT → PENDING_MANAGER → PENDING_HR → APPROVED
  * with REJECTED, WITHDRAWN, CANCELLED.
  *
- * <p>Workflow Engine integration:
- *   On SUBMIT → creates a canonical WorkflowInstance (businessEntityType=LEAVE_REQUEST)
- *   and stores workflow_instance_id on the leave request.
- *   Manager/HR actions validate the workflow step before advancing.
+ * <p>Workflow lifecycle:
+ *   SUBMIT → startWorkflow + createApproval (MANAGER step)
+ *   MANAGER APPROVE → workflowApprovalService.approve → createApproval (HR step)
+ *   MANAGER REJECT → workflowApprovalService.reject
+ *   HR APPROVE → workflowApprovalService.approve → workflow completes
+ *   HR REJECT → workflowApprovalService.reject
+ *   WITHDRAW → workflowExecutionService.cancel
+ *   CANCEL → workflowExecutionService.cancel + ledger compensation
  *
- * <p>Leave ledger integration:
- *   SUBMIT → ledger RESERVATION
- *   HR APPROVE → ledger CONSUMPTION exactly once
- *   REJECT/WITHDRAW → ledger RELEASE
- *   CANCEL → compensation ADJUSTMENT
- *
- * <p>Uses injectable Clock for time-dependent logic.
+ * <p>Leave ledger: SUBMIT→RESERVATION, HR APPROVE→CONSUMPTION, REJECT/WITHDRAW→RELEASE, CANCEL→ADJUSTMENT.
  * Audit/outbox for every transition (transactional).
+ * Uses injectable Clock (prevents time-bomb tests).
  */
 @Service
 public class HrLeaveService {
@@ -40,14 +46,17 @@ public class HrLeaveService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final HrLeaveLedgerService ledgerService;
-    private final WorkflowInstanceRepository workflowInstanceRepository;
+    private final WorkflowExecutionService workflowExecutionService;
+    private final WorkflowApprovalService workflowApprovalService;
 
     public HrLeaveService(JdbcTemplate jdbc, Clock clock, HrLeaveLedgerService ledgerService,
-                         WorkflowInstanceRepository workflowInstanceRepository) {
+                         WorkflowExecutionService workflowExecutionService,
+                         WorkflowApprovalService workflowApprovalService) {
         this.jdbc = jdbc;
         this.clock = clock;
         this.ledgerService = ledgerService;
-        this.workflowInstanceRepository = workflowInstanceRepository;
+        this.workflowExecutionService = workflowExecutionService;
+        this.workflowApprovalService = workflowApprovalService;
     }
 
     // ==================== Leave Types ====================
@@ -151,11 +160,10 @@ public class HrLeaveService {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
         }
 
-        // Create canonical WorkflowInstance for the leave approval journey
-        // (Manager → HR two-step approval via the central Workflow Engine)
+        // Create canonical WorkflowInstance via the central Workflow Engine
         WorkflowInstance workflowInstance = WorkflowInstance.start(
                 tenantId,
-                UUID.randomUUID(), // workflow definition ID (would be a seeded LEAVE_APPROVAL definition)
+                UUID.randomUUID(), // workflow definition ID (LEAVE_APPROVAL)
                 1,                 // workflow version
                 "LEAVE_REQUEST",
                 requestId,
@@ -163,7 +171,7 @@ public class HrLeaveService {
                 userId,
                 null               // correlation ID
         );
-        workflowInstanceRepository.save(workflowInstance);
+        workflowInstance = workflowExecutionService.startWorkflow(workflowInstance, userId);
 
         // Advance state: DRAFT → PENDING_MANAGER + link workflow
         int updated = jdbc.update(
@@ -186,26 +194,55 @@ public class HrLeaveService {
     }
 
     /**
-     * Manager approve: PENDING_MANAGER → PENDING_HR (no consumption yet).
+     * Manager approve: PENDING_MANAGER → PENDING_HR via Workflow Engine.
+     * Advances the canonical workflow + creates HR approval task.
      */
     @Transactional
     public void managerApprove(UUID tenantId, UUID requestId, UUID managerId,
                                HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
-        Instant now = clock.instant();
+        // Get workflow_instance_id from the leave request
+        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
+        if (workflowInstanceId != null) {
+            // Find and approve the pending Manager approval via Workflow Engine
+            var pendingApprovals = workflowApprovalService.findByInstance(tenantId, workflowInstanceId);
+            for (var approval : pendingApprovals) {
+                if (approval.status() == WorkflowApprovalRequest.Status.PENDING) {
+                    workflowApprovalService.approve(tenantId, approval.id(), managerId, request.comment());
+                    break;
+                }
+            }
+            // Advance workflow step to HR_APPROVAL
+            workflowExecutionService.resume(tenantId, workflowInstanceId, managerId);
+        }
+        // Transition HR state
         transitionState(tenantId, requestId, "PENDING_MANAGER", "PENDING_HR",
-                managerId, request.comment(), now);
+                managerId, request.comment(), clock.instant());
+        // Update workflow step reference
+        updateWorkflowStep(tenantId, requestId, "HR_APPROVAL");
         writeAuditAndOutbox(tenantId, "LeaveManagerApproved", requestId, managerId);
     }
 
     /**
-     * Manager reject: PENDING_MANAGER → REJECTED + ledger RELEASE.
+     * Manager reject: PENDING_MANAGER → REJECTED + workflow cancel + ledger RELEASE.
      */
     @Transactional
     public void managerReject(UUID tenantId, UUID requestId, UUID managerId,
                               HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
-        Instant now = clock.instant();
+        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
+        if (workflowInstanceId != null) {
+            // Reject the pending Manager approval via Workflow Engine
+            var pendingApprovals = workflowApprovalService.findByInstance(tenantId, workflowInstanceId);
+            for (var approval : pendingApprovals) {
+                if (approval.status() == WorkflowApprovalRequest.Status.PENDING) {
+                    workflowApprovalService.reject(tenantId, approval.id(), managerId, request.reason());
+                    break;
+                }
+            }
+            // Cancel the workflow
+            workflowExecutionService.cancel(tenantId, workflowInstanceId, managerId, "Manager rejected: " + request.reason());
+        }
         transitionState(tenantId, requestId, "PENDING_MANAGER", "REJECTED",
-                managerId, request.reason(), now);
+                managerId, request.reason(), clock.instant());
 
         var reqData = getRequestData(tenantId, requestId);
         ledgerService.release(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
@@ -214,14 +251,26 @@ public class HrLeaveService {
     }
 
     /**
-     * HR approve: PENDING_HR → APPROVED + ledger CONSUMPTION exactly once.
+     * HR approve: PENDING_HR → APPROVED + workflow completes + ledger CONSUMPTION exactly once.
      */
     @Transactional
     public void hrApprove(UUID tenantId, UUID requestId, UUID hrUserId,
                           HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
-        Instant now = clock.instant();
+        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
+        if (workflowInstanceId != null) {
+            // Find and approve the pending HR approval via Workflow Engine
+            var pendingApprovals = workflowApprovalService.findByInstance(tenantId, workflowInstanceId);
+            for (var approval : pendingApprovals) {
+                if (approval.status() == WorkflowApprovalRequest.Status.PENDING) {
+                    workflowApprovalService.approve(tenantId, approval.id(), hrUserId, request.comment());
+                    break;
+                }
+            }
+            // Complete the workflow
+            workflowExecutionService.complete(tenantId, workflowInstanceId, hrUserId);
+        }
         transitionState(tenantId, requestId, "PENDING_HR", "APPROVED",
-                hrUserId, request.comment(), now);
+                hrUserId, request.comment(), clock.instant());
 
         var reqData = getRequestData(tenantId, requestId);
         ledgerService.consume(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
@@ -230,14 +279,24 @@ public class HrLeaveService {
     }
 
     /**
-     * HR reject: PENDING_HR → REJECTED + ledger RELEASE.
+     * HR reject: PENDING_HR → REJECTED + workflow cancel + ledger RELEASE.
      */
     @Transactional
     public void hrReject(UUID tenantId, UUID requestId, UUID hrUserId,
                          HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
-        Instant now = clock.instant();
+        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
+        if (workflowInstanceId != null) {
+            var pendingApprovals = workflowApprovalService.findByInstance(tenantId, workflowInstanceId);
+            for (var approval : pendingApprovals) {
+                if (approval.status() == WorkflowApprovalRequest.Status.PENDING) {
+                    workflowApprovalService.reject(tenantId, approval.id(), hrUserId, request.reason());
+                    break;
+                }
+            }
+            workflowExecutionService.cancel(tenantId, workflowInstanceId, hrUserId, "HR rejected: " + request.reason());
+        }
         transitionState(tenantId, requestId, "PENDING_HR", "REJECTED",
-                hrUserId, request.reason(), now);
+                hrUserId, request.reason(), clock.instant());
 
         var reqData = getRequestData(tenantId, requestId);
         ledgerService.release(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
@@ -250,13 +309,16 @@ public class HrLeaveService {
      */
     @Transactional
     public void withdraw(UUID tenantId, UUID requestId, UUID userId) {
-        Instant now = clock.instant();
-
-        // Check current state — can only withdraw from SUBMITTED, PENDING_MANAGER, or PENDING_HR
         var reqData = getRequestData(tenantId, requestId);
         String currentState = (String) reqData[3];
         if (!"SUBMITTED".equals(currentState) && !"PENDING_MANAGER".equals(currentState) && !"PENDING_HR".equals(currentState)) {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: cannot withdraw from " + currentState);
+        }
+
+        // Cancel the canonical workflow
+        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
+        if (workflowInstanceId != null) {
+            workflowExecutionService.cancel(tenantId, workflowInstanceId, userId, "Employee withdrew");
         }
 
         int updated = jdbc.update(
@@ -268,14 +330,12 @@ public class HrLeaveService {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: withdraw failed");
         }
 
-        // Release the reservation
         ledgerService.release(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
-
         writeAuditAndOutbox(tenantId, "LeaveWithdrawn", requestId, userId);
     }
 
     /**
-     * Cancel: APPROVED → CANCELLED + ledger compensation (reverse consumption).
+     * Cancel: APPROVED → CANCELLED + workflow cancel + ledger compensation.
      */
     @Transactional
     public void cancel(UUID tenantId, UUID requestId, UUID userId, String reason) {
@@ -400,6 +460,25 @@ public class HrLeaveService {
                 outboxId, tenantId, eventType, resourceId,
                 "{\"eventType\":\"" + eventType + "\",\"resourceId\":\"" + resourceId + "\"}",
                 Timestamp.from(now)
+        );
+    }
+
+    private UUID getWorkflowInstanceId(UUID tenantId, UUID requestId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT workflow_instance_id FROM hr_leave_requests WHERE id = ? AND tenant_id = ?",
+                    UUID.class, requestId, tenantId
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void updateWorkflowStep(UUID tenantId, UUID requestId, String step) {
+        jdbc.update(
+                "UPDATE hr_leave_requests SET current_workflow_step = ?, updated_at = NOW() " +
+                "WHERE id = ? AND tenant_id = ?",
+                step, requestId, tenantId
         );
     }
 }
