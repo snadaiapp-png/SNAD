@@ -1,0 +1,511 @@
+-- ============================================================
+-- SNAD Platform — G2 Authenticated Acceptance Seed
+-- ------------------------------------------------------------
+-- Idempotent seed data for the G2 authenticated acceptance
+-- workflow (.github/workflows/g2-authenticated-acceptance.yml).
+--
+-- Run order:
+--   1. Flyway migrations (V1 ... V20260924_4) — schema + base
+--      capability catalog + G2 leave types + G2 RBAC capabilities
+--      (HRM.LEAVE.TEAM_APPROVE, HRM.LEAVE.HR_APPROVE, etc.)
+--   2. This file (g2-acceptance-seed.sql) — G2 test tenant, plan,
+--      subscription (with WORKFLOW module entitlement), 3 users
+--      (Employee, Manager, HR), HR employees with Employee→Manager
+--      reporting line, RBAC roles with G2 capabilities, and
+--      role assignments.
+--
+-- Tenant created:
+--   • G2 Tenant — "G2 Acceptance Tenant" — subdomain g2-acceptance
+--     ID: 33333333-3333-4333-8333-333333333331
+--
+-- Users created (3 total, all with password "TestPass123!"):
+--   • g2-employee@g2-acceptance.example  — Employee (self-attendance + leave request)
+--   • g2-manager@g2-acceptance.example  — Manager (team leave approval)
+--   • g2-hr@g2-acceptance.example       — HR (final HR leave approval + admin)
+--
+-- Reporting line:
+--   Employee.manager_id  →  Manager.employee_id
+--
+-- Capabilities per role:
+--   G2_EMPLOYEE: HRM.ATTENDANCE.SELF_RECORD, HRM.ATTENDANCE.SELF_VIEW,
+--                HRM.LEAVE.SELF_REQUEST, HRM.LEAVE.SELF_VIEW,
+--                HRM.TIMESHEET.SELF_VIEW, HRM.TIMESHEET.SELF_SUBMIT
+--   G2_MANAGER:  HRM.ATTENDANCE.TEAM_VIEW, HRM.LEAVE.TEAM_APPROVE,
+--                HRM.TIMESHEET.TEAM_APPROVE
+--   G2_HR:       HRM.LEAVE.HR_APPROVE, HRM.LEAVE.POLICY_ADMIN,
+--                HRM.ATTENDANCE.ADMIN, HRM.ATTENDANCE.CORRECT
+--
+-- The seed is safe to re-run: every INSERT uses ON CONFLICT DO NOTHING
+-- or WHERE NOT EXISTS guards.
+--
+-- Security notes:
+--   - Uses crypt() + gen_salt('bf', 10) for bcrypt hashing (pgcrypto).
+--   - Tenant context is set via set_config('app.tenant_id', ...) for
+--     RLS-protected INSERTs (FORCE RLS is live on hr_employees,
+--     hr_leave_types, hr_leave_balances, hr_leave_requests).
+--   - No BYPASSRLS, no superuser.
+-- ============================================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- ----------------------------------------------------------------------------
+-- 1. Tenant
+-- ----------------------------------------------------------------------------
+INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333331',
+    'G2 Acceptance Tenant',
+    'g2-acceptance',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- 2. Plan + plan_version + tenant_subscription (with WORKFLOW module enabled)
+-- ----------------------------------------------------------------------------
+-- Mirrors subscription-acceptance-seed.sql pattern so EntitlementResolver
+-- resolves an ACTIVE subscription for this tenant, and plan_module_entitlements
+-- has WORKFLOW module_enabled=true so WorkflowEntitlementGuard passes.
+
+INSERT INTO saas_plans (
+    id, code, name, status, currency_code,
+    monthly_price_minor, annual_price_minor, trial_days,
+    max_users, max_organizations, storage_mb,
+    created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333332',
+    'G2-ACCEPTANCE-PLAN',
+    'G2 Acceptance Plan',
+    'ACTIVE',
+    'SAR',
+    30000,
+    300000,
+    0,
+    10,
+    5,
+    1024,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO plan_versions (
+    id, plan_id, version_number, status,
+    effective_from, currency_code, monthly_price_minor,
+    annual_price_minor, trial_days, max_users,
+    max_organizations, storage_mb, created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333333',
+    '33333333-3333-4333-8333-333333333332',
+    1,
+    'ACTIVE',
+    NOW() - INTERVAL '1 day',
+    'SAR',
+    30000,
+    300000,
+    0,
+    10,
+    5,
+    1024,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO tenant_subscriptions (
+    id, tenant_id, plan_id, plan_version_id, status,
+    billing_cycle, seat_quantity, credit_balance_minor,
+    started_at, current_period_start, current_period_end,
+    cancel_at_period_end, created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333334',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333332',
+    '33333333-3333-4333-8333-333333333333',
+    'ACTIVE',
+    'MONTHLY',
+    3,
+    0,
+    NOW() - INTERVAL '1 day',
+    NOW() - INTERVAL '1 day',
+    NOW() + INTERVAL '29 days',
+    FALSE,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Enable WORKFLOW module for this plan (so WorkflowEntitlementGuard passes
+-- when HrLeaveWorkflowAdapter.startLeaveApproval calls requireWorkflowEnabled).
+INSERT INTO plan_module_entitlements (
+    id, plan_id, module_id, module_enabled,
+    capability_code, capability_value, limit_value, quota_value, quota_period,
+    effective_at, created_at, updated_at
+)
+SELECT
+    gen_random_uuid(),
+    '33333333-3333-4333-8333-333333333332',
+    m.id,
+    true,
+    'WORKFLOW.ENABLED',
+    'true',
+    NULL,
+    NULL,
+    NULL,
+    NOW(),
+    NOW(),
+    NOW()
+FROM modules m
+WHERE m.code = 'WORKFLOW'
+  AND NOT EXISTS (
+      SELECT 1 FROM plan_module_entitlements pme
+      WHERE pme.plan_id = '33333333-3333-4333-8333-333333333332'
+        AND pme.module_id = m.id
+        AND pme.capability_code = 'WORKFLOW.ENABLED'
+  );
+
+-- Also enable HRM module if it exists (for any HRM entitlement checks).
+INSERT INTO plan_module_entitlements (
+    id, plan_id, module_id, module_enabled,
+    capability_code, capability_value, limit_value, quota_value, quota_period,
+    effective_at, created_at, updated_at
+)
+SELECT
+    gen_random_uuid(),
+    '33333333-3333-4333-8333-333333333332',
+    m.id,
+    true,
+    'HRM.ENABLED',
+    'true',
+    NULL,
+    NULL,
+    NULL,
+    NOW(),
+    NOW(),
+    NOW()
+FROM modules m
+WHERE m.code = 'HRM'
+  AND NOT EXISTS (
+      SELECT 1 FROM plan_module_entitlements pme
+      WHERE pme.plan_id = '33333333-3333-4333-8333-333333333332'
+        AND pme.module_id = m.id
+        AND pme.capability_code = 'HRM.ENABLED'
+  );
+
+-- ----------------------------------------------------------------------------
+-- 3. Organization (required for user_role_assignments FK)
+-- ----------------------------------------------------------------------------
+INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333335',
+    '33333333-3333-4333-8333-333333333331',
+    'G2 Acceptance Org',
+    'G2 acceptance testing organization',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- 4. Users (3 total, bcrypt-hashed password "TestPass123!")
+-- ----------------------------------------------------------------------------
+-- crypt('TestPass123!', gen_salt('bf', 10)) yields a $2a$10$... hash that is
+-- compatible with Spring Security's BCryptPasswordEncoder.matches().
+
+INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333341',
+    '33333333-3333-4333-8333-333333333331',
+    'g2-employee@g2-acceptance.example',
+    'G2 Employee',
+    'ACTIVE',
+    crypt('TestPass123!', gen_salt('bf', 10)),
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333342',
+    '33333333-3333-4333-8333-333333333331',
+    'g2-manager@g2-acceptance.example',
+    'G2 Manager',
+    'ACTIVE',
+    crypt('TestPass123!', gen_salt('bf', 10)),
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333343',
+    '33333333-3333-4333-8333-333333333331',
+    'g2-hr@g2-acceptance.example',
+    'G2 HR',
+    'ACTIVE',
+    crypt('TestPass123!', gen_salt('bf', 10)),
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- 5. Organization memberships (links users to organization)
+-- ----------------------------------------------------------------------------
+INSERT INTO organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, status, created_at, updated_at)
+VALUES
+    ('33333333-3333-4333-8333-333333333351', '33333333-3333-4333-8333-333333333331', '33333333-3333-4333-8333-333333333335', '33333333-3333-4333-8333-333333333341', 'g2-employee@g2-acceptance.example', 'G2 Employee',  'ACTIVE', NOW(), NOW()),
+    ('33333333-3333-4333-8333-333333333352', '33333333-3333-4333-8333-333333333331', '33333333-3333-4333-8333-333333333335', '33333333-3333-4333-8333-333333333342', 'g2-manager@g2-acceptance.example',  'G2 Manager', 'ACTIVE', NOW(), NOW()),
+    ('33333333-3333-4333-8333-333333333353', '33333333-3333-4333-8333-333333333331', '33333333-3333-4333-8333-333333333335', '33333333-3333-4333-8333-333333333343', 'g2-hr@g2-acceptance.example',         'G2 HR',      'ACTIVE', NOW(), NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- 6. HR employees (with Employee.reporting_to = Manager)
+-- ----------------------------------------------------------------------------
+-- Set tenant context for RLS-protected INSERTs on hr_employees.
+SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
+
+-- Manager employee (no manager_id; top of reporting line for this test)
+INSERT INTO hr_employees (
+    id, tenant_id, user_id, employee_number, first_name, last_name, display_name,
+    email, employment_type, status, hire_date, created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333362',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333342',
+    'G2-MGR-001',
+    'G2',
+    'Manager',
+    'G2 Manager',
+    'g2-manager@g2-acceptance.example',
+    'FULL_TIME',
+    'ACTIVE',
+    CURRENT_DATE,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Employee (manager_id points to Manager)
+INSERT INTO hr_employees (
+    id, tenant_id, user_id, employee_number, first_name, last_name, display_name,
+    email, manager_id, employment_type, status, hire_date, created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333361',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333341',
+    'G2-EMP-001',
+    'G2',
+    'Employee',
+    'G2 Employee',
+    'g2-employee@g2-acceptance.example',
+    '33333333-3333-4333-8333-333333333362',
+    'FULL_TIME',
+    'ACTIVE',
+    CURRENT_DATE,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- HR employee (no manager_id for this test; HR is admin-level)
+INSERT INTO hr_employees (
+    id, tenant_id, user_id, employee_number, first_name, last_name, display_name,
+    email, employment_type, status, hire_date, created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333363',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333343',
+    'G2-HR-001',
+    'G2',
+    'HR',
+    'G2 HR',
+    'g2-hr@g2-acceptance.example',
+    'FULL_TIME',
+    'ACTIVE',
+    CURRENT_DATE,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- 7. Roles + role_capabilities + user_role_assignments
+-- ----------------------------------------------------------------------------
+-- G2_EMPLOYEE role — self-service capabilities
+INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333371',
+    '33333333-3333-4333-8333-333333333331',
+    'G2_EMPLOYEE',
+    'G2 Employee',
+    'Self-service attendance + leave + timesheet submission',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+SELECT gen_random_uuid(), '33333333-3333-4333-8333-333333333331', '33333333-3333-4333-8333-333333333371', cap.id, NOW()
+FROM access_capabilities cap
+WHERE cap.code IN (
+    'HRM.ATTENDANCE.SELF_RECORD', 'HRM.ATTENDANCE.SELF_VIEW',
+    'HRM.LEAVE.SELF_REQUEST', 'HRM.LEAVE.SELF_VIEW',
+    'HRM.TIMESHEET.SELF_VIEW', 'HRM.TIMESHEET.SELF_SUBMIT'
+)
+AND NOT EXISTS (
+    SELECT 1 FROM role_capabilities rc
+    WHERE rc.tenant_id = '33333333-3333-4333-8333-333333333331'
+      AND rc.role_id = '33333333-3333-4333-8333-333333333371'
+      AND rc.capability_id = cap.id
+);
+
+-- G2_MANAGER role — team approval capabilities
+INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333372',
+    '33333333-3333-4333-8333-333333333331',
+    'G2_MANAGER',
+    'G2 Manager',
+    'Team attendance view + team leave/timesheet approval',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+SELECT gen_random_uuid(), '33333333-3333-4333-8333-333333333331', '33333333-3333-4333-8333-333333333372', cap.id, NOW()
+FROM access_capabilities cap
+WHERE cap.code IN (
+    'HRM.ATTENDANCE.TEAM_VIEW',
+    'HRM.LEAVE.TEAM_APPROVE',
+    'HRM.TIMESHEET.TEAM_APPROVE'
+)
+AND NOT EXISTS (
+    SELECT 1 FROM role_capabilities rc
+    WHERE rc.tenant_id = '33333333-3333-4333-8333-333333333331'
+      AND rc.role_id = '33333333-3333-4333-8333-333333333372'
+      AND rc.capability_id = cap.id
+);
+
+-- G2_HR role — HR admin capabilities (also includes manager capabilities for testing)
+INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333373',
+    '33333333-3333-4333-8333-333333333331',
+    'G2_HR',
+    'G2 HR',
+    'HR-level approval + admin + policy management',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+SELECT gen_random_uuid(), '33333333-3333-4333-8333-333333333331', '33333333-3333-4333-8333-333333333373', cap.id, NOW()
+FROM access_capabilities cap
+WHERE cap.code IN (
+    'HRM.LEAVE.HR_APPROVE',
+    'HRM.LEAVE.POLICY_ADMIN',
+    'HRM.ATTENDANCE.ADMIN',
+    'HRM.ATTENDANCE.CORRECT',
+    'HRM.LEAVE.TEAM_APPROVE',
+    'HRM.ATTENDANCE.TEAM_VIEW'
+)
+AND NOT EXISTS (
+    SELECT 1 FROM role_capabilities rc
+    WHERE rc.tenant_id = '33333333-3333-4333-8333-333333333331'
+      AND rc.role_id = '33333333-3333-4333-8333-333333333373'
+      AND rc.capability_id = cap.id
+);
+
+-- user_role_assignments — link users to roles
+INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333381',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333341',
+    '33333333-3333-4333-8333-333333333371',
+    '33333333-3333-4333-8333-333333333335',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333382',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333342',
+    '33333333-3333-4333-8333-333333333372',
+    '33333333-3333-4333-8333-333333333335',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+VALUES (
+    '33333333-3333-4333-8333-333333333383',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333343',
+    '33333333-3333-4333-8333-333333333373',
+    '33333333-3333-4333-8333-333333333335',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- 8. Leave balances for the Employee (so HR approval's ledger CONSUMPTION
+--    doesn't drop the balance below zero)
+-- ----------------------------------------------------------------------------
+INSERT INTO hr_leave_balances (
+    id, tenant_id, employment_id, leave_type_id, year, entitled, used, pending, carried, created_at, updated_at
+)
+SELECT
+    gen_random_uuid(),
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333361',
+    lt.id,
+    EXTRACT(YEAR FROM CURRENT_DATE)::int,
+    30.00,
+    0.00,
+    0.00,
+    0.00,
+    NOW(),
+    NOW()
+FROM hr_leave_types lt
+WHERE lt.tenant_id = '33333333-3333-4333-8333-333333333331'
+  AND lt.code = 'ANNUAL'
+  AND NOT EXISTS (
+      SELECT 1 FROM hr_leave_balances lb
+      WHERE lb.tenant_id = '33333333-3333-4333-8333-333333333331'
+        AND lb.employment_id = '33333333-3333-4333-8333-333333333361'
+        AND lb.leave_type_id = lt.id
+        AND lb.year = EXTRACT(YEAR FROM CURRENT_DATE)::int
+  );
+
+-- Clear tenant context
+SELECT set_config('app.tenant_id', '', false);
+
+-- ----------------------------------------------------------------------------
+-- Final verification query (for CI logs)
+-- ----------------------------------------------------------------------------
+SELECT 'g2-acceptance-seed: tenant=' || id || ' status=' || status FROM tenants WHERE id = '33333333-3333-4333-8333-333333333331';
+SELECT 'g2-acceptance-seed: users=' || COUNT(*) FROM users WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
+SELECT 'g2-acceptance-seed: employees=' || COUNT(*) FROM hr_employees WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
+SELECT 'g2-acceptance-seed: roles=' || COUNT(*) FROM roles WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
+SELECT 'g2-acceptance-seed: subscriptions=' || COUNT(*) FROM tenant_subscriptions WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND status = 'ACTIVE';
+SELECT 'g2-acceptance-seed: workflow_entitlement=' || COUNT(*) FROM plan_module_entitlements pme JOIN modules m ON m.id = pme.module_id WHERE pme.plan_id = '33333333-3333-4333-8333-333333333332' AND m.code = 'WORKFLOW' AND pme.module_enabled = true;
