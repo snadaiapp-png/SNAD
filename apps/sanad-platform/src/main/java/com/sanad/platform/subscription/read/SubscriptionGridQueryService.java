@@ -25,7 +25,9 @@ public class SubscriptionGridQueryService {
             UUID id, UUID tenantId, String tenantName, String tenantCountry,
             String status, String billingCycle, int seatQuantity,
             UUID planId, String planName, String planCode, String planVersion,
-            String currencyCode, Long monthlyPriceMinor, int itemCount,
+            String currencyCode, Long recurringAmountMinor, Long monthlyEquivalentMinor,
+            /** @deprecated compatibility alias for monthlyEquivalentMinor. */
+            Long monthlyPriceMinor, int itemCount,
             boolean trial, boolean cancelAtPeriodEnd, java.time.Instant currentPeriodEnd) {
     }
 
@@ -89,9 +91,15 @@ public class SubscriptionGridQueryService {
                                pv.version_number AS plan_version,
                                COALESCE(pv.currency_code, p.currency_code) AS currency_code,
                                CASE s.billing_cycle
-                                    WHEN 'ANNUAL' THEN COALESCE(pv.annual_price_minor, p.annual_price_minor) * s.seat_quantity / 12
+                                    WHEN 'ANNUAL' THEN COALESCE(pv.annual_price_minor, p.annual_price_minor) * s.seat_quantity
                                     ELSE COALESCE(pv.monthly_price_minor, p.monthly_price_minor) * s.seat_quantity
-                               END AS monthly_price_minor,
+                               END AS recurring_amount_minor,
+                               CASE s.billing_cycle
+                                    WHEN 'ANNUAL' THEN ROUND(
+                                        (COALESCE(pv.annual_price_minor, p.annual_price_minor) * s.seat_quantity)::numeric / 12
+                                    )::bigint
+                                    ELSE COALESCE(pv.monthly_price_minor, p.monthly_price_minor) * s.seat_quantity
+                               END AS monthly_equivalent_minor,
                                (SELECT COUNT(*) FROM subscription_items si
                                  WHERE si.subscription_id = s.id AND si.status = 'ACTIVE') AS item_count,
                                (s.status IN ('TRIAL', 'TRIALING')) AS trial,
@@ -110,29 +118,38 @@ public class SubscriptionGridQueryService {
                 // (BadSqlGrammarException -> HTTP 500 on /api/v1/executive/subscriptions/v2).
                 append(args, List.of(safeSize, safePage * safeSize)).toArray());
 
-        List<SubscriptionRow> content = rows.stream().map(r -> new SubscriptionRow(
-                (UUID) r.get("id"),
-                (UUID) r.get("tenant_id"),
-                (String) r.get("tenant_name"),
-                (String) r.get("country_code"),
-                (String) r.get("status"),
-                (String) r.get("billing_cycle"),
-                ((Number) r.getOrDefault("seat_quantity", 0)).intValue(),
-                (UUID) r.get("plan_id"),
-                (String) r.get("plan_name"),
-                (String) r.get("plan_code"),
-                r.get("plan_version") == null ? null
-                        : "v" + ((Number) r.get("plan_version")).intValue(),
-                (String) r.get("currency_code"),
-                r.get("monthly_price_minor") == null ? null
-                        : ((Number) r.get("monthly_price_minor")).longValue(),
-                ((Number) r.getOrDefault("item_count", 0)).intValue(),
-                Boolean.TRUE.equals(r.get("trial")),
-                Boolean.TRUE.equals(r.get("cancel_at_period_end")),
-                r.get("current_period_end") == null ? null
-                        : ((java.sql.Timestamp) r.get("current_period_end")).toInstant())).toList();
+        List<SubscriptionRow> content = rows.stream().map(r -> {
+            Long recurringAmountMinor = numberAsLong(r.get("recurring_amount_minor"));
+            Long monthlyEquivalentMinor = numberAsLong(r.get("monthly_equivalent_minor"));
+            return new SubscriptionRow(
+                    (UUID) r.get("id"),
+                    (UUID) r.get("tenant_id"),
+                    (String) r.get("tenant_name"),
+                    (String) r.get("country_code"),
+                    (String) r.get("status"),
+                    (String) r.get("billing_cycle"),
+                    ((Number) r.getOrDefault("seat_quantity", 0)).intValue(),
+                    (UUID) r.get("plan_id"),
+                    (String) r.get("plan_name"),
+                    (String) r.get("plan_code"),
+                    r.get("plan_version") == null ? null
+                            : "v" + ((Number) r.get("plan_version")).intValue(),
+                    (String) r.get("currency_code"),
+                    recurringAmountMinor,
+                    monthlyEquivalentMinor,
+                    monthlyEquivalentMinor,
+                    ((Number) r.getOrDefault("item_count", 0)).intValue(),
+                    Boolean.TRUE.equals(r.get("trial")),
+                    Boolean.TRUE.equals(r.get("cancel_at_period_end")),
+                    r.get("current_period_end") == null ? null
+                            : ((java.sql.Timestamp) r.get("current_period_end")).toInstant());
+        }).toList();
 
         return PageResponse.of(content, safePage, safeSize, total == null ? 0 : total);
+    }
+
+    private static Long numberAsLong(Object value) {
+        return value == null ? null : ((Number) value).longValue();
     }
 
     private static List<Object> append(List<Object> base, List<Object> extra) {
