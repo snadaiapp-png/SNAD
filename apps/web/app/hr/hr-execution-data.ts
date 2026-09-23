@@ -205,7 +205,10 @@ export const HR_GROUP_DATA = [
     titleEn: "Time & Attendance: Timesheets & Leave",
     purposeAr: "إدارة حضور الموظفين وأوقات العمل وإجازاتهم.",
     purposeEn: "Manage employee attendance, work hours, and leave requests.",
-    status: "NOT_STARTED" as GroupStatus,
+    // G2 implementation IN PROGRESS — step-instance approval binding
+    // remediation pushed (commit 560df3be); fresh exact-head CI pending
+    // per directive §16. NOT DONE — do not merge.
+    status: "IN_PROGRESS" as GroupStatus,
     dependencies: ["G0"],
     canParallelizeWith: ["G1"],
     stageReport: null,
