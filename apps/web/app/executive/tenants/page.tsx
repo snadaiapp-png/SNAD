@@ -243,8 +243,14 @@ export default function TenantsPage() {
 
   async function handleTenantLoginLink(tenantId: string, action: "OPEN" | "COPY") {
     const popup = action === "OPEN"
-      ? window.open("about:blank", "_blank", "noopener,noreferrer")
+      ? window.open("about:blank", "_blank")
       : null;
+    if (popup) {
+      // `noopener` can intentionally make window.open() return null in Chromium
+      // even when the tab was created. Keep the synchronous handle so we can
+      // navigate it after the audit event, then sever opener immediately.
+      popup.opener = null;
+    }
     if (action === "OPEN" && !popup) {
       setError(t("scp.tenants.error.popupBlocked"));
       return;

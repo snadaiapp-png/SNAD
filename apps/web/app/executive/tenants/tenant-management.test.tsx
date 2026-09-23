@@ -102,7 +102,7 @@ describe("Executive tenant management controls", () => {
 
   it("opens a synchronous placeholder and navigates it only after the audit event succeeds", async () => {
     const user = userEvent.setup();
-    const popup = { close: vi.fn(), location: { href: "about:blank" } } as unknown as Window;
+    const popup = { close: vi.fn(), location: { href: "about:blank" }, opener: window } as unknown as Window;
     const openMock = vi.spyOn(window, "open").mockReturnValue(popup);
     hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
     render(<TenantsPage />);
@@ -114,7 +114,8 @@ describe("Executive tenant management controls", () => {
       "11111111-1111-1111-1111-111111111111",
       "OPEN",
     );
-    expect(openMock).toHaveBeenCalledWith("about:blank", "_blank", "noopener,noreferrer");
+    expect(openMock).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(popup.opener).toBeNull();
     expect(popup.location.href).toBe(
       "http://localhost:3000/?tenantId=11111111-1111-1111-1111-111111111111",
     );
@@ -169,7 +170,7 @@ describe("Executive tenant management controls", () => {
 
   it("fails closed and closes the placeholder tab when login-link auditing fails", async () => {
     const user = userEvent.setup();
-    const popup = { close: vi.fn(), location: { href: "about:blank" } } as unknown as Window;
+    const popup = { close: vi.fn(), location: { href: "about:blank" }, opener: window } as unknown as Window;
     const openMock = vi.spyOn(window, "open").mockReturnValue(popup);
     recordTenantLoginLinkEventMock.mockRejectedValue(new Error("audit unavailable"));
     hasMock.mockImplementation((capability: string) => capability === "EXECUTIVE_MANAGE");
@@ -180,7 +181,8 @@ describe("Executive tenant management controls", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.getByRole("alert")).not.toHaveTextContent("audit unavailable");
-    expect(openMock).toHaveBeenCalledWith("about:blank", "_blank", "noopener,noreferrer");
+    expect(openMock).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(popup.opener).toBeNull();
     expect(popup.close).toHaveBeenCalledOnce();
     expect(popup.location.href).toBe("about:blank");
     openMock.mockRestore();
