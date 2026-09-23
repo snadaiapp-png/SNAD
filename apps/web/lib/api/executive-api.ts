@@ -19,6 +19,25 @@ export interface ManagedTenant {
   createdAt: string; updatedAt: string;
 }
 
+export interface CreateTenantRequest {
+  name: string;
+  legalName?: string | null;
+  subdomain: string;
+  billingEmail?: string | null;
+  adminEmail: string;
+  adminDisplayName: string;
+  countryCode?: string | null;
+  locale?: string | null;
+  timezone?: string | null;
+  currencyCode?: string | null;
+  trialDays?: number | null;
+  planCode?: string | null;
+  planId?: string | null;
+  billingCycle?: "MONTHLY" | "ANNUAL" | null;
+  seatQuantity?: number | null;
+  createDefaultOrganization?: boolean | null;
+}
+
 export interface TenantProfileUpdate {
   name?: string;
   legalName?: string;
@@ -47,6 +66,14 @@ export interface TenantSubscription {
   currentPeriodStart: string; currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean; cancelledAt: string | null;
   createdAt: string; updatedAt: string;
+}
+
+export interface CreateSubscriptionRequest {
+  tenantId: string;
+  planId: string;
+  billingCycle: "MONTHLY" | "ANNUAL";
+  seatQuantity: number;
+  trialDays?: number | null;
 }
 
 export interface BillingInvoice {
@@ -110,8 +137,8 @@ export const executiveApi = {
   accessCheck: () => apiClient.get<{ authenticated: boolean; canRead: boolean; canWrite: boolean }>(`${root}/access-check`),
   tenants: () => apiClient.get<ManagedTenant[]>(`${root}/tenants`),
   tenant: (tenantId: string) => apiClient.get<ManagedTenant>(`${root}/tenants/${tenantId}`),
-  createTenant: (body: { name: string; subdomain: string; adminEmail: string; adminDisplayName: string }) =>
-    apiClient.post<ManagedTenant, typeof body>(`${root}/tenants`, body),
+  createTenant: (body: CreateTenantRequest) =>
+    apiClient.post<ManagedTenant, CreateTenantRequest>(`${root}/tenants`, body),
   updateTenant: (tenantId: string, body: TenantProfileUpdate) =>
     apiClient.patch<ManagedTenant, TenantProfileUpdate>(`${root}/tenants/${tenantId}`, body),
   changeTenantStatus: (tenantId: string, status: string, reason: string) =>
@@ -123,6 +150,8 @@ export const executiveApi = {
     ),
   plans: () => apiClient.get<SaasPlan[]>(`${root}/plans`),
   subscriptions: () => apiClient.get<TenantSubscription[]>(`${root}/subscriptions`),
+  createSubscription: (body: CreateSubscriptionRequest) =>
+    apiClient.post<TenantSubscription, CreateSubscriptionRequest>(`${root}/subscriptions`, body),
   cancelSubscription: (subscriptionId: string, body: { immediate: boolean; reason: string }) =>
     apiClient.patch<TenantSubscription, typeof body>(`${root}/subscriptions/${subscriptionId}/cancel`, body),
   resumeSubscription: (subscriptionId: string) =>
