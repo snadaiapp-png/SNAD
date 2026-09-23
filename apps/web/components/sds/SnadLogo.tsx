@@ -299,10 +299,14 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
             ? resolvedHeight * aspect
             : intrinsicWidth;
 
+      /*
+       * Named sizes receive concrete pixel dimensions inline. Responsive
+       * sizing is intentionally left to SnadLogo.module.css/custom properties;
+       * writing width:auto/height:auto inline here would override the CSS
+       * variables and can collapse an intrinsic auto-width wrapper on mobile.
+       */
       const imageStyle: CSSProperties = {
         aspectRatio: String(aspect),
-        width: 'auto',
-        height: 'auto',
       };
       if (size !== 'responsive') {
         if (resolvedWidth !== undefined && !Number.isNaN(resolvedWidth)) {
