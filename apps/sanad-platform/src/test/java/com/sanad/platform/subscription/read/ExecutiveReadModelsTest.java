@@ -59,7 +59,6 @@ class ExecutiveReadModelsTest {
         assertThat(overview.mrrMinorByCurrency()).containsEntry("SAR", 100_000L);
         assertThat(overview.mrrMinorByCurrency()).containsEntry("USD", 20_000L);
         assertThat(overview.arrMinorByCurrency()).containsEntry("SAR", 1_200_000L);
-        // metrics that cannot be computed honestly are null (rendered as N/A)
         assertThat(overview.churnPercent()).isNull();
         assertThat(overview.expansionRevenueMinor()).isNull();
     }
@@ -97,7 +96,6 @@ class ExecutiveReadModelsTest {
         stubTenantCount();
         when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
 
-        // must not throw and must not interpolate the attacker-controlled column
         PageResponse<TenantDirectoryQueryService.TenantRow> page =
                 tenantDirectory.search(null, null, null, 0, 20, "1; DROP TABLE tenants;--", "ASC");
 
@@ -122,7 +120,8 @@ class ExecutiveReadModelsTest {
         row.put("plan_code", "GROWTH");
         row.put("plan_version", 2);
         row.put("currency_code", "SAR");
-        row.put("monthly_price_minor", 29900);
+        row.put("recurring_amount_minor", 29_900L);
+        row.put("monthly_equivalent_minor", 29_900L);
         row.put("item_count", 2);
         row.put("trial", false);
         row.put("cancel_at_period_end", false);
@@ -136,6 +135,8 @@ class ExecutiveReadModelsTest {
         assertThat(page.totalElements()).isEqualTo(3);
         assertThat(page.totalPages()).isEqualTo(1);
         assertThat(page.content()).hasSize(1);
+        assertThat(page.content().get(0).recurringAmountMinor()).isEqualTo(29_900L);
+        assertThat(page.content().get(0).monthlyEquivalentMinor()).isEqualTo(29_900L);
         assertThat(page.content().get(0).monthlyPriceMinor()).isEqualTo(29_900L);
         assertThat(page.content().get(0).planVersion()).isEqualTo("v2");
         assertThat(page.content().get(0).itemCount()).isEqualTo(2);
@@ -151,11 +152,6 @@ class ExecutiveReadModelsTest {
 
         tenantDirectory.search(null, null, null, 0, 20, "name", "ASC");
 
-        // Regression (production 500, correlation 4494a377): the varargs array handed to
-        // JdbcTemplate must be [size, offset] scalars. A java.util.List bound as a single
-        // parameter makes PostgreSQL fail with "Can't infer the SQL type to use for an
-        // instance of java.util.ArrayList" (BadSqlGrammarException -> HTTP 500) because the
-        // List-as-vararg becomes ONE bind value instead of being spread.
         ArgumentCaptor<Object[]> captor = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).queryForList(anyString(), captor.capture());
         Object[] bound = captor.getValue();
@@ -176,7 +172,6 @@ class ExecutiveReadModelsTest {
         ArgumentCaptor<Object[]> captor = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).queryForList(anyString(), captor.capture());
         Object[] bound = captor.getValue();
-        // 3 ILIKE patterns + status + country + LIMIT + OFFSET = 7 discrete scalars
         assertThat(bound).hasSize(7);
         assertThat(bound[0]).isEqualTo("%acme%");
         assertThat(bound[3]).isEqualTo("ACTIVE");
@@ -198,7 +193,6 @@ class ExecutiveReadModelsTest {
         ArgumentCaptor<Object[]> captor = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).queryForList(anyString(), captor.capture());
         Object[] bound = captor.getValue();
-        // tenant_id filter + LIMIT + OFFSET
         assertThat(bound).hasSize(3);
         assertThat(bound[0]).isEqualTo(TENANT_ID);
         assertThat(bound[1]).isEqualTo(20);
