@@ -51,20 +51,29 @@ describe("HR-G0 closure state reconciliation", () => {
     }
   });
 
-  it("does not touch future-phase groups (G2..G5 remain not-started; G1 is reconciled via HR_G1_CLOSURE)", () => {
-    // G1 is now reconciled to IN_PROGRESS via the HR_G1_CLOSURE block —
-    // see hr-g1-closure-state.regression.test.ts for the binding regression.
-    // All other future-phase groups (G2..G5) remain NOT_STARTED.
-    const future = HR_GROUP_DATA.filter((g) => g.code !== "G0" && g.code !== "G1");
-    for (const group of future) {
-      expect(group.status, `${group.code} is not part of G0 or G1 closure`).toBe(
-        "NOT_STARTED"
-      );
+  it("keeps unrelated HR phases isolated while allowing active G2 execution", () => {
+    // G1 is independently reconciled via the HR_G1_CLOSURE block — see
+    // hr-g1-closure-state.regression.test.ts for the binding regression.
+    // G2 is now independently IN_PROGRESS because its own HRM G2
+    // implementation is actively underway (Time & Attendance + Timesheets +
+    // Leave workflow step-instance approval binding remediation). G3..G5
+    // have not started and remain NOT_STARTED.
+    //
+    // G0's historical certificate remains responsible only for G0 state —
+    // it must not pin G2..G5 to NOT_STARTED because those phases have their
+    // own implementation lifecycles independent of G0 closure.
+    const g1 = HR_GROUP_DATA.find((g) => g.code === "G1");
+    expect(g1?.status).toBe(HR_G1_CLOSURE.implementation);
+
+    const g2 = HR_GROUP_DATA.find((g) => g.code === "G2");
+    expect(g2?.status).toBe("IN_PROGRESS");
+
+    const untouched = HR_GROUP_DATA.filter((g) =>
+      ["G3", "G4", "G5"].includes(g.code)
+    );
+    for (const group of untouched) {
+      expect(group.status, `${group.code} has not started`).toBe("NOT_STARTED");
     }
-    // G1 is bound to its own closure certificate; verify state matches
-    // HR_G1_CLOSURE.implementation (currently IN_PROGRESS).
-    const g1Group = HR_GROUP_DATA.find((g) => g.code === "G1");
-    expect(g1Group?.status).toBe(HR_G1_CLOSURE.implementation);
   });
 
   it("binds the dashboard state to the committed closure certificate", () => {
