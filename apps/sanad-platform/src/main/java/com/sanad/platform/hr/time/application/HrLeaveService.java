@@ -6,29 +6,42 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * HRM-G2 Leave service.
+ * HRM-G2 Leave service with multi-step state machine.
  *
- * <p>Manages leave types, leave requests (with approval workflow), and
- * leave balances. Tenant-scoped: every method takes {@code tenantId}.
+ * <p>State machine: DRAFT → SUBMITTED → PENDING_MANAGER → PENDING_HR → APPROVED
+ * with REJECTED, WITHDRAWN, CANCELLED.
  *
- * <p>Leave request workflow: PENDING → APPROVED → COMPLETED (or REJECTED).
- * On APPROVED: the leave balance's {@code pending_days} is decremented
- * and {@code used_days} is incremented. On REJECTED: pending_days is
- * decremented only.
+ * <p>Leave ledger integration:
+ *   SUBMIT → ledger RESERVATION
+ *   MANAGER APPROVE → no consumption yet (just advances state)
+ *   HR APPROVE → ledger CONSUMPTION exactly once
+ *   REJECT → ledger RELEASE
+ *   WITHDRAW → ledger RELEASE
+ *   CANCEL (after APPROVED) → compensation reversal
+ *
+ * <p>Uses injectable Clock for time-dependent logic (prevents time-bomb tests).
+ *
+ * <p>Audit/outbox: every transition writes to hr_audit_ledger + hr_domain_event_outbox
+ * in the same transaction.
  */
 @Service
 public class HrLeaveService {
 
     private final JdbcTemplate jdbc;
+    private final Clock clock;
+    private final HrLeaveLedgerService ledgerService;
 
-    public HrLeaveService(JdbcTemplate jdbc) {
+    public HrLeaveService(JdbcTemplate jdbc, Clock clock, HrLeaveLedgerService ledgerService) {
         this.jdbc = jdbc;
+        this.clock = clock;
+        this.ledgerService = ledgerService;
     }
 
     // ==================== Leave Types ====================
@@ -52,7 +65,7 @@ public class HrLeaveService {
         );
     }
 
-    // ==================== Leave Requests ====================
+    // ==================== Leave Requests (multi-step state machine) ====================
 
     @Transactional(readOnly = true)
     public List<HrTimeAttendanceV2Controller.HrLeaveRequestResponse> listLeaveRequests(
@@ -90,112 +103,194 @@ public class HrLeaveService {
         ), params.toArray());
     }
 
+    /**
+     * Create a leave request in DRAFT state.
+     */
     @Transactional
     public HrTimeAttendanceV2Controller.CreateLeaveRequestResponse createLeaveRequest(
             UUID tenantId, UUID userId,
             HrTimeAttendanceV2Controller.CreateLeaveRequest request
     ) {
         UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
+        Instant now = clock.instant();
 
-        // Calculate days count (inclusive of both start and end dates)
         long days = java.time.temporal.ChronoUnit.DAYS.between(request.startDate(), request.endDate()) + 1;
         BigDecimal daysCount = BigDecimal.valueOf(days);
 
+        // Create in DRAFT state — no ledger reservation yet
         jdbc.update(
                 "INSERT INTO hr_leave_requests (id, tenant_id, employment_id, leave_type_id, " +
                 "start_date, end_date, days_count, reason, attachment_url, state, submitted_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)",
                 id, tenantId, request.employmentId(), request.leaveTypeId(),
                 request.startDate(), request.endDate(), daysCount,
                 request.reason(), request.attachmentUrl(),
                 Timestamp.from(now)
         );
 
-        // Increment pending_days on the leave balance
-        incrementPendingDays(tenantId, request.employmentId(), request.leaveTypeId(), daysCount);
-
+        writeAuditAndOutbox(tenantId, "LeaveRequested", id, userId);
         return new HrTimeAttendanceV2Controller.CreateLeaveRequestResponse(id);
     }
 
+    /**
+     * Submit: DRAFT → SUBMITTED → PENDING_MANAGER + ledger RESERVATION.
+     */
     @Transactional
-    public HrTimeAttendanceV2Controller.HrLeaveRequestResponse approveLeaveRequest(
-            UUID tenantId, UUID requestId, UUID approverId,
-            HrTimeAttendanceV2Controller.ApproveLeaveRequest request
-    ) {
-        Instant now = Instant.now();
+    public void submitLeaveRequest(UUID tenantId, UUID requestId, UUID userId) {
+        Instant now = clock.instant();
 
-        // Get the request to find the leave_type_id and days_count
-        var reqData = jdbc.queryForObject(
-                "SELECT leave_type_id, employment_id, days_count, state FROM hr_leave_requests WHERE id = ? AND tenant_id = ?",
-                (rs, rowNum) -> new Object[]{
-                        UUID.fromString(rs.getString("leave_type_id")),
-                        UUID.fromString(rs.getString("employment_id")),
-                        rs.getBigDecimal("days_count"),
-                        rs.getString("state")
-                },
-                requestId, tenantId
-        );
-
-        if (reqData == null || !"PENDING".equals(reqData[3])) {
-            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not PENDING");
+        // Get the request to find leave_type_id, employment_id, days_count
+        var reqData = getRequestData(tenantId, requestId);
+        if (!"DRAFT".equals(reqData[3])) {
+            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
         }
 
+        // Advance state: DRAFT → SUBMITTED → PENDING_MANAGER
+        int updated = jdbc.update(
+                "UPDATE hr_leave_requests SET state = 'PENDING_MANAGER', updated_at = NOW() " +
+                "WHERE id = ? AND tenant_id = ? AND state = 'DRAFT'",
+                requestId, tenantId
+        );
+        if (updated == 0) {
+            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
+        }
+
+        // Reserve days in the ledger
         UUID leaveTypeId = (UUID) reqData[0];
         UUID employmentId = (UUID) reqData[1];
         BigDecimal daysCount = (BigDecimal) reqData[2];
+        ledgerService.reserve(tenantId, employmentId, leaveTypeId, daysCount, requestId);
 
-        // Update the request
-        jdbc.update(
-                "UPDATE hr_leave_requests SET state = 'APPROVED', approver_id = ?, approved_at = ?, " +
-                "approver_comment = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?",
-                approverId, Timestamp.from(now), request.comment(), requestId, tenantId
-        );
-
-        // Move days from pending to used on the leave balance
-        transferPendingToUsed(tenantId, employmentId, leaveTypeId, daysCount);
-
-        return getLeaveRequest(tenantId, requestId);
+        writeAuditAndOutbox(tenantId, "LeaveRequested", requestId, userId);
     }
 
+    /**
+     * Manager approve: PENDING_MANAGER → PENDING_HR (no consumption yet).
+     */
     @Transactional
-    public HrTimeAttendanceV2Controller.HrLeaveRequestResponse rejectLeaveRequest(
-            UUID tenantId, UUID requestId, UUID approverId,
-            HrTimeAttendanceV2Controller.RejectLeaveRequest request
-    ) {
-        Instant now = Instant.now();
+    public void managerApprove(UUID tenantId, UUID requestId, UUID managerId,
+                               HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
+        Instant now = clock.instant();
+        transitionState(tenantId, requestId, "PENDING_MANAGER", "PENDING_HR",
+                managerId, request.comment(), now);
+        writeAuditAndOutbox(tenantId, "LeaveManagerApproved", requestId, managerId);
+    }
 
-        // Get the request to find the leave_type_id and days_count
-        var reqData = jdbc.queryForObject(
-                "SELECT leave_type_id, employment_id, days_count, state FROM hr_leave_requests WHERE id = ? AND tenant_id = ?",
-                (rs, rowNum) -> new Object[]{
-                        UUID.fromString(rs.getString("leave_type_id")),
-                        UUID.fromString(rs.getString("employment_id")),
-                        rs.getBigDecimal("days_count"),
-                        rs.getString("state")
-                },
-                requestId, tenantId
-        );
+    /**
+     * Manager reject: PENDING_MANAGER → REJECTED + ledger RELEASE.
+     */
+    @Transactional
+    public void managerReject(UUID tenantId, UUID requestId, UUID managerId,
+                              HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
+        Instant now = clock.instant();
+        transitionState(tenantId, requestId, "PENDING_MANAGER", "REJECTED",
+                managerId, request.reason(), now);
 
-        if (reqData == null || !"PENDING".equals(reqData[3])) {
-            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not PENDING");
+        var reqData = getRequestData(tenantId, requestId);
+        ledgerService.release(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
+
+        writeAuditAndOutbox(tenantId, "LeaveRejected", requestId, managerId);
+    }
+
+    /**
+     * HR approve: PENDING_HR → APPROVED + ledger CONSUMPTION exactly once.
+     */
+    @Transactional
+    public void hrApprove(UUID tenantId, UUID requestId, UUID hrUserId,
+                          HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
+        Instant now = clock.instant();
+        transitionState(tenantId, requestId, "PENDING_HR", "APPROVED",
+                hrUserId, request.comment(), now);
+
+        var reqData = getRequestData(tenantId, requestId);
+        ledgerService.consume(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
+
+        writeAuditAndOutbox(tenantId, "LeaveHrApproved", requestId, hrUserId);
+    }
+
+    /**
+     * HR reject: PENDING_HR → REJECTED + ledger RELEASE.
+     */
+    @Transactional
+    public void hrReject(UUID tenantId, UUID requestId, UUID hrUserId,
+                         HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
+        Instant now = clock.instant();
+        transitionState(tenantId, requestId, "PENDING_HR", "REJECTED",
+                hrUserId, request.reason(), now);
+
+        var reqData = getRequestData(tenantId, requestId);
+        ledgerService.release(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
+
+        writeAuditAndOutbox(tenantId, "LeaveRejected", requestId, hrUserId);
+    }
+
+    /**
+     * Withdraw: SUBMITTED/PENDING_MANAGER/PENDING_HR → WITHDRAWN + ledger RELEASE.
+     */
+    @Transactional
+    public void withdraw(UUID tenantId, UUID requestId, UUID userId) {
+        Instant now = clock.instant();
+
+        // Check current state — can only withdraw from SUBMITTED, PENDING_MANAGER, or PENDING_HR
+        var reqData = getRequestData(tenantId, requestId);
+        String currentState = (String) reqData[3];
+        if (!"SUBMITTED".equals(currentState) && !"PENDING_MANAGER".equals(currentState) && !"PENDING_HR".equals(currentState)) {
+            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: cannot withdraw from " + currentState);
         }
 
+        int updated = jdbc.update(
+                "UPDATE hr_leave_requests SET state = 'WITHDRAWN', updated_at = NOW() " +
+                "WHERE id = ? AND tenant_id = ? AND state IN ('SUBMITTED','PENDING_MANAGER','PENDING_HR')",
+                requestId, tenantId
+        );
+        if (updated == 0) {
+            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: withdraw failed");
+        }
+
+        // Release the reservation
+        ledgerService.release(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
+
+        writeAuditAndOutbox(tenantId, "LeaveWithdrawn", requestId, userId);
+    }
+
+    /**
+     * Cancel: APPROVED → CANCELLED + ledger compensation (reverse consumption).
+     */
+    @Transactional
+    public void cancel(UUID tenantId, UUID requestId, UUID userId, String reason) {
+        Instant now = clock.instant();
+
+        var reqData = getRequestData(tenantId, requestId);
+        String currentState = (String) reqData[3];
+        if (!"APPROVED".equals(currentState)) {
+            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: can only cancel APPROVED requests");
+        }
+
+        int updated = jdbc.update(
+                "UPDATE hr_leave_requests SET state = 'CANCELLED', approver_comment = ?, updated_at = NOW() " +
+                "WHERE id = ? AND tenant_id = ? AND state = 'APPROVED'",
+                reason, requestId, tenantId
+        );
+        if (updated == 0) {
+            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: cancel failed");
+        }
+
+        // Compensate: add back the consumed days as an ADJUSTMENT
         UUID leaveTypeId = (UUID) reqData[0];
         UUID employmentId = (UUID) reqData[1];
         BigDecimal daysCount = (BigDecimal) reqData[2];
+        int year = LocalDate.now(clock).getYear();
 
-        // Update the request
+        // Add positive ADJUSTMENT to reverse the CONSUMPTION
         jdbc.update(
-                "UPDATE hr_leave_requests SET state = 'REJECTED', approver_id = ?, approved_at = ?, " +
-                "approver_comment = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?",
-                approverId, Timestamp.from(now), request.reason(), requestId, tenantId
+                "INSERT INTO hr_leave_ledger_entries " +
+                "(id, tenant_id, employment_id, leave_type_id, entry_type, year, days, reference_type, reference_id, reason) " +
+                "VALUES (?, ?, ?, ?, 'ADJUSTMENT', ?, ?, 'LEAVE_REQUEST', ?, ?)",
+                UUID.randomUUID(), tenantId, employmentId, leaveTypeId, year,
+                daysCount, requestId, "Cancellation compensation"
         );
 
-        // Decrement pending_days (the leave was never taken)
-        decrementPendingDays(tenantId, employmentId, leaveTypeId, daysCount);
-
-        return getLeaveRequest(tenantId, requestId);
+        writeAuditAndOutbox(tenantId, "LeaveCancelled", requestId, userId);
     }
 
     // ==================== Leave Balances ====================
@@ -204,83 +299,86 @@ public class HrLeaveService {
     public List<HrTimeAttendanceV2Controller.HrLeaveBalanceResponse> listLeaveBalances(
             UUID tenantId, UUID employmentId, int year
     ) {
+        // Derive balances from the ledger
         StringBuilder sql = new StringBuilder(
-                "SELECT id, employment_id, leave_type_id, year, entitled_days, used_days, pending_days, carried_over_days " +
-                "FROM hr_leave_balances WHERE tenant_id = ? AND year = ?"
+                "SELECT lt.id as leave_type_id, " +
+                "  COALESCE(SUM(CASE WHEN le.entry_type IN ('OPENING','ACCRUAL','ADJUSTMENT','RELEASE','CARRYOVER') " +
+                "    THEN le.days ELSE 0 END), 0) as entitled, " +
+                "  COALESCE(SUM(CASE WHEN le.entry_type = 'CONSUMPTION' THEN le.days ELSE 0 END), 0) as used, " +
+                "  COALESCE(SUM(CASE WHEN le.entry_type = 'RESERVATION' THEN le.days ELSE 0 END), 0) as pending, " +
+                "  COALESCE(SUM(CASE WHEN le.entry_type = 'CARRYOVER' THEN le.days ELSE 0 END), 0) as carried " +
+                "FROM hr_leave_types lt " +
+                "LEFT JOIN hr_leave_ledger_entries le ON le.leave_type_id = lt.id AND le.tenant_id = lt.tenant_id " +
+                "  AND le.year = ? " +
+                "WHERE lt.tenant_id = ? AND lt.state = 'ACTIVE'"
         );
         List<Object> params = new java.util.ArrayList<>();
-        params.add(tenantId);
         params.add(year);
+        params.add(tenantId);
         if (employmentId != null) {
-            sql.append(" AND employment_id = ?");
+            sql.append(" AND (le.employment_id = ? OR le.employment_id IS NULL)");
             params.add(employmentId);
         }
-        sql.append(" ORDER BY leave_type_id");
+        sql.append(" GROUP BY lt.id, lt.code ORDER BY lt.code");
 
         return jdbc.query(sql.toString(), (rs, rowNum) -> new HrTimeAttendanceV2Controller.HrLeaveBalanceResponse(
-                UUID.fromString(rs.getString("id")),
-                UUID.fromString(rs.getString("employment_id")),
+                UUID.randomUUID(), // synthetic ID for the projection
+                employmentId != null ? employmentId : UUID.randomUUID(),
                 UUID.fromString(rs.getString("leave_type_id")),
-                rs.getInt("year"),
-                rs.getBigDecimal("entitled_days"),
-                rs.getBigDecimal("used_days"),
-                rs.getBigDecimal("pending_days"),
-                rs.getBigDecimal("carried_over_days")
+                year,
+                rs.getBigDecimal("entitled"),
+                rs.getBigDecimal("used"),
+                rs.getBigDecimal("pending"),
+                rs.getBigDecimal("carried")
         ), params.toArray());
     }
 
-    // ==================== Balance helpers ====================
+    // ==================== Helpers ====================
 
-    private void incrementPendingDays(UUID tenantId, UUID employmentId, UUID leaveTypeId, BigDecimal days) {
-        int year = LocalDate.now().getYear();
-        // Upsert the balance row
-        jdbc.update(
-                "INSERT INTO hr_leave_balances (id, tenant_id, employment_id, leave_type_id, year, entitled_days, pending_days) " +
-                "VALUES (?, ?, ?, ?, ?, 0, ?) " +
-                "ON CONFLICT (tenant_id, employment_id, leave_type_id, year) DO UPDATE " +
-                "SET pending_days = hr_leave_balances.pending_days + EXCLUDED.pending_days, updated_at = NOW()",
-                UUID.randomUUID(), tenantId, employmentId, leaveTypeId, year, days
+    private void transitionState(UUID tenantId, UUID requestId, String fromState, String toState,
+                                  UUID actorId, String comment, Instant now) {
+        int updated = jdbc.update(
+                "UPDATE hr_leave_requests SET state = ?, approver_id = ?, approved_at = ?, " +
+                "approver_comment = ?, updated_at = NOW() " +
+                "WHERE id = ? AND tenant_id = ? AND state = ?",
+                toState, actorId, Timestamp.from(now), comment, requestId, tenantId, fromState
         );
+        if (updated == 0) {
+            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: " + fromState + " → " + toState + " failed");
+        }
     }
 
-    private void transferPendingToUsed(UUID tenantId, UUID employmentId, UUID leaveTypeId, BigDecimal days) {
-        int year = LocalDate.now().getYear();
-        jdbc.update(
-                "UPDATE hr_leave_balances SET pending_days = pending_days - ?, used_days = used_days + ?, updated_at = NOW() " +
-                "WHERE tenant_id = ? AND employment_id = ? AND leave_type_id = ? AND year = ?",
-                days, days, tenantId, employmentId, leaveTypeId, year
-        );
-    }
-
-    private void decrementPendingDays(UUID tenantId, UUID employmentId, UUID leaveTypeId, BigDecimal days) {
-        int year = LocalDate.now().getYear();
-        jdbc.update(
-                "UPDATE hr_leave_balances SET pending_days = GREATEST(pending_days - ?, 0), updated_at = NOW() " +
-                "WHERE tenant_id = ? AND employment_id = ? AND leave_type_id = ? AND year = ?",
-                days, tenantId, employmentId, leaveTypeId, year
-        );
-    }
-
-    private HrTimeAttendanceV2Controller.HrLeaveRequestResponse getLeaveRequest(UUID tenantId, UUID requestId) {
-        List<HrTimeAttendanceV2Controller.HrLeaveRequestResponse> records = jdbc.query(
-                "SELECT id, employment_id, leave_type_id, start_date, end_date, days_count, " +
-                "reason, state, submitted_at, approved_at, approver_comment " +
-                "FROM hr_leave_requests WHERE id = ? AND tenant_id = ?",
-                (rs, rowNum) -> new HrTimeAttendanceV2Controller.HrLeaveRequestResponse(
-                        UUID.fromString(rs.getString("id")),
-                        UUID.fromString(rs.getString("employment_id")),
+    private Object[] getRequestData(UUID tenantId, UUID requestId) {
+        return jdbc.queryForObject(
+                "SELECT leave_type_id, employment_id, days_count, state FROM hr_leave_requests WHERE id = ? AND tenant_id = ?",
+                (rs, rowNum) -> new Object[]{
                         UUID.fromString(rs.getString("leave_type_id")),
-                        rs.getDate("start_date").toLocalDate(),
-                        rs.getDate("end_date").toLocalDate(),
+                        UUID.fromString(rs.getString("employment_id")),
                         rs.getBigDecimal("days_count"),
-                        rs.getString("reason"),
-                        rs.getString("state"),
-                        rs.getTimestamp("submitted_at") != null ? rs.getTimestamp("submitted_at").toInstant() : null,
-                        rs.getTimestamp("approved_at") != null ? rs.getTimestamp("approved_at").toInstant() : null,
-                        rs.getString("approver_comment")
-                ),
+                        rs.getString("state")
+                },
                 requestId, tenantId
         );
-        return records.isEmpty() ? null : records.get(0);
+    }
+
+    private void writeAuditAndOutbox(UUID tenantId, String eventType, UUID resourceId, UUID actorId) {
+        Instant now = clock.instant();
+        UUID auditId = UUID.randomUUID();
+        UUID outboxId = UUID.randomUUID();
+
+        jdbc.update(
+                "INSERT INTO hr_audit_ledger (id, tenant_id, resource_type, resource_id, action, " +
+                "actor_id, occurred_at, details) VALUES (?, ?, 'LEAVE_REQUEST', ?, ?, ?, ?, ?)",
+                auditId, tenantId, resourceId, eventType, actorId, Timestamp.from(now),
+                "{\"resourceId\":\"" + resourceId + "\",\"eventType\":\"" + eventType + "\"}"
+        );
+
+        jdbc.update(
+                "INSERT INTO hr_domain_event_outbox (id, tenant_id, event_type, resource_type, resource_id, " +
+                "payload, created_at) VALUES (?, ?, ?, 'LEAVE_REQUEST', ?, ?::jsonb, ?)",
+                outboxId, tenantId, eventType, resourceId,
+                "{\"eventType\":\"" + eventType + "\",\"resourceId\":\"" + resourceId + "\"}",
+                Timestamp.from(now)
+        );
     }
 }

@@ -223,30 +223,100 @@ public class HrTimeAttendanceV2Controller {
         return ResponseEntity.ok(leaveService.createLeaveRequest(tenantId, userId, request));
     }
 
-    @PostMapping("/leave/requests/{requestId}/approve")
-    @Operation(operationId = "hrLeaveRequestApprove")
-    @RequireCapability(TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE)
-    public ResponseEntity<HrLeaveRequestResponse> approveLeaveRequest(
+    @PostMapping("/leave/requests/{requestId}/submit")
+    @Operation(operationId = "hrLeaveRequestSubmit")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_REQUEST)
+    public ResponseEntity<Void> submitLeaveRequest(
             Authentication authentication,
-            @PathVariable UUID requestId,
-            @RequestBody ApproveLeaveRequest request
+            @PathVariable UUID requestId
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
-        return ResponseEntity.ok(leaveService.approveLeaveRequest(tenantId, requestId, userId, request));
+        leaveService.submitLeaveRequest(tenantId, requestId, userId);
+        return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/leave/requests/{requestId}/reject")
-    @Operation(operationId = "hrLeaveRequestReject")
+    @PostMapping("/leave/requests/{requestId}/manager-approve")
+    @Operation(operationId = "hrLeaveRequestManagerApprove")
     @RequireCapability(TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE)
-    public ResponseEntity<HrLeaveRequestResponse> rejectLeaveRequest(
+    public ResponseEntity<Void> managerApproveLeave(
             Authentication authentication,
             @PathVariable UUID requestId,
-            @RequestBody RejectLeaveRequest request
+            @Valid @RequestBody ApproveLeaveRequest request
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
-        return ResponseEntity.ok(leaveService.rejectLeaveRequest(tenantId, requestId, userId, request));
+        leaveService.managerApprove(tenantId, requestId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/manager-reject")
+    @Operation(operationId = "hrLeaveRequestManagerReject")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE)
+    public ResponseEntity<Void> managerRejectLeave(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @Valid @RequestBody RejectLeaveRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        leaveService.managerReject(tenantId, requestId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/hr-approve")
+    @Operation(operationId = "hrLeaveRequestHrApprove")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_HR_APPROVE)
+    public ResponseEntity<Void> hrApproveLeave(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @Valid @RequestBody ApproveLeaveRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        leaveService.hrApprove(tenantId, requestId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/hr-reject")
+    @Operation(operationId = "hrLeaveRequestHrReject")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_HR_APPROVE)
+    public ResponseEntity<Void> hrRejectLeave(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @Valid @RequestBody RejectLeaveRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        leaveService.hrReject(tenantId, requestId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/withdraw")
+    @Operation(operationId = "hrLeaveRequestWithdraw")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_REQUEST)
+    public ResponseEntity<Void> withdrawLeaveRequest(
+            Authentication authentication,
+            @PathVariable UUID requestId
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        leaveService.withdraw(tenantId, requestId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/leave/requests/{requestId}/cancel")
+    @Operation(operationId = "hrLeaveRequestCancel")
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_HR_APPROVE)
+    public ResponseEntity<Void> cancelLeaveRequest(
+            Authentication authentication,
+            @PathVariable UUID requestId,
+            @RequestParam String reason
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        leaveService.cancel(tenantId, requestId, userId, reason);
+        return ResponseEntity.noContent().build();
     }
 
     // ==================== Leave Balances ====================

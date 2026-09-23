@@ -6,6 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -30,9 +31,11 @@ import java.util.UUID;
 public class HrTimeAttendanceService {
 
     private final JdbcTemplate jdbc;
+    private final Clock clock;
 
-    public HrTimeAttendanceService(JdbcTemplate jdbc) {
+    public HrTimeAttendanceService(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
     }
 
     // ==================== Attendance ====================
@@ -50,7 +53,7 @@ public class HrTimeAttendanceService {
         }
 
         UUID id = UUID.randomUUID();
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         jdbc.update(
                 "INSERT INTO hr_attendance_records (id, tenant_id, employment_id, record_date, clock_in, source, state) " +
                 "VALUES (?, ?, ?, ?, ?, 'MANUAL', 'OPEN')",
@@ -63,7 +66,7 @@ public class HrTimeAttendanceService {
     public HrTimeAttendanceV2Controller.HrAttendanceRecordResponse clockOut(
             UUID tenantId, UUID userId, UUID recordId
     ) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         // Calculate worked minutes
         Timestamp clockOutTs = Timestamp.from(now);
         jdbc.update(
