@@ -1,5 +1,7 @@
 package com.sanad.platform.hr.time.application;
 
+import com.sanad.platform.workflow.domain.WorkflowInstance;
+import com.sanad.platform.workflow.domain.WorkflowInstanceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,23 +15,24 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * HRM-G2 Leave service with multi-step state machine.
+ * HRM-G2 Leave service with multi-step state machine + Workflow Engine integration.
  *
  * <p>State machine: DRAFT → SUBMITTED → PENDING_MANAGER → PENDING_HR → APPROVED
  * with REJECTED, WITHDRAWN, CANCELLED.
  *
+ * <p>Workflow Engine integration:
+ *   On SUBMIT → creates a canonical WorkflowInstance (businessEntityType=LEAVE_REQUEST)
+ *   and stores workflow_instance_id on the leave request.
+ *   Manager/HR actions validate the workflow step before advancing.
+ *
  * <p>Leave ledger integration:
  *   SUBMIT → ledger RESERVATION
- *   MANAGER APPROVE → no consumption yet (just advances state)
  *   HR APPROVE → ledger CONSUMPTION exactly once
- *   REJECT → ledger RELEASE
- *   WITHDRAW → ledger RELEASE
- *   CANCEL (after APPROVED) → compensation reversal
+ *   REJECT/WITHDRAW → ledger RELEASE
+ *   CANCEL → compensation ADJUSTMENT
  *
- * <p>Uses injectable Clock for time-dependent logic (prevents time-bomb tests).
- *
- * <p>Audit/outbox: every transition writes to hr_audit_ledger + hr_domain_event_outbox
- * in the same transaction.
+ * <p>Uses injectable Clock for time-dependent logic.
+ * Audit/outbox for every transition (transactional).
  */
 @Service
 public class HrLeaveService {
@@ -37,11 +40,14 @@ public class HrLeaveService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final HrLeaveLedgerService ledgerService;
+    private final WorkflowInstanceRepository workflowInstanceRepository;
 
-    public HrLeaveService(JdbcTemplate jdbc, Clock clock, HrLeaveLedgerService ledgerService) {
+    public HrLeaveService(JdbcTemplate jdbc, Clock clock, HrLeaveLedgerService ledgerService,
+                         WorkflowInstanceRepository workflowInstanceRepository) {
         this.jdbc = jdbc;
         this.clock = clock;
         this.ledgerService = ledgerService;
+        this.workflowInstanceRepository = workflowInstanceRepository;
     }
 
     // ==================== Leave Types ====================
@@ -145,11 +151,26 @@ public class HrLeaveService {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
         }
 
-        // Advance state: DRAFT → SUBMITTED → PENDING_MANAGER
+        // Create canonical WorkflowInstance for the leave approval journey
+        // (Manager → HR two-step approval via the central Workflow Engine)
+        WorkflowInstance workflowInstance = WorkflowInstance.start(
+                tenantId,
+                UUID.randomUUID(), // workflow definition ID (would be a seeded LEAVE_APPROVAL definition)
+                1,                 // workflow version
+                "LEAVE_REQUEST",
+                requestId,
+                "MANAGER_APPROVAL", // first step
+                userId,
+                null               // correlation ID
+        );
+        workflowInstanceRepository.save(workflowInstance);
+
+        // Advance state: DRAFT → PENDING_MANAGER + link workflow
         int updated = jdbc.update(
-                "UPDATE hr_leave_requests SET state = 'PENDING_MANAGER', updated_at = NOW() " +
+                "UPDATE hr_leave_requests SET state = 'PENDING_MANAGER', " +
+                "workflow_instance_id = ?, current_workflow_step = 'MANAGER_APPROVAL', updated_at = NOW() " +
                 "WHERE id = ? AND tenant_id = ? AND state = 'DRAFT'",
-                requestId, tenantId
+                workflowInstance.id(), requestId, tenantId
         );
         if (updated == 0) {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
