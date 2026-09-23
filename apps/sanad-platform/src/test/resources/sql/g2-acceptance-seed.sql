@@ -51,8 +51,9 @@
 -- Security notes:
 --   - Uses crypt() + gen_salt('bf', 10) for bcrypt hashing (pgcrypto).
 --   - Tenant context is set via set_config('app.tenant_id', ...) for
---     RLS-protected INSERTs (FORCE RLS is live on hr_employees,
---     hr_leave_types, hr_leave_balances, hr_leave_requests).
+--     RLS-protected INSERTs and verification queries (FORCE RLS is live
+--     on hr_employees, hr_leave_types, hr_leave_balances, hr_leave_requests).
+--   - Tenant context is cleared only AFTER all RLS-protected verification.
 --   - No BYPASSRLS, no superuser.
 --   - No committed password literals — the bcrypt hash is computed at
 --     runtime from the per-run ephemeral password.
@@ -516,11 +517,10 @@ WHERE lt.tenant_id = '33333333-3333-4333-8333-333333333331'
         AND lb.year = EXTRACT(YEAR FROM CURRENT_DATE)::int
   );
 
--- Clear tenant context
-SELECT set_config('app.tenant_id', '', false);
-
 -- ----------------------------------------------------------------------------
--- Final verification queries (CI logs the row existence proof)
+-- Final verification queries (CI logs the row existence proof).
+-- IMPORTANT: keep tenant context active through these reads because
+-- hr_employees and G2 leave tables use FORCE RLS and fail closed.
 -- ----------------------------------------------------------------------------
 SELECT 'g2-acceptance-seed: tenant=' || id || ' status=' || status FROM tenants WHERE id = '33333333-3333-4333-8333-333333333331';
 SELECT 'g2-acceptance-seed: users=' || COUNT(*) FROM users WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
@@ -530,3 +530,8 @@ SELECT 'g2-acceptance-seed: subscriptions=' || COUNT(*) FROM tenant_subscription
 SELECT 'g2-acceptance-seed: workflow_entitlement=' || COUNT(*) FROM plan_module_entitlements pme JOIN modules m ON m.id = pme.module_id WHERE pme.plan_id = '33333333-3333-4333-8333-333333333332' AND m.code = 'WORKFLOW' AND pme.module_enabled = true;
 SELECT 'g2-acceptance-seed: leave_balance_row=' || COUNT(*) || ' entitled_days=' || COALESCE(SUM(entitled_days), 0) || ' used_days=' || COALESCE(SUM(used_days), 0) || ' pending_days=' || COALESCE(SUM(pending_days), 0) || ' carried_over_days=' || COALESCE(SUM(carried_over_days), 0)
 FROM hr_leave_balances WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND employment_id = '33333333-3333-4333-8333-333333333361';
+
+-- Clear tenant context only after all RLS-protected verification queries.
+-- This preserves fail-closed semantics without casting an empty GUC to uuid
+-- while the seed is still validating HR rows.
+SELECT set_config('app.tenant_id', '', false);
