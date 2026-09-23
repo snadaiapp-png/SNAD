@@ -63,6 +63,13 @@ jobs:
           echo "Running SNAD Logo Governance check..."
           python3 scripts/ci/check-logo-governance.py
 
+      - name: Logo Governance Regression Tests
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/test_check_logo_governance.py -v
+
       - name: Brand Name Governance Check
         shell: bash
         working-directory: ${{ github.workspace }}
