@@ -7,6 +7,7 @@ import com.sanad.platform.admin.api.AdminDtos.UpdateTenantRequest;
 import com.sanad.platform.admin.api.AdminDtos.ChangeTenantStatusRequest;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
+import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -42,15 +43,18 @@ public class ExecutivePlatformService {
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
     private final RegistrationProvisioner registrationProvisioner;
+    private final TenantCommercialStateService commercialStateService;
 
     public ExecutivePlatformService(
             JdbcTemplate jdbcTemplate,
             PlatformAuditService auditService,
-            RegistrationProvisioner registrationProvisioner
+            RegistrationProvisioner registrationProvisioner,
+            TenantCommercialStateService commercialStateService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.registrationProvisioner = registrationProvisioner;
+        this.commercialStateService = commercialStateService;
     }
 
     public DashboardResponse dashboard() {
@@ -188,6 +192,16 @@ public class ExecutivePlatformService {
         if (!"ACTIVE".equals(tenant.status())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Tenant login link is available only for active tenants");
+        }
+
+        TenantCommercialStateService.TenantCommercialState commercialState =
+                commercialStateService.resolve(tenantId, tenant.status());
+        if (!commercialState.loginAllowed()) {
+            String reason = "Tenant login link blocked: " + commercialState.accessDecision();
+            if (commercialState.anomalyCode() != null && !commercialState.anomalyCode().isBlank()) {
+                reason += " (" + commercialState.anomalyCode() + ")";
+            }
+            throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
         }
 
         auditService.success(
