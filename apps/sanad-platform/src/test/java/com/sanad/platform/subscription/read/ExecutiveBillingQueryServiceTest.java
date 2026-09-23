@@ -2,6 +2,7 @@ package com.sanad.platform.subscription.read;
 
 import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Timestamp;
@@ -59,5 +60,21 @@ class ExecutiveBillingQueryServiceTest {
         assertThat(row.financeStatus()).isEqualTo("UNLINKED");
         assertThat(row.settlementState()).isEqualTo("UNKNOWN");
         assertThat(row.reconciliationState()).isEqualTo("UNRECONCILED");
+    }
+
+    @Test
+    void queriesCanonicalPaymentAttemptStateColumn() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        TenantRlsTransactionContext rls = mock(TenantRlsTransactionContext.class);
+        UUID tenantId = UUID.fromString("10000000-0000-0000-0000-000000000002");
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
+
+        new ExecutiveBillingQueryService(jdbc, rls).list(tenantId);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForList(sql.capture(), any(Object[].class));
+        assertThat(sql.getValue())
+                .contains("SELECT pa.state")
+                .doesNotContain("pa.payment_state");
     }
 }
