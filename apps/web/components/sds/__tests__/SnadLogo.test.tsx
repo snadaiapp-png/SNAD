@@ -5,7 +5,7 @@
  *  SDS SnadLogo — Component Tests
  * ----------------------------------------------------------------------------
  *  Verifies:
- *    • All 6 variants render the correct SVG path
+ *    • All logo variants render the correct governed asset path
  *    • All 5 fixed sizes (xs/sm/md/lg/xl) apply a size class
  *    • `responsive` size applies its own class
  *    • `href` wraps the logo in a Next.js <Link> with aria-label
@@ -25,11 +25,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SnadLogo } from "../SnadLogo";
 
-// Mock next/image to render a plain <img> so jsdom can introspect it.
-// We destructure `alt` and pass it explicitly so the jsx-a11y/alt-text rule
-// is satisfied. The @next/next/no-img-element rule is inherently triggered
-// by mocking next/image (the whole point of the mock is to render a plain
-// <img>), so we disable it for this line only.
 vi.mock("next/image", () => ({
   default: ({ alt = "", ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
     // eslint-disable-next-line @next/next/no-img-element
@@ -37,7 +32,6 @@ vi.mock("next/image", () => ({
   ),
 }));
 
-// Mock next/link to render a plain <a> so jsdom can introspect it.
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -62,7 +56,6 @@ describe("SDS SnadLogo", () => {
   it("renders two <img>s by default (theme='auto' dual rendering)", () => {
     const { container } = render(<SnadLogo />);
     const imgs = container.querySelectorAll("img");
-    // Default theme is 'auto' → primary + white variants stacked.
     expect(imgs).toHaveLength(2);
   });
 
@@ -86,8 +79,9 @@ describe("SDS SnadLogo", () => {
     ["white", "/assets/brand/snad-logo-white.svg"],
     ["monochrome", "/assets/brand/snad-logo-mono.svg"],
     ["app-icon", "/assets/brand/snad-app-icon.svg"],
+    ["official-wordmark", "/assets/brand/snad-logo-official-wordmark.png"],
   ] as const)(
-    "renders the correct SVG path for variant=%s",
+    "renders the correct governed asset path for variant=%s",
     (variant, expectedPath) => {
       const { container } = render(<SnadLogo variant={variant} />);
       const img = container.querySelector("img");
@@ -108,7 +102,6 @@ describe("SDS SnadLogo", () => {
       const { container } = render(<SnadLogo size={size} />);
       const img = container.querySelector("img");
       expect(img).not.toBeNull();
-      // The inline style sets height in px to prevent CLS.
       expect(img?.getAttribute("style") ?? "").toContain(
         `height: ${expectedHeight}px`,
       );
@@ -117,11 +110,9 @@ describe("SDS SnadLogo", () => {
 
   it("applies the responsive size class", () => {
     const { container } = render(<SnadLogo size="responsive" />);
-    // The wrapper span should carry a class matching the responsive preset.
     const span = container.querySelector("span");
     expect(span).not.toBeNull();
     expect(span?.className.length ?? 0).toBeGreaterThan(0);
-    // For responsive size, no inline height is forced — CSS clamp() drives it.
     const img = container.querySelector("img");
     expect(img?.getAttribute("style") ?? "").not.toMatch(/height: \d+px/);
   });
@@ -205,8 +196,6 @@ describe("SDS SnadLogo", () => {
     const { container } = render(<SnadLogo href="/" alt="Go home" />);
     const img = container.querySelector("img");
     expect(img).not.toBeNull();
-    // The link provides the accessible name; the inner img must be
-    // decorative to avoid double-announcement.
     expect(img?.getAttribute("alt")).toBe("");
     expect(img?.getAttribute("aria-hidden")).toBe("true");
   });
@@ -239,16 +228,18 @@ describe("SDS SnadLogo", () => {
   it("passes the priority flag to the first image (Next.js Image prop)", () => {
     const { container } = render(<SnadLogo priority />);
     const img = container.querySelector("img");
-    // next/image maps `priority` to `data-nimg` and fetchpriority; the mock
-    // here forwards all props to <img>, so we assert the attribute round-trips.
-    // We at least verify the image renders without error.
     expect(img).not.toBeNull();
   });
 
   it("renders an aspect-ratio inline style for CLS prevention", () => {
     const { container } = render(<SnadLogo variant="primary" />);
     const img = container.querySelector("img");
-    // Primary variant has a 280:80 (3.5) aspect ratio.
     expect(img?.getAttribute("style") ?? "").toMatch(/aspect-ratio:\s*3\.5/);
+  });
+
+  it("preserves the approved official wordmark aspect ratio", () => {
+    const { container } = render(<SnadLogo variant="official-wordmark" />);
+    const img = container.querySelector("img");
+    expect(img?.getAttribute("style") ?? "").toMatch(/aspect-ratio:\s*3\.44/);
   });
 });
