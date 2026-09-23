@@ -1,0 +1,108 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { useAuth } from "@/lib/auth/auth-provider";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { hrG2Api, type G2AttendanceRecord } from "@/lib/api/hr-g2-api";
+import { HrWorkspace } from "../components/hr-workspace";
+import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
+import { HrDataTable, type HrColumn } from "../components/hr-data-table";
+import { HrStateBadge, toneForState } from "../components/hr-state-badge";
+import { formatArabicDate } from "../hr-labels";
+import styles from "../hr.module.css";
+
+function formatTime(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatHours(minutes: number | null): string {
+  if (minutes === null || minutes === 0) return "—";
+  return `${Math.floor(minutes / 60)}س ${minutes % 60}د`;
+}
+
+export default function AttendancePage() {
+  const { state, me } = useAuth();
+  const { t } = useI18n();
+  const capabilities = me?.capabilities ?? [];
+  const canView = capabilities.includes("HRM.ATTENDANCE.SELF_VIEW");
+  const canRecord = capabilities.includes("HRM.ATTENDANCE.SELF_RECORD");
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+  const [records, setRecords] = useState<G2AttendanceRecord[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { setRecords(await hrG2Api.listAttendance()); }
+    catch (err) { setError(err); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (state !== "AUTHENTICATED") return;
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [state, load]);
+
+  const openRecord = records.find((record) => record.state === "OPEN") ?? null;
+
+  async function clockIn() {
+    setBusy(true); setDialogError(null);
+    try {
+      await hrG2Api.clockIn(new Date().toISOString().slice(0, 10));
+      setNotice(t("hrm.attendance.notice.clockedIn"));
+      await load();
+    } catch (err) { setDialogError(hrmErrorMessage(err).message); }
+    finally { setBusy(false); }
+  }
+
+  async function clockOut() {
+    if (!openRecord) return;
+    setBusy(true); setDialogError(null);
+    try {
+      await hrG2Api.clockOut(openRecord.id);
+      setNotice(t("hrm.attendance.notice.clockedOut"));
+      await load();
+    } catch (err) { setDialogError(hrmErrorMessage(err).message); }
+    finally { setBusy(false); }
+  }
+
+  if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
+  if (!canView) return <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
+
+  const columns: HrColumn<G2AttendanceRecord>[] = [
+    { key: "recordDate", header: t("hrm.attendance.col.date"), render: (r) => formatArabicDate(r.recordDate) },
+    { key: "clockIn", header: t("hrm.attendance.col.clockIn"), render: (r) => formatTime(r.clockIn) },
+    { key: "clockOut", header: t("hrm.attendance.col.clockOut"), render: (r) => formatTime(r.clockOut) },
+    { key: "workedMinutes", header: t("hrm.attendance.col.worked"), render: (r) => formatHours(r.workedMinutes) },
+    { key: "state", header: t("hrm.attendance.col.state"), render: (r) => <HrStateBadge label={t("hrm.attendance.state." + r.state)} code={r.state} tone={toneForState(r.state)} /> },
+  ];
+
+  return (
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance">
+      <header>
+        <h1 data-testid="g2-page-title">{t("hrm.attendance.title")}</h1>
+        <p className={styles.kpiHint}>{t("hrm.attendance.subtitle")}</p>
+      </header>
+      {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
+      {dialogError ? <p role="alert" className={styles.kpiHint} data-kind="error">{dialogError}</p> : null}
+      {!loading && canRecord ? (
+        <div className={styles.actionRow} data-testid="attendance-ready">
+          {openRecord ? (
+            <button type="button" className={styles.linkButton} onClick={() => void clockOut()} disabled={busy}>{t("hrm.attendance.clockOut")}</button>
+          ) : (
+            <button type="button" className={styles.linkButton} onClick={() => void clockIn()} disabled={busy}>{busy ? t("hrm.attendance.clockingIn") : t("hrm.attendance.clockIn")}</button>
+          )}
+        </div>
+      ) : null}
+      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
+        <HrDataTable<G2AttendanceRecord> caption={t("hrm.attendance.title")} columns={columns} rows={records} rowKey={(r) => r.id} emptyTitle={t("hrm.attendance.empty")} />
+      )}
+    </HrWorkspace>
+  );
+}
