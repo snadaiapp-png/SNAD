@@ -11,6 +11,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -126,15 +127,36 @@ public class HrLeaveService {
 
     /**
      * Submit: DRAFT → PENDING_MANAGER + workflow start + ledger RESERVATION.
+     *
+     * Idempotency: serializes concurrent submissions via SELECT ... FOR UPDATE
+     * on the leave request row. If a concurrent submit already transitioned
+     * to PENDING_MANAGER, the second caller finds the existing workflow and
+     * returns idempotent success.
      */
     @Transactional
     public void submitLeaveRequest(UUID tenantId, UUID requestId, UUID userId) {
-        var reqData = getRequestData(tenantId, requestId);
-        if (!"DRAFT".equals(reqData[3])) {
-            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
+        // Acquire row lock to serialize concurrent submissions for the SAME request
+        Map<String, Object> lockedRow = jdbc.queryForMap(
+                "SELECT state, workflow_instance_id, leave_type_id, employment_id, days_count " +
+                "FROM hr_leave_requests WHERE id = ? AND tenant_id = ? FOR UPDATE",
+                requestId, tenantId);
+
+        String currentState = (String) lockedRow.get("state");
+
+        if ("PENDING_MANAGER".equals(currentState) && lockedRow.get("workflow_instance_id") != null) {
+            // Idempotent success — already submitted by a concurrent caller
+            return;
         }
 
-        // Start canonical workflow via the adapter (creates instance + Manager approval request)
+        if (!"DRAFT".equals(currentState)) {
+            throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state, got " + currentState);
+        }
+
+        UUID leaveTypeId = (UUID) lockedRow.get("leave_type_id");
+        UUID employmentId = (UUID) lockedRow.get("employment_id");
+        BigDecimal daysCount = (java.math.BigDecimal) lockedRow.get("days_count");
+
+        // Start canonical workflow via the adapter
         UUID workflowInstanceId = workflowAdapter.startLeaveApproval(tenantId, requestId, userId);
 
         // Advance HR state + link workflow
@@ -148,7 +170,7 @@ public class HrLeaveService {
         }
 
         // Reserve days in the ledger
-        ledgerService.reserve(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
+        ledgerService.reserve(tenantId, employmentId, leaveTypeId, daysCount, requestId);
         writeAuditAndOutbox(tenantId, "LeaveRequested", requestId, userId);
     }
 

@@ -12,7 +12,6 @@ import com.sanad.platform.workflow.domain.WorkflowInstance;
 import com.sanad.platform.workflow.domain.WorkflowInstanceRepository;
 import com.sanad.platform.workflow.domain.WorkflowStep;
 import com.sanad.platform.workflow.domain.WorkflowTransition;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -29,6 +28,9 @@ import java.util.UUID;
 public class HrLeaveWorkflowAdapter {
 
     static final String DEFINITION_CODE = "HR_LEAVE_APPROVAL";
+    static final String DEFINITION_NAME = "Leave Approval";
+    static final String DEFINITION_MODULE = "HRM";
+    static final Integer APPROVAL_SLA_HOURS = 48;
     static final String BUSINESS_ENTITY_TYPE = "LEAVE_REQUEST";
     static final String STEP_SUBMIT_KEY = "submit";
     static final String STEP_MANAGER_APPROVAL_KEY = "manager_approval";
@@ -37,7 +39,6 @@ public class HrLeaveWorkflowAdapter {
     static final String STEP_END_REJECTED_KEY = "end_rejected";
     static final String CAPABILITY_LEAVE_TEAM_APPROVE = "HRM.LEAVE.TEAM_APPROVE";
     static final String CAPABILITY_LEAVE_HR_APPROVE = "HRM.LEAVE.HR_APPROVE";
-    static final Integer APPROVAL_SLA_HOURS = 48;
 
     private final WorkflowDefinitionRepository definitionRepository;
     private final WorkflowInstanceRepository instanceRepository;
@@ -67,15 +68,17 @@ public class HrLeaveWorkflowAdapter {
     /**
      * Start the canonical leave approval workflow.
      *
-     * Idempotency: catches ONLY DuplicateKeyException from the unique constraint
-     * uq_workflow_instances_tenant_idemkey. On catch, reloads the existing instance.
-     * Does NOT catch generic DataAccessException.
+     * Idempotency: the caller (HrLeaveService.submitLeaveRequest) serializes
+     * concurrent submissions via SELECT ... FOR UPDATE on the leave request row.
+     * This method does a pre-check for existing RUNNING instances.
+     * The DB unique constraint uq_workflow_instances_tenant_idemkey is
+     * defense-in-depth — if it fires, the exception propagates (not caught).
      */
     public UUID startLeaveApproval(UUID tenantId, UUID leaveRequestId, UUID submittedBy) {
         entitlementGuard.requireWorkflowEnabled(tenantId);
         WorkflowDefinition definition = findOrPublishDefinition(tenantId, submittedBy);
 
-        // Idempotency: check for existing RUNNING instance first
+        // Pre-check for existing RUNNING instance (caller has already serialized)
         Optional<WorkflowInstance> existing = instanceRepository
                 .findByBusinessEntity(tenantId, BUSINESS_ENTITY_TYPE, leaveRequestId).stream()
                 .filter(i -> i.status() == WorkflowInstance.Status.RUNNING)
@@ -93,24 +96,7 @@ public class HrLeaveWorkflowAdapter {
                 tenantId, definition.definitionFamilyId(), definition.id(), definition.version(),
                 BUSINESS_ENTITY_TYPE, leaveRequestId, STEP_SUBMIT_KEY, submittedBy, leaveRequestId,
                 "MANUAL", null, idempotencyKey, null, null);
-
-        try {
-            instance = executionService.startWorkflow(instance, submittedBy);
-        } catch (DuplicateKeyException e) {
-            // Concurrent start with same idempotency key — reload existing instance
-            Optional<WorkflowInstance> concurrent = instanceRepository
-                    .findByBusinessEntity(tenantId, BUSINESS_ENTITY_TYPE, leaveRequestId).stream()
-                    .filter(i -> i.status() == WorkflowInstance.Status.RUNNING)
-                    .findFirst();
-            if (concurrent.isPresent()) {
-                if (STEP_SUBMIT_KEY.equals(concurrent.get().currentStepKey())) {
-                    graphExecutionService.advance(tenantId, concurrent.get().id(), null, submittedBy);
-                }
-                return concurrent.get().id();
-            }
-            throw e; // Re-throw if we can't find the concurrent instance
-        }
-
+        instance = executionService.startWorkflow(instance, submittedBy);
         graphExecutionService.advance(tenantId, instance.id(), null, submittedBy);
         return instance.id();
     }
