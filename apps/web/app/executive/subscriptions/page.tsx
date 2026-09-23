@@ -4,11 +4,13 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { scpApi, type PageResponse, type SubscriptionRow } from "@/lib/api/scp-api";
+import { executiveApi, type SaasPlan } from "@/lib/api/executive-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { Button, Input } from "@/components/sds";
 import {
   ScpEmpty,
   ScpError,
+  ScpNotice,
   ScpPage,
   ScpSkeleton,
   ScpStatusPill,
@@ -22,9 +24,16 @@ type RecurringSubscriptionRow = SubscriptionRow & {
   monthlyEquivalentMinor?: number | null;
 };
 
+type ContinuationIntent = "create" | "create-successor" | "resume";
+
+function continuationIntent(value: string): ContinuationIntent | null {
+  return value === "create" || value === "create-successor" || value === "resume" ? value : null;
+}
+
 /**
- * Subscription grid — server-side filters (tenant, status, country, search,
- * trials), sorting and pagination. Rows link to the full detail page.
+ * Subscription grid plus the governed continuation surface for tenants whose
+ * backend-derived commercial action requires CREATE, CREATE_SUCCESSOR or RESUME.
+ * Unknown intents fail closed and do not expose a mutation control.
  */
 export default function SubscriptionsPage() {
   return (
@@ -41,13 +50,20 @@ function SubscriptionsContent() {
   const searchParams = useSearchParams();
   const tenantIdParam = searchParams.get("tenantId") ?? "";
   const intentParam = searchParams.get("intent") ?? "";
+  const governedIntent = continuationIntent(intentParam);
 
   const [page, setPage] = useState<PageResponse<SubscriptionRow> | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
+  const [plans, setPlans] = useState<SaasPlan[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState("");
+  const [billingCycle, setBillingCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
+  const [seatQuantity, setSeatQuantity] = useState(1);
+  const [commercialBusy, setCommercialBusy] = useState(false);
   const requestGeneration = useRef(0);
 
   const load = useCallback(async () => {
@@ -64,93 +80,172 @@ function SubscriptionsContent() {
         sort: "created_at",
         direction: "DESC",
       });
-      if (generation === requestGeneration.current) {
-        setPage(result);
-      }
+      if (generation === requestGeneration.current) setPage(result);
     } catch (reason) {
-      if (generation === requestGeneration.current) {
-        setError(scpErrorMessage(reason));
-      }
+      if (generation === requestGeneration.current) setError(scpErrorMessage(reason));
     } finally {
-      if (generation === requestGeneration.current) {
-        setLoading(false);
-      }
+      if (generation === requestGeneration.current) setLoading(false);
     }
   }, [tenantIdParam, status, search, pageIndex]);
 
+  useEffect(() => { void load(); }, [load]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!tenantIdParam || (governedIntent !== "create" && governedIntent !== "create-successor")) {
+      setPlans([]);
+      setSelectedPlanId("");
+      return;
+    }
+    let cancelled = false;
+    void executiveApi.plans()
+      .then((catalog) => {
+        if (cancelled) return;
+        setPlans(catalog.filter((plan) => plan.status === "ACTIVE"));
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(scpErrorMessage(reason));
+      });
+    return () => { cancelled = true; };
+  }, [governedIntent, tenantIdParam]);
+
+  async function createSubscription(successor: boolean) {
+    if (!tenantIdParam || !selectedPlanId) return;
+    const plan = plans.find((candidate) => candidate.id === selectedPlanId);
+    if (!plan) return;
+    setCommercialBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await executiveApi.createSubscription({
+        tenantId: tenantIdParam,
+        planId: plan.id,
+        billingCycle,
+        seatQuantity,
+        trialDays: successor ? 0 : plan.trialDays,
+      });
+      setNotice(successor
+        ? t("scp.subscriptions.createSuccessor.success")
+        : t("scp.subscriptions.create.success"));
+      await load();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setCommercialBusy(false);
+    }
+  }
+
+  async function resumeSubscription(subscriptionId: string) {
+    setCommercialBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await executiveApi.resumeSubscription(subscriptionId);
+      setNotice(t("scp.subscriptions.resume.success"));
+      await load();
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setCommercialBusy(false);
+    }
+  }
+
+  const cancelledRows = page?.content.filter((subscription) => subscription.status === "CANCELLED") ?? [];
+  const resumableSubscription = governedIntent === "resume" && cancelledRows.length === 1
+    ? cancelledRows[0]
+    : null;
 
   if (loading && !page) {
-    return (
-      <ScpPage title={t("scp.subscriptions.title")}>
-        <ScpSkeleton lines={8} />
-      </ScpPage>
-    );
+    return <ScpPage title={t("scp.subscriptions.title")}><ScpSkeleton lines={8} /></ScpPage>;
   }
 
   return (
     <ScpPage title={t("scp.subscriptions.title")} subtitle={t("scp.subscriptions.subtitle")}>
-      <form
-        className={styles.filters}
-        onSubmit={(event) => {
-          event.preventDefault();
-          setPageIndex(0);
-          void load();
-        }}
-      >
-        <Input
-          type="search"
-          value={search}
-          placeholder={t("scp.subscriptions.searchPlaceholder")}
-          onChange={(event) => setSearch(event.target.value)}
-          aria-label={t("scp.subscriptions.searchPlaceholder")}
-        />
-        <select
-          value={status}
-          onChange={(event) => {
-            setStatus(event.target.value);
-            setPageIndex(0);
-          }}
-          aria-label={t("scp.subscriptions.statusFilter")}
-        >
+      {(governedIntent === "create" || governedIntent === "create-successor") && tenantIdParam ? (
+        <section className={styles.panel} aria-label={t("scp.subscriptions.create.section")}>
+          <div className={styles.filters}>
+            <select
+              aria-label={t("scp.subscriptions.create.plan")}
+              value={selectedPlanId}
+              onChange={(event) => setSelectedPlanId(event.target.value)}
+            >
+              <option value="">{t("scp.subscriptions.create.selectPlan")}</option>
+              {plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+            </select>
+            <select
+              aria-label={t("scp.subscriptions.create.billingCycle")}
+              value={billingCycle}
+              onChange={(event) => setBillingCycle(event.target.value as "MONTHLY" | "ANNUAL")}
+            >
+              <option value="MONTHLY">MONTHLY</option>
+              <option value="ANNUAL">ANNUAL</option>
+            </select>
+            <Input
+              type="number"
+              min={1}
+              value={seatQuantity}
+              aria-label={t("scp.subscriptions.create.seatQuantity")}
+              onChange={(event) => setSeatQuantity(Math.max(1, Number(event.target.value) || 1))}
+            />
+            <Button
+              type="button"
+              variant="primary"
+              disabled={!selectedPlanId || commercialBusy}
+              loading={commercialBusy}
+              onClick={() => void createSubscription(governedIntent === "create-successor")}
+            >
+              {governedIntent === "create-successor"
+                ? t("scp.subscriptions.createSuccessor.submit")
+                : t("scp.subscriptions.create.submit")}
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {governedIntent === "resume" && tenantIdParam ? (
+        <section className={styles.panel} aria-label={t("scp.subscriptions.resume.section")}>
+          {resumableSubscription ? (
+            <Button
+              type="button"
+              variant="primary"
+              disabled={commercialBusy}
+              loading={commercialBusy}
+              onClick={() => void resumeSubscription(resumableSubscription.id)}
+            >
+              {t("scp.subscriptions.resume.submit")}
+            </Button>
+          ) : (
+            <p className={styles.appCardMeta}>{t("scp.subscriptions.resume.unavailable")}</p>
+          )}
+        </section>
+      ) : null}
+
+      <form className={styles.filters} onSubmit={(event) => { event.preventDefault(); setPageIndex(0); void load(); }}>
+        <Input type="search" value={search} placeholder={t("scp.subscriptions.searchPlaceholder")} onChange={(event) => setSearch(event.target.value)} aria-label={t("scp.subscriptions.searchPlaceholder")} />
+        <select value={status} onChange={(event) => { setStatus(event.target.value); setPageIndex(0); }} aria-label={t("scp.subscriptions.statusFilter")}>
           <option value="">{t("scp.filters.allStatuses")}</option>
-          {[
-            "TRIAL", "TRIALING", "ACTIVE", "PAST_DUE", "GRACE_PERIOD",
-            "PAUSED", "SUSPENDED", "CANCELLED", "EXPIRED", "TERMINATED",
-          ].map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
+          {["TRIAL", "TRIALING", "ACTIVE", "PAST_DUE", "GRACE_PERIOD", "PAUSED", "SUSPENDED", "CANCELLED", "EXPIRED", "TERMINATED"].map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
-        <Button type="submit" variant="primary" size="sm">
-          {t("scp.filters.apply")}
-        </Button>
+        <Button type="submit" variant="primary" size="sm">{t("scp.filters.apply")}</Button>
       </form>
 
+      {notice ? <ScpNotice>{notice}</ScpNotice> : null}
       {error ? <ScpError message={error} onRetry={load} /> : null}
 
-      {page && page.content.length === 0 ? (
-        <ScpEmpty message={t("scp.state.empty")} />
-      ) : page ? (
+      {page && page.content.length === 0 ? <ScpEmpty message={t("scp.state.empty")} /> : page ? (
         <div className={styles.panel}>
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <caption>{t("scp.subscriptions.count", { count: page.totalElements })}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">{t("scp.subscriptions.tenant")}</th>
-                  <th scope="col">{t("scp.subscriptions.plan")}</th>
-                  <th scope="col">{t("scp.subscriptions.items")}</th>
-                  <th scope="col">{t("scp.subscriptions.cycle")}</th>
-                  <th scope="col">{t("scp.subscriptions.recurringAmount")}</th>
-                  <th scope="col">{t("scp.subscriptions.status")}</th>
-                  <th scope="col">{t("scp.subscriptions.nextBilling")}</th>
-                  <th scope="col">{t("scp.common.actions")}</th>
-                </tr>
-              </thead>
+              <thead><tr>
+                <th scope="col">{t("scp.subscriptions.tenant")}</th>
+                <th scope="col">{t("scp.subscriptions.plan")}</th>
+                <th scope="col">{t("scp.subscriptions.items")}</th>
+                <th scope="col">{t("scp.subscriptions.cycle")}</th>
+                <th scope="col">{t("scp.subscriptions.recurringAmount")}</th>
+                <th scope="col">{t("scp.subscriptions.status")}</th>
+                <th scope="col">{t("scp.subscriptions.nextBilling")}</th>
+                <th scope="col">{t("scp.common.actions")}</th>
+              </tr></thead>
               <tbody>
                 {page.content.map((rawSubscription) => {
                   const subscription = rawSubscription as RecurringSubscriptionRow;
@@ -165,32 +260,16 @@ function SubscriptionsContent() {
                   return (
                     <tr key={subscription.id}>
                       <td data-label={t("scp.subscriptions.tenant")}>{subscription.tenantName}</td>
-                      <td data-label={t("scp.subscriptions.plan")}>
-                        {subscription.planName || "—"}
-                        {subscription.planVersion ? (
-                          <span className={styles.appCardMeta}> · {subscription.planVersion}</span>
-                        ) : null}
-                      </td>
+                      <td data-label={t("scp.subscriptions.plan")}>{subscription.planName || "—"}{subscription.planVersion ? <span className={styles.appCardMeta}> · {subscription.planVersion}</span> : null}</td>
                       <td data-label={t("scp.subscriptions.items")}>{subscription.itemCount}</td>
                       <td data-label={t("scp.subscriptions.cycle")}>{subscription.billingCycle}</td>
                       <td data-label={amountLabel}>
                         <span>{money(subscription.recurringAmountMinor ?? null, subscription.currencyCode)}</span>
                         <span className={styles.appCardMeta}> · {amountLabel}</span>
                       </td>
-                      <td data-label={t("scp.subscriptions.status")}>
-                        <ScpStatusPill value={subscription.status} />
-                        {subscription.trial ? (
-                          <span className={styles.appCardMeta}> · {t("scp.subscriptions.trial")}</span>
-                        ) : null}
-                      </td>
-                      <td data-label={t("scp.subscriptions.nextBilling")}>
-                        <NextBilling value={subscription} />
-                      </td>
-                      <td data-label={t("scp.common.actions")}>
-                        <Link href={detailHref} onClick={() => router.prefetch(detailHref)}>
-                          {intentParam === "upgrade" ? t("scp.subscriptions.continueUpgrade") : t("scp.subscriptions.details")}
-                        </Link>
-                      </td>
+                      <td data-label={t("scp.subscriptions.status")}><ScpStatusPill value={subscription.status} />{subscription.trial ? <span className={styles.appCardMeta}> · {t("scp.subscriptions.trial")}</span> : null}</td>
+                      <td data-label={t("scp.subscriptions.nextBilling")}><NextBilling value={subscription} /></td>
+                      <td data-label={t("scp.common.actions")}><Link href={detailHref} onClick={() => router.prefetch(detailHref)}>{intentParam === "upgrade" ? t("scp.subscriptions.continueUpgrade") : t("scp.subscriptions.details")}</Link></td>
                     </tr>
                   );
                 })}
@@ -207,50 +286,20 @@ function SubscriptionsContent() {
 function NextBilling({ value }: { value: SubscriptionRow }) {
   const { t } = useI18n();
   const { day } = useScpFormat();
-
-  if (!value.currentPeriodEnd) {
-    return <span>—</span>;
-  }
-
+  if (!value.currentPeriodEnd) return <span>—</span>;
   const periodEnd = day(value.currentPeriodEnd);
-  return value.cancelAtPeriodEnd ? (
-    <span className={styles.appCardMeta}>
-      {t("scp.subscriptions.cancelsAtPeriodEnd", { date: periodEnd })}
-    </span>
-  ) : (
-    <span>{periodEnd}</span>
-  );
+  return value.cancelAtPeriodEnd
+    ? <span className={styles.appCardMeta}>{t("scp.subscriptions.cancelsAtPeriodEnd", { date: periodEnd })}</span>
+    : <span>{periodEnd}</span>;
 }
 
-function GridPagination({
-  page,
-  onPage,
-}: {
-  page: PageResponse<unknown>;
-  onPage: (index: number) => void;
-}) {
+function GridPagination({ page, onPage }: { page: PageResponse<unknown>; onPage: (index: number) => void }) {
   const { t } = useI18n();
   return (
     <nav className={styles.filters} aria-label={t("scp.common.pagination")}>
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={page.page === 0}
-        onClick={() => onPage(page.page - 1)}
-      >
-        {t("scp.common.previous")}
-      </Button>
-      <span className={styles.appCardMeta}>
-        {t("scp.common.pageOf", { page: page.page + 1, total: Math.max(page.totalPages, 1) })}
-      </span>
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={page.page + 1 >= page.totalPages}
-        onClick={() => onPage(page.page + 1)}
-      >
-        {t("scp.common.next")}
-      </Button>
+      <Button variant="secondary" size="sm" disabled={page.page === 0} onClick={() => onPage(page.page - 1)}>{t("scp.common.previous")}</Button>
+      <span className={styles.appCardMeta}>{t("scp.common.pageOf", { page: page.page + 1, total: Math.max(page.totalPages, 1) })}</span>
+      <Button variant="secondary" size="sm" disabled={page.page + 1 >= page.totalPages} onClick={() => onPage(page.page + 1)}>{t("scp.common.next")}</Button>
     </nav>
   );
 }
