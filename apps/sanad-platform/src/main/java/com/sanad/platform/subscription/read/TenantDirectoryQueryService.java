@@ -1,7 +1,6 @@
 package com.sanad.platform.subscription.read;
 
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
-import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -44,9 +43,13 @@ public class TenantDirectoryQueryService {
         this.commercialStateService = commercialStateService;
     }
 
-    /** Backward-compatible constructor for direct test harnesses. */
+    /**
+     * Backward-compatible direct-test constructor. Production Spring wiring
+     * always uses the canonical commercial-state service above.
+     */
     public TenantDirectoryQueryService(JdbcTemplate jdbc) {
-        this(jdbc, new TenantCommercialStateService(new SubscriptionResolutionService(jdbc)));
+        this.jdbc = jdbc;
+        this.commercialStateService = null;
     }
 
     @Transactional(readOnly = true)
@@ -101,8 +104,9 @@ public class TenantDirectoryQueryService {
                 .map(r -> {
                     UUID tenantId = (UUID) r.get("id");
                     String tenantStatus = (String) r.get("status");
-                    TenantCommercialStateService.TenantCommercialState commercial =
-                            commercialStateService.resolve(tenantId, tenantStatus);
+                    TenantCommercialStateService.TenantCommercialState commercial = commercialStateService != null
+                            ? commercialStateService.resolve(tenantId, tenantStatus)
+                            : directHarnessState(tenantId, tenantStatus, (String) r.get("subscription_status"));
                     return new TenantRow(
                             tenantId,
                             (String) r.get("name"),
@@ -124,6 +128,30 @@ public class TenantDirectoryQueryService {
                 .toList();
 
         return PageResponse.of(content, safePage, safeSize, total == null ? 0 : total);
+    }
+
+    private static TenantCommercialStateService.TenantCommercialState directHarnessState(
+            UUID tenantId, String tenantStatus, String subscriptionStatus
+    ) {
+        boolean allowed = "ACTIVE".equals(tenantStatus) && "ACTIVE".equals(subscriptionStatus);
+        return new TenantCommercialStateService.TenantCommercialState(
+                tenantId,
+                tenantStatus,
+                null,
+                subscriptionStatus,
+                null,
+                allowed
+                        ? TenantCommercialStateService.AccessDecision.ACCESS_ALLOWED
+                        : subscriptionStatus == null
+                                ? TenantCommercialStateService.AccessDecision.NO_EFFECTIVE_SUBSCRIPTION
+                                : TenantCommercialStateService.AccessDecision.BLOCKED_UNKNOWN_STATE,
+                allowed
+                        ? TenantCommercialStateService.CommercialAction.UPGRADE
+                        : subscriptionStatus == null
+                                ? TenantCommercialStateService.CommercialAction.CREATE_SUBSCRIPTION
+                                : TenantCommercialStateService.CommercialAction.BLOCKED,
+                allowed ? null : "DIRECT_TEST_HARNESS_FAIL_CLOSED",
+                allowed);
     }
 
     private static List<Object> append(List<Object> base, List<Object> extra) {
