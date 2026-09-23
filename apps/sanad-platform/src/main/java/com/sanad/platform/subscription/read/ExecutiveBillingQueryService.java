@@ -102,7 +102,7 @@ public class ExecutiveBillingQueryService {
                        fl.finance_invoice_id,
                        fi.status AS finance_status,
                        (
-                           SELECT pa.payment_state
+                           SELECT pa.state
                            FROM subscription_billing_payment_attempts pa
                            WHERE pa.tenant_id = bi.tenant_id
                              AND pa.billing_invoice_id = bi.id
