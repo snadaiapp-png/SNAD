@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { scpApi, type PageResponse, type SubscriptionRow } from "@/lib/api/scp-api";
-import { executiveApi, type SaasPlan } from "@/lib/api/executive-api";
+import { executiveApi, type ManagedTenant, type SaasPlan } from "@/lib/api/executive-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { Button, Input } from "@/components/sds";
 import {
@@ -15,6 +15,7 @@ import {
   ScpSkeleton,
   ScpStatusPill,
 } from "../_components/ScpStates";
+import { useScpAccess } from "../_components/ScpAccess";
 import { useScpFormat } from "../_components/format";
 import { scpErrorMessage } from "../_components/scp-errors";
 import styles from "../scp.module.css";
@@ -26,14 +27,27 @@ type RecurringSubscriptionRow = SubscriptionRow & {
 
 type ContinuationIntent = "create" | "create-successor" | "resume";
 
+const ACTIVATABLE_TENANT_STATUSES = new Set([
+  "PENDING",
+  "TRIAL",
+  "PAST_DUE",
+  "SUSPENDED",
+  "CANCELLED",
+]);
+
 function continuationIntent(value: string): ContinuationIntent | null {
   return value === "create" || value === "create-successor" || value === "resume" ? value : null;
 }
 
 /**
- * Subscription grid plus the governed continuation surface for tenants whose
- * backend-derived commercial action requires CREATE, CREATE_SUCCESSOR or RESUME.
- * Unknown intents fail closed and do not expose a mutation control.
+ * Subscription grid plus governed commercial continuation.
+ *
+ * CREATE / CREATE_SUCCESSOR / RESUME are driven by backend-derived commercial
+ * actions. `intent=upgrade` is also supported for the legacy tenant-management
+ * deep link: when that tenant has no subscription yet, this page performs the
+ * explicit first-subscription orchestration using an existing ACTIVE plan,
+ * provisions the created subscription, activates an eligible tenant directory
+ * state, then opens subscription detail. Unknown intents expose no mutation.
  */
 export default function SubscriptionsPage() {
   return (
@@ -46,6 +60,8 @@ export default function SubscriptionsPage() {
 function SubscriptionsContent() {
   const { t } = useI18n();
   const { money } = useScpFormat();
+  const { has } = useScpAccess();
+  const canManage = has("EXECUTIVE_MANAGE");
   const router = useRouter();
   const searchParams = useSearchParams();
   const tenantIdParam = searchParams.get("tenantId") ?? "";
@@ -65,6 +81,15 @@ function SubscriptionsContent() {
   const [seatQuantity, setSeatQuantity] = useState(1);
   const [commercialBusy, setCommercialBusy] = useState(false);
   const requestGeneration = useRef(0);
+
+  const [upgradeTenant, setUpgradeTenant] = useState<ManagedTenant | null>(null);
+  const [upgradePlans, setUpgradePlans] = useState<SaasPlan[]>([]);
+  const [upgradePlanId, setUpgradePlanId] = useState("");
+  const [upgradeBillingCycle, setUpgradeBillingCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
+  const [upgradeSeatQuantity, setUpgradeSeatQuantity] = useState(1);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const upgradeRequestGeneration = useRef(0);
 
   const load = useCallback(async () => {
     const generation = ++requestGeneration.current;
@@ -107,6 +132,95 @@ function SubscriptionsContent() {
       });
     return () => { cancelled = true; };
   }, [governedIntent, tenantIdParam]);
+
+  const emptyUpgrade =
+    intentParam === "upgrade" &&
+    tenantIdParam.length > 0 &&
+    page !== null &&
+    page.content.length === 0;
+
+  const loadUpgradeMetadata = useCallback(async () => {
+    if (!emptyUpgrade || !canManage) return;
+    const generation = ++upgradeRequestGeneration.current;
+    setUpgradeLoading(true);
+    setError("");
+    try {
+      const [tenant, catalog] = await Promise.all([
+        executiveApi.tenant(tenantIdParam),
+        executiveApi.plans(),
+      ]);
+      if (generation !== upgradeRequestGeneration.current) return;
+      const activePlans = catalog.filter((plan) => plan.status === "ACTIVE");
+      setUpgradeTenant(tenant);
+      setUpgradePlans(activePlans);
+      setUpgradePlanId((current) =>
+        current && activePlans.some((plan) => plan.id === current)
+          ? current
+          : activePlans[0]?.id ?? "",
+      );
+    } catch (reason) {
+      if (generation === upgradeRequestGeneration.current) {
+        setError(scpErrorMessage(reason));
+      }
+    } finally {
+      if (generation === upgradeRequestGeneration.current) {
+        setUpgradeLoading(false);
+      }
+    }
+  }, [canManage, emptyUpgrade, tenantIdParam]);
+
+  useEffect(() => { void loadUpgradeMetadata(); }, [loadUpgradeMetadata]);
+
+  const selectedUpgradePlan = upgradePlans.find((plan) => plan.id === upgradePlanId) ?? null;
+  const validUpgradeSeats =
+    Number.isInteger(upgradeSeatQuantity) &&
+    upgradeSeatQuantity >= 1 &&
+    (selectedUpgradePlan?.maxUsers == null ||
+      selectedUpgradePlan.maxUsers <= 0 ||
+      upgradeSeatQuantity <= selectedUpgradePlan.maxUsers);
+
+  async function startUpgrade() {
+    if (!canManage || !upgradeTenant || !selectedUpgradePlan || !validUpgradeSeats || upgradeBusy) return;
+
+    if (upgradeTenant.status !== "ACTIVE" && !ACTIVATABLE_TENANT_STATUSES.has(upgradeTenant.status)) {
+      setError(scpErrorMessage(new Error("Tenant status cannot be activated by subscription upgrade")));
+      return;
+    }
+
+    setUpgradeBusy(true);
+    setError("");
+    try {
+      const created = await executiveApi.createSubscription({
+        tenantId: upgradeTenant.id,
+        planId: selectedUpgradePlan.id,
+        billingCycle: upgradeBillingCycle,
+        seatQuantity: upgradeSeatQuantity,
+        // Operator-requested upgrade is commercial activation, never an implicit trial.
+        trialDays: 0,
+      });
+
+      const provisioned = await scpApi.provision(created.id);
+      if (provisioned.status !== "SUCCEEDED") {
+        throw new Error("Subscription provisioning did not succeed");
+      }
+
+      if (upgradeTenant.status !== "ACTIVE") {
+        await executiveApi.changeTenantStatus(
+          upgradeTenant.id,
+          "ACTIVE",
+          "Subscription upgrade activated",
+        );
+      }
+
+      router.push(
+        `/executive/subscriptions/${created.id}?tenantId=${encodeURIComponent(upgradeTenant.id)}&intent=upgrade`,
+      );
+    } catch (reason) {
+      setError(scpErrorMessage(reason));
+    } finally {
+      setUpgradeBusy(false);
+    }
+  }
 
   async function createSubscription(successor: boolean) {
     if (!tenantIdParam || !selectedPlanId) return;
@@ -160,6 +274,72 @@ function SubscriptionsContent() {
 
   return (
     <ScpPage title={t("scp.subscriptions.title")} subtitle={t("scp.subscriptions.subtitle")}>
+      {emptyUpgrade && canManage ? (
+        upgradeLoading || !upgradeTenant ? (
+          <ScpSkeleton lines={5} />
+        ) : upgradePlans.length === 0 ? (
+          <ScpEmpty message={t("scp.state.empty")} />
+        ) : (
+          <section className={styles.panel} aria-labelledby="scp-subscription-upgrade-heading">
+            <h2 id="scp-subscription-upgrade-heading" className={styles.pageSubtitle}>
+              {t("scp.tenants.upgrade")}
+            </h2>
+            <p className={styles.appCardMeta}>
+              {upgradeTenant.name} · <ScpStatusPill value={upgradeTenant.status} />
+            </p>
+            <div className={styles.filters}>
+              <label className={styles.appCardMeta}>
+                <span>{t("scp.detail.targetPlan")}</span>
+                <select
+                  value={upgradePlanId}
+                  onChange={(event) => setUpgradePlanId(event.target.value)}
+                  aria-label={t("scp.detail.targetPlan")}
+                  disabled={upgradeBusy}
+                >
+                  {upgradePlans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>{plan.name} ({plan.code})</option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.appCardMeta}>
+                <span>{t("scp.subscriptions.cycle")}</span>
+                <select
+                  value={upgradeBillingCycle}
+                  onChange={(event) => setUpgradeBillingCycle(event.target.value as "MONTHLY" | "ANNUAL")}
+                  aria-label={t("scp.subscriptions.cycle")}
+                  disabled={upgradeBusy}
+                >
+                  <option value="MONTHLY">MONTHLY</option>
+                  <option value="ANNUAL">ANNUAL</option>
+                </select>
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={selectedUpgradePlan?.maxUsers && selectedUpgradePlan.maxUsers > 0
+                  ? selectedUpgradePlan.maxUsers
+                  : undefined}
+                value={String(upgradeSeatQuantity)}
+                label={t("scp.detail.seats")}
+                aria-label={t("scp.detail.seats")}
+                onChange={(event) => setUpgradeSeatQuantity(Number(event.target.value))}
+                disabled={upgradeBusy}
+              />
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                loading={upgradeBusy}
+                disabled={!upgradePlanId || !validUpgradeSeats}
+                onClick={() => void startUpgrade()}
+              >
+                {t("scp.tenants.upgrade")}
+              </Button>
+            </div>
+          </section>
+        )
+      ) : null}
+
       {(governedIntent === "create" || governedIntent === "create-successor") && tenantIdParam ? (
         <section className={styles.panel} aria-label={t("scp.subscriptions.create.section")}>
           <div className={styles.filters}>
@@ -229,9 +409,9 @@ function SubscriptionsContent() {
       </form>
 
       {notice ? <ScpNotice>{notice}</ScpNotice> : null}
-      {error ? <ScpError message={error} onRetry={load} /> : null}
+      {error ? <ScpError message={error} onRetry={emptyUpgrade ? loadUpgradeMetadata : load} /> : null}
 
-      {page && page.content.length === 0 ? <ScpEmpty message={t("scp.state.empty")} /> : page ? (
+      {page && page.content.length === 0 && !emptyUpgrade ? <ScpEmpty message={t("scp.state.empty")} /> : page && page.content.length > 0 ? (
         <div className={styles.panel}>
           <div className={styles.tableWrap}>
             <table className={styles.table}>
