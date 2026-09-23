@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import importlib.util
 import tempfile
 import unittest
@@ -35,6 +36,24 @@ class LogoGovernanceTest(unittest.TestCase):
                 "apps/web/components/sds/SnadLogo.tsx",
             )
             self.assertEqual([], violations)
+
+    def test_official_wordmark_integrity_rejects_missing_asset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            violations = module.check_official_wordmark_integrity(repo_root)
+            self.assertEqual(1, len(violations))
+            self.assertIn("OFFICIAL_WORDMARK_MISSING", violations[0])
+
+    def test_official_wordmark_integrity_rejects_wrong_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            asset = repo_root / module.OFFICIAL_WORDMARK_PATH
+            asset.parent.mkdir(parents=True)
+            asset.write_bytes(b"not-the-approved-logo")
+            violations = module.check_official_wordmark_integrity(repo_root)
+            self.assertEqual(1, len(violations))
+            self.assertIn("OFFICIAL_WORDMARK_HASH_MISMATCH", violations[0])
+            self.assertIn(hashlib.sha256(asset.read_bytes()).hexdigest(), violations[0])
 
 
 if __name__ == "__main__":
