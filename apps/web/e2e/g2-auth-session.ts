@@ -107,18 +107,26 @@ export async function loginThroughUi(
 
 /**
  * Log out the current session via the workspace UI logout button.
- * Falls back to clearing browser context if the logout button is not found.
+ *
+ * Fail-closed contract: if the logout button cannot be located within a
+ * short deterministic timeout, the helper fails the test rather than
+ * silently falling back to clearing storage. The directive §6 forbids
+ * swallowed errors / soft fallback in required G2 certification paths.
+ *
+ * The implementation uses an explicit locator assertion (not isVisible().catch())
+ * so a missing logout button surfaces as a Playwright timeout failure
+ * (deterministic), not a silent skip.
  */
 export async function logoutThroughUi(page: Page): Promise<void> {
-  // Try clicking a logout button if visible; otherwise clear storage.
-  const logoutBtn = page.locator('button:has-text("Logout"), button:has-text("Sign out"), [data-testid="logout"]');
-  if (await logoutBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await logoutBtn.click();
-    await page.waitForURL(/\/auth/, { timeout: 10_000 }).catch(() => {});
-  } else {
-    await page.context().clearCookies();
-    await page.evaluate(() => window.localStorage.clear());
-  }
+  // Deterministic locator — covers the canonical workspace logout affordance.
+  // The 5s timeout is generous enough for slow CI runners but bounded so a
+  // missing logout button fails the test rather than hanging indefinitely.
+  const logoutBtn = page.locator(
+    'button:has-text("Logout"), button:has-text("Sign out"), button:has-text("Log out"), [data-testid="logout"]'
+  );
+  await logoutBtn.first().click({ timeout: 5_000 });
+  // Wait for navigation back to an auth surface (login or auth root).
+  await page.waitForURL(/\/auth/, { timeout: 10_000 });
 }
 
 /**

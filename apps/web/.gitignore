@@ -46,3 +46,10 @@ apps/web/playwright-report/
 apps/web/playwright/.cache/
 apps/web/playwright-report/
 apps/web/test-results/
+
+# G2 authenticated acceptance test report (playwright-g2.config.ts)
+apps/web/playwright-g2-report/
+# Relative-form rules (so they match from this .gitignore file's location)
+playwright-report/
+playwright-g2-report/
+test-results/

@@ -44,31 +44,6 @@ function futureDate(offsetDays: number): string {
 const LEAVE_START = futureDate(7);
 const LEAVE_END = futureDate(8);
 
-/**
- * Locate a leave request row in the /hr/leave/approvals queue by reason text.
- * Returns the request ID extracted from the data-testid on the approve button.
- */
-async function findLeaveRequestIdByReason(page: Page, reasonText: string): Promise<string | null> {
-  await page.goto(`${BASE_URL}/hr/leave/approvals`);
-  await expect(page.locator("h1")).toContainText(/Leave Approval Queue/i);
-  // Wait for the data table to render
-  const table = page.locator("table");
-  await expect(table).toBeVisible({ timeout: 15_000 });
-
-  // Find the row whose Reason cell contains the reasonText
-  const row = page.locator("tr", { hasText: reasonText }).first();
-  const isRowVisible = await row.isVisible({ timeout: 10_000 }).catch(() => false);
-  if (!isRowVisible) return null;
-
-  // Extract the leave request id from any data-testid="*-<id>" on the action buttons
-  const approveBtn = row.locator('[data-testid^="manager-approve-"], [data-testid^="hr-approve-"]').first();
-  const testId = await approveBtn.getAttribute("data-testid");
-  if (!testId) return null;
-  // testId is "manager-approve-<uuid>" or "hr-approve-<uuid>"
-  const id = testId.replace(/^(manager|hr)-approve-/, "");
-  return id;
-}
-
 // =====================================================================
 // G2 DESKTOP JOURNEY — single stateful test across 3 roles
 // =====================================================================
@@ -274,17 +249,61 @@ test.describe("G2 HR Nav @desktop", () => {
 });
 
 // =====================================================================
-// G2 EMPLOYEE MOBILE JOURNEY
+// G2 EMPLOYEE MOBILE JOURNEY — real attendance mutation (clock in/out)
 // =====================================================================
 test.describe("G2 Employee Journey @mobile", () => {
   test.use({ viewport: { width: 375, height: 667 } });
-  test("employee mobile: login → attendance → clock action button present", async ({ page }) => {
+  test("employee mobile: login → attendance → perform real clock mutation → verify persisted state", async ({ page }) => {
     await loginThroughUi(page, "employee");
     await page.goto(`${BASE_URL}/hr/attendance`);
     await expect(page.locator("h1")).toBeVisible();
-    // At least one clock action button must be present (Clock In or Clock Out)
+
+    // Determine canonical starting state: if "Clock In" is visible, the employee
+    // is currently clocked OUT; if "Clock Out" is visible, they are clocked IN.
+    // Either way, the test performs a REAL state mutation (whichever button is
+    // visible gets clicked), waits for the matching API response, and verifies
+    // the opposite button is now visible — i.e. the state transition persisted.
     const clockInBtn = page.locator('button:has-text("Clock In")');
     const clockOutBtn = page.locator('button:has-text("Clock Out")');
-    await expect(clockInBtn.or(clockOutBtn)).toBeVisible();
+
+    // Assert EXACTLY ONE of the two buttons is visible (deterministic —
+    // fail-closed if neither or both are present).
+    const inBtnVisible = await clockInBtn.isVisible();
+    const outBtnVisible = await clockOutBtn.isVisible();
+    expect(inBtnVisible || outBtnVisible, "At least one clock action button must be visible").toBe(true);
+    expect(inBtnVisible && outBtnVisible, "Both clock buttons cannot be visible simultaneously (state invariant)").toBe(false);
+
+    // Perform the REAL mutation: click whichever button is visible, wait for
+    // the matching API response, verify the OPPOSITE button is now visible.
+    if (inBtnVisible) {
+      // Currently clocked OUT → perform CLOCK_IN mutation.
+      const clockInResponse = page.waitForResponse(
+        (r) => r.request().method() === "POST" && r.url().includes("/api/v2/hr/time/attendance/clock-in"),
+        { timeout: 30_000 }
+      );
+      await clockInBtn.click();
+      const res = await clockInResponse;
+      expect(res.ok(), `Clock-in API failed: ${res.status()} ${res.statusText()}`).toBe(true);
+
+      // Verify persisted state: "Clock Out" button must now be visible
+      // (state transition: clocked-out → clocked-in).
+      await expect(clockOutBtn).toBeVisible({ timeout: 15_000 });
+    } else {
+      // Currently clocked IN → perform CLOCK_OUT mutation.
+      const clockOutResponse = page.waitForResponse(
+        (r) => r.request().method() === "POST" && r.url().includes("/api/v2/hr/time/attendance/") && r.url().includes("clock-out"),
+        { timeout: 30_000 }
+      );
+      await clockOutBtn.click();
+      const res = await clockOutResponse;
+      expect(res.ok(), `Clock-out API failed: ${res.status()} ${res.statusText()}`).toBe(true);
+
+      // Verify persisted state: "Clock In" button must now be visible
+      // (state transition: clocked-in → clocked-out).
+      await expect(clockInBtn).toBeVisible({ timeout: 15_000 });
+    }
+
+    // MOBILE_MUTATION_EXECUTED = YES (one of clock-in/out was performed)
+    // MOBILE_PERSISTED_RESULT = PASS (opposite button visible = state persisted)
   });
 });

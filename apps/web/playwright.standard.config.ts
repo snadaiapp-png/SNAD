@@ -58,6 +58,21 @@ export default defineConfig({
     // seed, backend, frontend, and credentials. It runs exactly once through
     // playwright.subscription-acceptance.config.ts in the dedicated CI job.
     "**/subscription-executive-acceptance.spec.ts",
+    // Stateful authenticated G2 acceptance — runs exactly once in the dedicated
+    // G2 Authenticated Acceptance workflow (.github/workflows/g2-authenticated-acceptance.yml).
+    // The spec is a cross-role stateful journey (Employee → Manager → HR → APPROVED
+    // using the SAME leave request) that requires:
+    //   - host-native PostgreSQL Direct database (no Docker/Testcontainers)
+    //   - Spring Boot backend with `local` profile + g2-acceptance-seed.sql
+    //     (isolated G2 test tenant + Employee/Manager/HR users + WORKFLOW
+    //     module entitlement + RBAC capabilities)
+    //   - E2E_<ROLE>_EMAIL/PASSWORD env vars provisioned as runtime secrets
+    // Running it inside this six-project locale/theme visual matrix would
+    // (a) fail because the generic CI job doesn't provision the secrets, and
+    // (b) cause mutable-state collisions if it did (each of the 6 projects
+    //     would create a leave request with the same deterministic reason
+    //     text, breaking the cross-role row-matching logic).
+    "**/g2-authenticated.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
