@@ -23,6 +23,8 @@ public class TenantCommercialStateService {
 
     private static final Set<String> KNOWN_TENANT_STATUSES = Set.of(
             "PENDING", "TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED", "ARCHIVED");
+    private static final Set<String> KNOWN_BILLING_STATES = Set.of(
+            "TRIALING", "CURRENT", "PAST_DUE", "SUSPENDED", "CANCELLED");
 
     private final SubscriptionResolutionService resolution;
 
@@ -125,6 +127,40 @@ public class TenantCommercialStateService {
             EffectiveSubscription subscription
     ) {
         String status = normalize(subscription.status());
+        String billingState = normalize(subscription.billingState());
+
+        if (billingState.isEmpty()) {
+            return state(tenantId, tenantStatus, subscription,
+                    AccessDecision.BLOCKED_UNKNOWN_STATE, CommercialAction.BLOCKED,
+                    "MISSING_BILLING_STATE", false);
+        }
+        if (!KNOWN_BILLING_STATES.contains(billingState)) {
+            return state(tenantId, tenantStatus, subscription,
+                    AccessDecision.BLOCKED_UNKNOWN_STATE, CommercialAction.BLOCKED,
+                    "UNKNOWN_BILLING_STATE", false);
+        }
+        if ("CANCELLED".equals(billingState)) {
+            return state(tenantId, tenantStatus, subscription,
+                    AccessDecision.BLOCKED_UNKNOWN_STATE, CommercialAction.BLOCKED,
+                    "BILLING_LIFECYCLE_MISMATCH", false);
+        }
+        if ("SUSPENDED".equals(billingState)) {
+            return state(tenantId, tenantStatus, subscription,
+                    AccessDecision.SUBSCRIPTION_SUSPENDED, CommercialAction.NONE,
+                    "BILLING_STATE_SUSPENDED", false);
+        }
+        if ("PAST_DUE".equals(billingState)) {
+            return state(tenantId, tenantStatus, subscription,
+                    AccessDecision.SUBSCRIPTION_PAST_DUE, CommercialAction.NONE,
+                    "BILLING_STATE_PAST_DUE", false);
+        }
+        if ("TRIALING".equals(billingState)
+                && !Set.of("TRIAL", "TRIALING").contains(status)) {
+            return state(tenantId, tenantStatus, subscription,
+                    AccessDecision.BLOCKED_UNKNOWN_STATE, CommercialAction.BLOCKED,
+                    "BILLING_LIFECYCLE_MISMATCH", false);
+        }
+
         return switch (status) {
             case "ACTIVE" -> state(tenantId, tenantStatus, subscription,
                     AccessDecision.ACCESS_ALLOWED, CommercialAction.UPGRADE, null, true);
