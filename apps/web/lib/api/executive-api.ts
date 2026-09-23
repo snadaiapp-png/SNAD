@@ -49,6 +49,14 @@ export interface TenantSubscription {
   createdAt: string; updatedAt: string;
 }
 
+export interface CreateSubscriptionInput {
+  tenantId: string;
+  planId: string;
+  billingCycle: "MONTHLY" | "ANNUAL";
+  seatQuantity: number;
+  trialDays?: number | null;
+}
+
 export interface BillingInvoice {
   id: string; tenantId: string; tenantName: string; subscriptionId: string;
   invoiceNumber: string; status: string; currencyCode: string;
@@ -123,6 +131,8 @@ export const executiveApi = {
     ),
   plans: () => apiClient.get<SaasPlan[]>(`${root}/plans`),
   subscriptions: () => apiClient.get<TenantSubscription[]>(`${root}/subscriptions`),
+  createSubscription: (body: CreateSubscriptionInput) =>
+    apiClient.post<TenantSubscription, CreateSubscriptionInput>(`${root}/subscriptions`, body),
   cancelSubscription: (subscriptionId: string, body: { immediate: boolean; reason: string }) =>
     apiClient.patch<TenantSubscription, typeof body>(`${root}/subscriptions/${subscriptionId}/cancel`, body),
   resumeSubscription: (subscriptionId: string) =>
