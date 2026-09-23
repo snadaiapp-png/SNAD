@@ -32,7 +32,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Start host-native PostgreSQL
         run: |
           set -euo pipefail
@@ -43,7 +42,6 @@ jobs:
             sleep 1
           done
           pg_isready -h 127.0.0.1 -p 5432
-
       - name: Provision least-privilege application databases
         run: |
           sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
@@ -69,28 +67,24 @@ jobs:
           \c test_migration
           GRANT USAGE, CREATE ON SCHEMA public TO sanad;
           SQL
-
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: temurin
           cache: maven
-
       - name: Generate ephemeral CRM encryption key
         shell: bash
         run: |
           key="$(openssl rand -base64 32 | tr -d '\n')"
           echo "::add-mask::$key"
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
-
       - name: Run convergence-focused tests
         run: >-
           mvn -B -ntp test
           -Dsurefire.useFile=false
           -Dsurefire.failIfNoSpecifiedTests=false
           -Dtest='TenantCommercialStateServiceTest,TenantDirectoryCommercialStatePostgresTest,ExecutiveReadModelsTest,ExecutivePlatformLoginLinkTest,PlatformOperationsTenantManagementContractTest,ExecutiveTenantProvisioningPostgresTest,*SubscriptionContinuation*Test,*RecurringPrice*Test,*ExecutiveBilling*Test,*ConsistencyDiagnostic*Test,BillingStateConvergencePostgresTest'
-
       - name: Upload focused reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -118,11 +112,13 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Run focused web tests when present
+      - name: Run focused web tests
         run: >-
           npm test -- --run
           app/executive/tenants/tenant-management.test.tsx
           app/executive/tenants/tenant-commercial-actions.test.tsx
+          app/executive/subscriptions/subscription-recurring-amount.test.tsx
+          app/executive/subscriptions/subscription-continuation-actions.test.tsx
           app/executive/billing/billing-page.test.tsx
         env:
           CI: 'true'
