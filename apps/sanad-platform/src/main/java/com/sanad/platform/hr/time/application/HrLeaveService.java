@@ -153,26 +153,36 @@ public class HrLeaveService {
     }
 
     /**
-     * Manager approve: approve the canonical WorkflowApprovalRequest,
-     * then let Y2 graph advance to HR_APPROVAL step.
-     * Only update HR state AFTER workflow progression succeeds.
+     * Manager approve: verify current step, approve canonical approval,
+     * verify graph advanced to hr_approval, then update HR state.
      */
     @Transactional
     public void managerApprove(UUID tenantId, UUID requestId, UUID managerId,
                                HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
         UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
 
-        // Find the pending Manager approval via the canonical adapter
+        // Verify current step is manager_approval
+        String currentStep = workflowAdapter.getCurrentStepKey(tenantId, workflowInstanceId);
+        if (!"manager_approval".equals(currentStep)) {
+            throw new IllegalStateException(
+                "HRM_INVALID_STATE: expected manager_approval step, got " + currentStep);
+        }
+
+        // Find and approve the pending Manager approval
         Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApproval(tenantId, workflowInstanceId);
         if (pending.isEmpty()) {
             throw new IllegalStateException("HRM_INVALID_STATE: no pending workflow approval found");
         }
-
-        // Approve through the canonical WorkflowApprovalService
-        // The Y2 graph will auto-advance to the HR_APPROVAL step
         workflowAdapter.approveApproval(tenantId, pending.get().id(), managerId, request.comment());
 
-        // Only now update HR state — workflow progression succeeded
+        // VERIFY graph advanced to hr_approval — reload workflow instance
+        String newStep = workflowAdapter.getCurrentStepKey(tenantId, workflowInstanceId);
+        if (!"hr_approval".equals(newStep) && !workflowAdapter.isTerminal(tenantId, workflowInstanceId)) {
+            throw new IllegalStateException(
+                "HRM_WORKFLOW_INCONSISTENT: expected hr_approval after manager approve, got " + newStep);
+        }
+
+        // Only now update HR state — workflow progression verified
         transitionState(tenantId, requestId, "PENDING_MANAGER", "PENDING_HR",
                 managerId, request.comment(), clock.instant());
         updateWorkflowStep(tenantId, requestId, "HR_APPROVAL");
@@ -180,75 +190,98 @@ public class HrLeaveService {
     }
 
     /**
-     * Manager reject: reject the canonical WorkflowApprovalRequest.
-     * Y2 graph resolves the rejection. Then update HR state + release ledger.
+     * Manager reject: verify current step, reject canonical approval,
+     * verify graph reached rejected terminal, then update HR state.
      */
     @Transactional
     public void managerReject(UUID tenantId, UUID requestId, UUID managerId,
                               HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
         UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
+        String currentStep = workflowAdapter.getCurrentStepKey(tenantId, workflowInstanceId);
+        if (!"manager_approval".equals(currentStep)) {
+            throw new IllegalStateException(
+                "HRM_INVALID_STATE: expected manager_approval step, got " + currentStep);
+        }
+
         Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApproval(tenantId, workflowInstanceId);
         if (pending.isEmpty()) {
             throw new IllegalStateException("HRM_INVALID_STATE: no pending workflow approval found");
         }
-
-        // Reject through the canonical WorkflowApprovalService — Y2 graph resolves
         workflowAdapter.rejectApproval(tenantId, pending.get().id(), managerId, request.reason());
 
-        // Update HR state
+        // Verify workflow reached terminal (rejected path)
+        if (!workflowAdapter.isTerminal(tenantId, workflowInstanceId)) {
+            throw new IllegalStateException(
+                "HRM_WORKFLOW_INCONSISTENT: workflow not terminal after manager reject");
+        }
+
         transitionState(tenantId, requestId, "PENDING_MANAGER", "REJECTED",
                 managerId, request.reason(), clock.instant());
-
-        // Release ledger reservation
         var reqData = getRequestData(tenantId, requestId);
         ledgerService.release(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
         writeAuditAndOutbox(tenantId, "LeaveRejected", requestId, managerId);
     }
 
     /**
-     * HR approve: approve the canonical HR WorkflowApprovalRequest.
-     * Y2 graph reaches terminal (COMPLETED). Then update HR state + consume ledger.
+     * HR approve: verify current step, approve canonical approval,
+     * verify workflow COMPLETED (terminal approved), then update HR state + consume ledger.
      */
     @Transactional
     public void hrApprove(UUID tenantId, UUID requestId, UUID hrUserId,
                           HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
         UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
+        String currentStep = workflowAdapter.getCurrentStepKey(tenantId, workflowInstanceId);
+        if (!"hr_approval".equals(currentStep)) {
+            throw new IllegalStateException(
+                "HRM_INVALID_STATE: expected hr_approval step, got " + currentStep);
+        }
+
         Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApproval(tenantId, workflowInstanceId);
         if (pending.isEmpty()) {
             throw new IllegalStateException("HRM_INVALID_STATE: no pending workflow approval found");
         }
-
-        // Approve through the canonical WorkflowApprovalService
-        // Y2 graph auto-completes to terminal approved state — NO manual complete() call
         workflowAdapter.approveApproval(tenantId, pending.get().id(), hrUserId, request.comment());
 
-        // Update HR state
+        // VERIFY workflow reached COMPLETED (terminal approved) — NOT just any terminal
+        if (!workflowAdapter.isCompleted(tenantId, workflowInstanceId)) {
+            throw new IllegalStateException(
+                "HRM_WORKFLOW_INCONSISTENT: workflow not COMPLETED after HR approve");
+        }
+
         transitionState(tenantId, requestId, "PENDING_HR", "APPROVED",
                 hrUserId, request.comment(), clock.instant());
-
-        // Consume ledger reservation exactly once
         var reqData = getRequestData(tenantId, requestId);
         ledgerService.consume(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
         writeAuditAndOutbox(tenantId, "LeaveHrApproved", requestId, hrUserId);
     }
 
     /**
-     * HR reject: reject the canonical HR WorkflowApprovalRequest.
+     * HR reject: verify current step, reject canonical approval,
+     * verify graph reached rejected terminal, then update HR state.
      */
     @Transactional
     public void hrReject(UUID tenantId, UUID requestId, UUID hrUserId,
                          HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
         UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
+        String currentStep = workflowAdapter.getCurrentStepKey(tenantId, workflowInstanceId);
+        if (!"hr_approval".equals(currentStep)) {
+            throw new IllegalStateException(
+                "HRM_INVALID_STATE: expected hr_approval step, got " + currentStep);
+        }
+
         Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApproval(tenantId, workflowInstanceId);
         if (pending.isEmpty()) {
             throw new IllegalStateException("HRM_INVALID_STATE: no pending workflow approval found");
         }
-
         workflowAdapter.rejectApproval(tenantId, pending.get().id(), hrUserId, request.reason());
+
+        if (!workflowAdapter.isTerminal(tenantId, workflowInstanceId)) {
+            throw new IllegalStateException(
+                "HRM_WORKFLOW_INCONSISTENT: workflow not terminal after HR reject");
+        }
 
         transitionState(tenantId, requestId, "PENDING_HR", "REJECTED",
                 hrUserId, request.reason(), clock.instant());
-
         var reqData = getRequestData(tenantId, requestId);
         ledgerService.release(tenantId, (UUID) reqData[1], (UUID) reqData[0], (BigDecimal) reqData[2], requestId);
         writeAuditAndOutbox(tenantId, "LeaveRejected", requestId, hrUserId);
