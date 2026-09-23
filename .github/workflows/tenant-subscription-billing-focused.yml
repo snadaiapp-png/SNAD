@@ -135,5 +135,8 @@ jobs:
           app/executive/subscriptions/subscription-recurring-amount.test.tsx
           app/executive/subscriptions/subscription-continuation-actions.test.tsx
           app/executive/billing/billing-page.test.tsx
+          lib/api/subscription-row-commercial-contract.test.ts
         env:
           CI: 'true'
+      - name: Typecheck commercial web contract
+        run: npm run typecheck
