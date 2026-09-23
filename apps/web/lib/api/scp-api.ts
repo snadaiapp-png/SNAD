@@ -44,6 +44,27 @@ export interface ScpOverview {
 }
 
 // ── Tenants ──────────────────────────────────────────────────────────
+export type AccessDecision =
+  | "ACCESS_ALLOWED"
+  | "TENANT_NOT_ACTIVE"
+  | "NO_EFFECTIVE_SUBSCRIPTION"
+  | "SUBSCRIPTION_TRIAL"
+  | "SUBSCRIPTION_PAST_DUE"
+  | "SUBSCRIPTION_SUSPENDED"
+  | "SUBSCRIPTION_PAUSED"
+  | "SUBSCRIPTION_PENDING"
+  | "SUBSCRIPTION_TERMINAL"
+  | "AMBIGUOUS_EFFECTIVE_SUBSCRIPTION"
+  | "BLOCKED_UNKNOWN_STATE";
+
+export type CommercialAction =
+  | "UPGRADE"
+  | "RESUME"
+  | "CREATE_SUBSCRIPTION"
+  | "CREATE_SUCCESSOR"
+  | "NONE"
+  | "BLOCKED";
+
 export interface TenantRow {
   id: string;
   name: string;
@@ -52,7 +73,14 @@ export interface TenantRow {
   countryCode: string | null;
   currencyCode: string | null;
   subscriptionCount: number;
+  /** Canonical current/effective subscription status; terminal history is excluded. */
   subscriptionStatus: string | null;
+  effectiveSubscriptionId: string | null;
+  billingState: string | null;
+  accessDecision: AccessDecision;
+  commercialAction: CommercialAction;
+  anomalyCode: string | null;
+  loginAllowed: boolean;
   createdAt: string;
 }
 
@@ -171,14 +199,19 @@ export interface SubscriptionRow {
   tenantName: string;
   tenantCountry: string | null;
   status: string;
-  billingCycle: string;
+  billingCycle: "MONTHLY" | "ANNUAL";
   seatQuantity: number;
   planId: string | null;
   planName: string | null;
   planCode: string | null;
   planVersion: string | null;
   currencyCode: string | null;
-  monthlyPriceMinor: number | null;
+  /** Actual recurring charge for the subscription billing cycle. */
+  recurringAmountMinor: number | null;
+  /** Explicit analytical monthly equivalent; never use as the invoice charge. */
+  monthlyEquivalentMinor: number | null;
+  /** @deprecated Compatibility alias of monthlyEquivalentMinor. */
+  monthlyPriceMinor?: number | null;
   itemCount: number;
   trial: boolean;
   cancelAtPeriodEnd: boolean;
