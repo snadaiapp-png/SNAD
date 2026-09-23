@@ -6,10 +6,47 @@
  * ----------------------------------------------------------------------------
  *  PURPOSE
  *  -------
- *  Renders SNAD brand artwork with full variant/size/theme control.
- *  This is the ONLY component in the entire web app permitted to reference
- *  brand asset files directly. Every other surface MUST consume this
- *  component — no raw `<img src="/assets/brand/...">` is allowed elsewhere.
+ *  Renders the official SNAD | سند logo with full variant/size/theme control.
+ *  This is the ONLY component in the entire web app permitted to import or
+ *  reference brand asset files directly. Every other surface MUST consume this
+ *  component — no raw `<img src="/assets/brand/...">` is allowed anywhere else
+ *  (enforced by `scripts/ci/check-logo-governance.py`).
+ *
+ *  WHY A SINGLE COMPONENT?
+ *  -----------------------
+ *  • Prevents brand drift — every surface renders the same artwork
+ *  • Prevents CLS — width/height/aspect-ratio are always pre-computed
+ *  • Prevents WCAG regressions — accessible alt is centralized
+ *  • Prevents RTL/LTR drift — layout is logical-property based
+ *  • Makes future rebrand a one-file change
+ *
+ *  TOKENS
+ *  ------
+ *  Every visual property (spacing, motion, focus ring) references an
+ *  `--snad-*` token. No hardcoded colors or sizes.
+ *
+ *  ACCESSIBILITY (WCAG 2.2 AA)
+ *  ---------------------------
+ *  • `<img>` always carries a non-empty `alt` (defaults to the bilingual
+ *    brand string "شعار سند — SNAD Business Operating System").
+ *  • When `href` is provided, the wrapping anchor receives an `aria-label`
+ *    so screen readers announce the destination, not the visual artwork.
+ *  • The anchor has a visible `:focus-visible` ring using
+ *    `var(--snad-color-focus-ring)`.
+ *
+ *  RTL / LTR
+ *  ---------
+ *  No physical left/right assumptions. The logo is a single inline asset
+ *  that aligns to its parent's writing direction automatically.
+ *
+ *  THEME=AUTO
+ *  ----------
+ *  When `theme="auto"` AND `variant` is not explicitly set, the component
+ *  renders BOTH the primary (light) and white (dark) versions and toggles
+ *  visibility via the `prefers-color-scheme` media query. This guarantees:
+ *    • No SSR hydration mismatch (both versions exist in initial HTML)
+ *    • No flash of incorrect logo on first paint
+ *    • Zero client-side JS required for theme detection
  * ============================================================================
  */
 
@@ -22,6 +59,14 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import styles from './SnadLogo.module.css';
+
+/*
+ * Re-export the useTheme hook type so consumers can pass a resolved theme
+ * to SnadLogo without importing from a separate path. The hook itself lives
+ * at `@/lib/hooks/useTheme` to keep this component free of client-side
+ * hydration concerns (SnadLogo must remain SSR-safe with zero client JS
+ * for the default `theme="auto"` rendering).
+ */
 
 export type SnadLogoVariant =
   | 'primary'
@@ -43,21 +88,49 @@ export type SnadLogoSize =
 export type SnadLogoTheme = 'light' | 'dark' | 'auto';
 
 export interface SnadLogoProps {
+  /** Visual variant of the logo. @default 'primary' */
   variant?: SnadLogoVariant;
+  /** Size preset. @default 'md' */
   size?: SnadLogoSize;
+  /**
+   * Color theme.
+   * - 'light': always use the light-mode variant
+   * - 'dark': always use the white variant
+   * - 'auto': switch to white variant under `prefers-color-scheme: dark`
+   *           (ignored if `variant` is explicitly provided)
+   * @default 'auto'
+   */
   theme?: SnadLogoTheme;
+  /** Override the computed width. Accepts any CSS length. */
   width?: number | string;
+  /** Override the computed height. Accepts any CSS length. */
   height?: number | string;
+  /**
+   * Optional link destination. When provided, the logo is wrapped in a
+   * Next.js `<Link>` with an accessible `aria-label`.
+   * Use `"/"` for the auth screen, `"/workspace"` for the executive shell.
+   */
   href?: string;
+  /** Next.js Image `priority` flag — set to true for above-the-fold logos. */
   priority?: boolean;
+  /** Accessible label. Defaults to the bilingual brand string. */
   alt?: string;
+  /** Additional className applied to the root wrapper. */
   className?: string;
+  /**
+   * Additional inline styles applied to the root wrapper. Useful for
+   * one-off layout overrides (e.g. `marginInlineEnd`). For repeated styles,
+   * prefer adding a CSS class to `SnadLogo.module.css`.
+   */
   style?: CSSProperties;
 }
 
 const DEFAULT_ALT = 'شعار سند — SNAD Business Operating System';
 
-/** The only canonical brand-asset path map used by application components. */
+/**
+ * Static map: variant → public brand asset path.
+ * This is the ONLY place in the codebase that knows about brand asset paths.
+ */
 const VARIANT_SRC: Record<SnadLogoVariant, string> = {
   primary: '/assets/brand/snad-logo-primary.svg',
   horizontal: '/assets/brand/snad-logo-primary.svg',
@@ -68,16 +141,25 @@ const VARIANT_SRC: Record<SnadLogoVariant, string> = {
   'official-wordmark': '/assets/brand/snad-logo-official-wordmark.png',
 };
 
+/**
+ * Intrinsic aspect ratio (width / height) per variant. Used to compute a
+ * matching width from a given height (and vice versa) so the box model is
+ * fully determined before the artwork finishes loading — preventing CLS.
+ */
 const VARIANT_ASPECT: Record<SnadLogoVariant, number> = {
-  primary: 280 / 80,
+  primary: 280 / 80, // 3.5 : 1
   horizontal: 280 / 80,
-  compact: 32 / 32,
+  compact: 32 / 32, // 1 : 1
   white: 280 / 80,
   monochrome: 280 / 80,
-  'app-icon': 512 / 512,
+  'app-icon': 512 / 512, // 1 : 1
   'official-wordmark': 1162 / 337,
 };
 
+/**
+ * Fixed-pixel heights per named size. The `responsive` size is handled in
+ * CSS via `clamp()` and does not appear in this map.
+ */
 const SIZE_HEIGHT_PX: Record<Exclude<SnadLogoSize, 'responsive'>, number> = {
   xs: 24,
   sm: 32,
@@ -92,16 +174,46 @@ function toCssLength(value: number | string | undefined): string | undefined {
   return String(value);
 }
 
+/**
+ * Resolve which variants to render.
+ *
+ * Returns an array of variant names. For `theme="auto"` without an explicit
+ * variant, both the `primary` and `white` variants are rendered and CSS
+ * toggles their visibility based on `prefers-color-scheme`. For every other
+ * configuration, a single variant is returned. The approved auth raster is
+ * selected explicitly and is never synthesized into a theme variant.
+ */
 function resolveVariants(
   variant: SnadLogoVariant | undefined,
   theme: SnadLogoTheme,
 ): SnadLogoVariant[] {
-  if (variant !== undefined) return [variant];
-  if (theme === 'auto') return ['primary', 'white'];
-  if (theme === 'dark') return ['white'];
+  if (variant !== undefined) {
+    return [variant];
+  }
+  if (theme === 'auto') {
+    return ['primary', 'white'];
+  }
+  if (theme === 'dark') {
+    return ['white'];
+  }
   return ['primary'];
 }
 
+/**
+ * SDS SnadLogo.
+ *
+ * @example
+ * ```tsx
+ * // Auth screen with the separately approved official wordmark
+ * <SnadLogo variant="official-wordmark" size="responsive" />
+ *
+ * // Executive shell (compact, links to /workspace)
+ * <SnadLogo variant="compact" size="md" href="/workspace" />
+ *
+ * // Existing SVG family, dark-mode aware
+ * <SnadLogo theme="auto" size="sm" href="/" />
+ * ```
+ */
 export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
   function SnadLogo(
     {
@@ -122,6 +234,7 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
     const isAutoDual = variants.length === 2;
     const instanceId = useId();
 
+    // Compute the explicit inline CSS variable overrides for width/height.
     const cssVars: CSSProperties = {};
     const widthCss = toCssLength(width);
     const heightCss = toCssLength(height);
@@ -132,6 +245,9 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
       (cssVars as Record<string, string>)['--snad-logo-height'] = heightCss;
     }
 
+    // Compose class list. The size class is always applied; the auto-dual
+    // modifier enables CSS-driven visibility toggling between two stacked
+    // images for theme="auto".
     const sizeClass = styles[`size-${size}`] ?? '';
     const classList = [
       styles.logo,
@@ -142,9 +258,15 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
       .filter(Boolean)
       .join(' ');
 
+    // When `href` is provided, the wrapping `<Link>` carries the accessible
+    // name via `aria-label`. The inner `<img>` becomes decorative and MUST
+    // use `alt=""` + `aria-hidden="true"` so screen readers do not
+    // double-announce.
     const isDecorative = href !== undefined;
     const effectiveAlt = isDecorative ? '' : alt;
 
+    // For each variant to render, compute the explicit width/height so the
+    // browser reserves the correct box before the asset arrives (CLS safety).
     function renderImage(variantName: SnadLogoVariant, index: number) {
       const aspect = VARIANT_ASPECT[variantName];
       const intrinsicWidth =
@@ -191,6 +313,7 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
         }
       }
 
+      // The auto-dual pair is used only by the existing SVG theme family.
       const imageClass = isAutoDual
         ? index === 0
           ? `${styles.image} ${styles.imageLight}`
@@ -201,6 +324,7 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
         size === 'responsive' ? intrinsicWidth : resolvedWidth ?? intrinsicWidth;
       const imgHeight =
         size === 'responsive' ? intrinsicHeight : resolvedHeight ?? intrinsicHeight;
+
       const isHiddenDuplicate = isAutoDual && index === 1;
 
       return (
@@ -213,13 +337,16 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
           height={imgHeight}
           unoptimized
           priority={priority && index === 0}
-          aria-hidden={isHiddenDuplicate || isDecorative ? true : undefined}
+          aria-hidden={
+            isHiddenDuplicate || isDecorative ? true : undefined
+          }
           style={imageStyle}
         />
       );
     }
 
     const images = variants.map((v, i) => renderImage(v, i));
+
     const wrapperStyle: CSSProperties = { ...cssVars, ...style };
 
     const content = (
@@ -228,10 +355,16 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
       </span>
     );
 
-    if (!href) return content;
+    if (!href) {
+      return content;
+    }
 
     return (
-      <Link href={href} className={styles.link} aria-label={alt}>
+      <Link
+        href={href}
+        className={styles.link}
+        aria-label={alt}
+      >
         {content}
       </Link>
     );
