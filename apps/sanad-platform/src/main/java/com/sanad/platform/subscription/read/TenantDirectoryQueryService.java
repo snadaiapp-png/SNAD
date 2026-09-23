@@ -64,16 +64,18 @@ public class TenantDirectoryQueryService {
         Long total = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM tenants t" + where, Long.class, args.toArray());
 
-        // Bind values must be spread into the varargs as discrete scalars. Passing the
-        // List itself makes it ONE bind parameter, and PostgreSQL fails with
-        // "Can't infer the SQL type to use for an instance of java.util.ArrayList"
-        // (BadSqlGrammarException -> HTTP 500 on /api/v1/executive/tenants/v2).
+        // Current subscription state follows the same EFFECTIVE predicate as
+        // SubscriptionResolutionService. Terminal rows are historical evidence
+        // only and must never replace the tenant's current commercial state.
+        // The partial unique index uk_tenant_subscriptions_effective guarantees
+        // cardinality 0..1; deliberately do not LIMIT an ambiguous result.
         List<Map<String, Object>> rows = jdbc.queryForList("""
                         SELECT t.id, t.name, t.subdomain AS code, t.status, t.country_code, t.currency_code,
                                t.created_at,
                                (SELECT COUNT(*) FROM tenant_subscriptions s WHERE s.tenant_id = t.id) AS subscription_count,
-                               (SELECT s.status FROM tenant_subscriptions s WHERE s.tenant_id = t.id
-                                ORDER BY s.created_at DESC, s.id DESC LIMIT 1) AS subscription_status
+                               (SELECT s.status FROM tenant_subscriptions s
+                                WHERE s.tenant_id = t.id
+                                  AND s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')) AS subscription_status
                         FROM tenants t
                         """ + where
                         + " ORDER BY t." + sortColumn + " " + sortDirection
