@@ -71,15 +71,72 @@ class TenantCommercialStateServiceTest {
     }
 
     @Test
-    void trialSubscriptionAllowsLoginAndUpgrade() {
+    void activeLifecycleWithPastDueBillingStateFailsClosed() {
         when(resolution.findEffectiveSubscription(TENANT)).thenReturn(Optional.of(
-                new EffectiveSubscription(SUB, TENANT, PLAN, "TRIAL", "TRIALING", Instant.now())));
+                new EffectiveSubscription(SUB, TENANT, PLAN, "ACTIVE", "PAST_DUE", Instant.now())));
 
         var state = service.resolve(TENANT, "ACTIVE");
 
-        assertThat(state.accessDecision()).isEqualTo(AccessDecision.SUBSCRIPTION_TRIAL);
-        assertThat(state.commercialAction()).isEqualTo(CommercialAction.UPGRADE);
-        assertThat(state.loginAllowed()).isTrue();
+        assertThat(state.accessDecision()).isEqualTo(AccessDecision.SUBSCRIPTION_PAST_DUE);
+        assertThat(state.commercialAction()).isEqualTo(CommercialAction.NONE);
+        assertThat(state.loginAllowed()).isFalse();
+        assertThat(state.anomalyCode()).isEqualTo("BILLING_STATE_PAST_DUE");
+    }
+
+    @Test
+    void activeLifecycleWithSuspendedBillingStateFailsClosed() {
+        when(resolution.findEffectiveSubscription(TENANT)).thenReturn(Optional.of(
+                new EffectiveSubscription(SUB, TENANT, PLAN, "ACTIVE", "SUSPENDED", Instant.now())));
+
+        var state = service.resolve(TENANT, "ACTIVE");
+
+        assertThat(state.accessDecision()).isEqualTo(AccessDecision.SUBSCRIPTION_SUSPENDED);
+        assertThat(state.commercialAction()).isEqualTo(CommercialAction.NONE);
+        assertThat(state.loginAllowed()).isFalse();
+        assertThat(state.anomalyCode()).isEqualTo("BILLING_STATE_SUSPENDED");
+    }
+
+    @Test
+    void activeLifecycleWithMissingOrTerminalBillingStateFailsClosed() {
+        when(resolution.findEffectiveSubscription(TENANT)).thenReturn(Optional.of(
+                new EffectiveSubscription(SUB, TENANT, PLAN, "ACTIVE", null, Instant.now())));
+        var missing = service.resolve(TENANT, "ACTIVE");
+        assertThat(missing.accessDecision()).isEqualTo(AccessDecision.BLOCKED_UNKNOWN_STATE);
+        assertThat(missing.loginAllowed()).isFalse();
+        assertThat(missing.anomalyCode()).isEqualTo("MISSING_BILLING_STATE");
+
+        when(resolution.findEffectiveSubscription(TENANT)).thenReturn(Optional.of(
+                new EffectiveSubscription(SUB, TENANT, PLAN, "ACTIVE", "CANCELLED", Instant.now())));
+        var terminal = service.resolve(TENANT, "ACTIVE");
+        assertThat(terminal.accessDecision()).isEqualTo(AccessDecision.BLOCKED_UNKNOWN_STATE);
+        assertThat(terminal.loginAllowed()).isFalse();
+        assertThat(terminal.anomalyCode()).isEqualTo("BILLING_LIFECYCLE_MISMATCH");
+    }
+
+    @Test
+    void trialSubscriptionAllowsLoginAndUpgradeForSupportedBillingShapes() {
+        for (String billingState : new String[]{"TRIALING", "CURRENT"}) {
+            when(resolution.findEffectiveSubscription(TENANT)).thenReturn(Optional.of(
+                    new EffectiveSubscription(SUB, TENANT, PLAN, "TRIAL", billingState, Instant.now())));
+
+            var state = service.resolve(TENANT, "ACTIVE");
+
+            assertThat(state.accessDecision()).isEqualTo(AccessDecision.SUBSCRIPTION_TRIAL);
+            assertThat(state.commercialAction()).isEqualTo(CommercialAction.UPGRADE);
+            assertThat(state.loginAllowed()).isTrue();
+        }
+    }
+
+    @Test
+    void trialLifecycleHonorsRestrictiveBillingState() {
+        when(resolution.findEffectiveSubscription(TENANT)).thenReturn(Optional.of(
+                new EffectiveSubscription(SUB, TENANT, PLAN, "TRIAL", "SUSPENDED", Instant.now())));
+
+        var state = service.resolve(TENANT, "ACTIVE");
+
+        assertThat(state.accessDecision()).isEqualTo(AccessDecision.SUBSCRIPTION_SUSPENDED);
+        assertThat(state.commercialAction()).isEqualTo(CommercialAction.NONE);
+        assertThat(state.loginAllowed()).isFalse();
     }
 
     @Test
