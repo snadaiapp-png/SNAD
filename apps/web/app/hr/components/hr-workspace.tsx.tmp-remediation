@@ -1,0 +1,62 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
+import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
+import { useAuth } from "@/lib/auth/auth-provider";
+import styles from "../hr.module.css";
+
+export interface HrWorkspaceLink {
+  href: string;
+  label: string;
+  capability?: string;
+  capabilitiesAny?: readonly string[];
+}
+
+export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
+  { href: "/hr", label: "الرئيسية" },
+  { href: "/hr/employees", label: "الموظفون", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
+  { href: "/hr/org-structure", label: "الهيكل التنظيمي", capability: HRM_CAPABILITIES.ORG_STRUCTURE_VIEW },
+  { href: "/hr/jobs", label: "الوظائف", capability: HRM_CAPABILITIES.ORG_STRUCTURE_VIEW },
+  { href: "/hr/positions", label: "المناصب", capability: HRM_CAPABILITIES.ORG_STRUCTURE_VIEW },
+  { href: "/hr/assignments", label: "الإسنادات", capability: HRM_CAPABILITIES.ASSIGNMENT_VIEW },
+  { href: "/hr/compliance", label: "الالتزام", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
+  { href: "/hr/recruitment", label: "التوظيف", capabilitiesAny: [HRM_CAPABILITIES.RECRUITMENT_OPENING_VIEW, HRM_CAPABILITIES.RECRUITMENT_CANDIDATE_VIEW, HRM_CAPABILITIES.RECRUITMENT_APPLICATION_MANAGE, HRM_CAPABILITIES.RECRUITMENT_INTERVIEW_MANAGE, HRM_CAPABILITIES.RECRUITMENT_OFFER_MANAGE, HRM_CAPABILITIES.RECRUITMENT_HIRE_CONVERT] },
+  { href: "/hr/onboarding", label: "التأهيل", capabilitiesAny: [HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE, HRM_CAPABILITIES.ONBOARDING_TASK_COMPLETE, HRM_CAPABILITIES.ONBOARDING_TASK_WAIVE] },
+  { href: "/hr/execution", label: "لوحة التنفيذ" },
+];
+
+export interface HrWorkspaceProps {
+  capabilities: string[];
+  activeHref: string;
+  children: ReactNode;
+}
+
+export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceProps) {
+  const { logout } = useAuth();
+  const router = useRouter();
+
+  return (
+    <div className={styles.workspace}>
+      <header className={styles.workspaceHeader}>
+        <div>
+          <h1 className={styles.workspaceTitle}>مساحة عمل الموارد البشرية</h1>
+          <p className={styles.workspaceSubtitle}>إدارة الموظفين والهيكل التنظيمي والتوظيف والتأهيل والإسنادات والعقود والالتزام</p>
+        </div>
+        <button type="button" className={styles.linkButton} data-testid="logout" onClick={async () => { await logout(); router.replace("/"); }}>Logout</button>
+      </header>
+      <nav aria-label="أقسام الموارد البشرية" className={styles.workspaceNav}>
+        <ul className={styles.workspaceNavList}>
+          {HR_WORKSPACE_LINKS.map((link) => {
+            if (link.capability && !capabilities.includes(link.capability)) return null;
+            if (link.capabilitiesAny && !link.capabilitiesAny.some((capability) => capabilities.includes(capability))) return null;
+            const isActive = link.href === "/hr" ? activeHref === "/hr" : activeHref === link.href || activeHref.startsWith(`${link.href}/`);
+            return <li key={link.href} className={styles.workspaceNavItem}><Link href={link.href} aria-current={isActive ? "page" : undefined} className={isActive ? `${styles.workspaceNavLink} ${styles.workspaceNavLinkActive}` : styles.workspaceNavLink}>{link.label}</Link></li>;
+          })}
+        </ul>
+      </nav>
+      <main className={styles.workspaceMain}>{children}</main>
+    </div>
+  );
+}
