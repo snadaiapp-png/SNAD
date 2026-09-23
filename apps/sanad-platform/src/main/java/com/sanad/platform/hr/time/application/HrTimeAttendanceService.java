@@ -131,4 +131,83 @@ public class HrTimeAttendanceService {
         );
         return records.isEmpty() ? null : records.get(0);
     }
+
+    // ==================== G2-T05: Monthly Attendance Report ====================
+
+    /**
+     * Generate a monthly attendance report per employee for the given year+month.
+     *
+     * <p>The report is a DERIVED projection from {@code hr_attendance_records}
+     * — no separate report table is maintained. The query aggregates per
+     * employment_id for the given month:
+     * <ul>
+     *   <li>worked_minutes: sum of worked_minutes from COMPLETED records</li>
+     *   <li>absent_days: count of dates with state=MISSED</li>
+     *   <li>missing_punches: count of OPEN records (clock-in without clock-out)</li>
+     * </ul>
+     *
+     * <p>Leave days are derived from {@code hr_leave_requests} where state=APPROVED
+     * and the request overlaps the given month.
+     *
+     * <p>Scheduled days/minutes are not yet available (scheduling domain is
+     * not implemented in this PR — follow-up needed). These are NULL in the
+     * report until the scheduling domain is built.
+     */
+    @Transactional(readOnly = true)
+    public List<HrTimeAttendanceV2Controller.MonthlyAttendanceReportRow> monthlyAttendanceReport(
+            UUID tenantId, int year, int month, UUID employmentId
+    ) {
+        LocalDate startDate = LocalDate.of(year, month, 1);
+        LocalDate endDate = startDate.withDayOfMonth(startDate.lengthOfMonth());
+
+        StringBuilder sql = new StringBuilder(
+                "SELECT employment_id, " +
+                "  COUNT(*) FILTER (WHERE state = 'COMPLETED') AS completed_count, " +
+                "  COALESCE(SUM(worked_minutes) FILTER (WHERE state = 'COMPLETED'), 0) AS total_worked, " +
+                "  COUNT(*) FILTER (WHERE state = 'MISSED') AS missed_count, " +
+                "  COUNT(*) FILTER (WHERE state = 'OPEN' AND clock_out IS NULL) AS missing_punches " +
+                "FROM hr_attendance_records " +
+                "WHERE tenant_id = ? AND record_date >= ? AND record_date <= ?"
+        );
+        List<Object> params = new java.util.ArrayList<>();
+        params.add(tenantId);
+        params.add(startDate);
+        params.add(endDate);
+        if (employmentId != null) {
+            sql.append(" AND employment_id = ?");
+            params.add(employmentId);
+        }
+        sql.append(" GROUP BY employment_id ORDER BY employment_id");
+
+        return jdbc.query(sql.toString(), (rs, rowNum) -> {
+            UUID empId = UUID.fromString(rs.getString("employment_id"));
+            int totalWorked = rs.getInt("total_worked");
+            int missedDays = rs.getInt("missed_count");
+            int missingPunches = rs.getInt("missing_punches");
+
+            // Count approved leave days overlapping this month
+            Integer leaveDays = jdbc.queryForObject(
+                    "SELECT COALESCE(SUM(days_count), 0)::int FROM hr_leave_requests " +
+                    "WHERE tenant_id = ? AND employment_id = ? AND state = 'APPROVED' " +
+                    "AND start_date <= ? AND end_date >= ?",
+                    Integer.class, tenantId, empId, endDate, startDate
+            );
+            if (leaveDays == null) leaveDays = 0;
+
+            String status = missedDays > 0 ? "EXCEPTIONS" : "NORMAL";
+
+            return new HrTimeAttendanceV2Controller.MonthlyAttendanceReportRow(
+                    empId,
+                    null,  // scheduledDays — not yet available (scheduling domain pending)
+                    null,  // scheduledMinutes — not yet available
+                    totalWorked,
+                    missedDays,
+                    leaveDays,
+                    0,  // lateOccurrences — requires schedule comparison (pending)
+                    0,  // earlyDepartures — requires schedule comparison (pending)
+                    missingPunches,
+                    status
+            );
+        }, params.toArray());
+    }
 }
