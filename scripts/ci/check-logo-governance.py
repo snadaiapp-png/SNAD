@@ -3,13 +3,16 @@
 """SNAD logo governance CI check.
 
 All application surfaces must render brand artwork through the centralized
-``SnadLogo`` SDS component.  The component and its focused unit test are the
-only code locations allowed to reference concrete files in
-``/assets/brand`` directly.  Both SVG and PNG assets are governed.
+``SnadLogo`` SDS component. The component and its focused tests are the only
+code locations allowed to reference concrete files in ``/assets/brand``
+directly. Both SVG and PNG assets are governed. The Login v2 official
+wordmark is additionally pinned by SHA-256 so a missing, regenerated, or
+modified raster can never pass the brand gate.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import sys
@@ -35,6 +38,12 @@ ALLOWED_FILES = {
     "apps/web/components/sds/__tests__/SnadLogo.test.tsx",
 }
 AUTH_LOGIN_FORM = "apps/web/components/auth/login-form.tsx"
+OFFICIAL_WORDMARK_PATH = Path(
+    "apps/web/public/assets/brand/snad-logo-official-wordmark.png"
+)
+OFFICIAL_WORDMARK_SHA256 = (
+    "98d0b84b0675b53f60837f803cf0a4bc85209eea650b213adba92a661bfde251"
+)
 
 BRAND_ASSET_RE = re.compile(
     r"[/\\]assets[/\\]brand[/\\]snad-(?:logo-[a-z0-9-]+|favicon|app-icon)\.(?:svg|png)",
@@ -150,6 +159,31 @@ def check_auth_login_form_uses_snadlogo(scan_root: Path) -> List[str]:
     return violations
 
 
+def check_official_wordmark_integrity(repo_root: Path) -> List[str]:
+    asset = repo_root / OFFICIAL_WORDMARK_PATH
+    if not asset.is_file():
+        return [
+            f"{OFFICIAL_WORDMARK_PATH.as_posix()}:0:0: "
+            "OFFICIAL_WORDMARK_MISSING — the approved Login v2 wordmark "
+            "file is required. Do not substitute or regenerate it."
+        ]
+
+    try:
+        actual = hashlib.sha256(asset.read_bytes()).hexdigest()
+    except OSError as exc:
+        return [
+            f"{OFFICIAL_WORDMARK_PATH.as_posix()}:0:0: READ_ERROR — {exc}"
+        ]
+
+    if actual != OFFICIAL_WORDMARK_SHA256:
+        return [
+            f"{OFFICIAL_WORDMARK_PATH.as_posix()}:0:0: "
+            "OFFICIAL_WORDMARK_HASH_MISMATCH — "
+            f"expected {OFFICIAL_WORDMARK_SHA256}, got {actual}."
+        ]
+    return []
+
+
 def main(argv: List[str]) -> int:
     scan_root_arg = argv[1] if len(argv) > 1 else DEFAULT_SCAN_ROOT
 
@@ -177,6 +211,7 @@ def main(argv: List[str]) -> int:
         all_violations.extend(check_direct_brand_references(path, rel))
 
     all_violations.extend(check_auth_login_form_uses_snadlogo(scan_root))
+    all_violations.extend(check_official_wordmark_integrity(repo_root))
 
     print("SNAD Logo Governance check")
     if all_violations:
