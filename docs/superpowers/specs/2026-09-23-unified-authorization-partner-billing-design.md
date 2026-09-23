@@ -1,7 +1,7 @@
 # SANAD Unified Authorization, Partner Control Plane & Hierarchical Billing — Architecture Design
 
 **Date:** 2026-09-23  
-**Status:** DESIGN APPROVED — implementation not started  
+**Status:** DESIGN APPROVED IN CONVERSATION — written spec pending user review  
 **Repository baseline:** `7a8399e25fe97758ee1e0ff6df512d18f8654da1`  
 **Design branch:** `design/unified-authorization-partner-billing`  
 
@@ -14,7 +14,7 @@ This specification defines the target architecture for SANAD's unified authoriza
 The design must support one platform across:
 
 - SANAD platform owner and internal control-plane administrators;
-- agents, resellers, and distributors operating isolated commercial portfolios;
+- agents, resellers, distributors, and sellers operating isolated commercial portfolios;
 - tenants/customers owned directly by SANAD or commercially managed by a partner;
 - tenant users, employees, managers, teams, departments, branches, business units, projects, legal entities, service accounts, and future AI agents;
 - all current and future SANAD applications and modules.
@@ -58,7 +58,7 @@ SANAD PLATFORM
 ├── DIRECT SANAD TENANTS
 │   └── TENANT
 │
-└── AGENTS / RESELLERS / DISTRIBUTORS
+└── AGENTS / RESELLERS / DISTRIBUTORS / SELLERS
     ├── PARTNER A
     │   ├── PARTNER ADMINS / USERS
     │   ├── BUSINESS IDENTITY
@@ -454,7 +454,7 @@ Applicable principal types:
 
 ```text
 PLATFORM
-PARTNER / AGENT / RESELLER / DISTRIBUTOR
+PARTNER / AGENT / RESELLER / DISTRIBUTOR / SELLER
 TENANT
 ```
 
@@ -485,7 +485,7 @@ Branding and commercial identity are separate from login-user identity and secur
 A reusable **Commercial & Tax Information** screen must exist for:
 
 - the SANAD platform owner/root account;
-- every partner/agent/reseller/distributor;
+- every partner/agent/reseller/distributor/seller;
 - every tenant/customer.
 
 The screen supports structured commercial data, tax data, addresses, contact numbers, finance contacts, and logo uploads.
@@ -594,7 +594,7 @@ TRIAL
  -> notification/audit
 ```
 
-Automatic billing is allowed only after the customer is explicitly accepted/confirmed for continued paid service according to the product workflow.
+Automatic billing is allowed only when the subscription has automatic invoicing enabled and the customer is explicitly accepted/confirmed for continued paid service according to the product workflow. The confirmation source and timestamp must be auditable.
 
 ---
 
@@ -654,7 +654,7 @@ PartnerCommercialAgreement v1: 20%
 PartnerCommercialAgreement v2: 15%
 ```
 
-Each settlement item references the agreement version governing the underlying billable activity. Later edits do not retroactively rewrite previous settlement periods.
+Each qualifying partner-issued tenant invoice binds to the effective agreement version at invoice issuance. Collections, refunds, and credit notes attributable to that invoice retain that bound agreement version for settlement. Later edits do not retroactively rewrite previous invoices or settlement economics.
 
 ### 18.4 Settlement lifecycle
 
@@ -768,6 +768,8 @@ timestamp
 correlation_id
 ```
 
+For every partner-created account/tenant and every partner change to a tenant or subscription, an in-product notification to the primary `PLATFORM_OWNER` account is mandatory. Delivery may later expand to email/SMS/push according to notification preferences, but the durable in-product notification and audit event are required.
+
 Notifications and audit are separate. Deleting/reading a notification never deletes audit evidence.
 
 ---
@@ -785,7 +787,7 @@ The same governed projections should power both to prevent metric drift.
 
 ### 22.1 Platform owner global dashboard
 
-The platform owner sees aggregate metrics across all partners/distributors/resellers and direct tenants.
+The platform owner sees aggregate metrics across all partners/distributors/resellers/sellers and direct tenants.
 
 Required metric families:
 
@@ -831,7 +833,7 @@ finalized settlement
 SANAD-issued partner invoices
 ```
 
-### 22.3 Partner/reseller dashboard
+### 22.3 Partner/reseller/distributor/seller dashboard
 
 A partner sees only its own scope.
 
@@ -883,7 +885,7 @@ Invoice/payment reconciliation
 
 The owner can filter/drill down by partner, tenant, date, status, currency, and settlement period.
 
-### 23.2 Partner/reseller
+### 23.2 Partner/reseller/distributor/seller
 
 Views:
 
@@ -908,7 +910,7 @@ Cross-partner invoice access is always denied.
 ```text
 Executive
 ├── Overview
-├── Partners / Resellers / Distributors
+├── Partners / Resellers / Distributors / Sellers
 │   ├── Partner profile
 │   ├── Commercial & Tax Information
 │   ├── Branding
@@ -1138,7 +1140,7 @@ Add net-collected settlement calculation and SANAD-to-partner invoicing.
 
 ### Phase 8 — Notifications and dashboards
 
-Add event-driven partner notifications, global owner dashboard, per-partner owner dashboard, and partner self-dashboard.
+Add event-driven partner notifications, global owner dashboard, per-partner owner dashboard, partner self-dashboard, and invoice dashboard panels.
 
 ### Phase 9 — Cutover and cleanup
 
@@ -1219,7 +1221,7 @@ Mandatory tests include:
 
 ```text
 manual tenant invoice by authorized partner
-automatic invoice only after continuation/ACTIVE_BILLABLE
+automatic invoice only after confirmed continuation and ACTIVE_BILLABLE
 partner invoice uses partner seller snapshot
 tenant buyer snapshot immutable after issuance
 cross-partner invoice denied
@@ -1227,7 +1229,8 @@ settlement uses actual collected payments only
 VAT/tax excluded from eligible net collected base
 refund reduces eligible base
 credit note reduces eligible base
-rate version does not retroactively change previous settlement
+invoice binds the effective agreement version at issuance
+rate version does not retroactively change previous settlement economics
 replay/idempotency of settlement generation
 Finance invoice is authoritative
 ```
@@ -1262,19 +1265,21 @@ Automatic authorization invalidation
 Manual effective-permission resync
 Partner principal isolation
 Delegated partner administration
+Independent platform owner business/tax profile
 Independent partner business/tax profile
 Independent tenant business/tax profile
 Logo/branding upload surfaces
 Immutable invoice party snapshots
 Partner -> Tenant manual invoicing
-Partner -> Tenant automatic invoicing after paid continuation gate
+Partner -> Tenant automatic invoicing after confirmed continuation gate
 Actual-net-collected settlement basis
 Versioned partner percentage
+Invoice-bound commercial agreement version
 SANAD -> Partner invoice generation
 Platform owner invoice dashboard
 Per-partner invoice dashboard
-Partner/reseller invoice dashboard
-Owner notifications for partner tenant/subscription changes
+Partner/reseller/distributor/seller invoice dashboard
+Mandatory in-product owner notifications for partner-created accounts/tenants and tenant/subscription changes
 Global partner dashboard
 Per-partner owner dashboard
 Partner self-dashboard
@@ -1308,7 +1313,7 @@ with:
 ```text
 Unified Authorization Engine
 + Platform Administration
-+ Partner / Agent / Reseller Isolation
++ Partner / Agent / Reseller / Distributor / Seller Isolation
 + Tenant Isolation
 + Delegated Administration
 + Hybrid RBAC / ABAC / ReBAC-lite
