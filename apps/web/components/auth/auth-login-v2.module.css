@@ -1,0 +1,29 @@
+/*
+ * SNAD Login v2 — additive sizing/accessibility layer.
+ *
+ * The legacy auth module remains the visual source of truth. This focused
+ * layer carries only the Phase A ergonomics that need to be independently
+ * testable without restructuring the mature auth stylesheet.
+ */
+
+.loginPanel {
+  /* svh is the fallback; dvh follows the live browser viewport on mobile. */
+  min-block-size: 100svh;
+  min-block-size: 100dvh;
+}
+
+.authInput {
+  min-block-size: 48px;
+}
+
+.passwordToggle {
+  min-inline-size: 44px;
+  min-block-size: 44px;
+}
+
+.capsLockStatus {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--snad-text-secondary);
+}
