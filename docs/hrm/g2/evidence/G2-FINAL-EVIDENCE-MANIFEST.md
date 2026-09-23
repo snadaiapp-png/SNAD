@@ -34,8 +34,8 @@ Generic Playwright = FAILURE
 Security Baseline = FAILURE
   reason = Gitleaks generic-api-key false positive on
     docs/hrm/g2/evidence/HRM-G2-ENGINEERING-CLOSURE.md line 156
-    (prose "G2 OpenAPI completeness, concurrency/idempotency proof"
-     resembled an API-key assignment)
+    (documentation wording triggered the generic credential detector;
+     credential exposure = NO; scanner weakening = NO; correction = wording-only)
 
 Maven = IN_PROGRESS at last verification
   (e81aa13e already a failed exact-head checkpoint regardless of Maven outcome)
@@ -120,10 +120,12 @@ MODIFIED FILES (this CI-remediation commit):
   - apps/web/playwright.config.ts (preserved from prior push)
       testIgnore array includes g2-authenticated.spec.ts.
   - docs/hrm/g2/evidence/HRM-G2-ENGINEERING-CLOSURE.md
-      [CORRECTED] Reworded line 156 prose from "G2 OpenAPI completeness,
-      concurrency/idempotency proof" to "contract-schema coverage and
-      concurrency/idempotency evidence" (avoids gitleaks generic-api-key
-      false positive).
+      [CORRECTED] Reworded line 156 documentation prose to neutral wording
+      so it no longer resembles a credential assignment pattern (avoids
+      gitleaks generic-api-key false positive). The specific rewording
+      is described in the closure doc itself; this manifest intentionally
+      does not reproduce either the original or replacement phrase to
+      avoid re-triggering the credential detector in this file.
       [CORRECTED] Records e81aa13e as historical FAILED checkpoint.
   - docs/hrm/g2/evidence/G2-FINAL-REQUIREMENT-MATRIX.md
       [CORRECTED] Truthful classification: HrG2LeavePostgresIntegrationTest

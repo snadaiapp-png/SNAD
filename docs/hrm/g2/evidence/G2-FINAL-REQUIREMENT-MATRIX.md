@@ -10,7 +10,7 @@
 |---|---|---|
 | G2 Authenticated Acceptance | FAILURE | Seed schema mismatch — `g2-acceptance-seed.sql` used wrong column names (`entitled/used/pending/carried`) instead of canonical `entitled_days/used_days/pending_days/carried_over_days`; Playwright tests NOT_RUN because seed step failed |
 | Generic Playwright | FAILURE | `g2-authenticated.spec.ts` remained inside `playwright.standard.config.ts` matrix (only `playwright.config.ts` had the testIgnore — generic CI uses `playwright.standard.config.ts`); tests failed because E2E_<ROLE>_EMAIL/PASSWORD env vars not provisioned in generic matrix |
-| Security Baseline | FAILURE | Gitleaks `generic-api-key` false positive on `docs/hrm/g2/evidence/HRM-G2-ENGINEERING-CLOSURE.md` line 156 — prose "G2 OpenAPI completeness, concurrency/idempotency proof" resembled an API-key assignment |
+| Security Baseline | FAILURE | Gitleaks `generic-api-key` false positive on `docs/hrm/g2/evidence/HRM-G2-ENGINEERING-CLOSURE.md` line 156 — documentation wording triggered the generic credential detector (credential exposure = NO; scanner weakening = NO; correction = wording-only) |
 | Maven | IN_PROGRESS at last verification (e81aa13e already a failed exact-head checkpoint regardless of Maven outcome) | — |
 
 ## e81aa13e corrections (this push)
