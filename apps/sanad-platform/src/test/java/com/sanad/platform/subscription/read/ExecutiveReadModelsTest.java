@@ -207,16 +207,18 @@ class ExecutiveReadModelsTest {
     }
 
     @Test
-    @DisplayName("tenant directory: latest subscription status has deterministic id tie-breaker")
-    void tenantDirectoryLatestStatusIsDeterministic() {
+    @DisplayName("tenant directory: current status uses canonical EFFECTIVE subscription predicate")
+    void tenantDirectoryCurrentStatusUsesEffectivePredicate() {
         stubTenantCount();
         when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
 
         tenantDirectory.search(null, null, null, 0, 20, "name", "ASC");
 
-        verify(jdbc).queryForList(
-                contains("ORDER BY s.created_at DESC, s.id DESC LIMIT 1"),
-                any(Object[].class));
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForList(sql.capture(), any(Object[].class));
+        assertThat(sql.getValue())
+                .contains("s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')")
+                .doesNotContain("ORDER BY s.created_at DESC, s.id DESC LIMIT 1");
     }
 
     @Test
