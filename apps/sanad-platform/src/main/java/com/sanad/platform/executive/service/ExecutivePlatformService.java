@@ -6,7 +6,6 @@ import com.sanad.platform.admin.api.AdminDtos.CreateTenantRequest;
 import com.sanad.platform.admin.api.AdminDtos.UpdateTenantRequest;
 import com.sanad.platform.admin.api.AdminDtos.ChangeTenantStatusRequest;
 import com.sanad.platform.admin.service.PlatformAuditService;
-import com.sanad.platform.security.service.RegistrationProvisioner;
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -17,8 +16,6 @@ import org.springframework.http.HttpStatus;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.*;
 
 /**
@@ -42,19 +39,19 @@ public class ExecutivePlatformService {
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
-    private final RegistrationProvisioner registrationProvisioner;
     private final TenantCommercialStateService commercialStateService;
+    private final ExecutiveTenantProvisioningService provisioningService;
 
     public ExecutivePlatformService(
             JdbcTemplate jdbcTemplate,
             PlatformAuditService auditService,
-            RegistrationProvisioner registrationProvisioner,
-            TenantCommercialStateService commercialStateService
+            TenantCommercialStateService commercialStateService,
+            ExecutiveTenantProvisioningService provisioningService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
-        this.registrationProvisioner = registrationProvisioner;
         this.commercialStateService = commercialStateService;
+        this.provisioningService = provisioningService;
     }
 
     public DashboardResponse dashboard() {
@@ -103,32 +100,7 @@ public class ExecutivePlatformService {
 
     @Transactional
     public TenantResponse createTenant(CreateTenantRequest request, Authentication authentication) {
-        // RegistrationProvisioner is the single tenant-creation authority. The
-        // previous implementation inserted one tenant here and then called the
-        // provisioner, which created a second tenant containing the administrator
-        // and roles. Use the provisioner's tenant id and update that same row.
-        RegistrationProvisioner.ProvisionedRegistration provisioned = registrationProvisioner.provision(
-                request.adminEmail(), request.adminDisplayName(), request.name(), request.subdomain(),
-                null, request.countryCode());
-        UUID tenantId = provisioned.tenantId();
-
-        Timestamp trialEndsAt = request.trialDays() != null && request.trialDays() > 0
-                ? Timestamp.from(Instant.now().plusSeconds(request.trialDays() * 86400L))
-                : null;
-        jdbcTemplate.update(
-                "UPDATE tenants SET name=?, legal_name=?, subdomain=?, status='PENDING', billing_email=?, "
-                        + "country_code=?, locale=?, timezone=?, currency_code=?, trial_ends_at=?, updated_at=NOW() "
-                        + "WHERE id=?",
-                request.name(), request.legalName(), request.subdomain(), request.billingEmail(), request.countryCode(),
-                request.locale() != null ? request.locale() : "en",
-                request.timezone() != null ? request.timezone() : "UTC",
-                request.currencyCode() != null ? request.currencyCode() : "SAR",
-                trialEndsAt, tenantId);
-
-        TenantResponse created = getTenant(tenantId);
-        auditService.success(authentication, tenantId, "CREATE_TENANT", "TENANT", tenantId.toString(),
-                request.name(), null, created);
-        return created;
+        return provisioningService.provision(request, authentication).tenant();
     }
 
     @Transactional
