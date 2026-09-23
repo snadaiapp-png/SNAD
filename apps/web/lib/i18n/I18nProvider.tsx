@@ -40,6 +40,7 @@ import {
   type TranslationDictionary,
 } from "./types";
 import { translations } from "./index";
+import { executiveCommercialDictionary } from "./executive-commercial-l10n";
 
 export interface I18nContextValue {
   locale: Locale;
@@ -127,12 +128,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
-      const dict: TranslationDictionary = translations[locale];
-      const template = dict[key];
+      const base: TranslationDictionary = translations[locale];
+      const commercial = executiveCommercialDictionary(locale);
+      const template = commercial[key] ?? base[key];
       if (template === undefined) {
         // Return the key itself so missing translations are visible during
-        // development. The CI check-i18n-keys.py script catches these before
-        // they reach production.
+        // development. Locale-specific add-on namespaces are parity-tested
+        // independently and then composed here at runtime.
         return key;
       }
       return interpolate(template, params);
