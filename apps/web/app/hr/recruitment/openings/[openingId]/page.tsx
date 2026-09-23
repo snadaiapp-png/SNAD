@@ -147,7 +147,7 @@ export default function JobOpeningDetailPage() {
               <dt>{t("hrm.recruitment.openingDetail.filled")}</dt>
               <dd>{opening.filledCount}</dd>
               <dt>{t("hrm.recruitment.openingDetail.compliance")}</dt>
-              <dd>{complianceDecisionLabel(dict, opening.complianceDecision)}</dd>
+              <dd>{complianceDecisionLabel(dict, opening.complianceDecision ?? null)}</dd>
             </dl>
           </section>
 
