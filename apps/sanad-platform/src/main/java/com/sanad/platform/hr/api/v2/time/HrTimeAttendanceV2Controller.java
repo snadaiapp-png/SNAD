@@ -42,7 +42,7 @@ public class HrTimeAttendanceV2Controller {
 
     @GetMapping("/time/attendance")
     @Operation(operationId = "hrAttendanceList")
-    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_VIEW)
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_SELF_VIEW)
     public ResponseEntity<List<HrAttendanceRecordResponse>> listAttendance(
             Authentication authentication,
             @RequestParam(required = false) UUID employmentId,
@@ -55,7 +55,7 @@ public class HrTimeAttendanceV2Controller {
 
     @PostMapping("/time/attendance/clock-in")
     @Operation(operationId = "hrAttendanceClockIn")
-    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_MANAGE)
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_SELF_RECORD)
     public ResponseEntity<HrAttendanceRecordResponse> clockIn(
             Authentication authentication,
             @Valid @RequestBody ClockInRequest request
@@ -67,7 +67,7 @@ public class HrTimeAttendanceV2Controller {
 
     @PostMapping("/time/attendance/{recordId}/clock-out")
     @Operation(operationId = "hrAttendanceClockOut")
-    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_MANAGE)
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_SELF_RECORD)
     public ResponseEntity<HrAttendanceRecordResponse> clockOut(
             Authentication authentication,
             @PathVariable UUID recordId
@@ -81,7 +81,7 @@ public class HrTimeAttendanceV2Controller {
 
     @GetMapping("/leave/types")
     @Operation(operationId = "hrLeaveTypesList")
-    @RequireCapability(TimeAttendanceCapabilities.LEAVE_VIEW)
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_VIEW)
     public ResponseEntity<List<HrLeaveTypeResponse>> listLeaveTypes(Authentication authentication) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         return ResponseEntity.ok(leaveService.listLeaveTypes(tenantId));
@@ -91,7 +91,7 @@ public class HrTimeAttendanceV2Controller {
 
     @GetMapping("/leave/requests")
     @Operation(operationId = "hrLeaveRequestsList")
-    @RequireCapability(TimeAttendanceCapabilities.LEAVE_VIEW)
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_VIEW)
     public ResponseEntity<List<HrLeaveRequestResponse>> listLeaveRequests(
             Authentication authentication,
             @RequestParam(required = false) UUID employmentId,
@@ -103,7 +103,7 @@ public class HrTimeAttendanceV2Controller {
 
     @PostMapping("/leave/requests")
     @Operation(operationId = "hrLeaveRequestCreate")
-    @RequireCapability(TimeAttendanceCapabilities.LEAVE_REQUEST)
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_REQUEST)
     public ResponseEntity<CreateLeaveRequestResponse> createLeaveRequest(
             Authentication authentication,
             @Valid @RequestBody CreateLeaveRequest request
@@ -115,7 +115,7 @@ public class HrTimeAttendanceV2Controller {
 
     @PostMapping("/leave/requests/{requestId}/approve")
     @Operation(operationId = "hrLeaveRequestApprove")
-    @RequireCapability(TimeAttendanceCapabilities.LEAVE_APPROVE)
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE)
     public ResponseEntity<HrLeaveRequestResponse> approveLeaveRequest(
             Authentication authentication,
             @PathVariable UUID requestId,
@@ -128,7 +128,7 @@ public class HrTimeAttendanceV2Controller {
 
     @PostMapping("/leave/requests/{requestId}/reject")
     @Operation(operationId = "hrLeaveRequestReject")
-    @RequireCapability(TimeAttendanceCapabilities.LEAVE_APPROVE)
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE)
     public ResponseEntity<HrLeaveRequestResponse> rejectLeaveRequest(
             Authentication authentication,
             @PathVariable UUID requestId,
@@ -143,7 +143,7 @@ public class HrTimeAttendanceV2Controller {
 
     @GetMapping("/leave/balances")
     @Operation(operationId = "hrLeaveBalancesList")
-    @RequireCapability(TimeAttendanceCapabilities.LEAVE_VIEW)
+    @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_VIEW)
     public ResponseEntity<List<HrLeaveBalanceResponse>> listLeaveBalances(
             Authentication authentication,
             @RequestParam(required = false) UUID employmentId,
@@ -154,7 +154,22 @@ public class HrTimeAttendanceV2Controller {
         return ResponseEntity.ok(leaveService.listLeaveBalances(tenantId, employmentId, y));
     }
 
-    // ==================== DTOs ====================
+    // ==================== G2-T05: Monthly Attendance Report ====================
+
+    @GetMapping("/time/attendance/monthly-report")
+    @Operation(operationId = "hrAttendanceMonthlyReport")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW)
+    public ResponseEntity<List<MonthlyAttendanceReportRow>> monthlyAttendanceReport(
+            Authentication authentication,
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(required = false) UUID employmentId
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        return ResponseEntity.ok(timeService.monthlyAttendanceReport(tenantId, year, month, employmentId));
+    }
+
+    // ==================== DTOs (continued) ====================
 
     public record ClockInRequest(UUID employmentId, LocalDate recordDate) {}
     public record CreateLeaveRequest(UUID employmentId, UUID leaveTypeId, LocalDate startDate, LocalDate endDate, String reason, String attachmentUrl) {}
@@ -185,5 +200,19 @@ public class HrTimeAttendanceV2Controller {
             UUID id, UUID employmentId, UUID leaveTypeId, Integer year,
             java.math.BigDecimal entitledDays, java.math.BigDecimal usedDays,
             java.math.BigDecimal pendingDays, java.math.BigDecimal carriedOverDays
+    ) {}
+
+    /** G2-T05: Monthly attendance report row per employee. */
+    public record MonthlyAttendanceReportRow(
+            UUID employmentId,
+            Integer scheduledDays,
+            Integer scheduledMinutes,
+            Integer workedMinutes,
+            Integer absentDays,
+            Integer leaveDays,
+            Integer lateOccurrences,
+            Integer earlyDepartures,
+            Integer missingPunches,
+            String attendanceStatus
     ) {}
 }
