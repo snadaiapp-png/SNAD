@@ -3,6 +3,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TenantRow } from "@/lib/api/scp-api";
 
 const tenantsMock = vi.fn();
 const hasMock = vi.fn();
@@ -35,7 +36,7 @@ vi.mock("next/link", () => ({
 
 import TenantsPage from "./page";
 
-const baseTenant = {
+const baseTenant: TenantRow = {
   id: "11111111-1111-1111-1111-111111111111",
   name: "Acme",
   code: "acme",
@@ -53,7 +54,7 @@ const baseTenant = {
   createdAt: "2026-09-09T00:00:00Z",
 };
 
-function page(content: typeof baseTenant[]) {
+function page(content: TenantRow[]) {
   return { content, page: 0, size: 20, totalElements: content.length, totalPages: 1 };
 }
 
