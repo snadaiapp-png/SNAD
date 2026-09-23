@@ -484,10 +484,35 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
--- 8. Leave balance for the Employee (canonical schema column names:
+-- 8. Acceptance-only leave type fixture for the tenant created above.
+-- ----------------------------------------------------------------------------
+-- V20260923_3 seeds leave-type identity for tenants that already exist when
+-- Flyway runs. This acceptance tenant is intentionally created AFTER Flyway,
+-- so it needs the same canonical ANNUAL identity here. This is test fixture
+-- identity only: no statutory/default entitlement is encoded (NULL), keeping
+-- G2 Core country-neutral and preserving leave type != leave policy.
+INSERT INTO hr_leave_types (
+    tenant_id, code, name_ar, name_en,
+    is_paid, requires_attachment, default_days_per_year, state
+)
+VALUES (
+    '33333333-3333-4333-8333-333333333331',
+    'ANNUAL',
+    'إجازة سنوية',
+    'Annual Leave',
+    true,
+    false,
+    NULL,
+    'ACTIVE'
+)
+ON CONFLICT (tenant_id, code) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- 9. Leave balance for the Employee (canonical schema column names:
 --    entitled_days, used_days, pending_days, carried_over_days).
---    30-day annual entitlement so HR approval's ledger CONSUMPTION
---    doesn't drop the balance below zero.
+--    30-day value is an acceptance fixture only so the HR approval journey can
+--    exercise ledger CONSUMPTION without driving the test balance below zero.
+--    It is NOT a production leave policy or country statutory entitlement.
 -- ----------------------------------------------------------------------------
 INSERT INTO hr_leave_balances (
     id, tenant_id, employment_id, leave_type_id, year,
