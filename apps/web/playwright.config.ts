@@ -15,9 +15,17 @@ const storageState = (locale: "ar" | "en", theme: "light" | "dark" | "system") =
 
 export default defineConfig({
   testDir: "./e2e",
-  // These tests mutate the real Production environment and require protected
-  // credentials. They are executed only by playwright.crm007-production.config.ts.
+  // Tests excluded from the generic visual regression matrix — each runs only
+  // in its own dedicated workflow with the credentials / fixtures it needs:
+  //   - g2-authenticated.spec.ts: dedicated G2 authenticated acceptance workflow
+  //     (stateful cross-role journey; requires E2E_<ROLE>_EMAIL/PASSWORD secrets
+  //     + isolated G2 test tenant; would fail AND cause mutable-state collisions
+  //     if run across all 6 locale/theme projects)
+  //   - crm-007-production-closure.spec.ts: real Production environment
+  //   - crm-execution-acceptance.spec.ts: CRM Authenticated E2E workflow
+  //   - workflow-y2-release.spec.ts: Workflow Y2 Playwright Release Gate
   testIgnore: [
+    "**/g2-authenticated.spec.ts",
     "**/crm-007-production-closure.spec.ts",
     // CRM-EXEC acceptance requires CRM_TENANT_A_EMAIL/PASSWORD credentials
     // which are only available in the CRM Authenticated E2E workflow

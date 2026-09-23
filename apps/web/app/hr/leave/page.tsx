@@ -35,9 +35,9 @@ export default function LeavePage() {
   const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
 
-  const canView = capabilities.includes("HRM.LEAVE.VIEW");
-  const canRequest = capabilities.includes("HRM.LEAVE.REQUEST");
-  const canApprove = capabilities.includes("HRM.LEAVE.APPROVE");
+  const canView = capabilities.includes("HRM.LEAVE.SELF_VIEW") || capabilities.includes("HRM.LEAVE.SELF_REQUEST") || capabilities.includes("HRM.LEAVE.TEAM_APPROVE") || capabilities.includes("HRM.LEAVE.HR_APPROVE");
+  const canRequest = capabilities.includes("HRM.LEAVE.SELF_REQUEST");
+  const canApprove = capabilities.includes("HRM.LEAVE.TEAM_APPROVE") || capabilities.includes("HRM.LEAVE.HR_APPROVE");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -223,17 +223,17 @@ export default function LeavePage() {
       {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
 
       {canRequest ? (
-        <button type="button" className={styles.linkButton} onClick={() => setShowForm(!showForm)}>
+        <button type="button" className={styles.linkButton} onClick={() => setShowForm(!showForm)} data-testid="request-leave-toggle">
           {t("hrm.leave.action.request")}
         </button>
       ) : null}
 
       {showForm ? (
-        <form onSubmit={(e) => { e.preventDefault(); void submitLeaveRequest(); }} aria-label={t("hrm.leave.action.request")}>
+        <form onSubmit={(e) => { e.preventDefault(); void submitLeaveRequest(); }} aria-label={t("hrm.leave.action.request")} data-testid="leave-request-form">
           <p>
             <label htmlFor="leave-type" className={styles.kpiLabel}>{t("hrm.leave.form.type")}</label>
             <select id="leave-type" className={styles.filterSelect} value={formLeaveType}
-              onChange={(e) => setFormLeaveType(e.target.value)} required aria-required="true">
+              onChange={(e) => setFormLeaveType(e.target.value)} required aria-required="true" data-testid="leave-type">
               <option value="">—</option>
               {leaveTypes.map((t) => <option key={t.id} value={t.id}>{locale === "ar" ? t.nameAr : t.nameEn}</option>)}
             </select>
@@ -241,24 +241,24 @@ export default function LeavePage() {
           <p>
             <label htmlFor="leave-start" className={styles.kpiLabel}>{t("hrm.leave.form.startDate")}</label>
             <input id="leave-start" type="date" className={styles.filterSelect} value={formStartDate}
-              onChange={(e) => setFormStartDate(e.target.value)} required aria-required="true" />
+              onChange={(e) => setFormStartDate(e.target.value)} required aria-required="true" data-testid="leave-start" />
           </p>
           <p>
             <label htmlFor="leave-end" className={styles.kpiLabel}>{t("hrm.leave.form.endDate")}</label>
             <input id="leave-end" type="date" className={styles.filterSelect} value={formEndDate}
-              onChange={(e) => setFormEndDate(e.target.value)} required aria-required="true" />
+              onChange={(e) => setFormEndDate(e.target.value)} required aria-required="true" data-testid="leave-end" />
           </p>
           <p>
             <label htmlFor="leave-reason" className={styles.kpiLabel}>{t("hrm.leave.form.reason")}</label>
             <textarea id="leave-reason" className={styles.reasonTextarea} value={formReason}
-              onChange={(e) => setFormReason(e.target.value)} placeholder={t("hrm.leave.form.reasonPlaceholder")} />
+              onChange={(e) => setFormReason(e.target.value)} placeholder={t("hrm.leave.form.reasonPlaceholder")} data-testid="leave-reason" />
           </p>
           {formError ? <p role="alert" className={styles.kpiHint} data-kind="error">{formError}</p> : null}
           <div className={styles.actionRow}>
-            <button type="submit" className={styles.linkButton} disabled={busy}>
+            <button type="submit" className={styles.linkButton} disabled={busy} data-testid="leave-submit">
               {busy ? t("hrm.leave.form.submitting") : t("hrm.leave.form.submit")}
             </button>
-            <button type="button" className={styles.linkButton} onClick={() => setShowForm(false)}>
+            <button type="button" className={styles.linkButton} onClick={() => setShowForm(false)} data-testid="leave-cancel">
               {t("hrm.leave.reasonDialog.cancel")}
             </button>
           </div>
