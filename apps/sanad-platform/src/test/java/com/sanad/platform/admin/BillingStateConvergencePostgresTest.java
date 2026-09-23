@@ -48,6 +48,31 @@ class BillingStateConvergencePostgresTest {
     }
 
     @Test
+    void currentSubscriptionCannotSkipPastDueAndJumpDirectlyToSuspended() {
+        insertOverdueInvoice(effectiveSubscriptionId, Instant.now().minus(10, ChronoUnit.DAYS));
+
+        String first = billingStateService.evaluateAndTransition(tenantId);
+
+        assertThat(first).isEqualTo("PAST_DUE");
+        assertThat(jdbc.queryForObject(
+                "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
+                String.class, effectiveSubscriptionId)).isEqualTo("PAST_DUE");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM tenant_subscriptions WHERE id = ?",
+                String.class, effectiveSubscriptionId)).isEqualTo("PAST_DUE");
+
+        String second = billingStateService.evaluateAndTransition(tenantId);
+
+        assertThat(second).isEqualTo("SUSPENDED");
+        assertThat(jdbc.queryForObject(
+                "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
+                String.class, effectiveSubscriptionId)).isEqualTo("SUSPENDED");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM tenant_subscriptions WHERE id = ?",
+                String.class, effectiveSubscriptionId)).isEqualTo("SUSPENDED");
+    }
+
+    @Test
     void historicalTerminalInvoiceCannotDunnEffectiveSuccessor() {
         UUID historicalId = UUID.randomUUID();
         Timestamp historicalCreated = Timestamp.from(Instant.now().minus(60, ChronoUnit.DAYS));
