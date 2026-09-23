@@ -2,7 +2,6 @@ package com.sanad.platform.executive.service;
 
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.service.PlatformAuditService;
-import com.sanad.platform.security.service.RegistrationProvisioner;
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService.AccessDecision;
 import com.sanad.platform.subscription.commercial.TenantCommercialStateService.CommercialAction;
@@ -45,7 +44,7 @@ class ExecutivePlatformLoginLinkTest {
         authentication = mock(Authentication.class);
         commercialState = mock(TenantCommercialStateService.class);
         service = new ExecutivePlatformService(
-                jdbc, audit, mock(RegistrationProvisioner.class), commercialState);
+                jdbc, audit, commercialState, mock(ExecutiveTenantProvisioningService.class));
     }
 
     @Test
