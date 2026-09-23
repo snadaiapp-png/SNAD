@@ -81,9 +81,7 @@ class HrG2OpenApiContractTest {
         JsonNode api = objectMapper.readTree(result.getResponse().getContentAsString());
         JsonNode paths = api.path("paths");
 
-        // Check at least some of the multi-step endpoints are documented
-        // (the controller has @Operation annotations that springdoc auto-generates)
-        int documentedActions = 0;
+        // ALL 7 leave action endpoints must be documented (not >= 5)
         String[] expectedActionPaths = {
             "/api/v2/hr/leave/requests/{requestId}/submit",
             "/api/v2/hr/leave/requests/{requestId}/manager-approve",
@@ -94,10 +92,9 @@ class HrG2OpenApiContractTest {
             "/api/v2/hr/leave/requests/{requestId}/cancel",
         };
         for (String path : expectedActionPaths) {
-            if (paths.has(path)) documentedActions++;
+            assertThat(paths.has(path))
+                    .as("Endpoint %s must be documented in OpenAPI", path)
+                    .isTrue();
         }
-        assertThat(documentedActions)
-                .as("At least 5 of 7 leave action endpoints must be documented")
-                .isGreaterThanOrEqualTo(5);
     }
 }
