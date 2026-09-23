@@ -3,11 +3,22 @@
 # ------------------------------------------------------------
 # Dedicated required G2 authenticated acceptance job. Provisions:
 #   - host-native PostgreSQL 16 (no Docker, no Testcontainers)
-#   - Spring Boot backend with the `local` profile + CRM acceptance seed
-#     (extends to G2 acceptance seed — tenant + Employee/Manager/HR users
-#      + WORKFLOW module entitlement + RBAC capabilities)
+#   - Spring Boot backend with the `local` profile
+#   - G2 acceptance seed (tenant + Employee/Manager/HR users + WORKFLOW
+#     module entitlement + RBAC capabilities)
 #   - Next.js frontend
 #   - E2E_<ROLE>_EMAIL/PASSWORD env vars for g2-authenticated.spec.ts
+#
+# Security model:
+#   - NO committed password literals. Both the PostgreSQL application role
+#     password AND the G2 E2E user password are generated at runtime as
+#     cryptographically random per-run values.
+#   - The cleartext values are masked via `::add-mask::` and exported to
+#     GITHUB_ENV so subsequent steps can use them without re-derivation.
+#   - The seed SQL receives the G2 E2E password via psql variable binding
+#     (`-v g2_e2e_password="$G2_E2E_PASSWORD"`) so the cleartext never
+#     appears in SQL text either; the bcrypt hash is computed at runtime
+#     via `crypt(:'g2_e2e_password', gen_salt('bf', 10))`.
 #
 # Then runs Playwright via playwright-g2.config.ts (single project, no
 # locale/theme matrix — the G2 spec is a stateful cross-role journey).
@@ -59,14 +70,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      # Host-native PostgreSQL connection (no Docker service container)
+      # Connection coordinates only — NO password literal here. The password
+      # is generated at runtime in the bootstrap step and exported to GITHUB_ENV.
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g2
       DATABASE_USERNAME: sanad_g2
-      DATABASE_PASSWORD: sanad_g2_pass
       DATABASE_NAME: sanad_g2
-      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g2
-      SPRING_DATASOURCE_USERNAME: sanad_g2
-      SPRING_DATASOURCE_PASSWORD: sanad_g2_pass
       SPRING_PROFILES_ACTIVE: local
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
       FLYWAY_ENABLED: 'true'
@@ -83,14 +91,11 @@ jobs:
       SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
       SECURITY_NOTIFICATION_PROVIDER: disabled
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
-      # E2E test credentials — deterministic, bcrypt-hashed in seed SQL
+      # E2E test emails — deterministic, but NOT secrets. The matching passwords
+      # are generated at runtime and exported to GITHUB_ENV below.
       E2E_EMPLOYEE_EMAIL: g2-employee@g2-acceptance.example
-      E2E_EMPLOYEE_PASSWORD: TestPass123!
       E2E_MANAGER_EMAIL: g2-manager@g2-acceptance.example
-      E2E_MANAGER_PASSWORD: TestPass123!
       E2E_HR_EMAIL: g2-hr@g2-acceptance.example
-      E2E_HR_PASSWORD: TestPass123!
-      PGPASSWORD: sanad_g2_pass
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@v4
@@ -106,6 +111,39 @@ jobs:
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           echo "candidate_sha=$CANDIDATE_SHA"
           echo "event_sha=$GITHUB_SHA"
+
+      - name: Generate ephemeral per-run credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Cryptographically random per-run PostgreSQL application role password.
+          # 32 bytes base64-encoded => ~44 chars of entropy, more than enough for
+          # an isolated CI database that lives only for this workflow run.
+          DB_PASSWORD="$(openssl rand -base64 32 | tr -d '/+=' | head -c 40)"
+          # Cryptographically random per-run G2 E2E user password.
+          # Alphanumeric only (no special chars) so the SNAD login form input
+          # is never rejected by client-side validation.
+          G2_E2E_PASSWORD="$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)"
+
+          # Mask both values so they never appear in CI logs.
+          echo "::add-mask::$DB_PASSWORD"
+          echo "::add-mask::$G2_E2E_PASSWORD"
+
+          # Export to GITHUB_ENV so subsequent steps can use them.
+          echo "DATABASE_PASSWORD=$DB_PASSWORD" >> "$GITHUB_ENV"
+          echo "SPRING_DATASOURCE_PASSWORD=$DB_PASSWORD" >> "$GITHUB_ENV"
+          echo "PGPASSWORD=$DB_PASSWORD" >> "$GITHUB_ENV"
+          echo "G2_E2E_PASSWORD=$G2_E2E_PASSWORD" >> "$GITHUB_ENV"
+          # The three isolated CI identities share the same ephemeral password
+          # (they all live in the same isolated G2 test tenant which is
+          # destroyed after the run). Each one's cleartext is masked above.
+          echo "E2E_EMPLOYEE_PASSWORD=$G2_E2E_PASSWORD" >> "$GITHUB_ENV"
+          echo "E2E_MANAGER_PASSWORD=$G2_E2E_PASSWORD" >> "$GITHUB_ENV"
+          echo "E2E_HR_PASSWORD=$G2_E2E_PASSWORD" >> "$GITHUB_ENV"
+
+          echo "Ephemeral credentials generated (lengths masked):"
+          echo "  DB_PASSWORD length: ${#DB_PASSWORD}"
+          echo "  G2_E2E_PASSWORD length: ${#G2_E2E_PASSWORD}"
 
       - name: Start host-native PostgreSQL (no containers)
         shell: bash
@@ -132,15 +170,24 @@ jobs:
           done
           pg_isready -h 127.0.0.1 -p 5432
 
-      - name: Provision G2 role and database
+      - name: Provision G2 role and database (with runtime password)
         shell: bash
+        env:
+          # Bind the runtime password into a psql variable so the cleartext
+          # never appears in SQL text. The DO block uses :'db_password' which
+          # psql substitutes as a properly-quoted string literal.
+          DB_PASSWORD: ${{ env.DATABASE_PASSWORD }}
         run: |
           set -euo pipefail
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          # Pass the password via psql -v variable binding. The cleartext is
+          # in the env var (masked), never printed, never written to a file.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v db_password="$DB_PASSWORD" <<'SQL'
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g2') THEN
-              CREATE ROLE sanad_g2 WITH LOGIN PASSWORD 'sanad_g2_pass';
+              EXECUTE format('CREATE ROLE sanad_g2 WITH LOGIN PASSWORD %L', current_setting('db_password'));
+            ELSE
+              EXECUTE format('ALTER ROLE sanad_g2 WITH LOGIN PASSWORD %L', current_setting('db_password'));
             END IF;
           END $$;
           ALTER ROLE sanad_g2 NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
@@ -154,7 +201,8 @@ jobs:
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_g2;
           SQL
 
-          PGPASSWORD="$DATABASE_PASSWORD" psql \
+          # Verify the role + database work with the runtime password.
+          PGPASSWORD="$DB_PASSWORD" psql \
             -h 127.0.0.1 \
             -U "$DATABASE_USERNAME" \
             -d "$DATABASE_NAME" \
@@ -185,19 +233,25 @@ jobs:
           -Dflyway.outOfOrder=true
           -Dflyway.baselineVersion=0
 
-      - name: Provision G2 acceptance seed (tenant + Employee/Manager/HR + WORKFLOW entitlement)
+      - name: Provision G2 acceptance seed (runtime password via psql variable binding)
         shell: bash
+        env:
+          G2_E2E_PASSWORD: ${{ env.G2_E2E_PASSWORD }}
         run: |
           set -euo pipefail
+          # Pass the runtime G2 E2E password into psql as a variable. The seed SQL
+          # uses crypt(:'g2_e2e_password', gen_salt('bf', 10)) so the cleartext
+          # is consumed at SQL-evaluation time only and never written to disk.
           PGPASSWORD="$DATABASE_PASSWORD" psql \
             -h 127.0.0.1 \
             -U "$DATABASE_USERNAME" \
             -d "$DATABASE_NAME" \
             -v ON_ERROR_STOP=1 \
+            -v g2_e2e_password="$G2_E2E_PASSWORD" \
             -f apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql \
             2>&1 | tee "$RUNNER_TEMP/g2-seed.log"
 
-          # Verify the G2 test tenant + users + WORKFLOW entitlement are present
+          # Verify the G2 test tenant + users + WORKFLOW entitlement + leave balance row are present
           TENANT_COUNT=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc "SELECT COUNT(*) FROM tenants WHERE id = '33333333-3333-4333-8333-333333333331'")
           test "$TENANT_COUNT" = "1" || { echo "::error::G2 seed tenant not found"; exit 1; }
 
@@ -213,7 +267,15 @@ jobs:
           WF_ENT=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc "SELECT COUNT(*) FROM plan_module_entitlements pme JOIN modules m ON m.id = pme.module_id WHERE pme.plan_id = '33333333-3333-4333-8333-333333333332' AND m.code = 'WORKFLOW' AND pme.module_enabled = true")
           test "$WF_ENT" -ge "1" || { echo "::error::G2 WORKFLOW entitlement count=$WF_ENT (expected >= 1)"; exit 1; }
 
-          echo "G2 seed verified: tenant=1 users=3 employees=3 subscriptions=1 workflow_entitlements=$WF_ENT"
+          # Verify the leave balance row exists with canonical column names
+          LB_ROW=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc "SELECT COUNT(*) FROM hr_leave_balances WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND employment_id = '33333333-3333-4333-8333-333333333361'")
+          test "$LB_ROW" -ge "1" || { echo "::error::G2 leave balance row count=$LB_ROW (expected >= 1)"; exit 1; }
+
+          # Verify the canonical column names (entitled_days, used_days, pending_days, carried_over_days)
+          LB_COLS=$(PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc "SELECT entitled_days || '|' || used_days || '|' || pending_days || '|' || carried_over_days FROM hr_leave_balances WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND employment_id = '33333333-3333-4333-8333-333333333361' LIMIT 1")
+          echo "G2 leave balance row: $LB_COLS"
+
+          echo "G2 seed verified: tenant=1 users=3 employees=3 subscriptions=1 workflow_entitlements=$WF_ENT leave_balance_rows=$LB_ROW"
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
@@ -239,6 +301,23 @@ jobs:
       - name: Build Next.js frontend
         working-directory: apps/web
         run: npm run build
+
+      - name: Verify Playwright project configs (G2 spec routing)
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Generic Playwright matrix (playwright.standard.config.ts) — G2 spec must be ABSENT ==="
+          STD_COUNT=$(npx playwright test --config=playwright.standard.config.ts --list 2>&1 | grep -c "g2-authenticated.spec.ts" || true)
+          echo "Generic matrix g2-authenticated.spec.ts test count: $STD_COUNT"
+          test "$STD_COUNT" = "0" || { echo "::error::G2 spec must NOT run in generic visual matrix; found $STD_COUNT tests"; exit 1; }
+
+          echo "=== Dedicated G2 Playwright (playwright-g2.config.ts) — G2 spec must be PRESENT ==="
+          G2_COUNT=$(npx playwright test --config=playwright-g2.config.ts --list 2>&1 | grep -c "g2-authenticated.spec.ts" || true)
+          echo "Dedicated G2 matrix g2-authenticated.spec.ts test count: $G2_COUNT"
+          test "$G2_COUNT" -ge "1" || { echo "::error::G2 spec must run in dedicated G2 matrix; found $G2_COUNT tests"; exit 1; }
+
+          echo "G2 spec routing verified: generic=0, dedicated=$G2_COUNT"
 
       - name: Start Spring Boot backend (background)
         working-directory: apps/sanad-platform
@@ -310,7 +389,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload backend + frontend server logs
+      - name: Upload backend + frontend server logs (no credentials)
         if: always()
         uses: actions/upload-artifact@v4
         with:
