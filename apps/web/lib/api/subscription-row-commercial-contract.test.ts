@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { SubscriptionRow } from "./scp-api";
+import type { SubscriptionRow, TenantRow } from "./scp-api";
 
-describe("SubscriptionRow commercial pricing contract", () => {
+describe("SCP commercial read contracts", () => {
   it("types the actual recurring charge separately from monthly equivalent", () => {
     const annual: SubscriptionRow = {
       id: "sub-1",
@@ -26,5 +26,28 @@ describe("SubscriptionRow commercial pricing contract", () => {
 
     expect(annual.recurringAmountMinor).toBe(240_000);
     expect(annual.monthlyEquivalentMinor).toBe(20_000);
+  });
+
+  it("types backend-derived tenant access and commercial actions without UI casts", () => {
+    const tenant: TenantRow = {
+      id: "tenant-1",
+      name: "Tenant",
+      code: "tenant",
+      status: "ACTIVE",
+      countryCode: "SA",
+      currencyCode: "SAR",
+      subscriptionCount: 0,
+      subscriptionStatus: null,
+      effectiveSubscriptionId: null,
+      billingState: null,
+      accessDecision: "NO_EFFECTIVE_SUBSCRIPTION",
+      commercialAction: "CREATE_SUBSCRIPTION",
+      anomalyCode: "ACTIVE_WITHOUT_EFFECTIVE_SUBSCRIPTION",
+      loginAllowed: false,
+      createdAt: "2026-09-23T00:00:00Z",
+    };
+
+    expect(tenant.loginAllowed).toBe(false);
+    expect(tenant.commercialAction).toBe("CREATE_SUBSCRIPTION");
   });
 });
