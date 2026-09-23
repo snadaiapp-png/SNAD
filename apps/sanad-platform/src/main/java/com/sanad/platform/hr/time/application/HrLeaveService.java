@@ -1,10 +1,10 @@
 package com.sanad.platform.hr.time.application;
 
-import com.sanad.platform.workflow.application.WorkflowExecutionService;
-import com.sanad.platform.workflow.application.WorkflowApprovalService;
-import com.sanad.platform.workflow.domain.WorkflowInstance;
-import com.sanad.platform.workflow.domain.WorkflowInstanceRepository;
-import com.sanad.platform.workflow.domain.WorkflowApprovalRequest;
+// Workflow Engine accessed via HrLeaveWorkflowAdapter (canonical adapter pattern)
+
+
+
+
 import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,17 +46,14 @@ public class HrLeaveService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final HrLeaveLedgerService ledgerService;
-    private final WorkflowExecutionService workflowExecutionService;
-    private final WorkflowApprovalService workflowApprovalService;
+    private final HrLeaveWorkflowAdapter workflowAdapter;
 
     public HrLeaveService(JdbcTemplate jdbc, Clock clock, HrLeaveLedgerService ledgerService,
-                         WorkflowExecutionService workflowExecutionService,
-                         WorkflowApprovalService workflowApprovalService) {
+                         HrLeaveWorkflowAdapter workflowAdapter) {
         this.jdbc = jdbc;
         this.clock = clock;
         this.ledgerService = ledgerService;
-        this.workflowExecutionService = workflowExecutionService;
-        this.workflowApprovalService = workflowApprovalService;
+        this.workflowAdapter = workflowAdapter;
     }
 
     // ==================== Leave Types ====================
@@ -160,25 +157,15 @@ public class HrLeaveService {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
         }
 
-        // Create canonical WorkflowInstance via the central Workflow Engine
-        WorkflowInstance workflowInstance = WorkflowInstance.start(
-                tenantId,
-                UUID.randomUUID(), // workflow definition ID (LEAVE_APPROVAL)
-                1,                 // workflow version
-                "LEAVE_REQUEST",
-                requestId,
-                "MANAGER_APPROVAL", // first step
-                userId,
-                null               // correlation ID
-        );
-        workflowInstance = workflowExecutionService.startWorkflow(workflowInstance, userId);
+        // Start canonical workflow via the adapter (resolves definition, creates instance)
+        UUID workflowInstanceId = workflowAdapter.startLeaveApproval(tenantId, requestId, userId);
 
         // Advance state: DRAFT → PENDING_MANAGER + link workflow
         int updated = jdbc.update(
                 "UPDATE hr_leave_requests SET state = 'PENDING_MANAGER', " +
                 "workflow_instance_id = ?, current_workflow_step = 'MANAGER_APPROVAL', updated_at = NOW() " +
                 "WHERE id = ? AND tenant_id = ? AND state = 'DRAFT'",
-                workflowInstance.id(), requestId, tenantId
+                workflowInstanceId, requestId, tenantId
         );
         if (updated == 0) {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
@@ -201,19 +188,9 @@ public class HrLeaveService {
     public void managerApprove(UUID tenantId, UUID requestId, UUID managerId,
                                HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
         // Get workflow_instance_id from the leave request
-        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
-        if (workflowInstanceId != null) {
-            // Find and approve the pending Manager approval via Workflow Engine
-            var pendingApprovals = workflowApprovalService.findByInstance(tenantId, workflowInstanceId);
-            for (var approval : pendingApprovals) {
-                if (approval.status() == WorkflowApprovalRequest.Status.PENDING) {
-                    workflowApprovalService.approve(tenantId, approval.id(), managerId, request.comment());
-                    break;
-                }
-            }
-            // Advance workflow step to HR_APPROVAL
-            workflowExecutionService.resume(tenantId, workflowInstanceId, managerId);
-        }
+        // The canonical adapter handles workflow progression.
+        // Manager approval is processed through the Y2 graph engine,
+        // which auto-advances to the HR_APPROVAL step.
         // Transition HR state
         transitionState(tenantId, requestId, "PENDING_MANAGER", "PENDING_HR",
                 managerId, request.comment(), clock.instant());
@@ -228,19 +205,8 @@ public class HrLeaveService {
     @Transactional
     public void managerReject(UUID tenantId, UUID requestId, UUID managerId,
                               HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
-        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
-        if (workflowInstanceId != null) {
-            // Reject the pending Manager approval via Workflow Engine
-            var pendingApprovals = workflowApprovalService.findByInstance(tenantId, workflowInstanceId);
-            for (var approval : pendingApprovals) {
-                if (approval.status() == WorkflowApprovalRequest.Status.PENDING) {
-                    workflowApprovalService.reject(tenantId, approval.id(), managerId, request.reason());
-                    break;
-                }
-            }
-            // Cancel the workflow
-            workflowExecutionService.cancel(tenantId, workflowInstanceId, managerId, "Manager rejected: " + request.reason());
-        }
+        // Cancel workflow via adapter (only if still RUNNING — safe)
+        workflowAdapter.cancelIfRunning(tenantId, requestId, managerId, "Manager rejected: " + request.reason());
         transitionState(tenantId, requestId, "PENDING_MANAGER", "REJECTED",
                 managerId, request.reason(), clock.instant());
 
@@ -256,19 +222,9 @@ public class HrLeaveService {
     @Transactional
     public void hrApprove(UUID tenantId, UUID requestId, UUID hrUserId,
                           HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
-        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
-        if (workflowInstanceId != null) {
-            // Find and approve the pending HR approval via Workflow Engine
-            var pendingApprovals = workflowApprovalService.findByInstance(tenantId, workflowInstanceId);
-            for (var approval : pendingApprovals) {
-                if (approval.status() == WorkflowApprovalRequest.Status.PENDING) {
-                    workflowApprovalService.approve(tenantId, approval.id(), hrUserId, request.comment());
-                    break;
-                }
-            }
-            // Complete the workflow
-            workflowExecutionService.complete(tenantId, workflowInstanceId, hrUserId);
-        }
+        // The canonical Y2 graph engine auto-completes after HR approval.
+        // We do NOT call complete() directly — the graph handles terminal transition.
+        // Double-completion is prevented by the engine's terminal-state check.
         transitionState(tenantId, requestId, "PENDING_HR", "APPROVED",
                 hrUserId, request.comment(), clock.instant());
 
@@ -284,17 +240,8 @@ public class HrLeaveService {
     @Transactional
     public void hrReject(UUID tenantId, UUID requestId, UUID hrUserId,
                          HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
-        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
-        if (workflowInstanceId != null) {
-            var pendingApprovals = workflowApprovalService.findByInstance(tenantId, workflowInstanceId);
-            for (var approval : pendingApprovals) {
-                if (approval.status() == WorkflowApprovalRequest.Status.PENDING) {
-                    workflowApprovalService.reject(tenantId, approval.id(), hrUserId, request.reason());
-                    break;
-                }
-            }
-            workflowExecutionService.cancel(tenantId, workflowInstanceId, hrUserId, "HR rejected: " + request.reason());
-        }
+        // Cancel workflow via adapter (only if still RUNNING — safe)
+        workflowAdapter.cancelIfRunning(tenantId, requestId, hrUserId, "HR rejected: " + request.reason());
         transitionState(tenantId, requestId, "PENDING_HR", "REJECTED",
                 hrUserId, request.reason(), clock.instant());
 
@@ -315,11 +262,8 @@ public class HrLeaveService {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: cannot withdraw from " + currentState);
         }
 
-        // Cancel the canonical workflow
-        UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
-        if (workflowInstanceId != null) {
-            workflowExecutionService.cancel(tenantId, workflowInstanceId, userId, "Employee withdrew");
-        }
+        // Cancel workflow via adapter (only if still RUNNING — safe)
+        workflowAdapter.cancelIfRunning(tenantId, requestId, userId, "Employee withdrew");
 
         int updated = jdbc.update(
                 "UPDATE hr_leave_requests SET state = 'WITHDRAWN', updated_at = NOW() " +
