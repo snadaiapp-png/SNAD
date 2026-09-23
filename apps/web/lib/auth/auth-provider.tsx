@@ -25,6 +25,7 @@ import { ApiHttpError } from "@/lib/api/errors";
 import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 import { SingleFlight } from "@/lib/auth/single-flight";
 import { hasSessionHint } from "@/lib/auth/session-hint";
+import { withCrossTabRefreshLock } from "@/lib/auth/cross-tab-refresh-lock";
 
 export type AuthState =
   | "INITIALIZING"
@@ -144,8 +145,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const flight = refreshFlightRef.current;
     if (!flight) return Promise.reject(new Error("Session refresh is unavailable"));
 
+    // SingleFlight prevents duplicate refreshes inside one React tree; the Web
+    // Lock additionally serializes refresh-token rotation across browser tabs.
     return flight.run(async () => {
-      const response = await authApi.refresh();
+      const response = await withCrossTabRefreshLock(() => authApi.refresh());
       if (!refreshEnabledRef.current || generation !== sessionGenerationRef.current) {
         throw new Error("Stale session refresh result");
       }

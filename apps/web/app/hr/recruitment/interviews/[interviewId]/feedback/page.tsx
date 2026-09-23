@@ -25,6 +25,7 @@ import {
   hrmRecruitmentApi,
   type InterviewFeedbackResponse,
 } from "@/lib/api/hr-v2-recruitment-api";
+import { newIdempotencyKey } from "@/lib/api/hr-v2-api";
 import { HrWorkspace } from "../../../../components/hr-workspace";
 import { HrErrorState, HrLoading, hrmErrorMessage } from "../../../../components/hr-feedback";
 import styles from "../../../../hr.module.css";
@@ -54,21 +55,25 @@ export default function InterviewFeedbackPage() {
     setError(null);
     try {
       try {
-        const data = await hrmRecruitmentApi.getInterviewFeedback(interviewId);
-        setPrevious(data);
-        setScorecard(JSON.stringify(data.scorecard, null, 2));
+        const rows = await hrmRecruitmentApi.getInterviewFeedback(interviewId);
+        const currentParticipant = rows.find((row) => row.participantId === me?.id) ?? null;
+        setPrevious(currentParticipant);
+        setScorecard(currentParticipant
+          ? JSON.stringify(currentParticipant.scorecard, null, 2)
+          : DEFAULT_SCORECARD);
       } catch (err: unknown) {
-        // 404 means no previous scorecard — that's fine
+        // 404 means no previous scorecard — that's fine.
         const kind = hrmErrorMessage(err).kind;
         if (kind !== "notfound") throw err;
         setPrevious(null);
+        setScorecard(DEFAULT_SCORECARD);
       }
     } catch (err) {
       setError(err);
     } finally {
       setLoading(false);
     }
-  }, [interviewId]);
+  }, [interviewId, me?.id]);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
@@ -87,7 +92,12 @@ export default function InterviewFeedbackPage() {
     }
     setBusy(true);
     try {
-      await hrmRecruitmentApi.putInterviewFeedback(interviewId, { scorecard: parsed });
+      await hrmRecruitmentApi.putInterviewFeedback(
+        interviewId,
+        { scorecard: parsed },
+        newIdempotencyKey(),
+        previous?.version,
+      );
       setNotice(t("hrm.recruitment.interviewFeedback.notice.saved"));
       await load();
     } catch (err) {
