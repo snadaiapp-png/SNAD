@@ -12,6 +12,7 @@ import com.sanad.platform.workflow.domain.WorkflowInstance;
 import com.sanad.platform.workflow.domain.WorkflowInstanceRepository;
 import com.sanad.platform.workflow.domain.WorkflowStep;
 import com.sanad.platform.workflow.domain.WorkflowTransition;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -21,26 +22,13 @@ import java.util.UUID;
 /**
  * Canonical Workflow Y2 adapter for HRM LEAVE approval (Manager → HR).
  *
- * <p>Follows the G1 {@code WorkflowY2OpeningApprovalAdapter} pattern exactly:
- * <ul>
- *   <li>deterministicFamilyId(tenantId) — stable UUID per tenant</li>
- *   <li>findOrPublishDefinition() — checks published, creates+publishes if absent</li>
- *   <li>Complete Y2 graph: submit → manager_approval → hr_approval → end_approved/end_rejected</li>
- *   <li>WorkflowInstance.startY2() with real definitionFamilyId + definitionId</li>
- *   <li>graphExecutionService.advance() moves START → manager_approval</li>
- *   <li>Y2 graph creates real WorkflowStepInstance + WorkflowApprovalRequest</li>
- * </ul>
- *
- * <p>No manual WorkflowApprovalRequest construction.
- * No random UUIDs for definition identity.
- * No header-only SQL seeds.
+ * <p>Follows the G1 {@code WorkflowY2OpeningApprovalAdapter} pattern exactly.
+ * Uses the central Workflow Engine — HRM builds NO second approval engine.
  */
 @Component
 public class HrLeaveWorkflowAdapter {
 
     static final String DEFINITION_CODE = "HR_LEAVE_APPROVAL";
-    static final String DEFINITION_NAME = "Leave Approval";
-    static final String DEFINITION_MODULE = "HRM";
     static final String BUSINESS_ENTITY_TYPE = "LEAVE_REQUEST";
     static final String STEP_SUBMIT_KEY = "submit";
     static final String STEP_MANAGER_APPROVAL_KEY = "manager_approval";
@@ -79,59 +67,72 @@ public class HrLeaveWorkflowAdapter {
     /**
      * Start the canonical leave approval workflow.
      *
-     * Flow: resolve/publish definition → startY2 on START → advance to manager_approval
-     * The Y2 graph activation creates the real WorkflowStepInstance + WorkflowApprovalRequest.
+     * Idempotency: catches ONLY DuplicateKeyException from the unique constraint
+     * uq_workflow_instances_tenant_idemkey. On catch, reloads the existing instance.
+     * Does NOT catch generic DataAccessException.
      */
     public UUID startLeaveApproval(UUID tenantId, UUID leaveRequestId, UUID submittedBy) {
         entitlementGuard.requireWorkflowEnabled(tenantId);
         WorkflowDefinition definition = findOrPublishDefinition(tenantId, submittedBy);
 
-        // Idempotency: reuse existing RUNNING instance
+        // Idempotency: check for existing RUNNING instance first
         Optional<WorkflowInstance> existing = instanceRepository
                 .findByBusinessEntity(tenantId, BUSINESS_ENTITY_TYPE, leaveRequestId).stream()
                 .filter(i -> i.status() == WorkflowInstance.Status.RUNNING)
                 .findFirst();
         if (existing.isPresent()) {
-            // Heal: advance from START if still there
             if (STEP_SUBMIT_KEY.equals(existing.get().currentStepKey())) {
                 graphExecutionService.advance(tenantId, existing.get().id(), null, submittedBy);
             }
             return existing.get().id();
         }
 
-        // Deterministic idempotency key
         String idempotencyKey = "HR_LEAVE_APPROVAL:" + tenantId + ":" + leaveRequestId;
 
         WorkflowInstance instance = WorkflowInstance.startY2(
-                tenantId,
-                definition.definitionFamilyId(),
-                definition.id(),
-                definition.version(),
-                BUSINESS_ENTITY_TYPE,
-                leaveRequestId,
-                STEP_SUBMIT_KEY,
-                submittedBy,
-                leaveRequestId,
-                "MANUAL",
-                null,
-                idempotencyKey,
-                null,
-                null
-        );
-        instance = executionService.startWorkflow(instance, submittedBy);
+                tenantId, definition.definitionFamilyId(), definition.id(), definition.version(),
+                BUSINESS_ENTITY_TYPE, leaveRequestId, STEP_SUBMIT_KEY, submittedBy, leaveRequestId,
+                "MANUAL", null, idempotencyKey, null, null);
 
-        // Advance from START → manager_approval
-        // The Y2 graph creates the real WorkflowStepInstance + WorkflowApprovalRequest
+        try {
+            instance = executionService.startWorkflow(instance, submittedBy);
+        } catch (DuplicateKeyException e) {
+            // Concurrent start with same idempotency key — reload existing instance
+            Optional<WorkflowInstance> concurrent = instanceRepository
+                    .findByBusinessEntity(tenantId, BUSINESS_ENTITY_TYPE, leaveRequestId).stream()
+                    .filter(i -> i.status() == WorkflowInstance.Status.RUNNING)
+                    .findFirst();
+            if (concurrent.isPresent()) {
+                if (STEP_SUBMIT_KEY.equals(concurrent.get().currentStepKey())) {
+                    graphExecutionService.advance(tenantId, concurrent.get().id(), null, submittedBy);
+                }
+                return concurrent.get().id();
+            }
+            throw e; // Re-throw if we can't find the concurrent instance
+        }
+
         graphExecutionService.advance(tenantId, instance.id(), null, submittedBy);
-
         return instance.id();
     }
 
     /**
-     * Find the pending WorkflowApprovalRequest for the current workflow step.
+     * Find the pending approval for the CURRENT workflow step.
+     * Verifies currentStepKey matches expectedStepKey before returning.
      */
-    public Optional<WorkflowApprovalRequest> findPendingApproval(UUID tenantId, UUID workflowInstanceId) {
+    public Optional<WorkflowApprovalRequest> findPendingApprovalForCurrentStep(
+            UUID tenantId, UUID workflowInstanceId, String expectedStepKey) {
         if (workflowInstanceId == null) return Optional.empty();
+
+        // Verify current step
+        Optional<WorkflowInstance> instance = instanceRepository.findById(tenantId, workflowInstanceId);
+        if (instance.isEmpty()) return Optional.empty();
+
+        WorkflowInstance loaded = instance.get();
+        if (!expectedStepKey.equals(loaded.currentStepKey())) {
+            return Optional.empty(); // Wrong step — no actionable approval
+        }
+
+        // Find the PENDING approval for this instance
         return approvalRepository.findByInstance(tenantId, workflowInstanceId).stream()
                 .filter(r -> r.status() == WorkflowApprovalRequest.Status.PENDING)
                 .findFirst();
@@ -148,61 +149,55 @@ public class HrLeaveWorkflowAdapter {
     }
 
     /**
-     * Verify the workflow instance is in a terminal state.
+     * Verify the workflow is RUNNING at the specified step.
      */
-    public boolean isTerminal(UUID tenantId, UUID workflowInstanceId) {
-        if (workflowInstanceId == null) return true;
-        return instanceRepository.findById(tenantId, workflowInstanceId)
-                .map(i -> i.status() == WorkflowInstance.Status.COMPLETED ||
-                          i.status() == WorkflowInstance.Status.CANCELLED ||
-                          i.status() == WorkflowInstance.Status.FAILED)
-                .orElse(true);
-    }
-
-    /**
-     * Verify the workflow instance is COMPLETED (terminal approved).
-     */
-    public boolean isCompleted(UUID tenantId, UUID workflowInstanceId) {
+    public boolean isRunningAt(UUID tenantId, UUID workflowInstanceId, String stepKey) {
         if (workflowInstanceId == null) return false;
         return instanceRepository.findById(tenantId, workflowInstanceId)
-                .map(i -> i.status() == WorkflowInstance.Status.COMPLETED)
+                .map(i -> i.status() == WorkflowInstance.Status.RUNNING && stepKey.equals(i.currentStepKey()))
                 .orElse(false);
     }
 
     /**
-     * Approve a pending WorkflowApprovalRequest via canonical WorkflowApprovalService.
+     * Verify the workflow is COMPLETED at the specified terminal step.
+     */
+    public boolean isCompletedAt(UUID tenantId, UUID workflowInstanceId, String terminalStepKey) {
+        if (workflowInstanceId == null) return false;
+        return instanceRepository.findById(tenantId, workflowInstanceId)
+                .map(i -> i.status() == WorkflowInstance.Status.COMPLETED && terminalStepKey.equals(i.currentStepKey()))
+                .orElse(false);
+    }
+
+    /**
+     * Approve a pending approval via canonical WorkflowApprovalService.
      */
     public WorkflowApprovalRequest approveApproval(UUID tenantId, UUID approvalRequestId,
-                                                     UUID approverId, String comments) {
-        return approvalService.approve(tenantId, approvalRequestId, approverId, comments);
+                                                     UUID approverId, long expectedVersion, String comments) {
+        return approvalService.approve(tenantId, approvalRequestId, approverId, expectedVersion, comments);
     }
 
     /**
-     * Reject a pending WorkflowApprovalRequest via canonical WorkflowApprovalService.
+     * Reject a pending approval via canonical WorkflowApprovalService.
      */
     public WorkflowApprovalRequest rejectApproval(UUID tenantId, UUID approvalRequestId,
-                                                    UUID rejecterId, String comments) {
-        return approvalService.reject(tenantId, approvalRequestId, rejecterId, comments);
+                                                    UUID rejecterId, long expectedVersion, String comments) {
+        return approvalService.reject(tenantId, approvalRequestId, rejecterId, expectedVersion, comments);
     }
 
     /**
-     * Cancel the workflow if still RUNNING (for withdrawal).
-     * Does NOT cancel COMPLETED/CANCELLED instances (forbidden by canonical domain).
+     * Cancel the workflow if still RUNNING.
      */
     public void cancelIfRunning(UUID tenantId, UUID workflowInstanceId, UUID cancelledBy, String reason) {
         if (workflowInstanceId == null) return;
-        Optional<WorkflowInstance> instance = instanceRepository.findById(tenantId, workflowInstanceId);
-        if (instance.isPresent() && instance.get().status() == WorkflowInstance.Status.RUNNING) {
-            executionService.cancel(tenantId, workflowInstanceId, cancelledBy, reason);
-        }
+        instanceRepository.findById(tenantId, workflowInstanceId).ifPresent(i -> {
+            if (i.status() == WorkflowInstance.Status.RUNNING) {
+                executionService.cancel(tenantId, workflowInstanceId, cancelledBy, reason);
+            }
+        });
     }
 
     // ==================== Definition Publication (follows G1 pattern) ====================
 
-    /**
-     * Find or publish the canonical HR_LEAVE_APPROVAL workflow definition.
-     * Follows the G1 WorkflowY2OpeningApprovalAdapter.findOrPublishDefinition() pattern exactly.
-     */
     private WorkflowDefinition findOrPublishDefinition(UUID tenantId, UUID actor) {
         UUID familyId = deterministicFamilyId(tenantId);
         Optional<WorkflowDefinition> published = definitionRepository.findPublishedByFamily(tenantId, familyId);
@@ -210,7 +205,6 @@ public class HrLeaveWorkflowAdapter {
             return published.get();
         }
 
-        // Create Y2 draft
         WorkflowDefinition draft = new WorkflowDefinition(
                 familyId, tenantId, familyId, DEFINITION_CODE, DEFINITION_NAME,
                 "Manager → HR two-step leave approval (HRM G2)",
@@ -221,30 +215,19 @@ public class HrLeaveWorkflowAdapter {
                 Instant.now(), Instant.now());
         draft = definitionRepository.save(draft);
 
-        // Create steps
-        WorkflowStep submit = WorkflowStep.create(tenantId, draft.id(), STEP_SUBMIT_KEY,
-                "Leave Submission", WorkflowStep.StepType.START, 1, "{}", null, null, null);
-        submit = definitionRepository.saveStep(submit);
+        WorkflowStep submit = definitionRepository.saveStep(WorkflowStep.create(tenantId, draft.id(),
+                STEP_SUBMIT_KEY, "Leave Submission", WorkflowStep.StepType.START, 1, "{}", null, null, null));
+        WorkflowStep managerApproval = definitionRepository.saveStep(WorkflowStep.create(tenantId, draft.id(),
+                STEP_MANAGER_APPROVAL_KEY, "Manager Approval", WorkflowStep.StepType.APPROVAL, 2,
+                "{\"approvalPolicy\":\"ANY_ONE\"}", APPROVAL_SLA_HOURS, CAPABILITY_LEAVE_TEAM_APPROVE, null));
+        WorkflowStep hrApproval = definitionRepository.saveStep(WorkflowStep.create(tenantId, draft.id(),
+                STEP_HR_APPROVAL_KEY, "HR Approval", WorkflowStep.StepType.APPROVAL, 3,
+                "{\"approvalPolicy\":\"ANY_ONE\"}", APPROVAL_SLA_HOURS, CAPABILITY_LEAVE_HR_APPROVE, null));
+        WorkflowStep endApproved = definitionRepository.saveStep(WorkflowStep.create(tenantId, draft.id(),
+                STEP_END_APPROVED_KEY, "Leave Approved", WorkflowStep.StepType.END, 4, "{}", null, null, null));
+        WorkflowStep endRejected = definitionRepository.saveStep(WorkflowStep.create(tenantId, draft.id(),
+                STEP_END_REJECTED_KEY, "Leave Rejected", WorkflowStep.StepType.END, 5, "{}", null, null, null));
 
-        WorkflowStep managerApproval = WorkflowStep.create(tenantId, draft.id(), STEP_MANAGER_APPROVAL_KEY,
-                "Manager Approval", WorkflowStep.StepType.APPROVAL, 2,
-                "{\"approvalPolicy\":\"ANY_ONE\"}", APPROVAL_SLA_HOURS, CAPABILITY_LEAVE_TEAM_APPROVE, null);
-        managerApproval = definitionRepository.saveStep(managerApproval);
-
-        WorkflowStep hrApproval = WorkflowStep.create(tenantId, draft.id(), STEP_HR_APPROVAL_KEY,
-                "HR Approval", WorkflowStep.StepType.APPROVAL, 3,
-                "{\"approvalPolicy\":\"ANY_ONE\"}", APPROVAL_SLA_HOURS, CAPABILITY_LEAVE_HR_APPROVE, null);
-        hrApproval = definitionRepository.saveStep(hrApproval);
-
-        WorkflowStep endApproved = WorkflowStep.create(tenantId, draft.id(), STEP_END_APPROVED_KEY,
-                "Leave Approved", WorkflowStep.StepType.END, 4, "{}", null, null, null);
-        endApproved = definitionRepository.saveStep(endApproved);
-
-        WorkflowStep endRejected = WorkflowStep.create(tenantId, draft.id(), STEP_END_REJECTED_KEY,
-                "Leave Rejected", WorkflowStep.StepType.END, 5, "{}", null, null, null);
-        endRejected = definitionRepository.saveStep(endRejected);
-
-        // Create transitions
         definitionRepository.saveTransition(WorkflowTransition.create(tenantId, draft.id(),
                 submit.id(), managerApproval.id(), "to_manager_approval", "SUCCESS", null, 10, null));
         definitionRepository.saveTransition(WorkflowTransition.create(tenantId, draft.id(),
@@ -256,7 +239,6 @@ public class HrLeaveWorkflowAdapter {
         definitionRepository.saveTransition(WorkflowTransition.create(tenantId, draft.id(),
                 hrApproval.id(), endRejected.id(), "hr_rejected", "REJECT", null, 10, null));
 
-        // Publish
         String checksum = Integer.toHexString(java.util.Arrays.asList(
                 DEFINITION_CODE, STEP_SUBMIT_KEY, STEP_MANAGER_APPROVAL_KEY, STEP_HR_APPROVAL_KEY,
                 STEP_END_APPROVED_KEY, STEP_END_REJECTED_KEY).hashCode());
@@ -264,10 +246,6 @@ public class HrLeaveWorkflowAdapter {
         return definitionRepository.save(publishedDefinition);
     }
 
-    /**
-     * Deterministic family ID: stable UUID derived from tenantId + definition code.
-     * Same tenant → same family ID → same published definition (idempotent bootstrap).
-     */
     private UUID deterministicFamilyId(UUID tenantId) {
         return UUID.nameUUIDFromBytes(
                 (tenantId.toString() + "|HR_LEAVE_APPROVAL|v1").getBytes(java.nio.charset.StandardCharsets.UTF_8));
