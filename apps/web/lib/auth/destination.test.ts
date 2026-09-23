@@ -8,12 +8,24 @@ describe("post-login destination security", () => {
     expect(safeReturnUrl("/crm/leads?view=open", available)).toBe("/crm/leads?view=open");
   });
 
+  it("preserves an authorized nested executive route", () => {
+    expect(safeReturnUrl("/executive/tenants?tab=active", ["/workspace", "/executive"]))
+      .toBe("/executive/tenants?tab=active");
+  });
+
+  it("rejects a nested executive route when executive access is absent", () => {
+    expect(safeReturnUrl("/executive/tenants", ["/workspace", "/crm"]))
+      .toBeNull();
+  });
+
   it.each([
     "https://evil.example/phish",
     "//evil.example/phish",
     "javascript:alert(1)",
     "data:text/html,boom",
     "/\\evil.example",
+    "%2F%2Fevil.example/phish",
+    "/%5Cevil.example/phish",
   ])("rejects unsafe returnUrl %s", (candidate) => {
     expect(safeReturnUrl(candidate, available)).toBeNull();
   });
