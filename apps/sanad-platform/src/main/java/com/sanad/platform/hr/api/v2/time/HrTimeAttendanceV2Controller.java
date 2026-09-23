@@ -32,10 +32,120 @@ public class HrTimeAttendanceV2Controller {
 
     private final HrTimeAttendanceService timeService;
     private final HrLeaveService leaveService;
+    private final HrScheduleService scheduleService;
+    private final HrTimesheetService timesheetService;
 
-    public HrTimeAttendanceV2Controller(HrTimeAttendanceService timeService, HrLeaveService leaveService) {
+    public HrTimeAttendanceV2Controller(
+            HrTimeAttendanceService timeService,
+            HrLeaveService leaveService,
+            HrScheduleService scheduleService,
+            HrTimesheetService timesheetService
+    ) {
         this.timeService = timeService;
         this.leaveService = leaveService;
+        this.scheduleService = scheduleService;
+        this.timesheetService = timesheetService;
+    }
+
+    // ==================== Schedules ====================
+
+    @GetMapping("/time/schedules")
+    @Operation(operationId = "hrSchedulesList")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW)
+    public ResponseEntity<List<HrScheduleService.ScheduleResponse>> listSchedules(Authentication authentication) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        return ResponseEntity.ok(scheduleService.listSchedules(tenantId));
+    }
+
+    @PostMapping("/time/schedules")
+    @Operation(operationId = "hrScheduleCreate")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_ADMIN)
+    public ResponseEntity<CreateIdResponse> createSchedule(
+            Authentication authentication,
+            @Valid @RequestBody HrScheduleService.CreateScheduleRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        return ResponseEntity.ok(new CreateIdResponse(scheduleService.createSchedule(tenantId, request)));
+    }
+
+    @PostMapping("/time/schedules/assign")
+    @Operation(operationId = "hrScheduleAssign")
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_ADMIN)
+    public ResponseEntity<CreateIdResponse> assignSchedule(
+            Authentication authentication,
+            @Valid @RequestBody HrScheduleService.AssignScheduleRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        return ResponseEntity.ok(new CreateIdResponse(scheduleService.assignSchedule(tenantId, request)));
+    }
+
+    // ==================== Timesheets ====================
+
+    @GetMapping("/time/timesheets")
+    @Operation(operationId = "hrTimesheetsList")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_SELF_VIEW)
+    public ResponseEntity<List<HrTimesheetService.TimesheetResponse>> listTimesheets(
+            Authentication authentication,
+            @RequestParam(required = false) UUID employmentId,
+            @RequestParam(required = false) String state
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        return ResponseEntity.ok(timesheetService.listTimesheets(tenantId, employmentId, state));
+    }
+
+    @PostMapping("/time/timesheets")
+    @Operation(operationId = "hrTimesheetCreate")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_SELF_SUBMIT)
+    public ResponseEntity<CreateIdResponse> createTimesheet(
+            Authentication authentication,
+            @Valid @RequestBody CreateTimesheetRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        return ResponseEntity.ok(new CreateIdResponse(
+                timesheetService.createTimesheet(tenantId, request.employmentId(),
+                        request.periodStart(), request.periodEnd())
+        ));
+    }
+
+    @PostMapping("/time/timesheets/{timesheetId}/submit")
+    @Operation(operationId = "hrTimesheetSubmit")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_SELF_SUBMIT)
+    public ResponseEntity<Void> submitTimesheet(
+            Authentication authentication,
+            @PathVariable UUID timesheetId,
+            @RequestParam UUID employmentId
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        timesheetService.submit(tenantId, timesheetId, employmentId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/time/timesheets/{timesheetId}/approve")
+    @Operation(operationId = "hrTimesheetApprove")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_TEAM_APPROVE)
+    public ResponseEntity<Void> approveTimesheet(
+            Authentication authentication,
+            @PathVariable UUID timesheetId,
+            @Valid @RequestBody ApproveRejectRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        timesheetService.approve(tenantId, timesheetId, userId, request.comment());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/time/timesheets/{timesheetId}/reject")
+    @Operation(operationId = "hrTimesheetReject")
+    @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_TEAM_APPROVE)
+    public ResponseEntity<Void> rejectTimesheet(
+            Authentication authentication,
+            @PathVariable UUID timesheetId,
+            @Valid @RequestBody ApproveRejectRequest request
+    ) {
+        UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        timesheetService.reject(tenantId, timesheetId, userId, request.reason());
+        return ResponseEntity.noContent().build();
     }
 
     // ==================== Attendance ====================
@@ -215,4 +325,11 @@ public class HrTimeAttendanceV2Controller {
             Integer missingPunches,
             String attendanceStatus
     ) {}
+
+    public record CreateIdResponse(UUID id) {}
+    public record CreateTimesheetRequest(UUID employmentId, LocalDate periodStart, LocalDate periodEnd) {}
+    public record ApproveRejectRequest(String comment, String reason) {
+        public String comment() { return comment; }
+        public String reason() { return reason; }
+    }
 }
