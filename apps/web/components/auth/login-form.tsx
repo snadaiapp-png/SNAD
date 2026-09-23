@@ -40,7 +40,10 @@ export function LoginForm({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [retryingSession, setRetryingSession] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const capsLockMessage = locale === "ar"
+    ? "مفتاح الأحرف الكبيرة Caps Lock مفعّل."
+    : "Caps Lock is on.";
 
   function validate(): boolean {
     let valid = true;
@@ -190,8 +193,8 @@ export function LoginForm({
             </button>
           </div>
           {capsLockOn && (
-            <span className={styles.authAdvisory} role="status" aria-live="polite">
-              {t("auth.login.capsLockOn")}
+            <span role="status" aria-live="polite">
+              {capsLockMessage}
             </span>
           )}
           {passwordError && (
