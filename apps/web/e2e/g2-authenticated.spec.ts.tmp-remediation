@@ -1,0 +1,170 @@
+import { test, expect } from "@playwright/test";
+import { loginThroughUi, logoutThroughUi, roleEmail } from "./g2-auth-session";
+
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+const RUN_ID = process.env.GITHUB_RUN_ID || `local-${Date.now()}`;
+const LEAVE_REASON = `G2 E2E Journey ${RUN_ID}`;
+
+function futureDate(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
+const LEAVE_START = futureDate(7);
+const LEAVE_END = futureDate(8);
+
+async function expectG2Title(page: import("@playwright/test").Page, pattern: RegExp) {
+  await expect(page.locator('[data-testid="g2-page-title"]')).toContainText(pattern, { timeout: 15_000 });
+}
+
+test.describe("G2 Desktop Journey @desktop", () => {
+  test("employee submits → manager approves → HR approves → APPROVED", async ({ browser }) => {
+    const employeeContext = await browser.newContext();
+    const employeePage = await employeeContext.newPage();
+    const employeeLogin = await loginThroughUi(employeePage, "employee");
+    expect(employeeLogin.user.email).toBe(roleEmail("employee"));
+
+    await employeePage.goto(`${BASE_URL}/hr/leave`);
+    await expectG2Title(employeePage, /Leave/i);
+    await employeePage.locator('[data-testid="request-leave-toggle"]').click();
+    await expect(employeePage.locator('[data-testid="leave-request-form"]')).toBeVisible();
+    await employeePage.locator('[data-testid="leave-type"]').selectOption({ index: 1 });
+    await employeePage.locator('[data-testid="leave-start"]').fill(LEAVE_START);
+    await employeePage.locator('[data-testid="leave-end"]').fill(LEAVE_END);
+    await employeePage.locator('[data-testid="leave-reason"]').fill(LEAVE_REASON);
+
+    const createResponsePromise = employeePage.waitForResponse(
+      (r) => r.request().method() === "POST" && /\/api\/v2\/hr\/leave\/requests$/.test(new URL(r.url()).pathname.replace("/api/platform", "")),
+      { timeout: 30_000 },
+    );
+    const submitResponsePromise = employeePage.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().includes("/api/v2/hr/leave/requests/") && r.url().includes("/submit"),
+      { timeout: 30_000 },
+    );
+    await employeePage.locator('[data-testid="leave-submit"]').click();
+    const createRes = await createResponsePromise;
+    expect(createRes.ok(), `Leave create failed: ${createRes.status()}`).toBe(true);
+    const createBody = await createRes.json() as { requestId?: string; id?: string };
+    const leaveRequestId = createBody.requestId ?? createBody.id;
+    expect(leaveRequestId, "Leave create response must return request id").toBeTruthy();
+    const submitRes = await submitResponsePromise;
+    expect(submitRes.url()).toContain(`/leave/requests/${leaveRequestId}/submit`);
+    expect(submitRes.ok(), `Leave submit failed: ${submitRes.status()}`).toBe(true);
+
+    const employeeRow = employeePage.locator("tr", { hasText: LEAVE_REASON }).first();
+    await expect(employeeRow).toBeVisible({ timeout: 15_000 });
+    await expect(employeeRow).toContainText("PENDING_MANAGER");
+    await logoutThroughUi(employeePage);
+    await employeeContext.close();
+
+    const managerContext = await browser.newContext();
+    const managerPage = await managerContext.newPage();
+    const managerLogin = await loginThroughUi(managerPage, "manager");
+    expect(managerLogin.user.email).toBe(roleEmail("manager"));
+    await managerPage.goto(`${BASE_URL}/hr/leave/approvals`);
+    await expectG2Title(managerPage, /Leave Approval Queue/i);
+    const managerRow = managerPage.locator("tr", { hasText: LEAVE_REASON }).first();
+    await expect(managerRow).toBeVisible({ timeout: 15_000 });
+    const managerApproveBtn = managerRow.locator('[data-testid^="manager-approve-"]').first();
+    await expect(managerApproveBtn).toBeVisible();
+    await expect(managerRow.locator('[data-testid^="hr-approve-"]')).toHaveCount(0);
+    const managerApproveResponse = managerPage.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().includes(`/leave/requests/${leaveRequestId}/manager-approve`),
+      { timeout: 30_000 },
+    );
+    await managerApproveBtn.click();
+    const mgrApproveRes = await managerApproveResponse;
+    expect(mgrApproveRes.ok(), `Manager approve failed: ${mgrApproveRes.status()}`).toBe(true);
+    await expect(managerPage.locator('[role="status"]')).toContainText(/Manager approved/i, { timeout: 10_000 });
+    await logoutThroughUi(managerPage);
+    await managerContext.close();
+
+    const hrContext = await browser.newContext();
+    const hrPage = await hrContext.newPage();
+    const hrLogin = await loginThroughUi(hrPage, "hr");
+    expect(hrLogin.user.email).toBe(roleEmail("hr"));
+    await hrPage.goto(`${BASE_URL}/hr/leave/approvals`);
+    await expectG2Title(hrPage, /Leave Approval Queue/i);
+    const hrRow = hrPage.locator("tr", { hasText: LEAVE_REASON }).first();
+    await expect(hrRow).toBeVisible({ timeout: 15_000 });
+    const hrApproveBtn = hrRow.locator('[data-testid^="hr-approve-"]').first();
+    await expect(hrApproveBtn).toBeVisible();
+    const hrApproveResponse = hrPage.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().includes(`/leave/requests/${leaveRequestId}/hr-approve`),
+      { timeout: 30_000 },
+    );
+    await hrApproveBtn.click();
+    const hrApproveRes = await hrApproveResponse;
+    expect(hrApproveRes.ok(), `HR approve failed: ${hrApproveRes.status()}`).toBe(true);
+    await expect(hrPage.locator('[role="status"]')).toContainText(/HR approved/i, { timeout: 10_000 });
+    await logoutThroughUi(hrPage);
+    await hrContext.close();
+
+    const verifyContext = await browser.newContext();
+    const verifyPage = await verifyContext.newPage();
+    await loginThroughUi(verifyPage, "employee");
+    await verifyPage.goto(`${BASE_URL}/hr/leave`);
+    await expectG2Title(verifyPage, /Leave/i);
+    const approvedRow = verifyPage.locator("tr", { hasText: LEAVE_REASON }).first();
+    await expect(approvedRow).toBeVisible({ timeout: 15_000 });
+    await expect(approvedRow).toContainText("APPROVED");
+    await verifyContext.close();
+  });
+});
+
+test.describe("G2 Manager Nav @desktop", () => {
+  test("manager: login → team attendance → team timesheets → leave approvals queue", async ({ page }) => {
+    await loginThroughUi(page, "manager");
+    await page.goto(`${BASE_URL}/hr/team-attendance`);
+    await expectG2Title(page, /Team Attendance/i);
+    await page.goto(`${BASE_URL}/hr/team-timesheets`);
+    await expectG2Title(page, /Team Timesheets/i);
+    await page.goto(`${BASE_URL}/hr/leave/approvals`);
+    await expectG2Title(page, /Leave Approval Queue/i);
+  });
+});
+
+test.describe("G2 HR Nav @desktop", () => {
+  test("HR: login → schedules → attendance admin → leave policies → monthly report", async ({ page }) => {
+    await loginThroughUi(page, "hr");
+    await page.goto(`${BASE_URL}/hr/schedules`);
+    await expectG2Title(page, /Schedules/i);
+    await page.goto(`${BASE_URL}/hr/attendance/admin`);
+    await expectG2Title(page, /Attendance Administration/i);
+    await page.goto(`${BASE_URL}/hr/leave/policies`);
+    await expectG2Title(page, /Leave Policies/i);
+    await page.goto(`${BASE_URL}/hr/reports/attendance`);
+    await expectG2Title(page, /Monthly Attendance Report/i);
+  });
+});
+
+test.describe("G2 Employee Journey @mobile", () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+  test("employee mobile: login → attendance → real clock mutation → persisted state", async ({ page }) => {
+    await loginThroughUi(page, "employee");
+    await page.goto(`${BASE_URL}/hr/attendance`);
+    await expectG2Title(page, /Attendance/i);
+    await expect(page.locator('[data-testid="attendance-ready"]')).toBeVisible({ timeout: 15_000 });
+
+    const clockInBtn = page.locator('button:has-text("Clock In")');
+    const clockOutBtn = page.locator('button:has-text("Clock Out")');
+    const inVisible = await clockInBtn.isVisible();
+    const outVisible = await clockOutBtn.isVisible();
+    expect(Number(inVisible) + Number(outVisible), "Exactly one clock action must be visible").toBe(1);
+
+    if (inVisible) {
+      const response = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/api/v2/hr/time/attendance/clock-in"), { timeout: 30_000 });
+      await clockInBtn.click();
+      const res = await response;
+      expect(res.ok(), `Clock-in API failed: ${res.status()} ${res.statusText()}`).toBe(true);
+      await expect(clockOutBtn).toBeVisible({ timeout: 15_000 });
+    } else {
+      const response = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/api/v2/hr/time/attendance/") && r.url().includes("clock-out"), { timeout: 30_000 });
+      await clockOutBtn.click();
+      const res = await response;
+      expect(res.ok(), `Clock-out API failed: ${res.status()} ${res.statusText()}`).toBe(true);
+      await expect(clockInBtn).toBeVisible({ timeout: 15_000 });
+    }
+  });
+});
