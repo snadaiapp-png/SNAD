@@ -17,6 +17,11 @@ import { useScpFormat } from "../_components/format";
 import { scpErrorMessage } from "../_components/scp-errors";
 import styles from "../scp.module.css";
 
+type RecurringSubscriptionRow = SubscriptionRow & {
+  recurringAmountMinor?: number | null;
+  monthlyEquivalentMinor?: number | null;
+};
+
 /**
  * Subscription grid — server-side filters (tenant, status, country, search,
  * trials), sorting and pagination. Rows link to the full detail page.
@@ -140,19 +145,23 @@ function SubscriptionsContent() {
                   <th scope="col">{t("scp.subscriptions.plan")}</th>
                   <th scope="col">{t("scp.subscriptions.items")}</th>
                   <th scope="col">{t("scp.subscriptions.cycle")}</th>
-                  <th scope="col">{t("scp.subscriptions.amount")}</th>
+                  <th scope="col">{t("scp.subscriptions.recurringAmount")}</th>
                   <th scope="col">{t("scp.subscriptions.status")}</th>
                   <th scope="col">{t("scp.subscriptions.nextBilling")}</th>
                   <th scope="col">{t("scp.common.actions")}</th>
                 </tr>
               </thead>
               <tbody>
-                {page.content.map((subscription) => {
+                {page.content.map((rawSubscription) => {
+                  const subscription = rawSubscription as RecurringSubscriptionRow;
                   const detailParams = new URLSearchParams();
                   if (tenantIdParam) detailParams.set("tenantId", tenantIdParam);
                   if (intentParam === "upgrade") detailParams.set("intent", "upgrade");
                   const detailQuery = detailParams.toString();
                   const detailHref = `/executive/subscriptions/${subscription.id}${detailQuery ? `?${detailQuery}` : ""}`;
+                  const amountLabel = subscription.billingCycle === "ANNUAL"
+                    ? t("scp.subscriptions.annualRecurringAmount")
+                    : t("scp.subscriptions.monthlyRecurringAmount");
                   return (
                     <tr key={subscription.id}>
                       <td data-label={t("scp.subscriptions.tenant")}>{subscription.tenantName}</td>
@@ -164,8 +173,9 @@ function SubscriptionsContent() {
                       </td>
                       <td data-label={t("scp.subscriptions.items")}>{subscription.itemCount}</td>
                       <td data-label={t("scp.subscriptions.cycle")}>{subscription.billingCycle}</td>
-                      <td data-label={t("scp.subscriptions.amount")}>
-                        {money(subscription.monthlyPriceMinor, subscription.currencyCode)}
+                      <td data-label={amountLabel}>
+                        <span>{money(subscription.recurringAmountMinor ?? null, subscription.currencyCode)}</span>
+                        <span className={styles.appCardMeta}> · {amountLabel}</span>
                       </td>
                       <td data-label={t("scp.subscriptions.status")}>
                         <ScpStatusPill value={subscription.status} />
