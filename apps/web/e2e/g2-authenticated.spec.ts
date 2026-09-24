@@ -85,6 +85,8 @@ test.describe("G2 Desktop Journey @desktop", () => {
     const teamRes = await teamApiResponse;
     expect(teamRes.ok(), `Manager team leave requests API failed: ${teamRes.status()} ${teamRes.statusText()}`).toBe(true);
     const teamBody = await teamRes.json();
+    console.log(`[G2 DIAGNOSTIC] Manager team leave requests response: ${JSON.stringify(teamBody).slice(0, 500)}`);
+    console.log(`[G2 DIAGNOSTIC] Looking for LEAVE_REASON: ${LEAVE_REASON}`);
     expect(teamBody.length, `Manager team leave requests returned 0 results — expected at least 1 (the Employee's leave request). Response: ${JSON.stringify(teamBody)}`).toBeGreaterThan(0);
 
     await expect(managerPage.locator("table")).toBeVisible({ timeout: 15_000 });
