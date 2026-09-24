@@ -15,13 +15,13 @@ describe("hrG2Api authenticated transport", () => {
     vi.clearAllMocks();
   });
 
-  it("routes SELF attendance reads through the canonical apiClient", async () => {
+  it("routes SELF attendance reads through the canonical apiClient without caller-supplied employment identity", async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce([]);
 
-    await hrG2Api.listAttendance({ employmentId: "emp-1" });
+    await hrG2Api.listAttendance({ startDate: "2026-09-01" });
 
     expect(apiClient.get).toHaveBeenCalledWith("/api/v2/hr/time/attendance", {
-      query: { employmentId: "emp-1" },
+      query: { startDate: "2026-09-01" },
     });
   });
 
@@ -42,7 +42,7 @@ describe("hrG2Api authenticated transport", () => {
   it("routes leave reads through SELF TEAM and HR scoped endpoints", async () => {
     vi.mocked(apiClient.get).mockResolvedValue([]);
 
-    await hrG2Api.listLeaveRequests({ state: "DRAFT" });
+    await hrG2Api.listLeaveRequests("DRAFT");
     await hrG2Api.listTeamLeaveRequests("PENDING_MANAGER");
     await hrG2Api.listHrLeaveRequests("PENDING_HR");
 
