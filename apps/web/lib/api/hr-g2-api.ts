@@ -108,7 +108,6 @@ export interface G2CreateScheduleRequest {
 }
 
 export interface G2CreateLeaveRequest {
-  employmentId: string;
   leaveTypeId: string;
   startDate: string;
   endDate: string;
@@ -117,20 +116,20 @@ export interface G2CreateLeaveRequest {
 }
 
 export const hrG2Api = {
-  // SELF-scoped reads. Wave 3 binds identity server-side and removes caller-selected employment ids.
-  listAttendance: (query?: { employmentId?: string; startDate?: string; endDate?: string }) =>
+  // SELF scope — employment identity is derived by the backend from the authenticated principal.
+  listAttendance: (query?: { startDate?: string; endDate?: string }) =>
     apiClient.get<G2AttendanceRecord[]>(`${ROOT}/time/attendance`, { query }),
 
-  listTimesheets: (query?: { employmentId?: string; state?: string }) =>
-    apiClient.get<G2Timesheet[]>(`${ROOT}/time/timesheets`, { query }),
+  listTimesheets: (state?: string) =>
+    apiClient.get<G2Timesheet[]>(`${ROOT}/time/timesheets`, { query: { state } }),
 
   listLeaveTypes: () => apiClient.get<G2LeaveType[]>(`${ROOT}/leave/types`),
 
-  listLeaveRequests: (query?: { employmentId?: string; state?: string }) =>
-    apiClient.get<G2LeaveRequest[]>(`${ROOT}/leave/requests`, { query }),
+  listLeaveRequests: (state?: string) =>
+    apiClient.get<G2LeaveRequest[]>(`${ROOT}/leave/requests`, { query: { state } }),
 
-  listLeaveBalances: (query?: { employmentId?: string; year?: number }) =>
-    apiClient.get<G2LeaveBalance[]>(`${ROOT}/leave/balances`, { query }),
+  listLeaveBalances: (year?: number) =>
+    apiClient.get<G2LeaveBalance[]>(`${ROOT}/leave/balances`, { query: { year } }),
 
   // Explicit TEAM / HR / ADMIN reads. TEAM responses are relationship-filtered by the backend.
   listTeamAttendance: (query?: { startDate?: string; endDate?: string }) =>
@@ -160,8 +159,8 @@ export const hrG2Api = {
       query: { year, month, employmentId },
     }),
 
-  clockIn: (body: { employmentId: string; recordDate: string }) =>
-    apiClient.post<G2AttendanceRecord>(`${ROOT}/time/attendance/clock-in`, body, mutationOptions()),
+  clockIn: (recordDate: string) =>
+    apiClient.post<G2AttendanceRecord>(`${ROOT}/time/attendance/clock-in`, { recordDate }, mutationOptions()),
 
   clockOut: (recordId: string) =>
     apiClient.post<G2AttendanceRecord>(`${ROOT}/time/attendance/${recordId}/clock-out`, undefined, mutationOptions()),
@@ -171,11 +170,8 @@ export const hrG2Api = {
   createSchedule: (body: G2CreateScheduleRequest) =>
     apiClient.post<{ id: string }>(`${ROOT}/time/schedules`, body, mutationOptions()),
 
-  submitTimesheet: (timesheetId: string, employmentId: string) =>
-    apiClient.post<void>(`${ROOT}/time/timesheets/${timesheetId}/submit`, undefined, {
-      ...mutationOptions(),
-      query: { employmentId },
-    }),
+  submitTimesheet: (timesheetId: string) =>
+    apiClient.post<void>(`${ROOT}/time/timesheets/${timesheetId}/submit`, undefined, mutationOptions()),
 
   approveTimesheet: (timesheetId: string, comment: string) =>
     apiClient.post<void>(`${ROOT}/time/timesheets/${timesheetId}/approve`, { comment }, mutationOptions()),
@@ -200,7 +196,4 @@ export const hrG2Api = {
 
   hrRejectLeave: (requestId: string, reason: string) =>
     apiClient.post<void>(`${ROOT}/leave/requests/${requestId}/hr-reject`, { reason }, mutationOptions()),
-
-  legacyLeaveDecision: (requestId: string, action: "approve" | "reject", body: { comment?: string; reason?: string }) =>
-    apiClient.post<void>(`${ROOT}/leave/requests/${requestId}/${action}`, body, mutationOptions()),
 };
