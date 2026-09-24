@@ -84,6 +84,8 @@ test.describe("G2 Desktop Journey @desktop", () => {
     await expect(managerPage.getByRole("heading", { name: "Leave Approval Queue", exact: true })).toBeVisible();
     const teamRes = await teamApiResponse;
     expect(teamRes.ok(), `Manager team leave requests API failed: ${teamRes.status()} ${teamRes.statusText()}`).toBe(true);
+    const teamBody = await teamRes.json();
+    expect(teamBody.length, `Manager team leave requests returned 0 results — expected at least 1 (the Employee's leave request). Response: ${JSON.stringify(teamBody)}`).toBeGreaterThan(0);
 
     await expect(managerPage.locator("table")).toBeVisible({ timeout: 15_000 });
 
