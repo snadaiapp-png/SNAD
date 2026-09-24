@@ -6,7 +6,7 @@ import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
-import { HrErrorState, HrLoading, HrEmptyState, hrmErrorMessage } from "../components/hr-feedback";
+import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
 import { formatArabicDate } from "../hr-labels";
@@ -29,7 +29,7 @@ export default function TeamTimesheetsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      setTimesheets(await hrG2Api.listTimesheets({ state: "SUBMITTED" }));
+      setTimesheets(await hrG2Api.listTeamTimesheets("SUBMITTED"));
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, []);
 
