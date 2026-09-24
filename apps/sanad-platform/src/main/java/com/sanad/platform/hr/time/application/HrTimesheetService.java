@@ -52,6 +52,20 @@ public class HrTimesheetService {
         return id;
     }
 
+    /** Return the target employment inside the current tenant or fail closed. */
+    @Transactional(readOnly = true)
+    public UUID requireTimesheetEmployment(UUID tenantId, UUID timesheetId) {
+        List<UUID> matches = jdbc.query(
+                "SELECT employment_id FROM hr_timesheets WHERE id = ? AND tenant_id = ?",
+                (rs, rowNum) -> UUID.fromString(rs.getString("employment_id")),
+                timesheetId,
+                tenantId);
+        if (matches.size() != 1) {
+            throw new IllegalStateException("HRM_TIMESHEET_NOT_FOUND_IN_TENANT");
+        }
+        return matches.get(0);
+    }
+
     @Transactional
     public void submit(UUID tenantId, UUID timesheetId, UUID employmentId) {
         int updated = jdbc.update(
