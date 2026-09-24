@@ -1,0 +1,54 @@
+name: G2 RLS Fixture Repair
+
+on:
+  push:
+    branches:
+      - hr/g2-time-attendance-leave
+    paths:
+      - .github/workflows/g2-rls-fixtures-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hr/g2-time-attendance-leave
+          fetch-depth: 12
+
+      - name: Guard diagnosed exact-head lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor dde3eba591f2c158d00c74369178ebf36d4370d4 HEAD
+          unexpected="$(git diff --name-only dde3eba591f2c158d00c74369178ebf36d4370d4..HEAD | grep -Ev '^\.github/(workflows/g2-rls-fixtures-once\.yml|scripts/g2_rls_fixtures_once\.py)$' || true)"
+          test -z "$unexpected" || { echo "Unexpected concurrent changes:"; echo "$unexpected"; exit 1; }
+
+      - name: Apply G2 RLS fixtures
+        run: python3 .github/scripts/g2_rls_fixtures_once.py
+
+      - name: Verify patch invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java"
+          for table in hr_attendance_events hr_attendance_records hr_g2_idempotency_records hr_leave_balances hr_leave_ledger_entries hr_leave_policies hr_leave_requests hr_leave_types hr_schedule_assignments hr_schedule_versions hr_timesheet_entries hr_timesheets hr_work_schedules; do
+            grep -Fq "case \"$table\"" "$target"
+          done
+          grep -Fq 'default -> throw new IllegalArgumentException' "$target"
+          git diff --check
+
+      - name: Commit canonical RLS fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/g2-rls-fixtures-once.yml .github/scripts/g2_rls_fixtures_once.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "test(hr): add G2 RLS tenant fixtures"
+          git push origin HEAD:hr/g2-time-attendance-leave
