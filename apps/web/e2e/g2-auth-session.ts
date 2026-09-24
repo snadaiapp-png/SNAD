@@ -54,6 +54,7 @@ function requireCredentials(role: "employee" | "manager" | "hr"): {
  *   - tenantId is present
  *   - credentialRotationRequired is NOT true
  *   - Browser URL lands on /workspace
+ *   - Stable workspace identity matches the authenticated principal
  *
  * Returns the parsed login response for downstream assertions.
  */
@@ -102,31 +103,29 @@ export async function loginThroughUi(
     { timeout: 30_000 }
   );
 
+  const expectedIdentity = body.user.displayName || body.user.email;
+  await expect(page.getByTestId("workspace-identity")).toContainText(expectedIdentity, {
+    timeout: 10_000,
+  });
+
   return body;
 }
 
 /**
- * Log out the current session via the workspace UI logout button.
+ * Log out the current session via the canonical workspace UI logout button.
  *
- * Fail-closed contract: if the logout button cannot be located within a
- * short deterministic timeout, the helper fails the test rather than
- * silently falling back to clearing storage. The directive §6 forbids
- * swallowed errors / soft fallback in required G2 certification paths.
- *
- * The implementation uses an explicit locator assertion (not isVisible().catch())
- * so a missing logout button surfaces as a Playwright timeout failure
- * (deterministic), not a silent skip.
+ * Fail-closed contract: the helper requires the stable logout test id and the
+ * real anonymous auth root. It never falls back to translated text selectors,
+ * raw authenticated fetch, or storage clearing.
  */
 export async function logoutThroughUi(page: Page): Promise<void> {
-  // Deterministic locator — covers the canonical workspace logout affordance.
-  // The 5s timeout is generous enough for slow CI runners but bounded so a
-  // missing logout button fails the test rather than hanging indefinitely.
-  const logoutBtn = page.locator(
-    'button:has-text("Logout"), button:has-text("Sign out"), button:has-text("Log out"), [data-testid="logout"]'
+  const logoutBtn = page.getByTestId("logout");
+  await expect(logoutBtn).toBeVisible({ timeout: 5_000 });
+  await logoutBtn.click();
+  await page.waitForURL(
+    (url) => url.pathname === "/" || url.pathname.startsWith("/auth"),
+    { timeout: 10_000 }
   );
-  await logoutBtn.first().click({ timeout: 5_000 });
-  // Wait for navigation back to an auth surface (login or auth root).
-  await page.waitForURL(/\/auth/, { timeout: 10_000 });
 }
 
 /**
