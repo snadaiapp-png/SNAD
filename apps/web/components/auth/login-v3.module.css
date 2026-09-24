@@ -233,15 +233,18 @@
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--snad-color-error) 10%, transparent);
 }
 
-.formRegion :global(#login-password) + button {
+.passwordToggle {
   inset-inline-end: 0.35rem;
+  inline-size: 44px;
+  block-size: 44px;
   min-inline-size: 44px;
   min-block-size: 44px;
+  padding: 0;
   border-radius: 12px;
   color: var(--snad-text-secondary);
 }
 
-.formRegion :global(#login-password) + button:hover {
+.passwordToggle:hover {
   color: var(--snad-text-primary);
   background: color-mix(
     in srgb,
@@ -250,7 +253,7 @@
   );
 }
 
-.formRegion :global(#login-password) + button:focus-visible {
+.passwordToggle:focus-visible {
   outline: 2px solid var(--snad-color-focus-ring);
   outline-offset: 1px;
   background: color-mix(
