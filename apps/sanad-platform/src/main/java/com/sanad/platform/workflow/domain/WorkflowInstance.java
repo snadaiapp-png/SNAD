@@ -91,7 +91,7 @@ public record WorkflowInstance(
         requireStatus(Status.RUNNING, "complete");
         var now = Instant.now();
         return new WorkflowInstance(id, tenantId, workflowDefinitionId, workflowVersion,
-                businessEntityType, businessEntityId, Status.COMPLETED, null,
+                businessEntityType, businessEntityId, Status.COMPLETED, currentStepKey,
                 startedBy, startedAt, now, null, null, null, correlationId,
                 engineGeneration, definitionFamilyId, definitionVersionId, parentInstanceId,
                 triggerType, triggerId, idempotencyKey, causationId, contextJson, contextSchemaVersion,
