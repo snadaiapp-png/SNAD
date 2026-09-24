@@ -6,7 +6,7 @@ import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
-import { HrErrorState, HrLoading, HrEmptyState, hrmErrorMessage } from "../components/hr-feedback";
+import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
 import { formatArabicDate } from "../hr-labels";
@@ -43,8 +43,9 @@ export default function TimesheetsPage() {
   async function submit(ts: Timesheet) {
     setBusy(true);
     try {
-      await hrG2Api.submitTimesheet(ts.id, ts.employmentId);
-      setNotice("Timesheet submitted"); await load();
+      await hrG2Api.submitTimesheet(ts.id);
+      setNotice("Timesheet submitted");
+      await load();
     } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
   }
 
@@ -65,10 +66,12 @@ export default function TimesheetsPage() {
 
   return (
     <HrWorkspace capabilities={capabilities} activeHref="/hr/timesheets">
-      <header><h1>My Timesheets</h1></header>
+      <header><h1 data-testid="g2-page-title">My Timesheets</h1></header>
       {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
       {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
-        <HrDataTable<Timesheet> caption="My Timesheets" columns={columns} rows={timesheets} rowKey={(r) => r.id} emptyTitle="No timesheets" />
+        <div data-testid="timesheets-ready">
+          <HrDataTable<Timesheet> caption="My Timesheets" columns={columns} rows={timesheets} rowKey={(r) => r.id} emptyTitle="No timesheets" />
+        </div>
       )}
     </HrWorkspace>
   );
