@@ -147,7 +147,21 @@ class HrRlsFailClosedIntegrationTest {
                 "hr_onboarding_workflow_transitions",
                 // G1 T8 governance — authoritative tenant policy store (§T8.8),
                 // tenant-scoped and FORCE-RLS like every other HR table.
-                "hr_tenant_policies"
+                "hr_tenant_policies",
+                // G2 time, attendance, scheduling, timesheets and leave — all tenant-scoped.
+                "hr_attendance_events",
+                "hr_attendance_records",
+                "hr_g2_idempotency_records",
+                "hr_leave_balances",
+                "hr_leave_ledger_entries",
+                "hr_leave_policies",
+                "hr_leave_requests",
+                "hr_leave_types",
+                "hr_schedule_assignments",
+                "hr_schedule_versions",
+                "hr_timesheet_entries",
+                "hr_timesheets",
+                "hr_work_schedules"
         );
     }
 

@@ -265,6 +265,15 @@ class CrmFlywayHistoryAssertionTest {
             , "20260918.8"   // hrm g1 t10 candidate self-service identity + scoped capabilities
             , "20260921.1"   // canonical project-owner permissions and control-plane identity
             , "20260922.1"   // hrm g1 canonical operator capabilities + admin tenant scopes
+            // HRM-G2 — time, attendance, timesheets, leave
+            , "20260923.1"   // hr g2 time attendance leave schema
+            , "20260923.2"   // hr g2 fail-closed rls policies
+            , "20260923.3"   // hr g2 leave types + capability seed
+            , "20260924.1"   // hr g2 scheduling schema
+            , "20260924.2"   // hr g2 attendance events + leave ledger
+            , "20260924.3"   // hr g2 workflow linkage
+            , "20260924.4"   // hr g2 idempotency constraint
+            , "20260924.5"   // hr g2 leave state canonical alignment
     );
 
 

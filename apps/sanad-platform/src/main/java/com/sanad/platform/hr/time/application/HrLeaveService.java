@@ -409,10 +409,10 @@ public class HrLeaveService {
                 "{\"resourceId\":\"" + resourceId + "\",\"eventType\":\"" + eventType + "\"}",
                 Timestamp.from(now));
         jdbc.update(
-                "INSERT INTO hr_domain_event_outbox (id, tenant_id, event_type, resource_type, resource_id, payload, created_at) " +
-                "VALUES (?, ?, ?, 'LEAVE_REQUEST', ?, ?::jsonb, ?)",
-                outboxId, tenantId, eventType, resourceId,
-                "{\"eventType\":\"" + eventType + "\",\"resourceId\":\"" + resourceId + "\"}",
-                Timestamp.from(now));
+                "INSERT INTO hr_domain_event_outbox " +
+                "(event_id, tenant_id, event_type, aggregate_type, aggregate_id, actor_user_id, occurred_at, payload) " +
+                "VALUES (?, ?, ?, 'LEAVE_REQUEST', ?, ?, ?, ?::jsonb)",
+                outboxId, tenantId, eventType, resourceId, actorId, Timestamp.from(now),
+                "{\"eventType\":\"" + eventType + "\",\"resourceId\":\"" + resourceId + "\"}");
     }
 }

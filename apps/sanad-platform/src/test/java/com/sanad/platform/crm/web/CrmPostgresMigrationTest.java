@@ -204,7 +204,15 @@ class CrmPostgresMigrationTest {
     private static final String T10_CANDIDATE_SELF_SERVICE_VERSION = "20260918.8";
     private static final String PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION = "20260921.1";
     private static final String HR_G1_OPERATOR_CAPABILITIES_VERSION = "20260922.1";
-    private static final String LATEST_MIGRATION_VERSION = HR_G1_OPERATOR_CAPABILITIES_VERSION;
+    private static final String HR_G2_TIME_ATTENDANCE_LEAVE_SCHEMA_VERSION = "20260923.1";
+    private static final String HR_G2_RLS_POLICIES_VERSION = "20260923.2";
+    private static final String HR_G2_SEED_LEAVE_TYPES_CAPABILITIES_VERSION = "20260923.3";
+    private static final String HR_G2_SCHEDULING_SCHEMA_VERSION = "20260924.1";
+    private static final String HR_G2_ATTENDANCE_EVENTS_LEDGER_VERSION = "20260924.2";
+    private static final String HR_G2_WORKFLOW_LINKAGE_VERSION = "20260924.3";
+    private static final String HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION = "20260924.4";
+    private static final String HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION = "20260924.5";
+    private static final String LATEST_MIGRATION_VERSION = HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -458,7 +466,15 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION),
                         MigrationVersion.fromVersion(T10_CANDIDATE_SELF_SERVICE_VERSION),
                         MigrationVersion.fromVersion(PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION),
-                        MigrationVersion.fromVersion(HR_G1_OPERATOR_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(HR_G1_OPERATOR_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_TIME_ATTENDANCE_LEAVE_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_RLS_POLICIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_SEED_LEAVE_TYPES_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_SCHEDULING_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_ATTENDANCE_EVENTS_LEDGER_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_WORKFLOW_LINKAGE_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -650,7 +666,15 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(T9_GOVERNED_ONBOARDING_VERSION),
                         MigrationVersion.fromVersion(T10_CANDIDATE_SELF_SERVICE_VERSION),
                         MigrationVersion.fromVersion(PROJECT_OWNER_GLOBAL_PERMISSIONS_VERSION),
-                        MigrationVersion.fromVersion(HR_G1_OPERATOR_CAPABILITIES_VERSION));
+                        MigrationVersion.fromVersion(HR_G1_OPERATOR_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_TIME_ATTENDANCE_LEAVE_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_RLS_POLICIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_SEED_LEAVE_TYPES_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_SCHEDULING_SCHEMA_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_ATTENDANCE_EVENTS_LEDGER_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_WORKFLOW_LINKAGE_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION),
+                        MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
