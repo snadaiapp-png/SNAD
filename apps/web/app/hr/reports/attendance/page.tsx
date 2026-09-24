@@ -20,7 +20,9 @@ export default function MonthlyReportPage() {
   const { state, me } = useAuth();
   const { t } = useI18n();
   const capabilities = me?.capabilities ?? [];
-  const canView = capabilities.includes("HRM.ATTENDANCE.TEAM_VIEW");
+  const canAdmin = capabilities.includes("HRM.ATTENDANCE.ADMIN");
+  const canTeamView = capabilities.includes("HRM.ATTENDANCE.TEAM_VIEW");
+  const canView = canAdmin || canTeamView;
 
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -32,9 +34,11 @@ export default function MonthlyReportPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      setRows(await hrG2Api.monthlyAttendanceReport(year, month));
+      setRows(canAdmin
+        ? await hrG2Api.adminMonthlyAttendanceReport(year, month)
+        : await hrG2Api.teamMonthlyAttendanceReport(year, month));
     } catch (err) { setError(err); } finally { setLoading(false); }
-  }, [year, month]);
+  }, [year, month, canAdmin]);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
