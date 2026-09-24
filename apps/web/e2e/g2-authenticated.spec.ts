@@ -120,6 +120,20 @@ test.describe("G2 Desktop Journey @desktop", () => {
 
     await logoutThroughUi(hrPage);
     await hrContext.close();
+
+    const verificationContext = await browser.newContext();
+    const verificationPage = await verificationContext.newPage();
+    const verificationLogin = await loginThroughUi(verificationPage, "employee");
+    expect(verificationLogin.user.email).toBe(roleEmail("employee"));
+
+    await verificationPage.goto(`${BASE_URL}/hr/leave`);
+    await expect(verificationPage.getByTestId("leave-ready")).toBeVisible({ timeout: 15_000 });
+    const approvedRow = verificationPage.locator("tr", { hasText: LEAVE_REASON }).first();
+    await expect(approvedRow).toBeVisible({ timeout: 15_000 });
+    await expect(approvedRow.locator('[data-status="APPROVED"]')).toBeVisible();
+
+    await logoutThroughUi(verificationPage);
+    await verificationContext.close();
   });
 });
 
@@ -185,6 +199,11 @@ test.describe("G2 Employee Journey @mobile", () => {
       expect(res.ok(), `Clock-in API failed: ${res.status()} ${res.statusText()}`).toBe(true);
       await expect(clockOutBtn).toBeVisible({ timeout: 15_000 });
       await expect(clockInBtn).toHaveCount(0);
+
+      await page.reload();
+      await expect(page.getByTestId("attendance-ready")).toBeVisible({ timeout: 15_000 });
+      await expect(clockOutBtn).toBeVisible({ timeout: 15_000 });
+      await expect(clockInBtn).toHaveCount(0);
     } else {
       const response = page.waitForResponse(
         (r) => r.request().method() === "POST" && /\/api\/v2\/hr\/time\/attendance\/[^/]+\/clock-out$/.test(new URL(r.url()).pathname),
@@ -193,6 +212,11 @@ test.describe("G2 Employee Journey @mobile", () => {
       await clockOutBtn.click();
       const res = await response;
       expect(res.ok(), `Clock-out API failed: ${res.status()} ${res.statusText()}`).toBe(true);
+      await expect(clockInBtn).toBeVisible({ timeout: 15_000 });
+      await expect(clockOutBtn).toHaveCount(0);
+
+      await page.reload();
+      await expect(page.getByTestId("attendance-ready")).toBeVisible({ timeout: 15_000 });
       await expect(clockInBtn).toBeVisible({ timeout: 15_000 });
       await expect(clockOutBtn).toHaveCount(0);
     }
