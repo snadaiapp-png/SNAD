@@ -212,7 +212,8 @@ class CrmPostgresMigrationTest {
     private static final String HR_G2_WORKFLOW_LINKAGE_VERSION = "20260924.3";
     private static final String HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION = "20260924.4";
     private static final String HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION = "20260924.5";
-    private static final String LATEST_MIGRATION_VERSION = HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION;
+    private static final String HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION = "20260924.6";
+    private static final String LATEST_MIGRATION_VERSION = HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",

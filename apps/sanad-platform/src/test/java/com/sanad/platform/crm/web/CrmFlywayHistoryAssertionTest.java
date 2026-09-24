@@ -274,6 +274,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260924.3"   // hr g2 workflow linkage
             , "20260924.4"   // hr g2 idempotency constraint
             , "20260924.5"   // hr g2 leave state canonical alignment
+            , "20260924.6"   // hr g2 fail-closed RLS empty context repair
     );
 
 
