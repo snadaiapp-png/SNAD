@@ -134,6 +134,8 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
+        UUID targetEmploymentId = timesheetService.requireTimesheetEmployment(tenantId, timesheetId);
+        employmentScopeResolver.requireManagedEmployment(tenantId, userId, targetEmploymentId);
         timesheetService.approve(tenantId, timesheetId, userId, request.comment());
         return ResponseEntity.noContent().build();
     }
@@ -148,6 +150,8 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
+        UUID targetEmploymentId = timesheetService.requireTimesheetEmployment(tenantId, timesheetId);
+        employmentScopeResolver.requireManagedEmployment(tenantId, userId, targetEmploymentId);
         timesheetService.reject(tenantId, timesheetId, userId, request.reason());
         return ResponseEntity.noContent().build();
     }
