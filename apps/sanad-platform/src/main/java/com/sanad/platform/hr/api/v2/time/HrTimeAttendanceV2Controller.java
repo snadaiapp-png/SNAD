@@ -17,13 +17,10 @@ import java.util.UUID;
 /**
  * HRM-G2 V2 API — Time & Attendance + Leave management.
  *
- * <p>Endpoints mounted under {@code /api/v2/hr/time} and {@code /api/v2/hr/leave}.
- * Backed by {@link HrTimeAttendanceService}. Tenant-scoped; every operation
- * requires the appropriate {@code HRM.ATTENDANCE.*} or {@code HRM.LEAVE.*}
- * capability.
- *
- * <p>RLS is enforced at the database level (V20260923_2). Cross-tenant
- * access returns empty set (read) or 42501 (write).
+ * <p>SELF routes derive employment identity from the authenticated principal;
+ * the browser cannot select another employee. TEAM/HR read surfaces live in
+ * {@link HrG2ScopedReadController}. PostgreSQL RLS remains authoritative for
+ * tenant isolation.</p>
  */
 @RestController
 @RequestMapping("/api/v2/hr")
@@ -34,17 +31,20 @@ public class HrTimeAttendanceV2Controller {
     private final HrLeaveService leaveService;
     private final HrScheduleService scheduleService;
     private final HrTimesheetService timesheetService;
+    private final HrEmploymentScopeResolver employmentScopeResolver;
 
     public HrTimeAttendanceV2Controller(
             HrTimeAttendanceService timeService,
             HrLeaveService leaveService,
             HrScheduleService scheduleService,
-            HrTimesheetService timesheetService
+            HrTimesheetService timesheetService,
+            HrEmploymentScopeResolver employmentScopeResolver
     ) {
         this.timeService = timeService;
         this.leaveService = leaveService;
         this.scheduleService = scheduleService;
         this.timesheetService = timesheetService;
+        this.employmentScopeResolver = employmentScopeResolver;
     }
 
     // ==================== Schedules ====================
@@ -86,10 +86,11 @@ public class HrTimeAttendanceV2Controller {
     @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_SELF_VIEW)
     public ResponseEntity<List<HrTimesheetService.TimesheetResponse>> listTimesheets(
             Authentication authentication,
-            @RequestParam(required = false) UUID employmentId,
             @RequestParam(required = false) String state
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
         return ResponseEntity.ok(timesheetService.listTimesheets(tenantId, employmentId, state));
     }
 
@@ -101,8 +102,10 @@ public class HrTimeAttendanceV2Controller {
             @Valid @RequestBody CreateTimesheetRequest request
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
         return ResponseEntity.ok(new CreateIdResponse(
-                timesheetService.createTimesheet(tenantId, request.employmentId(),
+                timesheetService.createTimesheet(tenantId, employmentId,
                         request.periodStart(), request.periodEnd())
         ));
     }
@@ -112,10 +115,11 @@ public class HrTimeAttendanceV2Controller {
     @RequireCapability(TimeAttendanceCapabilities.TIMESHEET_SELF_SUBMIT)
     public ResponseEntity<Void> submitTimesheet(
             Authentication authentication,
-            @PathVariable UUID timesheetId,
-            @RequestParam UUID employmentId
+            @PathVariable UUID timesheetId
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
         timesheetService.submit(tenantId, timesheetId, employmentId);
         return ResponseEntity.noContent().build();
     }
@@ -155,11 +159,12 @@ public class HrTimeAttendanceV2Controller {
     @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_SELF_VIEW)
     public ResponseEntity<List<HrAttendanceRecordResponse>> listAttendance(
             Authentication authentication,
-            @RequestParam(required = false) UUID employmentId,
             @RequestParam(required = false) LocalDate startDate,
             @RequestParam(required = false) LocalDate endDate
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
         return ResponseEntity.ok(timeService.listAttendance(tenantId, employmentId, startDate, endDate));
     }
 
@@ -172,7 +177,8 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
-        return ResponseEntity.ok(timeService.clockIn(tenantId, userId, request));
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
+        return ResponseEntity.ok(timeService.clockIn(tenantId, userId, employmentId, request));
     }
 
     @PostMapping("/time/attendance/{recordId}/clock-out")
@@ -184,7 +190,8 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
-        return ResponseEntity.ok(timeService.clockOut(tenantId, userId, recordId));
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
+        return ResponseEntity.ok(timeService.clockOut(tenantId, userId, employmentId, recordId));
     }
 
     // ==================== Leave Types ====================
@@ -204,10 +211,11 @@ public class HrTimeAttendanceV2Controller {
     @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_VIEW)
     public ResponseEntity<List<HrLeaveRequestResponse>> listLeaveRequests(
             Authentication authentication,
-            @RequestParam(required = false) UUID employmentId,
             @RequestParam(required = false) String state
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
         return ResponseEntity.ok(leaveService.listLeaveRequests(tenantId, employmentId, state));
     }
 
@@ -220,7 +228,9 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
-        return ResponseEntity.ok(leaveService.createLeaveRequest(tenantId, userId, request));
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
+        return ResponseEntity.ok(leaveService.createLeaveRequest(
+                tenantId, userId, employmentId, request));
     }
 
     @PostMapping("/leave/requests/{requestId}/submit")
@@ -232,6 +242,8 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
+        leaveService.requireOwnedRequest(tenantId, requestId, employmentId);
         leaveService.submitLeaveRequest(tenantId, requestId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -246,6 +258,8 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
+        UUID targetEmploymentId = leaveService.requireRequestEmployment(tenantId, requestId);
+        employmentScopeResolver.requireManagedEmployment(tenantId, userId, targetEmploymentId);
         leaveService.managerApprove(tenantId, requestId, userId, request);
         return ResponseEntity.noContent().build();
     }
@@ -260,6 +274,8 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
+        UUID targetEmploymentId = leaveService.requireRequestEmployment(tenantId, requestId);
+        employmentScopeResolver.requireManagedEmployment(tenantId, userId, targetEmploymentId);
         leaveService.managerReject(tenantId, requestId, userId, request);
         return ResponseEntity.noContent().build();
     }
@@ -301,6 +317,8 @@ public class HrTimeAttendanceV2Controller {
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         UUID userId = SecurityContextUtils.userId(authentication);
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
+        leaveService.requireOwnedRequest(tenantId, requestId, employmentId);
         leaveService.withdraw(tenantId, requestId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -326,15 +344,16 @@ public class HrTimeAttendanceV2Controller {
     @RequireCapability(TimeAttendanceCapabilities.LEAVE_SELF_VIEW)
     public ResponseEntity<List<HrLeaveBalanceResponse>> listLeaveBalances(
             Authentication authentication,
-            @RequestParam(required = false) UUID employmentId,
             @RequestParam(required = false) Integer year
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        UUID employmentId = employmentScopeResolver.requireSelfEmployment(tenantId, userId);
         int y = year != null ? year : LocalDate.now().getYear();
         return ResponseEntity.ok(leaveService.listLeaveBalances(tenantId, employmentId, y));
     }
 
-    // ==================== G2-T05: Monthly Attendance Report ====================
+    // ==================== Backward-compatible monthly report ====================
 
     @GetMapping("/time/attendance/monthly-report")
     @Operation(operationId = "hrAttendanceMonthlyReport")
@@ -346,13 +365,18 @@ public class HrTimeAttendanceV2Controller {
             @RequestParam(required = false) UUID employmentId
     ) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
+        UUID userId = SecurityContextUtils.userId(authentication);
+        if (employmentId == null) {
+            return ResponseEntity.ok(List.of());
+        }
+        employmentScopeResolver.requireManagedEmployment(tenantId, userId, employmentId);
         return ResponseEntity.ok(timeService.monthlyAttendanceReport(tenantId, year, month, employmentId));
     }
 
-    // ==================== DTOs (continued) ====================
+    // ==================== DTOs ====================
 
-    public record ClockInRequest(UUID employmentId, LocalDate recordDate) {}
-    public record CreateLeaveRequest(UUID employmentId, UUID leaveTypeId, LocalDate startDate, LocalDate endDate, String reason, String attachmentUrl) {}
+    public record ClockInRequest(LocalDate recordDate) {}
+    public record CreateLeaveRequest(UUID leaveTypeId, LocalDate startDate, LocalDate endDate, String reason, String attachmentUrl) {}
     public record ApproveLeaveRequest(String comment) {}
     public record RejectLeaveRequest(String reason) {}
 
@@ -382,7 +406,6 @@ public class HrTimeAttendanceV2Controller {
             java.math.BigDecimal pendingDays, java.math.BigDecimal carriedOverDays
     ) {}
 
-    /** G2-T05: Monthly attendance report row per employee. */
     public record MonthlyAttendanceReportRow(
             UUID employmentId,
             Integer scheduledDays,
@@ -397,7 +420,7 @@ public class HrTimeAttendanceV2Controller {
     ) {}
 
     public record CreateIdResponse(UUID id) {}
-    public record CreateTimesheetRequest(UUID employmentId, LocalDate periodStart, LocalDate periodEnd) {}
+    public record CreateTimesheetRequest(LocalDate periodStart, LocalDate periodEnd) {}
     public record ApproveRejectRequest(String comment, String reason) {
         public String comment() { return comment; }
         public String reason() { return reason; }
