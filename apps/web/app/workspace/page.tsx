@@ -45,7 +45,7 @@ export default function WorkspacePage() {
       <main className={styles.root}>
         <section className={styles.hero}>
           <div>
-            <h1 className={styles.title}>{t("workspace.welcome", { name: displayName })}</h1>
+            <h1 className={styles.title} data-testid="workspace-identity">{t("workspace.welcome", { name: displayName })}</h1>
             <p className={styles.subtitle}>{t("workspace.quickActions")}</p>
           </div>
           <div className={styles.sessionCard}>
@@ -156,6 +156,7 @@ export default function WorkspacePage() {
           <button
             type="button"
             className={styles.logout}
+            data-testid="logout"
             onClick={async () => {
               await logout();
               router.replace("/");
