@@ -202,14 +202,14 @@
   padding-inline-end: 3.5rem;
 }
 
-.formRegion :global(#login-email::placeholder),
-.formRegion :global(#login-password::placeholder) {
+.formRegion :global(#login-email)::placeholder,
+.formRegion :global(#login-password)::placeholder {
   color: var(--snad-text-muted);
   opacity: 0.78;
 }
 
-.formRegion :global(#login-email:hover:not(:disabled)),
-.formRegion :global(#login-password:hover:not(:disabled)) {
+.formRegion :global(#login-email):hover:not(:disabled),
+.formRegion :global(#login-password):hover:not(:disabled) {
   border-color: color-mix(
     in srgb,
     var(--snad-color-brand-primary) 55%,
@@ -217,8 +217,8 @@
   );
 }
 
-.formRegion :global(#login-email:focus),
-.formRegion :global(#login-password:focus) {
+.formRegion :global(#login-email):focus,
+.formRegion :global(#login-password):focus {
   outline: none;
   border-color: var(--snad-color-brand-primary);
   background: var(--snad-surface-primary);
@@ -227,8 +227,8 @@
     0 10px 24px color-mix(in srgb, var(--snad-color-brand-primary) 9%, transparent);
 }
 
-.formRegion :global(#login-email[aria-invalid="true"]),
-.formRegion :global(#login-password[aria-invalid="true"]) {
+.formRegion :global(#login-email)[aria-invalid="true"],
+.formRegion :global(#login-password)[aria-invalid="true"] {
   border-color: var(--snad-color-error);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--snad-color-error) 10%, transparent);
 }
