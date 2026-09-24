@@ -143,6 +143,14 @@ describe("WorkspacePage", () => {
     expect(container.querySelector('a[href="/hr"]')).toBeInTheDocument();
   });
 
+  it("exposes stable authenticated identity and logout selectors", async () => {
+    setSessionHint();
+    authApiMock.refresh.mockResolvedValue(bootstrap());
+    renderPage();
+    expect(await screen.findByTestId("workspace-identity")).toHaveTextContent("Admin User");
+    expect(screen.getByTestId("logout")).toBeInTheDocument();
+  });
+
   it("performs logout and redirects to the login page", async () => {
     setSessionHint();
     authApiMock.refresh.mockResolvedValue(bootstrap());
