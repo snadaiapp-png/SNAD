@@ -1,10 +1,12 @@
 # WAVE 7 — Progressive Cutover + Security Hardening + Release Verification (Implementation Plan)
 
-> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence; every task below is RED → GREEN with exact commands and commit boundaries.
+> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence. **Revision D two-class doctrine:** implementation tasks follow test-first RED → minimal implementation → GREEN → affected regression → commit; verification/evidence/cutover-stage tasks follow PRECONDITION → VERIFY → EVIDENCE with untracked evidence and NO tracked evidence commit after the gate (no fabricated RED). Exact commands and commit boundaries are listed per task.
 
-**Spec:** Revision C — §29 Phase 9 + §29.1 (progressive cutover G7-A..G7-G — NO big bang; flags stay default OFF/legacy in every committed file until each stage's own gate passes), §30 (10 release-blocking invariants), §31.1–§31.2 (matrix + break-glass rejections), §32 (release acceptance), §5 Rev C (protected set = 4 roles; `AGENT_CUSTOM_ADMIN` NOT protected).
+**Spec:** **Revision D** — §29 Phase 9 + §29.1 (progressive cutover G7-A..G7-G — NO big bang; flags stay default OFF/legacy in every committed file until each stage's own gate passes), §30 (10 release-blocking invariants), §31.1–§31.2 (matrix + break-glass rejections), §32 (release acceptance), §5 (protected set = 4 roles; `AGENT_CUSTOM_ADMIN` NOT protected).
 **Depends on:** W1–W6 merged. **Migrations:** `V20260930_1`..`V20260930_5` · **Flags:** flipped stage-by-stage under the G7 gates — never all at once.
-**Rev C (R2) changes in this wave:** (1) baseline corrected — finance tables are NOT "ENABLE-not-FORCE": 6 of 7 have NO RLS AT ALL (only `finance_invoice_number_sequences` is ENABLE+FORCE, `V20260820_6`), and the task now carries the full FORCE-RLS ACCESS-PATH MATRIX; (2) Task 2 freezes the FULL 51-table CRM list with per-table state (46 closures enumerated, 5 already conforming); (3) Task 3 — `authorization_version` backfill made MONOTONIC (deterministic single-pass, per-subject ordering, never reset) + canonical projection-backfill semantics; (4) NEW Task 6 creates `PartnerIsolationPostgresAcceptanceTest` (Rev B referenced it in the CI list but NO task created it — the phantom is resolved); (5) Task 7 — exact CI count lockstep rules; (6) G7-A carries a NUMERIC shadow soak (≥ 7 days AND ≥ 50,000 decisions, divergence budget 0, p99 regression ≤ 10 %); (7) every stage record now names the implemented metric, the exact query, and the evidence artifact; (8) security-hardening rollback is FORWARD-ONLY (no permissive-RLS compensating scripts); (9) all committed flag defaults OFF/legacy; (10) Task 15 — complete protected release chain incl. the BLOCKED required-checks discovery gate and the authenticated desktop/mobile + RTL/accessibility final-gate procedure.
+**Revision D (R3) changes in this wave:** (1) Task 3 `authorization_version` backfill is DETERMINISTIC by ranked mapping — the migration locks the `users` set, computes `base_version = max(existing authorization_version)`, materializes a ranked mapping `ROW_NUMBER() OVER (ORDER BY created_at, id)`, assigns the PRECOMPUTED ranked values (never `nextval()` inside an unordered UPDATE), then positions `uac_authorization_version_seq` with `setval(..., is_called)` so every future bump via `nextval` lands above every assigned version; rerunning changes no non-zero version; (2) Tasks 4/5/6 acceptance classes are EXPLICITLY created by their own tasks (no `none` while the class is absent); (3) G7-B..G7-G stage tasks commit NO default flip — code/config plumbing is committed once with false/legacy defaults and stage activation is a DEPLOYMENT-ENV change only (evidence records the deployment env values + source SHA; rollback changes env values only; `git grep` proves no committed true/authoritative default at every gate); (4) every EXACT PromQL query uses a concrete range vector (`[5m]`, `[24h]`, or the concrete soak window `[168h]` for the 7-day G7-A soak — never a placeholder like `[soak]`); (5) Task 15 restated as PRECONDITION → VERIFY → EVIDENCE ending with NO TRACKED COMMIT — evidence external/untracked; (6) `RELEASE_REQUIRED_CHECKS_DISCOVERY` remains a mandatory release gate whose failure blocks a RELEASE CLAIM only, not docs-only planning or earlier-wave implementation.
+
+**Historical Rev C (R2) changes in this wave (provenance):** (1) baseline corrected — finance tables are NOT "ENABLE-not-FORCE": 6 of 7 have NO RLS AT ALL (only `finance_invoice_number_sequences` is ENABLE+FORCE, `V20260820_6`), and the task now carries the full FORCE-RLS ACCESS-PATH MATRIX; (2) Task 2 freezes the FULL 51-table CRM list with per-table state (46 closures enumerated, 5 already conforming); (3) Task 3 — `authorization_version` backfill made MONOTONIC + canonical projection-backfill semantics; (4) NEW Task 6 creates `PartnerIsolationPostgresAcceptanceTest` (Rev B referenced it in the CI list but NO task created it — the phantom is resolved); (5) Task 7 — exact CI count lockstep rules; (6) G7-A carries a NUMERIC shadow soak (≥ 7 days AND ≥ 50,000 decisions, divergence budget 0, p99 regression ≤ 10 %); (7) every stage record now names the implemented metric, the exact query, and the evidence artifact; (8) security-hardening rollback is FORWARD-ONLY (no permissive-RLS compensating scripts); (9) all committed flag defaults OFF/legacy; (10) Task 15 — complete protected release chain incl. the BLOCKED required-checks discovery gate and the authenticated desktop/mobile + RTL/accessibility final-gate procedure.
 
 ## Goal
 
@@ -20,7 +22,7 @@ Java 21 · Spring Boot single-module Maven (`mvn`, cwd `apps/sanad-platform`) ·
 
 ## Spec
 
-§29.1 Rev B stage list: G7-A Unified Authorization shadow/equivalence · G7-B Unified Authorization authoritative · G7-C Partner Principal + Delegated Administration · G7-D Commercial Identity · G7-E Partner Billing / Trial Continuation · G7-F Settlement · G7-G Notifications + Dashboards.
+Spec §29.1 stage list (Revision D): G7-A Unified Authorization shadow/equivalence · G7-B Unified Authorization authoritative · G7-C Partner Principal + Delegated Administration · G7-D Commercial Identity · G7-E Partner Billing / Trial Continuation · G7-F Settlement · G7-G Notifications + Dashboards.
 
 ## Implementation Baseline
 
@@ -104,7 +106,7 @@ Interfaces:
 
 **CANONICAL PROJECTION-BACKFILL SEMANTICS (Rev C — binding for `effective_permission_projection` here and for the W6 dashboard projections by reference):** a backfill is (a) a DETERMINISTIC FULL REBUILD from the named source-of-truth queries (overrides + role capabilities + relationship policy — never an incremental guess), (b) IDEMPOTENT (running it twice yields row-identical results — proven by a run-twice count+checksum assertion), (c) VERSION-STAMPED (every produced row carries the `authorization_version` it was computed at, and the version advances monotonically — see below), (d) executed inside ONE migration with per-tenant GUC established before each tenant's rebuild, and (e) verified by a COUNT INVARIANT against the source query in the same migration (count mismatch ⇒ migration fails).
 
-**`authorization_version` MONOTONIC BACKFILL (Rev C):** the baseline backfill assigns each existing subject a version in ONE deterministic pass — `ROW_NUMBER() OVER (ORDER BY u.created_at, u.id)` offset into a fresh PG sequence created by the migration (`CREATE SEQUENCE uac_authorization_version_seq START 1; UPDATE users SET authorization_version = nextval('uac_authorization_version_seq')` ordered deterministically) — so versions are gap-free-per-pass, strictly increasing, and NEVER reset or reused; subsequent W1 invalidation bumps go through `nextval` on the same sequence (W1 Task 13 rewired in implementation to consume it), preserving global monotonicity across the platform; a re-run of the migration is a no-op (WHERE authorization_version = 0), never a renumbering of existing non-zero versions.
+**`authorization_version` DETERMINISTIC RANKED-MAPPING BACKFILL (Revision D):** the migration MUST NOT depend on PostgreSQL UPDATE row execution order and MUST NOT assign `nextval()` inside an UPDATE. Canonical deterministic algorithm: (1) lock the relevant `users` set for the migration; (2) compute `base_version = max(existing authorization_version)`; (3) materialize a ranked mapping for rows still at zero — `WITH ranked AS MATERIALIZED (SELECT id, :base_version + ROW_NUMBER() OVER (ORDER BY created_at, id) AS assigned_version FROM users WHERE authorization_version = 0) UPDATE users u SET authorization_version = r.assigned_version FROM ranked r WHERE u.id = r.id;` — the migration assigns the PRECOMPUTED ranked value, never `nextval()` in an unordered UPDATE; (4) create/use `uac_authorization_version_seq` and position it to the maximum assigned/current version with correct `setval(..., is_called)` semantics; (5) every future invalidation bump uses `nextval('uac_authorization_version_seq')` (W1 Task 13 rewired in implementation to consume it), and the sequence position guarantees every next value is greater than every assigned version; (6) rerunning the migration changes no non-zero version (WHERE authorization_version = 0 — never a renumbering of existing non-zero versions); (7) tests prove ordering, uniqueness/monotonicity, rerun idempotency, and sequence-next-value greater than every assigned version. An equivalent deterministic CTE/temp-table form is acceptable as long as the precomputed ranked value is assigned.
 
 - [ ] Step 1: exact failing test — backfill: after migration, projection row exists per ACTIVE grant; count invariant vs source query; `users.authorization_version` = the assigned monotonic values (non-zero, strictly increasing with `(created_at, id)` order, re-run changes nothing — idempotency assertion); rebuild-twice yields identical row checksums. Seeding: `protected_system_roles` still contains EXACTLY 4 codes; template roles exist with `role_origin='SNAD_TEMPLATE'` for the 4 protected codes; `AGENT_CUSTOM_ADMIN` role rows (partner contexts) exist WITHOUT any `protected_system_roles` entry (spec §5 Rev C).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.access.evaluation.ProjectionBackfillPostgresTest,com.sanad.platform.security.authorization.ProtectedSeedFourRolesPostgresTest test` → projection empty / 5-code or missing-AGENT_CUSTOM_ADMIN drift (red).
@@ -126,7 +128,7 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — Partner A→B data; Tenant A→B; TenantAdmin A→B; `AGENT_SUPER_ADMIN` A→Partner B; override→foreign tenant; `TENANT_ALL`→current tenant only; partner ownership ⇏ implicit business-data access; partner edits own fee ⇒ denied; partner invoice for foreign tenant ⇒ denied; snapshot mutation ⇒ exception.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true -Dtest=com.sanad.platform.security.invariants.SecurityInvariantsPostgresAcceptanceTest test` → class absent (red); after creation any failing invariant is a REAL defect to fix before cutover.
-- [ ] Step 3: exact minimal implementation — none expected (earlier waves' guards cover; any red ⇒ fix in the owning wave's class).
+- [ ] Step 3: exact minimal implementation — EXPLICITLY CREATE the listed parameterized acceptance class `security/invariants/SecurityInvariantsPostgresAcceptanceTest.java` and its fixtures (this task owns the class's creation; no product-code change is expected, but the class MUST exist after this task — `none` is not an acceptable state while the class is absent). Any acceptance case that turns red after the class exists is fixed in the OWNING earlier-wave behavior, the owning regression is rerun, and the acceptance class is rerun at the same candidate SHA.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → 10/10 green.
 - [ ] Step 5: exact affected regression — full W1–W6 RLS class list (W1 Tasks 1/2/12, W2 Task 1, W3 Task 1/2, W4 Task 19, W5 Task 12, W6 Task 1 classes) → green.
 - [ ] Step 6: exact commit — `git commit -m "wave7(acceptance): ten release-blocking security invariants (C4)"`.
@@ -144,7 +146,7 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — seven rejections (last tenant admin, last agent admin, final recovery capability, archive protected role, partner self-grants platform role, partner changes own rate, partner binds foreign tenant) + simulation-before-commit; matrix table-driven cases (Platform Owner, Platform Admin, Agent Super Admin, Agent Custom Admin, Tenant Admin, Custom User, Employee, Manager, Service Account, No-role User) × (ALLOW/DENY, inactive roles, expired overrides, scope match/mismatch, entitlement disabled, delegation present/absent).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true -Dtest=com.sanad.platform.security.breakglass.BreakGlassInvariantPostgresAcceptanceTest,com.sanad.platform.access.matrix.AuthorizationMatrixPostgresAcceptanceTest test` → classes absent (red).
-- [ ] Step 3: exact minimal implementation — assemble from W1/W2 guards into the acceptance profile.
+- [ ] Step 3: exact minimal implementation — EXPLICITLY CREATE the two listed acceptance classes `security/breakglass/BreakGlassInvariantPostgresAcceptanceTest.java` + `access/matrix/AuthorizationMatrixPostgresAcceptanceTest.java` with their parameterized fixtures (this task owns the classes' creation; no product-code change is expected, but the classes MUST exist after this task — `none` is not an acceptable state while the classes are absent). Any acceptance case that turns red after the classes exist is fixed in the OWNING earlier-wave behavior, the owning regression is rerun, and the acceptance classes are rerun at the same candidate SHA.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.security.rls.RbacAccessCheckPostgresAcceptanceTest test` → 15/15.
 - [ ] Step 6: exact commit — `git commit -m "wave7(acceptance): break-glass rejections + authorization matrix (C4)"`.
@@ -163,7 +165,7 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — the six parameterized negatives above, each asserting the concrete denial path (SQLState/HTTP status/empty result) on the pg-acceptance profile.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true -Dtest=com.sanad.platform.partner.isolation.PartnerIsolationPostgresAcceptanceTest test` → class absent (red).
-- [ ] Step 3: exact minimal implementation — assemble the negatives from W2/W4/W5/W6 guards (any red ⇒ fix in the owning wave's class).
+- [ ] Step 3: exact minimal implementation — EXPLICITLY CREATE the listed acceptance class `partner/isolation/PartnerIsolationPostgresAcceptanceTest.java` with its parameterized fixtures assembled from the W2/W4/W5/W6 guards (this task owns the class's creation; no product-code change is expected, but the class MUST exist after this task — `none` is not an acceptable state while the class is absent). Any red case is fixed in the OWNING wave's class, the owning regression is rerun, and the acceptance class is rerun at the same candidate SHA.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — W2 isolation classes (`PartnerPrincipalRlsPostgresTest`, `PartnerMembershipConcurrencyPostgresTest`) → green.
 - [ ] Step 6: exact commit — `git commit -m "wave7(acceptance): partner isolation acceptance battery (C4)"`.
@@ -207,7 +209,7 @@ Stage record (G7-A):
 - Same-SHA tests: `ShadowEquivalencePostgresTest` + full battery at the stage commit.
 - Negative security gates: DENY-dominance classes green in shadow (`DenyDominancePostgresTest`, W1 Task 11).
 - Observability (Rev C — implementation / exact query / evidence): metric `sanad_authz_shadow_divergence_total` (Micrometer counter, implemented in this task) + `sanad_authz_shadow_evaluations_total` + `sanad_authz_decision_latency_seconds` histogram; EXACT scrape: `rate(sanad_authz_shadow_divergence_total[5m])` and `histogram_quantile(0.99, rate(sanad_authz_decision_latency_seconds_bucket[5m]))` captured as DAILY rows (timestamp, both metric values, run SHA) in `snad-evidence/g7a-shadow.log`.
-- NUMERIC SHADOW SOAK (Rev C — all four must hold): (i) duration ≥ 7 consecutive calendar days of production-shadow traffic; (ii) volume: `increase(sanad_authz_shadow_evaluations_total[soak])` ≥ 50,000 evaluated decisions; (iii) divergence: `increase(sanad_authz_shadow_divergence_total[soak])` == 0 EXACTLY; (iv) latency: authz p99 regression ≤ 10 % vs the pre-stage baseline measured over the SAME window (baseline captured before enabling shadow).
+- NUMERIC SHADOW SOAK (Rev C — all four must hold): (i) duration ≥ 7 consecutive calendar days of production-shadow traffic; (ii) volume: `increase(sanad_authz_shadow_evaluations_total[168h])` ≥ 50,000 evaluated decisions (concrete 7-day range vector `168h`; the runbook substitutes the concrete window actually used — placeholder windows like `[soak]` are forbidden); (iii) divergence: `increase(sanad_authz_shadow_divergence_total[168h])` == 0 EXACTLY; (iv) latency: authz p99 regression ≤ 10 % vs the pre-stage baseline measured over the SAME window (baseline captured before enabling shadow).
 - Rollback flag: `SANAD_UAC_MODE=legacy` (env; instant).
 - Rollback trigger: any divergence > 0 during soak, or `authz` p99 latency regression > 10 % vs baseline.
 - Post-enable smoke: `/api/v1/access/effective-permissions` 200 with owner token; one `@RequireCapability` CRUD path green.
@@ -225,7 +227,7 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — none new; the gate is the G7-A ledger + full battery.
 - [ ] Step 2: exact command proving RED — none (stage task).
-- [ ] Step 3: exact minimal implementation — call-site switches + config default `SANAD_UAC_MODE:authoritative` for the stage deployment (env-overridable back to `shadow`/`legacy`).
+- [ ] Step 3: exact minimal implementation — call-site switches ONLY (behavior-preserving, deny reasons enriched). NO committed config change: every committed `application*.yml` value remains `legacy`/false; the stage transition sets `SANAD_UAC_MODE=authoritative` as a DEPLOYMENT-ENVIRONMENT value outside the repository (env-overridable back to `shadow`/`legacy`); the stage evidence records the deployment environment values and the source SHA; rollback changes environment values only.
 - [ ] Step 4: exact command proving GREEN — full battery at stage SHA:
   `cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm test -- --reporter=verbose && npm run build`
   `cd apps/sanad-platform && mvn test -B -ntp -Dsurefire.useFile=false`
@@ -246,7 +248,7 @@ Stage record (G7-B):
 ### Task 10: STAGE G7-C — Partner Principal + Delegated Administration
 
 Files:
-- Modify: `apps/sanad-platform/src/main/resources/application.yml` + `application-prod.yml` (`sanad.partner.enabled: ${SANAD_PARTNER_ENABLED:false}` → stage default true in prod profile only at this stage)
+- Modify: none (the flag plumbing `sanad.partner.enabled: ${SANAD_PARTNER_ENABLED:false}` was committed ONCE with its false/legacy default in W2; this stage commits no config flip — activation is deployment-env only)
 - Test: `partner/api/PartnerCutoverSmokeIT.java` (Create — thin smoke: mint partner user, bind tenant, delegated TENANT.ACTIVATE, forbidden cross-partner read)
 
 Interfaces:
@@ -255,8 +257,8 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — smoke IT red until flag-on path exercised end-to-end (created only in this task).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.api.PartnerCutoverSmokeIT test` → smoke assertions fail with flag off.
-- [ ] Step 3: exact minimal implementation — smoke IT + stage flag default.
-- [ ] Step 4: exact command proving GREEN — same as Step 2 with `SANAD_PARTNER_ENABLED=true` → green.
+- [ ] Step 3: exact minimal implementation — smoke IT only (the stage's activation is `SANAD_PARTNER_ENABLED=true` as a DEPLOYMENT-ENVIRONMENT value outside the repository; committed config stays false; evidence records the deployment env values + source SHA; rollback changes env values only).
+- [ ] Step 4: exact command proving GREEN — same as Step 2 with the deployment env value `SANAD_PARTNER_ENABLED=true` (env only — no committed default changes) → green.
 - [ ] Step 5: exact affected regression — W2 isolation classes: `PartnerPrincipalRlsPostgresTest`, `PartnerMembershipConcurrencyPostgresTest`, `ProtectedRoleGrantGuardTest` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave7(cutover): G7-C partner principal live (C8)"`.
 
@@ -273,7 +275,7 @@ Stage record (G7-C):
 ### Task 11: STAGE G7-D — Commercial Identity
 
 Files:
-- Modify: `application.yml`/`application-prod.yml` (`sanad.commercial.identity-enabled: ${SANAD_COMMERCIAL_IDENTITY_ENABLED:false}` → stage default true)
+- Modify: none (the flag plumbing `sanad.commercial.identity-enabled: ${SANAD_COMMERCIAL_IDENTITY_ENABLED:false}` was committed ONCE with its false/legacy default in W3; this stage commits no config flip — activation is deployment-env only)
 - Test: `commercial/api/CommercialCutoverSmokeIT.java` (Create — tenant profile PUT, partner logo REGISTRATION of an already-stored object via `source_module='COMMERCIAL'` (Rev C W3 scope — no byte upload path exists), executive verification transition)
 
 Interfaces:
@@ -282,8 +284,8 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — smoke IT red with flag off.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.commercial.api.CommercialCutoverSmokeIT test` → red.
-- [ ] Step 3: exact minimal implementation — smoke IT + stage flag default.
-- [ ] Step 4: exact command proving GREEN — same as Step 2 with `SANAD_COMMERCIAL_IDENTITY_ENABLED=true` → green.
+- [ ] Step 3: exact minimal implementation — smoke IT only (activation is `SANAD_COMMERCIAL_IDENTITY_ENABLED=true` as a DEPLOYMENT-ENVIRONMENT value outside the repository; committed config stays false; evidence records the deployment env values + source SHA; rollback changes env values only).
+- [ ] Step 4: exact command proving GREEN — same as Step 2 with the deployment env value `SANAD_COMMERCIAL_IDENTITY_ENABLED=true` (env only) → green.
 - [ ] Step 5: exact affected regression — `WorkflowAttachmentExternalFoundationTest` (shared platform_files intact) + `PlatformFilesForceRlsPostgresTest` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave7(cutover): G7-D commercial identity live (C8)"`.
 
@@ -300,7 +302,7 @@ Stage record (G7-D):
 ### Task 12: STAGE G7-E — Partner Billing / Trial Continuation
 
 Files:
-- Modify: `application.yml`/`application-prod.yml` (`sanad.trial-continuation.enabled: ${SANAD_TRIAL_CONTINUATION_ENABLED:false}`, `sanad.partner-billing.enabled: ${SANAD_PARTNER_BILLING_ENABLED:false}` → stage defaults true — two flags, ONE subsystem, one stage commit)
+- Modify: none (the flag plumbing `sanad.trial-continuation.enabled: ${SANAD_TRIAL_CONTINUATION_ENABLED:false}` + `sanad.partner-billing.enabled: ${SANAD_PARTNER_BILLING_ENABLED:false}` was committed ONCE with false/legacy defaults in W4; this stage commits no config flip — BOTH flags activate as deployment-env values, ONE subsystem, ONE stage)
 - Test: `partner/billing/BillingCutoverSmokeIT.java` (Create — continuation confirm → ACTIVE_BILLABLE → five-condition automatic invoice → markInvoicePaid rejection on partner invoice)
 
 Interfaces:
@@ -309,8 +311,8 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — smoke IT red with flags off.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.billing.BillingCutoverSmokeIT test` → red.
-- [ ] Step 3: exact minimal implementation — smoke IT + stage flag defaults.
-- [ ] Step 4: exact command proving GREEN — same as Step 2 with both flags true → green.
+- [ ] Step 3: exact minimal implementation — smoke IT only (both flags activate as DEPLOYMENT-ENVIRONMENT values outside the repository; committed config stays false/legacy; evidence records the deployment env values + source SHA; rollback changes env values only).
+- [ ] Step 4: exact command proving GREEN — same as Step 2 with both deployment env values true (env only — no committed default changes) → green.
 - [ ] Step 5: exact affected regression — `AutomaticBillingPostgresTest`, `PartnerInvoiceGuardPostgresTest`, `TrialContinuationSchedulerPostgresTest` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave7(cutover): G7-E partner billing live (C9)"`.
 
@@ -327,7 +329,7 @@ Stage record (G7-E):
 ### Task 13: STAGE G7-F — Settlement
 
 Files:
-- Modify: `application.yml`/`application-prod.yml` (`sanad.settlement.enabled: ${SANAD_SETTLEMENT_ENABLED:false}` → stage default true)
+- Modify: none (the flag plumbing `sanad.settlement.enabled: ${SANAD_SETTLEMENT_ENABLED:false}` was committed ONCE with its false/legacy default in W5; this stage commits no config flip — activation is deployment-env only)
 - Test: `partner/settlement/SettlementCutoverSmokeIT.java` (Create — calculate → replay no-op → new-key replace → approve → finalize → SANAD invoice issued via platform sequence → reconcile green)
 
 Interfaces:
@@ -336,8 +338,8 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — smoke IT red with flag off.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.settlement.SettlementCutoverSmokeIT test` → red.
-- [ ] Step 3: exact minimal implementation — smoke IT + stage flag default.
-- [ ] Step 4: exact command proving GREEN — same as Step 2 with flag true → green.
+- [ ] Step 3: exact minimal implementation — smoke IT only (activation is `SANAD_SETTLEMENT_ENABLED=true` as a DEPLOYMENT-ENVIRONMENT value outside the repository; committed config stays false; evidence records the deployment env values + source SHA; rollback changes env values only).
+- [ ] Step 4: exact command proving GREEN — same as Step 2 with the deployment env value `SANAD_SETTLEMENT_ENABLED=true` (env only) → green.
 - [ ] Step 5: exact affected regression — `SettlementReplayReplacePostgresTest`, `SettlementFinalizeConcurrencyPostgresTest`, `LateAdjustmentPostgresTest` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave7(cutover): G7-F settlement live (C9)"`.
 
@@ -354,7 +356,7 @@ Stage record (G7-F):
 ### Task 14: STAGE G7-G — Notifications + Dashboards
 
 Files:
-- Modify: `application.yml`/`application-prod.yml` (`sanad.notifications.enabled: ${SANAD_NOTIFICATIONS_ENABLED:false}`, `sanad.dashboards.enabled: ${SANAD_DASHBOARDS_ENABLED:false}` → stage defaults true)
+- Modify: none (the flag plumbing `sanad.notifications.enabled: ${SANAD_NOTIFICATIONS_ENABLED:false}` + `sanad.dashboards.enabled: ${SANAD_DASHBOARDS_ENABLED:false}` was committed ONCE with false/legacy defaults in W6; this stage commits no config flip — activation is deployment-env only)
 - Test: `dashboard/DashboardCutoverSmokeIT.java` (Create — owner notification present for a partner mutation; global dashboard reconciles on the seeded DIRECT+Σ(PARTNERS) fixture; partner self-dashboard claim-scoped)
 
 Interfaces:
@@ -363,8 +365,8 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — smoke IT red with flags off.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.dashboard.DashboardCutoverSmokeIT test` → red.
-- [ ] Step 3: exact minimal implementation — smoke IT + stage flag defaults.
-- [ ] Step 4: exact command proving GREEN — same as Step 2 with both flags true → green.
+- [ ] Step 3: exact minimal implementation — smoke IT only (both flags activate as DEPLOYMENT-ENVIRONMENT values outside the repository; committed config stays false; evidence records the deployment env values + source SHA; rollback changes env values only).
+- [ ] Step 4: exact command proving GREEN — same as Step 2 with both deployment env values true (env only — no committed default changes) → green.
 - [ ] Step 5: exact affected regression — `DashboardReconciliationPostgresTest`, `NotificationIsolationPostgresTest`, `MandatoryOwnerNotificationPostgresTest` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave7(cutover): G7-G notifications and dashboards live (C10)"`.
 
@@ -388,9 +390,9 @@ Interfaces:
 - Consumes: all stage logs; CI.
 - Produces: `snad-evidence/evidence-<sha>.log` + CI run URLs.
 
-- [ ] Step 1: exact failing test — none.
-- [ ] Step 2: exact command proving RED — none.
-- [ ] Step 3: exact minimal implementation — none.
+- [ ] Step 1: PRECONDITION — the release-candidate SHA exists with `git status --short` clean and every stage gate G7-A..G7-G closed; all stage logs present under `snad-evidence/`.
+- [ ] Step 2: VERIFY — no new test is invented for this task (verification/evidence task class); the runbook below IS the verification.
+- [ ] Step 3: EVIDENCE ARTIFACT PLAN — one untracked bundle `snad-evidence/evidence-<sha>.log` + CI run URLs; no tracked file is created or modified by this task.
 - [ ] Step 4: exact command proving GREEN — executed in order, all at ONE HEAD SHA:
   1. `cd apps/sanad-platform && mvn test -B -ntp -Dsurefire.useFile=false` (full suite green, count recorded).
   2. `cd apps/sanad-platform && mvn test -B -ntp -Dtest='com.sanad.platform.crm.**.*IntegrationTest' test` (green).
@@ -404,14 +406,14 @@ Interfaces:
      c. RTL/unit component gates: `npm test` (vitest + `@testing-library/react` suite, 48+ component test files) green; i18n key parity `python3 scripts/ci/check_i18n_keys.py` green.
      d. Accessibility axe evidence: the axe-core violation report (0 critical/serious violations on the covered authenticated pages) attached from the CI artifact of the same SHA.
   8. Exact-HEAD CI run on the release branch: all required checks green. REV C PROTECTED RELEASE CHAIN (complete, ordered):
-     (a) REQUIRED-CHECKS DISCOVERY GATE — the release owner (or a GH admin/token holder) runs `GET /repos/snadaiapp-png/SNAD/branches/<release-branch>/protection` with an authenticated token and records the required-check set into `snad-evidence/required-checks.json` BEFORE any release claim. PLANNING-TIME STATUS: `RELEASE_REQUIRED_CHECKS_DISCOVERY=BLOCKED` (GitHub API HTTP 403 unauthenticated; no `gh` CLI) — the current required-check set is NOT known and is NEVER assumed; the CI job names `test`, `crm`, `pg-acceptance` (extended map), `r0c12-canonical-gate-g`, and the web gates of `.github/workflows/post-merge-verification.yml` are recorded as CANDIDATES pending discovery, not as required checks.
+     (a) REQUIRED-CHECKS DISCOVERY GATE — the release owner (or a GH admin/token holder) runs `GET /repos/snadaiapp-png/SNAD/branches/<release-branch>/protection` with an authenticated token and records the required-check set into `snad-evidence/required-checks.json` BEFORE any release claim. REVISION D RULE: failure to discover the current protected-branch requirements blocks a RELEASE CLAIM only — never docs-only planning or implementation of earlier waves. PLANNING-TIME STATUS: `RELEASE_REQUIRED_CHECKS_DISCOVERY=BLOCKED` (GitHub API HTTP 403 unauthenticated; no `gh` CLI) — the current required-check set is NOT known and is NEVER assumed; the CI job names `test`, `crm`, `pg-acceptance` (extended map), `r0c12-canonical-gate-g`, and the web gates of `.github/workflows/post-merge-verification.yml` are recorded as CANDIDATES pending discovery, not as required checks.
      (b) merge to the release branch only after (a) has recorded evidence;
      (c) all DISCOVERED required checks green at the release SHA (not merely the candidate set);
      (d) `post-merge-verification.yml` web gates green;
      (e) production smoke (`production-smoke.yml` / `backend-production-smoke.yml`) green;
      (f) the merge base re-verified: `git merge-base` of the release branch and current `origin/main` recorded, and the 7-class pg-acceptance gate re-run on the MERGED head (master risk M5) before any release claim.
 - [ ] Step 5: exact affected regression — the runbook IS the regression.
-- [ ] Step 6: exact commit — `git commit -m "wave7(evidence): release verification bundle @ <sha> (C11)"`.
+- [ ] Step 6: **NO TRACKED COMMIT — evidence external/untracked; report STAGE_SHA/release SHA** — the entire runbook executes at ONE identical HEAD SHA; any tracked commit after the run invalidates the evidence and the FULL runbook must be re-run at the new SHA. Evidence artifacts live ONLY in `snad-evidence/` (untracked) or CI artifacts — never as tracked commits after the gate.
 
 ## Security implications, rollback, failure semantics
 

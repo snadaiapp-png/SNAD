@@ -1,10 +1,11 @@
 # WAVE 2 — Partner Principal + Delegated Administration (Implementation Plan)
 
-> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence; every task below is RED → GREEN with exact commands and commit boundaries.
+> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence. **Revision D two-class doctrine:** implementation tasks follow test-first RED → minimal implementation → GREEN → affected regression → commit; verification/evidence/cutover-stage tasks follow PRECONDITION → VERIFY → EVIDENCE with untracked evidence and NO tracked evidence commit after the gate (no fabricated RED). Exact commands and commit boundaries are listed per task.
 
-**Spec:** Revision C — §3 (hierarchy/boundaries), §5 (protected roles: `AGENT_CUSTOM_ADMIN` NOT protected), §6.1 (Capability Contract Table), §13 (delegated administration via canonical capabilities), §13.1 (deterministic partner membership), §20 (partner tables), §21 (owner notifications pre-wiring), §24.1 (executive Partners section), §30 (isolation invariants).
+**Spec:** **Revision D** — §3 (hierarchy/boundaries), §5 (protected roles: `AGENT_CUSTOM_ADMIN` NOT protected), §6.1 (Capability Contract Table), §13 (delegated administration via canonical capabilities), §13.1 (deterministic partner membership), §20 (partner tables), §21 (owner notifications pre-wiring), §24.1 (executive Partners section), §30 (isolation invariants).
 **Depends on:** W1 merged. **Migrations:** `V20260925_1`..`V20260925_6` · **Flag:** `SANAD_PARTNER_ENABLED` (default `false`).
-**Rev C (R2) changes in this wave:** W2 is the SOLE introducer of the `app.current_user_id` GUC (W6 only consumes it) — Task 6 wires it from the verified authenticated principal and proves the full three-GUC context (`app.tenant_id`, `app.partner_id`, `app.current_user_id`) with 5 test-case groups including the no-stale-claim-on-re-auth proof; Task 7 extends immediate invalidation to ALL membership mutations (create/suspend/downgrade/transfer) covering `SessionVersionCache` AND the partner-membership claim cache; Task 5 seeds `SUBSCRIPTION.MANAGE` (Rev C continuation authority consumed by W4).
+**Revision D (R3) changes in this wave:** `SUBSCRIPTION.MANAGE` is mandatory end-to-end — seeded in Task 5 (12 new codes), present in the Task 10 delegation allowlist (exact canonical 12-code set) and its positive tests, and consumed by the Task 12 delegated subscription/provisioning surface; Task 7 Step 3 implements the full four-mutation same-transaction invalidation invariant (create-ACTIVE / suspend / downgrade / transfer: mutate + `session_version` bump + `SessionVersionCache.invalidate` + partner-membership/JWT-claim cache eviction; old JWT denied on the very next request; new JWT immediate with no sleep); Task 14 is restated as a PRECONDITION → VERIFY → EVIDENCE task ending with NO TRACKED COMMIT — evidence external/untracked.
+**Historical Rev C (R2) changes in this wave (provenance):** W2 is the SOLE introducer of the `app.current_user_id` GUC (W6 only consumes it) — Task 6 wires it from the verified authenticated principal and proves the full three-GUC context (`app.tenant_id`, `app.partner_id`, `app.current_user_id`) with 5 test-case groups including the no-stale-claim-on-re-auth proof; Task 7 extends immediate invalidation to ALL membership mutations (create/suspend/downgrade/transfer) covering `SessionVersionCache` AND the partner-membership claim cache; Task 5 seeds `SUBSCRIPTION.MANAGE` (Rev C continuation authority consumed by W4).
 
 ## Goal
 
@@ -20,7 +21,7 @@ Java 21 · Spring Boot single-module Maven (`apps/sanad-platform`; commands use 
 
 ## Spec
 
-Header references authoritative. §13.1 Rev B is binding: one ACTIVE membership per user; suspension/removal invalidates sessions immediately via `users.session_version` (+ `SessionVersionCache.invalidate`), never via the 5 s JWT membership cache.
+Header references authoritative. §13.1 (Revision D) is binding: one ACTIVE membership per user; suspension/removal invalidates sessions immediately via `users.session_version` (+ `SessionVersionCache.invalidate`), never via the 5 s JWT membership cache.
 
 ## Implementation Baseline
 
@@ -32,7 +33,7 @@ Repository evidence at `8d0d49c7`: NO partner tables exist (searched `db/migrati
 2. `user_permission_overrides.partner_id` MUST have a real FK after this wave; no orphan partner UUID may remain possible.
 3. `UNIQUE(partner_id, user_id)` on memberships is FORBIDDEN as the ACTIVE-determinism mechanism; the enforcement is `UNIQUE(user_id) WHERE status='ACTIVE'`.
 4. Protected-role logic references EXACTLY `PLATFORM_OWNER`, `PLATFORM_ADMIN`, `AGENT_SUPER_ADMIN` (plus `TENANT_ADMIN` where tenant-plane relevant) from the W1 registry — `AGENT_CUSTOM_ADMIN` is never treated as protected.
-5. Delegation allowlist codes must exist in `access_capabilities` (seeded here in `V20260925_5`); canonical `BILLING.READ` already exists (canonicalized `V20260830_2`/`V20260901_1`); `BILLING.MANAGE` is created here once.
+5. Delegation allowlist codes must exist in `access_capabilities` (seeded here in `V20260925_5` — the 12-code canonical delegation set including `SUBSCRIPTION.MANAGE`, the trial-continuation authority); canonical `BILLING.READ` already exists (canonicalized `V20260830_2`/`V20260901_1`); `BILLING.MANAGE` is created here once. No parallel `PARTNER.SUBSCRIPTION.*` namespace may be introduced.
 6. Every partner table: ENABLE + FORCE RLS + `DROP POLICY IF EXISTS` first, same migration.
 7. All partner admin mutations audited (`PlatformAuditWriter`) + `authorization_change_events`.
 
@@ -124,9 +125,9 @@ Files:
 
 Interfaces:
 - Consumes: `access_capabilities` (V7 + uppercase canonicalizer `V20260901_1`).
-- Produces: 11 new codes — `BILLING.MANAGE`, `PARTNER.PLATFORM.MANAGE`, `TENANT.CREATE`, `TENANT.ACTIVATE`, `TENANT.SUSPEND`, `TENANT.USER.MANAGE`, `TENANT.AUTHORIZATION.MANAGE`, `SUBSCRIPTION.CREATE`, `SUBSCRIPTION.UPGRADE`, `SUBSCRIPTION.DOWNGRADE`, `SUBSCRIPTION.CANCEL` (all ACTIVE; `PARTNER.PLATFORM.MANAGE` with `system_protected=true`, `risk_level='CRITICAL'`; `BILLING.MANAGE` `supports_scope=false` — partner billing capability is partner-scoped, not data-scoped).
+- Produces: 12 new codes — `BILLING.MANAGE`, `PARTNER.PLATFORM.MANAGE`, `TENANT.CREATE`, `TENANT.ACTIVATE`, `TENANT.SUSPEND`, `TENANT.USER.MANAGE`, `TENANT.AUTHORIZATION.MANAGE`, `SUBSCRIPTION.CREATE`, `SUBSCRIPTION.MANAGE`, `SUBSCRIPTION.UPGRADE`, `SUBSCRIPTION.DOWNGRADE`, `SUBSCRIPTION.CANCEL` (all ACTIVE; `PARTNER.PLATFORM.MANAGE` with `system_protected=true`, `risk_level='CRITICAL'`; `BILLING.MANAGE` `supports_scope=false` — partner billing capability is partner-scoped, not data-scoped). `SUBSCRIPTION.MANAGE` is the canonical trial-continuation/subscription-administration authority (spec §6.1 Revision D) consumed by W4 continuation surfaces — no parallel `PARTNER.SUBSCRIPTION.*` namespace.
 
-- [ ] Step 1: exact failing test — `partner/application/PartnerCapabilitySeedContractTest.java`: assert the 11 codes exist ACTIVE with correct `system_protected`; assert `BILLING.READ` ALSO exists (pre-existing canonical row — from `billing.read` via `V20260901_1`) so the delegation allowlist is fully backed; assert NO code `PARTNER.BILLING.MANAGE` or `PARTNER.BILLING.READ` exists anywhere (semantic-duplicate ban, spec §6.1).
+- [ ] Step 1: exact failing test — `partner/application/PartnerCapabilitySeedContractTest.java`: assert the 12 codes exist ACTIVE with correct `system_protected` (including `SUBSCRIPTION.MANAGE` — the seed-contract test asserts its presence, ACTIVE status, and metadata); assert `BILLING.READ` ALSO exists (pre-existing canonical row — from `billing.read` via `V20260901_1`) so the delegation allowlist is fully backed; assert NO code `PARTNER.BILLING.MANAGE`, `PARTNER.BILLING.READ`, or any `PARTNER.SUBSCRIPTION.*` code exists anywhere (semantic-duplicate ban, spec §6.1).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.application.PartnerCapabilitySeedContractTest test` → `capability not found: BILLING.MANAGE` (red).
 - [ ] Step 3: exact minimal implementation — `V20260925_5__partner_authorization_capability_seeds.sql`: 7-column INSERT idiom of `V20260815_23`; header comment: canonical vocabulary per spec §6.1 — no duplicate namespace.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
@@ -164,7 +165,7 @@ Interfaces:
 
 - [ ] Step 1: exact failing test — `PartnerMembershipConcurrencyPostgresTest` (TransactionTemplate, two threads): two simultaneous INSERTs of ACTIVE memberships for the SAME user on DIFFERENT partners ⇒ exactly one commits, loser gets `DataIntegrityViolationException` (SQLState 23505); same test with SUSPENDED target status ⇒ both commits allowed (history preserved). `PartnerSessionInvalidationTest` (`local` IT), Rev C expanded to the FOUR mutation kinds (create-ACTIVE, suspend, downgrade, transfer): each committed mutation ⇒ the affected user's EXISTING JWT fails 401 on the NEXT request (`session_version` mismatch — never a 5 s cache-TTL wait); AND the re-authenticated NEW JWT/request context reflects the mutation immediately (suspended ⇒ no `partner_id` claim; downgraded ⇒ new role's capabilities only; transferred ⇒ new partner claim) asserted with no sleep; removal of last AGENT_SUPER_ADMIN also covered by Task 11 guard.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.application.PartnerMembershipConcurrencyPostgresTest,com.sanad.platform.partner.application.PartnerSessionInvalidationTest test` → concurrency test fails (no service path) and invalidation test fails (session_version not bumped).
-- [ ] Step 3: exact minimal implementation — `PartnerUserMembershipService` + `PartnerAdminService` suspension path bumping `session_version` + cache invalidate.
+- [ ] Step 3: exact minimal implementation — `PartnerUserMembershipService` + `PartnerAdminService` implementing the SAME-TRANSACTION invariant already demanded by Files/Step 1 for EACH of the four mutation kinds (`create-ACTIVE`, `suspend`, `role downgrade`, `partner transfer`): (1) mutate the membership state/role; (2) increment the affected `users.session_version`; (3) call `SessionVersionCache.invalidate(tenantId, userId)`; (4) evict the partner-membership/JWT-claim cache entry keyed by the old session version/context. The implementation covers ALL FOUR paths — it MUST NOT say "suspension path" only.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.security.filter.SessionVersionCacheTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave2(membership): one-active concurrency proof + immediate session_version invalidation (C3)"`.
@@ -214,11 +215,11 @@ Files:
 
 Interfaces:
 - Consumes: `partner_delegation_grants`, `partner_tenant_bindings`, `access_capabilities` (Task 5 seeds + pre-existing `BILLING.READ`).
-- Produces: `assertDelegated(UUID partnerId, UUID tenantId, String capabilityCode)` — binding ACTIVE + grant window valid + code in the spec §13/§6.1 allowlist (`TENANT.CREATE`, `TENANT.ACTIVATE`, `TENANT.SUSPEND`, `TENANT.USER.MANAGE`, `TENANT.AUTHORIZATION.MANAGE`, `SUBSCRIPTION.CREATE`, `SUBSCRIPTION.UPGRADE`, `SUBSCRIPTION.DOWNGRADE`, `SUBSCRIPTION.CANCEL`, `BILLING.READ`, `BILLING.MANAGE`); deny reasons `DELEGATION_MISSING`, `DELEGATION_EXPIRED`, `BINDING_INACTIVE`, `CODE_NOT_DELEGATABLE`.
+- Produces: `assertDelegated(UUID partnerId, UUID tenantId, String capabilityCode)` — binding ACTIVE + grant window valid + code in the spec §13/§6.1 Revision D allowlist, EXACTLY the canonical 12-code set: `TENANT.CREATE`, `TENANT.ACTIVATE`, `TENANT.SUSPEND`, `TENANT.USER.MANAGE`, `TENANT.AUTHORIZATION.MANAGE`, `SUBSCRIPTION.CREATE`, `SUBSCRIPTION.MANAGE`, `SUBSCRIPTION.UPGRADE`, `SUBSCRIPTION.DOWNGRADE`, `SUBSCRIPTION.CANCEL`, `BILLING.READ`, `BILLING.MANAGE` (no `PARTNER.SUBSCRIPTION.*` namespace); deny reasons `DELEGATION_MISSING`, `DELEGATION_EXPIRED`, `BINDING_INACTIVE`, `CODE_NOT_DELEGATABLE`.
 
-- [ ] Step 1: exact failing test — expired grant ⇒ `DELEGATION_EXPIRED`; missing ⇒ `DELEGATION_MISSING`; no ACTIVE binding ⇒ `BINDING_INACTIVE`; code outside allowlist (e.g. `CRM.CONTACT.READ`) ⇒ `CODE_NOT_DELEGATABLE`; canonical `BILLING.MANAGE` and `BILLING.READ` both pass when granted (proves canonical-vocabulary delegation, no `PARTNER.BILLING.*`).
+- [ ] Step 1: exact failing test — expired grant ⇒ `DELEGATION_EXPIRED`; missing ⇒ `DELEGATION_MISSING`; no ACTIVE binding ⇒ `BINDING_INACTIVE`; code outside allowlist (e.g. `CRM.CONTACT.READ`) ⇒ `CODE_NOT_DELEGATABLE`; canonical `BILLING.MANAGE` and `BILLING.READ` both pass when granted (proves canonical-vocabulary delegation, no `PARTNER.BILLING.*`); POSITIVE test for `SUBSCRIPTION.MANAGE`: a partner with an ACTIVE binding + valid delegation grant passes `assertDelegated` for `SUBSCRIPTION.MANAGE` (the trial-continuation authority is delegatable end-to-end).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.application.PartnerDelegationGateTest test` → class missing (red).
-- [ ] Step 3: exact minimal implementation — the gate with the allowlist as a static set mirroring spec §6.1 exactly.
+- [ ] Step 3: exact minimal implementation — the gate with the allowlist as a static set mirroring spec §6.1 Revision D EXACTLY (the canonical 12-code set including `SUBSCRIPTION.MANAGE`).
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.access.evaluation.CapabilityEvaluationServiceTest test` → green (engine untouched; gate composes with it).
 - [ ] Step 6: exact commit — `git commit -m "wave2(delegation): gate over canonical capability vocabulary (C4)"`.
@@ -248,7 +249,7 @@ Files:
 - Test: `partner/api/PartnerPortalControllerIT.java`, `partner/api/ExecutivePartnerControllerIT.java`, `partner/application/PartnerTenantProvisioningAdapterTest.java` (Create all)
 
 Interfaces:
-- Consumes: `PartnerClaimResolver` (Task 6), `PartnerDelegationGate` (Task 10), existing provisioning/bootstrap services + `SaasAdministrationService.createSubscription` (SUBSCRIPTION.* delegation), `ControlPlaneAccessGuard`.
+- Consumes: `PartnerClaimResolver` (Task 6), `PartnerDelegationGate` (Task 10), existing provisioning/bootstrap services + `SaasAdministrationService.createSubscription` (SUBSCRIPTION.* delegation — including `SUBSCRIPTION.MANAGE`, the canonical continuation/subscription-administration authority consumed wherever the delegated subscription/provisioning surface acts on subscriptions), `ControlPlaneAccessGuard`.
 - Produces: `/api/v1/partner/**` (me, tenants, delegations, users — ALL resolved from JWT claim; `?partnerId=` mismatch ⇒ 403 `PARTNER_SCOPE_MISMATCH`); `/api/v1/executive/partners/**` (`PARTNER.PLATFORM.MANAGE` + control-plane guard).
 
 - [ ] Step 1: exact failing test — portal IT: partner token lists own tenants; `?partnerId=<other>` ⇒ 403 `PARTNER_SCOPE_MISMATCH`; TENANT.SUSPEND path without delegation ⇒ 403. Executive IT: platform authority CRUD green; tenant-plane token ⇒ 403. Adapter test: delegated TENANT.CREATE creates tenant via the existing provisioning service; audit row `source=PARTNER_DELEGATED`; failed delegation writes audit FAILURE and never bypasses provisioning guards.
@@ -276,7 +277,7 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/web && npm run typecheck && npm run lint && npm test && python3 scripts/ci/check_i18n_keys.py` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave2(web): partner admin surfaces + i18n parity (C6)"`.
 
-### Task 14: Wave exit evidence battery
+### Task 14: Wave exit evidence battery (verification/evidence task — PRECONDITION → VERIFY → EVIDENCE)
 
 Files:
 - Modify: none (evidence only)
@@ -284,17 +285,17 @@ Files:
 
 Interfaces:
 - Consumes: PostgreSQL 16 local battery (`127.0.0.1:5433` + pg-acceptance profile).
-- Produces: `snad-evidence/evidence-<HEAD-SHA>.log`.
+- Produces: `snad-evidence/evidence-<FINAL_WAVE_SHA>.log` (untracked).
 
-- [ ] Step 1: exact failing test — none.
-- [ ] Step 2: exact command proving RED — none.
-- [ ] Step 3: exact minimal implementation — none.
+- [ ] Step 1: PRECONDITION — the FINAL_WAVE_SHA candidate exists, `git status --short` is clean, and every W2 implementation task is committed green; battery environment up.
+- [ ] Step 2: VERIFY — no new test is invented for this task (verification/evidence task class); the battery below IS the verification.
+- [ ] Step 3: EVIDENCE ARTIFACT PLAN — one untracked log `snad-evidence/evidence-<FINAL_WAVE_SHA>.log` records `git rev-parse HEAD`, `git status --short`, every command, and every count; no tracked file is created or modified by this task.
 - [ ] Step 4: exact command proving GREEN —
   `cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm test -- --reporter=verbose && npm run build`
   `cd apps/sanad-platform && mvn test -B -ntp -Dsurefire.useFile=false`
   `cd apps/sanad-platform && SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass mvn test -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest'` → 31/31 (6/15/10 unchanged).
-- [ ] Step 5: exact affected regression — battery IS the regression; log at `snad-evidence/evidence-<HEAD-SHA>.log`.
-- [ ] Step 6: exact commit — `git commit -m "wave2(evidence): gate run @ <HEAD-SHA> (C7)"`.
+- [ ] Step 5: exact affected regression — battery IS the regression; log at `snad-evidence/evidence-<FINAL_WAVE_SHA>.log`.
+- [ ] Step 6: **NO TRACKED COMMIT — evidence external/untracked; report FINAL_WAVE_SHA** — the gate runs at ONE identical HEAD SHA recorded in the evidence log header, with `git status --short` clean at run time; any tracked commit after the gate invalidates the evidence and the FULL battery must be re-run at the new SHA. Evidence artifacts live ONLY in `snad-evidence/` (untracked) or CI artifacts — never as tracked commits after the gate.
 
 ## Dependencies, security, rollback
 

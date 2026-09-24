@@ -1,12 +1,13 @@
 # WAVE 1 — Unified Authorization Core (Implementation Plan)
 
-> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence; every task below is RED → GREEN with exact commands and commit boundaries.
+> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence. **Revision D two-class doctrine:** implementation tasks follow test-first RED → minimal implementation → GREEN → affected regression → commit; verification/evidence/cutover-stage tasks follow PRECONDITION → VERIFY → EVIDENCE with untracked evidence and NO tracked evidence commit after the gate (no fabricated RED). Exact commands and commit boundaries are listed per task.
 
-**Spec:** `docs/superpowers/specs/2026-09-23-unified-authorization-partner-billing-design.md` Revision C — §4.1 (runtime decision algorithm A–E), §5 (protected roles + break-glass reframe), §6.1 (Capability Contract Table), §7 (RBAC/ABAC/ReBAC), §9 (overrides + Direct DENY v1 invariant), §10 (scopes), §11 (explainability/cache), §12 (entitlements separate), §25 (admin UI), §29 Phase 2–3, §31.6 (correction-mandated tests).
+**Spec:** `docs/superpowers/specs/2026-09-23-unified-authorization-partner-billing-design.md` **Revision D** — §4.1 (runtime decision algorithm A–E), §5 (protected roles + break-glass reframe), §6.1 (Capability Contract Table), §7 (RBAC/ABAC/ReBAC), §9 (overrides + Direct DENY v1 invariant), §10 (scopes), §11 (explainability/cache), §12 (entitlements separate), §25 (admin UI), §29 Phase 2–3, §31.6 (correction-mandated tests).
 **IMPLEMENTATION_BASE_SHA:** `8d0d49c7bdd3ad3a886a23cffc1e735e61998712`
-**Correction branch:** `docs/unified-control-plane-plan-corrections-r2-recovered` (Rev C plans; Rev B base `cb5ef42c7ece6bca5aa401356d4b9ae52219720c`)
+**Correction branch:** `review/unified-control-plane-revision-c-reconstructed` (Revision D / R3 final correction docs; provenance: Rev C plans on the recovered R2 branch, Rev B base `cb5ef42c7ece6bca5aa401356d4b9ae52219720c`)
 **Migrations:** `V20260924_1`..`V20260924_6` · **Flag:** `SANAD_UAC_PIPELINE_ENABLED` (default `false`)
-**Rev C (R2) changes in this wave:** (1) Task 1 overrides active-index predicate made IMMUTABLE (`WHERE valid_until IS NULL` + companion plain expiry index — a `valid_until > now()` predicate is not IMMUTABLE and would fail `CREATE INDEX`, and is semantically wrong for an index anyway); (2) Task 1 `authorization_change_events` RLS rewritten as explicit two-branch USING + WITH CHECK (fail-closed, no permissive-when-unset window); (3) Task 6 RED-then-later-GREEN commit pattern FORBIDDEN — the structural audit contract test is created in Task 10 where its GREEN lands; (4) Task 17 wave-evidence gate pinned to the FINAL_WAVE_SHA same-SHA contract.
+**Revision D (R3) changes in this wave:** the wave header identifies the effective planning contract as Revision D / R3; the two-class TDD doctrine replaces the blanket RED→GREEN statement; Task 17 is restated as a PRECONDITION → VERIFY → EVIDENCE task ending with NO TRACKED COMMIT — evidence external/untracked.
+**Historical Rev C (R2) changes in this wave (provenance):** (1) Task 1 overrides active-index predicate made IMMUTABLE (`WHERE valid_until IS NULL` + companion plain expiry index — a `valid_until > now()` predicate is not IMMUTABLE and would fail `CREATE INDEX`, and is semantically wrong for an index anyway); (2) Task 1 `authorization_change_events` RLS rewritten as explicit two-branch USING + WITH CHECK (fail-closed, no permissive-when-unset window); (3) Task 6 RED-then-later-GREEN commit pattern FORBIDDEN — the structural audit contract test is created in Task 10 where its GREEN lands; (4) Task 17 wave-evidence gate pinned to the FINAL_WAVE_SHA same-SHA contract.
 
 ## Goal
 
@@ -22,7 +23,7 @@ Java 21 · Spring Boot (`apps/sanad-platform`, single-module Maven, `apps/sanad-
 
 ## Spec
 
-See header. The authoritative runtime algorithm is spec §4.1 Rev B (A–E). Rev B supersedes any prior "12-step" decision-order text.
+See header. The authoritative runtime algorithm is spec §4.1 (A–E), effective as of Revision D. It supersedes any prior "12-step" decision-order text.
 
 ## Implementation Baseline
 
@@ -337,7 +338,7 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/web && npm run typecheck && npm run lint && npm test && python3 scripts/ci/check_i18n_keys.py` → all green (protected-roots test untouched: `apps/web/app/providers-protected-roots.test.ts`).
 - [ ] Step 6: exact commit — `git commit -m "wave1(web): access admin surfaces + i18n parity (C6)"`.
 
-### Task 17: Wave exit evidence battery
+### Task 17: Wave exit evidence battery (verification/evidence task — PRECONDITION → VERIFY → EVIDENCE)
 
 Files:
 - Modify: none (evidence only)
@@ -345,19 +346,19 @@ Files:
 
 Interfaces:
 - Consumes: PostgreSQL 16 on `127.0.0.1:5433` (DBs `sanad`/`test_migration`/`pg_acceptance`; roles `sanad` NOBYPASSRLS, `crm_contact_rls_test_user`).
-- Produces: `snad-evidence/evidence-<HEAD-SHA>.log` with all commands + counts.
+- Produces: `snad-evidence/evidence-<FINAL_WAVE_SHA>.log` with all commands + counts (untracked).
 
-- [ ] Step 1: exact failing test — none (evidence task).
-- [ ] Step 2: exact command proving RED — none.
-- [ ] Step 3: exact minimal implementation — none.
+- [ ] Step 1: PRECONDITION — the FINAL_WAVE_SHA candidate exists, `git status --short` is clean, and every W1 implementation task is committed green; confirm the battery environment (PostgreSQL 16 on `127.0.0.1:5433`, DBs `sanad`/`test_migration`/`pg_acceptance`; roles `sanad` NOBYPASSRLS, `crm_contact_rls_test_user`) is up.
+- [ ] Step 2: VERIFY — no new test is invented for this task (verification/evidence task class); the battery below IS the verification.
+- [ ] Step 3: EVIDENCE ARTIFACT PLAN — one untracked log `snad-evidence/evidence-<FINAL_WAVE_SHA>.log` records `git rev-parse HEAD`, `git status --short`, every command, and every count; no tracked file is created or modified by this task.
 - [ ] Step 4: exact command proving GREEN — run and record, all from repo root:
   `cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm test -- --reporter=verbose && npm run build`
   `cd apps/sanad-platform && mvn test -B -ntp -Dsurefire.useFile=false`
   `cd apps/sanad-platform && SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass mvn test -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest'` → 31/31 with the exact ci.yml map (6/15/10) unchanged.
-- [ ] Step 5: exact affected regression — the battery IS the regression; log written to `snad-evidence/evidence-<HEAD-SHA>.log`.
-- [ ] Step 6: exact commit — `git commit -m "wave1(evidence): gate run @ <HEAD-SHA> (C7)"` — commit message embeds the SHA; no pass may be claimed without the log.
+- [ ] Step 5: exact affected regression — the battery IS the regression; log written to `snad-evidence/evidence-<FINAL_WAVE_SHA>.log`.
+- [ ] Step 6: **NO TRACKED COMMIT — evidence external/untracked; report FINAL_WAVE_SHA** — the gate runs at ONE identical HEAD SHA recorded as `FINAL_WAVE_SHA` in the evidence log header via `git rev-parse HEAD`, with `git status --short` clean at run time; any tracked commit made after the gate invalidates the evidence and the FULL battery must be re-run at the new SHA before the wave is reported complete. Evidence artifacts (logs, surefire XML, CI run URLs) live ONLY in `snad-evidence/` (gitignored/untracked) or CI artifacts — never as tracked commits after the gate.
 
-**FINAL_WAVE_SHA same-SHA evidence contract (Rev C):** the wave exit gate is valid only when every command above ran at ONE identical HEAD SHA — recorded as `FINAL_WAVE_SHA` in the evidence log header via `git rev-parse HEAD` — with `git status --short` clean (no uncommitted changes) at run time; any tracked commit made after the gate invalidates the evidence and the FULL battery must be re-run at the new SHA before the wave is reported complete. Evidence artifacts (logs, surefire XML, CI run URLs) live ONLY in `snad-evidence/` (gitignored/untracked) or CI artifacts — never as tracked commits after the gate.
+**FINAL_WAVE_SHA same-SHA evidence contract (Revision D):** the wave exit gate is valid only when every command above ran at ONE identical HEAD SHA — recorded as `FINAL_WAVE_SHA` in the evidence log header via `git rev-parse HEAD` — with `git status --short` clean (no uncommitted changes) at run time; any tracked commit made after the gate invalidates the evidence and the FULL battery must be re-run at the new SHA before the wave is reported complete. Evidence artifacts (logs, surefire XML, CI run URLs) live ONLY in `snad-evidence/` (gitignored/untracked) or CI artifacts — never as tracked commits after the gate.
 
 ## Dependencies, security, rollback
 

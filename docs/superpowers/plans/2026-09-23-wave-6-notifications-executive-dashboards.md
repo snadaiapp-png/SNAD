@@ -1,9 +1,10 @@
 # WAVE 6 — Notifications + Global / Per-Partner / Partner-Self Dashboards + Invoice Dashboards (Implementation Plan)
 
-> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence; every task below is RED → GREEN with exact commands and commit boundaries.
+> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence. **Revision D two-class doctrine:** implementation tasks follow test-first RED → minimal implementation → GREEN → affected regression → commit; verification/evidence/cutover-stage tasks follow PRECONDITION → VERIFY → EVIDENCE with untracked evidence and NO tracked evidence commit after the gate (no fabricated RED). Exact commands and commit boundaries are listed per task.
 
-**Spec:** Revision C — §21 (notification events + mandatory PLATFORM_OWNER in-product deliveries), §21.1 (denormalized scope columns + consistency CHECKs + explicit RLS model + audience-source separation), §22 (three dashboard scopes), §22.4 (exact typed projection schema — no `subscriptions_*` placeholders), §22.5 (GLOBAL = DIRECT SANAD TENANTS + Σ(PARTNER DASHBOARDS)), §23 (invoice screens), §24 (IA), §26 (event-driven projections), §31.4/§31.6.
+**Spec:** **Revision D** — §21 (notification events + mandatory PLATFORM_OWNER in-product deliveries), §21.1 (denormalized scope columns + consistency CHECKs + explicit RLS model + audience-source separation), §22 (three dashboard scopes), §22.4 (exact typed projection schema — no `subscriptions_*` placeholders), §22.5 (GLOBAL = DIRECT SANAD TENANTS + Σ(PARTNER DASHBOARDS)), §23 (invoice screens), §24 (IA), §26 (event-driven projections), §31.4/§31.6.
 **Depends on:** W2 (event sources), W3 (portal commercial screen), W4/W5 (metric sources). **Migrations:** `V20260929_1`..`V20260929_5` · **Flags:** `SANAD_NOTIFICATIONS_ENABLED`, `SANAD_DASHBOARDS_ENABLED` (default `false`).
+**Revision D (R3) changes in this wave:** the wave header identifies the effective planning contract as Revision D / R3; Task 10 is restated as a PRECONDITION → VERIFY → EVIDENCE task ending with NO TRACKED COMMIT — evidence external/untracked.
 **Rev C (R2) changes in this wave:** (1) Task 1 — the `COALESCE(current_setting('app.current_user_id', true), recipient_user_id::text)` recipient-congruence pattern is DELETED (it makes the WITH CHECK vacuous whenever the GUC is unset — exactly the forbidden bypass form); replaced by an explicit two-branch write rule: session context (GUC set) ⇒ `recipient_user_id` must equal `app.current_user_id`; background context (GUC unset) ⇒ writes allowed ONLY from the verified control-plane context (carrier tenant GUC + `app.partner_id` NULL); (2) Task 1 — AUDIENCE SCOPE vs SOURCE ATTRIBUTION separated: each event row carries exactly ONE audience scope (the scope/`tenant_id`/`partner_id` triple RLS is computed from) plus pure attribution columns `source_partner_id`/`source_tenant_id` (nullable, never used by RLS, negative-tested); (3) W6 CONSUMES `app.current_user_id` read-only (introduced by W2); (4) Task 6 — canonical projection-backfill semantics stated (deterministic rebuild, idempotent, version-stamped — same rule W7 Task 3 enforces for the authorization projection).
 
 ## Goal
@@ -20,7 +21,7 @@ Java 21 · Spring Boot single-module Maven · Flyway · PostgreSQL 16 (composite
 
 ## Spec
 
-§22.5 Rev B replaces any `GLOBAL = SUM(PARTNERS)` assertion: direct tenants are intentionally supported, so the reconciliation formula is `GLOBAL = DIRECT SANAD TENANTS + SUM(PARTNER DASHBOARDS)` under identical filters.
+§22.5 (Revision D) states the reconciliation identity directly and it replaces any historical `GLOBAL = SUM(PARTNERS)` assertion: direct tenants are intentionally supported, so the reconciliation formula is `GLOBAL = DIRECT SANAD TENANTS + SUM(PARTNER DASHBOARDS)` under identical filters.
 
 ## Implementation Baseline
 
@@ -207,7 +208,7 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/web && npm run typecheck && npm run lint && npm test && npm run build && python3 scripts/ci/check_i18n_keys.py` → green; visual-matrix configs pick up the new pages (baselines added in this commit).
 - [ ] Step 6: exact commit — `git commit -m "wave6(web): notifications feed, partner portal, dashboards, 14th provider (C6)"`.
 
-### Task 10: Wave exit evidence battery
+### Task 10: Wave exit evidence battery (verification/evidence task — PRECONDITION → VERIFY → EVIDENCE)
 
 Files:
 - Modify: none (evidence only)
@@ -215,17 +216,17 @@ Files:
 
 Interfaces:
 - Consumes: PostgreSQL 16 local battery.
-- Produces: `snad-evidence/evidence-<HEAD-SHA>.log`.
+- Produces: `snad-evidence/evidence-<FINAL_WAVE_SHA>.log` (untracked).
 
-- [ ] Step 1: exact failing test — none.
-- [ ] Step 2: exact command proving RED — none.
-- [ ] Step 3: exact minimal implementation — none.
+- [ ] Step 1: PRECONDITION — the FINAL_WAVE_SHA candidate exists, `git status --short` is clean, and every W6 implementation task is committed green; battery environment up.
+- [ ] Step 2: VERIFY — no new test is invented for this task (verification/evidence task class); the battery below IS the verification.
+- [ ] Step 3: EVIDENCE ARTIFACT PLAN — one untracked log `snad-evidence/evidence-<FINAL_WAVE_SHA>.log` records `git rev-parse HEAD`, `git status --short`, every command, and every count; no tracked file is created or modified by this task.
 - [ ] Step 4: exact command proving GREEN —
   `cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm test -- --reporter=verbose && npm run build`
   `cd apps/sanad-platform && mvn test -B -ntp -Dsurefire.useFile=false`
   `cd apps/sanad-platform && SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass mvn test -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest'` → 31/31 (6/15/10 unchanged).
-- [ ] Step 5: exact affected regression — battery IS the regression; log at `snad-evidence/evidence-<HEAD-SHA>.log`.
-- [ ] Step 6: exact commit — `git commit -m "wave6(evidence): gate run @ <HEAD-SHA> (C7)"`.
+- [ ] Step 5: exact affected regression — battery IS the regression; log at `snad-evidence/evidence-<FINAL_WAVE_SHA>.log`.
+- [ ] Step 6: **NO TRACKED COMMIT — evidence external/untracked; report FINAL_WAVE_SHA** — the gate runs at ONE identical HEAD SHA recorded in the evidence log header, with `git status --short` clean at run time; any tracked commit after the gate invalidates the evidence and the FULL battery must be re-run at the new SHA. Evidence artifacts live ONLY in `snad-evidence/` (untracked) or CI artifacts — never as tracked commits after the gate.
 
 ## Dependencies, security, rollback
 

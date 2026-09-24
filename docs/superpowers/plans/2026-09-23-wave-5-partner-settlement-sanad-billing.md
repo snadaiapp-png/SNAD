@@ -1,9 +1,10 @@
 # WAVE 5 — Actual-Net-Collected Settlement + SANAD → Partner Billing (Implementation Plan)
 
-> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence; every task below is RED → GREEN with exact commands and commit boundaries.
+> For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence. **Revision D two-class doctrine:** implementation tasks follow test-first RED → minimal implementation → GREEN → affected regression → commit; verification/evidence/cutover-stage tasks follow PRECONDITION → VERIFY → EVIDENCE with untracked evidence and NO tracked evidence commit after the gate (no fabricated RED). Exact commands and commit boundaries are listed per task.
 
-**Spec:** Revision B — §18 (settlement basis B: actual net collected revenue), §18.3 (version pinning), §18.5 (period state machine: full deterministic rebuild; same key = strict no-op; new key = transactional replace; FINALIZED immutable), §18.6 (late adjustments = next-period items), §18.7 (NO persisted period fee authority; derived `weighted_effective_fee_percent` display only), §19 (Finance authoritative), §6.1, §31.6 (concurrency + adjustment tests).
+**Spec:** **Revision D** — §18 (settlement basis B: actual net collected revenue), §18.3 (version pinning), §18.5 (period state machine: full deterministic rebuild; same key = strict no-op; new key = transactional replace; FINALIZED immutable), §18.6 (late adjustments = next-period items), §18.7 (NO persisted period fee authority; derived `weighted_effective_fee_percent` display only), §19 (Finance authoritative), §6.1, §31.6 (concurrency + adjustment tests).
 **Depends on:** W4. **Migrations:** `V20260928_1`..`V20260928_6` · **Flag:** `SANAD_SETTLEMENT_ENABLED` (default `false`).
+**Revision D (R3) changes in this wave:** W5 identifies its effective spec as Revision D; Global Constraint 5 is rewritten — SANAD→Partner SETTLEMENT invoices ride `billing_invoices` + the Finance PRINCIPAL-invoice port `FinancePrincipalInvoicePort.ensurePrincipalInvoice(...)`, NEVER `SubscriptionFinancePort.ensureInvoice(tenantId, …)` (the tenant/subscription invoice port does not represent principal-level SETTLEMENT invoices); collected-cash reads continue through `CollectedCashReadPort` with direct `finance_%` SQL forbidden by the boundary test; Task 16 is restated as a PRECONDITION → VERIFY → EVIDENCE task ending with NO TRACKED COMMIT — evidence external/untracked.
 **Rev C (R2) changes in this wave:** (1) Task 1 run model — `partner_settlement_runs.period_id` is NULLABLE for pre-period RUNNING/FAILED runs with CHECK `state <> 'COMPLETED' OR period_id IS NOT NULL`; adjustment items gain `status ('QUEUED','APPLIED')` with `target_period_id` NULL while QUEUED / NOT NULL once APPLIED, plus a UNIQUE idempotency key; (2) Task 4 calculator — negative eligible results are NEVER silently clamped to 0; the negative residual is preserved deterministically and carried forward (period CHECKs allow negative eligible net; no negative client invoice is ever issued); (3) NEW Task 8 `CollectedCashReadPort` — collected-cash truth is read through a Finance-owned read port with an architecture boundary test forbidding direct Finance SQL from `partner/billing/**` AND `partner/settlement/**`; (4) Task 10 — SANAD→Partner settlement invoices use an explicit Finance PRINCIPAL-invoice port (`ensurePrincipalInvoice`), seller = PLATFORM principal, buyer = PARTNER principal, control-plane tenant as RLS/storage carrier only — never a forged subscription/tenant UUID; (5) `SETTLEMENT.MANAGE` added to the capability chain (calculate/approve authority; `SETTLEMENT.VIEW` read-only; `SETTLEMENT.FINALIZE` platform-only), consistent across registry seeds, controllers, tests, and the spec §6.1 table.
 
 ## Goal
@@ -20,7 +21,7 @@ Java 21 · Spring Boot single-module Maven · Flyway · PostgreSQL 16 (row locks
 
 ## Spec
 
-§18.5 Rev B is binding. `"Incremental delta only"` is NOT part of the model and appears nowhere in this plan. The per-item bound `agreement_version_id` is the ONLY fee authority; no `platform_fee_percent` column exists on `partner_settlement_periods` (option A of §18.7 — removal, with the derived display statistic computed at read time in W6).
+§18.5 (Revision D) is binding. `"Incremental delta only"` is NOT part of the model and appears nowhere in this plan. The per-item bound `agreement_version_id` is the ONLY fee authority; no `platform_fee_percent` column exists on `partner_settlement_periods` (option A of §18.7 — removal, with the derived display statistic computed at read time in W6).
 
 ## Implementation Baseline
 
@@ -32,7 +33,7 @@ Repository evidence at `8d0d49c7`: `finance_payments` DDL `V20260815_16` lines 1
 2. No `platform_fee_percent` column on `partner_settlement_periods` — authority is per item.
 3. Every `*_id` below has a real FK or a documented reason (register in Task 1 test).
 4. `UNIQUE (partner_id, period_start, period_end)` on periods — one row per window (compatible with the rebuild model: rows are updated, not duplicated).
-5. SANAD→partner invoices ride the same `billing_invoices` + `SubscriptionFinancePort` machinery (no second ledger).
+5. SANAD→partner SETTLEMENT invoices ride the same `billing_invoices` table but mirror into Finance through the Finance PRINCIPAL-invoice port `FinancePrincipalInvoicePort.ensurePrincipalInvoice(settlementInvoiceId, sellerPlatformPrincipalId, buyerPartnerPrincipalId, amountMinor, currencyCode)` — `SubscriptionFinancePort` remains the tenant/subscription invoice port and is NEVER used for SETTLEMENT-kind principal invoices; the control-plane tenant is only the RLS/storage carrier and no fabricated tenant/subscription UUID represents the partner principal (no second ledger).
 6. PLATFORM-only finalize (`SETTLEMENT.FINALIZE`); partner finalize attempt ⇒ 403.
 
 ## Review Focus
@@ -313,7 +314,7 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/web && npm run typecheck && npm run lint && npm test && python3 scripts/ci/check_i18n_keys.py` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave5(web): settlement executive surfaces (C6)"`.
 
-### Task 16: Wave exit evidence battery
+### Task 16: Wave exit evidence battery (verification/evidence task — PRECONDITION → VERIFY → EVIDENCE)
 
 Files:
 - Modify: none (evidence only)
@@ -321,18 +322,18 @@ Files:
 
 Interfaces:
 - Consumes: PostgreSQL 16 local battery.
-- Produces: `snad-evidence/evidence-<HEAD-SHA>.log`.
+- Produces: `snad-evidence/evidence-<FINAL_WAVE_SHA>.log` (untracked).
 
-- [ ] Step 1: exact failing test — none.
-- [ ] Step 2: exact command proving RED — none.
-- [ ] Step 3: exact minimal implementation — none.
+- [ ] Step 1: PRECONDITION — the FINAL_WAVE_SHA candidate exists, `git status --short` is clean, and every W5 implementation task is committed green; battery environment up.
+- [ ] Step 2: VERIFY — no new test is invented for this task (verification/evidence task class); the battery below IS the verification.
+- [ ] Step 3: EVIDENCE ARTIFACT PLAN — one untracked log `snad-evidence/evidence-<FINAL_WAVE_SHA>.log` records `git rev-parse HEAD`, `git status --short`, every command, and every count; no tracked file is created or modified by this task.
 - [ ] Step 4: exact command proving GREEN —
   `cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm test -- --reporter=verbose && npm run build`
   `cd apps/sanad-platform && mvn test -B -ntp -Dsurefire.useFile=false`
   `cd apps/sanad-platform && SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass mvn test -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest'` → 31/31 (6/15/10 unchanged).
-- [ ] Step 5: exact affected regression — battery IS the regression; log at `snad-evidence/evidence-<HEAD-SHA>.log`.
-- [ ] Step 6: exact commit — `git commit -m "wave5(evidence): gate run @ <HEAD-SHA> (C7)"`.
+- [ ] Step 5: exact affected regression — battery IS the regression; log at `snad-evidence/evidence-<FINAL_WAVE_SHA>.log`.
+- [ ] Step 6: **NO TRACKED COMMIT — evidence external/untracked; report FINAL_WAVE_SHA** — the gate runs at ONE identical HEAD SHA recorded in the evidence log header, with `git status --short` clean at run time; any tracked commit after the gate invalidates the evidence and the FULL battery must be re-run at the new SHA. Evidence artifacts live ONLY in `snad-evidence/` (untracked) or CI artifacts — never as tracked commits after the gate.
 
 ## Dependencies, security, rollback
 
-**Dependencies:** W4 (invoices, agreement versions, credit notes, sequences, finance ports). Blocks W6 (metrics). **Security/Billing:** PLATFORM-only finalize (§30; negative-tested); partner reads scoped by FORCE RLS; collected-cash truth solely webhook-verified Finance payments with manual-bypass exclusion proven by test; version pinning prevents retroactive economics; finalized history immutable with next-period adjustments; replay-safe with drift detection; no second ledger (settlement invoices use the same billing/Finance machinery). **Rollback:** flag `SANAD_SETTLEMENT_ENABLED=false` ⇒ controllers 404-guarded; periods are computed artifacts (recomputable); DDL additive; `SETTLEMENT` invoice-kind value unused when the flag is off; revert commits safe.
+**Dependencies:** W4 (invoices, agreement versions, credit notes, sequences, finance ports). Blocks W6 (metrics). **Security/Billing:** PLATFORM-only finalize (§30; negative-tested); partner reads scoped by FORCE RLS; collected-cash truth solely webhook-verified Finance payments read through `CollectedCashReadPort` with manual-bypass exclusion proven by test; SANAD→Partner SETTLEMENT invoices mirror via `FinancePrincipalInvoicePort` only (never `SubscriptionFinancePort`); version pinning prevents retroactive economics; finalized history immutable with next-period adjustments; replay-safe with drift detection; no second ledger. **Rollback:** flag `SANAD_SETTLEMENT_ENABLED=false` ⇒ controllers 404-guarded; periods are computed artifacts (recomputable); DDL additive; `SETTLEMENT` invoice-kind value unused when the flag is off; revert commits safe.
