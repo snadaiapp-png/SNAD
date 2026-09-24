@@ -35,7 +35,7 @@ export default function AttendanceAdminPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      setRecords(await hrG2Api.listAttendance());
+      setRecords(await hrG2Api.listAdminAttendance());
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, []);
 
@@ -48,10 +48,10 @@ export default function AttendanceAdminPage() {
   async function correct(id: string) {
     setBusy(true);
     try {
-      // Manual correction creates a MANUAL_CORRECTION attendance event
-      // preserving provenance — never silently overwrites the original.
+      // Wave 5 replaces this placeholder mutation with the canonical correction command.
+      // Keeping the existing action behavior here avoids silently widening this Wave 2 scope change.
       await hrG2Api.clockIn({ employmentId: me?.id ?? "", recordDate: new Date().toISOString().slice(0, 10) });
-      setNotice("Correction submitted — provenance preserved");
+      setNotice(`Correction action submitted for ${id}`);
       await load();
     } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
   }
