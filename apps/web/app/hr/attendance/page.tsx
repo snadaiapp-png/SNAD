@@ -81,7 +81,7 @@ export default function AttendancePage() {
     setDialogError(null);
     try {
       const today = new Date().toISOString().slice(0, 10);
-      await hrG2Api.clockIn({ employmentId: me?.id ?? "", recordDate: today });
+      await hrG2Api.clockIn(today);
       setNotice(t("hrm.attendance.notice.clockedIn"));
       await load();
     } catch (err) {
