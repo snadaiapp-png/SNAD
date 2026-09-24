@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
@@ -30,9 +31,7 @@ export default function TeamAttendancePage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/platform/api/v2/hr/time/attendance", { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setRecords(await res.json());
+      setRecords(await hrG2Api.listAttendance());
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, []);
 

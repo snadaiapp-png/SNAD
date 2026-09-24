@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
@@ -33,9 +34,7 @@ export default function SchedulesPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/platform/api/v2/hr/time/schedules", { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setSchedules(await res.json());
+      setSchedules(await hrG2Api.listSchedules());
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, []);
 
@@ -48,13 +47,7 @@ export default function SchedulesPage() {
   async function createSchedule() {
     setBusy(true); setFormError(null);
     try {
-      const res = await fetch("/api/platform/api/v2/hr/time/schedules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ code: formCode, nameAr: formNameAr, nameEn: formNameEn, timezone: "Asia/Riyadh", shiftStart: formShiftStart, shiftEnd: formShiftEnd, breakMinutes: Number(formBreak) }),
-        credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await hrG2Api.createSchedule({ code: formCode, nameAr: formNameAr, nameEn: formNameEn, timezone: "Asia/Riyadh", shiftStart: formShiftStart, shiftEnd: formShiftEnd, breakMinutes: Number(formBreak) });
       setShowForm(false); setFormCode(""); setFormNameAr(""); setFormNameEn("");
       await load();
     } catch (err) { setFormError(hrmErrorMessage(err).message); } finally { setBusy(false); }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../../components/hr-workspace";
@@ -34,9 +35,7 @@ export default function AttendanceAdminPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/platform/api/v2/hr/time/attendance", { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setRecords(await res.json());
+      setRecords(await hrG2Api.listAttendance());
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, []);
 
@@ -51,13 +50,7 @@ export default function AttendanceAdminPage() {
     try {
       // Manual correction creates a MANUAL_CORRECTION attendance event
       // preserving provenance — never silently overwrites the original.
-      const res = await fetch("/api/platform/api/v2/hr/time/attendance/clock-in", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ employmentId: me?.id ?? "", recordDate: new Date().toISOString().slice(0, 10) }),
-        credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await hrG2Api.clockIn({ employmentId: me?.id ?? "", recordDate: new Date().toISOString().slice(0, 10) });
       setNotice("Correction submitted — provenance preserved");
       await load();
     } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
@@ -29,9 +30,7 @@ export default function TimesheetsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/platform/api/v2/hr/time/timesheets", { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setTimesheets(await res.json());
+      setTimesheets(await hrG2Api.listTimesheets());
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, []);
 
@@ -44,10 +43,7 @@ export default function TimesheetsPage() {
   async function submit(ts: Timesheet) {
     setBusy(true);
     try {
-      const res = await fetch(`/api/platform/api/v2/hr/time/timesheets/${ts.id}/submit?employmentId=${ts.employmentId}`, {
-        method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await hrG2Api.submitTimesheet(ts.id, ts.employmentId);
       setNotice("Timesheet submitted"); await load();
     } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
   }

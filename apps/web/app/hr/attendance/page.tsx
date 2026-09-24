@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
 import { HrErrorState, HrLoading, HrEmptyState, hrmErrorMessage } from "../components/hr-feedback";
@@ -61,10 +62,7 @@ export default function AttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/platform/api/v2/hr/time/attendance", { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as AttendanceRecord[];
-      setRecords(data);
+      setRecords(await hrG2Api.listAttendance() as AttendanceRecord[]);
     } catch (err) {
       setError(err);
     } finally {
@@ -83,13 +81,7 @@ export default function AttendancePage() {
     setDialogError(null);
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const res = await fetch("/api/platform/api/v2/hr/time/attendance/clock-in", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ employmentId: me?.id ?? "", recordDate: today }),
-        credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await hrG2Api.clockIn({ employmentId: me?.id ?? "", recordDate: today });
       setNotice(t("hrm.attendance.notice.clockedIn"));
       await load();
     } catch (err) {
@@ -108,12 +100,7 @@ export default function AttendancePage() {
         setDialogError("No open attendance record to clock out");
         return;
       }
-      const res = await fetch(`/api/platform/api/v2/hr/time/attendance/${openRecord.id}/clock-out`, {
-        method: "POST",
-        headers: { "Idempotency-Key": crypto.randomUUID() },
-        credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await hrG2Api.clockOut(openRecord.id);
       setNotice(t("hrm.attendance.notice.clockedOut"));
       await load();
     } catch (err) {

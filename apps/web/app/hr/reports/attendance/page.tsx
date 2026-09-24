@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../../components/hr-workspace";
-import { HrErrorState, HrLoading, hrmErrorMessage } from "../../components/hr-feedback";
+import { HrErrorState, HrLoading } from "../../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../../components/hr-data-table";
 import styles from "../../hr.module.css";
 
@@ -31,9 +32,7 @@ export default function MonthlyReportPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`/api/platform/api/v2/hr/time/attendance/monthly-report?year=${year}&month=${month}`, { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setRows(await res.json());
+      setRows(await hrG2Api.monthlyAttendanceReport(year, month));
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, [year, month]);
 

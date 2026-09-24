@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
@@ -28,9 +29,7 @@ export default function TeamTimesheetsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/platform/api/v2/hr/time/timesheets?state=SUBMITTED", { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setTimesheets(await res.json());
+      setTimesheets(await hrG2Api.listTimesheets({ state: "SUBMITTED" }));
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, []);
 
@@ -43,11 +42,7 @@ export default function TeamTimesheetsPage() {
   async function approve(id: string) {
     setBusy(true);
     try {
-      const res = await fetch(`/api/platform/api/v2/hr/time/timesheets/${id}/approve`, {
-        method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ comment: "approved" }), credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await hrG2Api.approveTimesheet(id, "approved");
       setNotice("Timesheet approved"); await load();
     } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
   }
@@ -55,11 +50,7 @@ export default function TeamTimesheetsPage() {
   async function reject(id: string) {
     setBusy(true);
     try {
-      const res = await fetch(`/api/platform/api/v2/hr/time/timesheets/${id}/reject`, {
-        method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ reason: "rejected" }), credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await hrG2Api.rejectTimesheet(id, "rejected");
       setNotice("Timesheet rejected"); await load();
     } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
   }

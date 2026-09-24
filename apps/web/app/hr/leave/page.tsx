@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
@@ -63,15 +64,14 @@ export default function LeavePage() {
     setLoading(true);
     setError(null);
     try {
-      const [typesRes, reqRes, balRes] = await Promise.all([
-        fetch("/api/platform/api/v2/hr/leave/types", { credentials: "same-origin" }),
-        fetch("/api/platform/api/v2/hr/leave/requests", { credentials: "same-origin" }),
-        fetch("/api/platform/api/v2/hr/leave/balances", { credentials: "same-origin" }),
+      const [types, requestsResult, balancesResult] = await Promise.all([
+        hrG2Api.listLeaveTypes(),
+        hrG2Api.listLeaveRequests(),
+        hrG2Api.listLeaveBalances(),
       ]);
-      if (!typesRes.ok || !reqRes.ok || !balRes.ok) throw new Error("HTTP error");
-      setLeaveTypes(await typesRes.json());
-      setRequests(await reqRes.json());
-      setBalances(await balRes.json());
+      setLeaveTypes(types as LeaveType[]);
+      setRequests(requestsResult as LeaveRequest[]);
+      setBalances(balancesResult as LeaveBalance[]);
     } catch (err) {
       setError(err);
     } finally {
@@ -93,19 +93,13 @@ export default function LeavePage() {
 
     setBusy(true);
     try {
-      const res = await fetch("/api/platform/api/v2/hr/leave/requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({
-          employmentId: me?.id ?? "",
-          leaveTypeId: formLeaveType,
-          startDate: formStartDate,
-          endDate: formEndDate,
-          reason: formReason,
-        }),
-        credentials: "same-origin",
+      await hrG2Api.createLeaveRequest({
+        employmentId: me?.id ?? "",
+        leaveTypeId: formLeaveType,
+        startDate: formStartDate,
+        endDate: formEndDate,
+        reason: formReason,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setNotice(t("hrm.leave.notice.requested"));
       setShowForm(false);
       setFormLeaveType(""); setFormStartDate(""); setFormEndDate(""); setFormReason("");
@@ -137,17 +131,12 @@ export default function LeavePage() {
     setBusy(true);
     setDialogError(null);
     try {
-      const endpoint = dialog === "approve" ? "approve" : "reject";
       const body = dialog === "approve"
         ? { comment: dialogComment }
         : { reason: dialogComment };
-      const res = await fetch(`/api/platform/api/v2/hr/leave/requests/${dialogTarget.id}/${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify(body),
-        credentials: "same-origin",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Preserve the current endpoint contract in Wave 1. Wave 4 replaces this
+      // legacy decision path with explicit manager/HR workflow transitions.
+      await hrG2Api.legacyLeaveDecision(dialogTarget.id, dialog, body);
       setNotice(t("hrm.leave.notice." + dialog));
       closeDialog();
       await load();
@@ -171,7 +160,7 @@ export default function LeavePage() {
   }
 
   const typeName = (typeId: string) => {
-    const type = leaveTypes.find((t) => t.id === typeId);
+    const type = leaveTypes.find((item) => item.id === typeId);
     if (!type) return "—";
     return locale === "ar" ? type.nameAr : type.nameEn;
   };
@@ -235,7 +224,7 @@ export default function LeavePage() {
             <select id="leave-type" className={styles.filterSelect} value={formLeaveType}
               onChange={(e) => setFormLeaveType(e.target.value)} required aria-required="true" data-testid="leave-type">
               <option value="">—</option>
-              {leaveTypes.map((t) => <option key={t.id} value={t.id}>{locale === "ar" ? t.nameAr : t.nameEn}</option>)}
+              {leaveTypes.map((item) => <option key={item.id} value={item.id}>{locale === "ar" ? item.nameAr : item.nameEn}</option>)}
             </select>
           </p>
           <p>
