@@ -4,13 +4,7 @@
 > **Status:** ACTIVE — binding for every authentication surface
 > **Scope:** Login, forgot-password, reset-password, tenant-picker, credential-rotation, MFA challenge, session-expired banner.
 
-This document is the **single source of truth** for the visual layout,
-state machine, accessibility, RTL/LTR behaviour, dark-mode behaviour, and
-performance budget of every SNAD authentication screen. Any PR that
-modifies `apps/web/components/auth/*` or `apps/web/app/(auth)/*` MUST
-comply with the rules below. The CI lint at
-`scripts/ci/check-design-system-compliance.py` enforces the token-only
-colour rule; this guide enforces everything else via code review.
+This document is the **single source of truth** for the visual layout, state behavior, accessibility, RTL/LTR behavior, brand rendering, and performance budget of SNAD authentication screens. Any PR that modifies `apps/web/components/auth/*` or `apps/web/app/(auth)/*` must comply with these rules.
 
 ---
 
@@ -18,43 +12,32 @@ colour rule; this guide enforces everything else via code review.
 
 ### 1.1 Two-panel shell (desktop ≥ 900px)
 
-```
-┌────────────────────────┬──────────────────────────┐
-│                        │                          │
-│  Intelligence Visual   │      Login Card          │
-│  (petroleum panel      │   ┌──────────────────┐   │
-│   with brand pulse,    │   │   SNAD Logo      │   │
-│   domain signals,      │   │   (responsive)   │   │
-│   headline, subtext)   │   ├──────────────────┤   │
-│                        │   │   Welcome title  │   │
-│                        │   │   Email field    │   │
-│                        │   │   Password field │   │
-│                        │   │   Forgot link    │   │
-│                        │   │   Submit button  │   │
-│                        │   │   Help link      │   │
-│                        │   └──────────────────┘   │
-└────────────────────────┴──────────────────────────┘
-```
+The authentication shell uses a narrative/intelligence panel and a focused login panel. The intelligence panel communicates product value; the light/neutral login panel owns the authentication brand mark and form.
 
 ### 1.2 Single-panel (mobile < 900px)
 
-The intelligence panel collapses to `display: none`. The login card
-takes the full viewport width with `padding: 2rem 1.5rem`.
+The intelligence panel collapses. The login card takes the available width with safe inline padding and vertical scrolling. `100svh` is the compatibility minimum and `100dvh` is the preferred dynamic viewport height where supported. The form must remain reachable at `360×640`, `1024×768`, `1280×720`, and 200% text zoom without horizontal scrolling.
 
-### 1.3 Logo placement (CLS-safe)
+### 1.3 Authentication wordmark (CLS-safe)
 
-The SNAD logo is rendered by `<SnadLogo />` (the ONLY permitted brand
-renderer — see `LOGO_USAGE.md`). It must be:
+Authentication surfaces render the user-approved wordmark only through:
 
-1. **Above the form** — never beside it, never below it.
-2. **Centred horizontally** inside `.loginBrandMark`.
-3. **Theme-aware** — `variant="white"` on dark backgrounds, `variant="primary"` on light. The `useTheme` hook at `@/lib/hooks/useTheme` resolves the active theme.
-4. **Linked to `/`** — clicking the logo returns the user to the marketing home.
-5. **CLS-safe** — the `.loginBrandMark` container reserves a
-   `min-block-size: clamp(48px, 11vw, 103px)` so validation errors,
-   MFA prompts, and theme switches NEVER shift the logo vertically.
+```tsx
+<SnadLogo variant="official-wordmark" size="responsive" />
+```
 
-#### 1.3.1 Width clamp (per breakpoint)
+The approved asset is `snad-logo-official-wordmark.png`, PNG RGBA `1162×337`, SHA-256 `98d0b84b0675b53f60837f803cf0a4bc85209eea650b213adba92a661bfde251`.
+
+Requirements:
+
+1. It appears **above the form** on the light/neutral auth panel.
+2. It is centered in `.loginBrandMark` and linked to `/`.
+3. It keeps the exact `1162:337` aspect ratio and must never be recolored, traced/vectorized, cropped, stretched, filtered, or given visual effects.
+4. Do **not** synthesize a white/dark/compact variant. Dark mode may change the surrounding surface tokens, but the approved artwork itself is unchanged and must remain on a suitable light/neutral brand-safe area.
+5. The intelligence panel is not a second logo canvas. Product copy such as `SNAD • سند` is text, not a substitute logo.
+6. `.loginBrandMark` retains a reserved block size to prevent validation, MFA, session, or locale states from shifting the logo.
+
+#### 1.3.1 Width clamp
 
 | Breakpoint | Min width | Preferred | Max width |
 | --- | --- | --- | --- |
@@ -62,38 +45,19 @@ renderer — see `LOGO_USAGE.md`). It must be:
 | Tablet (600–899px) | 220px | 30vw | 300px |
 | Mobile (< 600px) | 170px | 50vw | 230px |
 
-These clamps are implemented in `auth.module.css` via the
-`--snad-logo-width` custom property on `.loginBrandMark`.
-
 ---
 
-## 2. Field states
+## 2. Field and interaction states
 
-Every input must implement all eight states below. The default
-`<input>` element provides `:hover`, `:focus`, `:disabled`, and
-`:autofill` natively; the SDS auth styles layer `aria-invalid`,
-`aria-busy`, and `data-success` on top.
+Every credential input supports default, hover, focus, filled, invalid, disabled, and submitting behavior. Primary credential controls have a minimum block size of `48px`; interactive targets, including password visibility, are at least `44×44px`.
 
-| State | Trigger | Visual | Token |
-| --- | --- | --- | --- |
-| **default** | page load | 1px border, ivory background | `--snad-border-default`, `--snad-surface-primary` |
-| **hover** | pointer over field | border brightens | `--snad-color-border-strong` |
-| **focus** | keyboard or pointer focus | 3px focus ring, brand tint shadow | `--snad-color-focus-ring` |
-| **filled** | non-empty value | no visual change (default keeps border) | — |
-| **invalid** | `aria-invalid="true"` | error border + soft error shadow | `--snad-color-error`, `--snad-color-error-soft` |
-| **disabled** | `disabled` attribute | 50% opacity, `not-allowed` cursor | inherited |
-| **submitting** | `aria-busy="true"` on submit button | spinner + "جارٍ تسجيل الدخول…" label + button disabled | `--snad-brand-primary` |
-| **success** | `data-success="true"` | green check icon, success border | `--snad-color-success` |
+### 2.1 Password visibility
 
-### 2.1 Password visibility toggle
+The toggle is `type="button"`, uses logical positioning, toggles `password` ↔ `text`, and updates its accessible label. It never submits the form.
 
-The toggle is a `<button type="button">` positioned at
-`inset-inline-end: 0.5rem`. It MUST:
+### 2.2 Caps Lock advisory
 
-- Toggle `type="password"` ↔ `type="text"`.
-- Update `aria-label` to "إظهار كلمة المرور" / "إخفاء كلمة المرور".
-- Have a 36×36 minimum touch target.
-- Not submit the form (`type="button"`, not `type="submit"`).
+When the password field reports `getModifierState("CapsLock") === true`, show a non-blocking `role="status"` advisory. It must clear when Caps Lock is no longer active or the password field loses focus. It must not disable paste, password-manager fill, or submission.
 
 ---
 
@@ -101,134 +65,104 @@ The toggle is a `<button type="button">` positioned at
 
 ### 3.1 Inline field errors
 
-- Rendered as `<span role="alert">` immediately below the field.
-- Connected to the input via `aria-describedby`.
-- The input carries `aria-invalid="true"` while the error is visible.
-- Errors clear on first keystroke (no lingering red border after the
-  user starts correcting).
+- Render immediately below the affected field with `role="alert"`.
+- Connect the input through `aria-describedby`.
+- Set `aria-invalid="true"` while present.
+- Clear the validation error on the first corrective edit so stale red state does not remain while the user fixes input.
 
-### 3.2 Form-level errors (auth failures)
+### 3.2 Form-level errors
 
-- Rendered by `<AuthErrorAlert />` ABOVE the form, BELOW the logo.
-- The alert has `role="alert"` so screen readers announce it on mount.
-- The alert MUST NOT shift the logo. The `.loginBrandMark` min-height
-  reservation (see §1.3) guarantees this.
+`<AuthErrorAlert />` renders below the logo and above the form. The alert must be announced to assistive technology and must not cause brand-layout instability.
 
-### 3.3 Never leak raw backend errors
+### 3.3 No information leakage
 
-- No stack traces, no HTTP status codes, no URLs, no internal hostnames.
-- Map every backend error to a `UserFacingError` (see
-  `lib/api/user-facing-errors.ts`).
-- Tests at `login-form.test.tsx` enforce this invariant.
+Never expose stack traces, HTTP status details, internal URLs/hostnames, SQL/Java exception names, raw backend messages, or account-existence distinctions. Map backend failures to `UserFacingError`.
 
 ---
 
-## 4. Accessibility (WCAG 2.2 AA)
+## 4. Accessibility — WCAG 2.2 AA
 
-### 4.1 Required attributes
+| Element | Required behavior |
+| --- | --- |
+| Email input | `autocomplete="username"`, `inputmode="email"`, `dir="ltr"` |
+| Password input | `autocomplete="current-password"`, `dir="ltr"` |
+| Submit | disabled while authenticating and paired with `aria-busy` |
+| Forgot password | keyboard-reachable link with accessible name |
+| Logo link | anchor owns the accessible name; inner image is decorative |
+| Caps Lock message | advisory `role="status"`, not an error |
 
-| Element | Attribute | Value |
-| --- | --- | --- |
-| Email input | `autocomplete` | `email` |
-| Email input | `inputmode` | `email` |
-| Email input | `dir` | `ltr` (even in RTL UI) |
-| Password input | `autocomplete` | `current-password` |
-| Password input | `dir` | `ltr` |
-| Submit button | `aria-busy` | `true` while submitting |
-| Forgot-password link | `aria-label` | "نسيت كلمة المرور؟ استعادة كلمة المرور" |
-| SnadLogo | `alt` | "شعار سند — SNAD Business Operating System" |
-| SnadLogo (with `href`) | inner `<img>` | `alt=""` + `aria-hidden="true"` (decorative) |
-
-### 4.2 Focus management
-
-- The email field receives autofocus on mount ONLY on desktop
-  (`@media (min-width: 900px)`). On mobile, autofocus is suppressed to
-  avoid popping the on-screen keyboard over the logo.
-- Tab order: email → password → forgot link → submit → help link.
-- `:focus-visible` rings use `--snad-color-focus-ring` at 3px with
-  2px offset (WCAG 2.2 SC 2.4.11 Focus Not Obscured).
-
-### 4.3 Reduced motion
-
-- The intelligence-core pulse animation is disabled under
-  `prefers-reduced-motion: reduce`.
-- The auth spinner falls back to a static 50% opacity disc.
+Focus indicators must remain visible and unobscured. Keyboard order follows the visual workflow. Reduced-motion preferences disable non-essential animation.
 
 ---
 
-## 5. Dark mode
+## 5. Theme behavior
 
-### 5.1 Detection order
+Theme affects surfaces, text, borders, controls, and the existing non-auth SVG family. **It does not transform the approved authentication PNG.** Login v2 selects `variant="official-wordmark"` explicitly and does not use `useTheme` to swap it to an invented reverse version.
 
-1. `<html data-theme="...">` — explicit user toggle (none today, but
-   the `useTheme` hook supports it for future profile pages).
-2. `localStorage['snad-theme']` — returning users.
-3. `prefers-color-scheme: dark` — OS-level.
-4. `'light'` — safe default.
-
-### 5.2 Visual deltas
-
-| Element | Light | Dark |
-| --- | --- | --- |
-| Canvas | `--snad-color-background-default` (ivory) | `--snad-color-background-default` (charcoal, token overrides in `themes/dark.css`) |
-| Logo | `variant="primary"` (petroleum + gold) | `variant="white"` (white + gold) |
-| Submit button | `--snad-brand-primary` (petroleum) | `--snad-brand-primary` (lighter petroleum per dark theme) |
-| Error alert | `--snad-color-error-soft` (light pink) | `--snad-color-error-soft` (muted dark red) |
-
-### 5.3 No-flash guarantee
-
-The `useTheme` hook returns `'light'` on SSR to avoid hydration
-mismatch. After mount, it resolves the real theme and the
-`.loginBrandMark` min-height reservation absorbs the logo swap with
-zero CLS.
+If a future dark authentication composition requires a reverse logo, the brand authority must supply and approve that artwork as a distinct governed asset before implementation.
 
 ---
 
 ## 6. RTL / LTR
 
-The entire auth UI is RTL-first (Arabic is the primary language).
-All CSS uses **logical properties** (`margin-inline-*`,
-`padding-inline-*`, `inset-inline-*`, `border-inline-*`). Physical
-`left`/`right` are FORBIDDEN.
-
-The email and password inputs are pinned to `dir="ltr"` because
-emails and passwords are always Latin strings — but their labels,
-placeholders, and error messages remain RTL.
+Authentication is RTL-first. Layout code should use logical CSS properties. Email and password content remain `dir="ltr"` while labels, help copy, alerts, and narrative copy follow the active locale. Locale state remains owned by `I18nProvider`; do not create a second direction source.
 
 ---
 
-## 7. Performance budget
+## 7. Security-bound navigation
 
-See `AUTH_PERFORMANCE.md` for the full budget. Summary:
+Authentication success does not grant route access. `returnUrl` is navigation intent only. A return destination must be an internal path and its normalized root must exist in the server-provided `availableDestinations` for the authenticated principal.
 
-- First Contentful Paint: ≤ 1.2s on 4G.
-- Time to Interactive: ≤ 2.5s on 4G.
-- Layout shift (CLS): < 0.05 — the `.loginBrandMark` min-height is
-  the primary CLS defence.
-- Bundle: the auth screen must ship ≤ 80 KB JS (gzipped) excluding
-  Next.js runtime.
+In particular, `/executive/tenants` is valid only when `/executive` is granted. A tenant admin without executive capability must fall back to `/workspace`; UI visibility is not an authorization boundary.
 
 ---
 
-## 8. Prohibited patterns
+## 8. Performance budget
 
-1. ❌ **Raw `<img src="/assets/brand/...">`** — use `<SnadLogo />`.
-2. ❌ **`<div>SNAD</div>` as a brand mark** — use `<SnadLogo />`.
-3. ❌ **Hardcoded hex/rgb colours** — use `var(--snad-*)` tokens.
-4. ❌ **Physical `left`/`right` CSS** — use logical properties.
-5. ❌ **`autofocus` on mobile** — suppress under 900px.
-6. ❌ **Raw error strings from the backend** — map to `UserFacingError`.
-7. ❌ **Disabling the form on submit without `aria-busy`** — always
-   pair the two so screen readers announce the busy state.
-8. ❌ **Cropping the logo** — see `LOGO_USAGE.md` §6.
+See `AUTH_PERFORMANCE.md` for measurement details. Targets remain:
+
+- First Contentful Paint ≤ 1.2s on the documented 4G profile.
+- Time to Interactive ≤ 2.5s on the documented 4G profile.
+- CLS < 0.05.
+- Auth route JS budget ≤ 80 KB gzip excluding Next.js runtime.
+
+The approved wordmark is above the fold and may use Next.js image priority, but must retain intrinsic dimensions to prevent layout shift.
 
 ---
 
-## 9. Cross-references
+## 9. Prohibited patterns
 
-- `LOGO_USAGE.md` — logo artwork, clear space, minimum sizes.
-- `AUTH_PERFORMANCE.md` — performance budget and measurement strategy.
-- `EXECUTIVE_SHELL_GUIDE.md` — post-login shell (header, sidebar).
-- `WORKSPACE_BOOTSTRAP.md` — workspace bootstrap sequence.
-- `ACCESSIBILITY.md` — SDS-wide WCAG 2.2 AA rules.
-- `RTL_LTR_GUIDE.md` — SDS-wide RTL/LTR conventions.
+1. Raw `<img src="/assets/brand/...">` or direct brand-asset imports outside `SnadLogo`.
+2. Plain-text `SNAD` used as a visual replacement for the approved login wordmark.
+3. Recoloring, CSS filters, tracing/vectorizing, cropping, or synthesizing derivatives of the approved authentication PNG.
+4. Hardcoded colors instead of SDS tokens.
+5. New physical left/right assumptions in auth layout code; use logical properties.
+6. Raw backend errors or account-enumeration copy.
+7. Token/refresh-secret persistence in `localStorage` or `sessionStorage`.
+8. Treating `returnUrl`, `tenantId`, role, capability, or executive state from the browser as authoritative.
+9. Presenting MFA/passkeys/SSO controls as active before the corresponding Phase B security implementation exists.
+
+---
+
+## 10. Verification gates
+
+Before an auth UI change is released:
+
+- Vitest auth/SDS tests pass.
+- Web typecheck, lint, and build pass.
+- Logo/brand/design-system governance passes.
+- Login v2 Playwright/Axe checks pass for required anonymous states; credential-dependent checks are reported as `SKIPPED`, never `PASS`, when credentials are absent.
+- PostgreSQL Direct backend auth, session, rate-limit, tenant-isolation, and executive-boundary tests have `FAILURES=0`, `ERRORS=0`; environment skips do not count as certification.
+- The deployed/tested SHA is exact and desktop/mobile evidence comes from that same SHA.
+
+---
+
+## 11. Cross-references
+
+- `LOGO_USAGE.md` — artwork integrity and scope.
+- `AUTH_PERFORMANCE.md` — auth performance budget.
+- `WORKSPACE_BOOTSTRAP.md` — post-login bootstrap.
+- `EXECUTIVE_SHELL_GUIDE.md` — post-login shell.
+- `ACCESSIBILITY.md` — SDS WCAG requirements.
+- `RTL_LTR_GUIDE.md` — direction conventions.
+- `docs/superpowers/specs/2026-09-23-snad-auth-login-v2-official-brand-design.md` — Login v2 design authority.

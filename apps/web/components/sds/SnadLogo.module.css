@@ -9,16 +9,10 @@
  *
  *  SIZING MODEL
  *  ------------
- *  The root wrapper exposes two CSS custom properties that consumers may
- *  override to scale the logo in non-standard contexts:
- *
- *    --snad-logo-width   default: auto
- *    --snad-logo-height  default: per size preset (xs..xl) or clamp() for
- *                                 the `responsive` size
- *
- *  When the consumer passes `width` / `height` props on the component, they
- *  are written to these same custom properties inline — overriding the
- *  preset for that instance only.
+ *  Consumers may provide `--snad-logo-width` / `--snad-logo-height` on an
+ *  ancestor or through SnadLogo width/height props. Named size presets write
+ *  only the fallback `--snad-logo-size-height`, so consumer sizing can flow
+ *  through inheritance without being shadowed by the component root.
  *
  *  THEME=AUTO
  *  ----------
@@ -31,10 +25,6 @@
  */
 
 .logo {
-  /* Defaults — overridden by size presets and inline props. */
-  --snad-logo-width: auto;
-  --snad-logo-height: var(--snad-size-md); /* 40px */
-
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -45,15 +35,22 @@
   background: transparent;
   /* Reserve a baseline-aligned box so the logo never pushes neighbours. */
   vertical-align: middle;
-  /* Allow consumer overrides via custom properties to take effect. */
-  container-type: inline-size;
+  /*
+   * Do NOT apply inline-size containment here. SnadLogo is intentionally an
+   * intrinsic-size inline-flex element; size containment makes an auto-width
+   * wrapper ignore its image contribution and can collapse responsive logos
+   * to zero width (observed by the Login v2 Playwright mobile gate).
+   */
 }
 
 .logo > img,
 .logo a > img {
   display: block;
-  width: var(--snad-logo-width);
-  height: var(--snad-logo-height);
+  width: var(--snad-logo-width, auto);
+  height: var(
+    --snad-logo-height,
+    var(--snad-logo-size-height, var(--snad-size-md))
+  );
   /* Preserve intrinsic aspect ratio when only one dimension is set. */
   aspect-ratio: var(--snad-logo-aspect-ratio, auto);
   /* SVGs are vector — never let them blur on HiDPI. */
@@ -62,37 +59,37 @@
 
 /* ----------------------------------------------------------------------------
  *  Size presets
- *  Heights are sourced from --snad-space-* tokens (where available) and
- *  align with the SDS sizing scale (24/32/40/48/64).
+ *  Presets set a fallback height rather than the consumer-facing
+ *  --snad-logo-height variable. This keeps ancestor/inline overrides intact.
  * ---------------------------------------------------------------------------- */
 
 .size-xs {
-  --snad-logo-height: var(--snad-size-xs); /* 24px */
+  --snad-logo-size-height: var(--snad-size-xs); /* 24px */
 }
 
 .size-sm {
-  --snad-logo-height: var(--snad-size-sm); /* 32px */
+  --snad-logo-size-height: var(--snad-size-sm); /* 32px */
 }
 
 .size-md {
-  --snad-logo-height: var(--snad-size-md); /* 40px */
+  --snad-logo-size-height: var(--snad-size-md); /* 40px */
 }
 
 .size-lg {
-  --snad-logo-height: var(--snad-size-lg); /* 48px */
+  --snad-logo-size-height: var(--snad-size-lg); /* 48px */
 }
 
 .size-xl {
-  --snad-logo-height: var(--snad-size-xl); /* 64px */
+  --snad-logo-size-height: var(--snad-size-xl); /* 64px */
 }
 
 /*
- * Responsive (header default): height-driven clamp between 28px and 48px.
- * Width auto-computes from the variant's aspect ratio.
+ * Responsive default: height-driven clamp between 28px and 48px when the
+ * consumer has not supplied width/height. Auth supplies a width clamp and
+ * height:auto from its parent, so the official raster keeps its exact ratio.
  */
 .size-responsive {
-  --snad-logo-height: clamp(28px, 5vw, 48px);
-  --snad-logo-width: auto;
+  --snad-logo-size-height: clamp(28px, 5vw, 48px);
 }
 
 /* ----------------------------------------------------------------------------
@@ -101,10 +98,9 @@
 
 .image {
   display: block;
-  /* The intrinsic dimensions are written inline by the component; here we
- *  ensure the image never exceeds its container. */
+  /* The intrinsic dimensions are written by the component; here we ensure
+   * the image never exceeds its containing layout box. */
   max-width: 100%;
-  height: auto;
 }
 
 /* ----------------------------------------------------------------------------
@@ -173,7 +169,7 @@
   border-radius: var(--snad-radius-sm);
   padding: var(--snad-space-1);
   /* Match the wrapper's inline-flex behavior so layout is identical whether
- *  the logo is wrapped in a link or not. */
+   * the logo is wrapped in a link or not. */
   margin-inline: calc(var(--snad-space-1) * -1);
 }
 
@@ -183,8 +179,8 @@
 }
 
 /* Honor reduced-motion: the only motion in this component is the focus
- *  outline appearing/disappearing, which is already instant. This block is
- *  here for completeness and to document the intent. */
+ * outline appearing/disappearing, which is already instant. This block is
+ * here for completeness and to document the intent. */
 @media (prefers-reduced-motion: reduce) {
   .link {
     transition: none;

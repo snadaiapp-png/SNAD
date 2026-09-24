@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./auth.module.css";
+import v2Styles from "./login-v2.module.css";
 import { AuthIntelligenceVisual } from "./auth-intelligence-visual";
 import { LoginForm } from "./login-form";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
@@ -21,7 +22,7 @@ export function LoginScreen({
   onRetrySession,
 }: LoginScreenProps) {
   return (
-    <div className={styles.authShell}>
+    <div className={`${styles.authShell} ${v2Styles.loginV2Shell}`}>
       <AuthIntelligenceVisual />
       <div className={styles.loginPanel}>
         <LoginForm

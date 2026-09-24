@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +36,19 @@ function renderLoginForm(overrides: Partial<React.ComponentProps<typeof LoginFor
   );
 }
 
+function fireCapsLockEvent(
+  target: Element,
+  type: "keydown" | "keyup",
+  active: boolean,
+): void {
+  const event = new KeyboardEvent(type, { key: "A", bubbles: true });
+  Object.defineProperty(event, "getModifierState", {
+    configurable: true,
+    value: (key: string) => key === "CapsLock" && active,
+  });
+  fireEvent(target, event);
+}
+
 describe("LoginForm", () => {
   beforeEach(() => {
     onLoginMock.mockReset();
@@ -49,6 +62,11 @@ describe("LoginForm", () => {
     renderLoginForm();
     expect(screen.getByPlaceholderText("name@company.com")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("••••••••")).toBeInTheDocument();
+  });
+
+  it("renders the approved official wordmark on the login surface", () => {
+    const { container } = renderLoginForm();
+    expect(container.querySelector('img[src="/assets/brand/snad-logo-official-wordmark.png"]')).not.toBeNull();
   });
 
   it("does not render a tenant UUID field", () => {
@@ -65,6 +83,15 @@ describe("LoginForm", () => {
     expect(onLoginMock).not.toHaveBeenCalled();
   });
 
+  it("clears the email validation error on the first corrective keystroke", async () => {
+    const user = userEvent.setup();
+    renderLoginForm();
+    await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+    expect(screen.getByText("البريد الإلكتروني مطلوب.")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("name@company.com"), "a");
+    expect(screen.queryByText("البريد الإلكتروني مطلوب.")).not.toBeInTheDocument();
+  });
+
   it("validates required password", async () => {
     const user = userEvent.setup();
     renderLoginForm();
@@ -72,6 +99,16 @@ describe("LoginForm", () => {
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     expect(screen.getByText("كلمة المرور مطلوبة.")).toBeInTheDocument();
     expect(onLoginMock).not.toHaveBeenCalled();
+  });
+
+  it("clears the password validation error on the first corrective keystroke", async () => {
+    const user = userEvent.setup();
+    renderLoginForm();
+    await user.type(screen.getByPlaceholderText("name@company.com"), "user@snad.app");
+    await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+    expect(screen.getByText("كلمة المرور مطلوبة.")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("••••••••"), "x");
+    expect(screen.queryByText("كلمة المرور مطلوبة.")).not.toBeInTheDocument();
   });
 
   it("normalizes email to trimmed lowercase before calling login", async () => {
@@ -112,6 +149,16 @@ describe("LoginForm", () => {
     expect(passwordInput).toHaveAttribute("type", "password");
   });
 
+  it("shows and clears the Caps Lock advisory without disabling submit", () => {
+    renderLoginForm();
+    const password = screen.getByPlaceholderText("••••••••");
+    fireCapsLockEvent(password, "keydown", true);
+    expect(screen.getByText("مفتاح الأحرف الكبيرة Caps Lock مفعّل.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تسجيل الدخول" })).not.toBeDisabled();
+    fireCapsLockEvent(password, "keyup", false);
+    expect(screen.queryByText("مفتاح الأحرف الكبيرة Caps Lock مفعّل.")).not.toBeInTheDocument();
+  });
+
   it("displays user-facing error safely", () => {
     renderLoginForm({
       error: { title: "غير مصرح", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة.", kind: "validation" },
@@ -133,9 +180,7 @@ describe("LoginForm", () => {
     const user = userEvent.setup();
     renderLoginForm();
     await user.click(screen.getByRole("button", { name: "تحتاج مساعدة في الدخول؟" }));
-    // Help panel appears
     expect(screen.getByText(/تواصل مع مسؤول النظام/)).toBeInTheDocument();
-    // The forgot-password link is rendered with the canonical /auth/* route
     const forgotLink = screen.getByRole("link", { name: /نسيت كلمة المرور؟/ });
     expect(forgotLink).toHaveAttribute("href", "/auth/forgot-password");
   });
@@ -144,7 +189,6 @@ describe("LoginForm", () => {
     renderLoginForm();
     const forgotLink = screen.getByRole("link", { name: /نسيت كلمة المرور؟/ });
     const submitButton = screen.getByRole("button", { name: /تسجيل الدخول/ });
-    // Verify visual order: link comes before submit button in DOM
     expect(forgotLink.compareDocumentPosition(submitButton)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );

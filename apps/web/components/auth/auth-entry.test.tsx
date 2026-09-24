@@ -63,6 +63,12 @@ const bootstrap = {
   tenantContext: { tenantId: "t1", defaultOrganizationId: null },
 };
 
+const executiveBootstrap = {
+  ...bootstrap,
+  defaultDestination: "/executive",
+  availableDestinations: ["/workspace", "/executive"],
+};
+
 function renderEntry() {
   return render(<I18nProvider><AuthProvider><AuthEntry /></AuthProvider></I18nProvider>);
 }
@@ -116,6 +122,22 @@ describe("AuthEntry session bootstrap", () => {
     authApiMock.refresh.mockResolvedValue(bootstrap);
     renderEntry();
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/crm/leads"));
+  });
+
+  it("restores an authorized nested executive returnUrl", async () => {
+    document.cookie = "sanad_session_hint=1; Path=/";
+    window.history.replaceState({}, "", "/?returnUrl=%2Fexecutive%2Ftenants");
+    authApiMock.refresh.mockResolvedValue(executiveBootstrap);
+    renderEntry();
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/executive/tenants"));
+  });
+
+  it("falls back to workspace when nested executive returnUrl is not granted", async () => {
+    document.cookie = "sanad_session_hint=1; Path=/";
+    window.history.replaceState({}, "", "/?returnUrl=%2Fexecutive%2Ftenants");
+    authApiMock.refresh.mockResolvedValue(bootstrap);
+    renderEntry();
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/workspace"));
   });
 
   it("submits the tenant selected by a tenant login link with the credentials", async () => {

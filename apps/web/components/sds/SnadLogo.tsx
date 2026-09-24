@@ -8,7 +8,7 @@
  *  -------
  *  Renders the official SNAD | سند logo with full variant/size/theme control.
  *  This is the ONLY component in the entire web app permitted to import or
- *  reference brand SVG files directly. Every other surface MUST consume this
+ *  reference brand asset files directly. Every other surface MUST consume this
  *  component — no raw `<img src="/assets/brand/...">` is allowed anywhere else
  *  (enforced by `scripts/ci/check-logo-governance.py`).
  *
@@ -74,7 +74,8 @@ export type SnadLogoVariant =
   | 'compact'
   | 'white'
   | 'monochrome'
-  | 'app-icon';
+  | 'app-icon'
+  | 'official-wordmark';
 
 export type SnadLogoSize =
   | 'xs'
@@ -127,7 +128,7 @@ export interface SnadLogoProps {
 const DEFAULT_ALT = 'شعار سند — SNAD Business Operating System';
 
 /**
- * Static map: variant → public SVG path.
+ * Static map: variant → public brand asset path.
  * This is the ONLY place in the codebase that knows about brand asset paths.
  */
 const VARIANT_SRC: Record<SnadLogoVariant, string> = {
@@ -137,12 +138,13 @@ const VARIANT_SRC: Record<SnadLogoVariant, string> = {
   white: '/assets/brand/snad-logo-white.svg',
   monochrome: '/assets/brand/snad-logo-mono.svg',
   'app-icon': '/assets/brand/snad-app-icon.svg',
+  'official-wordmark': '/assets/brand/snad-logo-official-wordmark.png',
 };
 
 /**
  * Intrinsic aspect ratio (width / height) per variant. Used to compute a
  * matching width from a given height (and vice versa) so the box model is
- * fully determined before the SVG finishes loading — preventing CLS.
+ * fully determined before the artwork finishes loading — preventing CLS.
  */
 const VARIANT_ASPECT: Record<SnadLogoVariant, number> = {
   primary: 280 / 80, // 3.5 : 1
@@ -151,6 +153,7 @@ const VARIANT_ASPECT: Record<SnadLogoVariant, number> = {
   white: 280 / 80,
   monochrome: 280 / 80,
   'app-icon': 512 / 512, // 1 : 1
+  'official-wordmark': 1162 / 337,
 };
 
 /**
@@ -177,7 +180,8 @@ function toCssLength(value: number | string | undefined): string | undefined {
  * Returns an array of variant names. For `theme="auto"` without an explicit
  * variant, both the `primary` and `white` variants are rendered and CSS
  * toggles their visibility based on `prefers-color-scheme`. For every other
- * configuration, a single variant is returned.
+ * configuration, a single variant is returned. The approved auth raster is
+ * selected explicitly and is never synthesized into a theme variant.
  */
 function resolveVariants(
   variant: SnadLogoVariant | undefined,
@@ -200,13 +204,13 @@ function resolveVariants(
  *
  * @example
  * ```tsx
- * // Auth screen (large, responsive)
- * <SnadLogo variant="primary" size="responsive" />
+ * // Auth screen with the separately approved official wordmark
+ * <SnadLogo variant="official-wordmark" size="responsive" />
  *
  * // Executive shell (compact, links to /workspace)
  * <SnadLogo variant="compact" size="md" href="/workspace" />
  *
- * // Dark-mode aware (auto-switches to white)
+ * // Existing SVG family, dark-mode aware
  * <SnadLogo theme="auto" size="sm" href="/" />
  * ```
  */
@@ -257,18 +261,12 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
     // When `href` is provided, the wrapping `<Link>` carries the accessible
     // name via `aria-label`. The inner `<img>` becomes decorative and MUST
     // use `alt=""` + `aria-hidden="true"` so screen readers do not
-    // double-announce (WAI-ARIA APG: "Providing accessible names for links
-    // that wrap non-text content").
+    // double-announce.
     const isDecorative = href !== undefined;
     const effectiveAlt = isDecorative ? '' : alt;
 
     // For each variant to render, compute the explicit width/height so the
-    // browser reserves the correct box before the SVG arrives (CLS safety).
-    // When the caller overrides width or height explicitly, we respect that;
-    // when not, we derive the missing dimension from the variant's intrinsic
-    // aspect ratio and the size preset's height. For `responsive` size, we
-    // fall back to the variant's intrinsic pixel dimensions and let CSS
-    // clamp() scale the rendered image.
+    // browser reserves the correct box before the asset arrives (CLS safety).
     function renderImage(variantName: SnadLogoVariant, index: number) {
       const aspect = VARIANT_ASPECT[variantName];
       const intrinsicWidth =
@@ -276,13 +274,17 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
           ? 32
           : variantName === 'app-icon'
             ? 512
-            : 280;
+            : variantName === 'official-wordmark'
+              ? 1162
+              : 280;
       const intrinsicHeight =
         variantName === 'compact'
           ? 32
           : variantName === 'app-icon'
             ? 512
-            : 80;
+            : variantName === 'official-wordmark'
+              ? 337
+              : 80;
 
       const defaultHeight =
         size === 'responsive' ? intrinsicHeight : SIZE_HEIGHT_PX[size];
@@ -297,15 +299,15 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
             ? resolvedHeight * aspect
             : intrinsicWidth;
 
+      /*
+       * Named sizes receive concrete pixel dimensions inline. Responsive
+       * sizing is intentionally left to SnadLogo.module.css/custom properties;
+       * writing width:auto/height:auto inline here would override the CSS
+       * variables and can collapse an intrinsic auto-width wrapper on mobile.
+       */
       const imageStyle: CSSProperties = {
         aspectRatio: String(aspect),
-        width: 'auto',
-        height: 'auto',
       };
-      // For fixed sizes, pin the box dimensions inline so CLS is zero. For
-      // the responsive size, the dimensions are driven by CSS variables
-      // (set by the size class on the wrapper) — we only set the
-      // aspect-ratio inline to guarantee the box shape.
       if (size !== 'responsive') {
         if (resolvedWidth !== undefined && !Number.isNaN(resolvedWidth)) {
           imageStyle.width = `${resolvedWidth}px`;
@@ -315,27 +317,18 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
         }
       }
 
-      // The auto-dual pair stacks two images; the second one (white) is
-      // visually hidden by default and revealed under dark mode via CSS.
+      // The auto-dual pair is used only by the existing SVG theme family.
       const imageClass = isAutoDual
         ? index === 0
           ? `${styles.image} ${styles.imageLight}`
           : `${styles.image} ${styles.imageDark}`
         : styles.image;
 
-      // Next.js Image requires `width` and `height` props even when
-      // `unoptimized` is set. We pass the variant's intrinsic dimensions
-      // (or the computed dimensions for fixed sizes) — the CSS width/height
-      // on the wrapper drives the actual rendered size for `responsive`.
       const imgWidth =
         size === 'responsive' ? intrinsicWidth : resolvedWidth ?? intrinsicWidth;
       const imgHeight =
         size === 'responsive' ? intrinsicHeight : resolvedHeight ?? intrinsicHeight;
 
-      // The second image in an auto-dual pair is visually hidden by CSS
-      // until `prefers-color-scheme: dark` activates it. We mark it
-      // `aria-hidden` and use an empty `alt` so AT never announces the
-      // hidden duplicate.
       const isHiddenDuplicate = isAutoDual && index === 1;
 
       return (
@@ -358,9 +351,6 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
 
     const images = variants.map((v, i) => renderImage(v, i));
 
-    // Merge the consumer-supplied `style` with the CSS-variable overrides
-    // computed above. Consumer style wins for conflicting keys (e.g. if the
-    // caller passes `style={{ ['--snad-logo-width' as never]: '200px' }}`).
     const wrapperStyle: CSSProperties = { ...cssVars, ...style };
 
     const content = (
@@ -378,9 +368,6 @@ export const SnadLogo = forwardRef<HTMLSpanElement, SnadLogoProps>(
         href={href}
         className={styles.link}
         aria-label={alt}
-        // The visual artwork is decorative — the anchor's accessible name
-        // comes from `aria-label`. We hide the inner img from AT to avoid
-        // double-announcement.
       >
         {content}
       </Link>

@@ -1,0 +1,25 @@
+.loginV2Shell {
+  min-height: 100svh;
+  min-height: 100dvh;
+}
+
+.loginV2Shell :global(#login-email),
+.loginV2Shell :global(#login-password) {
+  min-block-size: 48px;
+}
+
+.loginV2Shell :global(#login-password) + button {
+  min-inline-size: 44px;
+  min-block-size: 44px;
+}
+
+.loginV2Shell span[role="status"] {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 899px) {
+  .loginV2Shell {
+    overflow-x: hidden;
+  }
+}

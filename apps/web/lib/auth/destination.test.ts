@@ -22,6 +22,22 @@ describe("post-login destination security", () => {
     expect(safeReturnUrl("/control-plane", ["/workspace", "/crm"])).toBeNull();
   });
 
+  it("accepts a nested executive route only when executive is granted", () => {
+    expect(safeReturnUrl("/executive/tenants", ["/workspace", "/executive"]))
+      .toBe("/executive/tenants");
+    expect(safeReturnUrl("/executive/tenants", ["/workspace", "/crm"]))
+      .toBeNull();
+  });
+
+  it.each([
+    "%2F%2Fevil.example",
+    "/%2F%2Fevil.example",
+    "/%5Cevil.example",
+    "\u0000/executive/tenants",
+  ])("rejects encoded or control-character destination %s", (candidate) => {
+    expect(safeReturnUrl(candidate, ["/workspace", "/executive"])) .toBeNull();
+  });
+
   it("preserves an explicitly requested authorized returnUrl", () => {
     expect(resolvePostLoginDestination({
       returnUrl: "/crm/leads",

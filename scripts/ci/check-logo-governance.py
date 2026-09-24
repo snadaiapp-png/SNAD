@@ -7,28 +7,19 @@
  PURPOSE
  -------
  Enforces the executive order that the SnadLogo SDS component is the ONLY
- module in `apps/web/` permitted to import or reference brand SVG files
- directly. Every other surface MUST consume `<SnadLogo />`.
+ module in `apps/web/` permitted to import or reference brand assets directly.
+ Every other surface MUST consume `<SnadLogo />`.
 
  RULES
  -----
  1. No `.tsx` file under `apps/web/` (excluding `components/sds/` and
-    `__tests__/`) may:
-      • import from `/assets/brand/snad-logo-*.svg` (or any brand SVG)
-      • use `<img src="/assets/brand/snad-logo-*.svg">`
-      • reference `snad-logo-*.svg`, `snad-favicon.svg`, or
-        `snad-app-icon.svg` as a string literal
+    `__tests__/`) may directly reference SNAD brand SVG/PNG assets.
  2. The auth login form (`apps/web/components/auth/login-form.tsx`) MUST
-    import and render `<SnadLogo />`. This guards against regressions
-    where the brand mark is replaced with a plain `<div>SNAD</div>`.
- 3. The only allowed exception is `apps/web/components/sds/SnadLogo.tsx`
-    itself — that file is the canonical importer of brand SVGs.
-
- ALLOWLIST
- ---------
-   • apps/web/components/sds/SnadLogo.tsx            (canonical importer)
-   • apps/web/components/sds/__tests__/SnadLogo.test.tsx (tests reference
-     the SVG paths to verify the variant → src mapping)
+    import and render `<SnadLogo />`.
+ 3. The only application-code exception is
+    `apps/web/components/sds/SnadLogo.tsx` itself.
+ 4. The Login v2 official wordmark must exist with the exact approved
+    SHA-256; substitutes, regenerated files, or modified bytes fail CI.
 
  USAGE
  -----
@@ -39,31 +30,25 @@
    0 — compliant
    1 — violations found
    2 — usage error / unexpected exception
-
- REPORT FORMAT
- -------------
-   <relative/path>:<line>:<col>: <rule_id> — <message>
 ============================================================================
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, List
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 DEFAULT_SCAN_ROOT = "apps/web"
-
-# Only scan .tsx files for direct SVG references (TS files don't render JSX).
 SCAN_EXTENSIONS = {".tsx"}
 
-# Directories to skip entirely.
 SKIP_DIRS = {
     "node_modules",
     ".next",
@@ -75,63 +60,50 @@ SKIP_DIRS = {
     "out",
 }
 
-# The SDS directory is the canonical owner of brand assets. We exclude it
-# from the direct-import scan EXCEPT for SnadLogo.tsx itself, which we
-# explicitly allow.
 SDS_DIR = "apps/web/components/sds"
 
-# Files that ARE allowed to reference brand SVGs directly.
 ALLOWED_FILES = {
     "apps/web/components/sds/SnadLogo.tsx",
     "apps/web/components/sds/__tests__/SnadLogo.test.tsx",
 }
 
-# Auth layout file that MUST use SnadLogo.
 AUTH_LOGIN_FORM = "apps/web/components/auth/login-form.tsx"
+OFFICIAL_WORDMARK_PATH = Path(
+    "apps/web/public/assets/brand/snad-logo-official-wordmark.png"
+)
+OFFICIAL_WORDMARK_SHA256 = (
+    "98d0b84b0675b53f60837f803cf0a4bc85209eea650b213adba92a661bfde251"
+)
 
 # ---------------------------------------------------------------------------
 # Regex patterns
 # ---------------------------------------------------------------------------
 
-# Matches any reference to a brand SVG path, whether via import, img src,
-# or string literal. Examples:
-#   /assets/brand/snad-logo-primary.svg
-#   /assets/brand/snad-logo-white.svg
-#   /assets/brand/snad-logo-mono.svg
-#   /assets/brand/snad-logo-vertical.svg
-#   /assets/brand/snad-favicon.svg
-#   /assets/brand/snad-app-icon.svg
-BRAND_SVG_RE = re.compile(
-    r"[/\\]assets[/\\]brand[/\\]snad-(?:logo-[a-z]+|favicon|app-icon)\.svg",
+# Matches governed brand SVG/PNG paths. The [a-z0-9-]+ portion intentionally
+# accepts multi-word names such as `snad-logo-official-wordmark.png`.
+BRAND_ASSET_RE = re.compile(
+    r"[/\\]assets[/\\]brand[/\\]snad-(?:logo-[a-z0-9-]+|favicon|app-icon)\.(?:svg|png)",
     re.IGNORECASE,
 )
 
-# Matches `import ... from "<path>"` where <path> ends in a brand SVG.
-# We catch the broader BRAND_SVG_RE above so this is a stricter subset used
-# only to produce a more specific rule_id.
-IMPORT_BRAND_SVG_RE = re.compile(
-    r"""import\s+[^;]*?from\s+["']([^"']*snad-(?:logo-[a-z]+|favicon|app-icon)\.svg)["']""",
+IMPORT_BRAND_ASSET_RE = re.compile(
+    r"""import\s+[^;]*?from\s+["']([^"']*snad-(?:logo-[a-z0-9-]+|favicon|app-icon)\.(?:svg|png))["']""",
     re.IGNORECASE,
 )
 
-# Matches `<img ... src="<brand-svg>" ...>` JSX usage.
-IMG_BRAND_SVG_RE = re.compile(
-    r"""<img\b[^>]*\bsrc\s*=\s*["']([^"']*snad-(?:logo-[a-z]+|favicon|app-icon)\.svg)["']""",
+IMG_BRAND_ASSET_RE = re.compile(
+    r"""<img\b[^>]*\bsrc\s*=\s*["']([^"']*snad-(?:logo-[a-z0-9-]+|favicon|app-icon)\.(?:svg|png))["']""",
     re.IGNORECASE,
 )
 
-# Matches a string literal containing a brand SVG path (catch-all).
-STRING_BRAND_SVG_RE = re.compile(
-    r"""["']([^"']*snad-(?:logo-[a-z]+|favicon|app-icon)\.svg)["']""",
+STRING_BRAND_ASSET_RE = re.compile(
+    r"""["']([^"']*snad-(?:logo-[a-z0-9-]+|favicon|app-icon)\.(?:svg|png))["']""",
     re.IGNORECASE,
 )
 
-# Matches the SnadLogo component import path.
 SNADLOGO_IMPORT_RE = re.compile(
     r"""(?:from\s+["']@/components/sds["']|from\s+["']@/components/sds/SnadLogo["'])""",
 )
-
-# Matches the SnadLogo JSX usage.
 SNADLOGO_USAGE_RE = re.compile(r"<SnadLogo\b")
 
 # ---------------------------------------------------------------------------
@@ -156,9 +128,7 @@ def normalize_relpath(path: Path, scan_root: Path) -> str:
 
 
 def iter_scan_files(scan_root: Path) -> Iterable[Path]:
-    """Yield every .tsx file under scan_root, skipping excluded dirs and
-    the SDS directory (except SnadLogo.tsx and its test, which are
-    allowlisted explicitly)."""
+    """Yield every .tsx file under scan_root, skipping excluded dirs."""
     for dirpath, dirnames, filenames in os.walk(scan_root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for name in filenames:
@@ -182,10 +152,8 @@ def is_test_file(rel_path: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def check_direct_brand_references(
-    path: Path, rel: str
-) -> List[str]:
-    """Flag any direct reference to a brand SVG file outside the allowlist."""
+def check_direct_brand_references(path: Path, rel: str) -> List[str]:
+    """Flag direct brand asset references outside the SDS allowlist."""
     if rel in ALLOWED_FILES:
         return []
 
@@ -197,55 +165,41 @@ def check_direct_brand_references(
 
     lines = text.splitlines()
     for line_no, line in enumerate(lines, start=1):
-        # Skip comment-only lines (// or /* */ or *).
-        stripped = line.lstrip()
-        if (
-            stripped.startswith("//")
-            or stripped.startswith("/*")
-            or stripped.startswith("*")
-        ):
-            # We still scan comment lines for brand SVG references because
-            # developers often leave dead imports in comments. But we tag
-            # them as a separate, lower-severity rule.
-            pass
-
-        # 1) import ... from "snad-logo-*.svg"
-        for m in IMPORT_BRAND_SVG_RE.finditer(line):
+        for m in IMPORT_BRAND_ASSET_RE.finditer(line):
             col = m.start(1) + 1
             value = m.group(1)
             violations.append(
-                f"{rel}:{line_no}:{col}: IMPORT_BRAND_SVG — "
-                f'direct import of brand SVG "{value}". '
+                f"{rel}:{line_no}:{col}: IMPORT_BRAND_ASSET — "
+                f'direct import of brand asset "{value}". '
                 f"Use the <SnadLogo /> component instead."
             )
 
-        # 2) <img src="snad-logo-*.svg">
-        for m in IMG_BRAND_SVG_RE.finditer(line):
+        for m in IMG_BRAND_ASSET_RE.finditer(line):
             col = m.start(1) + 1
             value = m.group(1)
             violations.append(
-                f"{rel}:{line_no}:{col}: IMG_BRAND_SVG — "
-                f'<img> with brand SVG src "{value}". '
+                f"{rel}:{line_no}:{col}: IMG_BRAND_ASSET — "
+                f'<img> with brand asset src "{value}". '
                 f"Use the <SnadLogo /> component instead."
             )
 
-        # 3) Any other string literal containing a brand SVG path
-        for m in STRING_BRAND_SVG_RE.finditer(line):
-            # Skip if already flagged by the import or img rule on this line.
-            start = m.start(1)
-            col = start + 1
+        for m in STRING_BRAND_ASSET_RE.finditer(line):
+            col = m.start(1) + 1
             value = m.group(1)
-            # Determine if this match is part of an import statement.
             prefix = line[: m.start()]
-            if "from" in prefix and prefix.strip().endswith(("'", '"')):
-                continue  # Already flagged by IMPORT_BRAND_SVG_RE
-            if "<img" in prefix and "src" in prefix:
-                continue  # Already flagged by IMG_BRAND_SVG_RE
+            if IMPORT_BRAND_ASSET_RE.search(line):
+                continue
+            if IMG_BRAND_ASSET_RE.search(line):
+                continue
             violations.append(
-                f"{rel}:{line_no}:{col}: STRING_BRAND_SVG — "
-                f'string literal referencing brand SVG "{value}". '
+                f"{rel}:{line_no}:{col}: STRING_BRAND_ASSET — "
+                f'string literal referencing brand asset "{value}". '
                 f"Use the <SnadLogo /> component instead."
             )
+
+        # Keep the broad recognizer exercised so future path syntax additions
+        # cannot silently bypass the governance vocabulary.
+        _ = BRAND_ASSET_RE.search(line)
 
     return violations
 
@@ -255,7 +209,6 @@ def check_auth_login_form_uses_snadlogo(scan_root: Path) -> List[str]:
     rel = AUTH_LOGIN_FORM
     path = (scan_root.parent.parent / rel).resolve()
     if not path.exists():
-        # Try as relative to the current working directory
         path = (Path.cwd() / rel).resolve()
     if not path.exists():
         return [
@@ -281,6 +234,32 @@ def check_auth_login_form_uses_snadlogo(scan_root: Path) -> List[str]:
         )
 
     return violations
+
+
+def check_official_wordmark_integrity(repo_root: Path) -> List[str]:
+    """Require the exact user-approved Login v2 raster bytes."""
+    asset = repo_root / OFFICIAL_WORDMARK_PATH
+    if not asset.is_file():
+        return [
+            f"{OFFICIAL_WORDMARK_PATH.as_posix()}:0:0: "
+            "OFFICIAL_WORDMARK_MISSING — the approved Login v2 wordmark "
+            "file is required. Do not substitute or regenerate it."
+        ]
+
+    try:
+        actual = hashlib.sha256(asset.read_bytes()).hexdigest()
+    except OSError as exc:
+        return [
+            f"{OFFICIAL_WORDMARK_PATH.as_posix()}:0:0: READ_ERROR — {exc}"
+        ]
+
+    if actual != OFFICIAL_WORDMARK_SHA256:
+        return [
+            f"{OFFICIAL_WORDMARK_PATH.as_posix()}:0:0: "
+            "OFFICIAL_WORDMARK_HASH_MISMATCH — "
+            f"expected {OFFICIAL_WORDMARK_SHA256}, got {actual}."
+        ]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +289,7 @@ def main(argv: List[str]) -> int:
     print(f"  scan root : {scan_root}")
     print(f"  allowed   : {len(ALLOWED_FILES)} canonical importer file(s)")
     print(f"  auth form : {AUTH_LOGIN_FORM}")
+    print(f"  wordmark  : {OFFICIAL_WORDMARK_PATH}")
     print()
 
     all_violations: List[str] = []
@@ -317,18 +297,16 @@ def main(argv: List[str]) -> int:
 
     for path in iter_scan_files(scan_root):
         rel = normalize_relpath(path, scan_root)
-        # Skip files inside components/sds/ except the allowlisted ones.
         if is_in_sds_dir(rel) and rel not in ALLOWED_FILES:
             continue
-        # Skip __tests__ files (they may legitimately reference SVG paths).
         if is_test_file(rel) and rel not in ALLOWED_FILES:
             continue
 
         files_scanned += 1
         all_violations.extend(check_direct_brand_references(path, rel))
 
-    # Special check: the auth login form must import + use SnadLogo.
     all_violations.extend(check_auth_login_form_uses_snadlogo(scan_root))
+    all_violations.extend(check_official_wordmark_integrity(repo_root))
 
     if all_violations:
         print(
@@ -340,14 +318,10 @@ def main(argv: List[str]) -> int:
             print(f"  {v}")
         print()
         print("To fix:")
-        print("  1. Replace any direct brand SVG import / <img src> with")
-        print("     <SnadLogo variant=\"primary\" size=\"md\" />.")
-        print("  2. Import SnadLogo from @/components/sds:")
-        print('       import { SnadLogo } from "@/components/sds";')
-        print("  3. The auth login form MUST render <SnadLogo /> for the brand")
-        print("     mark — no raw <div>SNAD</div> or <img> is permitted.")
-        print("  4. See apps/web/design-system/documentation/LOGO_USAGE.md")
-        print("     for the full governance policy.")
+        print("  1. Replace direct brand asset use with <SnadLogo />.")
+        print("  2. Keep concrete brand paths inside SnadLogo.tsx only.")
+        print("  3. Ensure the approved Login v2 PNG exists with its exact SHA-256.")
+        print("  4. See apps/web/design-system/documentation/LOGO_USAGE.md.")
         return 1
 
     print(f"PASS — 0 violations across {files_scanned} files scanned.")

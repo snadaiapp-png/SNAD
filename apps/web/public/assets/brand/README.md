@@ -1,7 +1,7 @@
 # SNAD | سند — Official Brand Assets
 
-**Version:** 1.0.0
-**Last Updated:** 2026-07-07
+**Version:** 1.0.1
+**Last Updated:** 2026-09-24
 **Status:** ACTIVE — official source of truth for SNAD brand assets
 
 ## Available Logo Files
@@ -14,6 +14,13 @@
 | snad-logo-mono.svg | SVG | Monochrome (currentColor) — stamps, embossing, single-color print |
 | snad-app-icon.svg | SVG | Square app icon — favicons, home screen, social media |
 | snad-favicon.svg | SVG | Simplified 32x32 favicon — browser tabs |
+| snad-logo-official-wordmark.png | PNG RGBA, 1162×337 | User-approved official wordmark for authentication surfaces; exact bytes are governed and must not be recolored or vectorized |
+
+## Authentication Wordmark Integrity
+
+`snad-logo-official-wordmark.png` SHA-256: `98d0b84b0675b53f60837f803cf0a4bc85209eea650b213adba92a661bfde251`
+
+The approved authentication wordmark is intentionally limited to authentication surfaces in Login v2 Phase A. The existing SVG family remains in use on non-auth surfaces until a separate global migration is explicitly approved. No white, compact, monochrome, favicon, or SVG derivative may be synthesized from the approved PNG.
 
 ## Brand Colors
 
@@ -41,23 +48,26 @@ Minimum 1x logo height on all sides.
 - Do NOT stretch, rotate, compress, or crop
 - Do NOT change the gold accent dot position
 - Do NOT use low-resolution raster versions
+- Do NOT trace or vectorize the approved authentication PNG
 
 ### Background Selection
-- White/light: snad-logo-primary.svg
+- Authentication light/neutral panel: snad-logo-official-wordmark.png
+- White/light non-auth surfaces: snad-logo-primary.svg
 - Petroleum green: snad-logo-white.svg
 - Dark photographic: snad-logo-white.svg
 - Single-color print: snad-logo-mono.svg
 
 ## Icon Mark
-Rounded square (petroleum green) + stylized Arabic "س" (gold) + gold accent dot.
+Rounded square (petroleum green) + stylized Arabic "س" (gold) + gold accent dot applies to the existing SVG family. It does not redefine the separately approved authentication wordmark.
 
 ## Typography
 - Latin "SNAD": Inter, weight 800
 - Arabic "سند": Tajawal, weight 700
 
 ## File Format Policy
-- SVG: canonical (all digital)
-- PNG: 1x/2x/3x exports for legacy (email, old browsers)
+- SVG: canonical for the existing non-auth logo family
+- Approved authentication PNG: exact governed source for Login v2 auth surfaces
+- PNG @1x/2x/3x: legacy exports only where explicitly approved
 - PDF: print
 - ICO: legacy favicons (from snad-favicon.svg)
 
