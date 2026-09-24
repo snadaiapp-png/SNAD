@@ -73,8 +73,18 @@ test.describe("G2 Desktop Journey @desktop", () => {
     const managerLogin = await loginThroughUi(managerPage, "manager");
     expect(managerLogin.user.email).toBe(roleEmail("manager"));
 
+    // Wait for the team leave requests API response before looking for the row.
+    // This surfaces HTTP errors (401/403/500) and timing issues that cause
+    // the approval queue to render empty.
+    const teamApiResponse = managerPage.waitForResponse(
+      (r) => r.request().method() === "GET" && r.url().includes("/leave/requests/team"),
+      { timeout: 30_000 },
+    );
     await managerPage.goto(`${BASE_URL}/hr/leave/approvals`);
     await expect(managerPage.getByRole("heading", { name: "Leave Approval Queue", exact: true })).toBeVisible();
+    const teamRes = await teamApiResponse;
+    expect(teamRes.ok(), `Manager team leave requests API failed: ${teamRes.status()} ${teamRes.statusText()}`).toBe(true);
+
     await expect(managerPage.locator("table")).toBeVisible({ timeout: 15_000 });
 
     const managerRow = managerPage.locator("tr", { hasText: LEAVE_REASON }).first();
