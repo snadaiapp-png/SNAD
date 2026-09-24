@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import styles from "./auth.module.css";
+import v3Styles from "./login-v3.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
 import { SnadLogo } from "@/components/sds";
@@ -175,7 +176,7 @@ export function LoginForm({
             />
             <button
               type="button"
-              className={styles.passwordToggle}
+              className={`${styles.passwordToggle} ${v3Styles.passwordToggle}`}
               onClick={() => setShowPassword((current) => !current)}
               aria-label={showPassword ? t("auth.login.hidePassword") : t("auth.login.showPassword")}
             >

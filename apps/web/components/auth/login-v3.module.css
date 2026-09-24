@@ -1,0 +1,368 @@
+.shell {
+  --login-v3-frame-max: 1180px;
+  --login-v3-form-max: 440px;
+  --login-v3-radius: 30px;
+  position: relative;
+  min-block-size: 100svh;
+  min-block-size: 100dvh;
+  overflow-x: clip;
+  background:
+    radial-gradient(
+      circle at 12% 12%,
+      color-mix(in srgb, var(--snad-color-brand-primary) 9%, transparent),
+      transparent 34rem
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--snad-surface-canvas) 96%, white),
+      var(--snad-surface-canvas)
+    );
+  color: var(--snad-text-primary);
+}
+
+.shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.42;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--snad-color-brand-primary) 5%, transparent),
+    transparent
+  );
+  transform: translate3d(-8%, 0, 0);
+  animation: loginV3Ambient 12s ease-in-out infinite alternate;
+}
+
+.frame {
+  position: relative;
+  z-index: 1;
+  inline-size: min(calc(100% - 48px), var(--login-v3-frame-max));
+  min-block-size: 100svh;
+  min-block-size: 100dvh;
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(390px, 0.66fr);
+  align-items: center;
+  gap: clamp(3rem, 7vw, 7rem);
+  padding-block: clamp(2rem, 6vh, 5rem);
+}
+
+.brandPanel,
+.formRegion {
+  min-inline-size: 0;
+}
+
+.brandPanel {
+  position: relative;
+  min-block-size: min(64vh, 610px);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  border: 1px solid
+    color-mix(in srgb, var(--snad-color-brand-primary) 13%, transparent);
+  border-radius: var(--login-v3-radius);
+  background:
+    radial-gradient(
+      circle at 82% 18%,
+      color-mix(in srgb, var(--snad-brand-gold) 12%, transparent),
+      transparent 17rem
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--snad-color-brand-primary) 7%, var(--snad-surface-canvas)),
+      color-mix(in srgb, var(--snad-surface-canvas) 97%, white)
+    );
+  box-shadow: 0 24px 80px color-mix(in srgb, black 10%, transparent);
+}
+
+.brandPanel::after {
+  content: "";
+  position: absolute;
+  inset: 1rem;
+  border: 1px solid
+    color-mix(in srgb, var(--snad-color-brand-primary) 8%, transparent);
+  border-radius: calc(var(--login-v3-radius) - 10px);
+  pointer-events: none;
+}
+
+.brandAmbient {
+  position: absolute;
+  inline-size: 22rem;
+  block-size: 22rem;
+  inset-block-start: -7rem;
+  inset-inline-end: -8rem;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--snad-brand-gold) 22%, transparent),
+    transparent 68%
+  );
+}
+
+.brandContent {
+  position: relative;
+  z-index: 1;
+  max-inline-size: 36rem;
+  padding: clamp(2rem, 5vw, 4rem);
+}
+
+.brandKicker,
+.brandHeadline,
+.brandBody {
+  margin: 0;
+}
+
+.brandKicker {
+  margin-block-end: 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  color: var(--snad-color-brand-primary);
+}
+
+.brandHeadline {
+  max-inline-size: 15ch;
+  font-size: clamp(2rem, 3vw, 2.85rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  color: var(--snad-text-primary);
+  text-wrap: balance;
+}
+
+.brandBody {
+  margin-block-start: 1.25rem;
+  max-inline-size: 34rem;
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: var(--snad-text-secondary);
+}
+
+.formRegion {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.formRegion > * {
+  inline-size: min(100%, var(--login-v3-form-max));
+  padding: clamp(1.5rem, 3vw, 2.5rem);
+  border: 1px solid
+    color-mix(in srgb, var(--snad-color-brand-primary) 10%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--snad-surface-canvas) 97%, white);
+  box-shadow: 0 20px 60px color-mix(in srgb, black 8%, transparent);
+}
+
+.formRegion :global(label[for="login-email"]),
+.formRegion :global(label[for="login-password"]) {
+  margin-block-end: 0.125rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  color: var(--snad-text-primary);
+}
+
+.formRegion :global(#login-email),
+.formRegion :global(#login-password) {
+  min-block-size: 54px;
+  padding-block: 0;
+  padding-inline-start: 1rem;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--snad-border-default) 68%,
+      var(--snad-color-brand-primary)
+    );
+  border-radius: 16px;
+  background: color-mix(
+    in srgb,
+    var(--snad-surface-primary) 97%,
+    var(--snad-color-brand-primary)
+  );
+  color: var(--snad-text-primary);
+  font-size: 0.95rem;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 36%, transparent),
+    0 1px 2px color-mix(in srgb, black 4%, transparent);
+  transition:
+    border-color var(--snad-motion-fast),
+    box-shadow var(--snad-motion-fast),
+    background var(--snad-motion-fast);
+}
+
+.formRegion :global(#login-email) {
+  padding-inline-end: 1rem;
+}
+
+.formRegion :global(#login-password) {
+  padding-inline-end: 3.5rem;
+}
+
+.formRegion :global(#login-email)::placeholder,
+.formRegion :global(#login-password)::placeholder {
+  color: var(--snad-text-muted);
+  opacity: 0.78;
+}
+
+.formRegion :global(#login-email):hover:not(:disabled),
+.formRegion :global(#login-password):hover:not(:disabled) {
+  border-color: color-mix(
+    in srgb,
+    var(--snad-color-brand-primary) 55%,
+    var(--snad-border-default)
+  );
+}
+
+.formRegion :global(#login-email):focus,
+.formRegion :global(#login-password):focus {
+  outline: none;
+  border-color: var(--snad-color-brand-primary);
+  background: var(--snad-surface-primary);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--snad-color-brand-primary) 12%, transparent),
+    0 10px 24px color-mix(in srgb, var(--snad-color-brand-primary) 9%, transparent);
+}
+
+.formRegion :global(#login-email)[aria-invalid="true"],
+.formRegion :global(#login-password)[aria-invalid="true"] {
+  border-color: var(--snad-color-error);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--snad-color-error) 10%, transparent);
+}
+
+.passwordToggle {
+  inset-inline-end: 0.35rem;
+  inline-size: 44px;
+  block-size: 44px;
+  min-inline-size: 44px;
+  min-block-size: 44px;
+  padding: 0;
+  border-radius: 12px;
+  color: var(--snad-text-secondary);
+}
+
+.passwordToggle:hover {
+  color: var(--snad-text-primary);
+  background: color-mix(
+    in srgb,
+    var(--snad-color-brand-primary) 8%,
+    var(--snad-surface-secondary)
+  );
+}
+
+.passwordToggle:focus-visible {
+  outline: 2px solid var(--snad-color-focus-ring);
+  outline-offset: 1px;
+  background: color-mix(
+    in srgb,
+    var(--snad-color-brand-primary) 8%,
+    var(--snad-surface-secondary)
+  );
+}
+
+.formRegion :global(button[type="submit"]) {
+  min-block-size: 50px;
+  border-radius: 14px;
+}
+
+@keyframes loginV3Ambient {
+  from {
+    transform: translate3d(-8%, 0, 0);
+  }
+
+  to {
+    transform: translate3d(8%, 0, 0);
+  }
+}
+
+@media (max-width: 1023px) {
+  .frame {
+    inline-size: min(calc(100% - 32px), 720px);
+    grid-template-columns: 1fr;
+    align-content: center;
+    gap: 1.5rem;
+  }
+
+  .brandPanel {
+    min-block-size: auto;
+  }
+
+  .brandContent {
+    padding: 1.5rem;
+  }
+
+  .brandHeadline {
+    max-inline-size: 18ch;
+    font-size: clamp(1.75rem, 5vw, 2.5rem);
+  }
+
+  .brandBody {
+    max-inline-size: 42rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .shell {
+    overflow-x: hidden;
+  }
+
+  .frame {
+    inline-size: 100%;
+    min-block-size: 100svh;
+    min-block-size: 100dvh;
+    align-content: start;
+    padding: 1rem;
+  }
+
+  .brandPanel {
+    display: none;
+  }
+
+  .formRegion {
+    justify-content: stretch;
+    align-items: flex-start;
+  }
+
+  .formRegion > * {
+    inline-size: 100%;
+    max-inline-size: none;
+    padding: 1.25rem;
+    border-radius: 20px;
+  }
+
+  .formRegion :global(#login-email),
+  .formRegion :global(#login-password) {
+    min-block-size: 52px;
+    border-radius: 15px;
+  }
+}
+
+@media (max-height: 720px) and (min-width: 768px) {
+  .frame {
+    align-items: start;
+    padding-block: 1.5rem;
+  }
+
+  .brandPanel {
+    min-block-size: 520px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell::before {
+    animation: none;
+    transform: none;
+  }
+
+  .shell *,
+  .shell *::before,
+  .shell *::after {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
