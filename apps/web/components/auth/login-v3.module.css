@@ -1,0 +1,26 @@
+.shell {
+  min-block-size: 100svh;
+}
+
+.frame {
+  min-block-size: 100svh;
+}
+
+.brandPanel,
+.formRegion {
+  min-inline-size: 0;
+}
+
+.brandAmbient {
+  pointer-events: none;
+}
+
+.brandContent {
+  position: relative;
+}
+
+.brandKicker,
+.brandHeadline,
+.brandBody {
+  margin: 0;
+}
