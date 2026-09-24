@@ -71,12 +71,12 @@ test.describe("SNAD Login v3 visual acceptance", () => {
     expect(overflow).toBe(false);
   });
 
-  test("survives 200 percent zoom without clipping primary actions", async ({ page }) => {
+  test("reflows at the effective viewport width of 200 percent zoom", async ({ page }) => {
+    // A 1440px desktop viewport at 200% browser zoom exposes roughly 720 CSS px.
+    // Playwright cannot set browser UI zoom portably, so this verifies the
+    // equivalent reflow width while manual 200% zoom remains a release gate.
     await page.setViewportSize({ width: 720, height: 1280 });
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page.evaluate(() => {
-      document.documentElement.style.zoom = "2";
-    });
 
     await page.locator('button[type="submit"]').scrollIntoViewIfNeeded();
     await expect(page.locator('button[type="submit"]')).toBeVisible();
