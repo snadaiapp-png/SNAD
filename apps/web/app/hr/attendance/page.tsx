@@ -3,17 +3,17 @@
 /**
  * Attendance Tracking — G2-T03.
  * Clock in/out + monthly attendance records.
- * Permission-scoped: HRM.ATTENDANCE.VIEW + .MANAGE.
  * Arabic/RTL: logical CSS only; i18n keys; SDS tokens.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
-import { useAuth } from "@/lib/auth/auth-provider";
 import { hrG2Api } from "@/lib/api/hr-g2-api";
+import { useAuth } from "@/lib/auth/auth-provider";
+import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
-import { HrErrorState, HrLoading, HrEmptyState, hrmErrorMessage } from "../components/hr-feedback";
+import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
 import { formatArabicDate } from "../hr-labels";
@@ -48,8 +48,8 @@ export default function AttendancePage() {
   const { t } = useI18n();
   const capabilities = me?.capabilities ?? [];
 
-  const canView = capabilities.includes("HRM.ATTENDANCE.VIEW");
-  const canManage = capabilities.includes("HRM.ATTENDANCE.MANAGE");
+  const canView = capabilities.includes(HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW);
+  const canManage = capabilities.includes(HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
