@@ -1,11 +1,13 @@
 # SANAD Unified Authorization & Partner Control Plane — Master Implementation Plan
 
-**Date:** 2026-09-23 · **Revision B — 2026-09-24 correction record**
-**Status:** PLAN_CORRECTION_REQUIRED resolved — Rev B plans ready for `INDEPENDENT_RE_REVIEW`; implementation NOT authorized.
-**Spec (authoritative):** `docs/superpowers/specs/2026-09-23-unified-authorization-partner-billing-design.md` Revision B (Rev A merged to main via PR #1140, commit `8d0d49c7`; Rev B on correction branch).
-**IMPLEMENTATION_BASE_SHA:** `8d0d49c7bdd3ad3a886a23cffc1e735e61998712` (= origin/main at correction time, re-verified after `git fetch --all --prune`)
-**Correction branch:** `docs/unified-control-plane-plan-corrections` — docs-only.
-**Forensics basis:** worklog tasks F-A/F-B/F-C/F-D at the baseline SHA, re-verified for the Rev B correction set (platform_files DDL, capability namespace, finance payment model, SubscriptionFinancePort signatures, tenant_subscriptions lifecycle, flag conventions, RLS GUC wiring, canonical constants — evidence cited per wave in "Implementation Baseline").
+**Date:** 2026-09-23 · **Revision C — 2026-09-24 second independent-review correction record**
+**Status:** Revision C supersedes Revision B wherever they differ. Implementation NOT authorized; `WAVE_1_AUTHORIZED=NO`; next gate `INDEPENDENT_RE_REVIEW_OF_REVISION_C`.
+**Spec (authoritative):** `docs/superpowers/specs/2026-09-23-unified-authorization-partner-billing-design.md` Revision C (Rev A merged to main via PR #1140, commit `8d0d49c7`; Rev B recovered byte-exact from `recovery/SNAD_REVISION_B_RECOVERY.zip` (recovery branch `recovery/revision-b-planning-bundle` @ `72565531cf57fdaf36b16700f1705cea536a4af2`, ZIP SHA256 `26c40bc08dcf9dbbf793725a2527aee9324ea715359411702aa45ebfeb7154ba`); Rev C written on the recovered correction branch).
+**IMPLEMENTATION_BASE_SHA:** `8d0d49c7bdd3ad3a886a23cffc1e735e61998712` (original implementation base; verified `git cat-file -e …^{commit}` after fresh clone)
+**RECOVERED_REV_B_BASE_SHA:** `cb5ef42c7ece6bca5aa401356d4b9ae52219720c` (new docs-only commit on `docs/unified-control-plane-plan-corrections-r2-recovered`, parent `8d0d49c7`, containing the 10 Rev B documents byte-identical per `RECOVERY_MANIFEST.txt` SHA256SUMS — `REVISION_B_DOCUMENT_RECOVERY=10/10_EXACT`).
+**ORIGINAL_REV_B_PROVENANCE_SHA:** `1cd9210940e19898baeedfc469152cc3b161b0de` — PROVENANCE ONLY. The original local commit object was lost with the destroyed sandbox and is NOT restored; `RECOVERED_REV_B_BASE_SHA != ORIGINAL_REV_B_PROVENANCE_SHA` (different commit objects, byte-equivalent document set).
+**Correction branch:** `docs/unified-control-plane-plan-corrections-r2-recovered` — docs-only.
+**Forensics basis (RE-RUN fresh after recovery — no stale PASS evidence reused):** current `origin/main` = `3adf7ccef1e56de5ed586c2e9f255ddefc7f24ec`; drift `8d0d49c7..origin/main` = 20 files confined to auth-login branding (`apps/web` login-v2/SnadLogo/brand assets, 2 new auth-branding docs, `scripts/ci/check-logo-governance.py`, `apps/web/e2e/auth-login-v2.spec.ts`) — ZERO drift in access/security/billing/finance/partner/storage/migrations/`.github/workflows`; finance RLS measured fresh: 6 of 7 `finance_%` tables have NO RLS at all, only `finance_invoice_number_sequences` is ENABLE+FORCE (`V20260820_6`); CRM measured fresh: 51 `crm_%` tables exist, 5 already ENABLE+FORCE with conforming policy, 46 closed by W7 Task 2; `billing_invoices` (V19) has NO `issuance_idempotency_key`; `SubscriptionFinancePort.recordRefund` is full-refund-only of an existing settlement payment (partial ⇒ throws, adapter javadoc: "no credit note, no partial refund, no parallel ledger"); no byte-storage adapter exists (`PlatformFileReferenceService` is registration-only, caller supplies `storage_reference`); branch-protection required checks remain UNDISCOVERABLE (GitHub API HTTP 403, unauthenticated; `gh` CLI absent) — `RELEASE_REQUIRED_CHECKS_DISCOVERY=BLOCKED`.
 
 ---
 
@@ -21,12 +23,12 @@ EXTEND EXISTING AUTHORITATIVE SYSTEMS. DO NOT BUILD PARALLEL SECURITY OR FINANCE
 | Explicit ALLOW/DENY | precedent `access_scope_grants.is_direct_exception` + `WorkflowBreakGlassService` pattern | `user_permission_overrides` with `effect='DENY' ⇒ scope NULL` DB CHECK (spec §9 Rev B) |
 | Protected roles | `role_origin='SNAD_TEMPLATE'` + `role_template_bindings` (V20260820_5/_6) + canonical-owner pins (V20260921_1) | `protected_system_roles` registry with EXACTLY 4 codes — mutation invariants only, NOT a runtime source |
 | Explainable decisions | `AccessDecisionResponse` / `ScopedAuthorizationDecision` | `AuthorizationDecision` (superset; `DecisionSource` has NO `PROTECTED_SAFETY`) |
-| Finance authority | `Finance*Service` + `SubscriptionFinancePort.ensureInvoice(UUID,UUID)`/`recordSettlement`/`recordRefund` (R0C13) + `subscription_billing_outbox` | partner flows through the SAME port; credit notes represented as `finance_payments` REFUNDED rows |
+| Finance authority | `Finance*Service` + `SubscriptionFinancePort.ensureInvoice(UUID,UUID)`/`recordSettlement`/`recordRefund` (R0C13) + `subscription_billing_outbox` | partner flows through the SAME port; partial credit notes use the NEW Finance-owned additive correction authority (`FinanceCorrectionPort` — corrective journal entries; `recordRefund` remains FULL-refund-only of an existing settlement payment and is never used for partial credit notes) |
 | Invoice truth | `billing_invoices` (V19) + `finance_invoices` mirror | additive party/kind columns with FKs; NO `auto_invoicing_enabled` on invoices |
 | Trial lifecycle | `SubscriptionLifecycle` + `SubscriptionCommandService` (single-writer R0C-7) + `TrialExpirationService` (R0C-8) | 3 new statuses + confirmation artifact + `tenant_subscriptions.auto_invoicing_enabled` carrier |
 | Notifications | audit outbox idioms (HR V20260905_14) + `BillingOutbox` | `notification_events`/`_deliveries` with denormalized scope + explicit RLS |
 | Dashboards | `ExecutiveOverviewService` read-models + billing read services | column-exact governed projections + typed per-scope event log |
-| Logo storage | `platform_files` (V20260911_2 — NO `kind`, NO `partner_id`) | `source_module='COMMERCIAL'`, `source_entity_type='BRAND_LOGO'`, additive nullable `partner_id`, ONE fail-closed principal policy (spec §14.3) |
+| Logo storage | `platform_files` (V20260911_2 — NO `kind`, NO `partner_id`; RLS ALREADY ENABLEd there with fail-closed policy `platform_files_tenant_isolation`, not FORCE) | `source_module='COMMERCIAL'`, `source_entity_type='BRAND_LOGO'`, additive nullable `partner_id`, ONE fail-closed principal policy replacing the existing one (spec §14.3 Rev C). R2 SCOPE LIMIT (`W3_STORAGE_ADAPTER`): no byte-storage adapter exists in the repository, so W3 uploads are limited to REGISTRATION of an already-stored object (`StorageAdapter` port + caller-supplied `storage_reference`); real browser→object-storage upload is an explicitly BLOCKED out-of-scope dependency |
 
 ## 1. Waves, subplans, dependency graph
 
@@ -53,12 +55,12 @@ W1 ──> W2 ──> W3 ──> W4 ──> W5 ──> W6 ──> W7
 | W1 | `V20260924_1` – `V20260924_6` | 6 |
 | W2 | `V20260925_1` – `V20260925_6` | 6 |
 | W3 | `V20260926_1` – `V20260926_7` | 7 |
-| W4 | `V20260927_1` – `V20260927_9` | 9 |
+| W4 | `V20260927_1` – `V20260927_10` | 10 |
 | W5 | `V20260928_1` – `V20260928_6` | 6 |
 | W6 | `V20260929_1` – `V20260929_5` | 5 |
 | W7 | `V20260930_1` – `V20260930_5` | 5 |
 
-Rules (F-C): only ADD migrations (never edit shipped ones — prod `validate-on-migrate: true`); every new table gets ENABLE+FORCE RLS + `DROP POLICY IF EXISTS` before the fail-closed policy in the SAME migration; RLS SQL lives in `db/migration` (vendor dir is legacy-only); per-date seq restarts at `_1`; stamps are pre-allocated so parallel wave branches cannot collide. Rev B change vs Rev A: W2 consumes 6 stamps (the 7th was absorbed — `V20260925_5` now carries the delegation capability seeds demanded by spec §6.1).
+Rules (F-C): only ADD migrations (never edit shipped ones — prod `validate-on-migrate: true`); every new table gets ENABLE+FORCE RLS + `DROP POLICY IF EXISTS` before the fail-closed policy in the SAME migration; RLS SQL lives in `db/migration` (vendor dir is legacy-only); per-date seq restarts at `_1`; stamps are pre-allocated so parallel wave branches cannot collide. Rev B change vs Rev A: W2 consumes 6 stamps (the 7th was absorbed — `V20260925_5` now carries the delegation capability seeds demanded by spec §6.1). Rev C change vs Rev B: W4 consumes 10 stamps (`V20260927_10` = the Finance-owned `finance_credit_corrections` ledger backing `FinanceCorrectionPort`).
 
 ## 3. TDD + evidence protocol (every wave, non-negotiable)
 
@@ -68,7 +70,7 @@ Rules (F-C): only ADD migrations (never edit shipped ones — prod `validate-on-
 4. Wave exit gate (all green, logged with HEAD SHA):
    - Frontend: `cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm test -- --reporter=verbose && npm run build` (mirrors `.github/workflows/post-merge-verification.yml` — `ci.yml` has NO web job; verified).
    - Backend full: `cd apps/sanad-platform && mvn test -B -ntp -Dsurefire.useFile=false` (CI uses bare `mvn` with `working-directory: apps/sanad-platform`; single-module; no root `mvnw`/`pom.xml` — verified).
-   - PostgreSQL Direct: pg-acceptance profile command with `SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass` — baseline trio `CommerceOrderPostgresConcurrencyTest:6, RbacAccessCheckPostgresAcceptanceTest:15, ModuleRegistryUatPostgresAcceptanceTest:10` (31 tests; the `expected` map lives INLINE in `.github/workflows/ci.yml` lines 535–539 — NOT in `tests/ci/*.py`; verified), extended by 4 acceptance classes in W7 Task 6 with machine-derived counts in the SAME commit.
+   - PostgreSQL Direct: pg-acceptance profile command with `SPRING_PROFILES_ACTIVE=pg-acceptance PG_ACCEPTANCE_JDBC_URL='jdbc:postgresql://127.0.0.1:5432/pg_acceptance?prepareThreshold=0' PG_ACCEPTANCE_USERNAME=sanad PG_ACCEPTANCE_PASSWORD=sanad_pass` — baseline trio `CommerceOrderPostgresConcurrencyTest:6, RbacAccessCheckPostgresAcceptanceTest:15, ModuleRegistryUatPostgresAcceptanceTest:10` (31 tests; the `expected` map lives INLINE in `.github/workflows/ci.yml` lines 535–539 — NOT in `tests/ci/*.py`; verified), extended by 4 acceptance classes in W7 Tasks 6–7 (classes created in Task 6, ci.yml map updated in Task 7) with machine-derived counts in the SAME commit.
 5. Evidence-gated reporting: no real test execution ⇒ no pass; no same-SHA evidence ⇒ no pass; final report only after exact-HEAD CI green. Count rule (mission §19): when a test count cannot exist until the test file is written, the count is derived mechanically from surefire XML and the CI map updated in the SAME commit — never invented.
 
 ## 4. Baseline test evidence (current; refreshed per wave gate)
@@ -89,7 +91,7 @@ Local battery mirroring `ci.yml` contracts against CI-contract PostgreSQL 16 (lo
 
 **Security risks**
 - S1: fail-open permissive-when-unset RLS on ~70 `crm_%` tables (vendor DO-loop `V20260730_1`) — W7 closes with enumerated DROP+fail-closed policies gated by the full CRM integration job (16 classes) + new `CrmRlsFailClosedPostgresTest`.
-- S2: finance tables ENABLE-not-FORCE — W7 forces them (Task 1); background/owner contexts already set the GUC.
+- S2 (Rev C, re-measured): 6 of 7 `finance_%` tables have NO RLS AT ALL (`finance_accounts`, `finance_invoices`, `finance_invoice_lines`, `finance_payments`, `finance_journal_entries`, `finance_journal_lines`); only `finance_invoice_number_sequences` is ENABLE+FORCE (`V20260820_6`). W7 Task 1 adds ENABLE+FORCE+fail-closed policy to exactly those 6 and is gated by a complete ACCESS-PATH MATRIX: `finance/integration/SubscriptionFinanceAdapter` (Finance-owned, sets GUC via `TenantRlsTransactionContext.applyForCurrentTransaction`), `commerce/application/CommerceFinanceAdapter` (direct `INSERT INTO finance_invoices` at line 78 + reads — must set `app.tenant_id` before FORCE), `management/application/FinanceManagementIntegrationService` (6 direct reads), `subscription/billing/application/BillingReconciliationService` (LEFT JOIN `finance_invoices` at line 93), plus every `@Scheduled` job reaching those classes — each path proven GUC-setting in the same task before the migration merges; no path may rely on table-owner privilege once FORCE is on.
 - S3: webhook endpoint is permitAll — safety rides on `DisabledBillingPaymentProvider` throwing; partner billing reuses signature-first `BillingWebhookService` ingress only.
 - S4: partner scope never comes from caller-supplied IDs — resolved from the signed `partner_id` claim (deterministic because of the one-ACTIVE-membership partial unique index, W2 Tasks 1/6/7); mismatch ⇒ 403.
 - S5 (Rev B): protected roles + break-glass are MUTATION INVARIANTS (`ProtectedRoleGuard`, `LastAdminGuard`), never a runtime precedence layer; break-glass creates a time-boxed ≤4h audited ALLOW override evaluated normally; an active direct DENY always beats it (W1 Tasks 11/15). `DecisionSource.PROTECTED_SAFETY` does not exist.
@@ -97,7 +99,7 @@ Local battery mirroring `ci.yml` contracts against CI-contract PostgreSQL 16 (lo
 
 **Billing risks**
 - B1: VAT engine does not exist (`tax_minor` hardcoded 0) — W4 introduces per-line `tax_rate` from commercial profile config; NO ZATCA/legal claims (spec §33).
-- B2 (Rev B): refunds are full-only in Finance; credit notes are represented as `finance_payments` REFUNDED rows (`reference_type='PARTNER_CREDIT_NOTE'`) through a port extension — `finance_invoices` schema untouched (no `invoice_kind` column exists there; none invented).
+- B2 (Rev C — replaces the Rev B claim, which was false): `recordRefund` is FULL-refund-only of an EXISTING settlement payment (`amountMinor != billing.totalMinor()` throws; adapter javadoc: "G07.0 intentionally introduces no refund accounting model (no credit note, no partial refund, no parallel ledger)"). It is NOT a partial credit-note primitive and is never used as one. Partial credit notes are implemented in W4 as a NEW Finance-owned additive correction authority: `FinanceCorrectionPort.recordCorrection(...)` writing corrective `finance_journal_entries`/`finance_journal_lines` (contra-revenue debit + AR credit, tax split preserved) plus a Finance-owned `finance_credit_corrections` ledger table; no `finance_payments` row is created, no existing Finance row is mutated, no negative customer invoice is issued. Without this planned task the item stays `FINANCE_CREDIT_NOTE_MODEL=BLOCKED` — it is resolved here by exactly this planned implementation task with the accounting semantics above.
 - B3: no FX — settlement enforces single currency per period (`PERIOD_CURRENCY_MIX` fail-closed).
 - B4: collected-cash truth = webhook-verified `finance_payments COMPLETED` only; manual `markInvoicePaid` structurally excluded from the candidate view (W5 Task 7).
 - B5: sequence numbering reuses the atomic `ON CONFLICT ... RETURNING` idiom of `CommerceFinanceAdapter`; partner sequences are FK'd to `partners`, and SANAD settlement invoices use the dedicated `platform_invoice_number_sequences` — never a forged partner sentinel.
@@ -107,7 +109,8 @@ Local battery mirroring `ci.yml` contracts against CI-contract PostgreSQL 16 (lo
 - M1: version collisions across parallel wave branches — eliminated by §2 pre-allocation.
 - M2: FORCE-RLS ordering + policy OR-combining — `DROP POLICY IF EXISTS` template replicated verbatim per table.
 - M3: exact-count CI gate — any trio/acceptance change updates the INLINE ci.yml map with machine-derived counts in the same commit.
-- M4: pg_acceptance DB is dropped/recreated per CI run — acceptance tests fully self-migrate; ~42 Rev B migrations measured in W4 and W7.
+- M4: pg_acceptance DB is dropped/recreated per CI run — acceptance tests fully self-migrate; ~43 Rev C migrations measured in W4 and W7.
+- M5 (Rev C): origin/main moved past the implementation base by the auth-login-v2 branding set (20 files, no control-plane backend surface). Wave branches cut from `8d0d49c7…` rebase cleanly onto current main; W7 Task 15's release runbook re-verifies the merge base and re-runs the 7-class pg-acceptance gate on the MERGED head before any release claim.
 
 ## 6. Capability contract + coverage
 
@@ -120,17 +123,17 @@ WAVE_1_TASK_COUNT = 17  (Task 1..Task 17)
 WAVE_2_TASK_COUNT = 14  (Task 1..Task 14)
 WAVE_3_TASK_COUNT = 13  (Task 1..Task 13)
 WAVE_4_TASK_COUNT = 21  (Task 1..Task 21)
-WAVE_5_TASK_COUNT = 15  (Task 1..Task 15)
+WAVE_5_TASK_COUNT = 16  (Task 1..Task 16 — +1 Finance collected-cash read port)
 WAVE_6_TASK_COUNT = 10  (Task 1..Task 10)
-WAVE_7_TASK_COUNT = 14  (Task 1..Task 14)
-TOTAL_TASK_COUNT  = 104
+WAVE_7_TASK_COUNT = 15  (Task 1..Task 15 — +1 partner-isolation acceptance class)
+TOTAL_TASK_COUNT  = 106
 ```
 
-Parse rule: `### Task N:` headings per wave file (the Rev A table-row parse of 80 is superseded). CI per-class counts are NEVER derived from these plan counts — they are derived mechanically from surefire XML at implementation (W7 Task 6).
+Parse rule (Rev C, re-parsed mechanically from the Rev C wave files): `### Task N:` headings per wave file (the Rev B parse of 104 is superseded). CI per-class counts are NEVER derived from these plan counts — they are derived mechanically from surefire XML at implementation (W7 Task 7) in the SAME commit as the ci.yml map update.
 
 ## 8. Progressive cutover
 
-Seven ordered stages G7-A..G7-G (spec §29.1 Rev B; W7 Tasks 7–13), each with exact precondition, same-SHA tests, negative security gates, observability, rollback flag, rollback trigger, post-enable smoke, and evidence path. All flags default OFF in code/config until their own gate passes. No stage turns on another subsystem's flags and no stage combines flips into one commit/deployment.
+Seven ordered stages G7-A..G7-G (spec §29.1 Rev C; W7 Tasks 8–14), each with exact precondition, same-SHA tests, negative security gates, observability (implemented metric + exact query + evidence artifact), rollback flag, rollback trigger, post-enable smoke, and evidence path — all at ONE HEAD SHA per stage (same-SHA contract). G7-A carries a NUMERIC shadow soak: ≥ 7 consecutive days AND ≥ 50,000 shadow-evaluated decisions, divergence budget exactly 0, authz p99 latency regression ≤ 10 % vs the pre-stage baseline measured over the same window. All flags default OFF/legacy in every committed file until their own gate passes (stage "defaults true" exist ONLY as deployment env/profile values, never committed). Security-hardening DDL (`V20260930_1/_2`) is forward-only: rollback is flag-level only; no compensating script ever re-enables permissive RLS. No stage turns on another subsystem's flags and no stage combines flips into one commit/deployment.
 
 ## 9. Stop condition
 

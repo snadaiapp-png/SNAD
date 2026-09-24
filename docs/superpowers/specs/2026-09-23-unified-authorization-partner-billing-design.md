@@ -1,9 +1,10 @@
 # SANAD Unified Authorization, Partner Control Plane & Hierarchical Billing — Architecture Design
 
-**Date:** 2026-09-23 · **Revision B — 2026-09-24 correction record**  
-**Status:** DESIGN APPROVED — REVISED per independent review (`INDEPENDENT_REVIEW_COMPLETE` → `PLAN_CORRECTION_REQUIRED`). Revision B supersedes Revision A wherever they differ.  
-**Repository baseline:** `8d0d49c7bdd3ad3a886a23cffc1e735e61998712` (= origin/main; correction branch `docs/unified-control-plane-plan-corrections`)  
+**Date:** 2026-09-23 · **Revision C — 2026-09-24 second independent-review correction record**  
+**Status:** DESIGN APPROVED — Revision C supersedes Revision B wherever they differ. Implementation NOT authorized (`WAVE_1_AUTHORIZED=NO`); next gate `INDEPENDENT_RE_REVIEW_OF_REVISION_C`.  
+**Repository baseline:** `8d0d49c7bdd3ad3a886a23cffc1e735e61998712` (original implementation base; Rev B recovered byte-exact from the GitHub recovery branch `recovery/revision-b-planning-bundle` @ `72565531cf57fdaf36b16700f1705cea536a4af2`, ZIP SHA256 `26c40bc0…54ba`, `REVISION_B_DOCUMENT_RECOVERY=10/10_EXACT`; Rev C written on `docs/unified-control-plane-plan-corrections-r2-recovered`, Rev B base commit `cb5ef42c7ece6bca5aa401356d4b9ae52219720c`)  
 **Design branch:** `design/unified-authorization-partner-billing`  
+**Revision C changes:** §6.1 (`SUBSCRIPTION.MANAGE` + `SETTLEMENT.MANAGE` capability-chain completion), §14.3 (platform_files RLS baseline corrected — RLS already ENABLEd by `V20260911_2`; exact policy-name DROP; logo registration-of-already-stored-object scope with `W3_STORAGE_ADAPTER=BLOCKED` for byte transport), §15 (allocate-invoice-UUID-first capture order), §18.5–§18.6 (run model nullable-period binding, QUEUED/APPLIED adjustment model with atomic claim, DB-level finalized-economics immutability, negative-residual carry-forward), §18 (SANAD→Partner settlement invoices via an explicit Finance principal-invoice port — never a forged tenant/subscription UUID), §19 (Finance boundary contract + additive correction authority — the Rev B "credit notes as REFUNDED finance_payments rows" claim is withdrawn as false), §21.1 (audience scope vs source attribution), §29.1 (numeric shadow soak, same-SHA stage contract, committed defaults OFF, forward-only rollback), §31.3 (new mandatory tests), §32 (protected release chain + authenticated UI final gate).
 **Revision B changes:** §4.1 runtime decision algorithm (protected safety is NOT a precedence layer), §5 protected role set, §6.1 Capability Contract Table, §9 Direct DENY v1 database invariant, §13 delegation vocabulary, §13.1 deterministic partner membership, §14.3 platform_files repository-grounded model, §17.2 auto-invoicing carrier, §18.3 agreement temporal integrity, §18.5–§18.7 settlement state machine + adjustments + fee display, §21.1 notification scoping/RLS, §22.4–§22.5 dashboard exact schema + reconciliation invariant, §29.1 progressive cutover, §31.6 correction-mandated tests.  
 
 ---
@@ -262,12 +263,13 @@ Every capability consumed by this design is listed once here. Delegated partner 
 | `BILLING.MANAGE` | PARTNER (delegated), PLATFORM | partner billing administration | YES | no | partner invoice draft/issue, credit-note administration | `V20260925_5` (W2 — created once; consumed by platform and delegated surfaces) |
 | `PARTNER.INVOICE.ISSUE` | PARTNER (delegated) | own bound tenants | YES | no | `/api/v1/partner/invoices` issue | `V20260927_9` (W4) |
 | `PARTNER.CREDITNOTE.ISSUE` | PARTNER (delegated) | own bound tenants | YES | no | `/api/v1/partner/credit-notes` | `V20260927_9` (W4) |
-| `SETTLEMENT.VIEW` | PARTNER (self read), PLATFORM | own periods/items | no | no | `/api/v1/partner/settlements`, executive settlements read | `V20260927_9` (W4) |
+| `SETTLEMENT.VIEW` | PARTNER (self read), PLATFORM | own periods/items | no | no | `/api/v1/partner/settlements`, executive settlements read/reconcile | `V20260927_9` (W4) |
+| `SETTLEMENT.MANAGE` | PLATFORM only | platform | no | no | executive settlements calculate/approve | `V20260927_9` (W4 — Rev C: closes the calculate/approve authority gap; full chain VIEW/MANAGE/FINALIZE consistent across registry, seeds, controllers, tests) |
 | `SETTLEMENT.FINALIZE` | PLATFORM only | platform | no | YES | `/api/v1/executive/settlements` finalize | `V20260927_9` (W4) |
 | `PARTNER.PLATFORM.MANAGE` | PLATFORM only | platform | no | YES | `/api/v1/executive/partners/**` | `V20260925_5` (W2) |
 | `TENANT.CREATE` / `TENANT.ACTIVATE` / `TENANT.SUSPEND` | PARTNER (delegated), PLATFORM | delegated tenant targets | YES | no | partner provisioning paths | `V20260925_5` (W2) |
 | `TENANT.USER.MANAGE` / `TENANT.AUTHORIZATION.MANAGE` | PARTNER (delegated), PLATFORM | delegated tenant targets | YES | no | partner user/authorization delegation | `V20260925_5` (W2) |
-| `SUBSCRIPTION.CREATE` / `SUBSCRIPTION.UPGRADE` / `SUBSCRIPTION.DOWNGRADE` / `SUBSCRIPTION.CANCEL` | PARTNER (delegated), PLATFORM | delegated tenants | YES | no | partner subscription delegation | `V20260925_5` (W2) |
+| `SUBSCRIPTION.CREATE` / `SUBSCRIPTION.MANAGE` / `SUBSCRIPTION.UPGRADE` / `SUBSCRIPTION.DOWNGRADE` / `SUBSCRIPTION.CANCEL` | PARTNER (delegated), PLATFORM | delegated tenants | YES | no | partner subscription delegation; `SUBSCRIPTION.MANAGE` is the trial-continuation authority (Rev C — unified across W4 Task 11, W2 seeds/allowlist, UI gate, tests) | `V20260925_5` (W2) |
 | `COMMERCIAL.PROFILE.READ` / `COMMERCIAL.PROFILE.WRITE` | TENANT | own tenant | no | no | `/api/v1/commercial/**` | `V20260926_5` (W3) |
 | `PARTNER.COMMERCIAL.READ` / `PARTNER.COMMERCIAL.WRITE` | PARTNER | own partner | no | no | `/api/v1/partner/commercial/**` | `V20260926_5` (W3) |
 | `AUTHORIZATION.OVERRIDE.MANAGE` / `AUTHORIZATION.RELATIONSHIP.MANAGE` / `AUTHORIZATION.RESYNC` / `AUTHORIZATION.BREAK_GLASS` / `AUTHORIZATION.RECOVER` / `AUTHORIZATION.PLATFORM.MANAGE` | PLATFORM, TENANT admins (per code) | tenant/platform | no | YES | `/api/v1/access/**`, `/api/v1/executive/authorization/**` | `V20260924_4` (W1) |
@@ -490,6 +492,7 @@ TENANT.SUSPEND
 TENANT.USER.MANAGE
 TENANT.AUTHORIZATION.MANAGE
 SUBSCRIPTION.CREATE
+SUBSCRIPTION.MANAGE
 SUBSCRIPTION.UPGRADE
 SUBSCRIPTION.DOWNGRADE
 SUBSCRIPTION.CANCEL
@@ -555,9 +558,9 @@ The screen supports structured commercial data, tax data, addresses, contact num
 
 Branding is modeled separately so future white-label/co-branding can be added without redesigning business identity or authorization.
 
-### 14.3 Logo/asset storage — `platform_files` extension (repository-grounded, Revision B)
+### 14.3 Logo/asset storage — `platform_files` extension (repository-grounded, Revision C)
 
-The existing `platform_files` table (`V20260911_2`) has exactly: `tenant_id NOT NULL`, `source_module`, `source_entity_type`, `source_entity_id`, `mime_type`, `size_bytes`, `checksum_sha256`, `classification`, `storage_reference`, `uploaded_by`. It has NO `kind` column and NO `partner_id` column. The design therefore:
+The existing `platform_files` table (`V20260911_2`) has exactly: `tenant_id NOT NULL`, `source_module`, `source_entity_type`, `source_entity_id`, `mime_type`, `size_bytes`, `checksum_sha256`, `classification`, `storage_reference`, `uploaded_by`. It has NO `kind` column and NO `partner_id` column. REV C BASELINE CORRECTION (re-verified in the repository): the SAME migration ALREADY enables row-level security on `platform_files` with a fail-closed tenant-only policy named `platform_files_tenant_isolation` (`USING (tenant_id = current_setting('app.tenant_id', true))`, ENABLE but NOT FORCE, no partner/platform branches) — the table is NOT RLS-less. The design therefore:
 
 - does NOT use a fabricated `platform_files.kind = 'BRAND_LOGO'` field;
 - reuses the table without creating a duplicate blob/file registry, and does not fake a partner as a normal customer tenant;
@@ -574,8 +577,10 @@ tenant-owned asset:   tenant_id = actual tenant, partner_id NULL
 
   (partner assets may use the canonical control-plane tenant carrier only);
 - enforces a CHECK preventing ambiguous ownership (a row with `partner_id` set must carry the control-plane carrier tenant, not a customer tenant);
-- rewrites `platform_files` RLS as ONE fail-closed principal-aware policy (ENABLE + FORCE + `DROP POLICY IF EXISTS` first) or a proven non-overbroad policy set;
+- rewrites `platform_files` RLS as ONE fail-closed principal-aware policy (ENABLE + FORCE + `DROP POLICY IF EXISTS platform_files_tenant_isolation` — the EXACT existing policy name — first) or a proven non-overbroad policy set, verified against `pg_policy` after the migration;
 - mandates regression of ALL existing Workflow attachment/file-reference behavior, because `platform_files` is shared infrastructure.
+
+REV C STORAGE-ADAPTER SCOPE (`W3_STORAGE_ADAPTER`): the repository contains NO byte-storage adapter — `PlatformFileReferenceService` is registration-only (the caller supplies the opaque `storage_reference`; its javadoc records that no object/file storage service exists; no S3/MinIO/GCS/Azure dependency exists). W3 therefore delivers a `StorageAdapter` PORT CONTRACT plus logo REGISTRATION OF AN ALREADY-STORED OBJECT (metadata validation + atomic `platform_files` row + `brand_profiles` pointer in one transaction; a failed DB commit leaves no registry row; the future `store(bytes)` path must define its own orphan-cleanup on DB-commit failure). A browser-multipart byte-upload endpoint is NOT part of this design's deliverable scope until a real storage adapter exists — `REAL_BYTE_STORAGE_ADAPTER` is recorded as an explicitly BLOCKED out-of-scope dependency, never silently assumed.
 
 ---
 
@@ -600,6 +605,8 @@ contract/invoice references
 Changing a company logo, address, or tax profile later must not alter historical invoices.
 
 Post-issuance financial corrections use credit notes/adjustments, not silent mutation of historical financial records.
+
+REV C CAPTURE ORDER: the invoice UUID is allocated FIRST; the SELLER and BUYER snapshots are INSERTed already bound to that `invoice_id` (`NOT NULL`, FK to the invoice table, UNIQUE per `(invoice_id, side)`) inside the issuance transaction — DRAFT row → SELLER snapshot → BUYER snapshot → issue; the API shape is `captureForInvoice(invoiceId, principalId, snapshotFor)`. A post-issuance late-binding UPDATE of the snapshot↔invoice association is structurally impossible (NOT NULL + immutability trigger), never merely prohibited by convention.
 
 ---
 
@@ -794,9 +801,15 @@ After FINALIZED:
 
 Concurrent calculate/finalize is serialized on the period row; exactly one finalizer wins. "Incremental delta only" is NOT part of the model.
 
+REV C RUN MODEL: a settlement RUN record may exist BEFORE its period row (`period_id` NULL while `state` is `RUNNING` or `FAILED` — pre-period probes, currency pre-checks, dry-run validation); the database enforces `CHECK (state <> 'COMPLETED' OR period_id IS NOT NULL)`; the calculation binds `period_id` in the SAME transaction that creates/locks the period and marks the run COMPLETED (atomic claim — a COMPLETED run is never unbound).
+
+REV C FINALIZED-ECONOMICS IMMUTABILITY: finalized/invoiced period economics (totals, items, per-item `agreement_version_id`, `finance_payment_id`, `tenant_invoice_id`, charges, eligible-net) are immutable at the DATABASE level (triggers rejecting UPDATE/DELETE), not merely by service convention; only adjustment rows change after finalization, never finalized history.
+
+REV C NEGATIVE-RESIDUAL RULE: a correction exceeding collected amounts yields a NEGATIVE eligible net that is preserved deterministically and carried into the next period's calculation — never silently clamped to 0, never materialized as a negative customer invoice (the platform charge floors at 0 and the residual carries forward; the test matrix covers net < 0, = 0, > 0).
+
 ### 18.6 Late adjustments after finalization
 
-Adjustment items live in a dedicated table (`partner_settlement_adjustment_items`) with FKs to the original invoice/payment and the source settlement period, carrying signed amounts. They participate in the next open period's eligible-net calculation. Finalized periods are never mutated.
+Adjustment items live in a dedicated table (`partner_settlement_adjustment_items`) with FKs to the original invoice/payment and the source settlement period, carrying signed amounts and an `idempotency_key`. REV C ADJUSTMENT MODEL: an item is `QUEUED` (target period not yet known — `target_period_id` NULL) or `APPLIED` (bound to a NON-finalized target period with the claiming run recorded); the next period calculation claims QUEUED items ATOMICALLY inside its transaction (row-locked claim stamping `target_period_id`, `claimed_by_run_id`, `claimed_at` — concurrent calculations can never double-claim); duplicate emission with the same idempotency key is a strict no-op. Finalized periods are never mutated.
 
 ### 18.7 Fee percentage authority and display (Revision B)
 
@@ -818,7 +831,11 @@ ledger truth
 financial status
 ```
 
-Subscription/partner billing services coordinate commercial calculations and projections, then integrate into Finance through explicit idempotent ports.
+Subscription/partner billing services coordinate commercial calculations and projections, then integrate into Finance through explicit idempotent ports. The Finance boundary contract (Rev C): billing, settlement, and commerce code NEVER query or write Finance tables (`finance_invoices`, `finance_payments`, `finance_journal_entries`, `finance_journal_lines`, `finance_accounts`) directly — WRITES go through Finance-owned ports (`SubscriptionFinancePort.ensureInvoice/recordSettlement/recordRefund`, `FinanceCorrectionPort.recordCorrection`, `FinancePrincipalInvoicePort.ensurePrincipalInvoice`), and already-collected-cash READS go through the Finance-owned `CollectedCashReadPort`; an architecture boundary test fails the build for any direct Finance-table reference under `partner/billing/**` or `partner/settlement/**` (and commerce paths are covered by the W7 FORCE-RLS access-path matrix).
+
+REV C CREDIT-NOTE ACCOUNTING AUTHORITY (resolves `FINANCE_CREDIT_NOTE_MODEL`): the existing `recordRefund` is FULL-refund-only of an EXISTING settlement payment (partial amounts throw; Finance javadoc: "no credit note, no partial refund, no parallel ledger") and is NEVER used for partial credit notes — the Rev B representation of credit notes as NEW `finance_payments` rows with `status='REFUNDED'` is withdrawn as FALSE. Partial credit notes are implemented as a Finance-owned ADDITIVE correction authority: `FinanceCorrectionPort.recordCorrection(...)` writes a balanced corrective journal entry (DEBIT contra-revenue/sales-returns + DEBIT tax relief per the original invoice's tax ratio, CREDIT accounts-receivable) plus a `finance_credit_corrections` ledger row keyed `UNIQUE (tenant_id, billing_credit_note_id)` for idempotency; NO `finance_payments` row is created, NO existing Finance row is mutated, NO negative customer invoice is issued; Finance recomputes derived invoice balances from invoice minus applied corrections.
+
+REV C PRINCIPAL-LEVEL SANAD→PARTNER INVOICES: a SETTLEMENT invoice is a principal-level document — `invoice_kind='SETTLEMENT'`, seller = the SANAD PLATFORM principal, buyer = the PARTNER principal, `tenant_id` = the canonical control-plane tenant acting ONLY as the RLS/storage carrier (never a fabricated tenant, subscription, or sentinel UUID); Finance mirroring goes through an explicit `FinancePrincipalInvoicePort.ensurePrincipalInvoice(settlementInvoiceId, sellerPrincipalId, buyerPrincipalId, amountMinor, currencyCode)` — never the tenant-carried `SubscriptionFinancePort.ensureInvoice(tenantId, …)`; `billing_invoices` carries kind-scoped conditional constraints distinguishing STANDARD (real tenant context) from SETTLEMENT (carrier tenant + both principals set).
 
 Existing live-payment activation controls remain unchanged. This design does not itself authorize live payment collection or production card charging.
 
@@ -902,9 +919,9 @@ For every partner-created account/tenant and every partner change to a tenant or
 
 Notifications and audit are separate. Deleting/reading a notification never deletes audit evidence.
 
-### 21.1 Notification scoping and RLS model (explicit, Revision B)
+### 21.1 Notification scoping and RLS model (explicit, Revision C)
 
-`notification_events` carries denormalized scope columns `scope CHECK IN ('PLATFORM','PARTNER','TENANT')`, `tenant_id`, `partner_id` with consistency CHECKs (`scope='TENANT'` ⇒ `tenant_id NOT NULL AND partner_id IS NULL`; `scope='PARTNER'` ⇒ `partner_id NOT NULL AND tenant_id IS NULL`; `scope='PLATFORM'` ⇒ both NULL). `notification_deliveries` denormalizes the same scope columns from its event (NOT NULL, consistency CHECKs), so every delivery row is independently RLS-scoped without joins. RLS is ENABLE + FORCE with explicit policies written in the migration (owner rows readable in control-plane context; partner rows only under the matching `app.partner_id` GUC; tenant rows only under the matching `app.tenant_id` GUC). A partner can never read platform-owner deliveries. Acknowledge/read is restricted to the recipient: `WITH CHECK` includes `recipient_user_id` congruence with the session identity, and the service re-validates ownership. Mandatory negative tests: Partner A cannot see Partner B deliveries; Tenant A cannot see Tenant B deliveries; a partner cannot read platform-owner deliveries; a recipient cannot acknowledge another recipient's delivery.
+`notification_events` carries denormalized scope columns `scope CHECK IN ('PLATFORM','PARTNER','TENANT')`, `tenant_id`, `partner_id` with consistency CHECKs (`scope='TENANT'` ⇒ `tenant_id NOT NULL AND partner_id IS NULL`; `scope='PARTNER'` ⇒ `partner_id NOT NULL AND tenant_id IS NULL`; `scope='PLATFORM'` ⇒ both NULL). REV C AUDIENCE-SOURCE SEPARATION: each event row has EXACTLY ONE audience scope — the `scope`/`tenant_id`/`partner_id` triple that RLS is computed from — plus pure SOURCE ATTRIBUTION columns `source_partner_id`/`source_tenant_id` (nullable) naming the acting/source principal; attribution columns appear in NO policy predicate and are negative-tested (forged source values cannot widen visibility). A partner-action event surfaced to the platform owner is scope='PLATFORM' with `source_partner_id` set — never dual-scoped. `notification_deliveries` denormalizes the same audience scope from its event (NOT NULL, consistency CHECKs), so every delivery row is independently RLS-scoped without joins. RLS is ENABLE + FORCE with explicit policies written in the migration (owner rows readable only in the control-plane context; partner rows only under the matching `app.partner_id` GUC; tenant rows only under the matching `app.tenant_id` GUC). A partner can never read platform-owner deliveries. Acknowledge/read is restricted to the recipient: the WITH CHECK uses the Rev C two-branch recipient rule — a session context (`app.current_user_id` set) may only write rows whose `recipient_user_id` equals that GUC, and background fan-out writes are permitted ONLY from the verified control-plane context (carrier tenant GUC + `app.partner_id` NULL); the `COALESCE(current_setting('app.current_user_id', true), recipient_user_id::text)` pattern is explicitly FORBIDDEN (it vacates the check when the GUC is unset), and the service re-validates ownership. Mandatory negative tests: Partner A cannot see Partner B deliveries; Tenant A cannot see Tenant B deliveries; a partner cannot read platform-owner deliveries; a recipient cannot acknowledge another recipient's delivery; forged `source_partner_id` values expose nothing.
 
 ---
 
@@ -1323,6 +1340,33 @@ G7-G Notifications + Dashboards
 
 Each stage defines: exact precondition; same-SHA tests; negative security gates; observability; rollback flag; rollback trigger; post-enable smoke; evidence path.
 
+REV C STAGE-CONTRACT HARDENING (binding on the W7 stage records):
+
+```text
+SAME-SHA: every gate runs at ONE HEAD SHA recorded as STAGE_SHA with a clean
+         working tree; any tracked commit after a gate invalidates it and
+         restarts the FULL stage gate at the new SHA; evidence lives in
+         snad-evidence/ (untracked) or CI artifacts, never as tracked commits
+         after the gate.
+OBSERVABILITY: every stage names (i) the metric/counter implemented and
+         where, (ii) the EXACT query/expression evaluated, (iii) the evidence
+         artifact path — "metrics exist" is not evidence without (ii)+(iii).
+G7-A NUMERIC SHADOW SOAK: >= 7 consecutive calendar days AND >= 50,000
+         shadow-evaluated decisions; divergence budget exactly 0; authz p99
+         latency regression <= 10% vs the pre-stage baseline over the same
+         window; daily metric rows recorded in the stage evidence log.
+COMMITTED DEFAULTS: every flag ships default OFF/legacy in all committed
+         config for the whole program; stage "defaults true" exist only as
+         deployment env/profile values, verified by a config grep at every
+         stage gate.
+ROLLBACK: flag-level revert is the only runtime rollback; security-hardening
+         DDL (FORCE RLS, fail-closed policies, immutability triggers) is
+         FORWARD-ONLY — no down-migration and NO compensating script that
+         re-enables permissive RLS ever exists; regressions are fixed by
+         forward migrations or flag revert, emergency access only via the
+         §5.1 break-glass grant.
+```
+
 ---
 
 ## 30. Security invariants
@@ -1399,17 +1443,26 @@ Mandatory tests include:
 ```text
 manual tenant invoice by authorized partner
 automatic invoice only after confirmed continuation and ACTIVE_BILLABLE
+automatic issuance is idempotent: dual scheduler on the same subscription+period yields exactly one invoice, one Finance mirror, one outbox fact (issuance_idempotency_key partial unique)
 partner invoice uses partner seller snapshot
+snapshots are captured bound to a pre-allocated invoice UUID; no late-binding association exists
 tenant buyer snapshot immutable after issuance
 cross-partner invoice denied
 settlement uses actual collected payments only
+collected-cash reads go through the Finance-owned CollectedCashReadPort; no direct finance-table SQL under partner/billing/** or partner/settlement/** (boundary test)
 VAT/tax excluded from eligible net collected base
 refund reduces eligible base
-credit note reduces eligible base
+credit note reduces eligible base via a balanced additive Finance journal correction; no finance_payments row is created; the original settlement payments are untouched (FinanceCorrectionAccountingPostgresTest)
+negative eligible net is preserved and carried forward, never clamped to 0 and never issued as a negative customer invoice (matrix: net < 0, = 0, > 0)
+one Finance payment is never economically allocated into two finalized periods (concurrency proof)
+settlement invoice totals, Finance mirror, and period charges are congruent end-to-end (cross-entity financial congruence chain test)
+settlement run model: a COMPLETED run always binds its period (CHECK); pre-period RUNNING/FAILED runs carry NULL period_id
+late adjustments claim target periods atomically (QUEUED→APPLIED, single claimant under concurrency, idempotency-key no-op replay)
 invoice binds the effective agreement version at issuance
 rate version does not retroactively change previous settlement economics
 replay/idempotency of settlement generation
 Finance invoice is authoritative
+SANAD→Partner settlement invoices use the Finance principal-invoice port with PLATFORM seller and PARTNER buyer principals; no fabricated tenant/subscription identifiers
 ```
 
 ### 31.4 Dashboard tests
@@ -1489,6 +1542,8 @@ Backward-compatible capability enforcement
 Finance remains authoritative
 PostgreSQL Direct security/isolation tests PASS
 Frontend RTL/accessibility/mobile tests PASS
+Protected release chain: the CURRENT branch-protection required-check set is DISCOVERED from repository settings (authenticated API evidence, `required-checks.json`) before any release claim — when discovery is blocked (e.g. HTTP 403 without admin/token access), the release claim is BLOCKED, and candidate job names are never asserted as required checks
+Authenticated UI final gate PASS: authenticated desktop + mobile Playwright suites (existing session helper), axe-core accessibility report with zero critical/serious violations, and the vitest/RTL component suite — all at the release SHA
 ```
 
 ---

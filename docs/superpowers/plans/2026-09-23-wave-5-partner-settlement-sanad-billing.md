@@ -4,6 +4,7 @@
 
 **Spec:** Revision B — §18 (settlement basis B: actual net collected revenue), §18.3 (version pinning), §18.5 (period state machine: full deterministic rebuild; same key = strict no-op; new key = transactional replace; FINALIZED immutable), §18.6 (late adjustments = next-period items), §18.7 (NO persisted period fee authority; derived `weighted_effective_fee_percent` display only), §19 (Finance authoritative), §6.1, §31.6 (concurrency + adjustment tests).
 **Depends on:** W4. **Migrations:** `V20260928_1`..`V20260928_6` · **Flag:** `SANAD_SETTLEMENT_ENABLED` (default `false`).
+**Rev C (R2) changes in this wave:** (1) Task 1 run model — `partner_settlement_runs.period_id` is NULLABLE for pre-period RUNNING/FAILED runs with CHECK `state <> 'COMPLETED' OR period_id IS NOT NULL`; adjustment items gain `status ('QUEUED','APPLIED')` with `target_period_id` NULL while QUEUED / NOT NULL once APPLIED, plus a UNIQUE idempotency key; (2) Task 4 calculator — negative eligible results are NEVER silently clamped to 0; the negative residual is preserved deterministically and carried forward (period CHECKs allow negative eligible net; no negative client invoice is ever issued); (3) NEW Task 8 `CollectedCashReadPort` — collected-cash truth is read through a Finance-owned read port with an architecture boundary test forbidding direct Finance SQL from `partner/billing/**` AND `partner/settlement/**`; (4) Task 10 — SANAD→Partner settlement invoices use an explicit Finance PRINCIPAL-invoice port (`ensurePrincipalInvoice`), seller = PLATFORM principal, buyer = PARTNER principal, control-plane tenant as RLS/storage carrier only — never a forged subscription/tenant UUID; (5) `SETTLEMENT.MANAGE` added to the capability chain (calculate/approve authority; `SETTLEMENT.VIEW` read-only; `SETTLEMENT.FINALIZE` platform-only), consistent across registry seeds, controllers, tests, and the spec §6.1 table.
 
 ## Goal
 
@@ -55,10 +56,10 @@ Interfaces:
 - [ ] Step 1: exact failing test — schema + FK register asserted via `pg_constraint`: (a) `partner_settlement_items.finance_payment_id → finance_payments(id)` FK YES; (b) `partner_settlement_items.tenant_invoice_id → billing_invoices(id)` FK YES; (c) `partner_settlement_items.agreement_version_id → partner_commercial_agreement_versions(id)` FK YES; (d) `partner_settlement_runs.partner_id → partners(id)` and `.period_id → partner_settlement_periods(id)` FK YES; (e) `partner_settlement_adjustment_items` FKs to `billing_invoices(id)`, `finance_payments(id)`, `partner_settlement_periods(id)` (source period) all YES; (f) NO column `platform_fee_percent` on periods; (g) `UNIQUE (partner_id, period_start, period_end)` enforced; (h) random-UUID insert into any FK column rejected 23503. Composite FORCE RLS on all four tables (partner READ own; writes platform context only).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.settlement.SettlementSchemaFkPostgresTest test` → relations missing (red).
 - [ ] Step 3: exact minimal implementation — `V20260928_1__partner_settlement_schema.sql`:
-  `partner_settlement_periods(id uuid pk, partner_id uuid NOT NULL REFERENCES partners(id), period_start date NOT NULL, period_end date NOT NULL, currency_code char(3) NOT NULL, status text NOT NULL DEFAULT 'CALCULATED' CHECK (status IN ('CALCULATED','PENDING_APPROVAL','FINALIZED','INVOICED','CANCELLED')), eligible_net_collected_minor bigint NOT NULL DEFAULT 0 CHECK (eligible_net_collected_minor >= 0), sanad_charge_minor bigint NOT NULL DEFAULT 0 CHECK (sanad_charge_minor >= 0), calculated_at timestamptz, calculated_by uuid, finalized_by uuid NULL, finalized_at timestamptz NULL, created_at/updated_at, version bigint NOT NULL DEFAULT 0, CHECK (period_end >= period_start), UNIQUE (partner_id, period_start, period_end))` — header comment: per spec §18.7 Rev B option A, NO period-level fee column; dashboards derive `weighted_effective_fee_percent` at read time.
+  `partner_settlement_periods(id uuid pk, partner_id uuid NOT NULL REFERENCES partners(id), period_start date NOT NULL, period_end date NOT NULL, currency_code char(3) NOT NULL, status text NOT NULL DEFAULT 'CALCULATED' CHECK (status IN ('CALCULATED','PENDING_APPROVAL','FINALIZED','INVOICED','CANCELLED')), eligible_net_collected_minor bigint NOT NULL DEFAULT 0, sanad_charge_minor bigint NOT NULL DEFAULT 0 CHECK (sanad_charge_minor >= 0), calculated_at timestamptz, calculated_by uuid, finalized_by uuid NULL, finalized_at timestamptz NULL, created_at/updated_at, version bigint NOT NULL DEFAULT 0, CHECK (period_end >= period_start), UNIQUE (partner_id, period_start, period_end))` — header comment: per spec §18.7 Rev C option A, NO period-level fee column; dashboards derive `weighted_effective_fee_percent` at read time; REV C: `eligible_net_collected_minor` deliberately has NO `>= 0` CHECK — a negative net (over-refund/correction beyond collections) is a REAL economic state that is preserved and carried forward (never silently clamped to 0); `sanad_charge_minor` stays `>= 0` (a negative net yields charge 0 and a carried residual, never a negative customer invoice).
   `partner_settlement_items(id uuid pk, period_id uuid NOT NULL REFERENCES partner_settlement_periods(id), partner_id uuid NOT NULL REFERENCES partners(id), tenant_invoice_id uuid NOT NULL REFERENCES billing_invoices(id), finance_payment_id uuid NOT NULL REFERENCES finance_payments(id), agreement_version_id uuid NOT NULL REFERENCES partner_commercial_agreement_versions(id), gross_collected_minor bigint NOT NULL, tax_minor bigint NOT NULL DEFAULT 0, refund_minor bigint NOT NULL DEFAULT 0, credit_note_minor bigint NOT NULL DEFAULT 0, eligible_net_minor bigint NOT NULL, platform_charge_minor bigint NOT NULL, created_at/updated_at, UNIQUE (tenant_invoice_id, finance_payment_id))` + indexes `(period_id)`, `(partner_id, agreement_version_id)`.
-  `partner_settlement_runs(id uuid pk, partner_id uuid NOT NULL REFERENCES partners(id), period_id uuid NOT NULL REFERENCES partner_settlement_periods(id), idempotency_key text NOT NULL, state text NOT NULL CHECK (state IN ('RUNNING','COMPLETED','FAILED')), stats jsonb NOT NULL DEFAULT '{}', started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz, UNIQUE (partner_id, idempotency_key))`.
-  `partner_settlement_adjustment_items(id uuid pk, partner_id uuid NOT NULL REFERENCES partners(id), target_period_id uuid NOT NULL REFERENCES partner_settlement_periods(id), source_period_id uuid NULL REFERENCES partner_settlement_periods(id), tenant_invoice_id uuid NULL REFERENCES billing_invoices(id), finance_payment_id uuid NULL REFERENCES finance_payments(id), adjustment_type text NOT NULL CHECK (adjustment_type IN ('LATE_REFUND','LATE_CREDIT_NOTE','LATE_COLLECTION','CORRECTION')), amount_minor bigint NOT NULL, reason text NOT NULL, created_by uuid NOT NULL, created_at, CHECK (amount_minor <> 0))` — signed amounts participate in the NEXT open period's eligible-net (spec §18.6).
+  `partner_settlement_runs(id uuid pk, partner_id uuid NOT NULL REFERENCES partners(id), period_id uuid NULL REFERENCES partner_settlement_periods(id), idempotency_key text NOT NULL, state text NOT NULL CHECK (state IN ('RUNNING','COMPLETED','FAILED')), stats jsonb NOT NULL DEFAULT '{}', started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz, UNIQUE (partner_id, idempotency_key), CHECK (state <> 'COMPLETED' OR period_id IS NOT NULL))` — REV C run model: a run may START before its period row exists (pre-period RUNNING/FAILED probes, currency pre-checks, dry-run validation) so `period_id` is NULLABLE; the CHECK guarantees a COMPLETED run is always bound to its period; the calculate service binds `period_id` in the SAME transaction that creates/locks the period row and marks the run COMPLETED (atomic claim — no window where a COMPLETED run lacks its period).
+  `partner_settlement_adjustment_items(id uuid pk, partner_id uuid NOT NULL REFERENCES partners(id), status text NOT NULL DEFAULT 'QUEUED' CHECK (status IN ('QUEUED','APPLIED')), target_period_id uuid NULL REFERENCES partner_settlement_periods(id), source_period_id uuid NULL REFERENCES partner_settlement_periods(id), tenant_invoice_id uuid NULL REFERENCES billing_invoices(id), finance_payment_id uuid NULL REFERENCES finance_payments(id), adjustment_type text NOT NULL CHECK (adjustment_type IN ('LATE_REFUND','LATE_CREDIT_NOTE','LATE_COLLECTION','CORRECTION')), amount_minor bigint NOT NULL, idempotency_key text NOT NULL, reason text NOT NULL, claimed_by_run_id uuid NULL REFERENCES partner_settlement_runs(id), claimed_at timestamptz NULL, created_by uuid NOT NULL, created_at, CHECK (amount_minor <> 0), UNIQUE (idempotency_key), CHECK ((status = 'APPLIED' AND target_period_id IS NOT NULL AND claimed_by_run_id IS NOT NULL) OR (status = 'QUEUED' AND target_period_id IS NULL AND claimed_by_run_id IS NULL)))` — REV C adjustment model: QUEUED items carry NULL target and are claimed ATOMICALLY by the next period calculation (`UPDATE ... SET status='APPLIED', target_period_id=<next period>, claimed_by_run_id=<run>, claimed_at=now() WHERE id IN (...) AND status='QUEUED'` inside the calculate transaction — the row lock guarantees exactly one claiming run); APPLIED items are permanently bound; the UNIQUE idempotency key makes re-emission of the same adjustment a no-op; signed amounts participate in the target period's eligible-net (spec §18.6). SAME migration ships the FINALIZED-ECONOMICS IMMUTABILITY triggers: `BEFORE UPDATE OR DELETE ON partner_settlement_periods WHEN OLD.status IN ('FINALIZED','INVOICED')` and `BEFORE UPDATE OR DELETE ON partner_settlement_items` (joining periods' status) raise exception `finalized settlement economics are immutable (spec §18.5) — use next-period adjustment items` — covering totals, items, `agreement_version_id`, `finance_payment_id`, `tenant_invoice_id`, charges, and eligible-net; only adjustment rows may change afterwards (status QUEUED→APPLIED claim), never finalized history.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green (register complete).
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.security.rls.FlywayJavaMigrationsChainConsistencyTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave5(schema): settlement schema, complete FK register, adjustment items (C1)"`.
@@ -108,7 +109,7 @@ Interfaces:
 - Consumes: per invoice+payment collection facts.
 - Produces: `{gross, tax, refund, creditNote, eligibleNet}` — `eligibleNet = gross − tax_portion − refunds − credit_notes`; NO second discount subtraction.
 
-- [ ] Step 1: exact failing test — §31.3 matrix: VAT excluded (collected 1000 incl. 50 VAT ⇒ 950); refund reduces (950 − 100 ⇒ 850); credit note reduces; discount NOT double-subtracted (invoice 1000 with 50 discount, collected 950, VAT 0 ⇒ 950); zero-eligibility edge ⇒ 0 (item retained with 0 charge); negative-result clamps to 0 with audit flag in output.
+- [ ] Step 1: exact failing test — §31.3 matrix: VAT excluded (collected 1000 incl. 50 VAT ⇒ 950); refund reduces (950 − 100 ⇒ 850); credit note reduces; discount NOT double-subtracted (invoice 1000 with 50 discount, collected 950, VAT 0 ⇒ 950); zero-eligibility edge ⇒ 0 (item retained with 0 charge); REV C NEGATIVE-CARRYOVER matrix: corrections exceeding collected amounts produce a NEGATIVE eligible net that is preserved verbatim (collected 500, corrections −700 ⇒ eligible_net = −200, output carries the negative value and an `AUDIT_NEGATIVE_RESIDUAL` flag — NO clamping to 0 anywhere in the calculator or persistence); the negative residual deterministically reduces the NEXT period's eligible net (carry-forward semantics proven with a two-period fixture); (Rev C matrix edges) net < 0, net == 0, net > 0 after a late correction each assert the exact preserved value.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.settlement.EligibleNetCalculatorTest test` → class missing (red).
 - [ ] Step 3: exact minimal implementation — the pure calculator (no Spring dependencies; unit-testable).
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
@@ -168,7 +169,25 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.billing.PartnerInvoiceGuardPostgresTest test` → green (markInvoicePaid guard intact).
 - [ ] Step 6: exact commit — `git commit -m "wave5(calc): manual payments structurally excluded from settlement base (C3)"`.
 
-### Task 8: Currency guard
+### Task 8: Finance collected-cash read port — `CollectedCashReadPort` (Rev C, new)
+
+Files:
+- Create: `finance/readmodel/CollectedCashReadPort.java` (Finance-owned read interface), `finance/readmodel/CollectedCashReadAdapter.java` (Finance-owned implementation)
+- Modify: `partner/settlement/PartnerSettlementService.java` (candidate/eligibility reads consume the port — no direct `finance_%` SQL in `partner/**`)
+- Test: `finance/readmodel/CollectedCashReadPortPostgresTest.java`, `finance/readmodel/FinanceReadBoundaryTest.java` (Create both)
+
+Interfaces:
+- Consumes: `finance_payments fp (status='COMPLETED')`, `finance_invoices fi` join, `billing_invoices bi` linkage — all inside the Finance module.
+- Produces: `CollectedCashReadPort.listCollectedForPartnerScopedInvoices(partnerScopeFilter, periodWindow)` returning records with EXACTLY: `financePaymentId`, `financeInvoiceId`, `billingInvoiceId` (or the external-reference link), `tenantId`, `amountMinor`, `currencyCode`, `paymentStatus`, `paymentDate`, plus refund/correction facts (`refundMinor`, `correctionMinor` — sourced from Finance payment REFUNDED transitions and the `finance_credit_corrections` ledger); READ-ONLY (no write methods on the interface).
+
+- [ ] Step 1: exact failing test — port returns the exact field set for a seeded collected/refunded/corrected fixture; tenant GUC honored (partner-scoped filter cannot leak foreign tenants); `FinanceReadBoundaryTest` file-content scan FAILS the build if any class under `partner/billing/**` or `partner/settlement/**` contains a direct `finance_invoices|finance_payments|finance_journal|finance_credit_corrections` table reference outside the ports (Rev C: BOTH packages guarded — the Rev B guard covered settlement only).
+- [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.finance.readmodel.CollectedCashReadPortPostgresTest,com.sanad.platform.finance.readmodel.FinanceReadBoundaryTest test` → port missing / boundary scan fails on Task 5's candidate join ⇒ red.
+- [ ] Step 3: exact minimal implementation — port + adapter (Finance module; `TenantRlsTransactionContext` GUC discipline identical to `SubscriptionFinanceAdapter`); rewire Task 5/10 candidate building through the port.
+- [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
+- [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.subscription.billing.R0C13ArchitectureBoundaryTest test` → green (extended guard intact).
+- [ ] Step 6: exact commit — `git commit -m "wave5(finance): collected-cash read port + finance read boundary for partner packages (C3)"`.
+
+### Task 9: Currency guard
 
 Files:
 - Create: `partner/settlement/CurrencyMixPostgresTest.java`
@@ -186,7 +205,7 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.settlement.EligibleNetCalculatorTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave5(calc): single-currency fail-closed guard (C3)"`.
 
-### Task 9: Concurrent calculate/finalize + approval + SANAD invoice issuance
+### Task 10: Concurrent calculate/finalize + approval + SANAD invoice issuance
 
 Files:
 - Modify: `partner/settlement/PartnerSettlementService.java` (submitForApproval, finalize, issueSanadPartnerInvoice)
@@ -194,17 +213,17 @@ Files:
 - Test: this class + `partner/settlement/SettlementApprovalPostgresTest.java` (Create both)
 
 Interfaces:
-- Consumes: `SELECT ... FOR UPDATE` on the period row; `SETTLEMENT.FINALIZE` (`PLATFORM-only`); PLATFORM principal snapshots (W3); `platform_invoice_number_sequences` (`SSET-yyyyMM-<seq>`); `SubscriptionFinancePort.ensureInvoice(tenantId, billingInvoiceId)`; `billing_invoices.invoice_kind='SETTLEMENT'`.
-- Produces: CALCULATED→PENDING_APPROVAL→FINALIZED→INVOICED; exactly one finalizer under concurrency; partner finalize ⇒ 403; issued invoice linked immutably (`settlement_invoice_id`).
+- Consumes: `SELECT ... FOR UPDATE` on the period row; `SETTLEMENT.FINALIZE` (`PLATFORM-only`); PLATFORM principal snapshots (W3); `platform_invoice_number_sequences` (`SSET-yyyyMM-<seq>`); REV C — an explicit Finance PRINCIPAL-invoice port: `FinancePrincipalInvoicePort.ensurePrincipalInvoice(UUID settlementInvoiceId, UUID sellerPrincipalId, UUID buyerPrincipalId, long amountMinor, String currencyCode)` (Create `finance/principalinvoice/FinancePrincipalInvoicePort.java` + Finance-owned adapter implementation) — NEVER `SubscriptionFinancePort.ensureInvoice(tenantId, …)`, which would forge the SANAD→Partner settlement invoice as a tenant invoice with a fabricated subscription; `billing_invoices.invoice_kind='SETTLEMENT'` with `seller_principal_id` = SANAD PLATFORM principal, `buyer_principal_id` = partner principal, `tenant_id` = the canonical control-plane carrier (RLS/storage carrier ONLY — never a fabricated tenant or subscription UUID); conditional billing constraint (Task 2 of W4 `ck_billing_invoices_invoice_kind` widened in `V20260928_2` to also carry the kind-scoped party shape: STANDARD ⇒ real tenant context, SETTLEMENT ⇒ carrier tenant + both principals set).
+- Produces: CALCULATED→PENDING_APPROVAL→FINALIZED→INVOICED; exactly one finalizer under concurrency; partner finalize ⇒ 403; issued invoice linked immutably (`settlement_invoice_id`); Finance mirror via the principal-invoice port; cross-entity congruence chain proven (see Step 1).
 
-- [ ] Step 1: exact failing test — concurrency test (TransactionTemplate, two threads finalizing the same period): exactly one wins, loser 409; calculate during finalize blocks/loses cleanly (no torn state). Approval test: partner finalize ⇒ 403; platform finalize OK + audited; FINALIZED→INVOICED creates `billing_invoices` row `invoice_kind='SETTLEMENT'` with SELLER snapshot = SANAD PLATFORM principal, BUYER snapshot = partner principal, totals = `period.sanad_charge_minor`, Finance mirror via port, outbox `BILLING.SANAD_PARTNER_INVOICE_ISSUED.v1`, owner notification event, `settlement_invoice_id` set once and immutable thereafter.
+- [ ] Step 1: exact failing test — concurrency test (TransactionTemplate, two threads finalizing the same period): exactly one wins, loser 409; calculate during finalize blocks/loses cleanly (no torn state). Approval test: partner finalize ⇒ 403; platform finalize OK + audited; FINALIZED→INVOICED creates `billing_invoices` row `invoice_kind='SETTLEMENT'` with SELLER snapshot = SANAD PLATFORM principal, BUYER snapshot = partner principal, totals = `period.sanad_charge_minor`, Finance mirror via `FinancePrincipalInvoicePort.ensurePrincipalInvoice(...)` (principal-invoice linkage — no tenant/subscription fabrication), outbox `BILLING.SANAD_PARTNER_INVOICE_ISSUED.v1`, owner notification event, `settlement_invoice_id` set once and immutable thereafter; REV C cross-entity financial congruence chain asserted end-to-end on one fixture: `billing_invoices SETTLEMENT.total_minor == period.sanad_charge_minor == Σ(items.platform_charge_minor)` AND the Finance mirror's amount equals the same value AND Σ(payments collected against partner-issued tenant invoices) − tax − refunds − corrections == Σ(items.eligible_net_minor) — every hop of the chain is a stored value, and the chain test fails listing the first mismatching hop if any identity breaks. ONE Finance payment CANNOT be economically allocated into TWO FINALIZED periods: the allocation-candidate view is consumed transactionally with the item INSERT (payment rows claimed exactly once — `UNIQUE (tenant_invoice_id, finance_payment_id)` at item level + the candidate view excluding already-allocated payments), and the concurrency test issues two overlapping calculate runs on adjacent periods sharing one candidate payment ⇒ exactly one period claims it; the other run either waits (row lock) or re-reads the view after the winner commits, never double-allocating.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.settlement.SettlementFinalizeConcurrencyPostgresTest,com.sanad.platform.partner.settlement.SettlementApprovalPostgresTest test` → transitions absent (red).
 - [ ] Step 3: exact minimal implementation — the three service methods with row-level locking.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.subscription.billing.R0C13ArchitectureBoundaryTest test` → green (extend its file-content guardrail to forbid `partner/settlement/**` from touching `finance_` tables outside the port — the extension ships in this task).
 - [ ] Step 6: exact commit — `git commit -m "wave5(lifecycle): serialized finalize + SANAD settlement invoice issuance (C4)"`.
 
-### Task 10: Late adjustments after FINALIZED (next-period items)
+### Task 11: Late adjustments after FINALIZED (next-period items)
 
 Files:
 - Create: `partner/settlement/SettlementAdjustmentService.java`
@@ -215,14 +234,14 @@ Interfaces:
 - Consumes: `partner_settlement_adjustment_items` (Task 1); finalized-period immutability.
 - Produces: `recordAdjustment(partnerId, type, refs, amountMinor, reason)` — writes an adjustment item targeting the next open (non-finalized) period; a late refund after FINALIZED never rewrites the finalized period.
 
-- [ ] Step 1: exact failing test — finalize period P1 (charge X); record LATE_REFUND −100 afterwards ⇒ P1 rows byte-identical (nothing rewritten); a later CALCULATED period P2 includes the −100 adjustment item referencing P1/invoice/payment; P2 totals reflect it; adjustment on a period with no successor yet is stored targeting `target_period_id` of the earliest open future window (or queued with NULL target and claimed by the next calculation — the single authoritative rule: adjustments are always attached to a NON-finalized target; test asserts both branches).
+- [ ] Step 1: exact failing test — finalize period P1 (charge X); record LATE_REFUND −100 afterwards ⇒ P1 rows byte-identical (nothing rewritten — finalized economic values, including totals/items/`agreement_version_id`/`finance_payment_id`/`tenant_invoice_id`/charges/eligible-net, are DB-level immutable per the finalized-immutability triggers shipped in W5 Task 1 (`V20260928_1`)); a QUEUED adjustment item (target NULL) is claimed ATOMICALLY by the next calculation run — the claiming UPDATE runs inside the calculate transaction with the run id stamped (`claimed_by_run_id`, `claimed_at`) and `target_period_id` bound to the new period; two concurrent calculate runs cannot both claim the same QUEUED item (row lock ⇒ exactly one claimant); a duplicate adjustment emission with the same `idempotency_key` is a strict no-op; P2 totals reflect the claimed −100; adjustment on a period with no successor stays QUEUED with NULL target until the next window is calculated (single authoritative rule: adjustments are APPLIED only against a NON-finalized target).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.settlement.LateAdjustmentPostgresTest test` → class missing (red).
 - [ ] Step 3: exact minimal implementation — the service + inclusion of signed adjustment sums in `calculate`.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.settlement.SettlementReplayReplacePostgresTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave5(adjustments): finalized history immutable, next-period signed items (C4)"`.
 
-### Task 11: Reconciliation service
+### Task 12: Reconciliation service
 
 Files:
 - Create: `partner/settlement/SettlementReconciliationService.java` (READ_ONLY)
@@ -240,7 +259,7 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.subscription.billing.R0C13G06SettlementReconciliationPostgresTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave5(recon): settlement reconciliation service with orphan report (C5)"`.
 
-### Task 12: Settlement RLS
+### Task 13: Settlement RLS
 
 Files:
 - Create: `partner/settlement/SettlementRlsPostgresTest.java`
@@ -258,10 +277,10 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.billing.PartnerBillingRlsPostgresTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave5(rls): settlement isolation proven (C5)"`.
 
-### Task 13: Settlement controllers + events
+### Task 14: Settlement controllers + events
 
 Files:
-- Create: `partner/settlement/api/ExecutiveSettlementController.java` (`/api/v1/executive/settlements` list/calculate/approve/finalize/issue-invoice/reconcile — `SETTLEMENT.VIEW`/`SETTLEMENT.FINALIZE`), `partner/settlement/api/PartnerSettlementController.java` (`/api/v1/partner/settlements` read own periods/items/invoices + `current` live estimate endpoint, no writes — claim-scoped)
+- Create: `partner/settlement/api/ExecutiveSettlementController.java` (`/api/v1/executive/settlements` list/calculate/approve/finalize/issue-invoice/reconcile — `SETTLEMENT.VIEW` read-only list/reconcile, `SETTLEMENT.MANAGE` calculate/approve, `SETTLEMENT.FINALIZE` finalize/issue-invoice; Rev C full-chain capability consistency with the W4 seed migration, registry, tests, and spec §6.1), `partner/settlement/api/PartnerSettlementController.java` (`/api/v1/partner/settlements` read own periods/items/invoices + `current` live estimate endpoint, no writes — claim-scoped, `SETTLEMENT.VIEW` via partner self-read)
 - Modify: none
 - Test: `partner/settlement/SettlementControllersIT.java` (Create)
 
@@ -269,14 +288,14 @@ Interfaces:
 - Consumes: `PartnerSettlementService`, `SettlementReconciliationService`, `PartnerClaimResolver`, `notification_events` emissions (`PARTNER_SETTLEMENT_CALCULATED`, `PARTNER_INVOICE_CREATED/ISSUED` — consumed by W6).
 - Produces: the §28 settlement API categories.
 
-- [ ] Step 1: exact failing test — executive paths authorized by `SETTLEMENT.VIEW`/`SETTLEMENT.FINALIZE` (finalize 403 without it); partner paths claim-scoped (`?partnerId=` mismatch ⇒ 403); reconcile endpoint runs READ_ONLY.
+- [ ] Step 1: exact failing test — executive paths authorized by `SETTLEMENT.VIEW` (list/reconcile), `SETTLEMENT.MANAGE` (calculate/approve — 403 without it), `SETTLEMENT.FINALIZE` (finalize/issue — 403 without it); partner paths claim-scoped (`?partnerId=` mismatch ⇒ 403); reconcile endpoint runs READ_ONLY.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.settlement.SettlementControllersIT test` → 404 routes (red).
 - [ ] Step 3: exact minimal implementation — the two controllers.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.security.TenantBindingSecurityIntegrationTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave5(api): settlement executive + partner surfaces (C5)"`.
 
-### Task 14: Frontend — settlement surfaces
+### Task 15: Frontend — settlement surfaces
 
 Files:
 - Create: `apps/web/lib/api/settlement-api.ts`, `apps/web/lib/api/settlement-api.test.ts`, `apps/web/app/executive/settlements/page.tsx`, `apps/web/app/executive/settlements/[id]/page.tsx`
@@ -294,7 +313,7 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/web && npm run typecheck && npm run lint && npm test && python3 scripts/ci/check_i18n_keys.py` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave5(web): settlement executive surfaces (C6)"`.
 
-### Task 15: Wave exit evidence battery
+### Task 16: Wave exit evidence battery
 
 Files:
 - Modify: none (evidence only)

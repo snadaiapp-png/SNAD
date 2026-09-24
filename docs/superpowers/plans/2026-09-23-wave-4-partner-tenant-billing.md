@@ -2,8 +2,9 @@
 
 > For agentic workers: REQUIRED SUB-SKILL: verification-before-completion — never report PASS without same-SHA machine evidence; every task below is RED → GREEN with exact commands and commit boundaries.
 
-**Spec:** Revision B — §16 (commercial models), §17 (manual/automatic billing), §17.2 (auto-invoicing carrier = `tenant_subscriptions`, scheduler five-condition), §18.2–§18.3 (fee percent + agreement versioning + temporal exclusion), §15/§30 (immutable snapshots), §19 (Finance authoritative), §6.1 (Capability Contract Table), §31.6 (temporal + concurrency tests).
-**Depends on:** W2 (partner/binding/delegation), W3 (business identity + snapshots). **Migrations:** `V20260927_1`..`V20260927_9` · **Flags:** `SANAD_TRIAL_CONTINUATION_ENABLED`, `SANAD_PARTNER_BILLING_ENABLED` (default `false`).
+**Spec:** Revision C — §16 (commercial models), §17 (manual/automatic billing), §17.2 (auto-invoicing carrier = `tenant_subscriptions`, scheduler five-condition), §18.2–§18.3 (fee percent + agreement versioning + temporal exclusion), §15/§30 (immutable snapshots), §19 (Finance authoritative + additive correction authority), §6.1 (Capability Contract Table), §31.6 (temporal + concurrency tests).
+**Depends on:** W2 (partner/binding/delegation), W3 (business identity + snapshots). **Migrations:** `V20260927_1`..`V20260927_10` · **Flags:** `SANAD_TRIAL_CONTINUATION_ENABLED`, `SANAD_PARTNER_BILLING_ENABLED` (default `false`).
+**Rev C (R2) changes in this wave:** (1) Task 2 adds `billing_invoices.issuance_idempotency_key` (nullable, partial UNIQUE) — the DB-level issuance-idempotency backstop making dual-scheduler same-subscription-same-period races produce exactly ONE invoice + ONE Finance mirror + ONE outbox fact (fresh baseline: `billing_invoices` V19 has NO such column); (2) Task 4 converted from "add FK" (now shipped by W3 `V20260926_3` — `billing_invoices` exists since V19, no forward reference needed) to the binding-order proof; (3) continuation authority unified on `SUBSCRIPTION.MANAGE` (Task 11 + W2 seed + delegation allowlist + spec §6.1 — resolves the Rev B `SUBSCRIPTION.CREATE` vs UI `SUBSCRIPTION.MANAGE` mismatch); (4) Task 18 REWRITTEN — partial credit notes go through the NEW Finance-owned additive correction authority `FinanceCorrectionPort` (corrective journal entries + `finance_credit_corrections` ledger, migration `V20260927_10`); the Rev B representation of credit notes as NEW `finance_payments` rows with `status='REFUNDED'` is FALSE (fresh evidence: `recordRefund` is full-refund-only of an EXISTING settlement payment — `amountMinor != billing.totalMinor()` throws; adapter javadoc: "no credit note, no partial refund, no parallel ledger") and is deleted; (5) Task 19 names the exact RLS migrations and policy names.
 
 ## Goal
 
@@ -70,11 +71,11 @@ Files:
 
 Interfaces:
 - Consumes: `billing_invoices` (`V19` lines 89–117), `business_principals` (W3), `partner_commercial_agreement_versions` (Task 1).
-- Produces: `invoice_kind` (additive CHECK widen, drop+recreate per `V20260830_1` idiom), `seller_principal_id` FK, `buyer_principal_id` FK, `agreement_version_id` FK.
+- Produces: `invoice_kind` (additive CHECK widen, drop+recreate per `V20260830_1` idiom), `seller_principal_id` FK, `buyer_principal_id` FK, `agreement_version_id` FK, and (Rev C) `issuance_idempotency_key` with partial UNIQUE.
 
-- [ ] Step 1: exact failing test — legacy rows unaffected (status values unchanged); `invoice_kind` defaults `STANDARD` and CHECK accepts only `('STANDARD','CREDIT')` (SETTLEMENT added in W5 `V20260928_2`); `buyer_principal_id` with a random UUID rejected 23503; `seller_principal_id` FK enforced; `agreement_version_id` FK enforced; NO column named `auto_invoicing_enabled` on `billing_invoices` (`information_schema.columns` negative assertion — spec §17.2 Rev B).
+- [ ] Step 1: exact failing test — legacy rows unaffected (status values unchanged); `invoice_kind` defaults `STANDARD` and CHECK accepts only `('STANDARD','CREDIT')` (SETTLEMENT added in W5 `V20260928_2`); `buyer_principal_id` with a random UUID rejected 23503; `seller_principal_id` FK enforced; `agreement_version_id` FK enforced; (Rev C) `issuance_idempotency_key` exists, nullable, VARCHAR(200), partial UNIQUE INDEX `uq_billing_invoices_issuance_idempotency ON billing_invoices(tenant_id, issuance_idempotency_key) WHERE issuance_idempotency_key IS NOT NULL` enforced — two inserts with the SAME non-null key in one tenant ⇒ second rejected 23505, NULL keys unrestricted (legacy SANAD-direct invoices carry NULL); NO column named `auto_invoicing_enabled` on `billing_invoices` (`information_schema.columns` negative assertion — spec §17.2 Rev B).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.billing.InvoicePartyColumnsPostgresTest test` → columns missing (red).
-- [ ] Step 3: exact minimal implementation — `V20260927_2__billing_invoices_party_columns.sql`: `ALTER TABLE billing_invoices ADD COLUMN invoice_kind text NOT NULL DEFAULT 'STANDARD', ADD COLUMN seller_principal_id uuid REFERENCES business_principals(id), ADD COLUMN buyer_principal_id uuid REFERENCES business_principals(id), ADD COLUMN agreement_version_id uuid REFERENCES partner_commercial_agreement_versions(id);` then drop+recreate the status-adjacent CHECK: `ALTER TABLE billing_invoices DROP CONSTRAINT IF EXISTS ck_billing_invoices_invoice_kind; ALTER TABLE billing_invoices ADD CONSTRAINT ck_billing_invoices_invoice_kind CHECK (invoice_kind IN ('STANDARD','CREDIT'));` — legacy rows keep NULL principals (SANAD-direct), documented invariant. Header comment: `auto_invoicing_enabled` deliberately NOT here — carrier is `tenant_subscriptions` (Task 5).
+- [ ] Step 3: exact minimal implementation — `V20260927_2__billing_invoices_party_columns.sql`: `ALTER TABLE billing_invoices ADD COLUMN invoice_kind text NOT NULL DEFAULT 'STANDARD', ADD COLUMN seller_principal_id uuid REFERENCES business_principals(id), ADD COLUMN buyer_principal_id uuid REFERENCES business_principals(id), ADD COLUMN agreement_version_id uuid REFERENCES partner_commercial_agreement_versions(id), ADD COLUMN issuance_idempotency_key varchar(200) NULL;` then drop+recreate the status-adjacent CHECK: `ALTER TABLE billing_invoices DROP CONSTRAINT IF EXISTS ck_billing_invoices_invoice_kind; ALTER TABLE billing_invoices ADD CONSTRAINT ck_billing_invoices_invoice_kind CHECK (invoice_kind IN ('STANDARD','CREDIT'));` then `CREATE UNIQUE INDEX uq_billing_invoices_issuance_idempotency ON billing_invoices (tenant_id, issuance_idempotency_key) WHERE issuance_idempotency_key IS NOT NULL;` — the automatic scheduler writes `issuance_idempotency_key = 'AUTO:<subscriptionId>:<period>'`; manual issuance leaves it NULL (or a client-supplied idempotency key). Rev C contract: TWO scheduler runs (or two replicas) racing on the SAME subscription and period ⇒ the partial UNIQUE admits exactly ONE invoice row; the loser maps 23505 to a benign skip; the Finance mirror and outbox fact are emitted only from the winning issuance transaction ⇒ 1 invoice + 1 Finance mirror + 1 outbox fact. Legacy rows keep NULL principals (SANAD-direct), documented invariant. Header comment: `auto_invoicing_enabled` deliberately NOT here — carrier is `tenant_subscriptions` (Task 5).
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.admin.service.SaasAdministrationServiceTest test` → green (legacy invoice paths untouched).
 - [ ] Step 6: exact commit — `git commit -m "wave4(schema): invoice party columns with FKs, carrier flag excluded (C2)"`.
@@ -96,22 +97,23 @@ Interfaces:
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.security.rls.FlywayJavaMigrationsChainConsistencyTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave4(schema): credit notes with partner FK (C2)"`.
 
-### Task 4: Snapshot ↔ invoice binding FK
+### Task 4: Snapshot ↔ invoice binding — order-of-operations proof (Rev C: FK already shipped by W3)
 
 Files:
-- Create: `db/migration/V20260927_4__invoice_snapshot_binding.sql`
-- Test: `commercial/domain/SnapshotInvoiceBindingPostgresTest.java` (Create)
+- Create: `commercial/domain/SnapshotInvoiceBindingPostgresTest.java`
+- Modify: none (Rev C: W3 `V20260926_3` already ships `invoice_id uuid NOT NULL REFERENCES billing_invoices(id)` + `idx_snapshot_invoice` — `billing_invoices` exists since `V19`; the Rev B "add FK in W4" forward reference is deleted)
+- Test: this class
 
 Interfaces:
-- Consumes: `invoice_party_snapshots.invoice_id` (NULL since W3 `V20260926_3` — documented forward reference), `billing_invoices` (Task 2).
-- Produces: `fk_snapshot_invoice FOREIGN KEY (invoice_id) REFERENCES billing_invoices(id)` + index.
+- Consumes: `invoice_party_snapshots` (W3 Task 4/5), `billing_invoices` (Task 2).
+- Produces: proof of the binding lifecycle — allocation BEFORE capture; no late binding.
 
-- [ ] Step 1: exact failing test — snapshot insert with `invoice_id` = random UUID rejected 23503; with real invoice id accepted; plain-id FK documented (cross-context platform table; composite tenant FK not applicable because seller-side rows carry the partner scope).
-- [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.commercial.domain.SnapshotInvoiceBindingPostgresTest test` → insert succeeds (no constraint) ⇒ red.
-- [ ] Step 3: exact minimal implementation — `V20260927_4__invoice_snapshot_binding.sql`: `ALTER TABLE invoice_party_snapshots ADD CONSTRAINT fk_snapshot_invoice FOREIGN KEY (invoice_id) REFERENCES billing_invoices(id);` + `CREATE INDEX idx_snapshot_invoice ON invoice_party_snapshots (invoice_id);`.
+- [ ] Step 1: exact failing test — snapshot insert with `invoice_id` = random UUID rejected 23503; with a real pre-allocated invoice id accepted; a SECOND capture for the same `(invoice_id, snapshot_for)` side rejected by `uq_snapshot_per_invoice_side`; an UPDATE attempting to rebind a snapshot to another invoice rejected by the immutability trigger; issuance service (Task 14) allocates the invoice UUID before calling `captureForInvoice` (order verified by the Task 14 integration test).
+- [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.commercial.domain.SnapshotInvoiceBindingPostgresTest test` → any violated invariant not yet proven ⇒ red.
+- [ ] Step 3: exact minimal implementation — none expected (FK/unique/trigger ship in W3); fix W3 migrations if red.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.commercial.domain.SnapshotImmutabilityPostgresTest test` → green.
-- [ ] Step 6: exact commit — `git commit -m "wave4(schema): snapshot-invoice FK binding (C2)"`.
+- [ ] Step 6: exact commit — `git commit -m "wave4(billing): snapshot-invoice binding order proof (C2)"`.
 
 ### Task 5: Lifecycle gate statuses + auto-invoicing carrier on the subscription
 
@@ -242,7 +244,7 @@ Files:
 - Test: `subscription/lifecycle/ContinuationConfirmationServiceTest.java` (Create)
 
 Interfaces:
-- Consumes: `subscription_continuation_confirmations` (Task 6); authorization — tenant admin (TENANT plane) or bound partner via `PartnerDelegationGate` (`SUBSCRIPTION.CREATE` + ACTIVE binding); `SubscriptionCommandService` (`CONFIRM_CONTINUATION`); `PlatformAuditWriter`.
+- Consumes: `subscription_continuation_confirmations` (Task 6); authorization — tenant admin (TENANT plane) or bound partner via `PartnerDelegationGate` (`SUBSCRIPTION.MANAGE` — Rev C unified continuation authority; seeded W2 Task 5, allowlisted W2 Task 10, aligned with the Task 20 UI gate and spec §6.1) + ACTIVE binding; `SubscriptionCommandService` (`CONFIRM_CONTINUATION`); `PlatformAuditWriter`.
 - Produces: `confirm(subscriptionId, actor, channel, evidence)` — inserts confirmation row + canonical transition + `tenant_subscriptions.continuation_confirmed_at/by` + audit; double-confirm ⇒ 409.
 
 - [ ] Step 1: exact failing test — confirmation row + transition + audit in one transaction; second confirm ⇒ 409; unauthorized actor ⇒ 403; partner path without delegation ⇒ 403.
@@ -350,35 +352,38 @@ Files:
 - Test: `partner/billing/AutomaticBillingPostgresTest.java` (Create)
 
 Interfaces:
-- Consumes: the §17.2 Rev B condition set, evaluated in order: `ACTIVE_BILLABLE` AND `tenant_subscriptions.auto_invoicing_enabled` AND confirmation row exists AND binding ACTIVE AND delegation + effective agreement valid; idempotency key `AUTO:<subscriptionId>:<period>` (outbox `uq (tenant_id, idempotency_key)` backstop); gate `SANAD_PARTNER_BILLING_ENABLED` + `scheduling.enabled`; `SELECT ... FOR UPDATE`.
-- Produces: draft+issue at period boundary; no invoice when ANY condition fails.
+- Consumes: the §17.2 Rev C condition set, evaluated in order: `ACTIVE_BILLABLE` AND `tenant_subscriptions.auto_invoicing_enabled` AND confirmation row exists AND binding ACTIVE AND delegation + effective agreement valid; idempotency — `issuance_idempotency_key = 'AUTO:<subscriptionId>:<period>'` persisted on the invoice row with partial UNIQUE `uq_billing_invoices_issuance_idempotency` (Task 2 — the DB backstop) PLUS outbox `uq (tenant_id, idempotency_key)`; gate `SANAD_PARTNER_BILLING_ENABLED` + `scheduling.enabled`; `SELECT ... FOR UPDATE`.
+- Produces: draft+issue at period boundary; no invoice when ANY condition fails; DB-level single-invoice guarantee under concurrency.
 
-- [ ] Step 1: exact failing test — all conditions true ⇒ exactly one invoice per period; replay same key ⇒ exactly one invoice (idempotent); each condition individually false ⇒ zero invoices (5 negative cases); concurrent scheduler runs ⇒ no duplicates.
+- [ ] Step 1: exact failing test — all conditions true ⇒ exactly one invoice per period carrying `issuance_idempotency_key='AUTO:<subscriptionId>:<period>'`; replay same key ⇒ exactly one invoice (idempotent, benign 23505 skip); each condition individually false ⇒ zero invoices (5 negative cases); Rev C CONCURRENCY PROOF: two scheduler threads (TransactionTemplate, two transactions) issuing for the SAME subscription and SAME period simultaneously ⇒ exactly ONE invoice row + ONE `finance_invoices` mirror row (via the port's idempotent `ensureInvoice`) + ONE outbox fact — the partial UNIQUE decides the winner, the loser skips; a DIFFERENT period on the same subscription ⇒ its own invoice (key uniqueness is per subscription+period, never global).
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.billing.AutomaticBillingPostgresTest test` → class missing (red).
 - [ ] Step 3: exact minimal implementation — the scheduler (reads the flag from the subscription row — NOT from any invoice column).
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
 - [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.subscription.lifecycle.TrialContinuationSchedulerPostgresTest test` → green.
 - [ ] Step 6: exact commit — `git commit -m "wave4(billing): five-condition automatic invoicing off the subscription carrier (C7)"`.
 
-### Task 18: Credit notes — service + Finance representation
+### Task 18: Credit notes — service + Finance-owned additive correction authority (Rev C rewrite)
 
 Files:
 - Create: `partner/billing/CreditNoteService.java`
-- Modify: `subscription/billing/domain/SubscriptionFinancePort.java` (add `FinanceInvoiceLink ensureCreditNote(UUID tenantId, UUID billingCreditNoteId, UUID billingInvoiceId, long amountMinor, String currencyCode)`), `finance/integration/SubscriptionFinanceAdapter.java` (implement: deterministic payment number from `billingCreditNoteId`; insert `finance_payments` row `status='REFUNDED'`, `payment_method='OTHER'`, `reference_type='PARTNER_CREDIT_NOTE'`, `reference_id=<creditNoteId>`; idempotent by deterministic number replay — mirroring `recordSettlement` replay semantics)
-- Test: `partner/billing/CreditNotePostgresTest.java` (Create)
+- Create: `db/migration/V20260927_10__finance_credit_corrections.sql` (Finance-owned additive ledger)
+- Modify: `subscription/billing/domain/SubscriptionFinancePort.java` is NOT extended for corrections — the Rev B plan extended it with a REFUNDED-payment representation, which is DELETED; corrections go through the NEW `finance/correction/FinanceCorrectionPort.java` (Finance-owned, additive): `CorrectionLink recordCorrection(UUID tenantId, UUID billingInvoiceId, UUID billingCreditNoteId, long amountMinor, String currencyCode, String reason)`
+- Modify: `finance/integration/FinanceCorrectionAdapter.java` (Create — Finance-owned implementation)
+- Test: `partner/billing/CreditNotePostgresTest.java`, `finance/correction/FinanceCorrectionAccountingPostgresTest.java` (Create both)
 
 Interfaces:
+- EXACT ACCOUNTING SEMANTICS (Rev C — resolves `FINANCE_CREDIT_NOTE_MODEL`): a partial credit note is NOT a payment and never creates, mutates, or deletes any `finance_payments` row (the existing `recordRefund` remains FULL-refund-only of an EXISTING settlement payment — `amountMinor != billing.totalMinor()` throws — and is never invoked for partial corrections). Finance records an additive corrective JOURNAL entry: `finance_journal_entries` row (reference `CORR:<billingCreditNoteId>`, memo = reason) + exactly two balanced `finance_journal_lines` — DEBIT contra-revenue/sales-returns by the pre-tax correction amount and DEBIT tax-payable relief by the tax portion (tax split computed from the original invoice's line-level tax ratio), CREDIT accounts-receivable by the gross correction amount; the entry sums to zero. Additionally a `finance_credit_corrections` ledger row (id, tenant_id, billing_credit_note_id, finance_invoice_id, amount_minor, tax_minor, currency_code, journal_entry_id, created_by/at) is the idempotency anchor: `UNIQUE (tenant_id, billing_credit_note_id)` — replay returns the same link with NO second journal entry. NO `finance_invoices` schema change (no `invoice_kind` column invented there); NO negative customer invoice is issued; the derived finance-invoice balance/derived status is recomputed BY Finance from invoice minus applied corrections, never written from billing. Reuses the EXISTING Finance journal primitives (`finance_journal_entries`/`finance_journal_lines`, `V20260815_16` family) — no parallel ledger.
 - Consumes: `billing_credit_notes` (Task 3); delegation `BILLING.MANAGE` + `PARTNER.CREDITNOTE.ISSUE`; open-balance validation.
-- Produces: credit against OPEN/PAID invoice (amount ≤ open balance); Finance REFUNDED payment row (NO `finance_invoices` schema change — no `invoice_kind` column is invented there); void path; emits `BILLING.CREDIT_NOTE_ISSUED.v1` + owner notification event.
+- Produces: credit against OPEN/PAID invoice (amount ≤ open balance); additive Finance correction via `FinanceCorrectionPort`; void path records `VOID` status + a reversing correction entry (also additive); emits `BILLING.CREDIT_NOTE_ISSUED.v1` + owner notification event.
 
-- [ ] Step 1: exact failing test — credit reduces open balance; Finance mirror row created once (replay idempotent); void path records no further money movement; amount > open balance rejected; foreign-tenant/partner guard 403.
-- [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.billing.CreditNotePostgresTest test` → class/method missing (red).
-- [ ] Step 3: exact minimal implementation — service + port method + adapter implementation.
+- [ ] Step 1: exact failing test — credit reduces open balance; `finance_journal_entries` + exactly 2 balanced lines created ONCE (replay idempotent via the ledger unique); NO row inserted into `finance_payments` (negative assertion on the payments table); the original invoice's `finance_payments` rows untouched; void path creates the reversing balanced entry; amount > open balance rejected; foreign-tenant/partner guard 403; journal entry debits == credits (congruence assertion); tax split matches the original invoice's tax ratio.
+- [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/sanad SPRING_DATASOURCE_USERNAME=sanad SPRING_DATASOURCE_PASSWORD=sanad_pass mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.billing.CreditNotePostgresTest,com.sanad.platform.finance.correction.FinanceCorrectionAccountingPostgresTest test` → class/method missing (red).
+- [ ] Step 3: exact minimal implementation — service + `V20260927_10__finance_credit_corrections.sql` (ledger table + FORCE tenant RLS + `UNIQUE (tenant_id, billing_credit_note_id)` + FK to `finance_invoices(id)`) + `FinanceCorrectionPort` + `FinanceCorrectionAdapter` implementation.
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
-- [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.subscription.billing.R0C13G07CorrectivePostgresTest,com.sanad.platform.subscription.billing.R0C13ArchitectureBoundaryTest test` → green (partner code still never touches `finance_` tables outside the port).
-- [ ] Step 6: exact commit — `git commit -m "wave4(billing): credit notes via finance payment ledger representation (C7)"`.
+- [ ] Step 5: exact affected regression — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.subscription.billing.R0C13G07CorrectivePostgresTest,com.sanad.platform.subscription.billing.R0C13ArchitectureBoundaryTest test` → green (partner code still never touches `finance_` tables outside the ports; the boundary test now forbids direct Finance SQL from BOTH `partner/billing/**` AND `partner/settlement/**`).
+- [ ] Step 6: exact commit — `git commit -m "wave4(billing): credit notes via finance-owned additive journal correction authority (C7)"`.
 
-### Task 19: Billing RLS verification
+### Task 19: Billing RLS verification (exact migrations and policies)
 
 Files:
 - Create: `partner/billing/PartnerBillingRlsPostgresTest.java`
@@ -386,10 +391,10 @@ Files:
 - Test: this class
 
 Interfaces:
-- Consumes: RLS shipped with Tasks 2/3 migrations.
+- Consumes: RLS shipped with the EXACT Rev C migrations — `V20260927_2__billing_invoices_party_columns.sql` (billing_invoices keeps its V19 tenancy: tenant-scoped FORCE RLS policy `billing_invoices_tenant_isolation` ADDed here because the legacy table has NO RLS today — ENABLE + FORCE + `DROP POLICY IF EXISTS` first, fail-closed `tenant_id::text = current_setting('app.tenant_id', true)`; SANAD SETTLEMENT-kind rows use the control-plane carrier tenant and are readable only in control-plane context), `V20260927_3__billing_credit_notes.sql` (FORCE tenant RLS + partner composite read policy `billing_credit_notes_partner_read`), `V20260927_10__finance_credit_corrections.sql` (FORCE tenant RLS).
 - Produces: partner A sees only own invoices/credit notes; tenant sees own; platform oversight all.
 
-- [ ] Step 1: exact failing test — partner GUC context: partner-A invoice rows visible, partner-B invisible; tenant GUC: own buyer rows visible; control-plane context: all visible; inserts under wrong context blocked.
+- [ ] Step 1: exact failing test — partner GUC context: partner-A invoice rows visible, partner-B invisible; tenant GUC: own buyer rows visible; control-plane context: all visible including carrier-tenant SETTLEMENT rows; inserts under wrong context blocked; `pg_policy` for `billing_invoices`/`billing_credit_notes`/`finance_credit_corrections` shows exactly the named policies with non-empty `polqual`/`polwithcheck` and `relforcerowlevelsecurity = true`.
 - [ ] Step 2: exact command proving RED — `cd apps/sanad-platform && mvn -B -ntp -Dsurefire.useFile=false -Dtest=com.sanad.platform.partner.billing.PartnerBillingRlsPostgresTest test` → cross rows visible (red).
 - [ ] Step 3: exact minimal implementation — none (fix source migrations if red).
 - [ ] Step 4: exact command proving GREEN — same as Step 2 → green.
