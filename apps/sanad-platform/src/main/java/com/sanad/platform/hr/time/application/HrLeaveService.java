@@ -17,28 +17,6 @@ import java.util.UUID;
 
 /**
  * HRM-G2 Leave service with multi-step state machine + Workflow Engine integration.
- *
- * <p>Uses HrLeaveWorkflowAdapter (canonical Workflow Y2 adapter) for:
- *   - workflow instance creation + approval request creation
- *   - approval progression via WorkflowApprovalService (Y2 graph auto-advances)
- *   - rejection via WorkflowApprovalService
- *   - cancellation only if workflow still RUNNING
- *
- * <p>State machine: DRAFT → PENDING_MANAGER → PENDING_HR → APPROVED
- * with REJECTED, WITHDRAWN, CANCELLED.
- *
- * <p>Workflow lifecycle:
- *   SUBMIT → adapter.startLeaveApproval() → workflow + Manager approval PENDING
- *   MANAGER APPROVE → adapter.approveApproval() → Y2 graph advances to HR step
- *   MANAGER REJECT → adapter.rejectApproval() → Y2 graph resolves rejection
- *   HR APPROVE → adapter.approveApproval() → Y2 graph reaches terminal (COMPLETED)
- *   HR REJECT → adapter.rejectApproval() → Y2 graph resolves rejection
- *   WITHDRAW → adapter.cancelIfRunning() (only if RUNNING)
- *   CANCEL (post-approval) → NO workflow cancel (already COMPLETED) → ledger compensation
- *
- * <p>Leave ledger: SUBMIT→RESERVATION, HR APPROVE→CONSUMPTION, REJECT/WITHDRAW→RELEASE, CANCEL→ADJUSTMENT.
- * Audit/outbox for every transition (transactional).
- * Uses injectable Clock (prevents time-bomb tests).
  */
 @Service
 public class HrLeaveService {
@@ -109,7 +87,10 @@ public class HrLeaveService {
 
     @Transactional
     public HrTimeAttendanceV2Controller.CreateLeaveRequestResponse createLeaveRequest(
-            UUID tenantId, UUID userId, HrTimeAttendanceV2Controller.CreateLeaveRequest request) {
+            UUID tenantId,
+            UUID userId,
+            UUID employmentId,
+            HrTimeAttendanceV2Controller.CreateLeaveRequest request) {
         UUID id = UUID.randomUUID();
         Instant now = clock.instant();
         long days = java.time.temporal.ChronoUnit.DAYS.between(request.startDate(), request.endDate()) + 1;
@@ -118,24 +99,43 @@ public class HrLeaveService {
                 "INSERT INTO hr_leave_requests (id, tenant_id, employment_id, leave_type_id, " +
                 "start_date, end_date, days_count, reason, attachment_url, state, submitted_at) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)",
-                id, tenantId, request.employmentId(), request.leaveTypeId(),
+                id, tenantId, employmentId, request.leaveTypeId(),
                 request.startDate(), request.endDate(), daysCount,
                 request.reason(), request.attachmentUrl(), Timestamp.from(now));
         writeAuditAndOutbox(tenantId, "LeaveRequested", id, userId);
         return new HrTimeAttendanceV2Controller.CreateLeaveRequestResponse(id);
     }
 
-    /**
-     * Submit: DRAFT → PENDING_MANAGER + workflow start + ledger RESERVATION.
-     *
-     * Idempotency: serializes concurrent submissions via SELECT ... FOR UPDATE
-     * on the leave request row. If a concurrent submit already transitioned
-     * to PENDING_MANAGER, the second caller finds the existing workflow and
-     * returns idempotent success.
-     */
+    /** Return the request employment inside the current tenant or fail closed. */
+    @Transactional(readOnly = true)
+    public UUID requireRequestEmployment(UUID tenantId, UUID requestId) {
+        List<UUID> matches = jdbc.query(
+                "SELECT employment_id FROM hr_leave_requests WHERE id = ? AND tenant_id = ?",
+                (rs, rowNum) -> UUID.fromString(rs.getString("employment_id")),
+                requestId,
+                tenantId);
+        if (matches.size() != 1) {
+            throw new IllegalStateException("HRM_LEAVE_REQUEST_NOT_FOUND_IN_TENANT");
+        }
+        return matches.get(0);
+    }
+
+    /** SELF lifecycle guard: request must belong to the resolved authenticated employment. */
+    @Transactional(readOnly = true)
+    public void requireOwnedRequest(UUID tenantId, UUID requestId, UUID employmentId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM hr_leave_requests WHERE id = ? AND tenant_id = ? AND employment_id = ?",
+                Integer.class,
+                requestId,
+                tenantId,
+                employmentId);
+        if (count == null || count != 1) {
+            throw new IllegalStateException("HRM_LEAVE_REQUEST_NOT_FOUND_IN_SELF_SCOPE");
+        }
+    }
+
     @Transactional
     public void submitLeaveRequest(UUID tenantId, UUID requestId, UUID userId) {
-        // Acquire row lock to serialize concurrent submissions for the SAME request
         Map<String, Object> lockedRow = jdbc.queryForMap(
                 "SELECT state, workflow_instance_id, leave_type_id, employment_id, days_count " +
                 "FROM hr_leave_requests WHERE id = ? AND tenant_id = ? FOR UPDATE",
@@ -144,7 +144,6 @@ public class HrLeaveService {
         String currentState = (String) lockedRow.get("state");
 
         if ("PENDING_MANAGER".equals(currentState) && lockedRow.get("workflow_instance_id") != null) {
-            // Idempotent success — already submitted by a concurrent caller
             return;
         }
 
@@ -156,10 +155,8 @@ public class HrLeaveService {
         UUID employmentId = (UUID) lockedRow.get("employment_id");
         BigDecimal daysCount = (java.math.BigDecimal) lockedRow.get("days_count");
 
-        // Start canonical workflow via the adapter
         UUID workflowInstanceId = workflowAdapter.startLeaveApproval(tenantId, requestId, userId);
 
-        // Advance HR state + link workflow
         int updated = jdbc.update(
                 "UPDATE hr_leave_requests SET state = 'PENDING_MANAGER', " +
                 "workflow_instance_id = ?, current_workflow_step = 'MANAGER_APPROVAL', updated_at = NOW() " +
@@ -169,28 +166,20 @@ public class HrLeaveService {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: leave request not in DRAFT state");
         }
 
-        // Reserve days in the ledger
         ledgerService.reserve(tenantId, employmentId, leaveTypeId, daysCount, requestId);
         writeAuditAndOutbox(tenantId, "LeaveRequested", requestId, userId);
     }
 
-    /**
-     * Manager approve: verify current step, approve canonical approval,
-     * verify graph advanced to hr_approval, then update HR state.
-     */
     @Transactional
     public void managerApprove(UUID tenantId, UUID requestId, UUID managerId,
                                HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
         UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
-
-        // Verify current step is manager_approval
         String currentStep = workflowAdapter.getCurrentStepKey(tenantId, workflowInstanceId);
         if (!"manager_approval".equals(currentStep)) {
             throw new IllegalStateException(
                 "HRM_INVALID_STATE: expected manager_approval step, got " + currentStep);
         }
 
-        // Find and approve the pending Manager approval
         Optional<WorkflowApprovalRequest> pending = workflowAdapter.findPendingApprovalForCurrentStep(
                 tenantId, workflowInstanceId, "manager_approval");
         if (pending.isEmpty()) {
@@ -199,23 +188,17 @@ public class HrLeaveService {
         workflowAdapter.approveApproval(tenantId, pending.get().id(), managerId,
                 pending.get().version(), request.comment());
 
-        // VERIFY graph is RUNNING at hr_approval — NOT terminal
         if (!workflowAdapter.isRunningAt(tenantId, workflowInstanceId, "hr_approval")) {
             throw new IllegalStateException(
                 "HRM_WORKFLOW_INCONSISTENT: expected RUNNING at hr_approval after manager approve");
         }
 
-        // Only now update HR state — workflow progression verified
         transitionState(tenantId, requestId, "PENDING_MANAGER", "PENDING_HR",
                 managerId, request.comment(), clock.instant());
         updateWorkflowStep(tenantId, requestId, "HR_APPROVAL");
         writeAuditAndOutbox(tenantId, "LeaveManagerApproved", requestId, managerId);
     }
 
-    /**
-     * Manager reject: verify current step, reject canonical approval,
-     * verify graph reached rejected terminal, then update HR state.
-     */
     @Transactional
     public void managerReject(UUID tenantId, UUID requestId, UUID managerId,
                               HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
@@ -234,7 +217,6 @@ public class HrLeaveService {
         workflowAdapter.rejectApproval(tenantId, pending.get().id(), managerId,
                 pending.get().version(), request.reason());
 
-        // VERIFY workflow is COMPLETED at end_rejected (strict terminal)
         if (!workflowAdapter.isCompletedAt(tenantId, workflowInstanceId, "end_rejected")) {
             throw new IllegalStateException(
                 "HRM_WORKFLOW_INCONSISTENT: expected COMPLETED at end_rejected after manager reject");
@@ -247,10 +229,6 @@ public class HrLeaveService {
         writeAuditAndOutbox(tenantId, "LeaveRejected", requestId, managerId);
     }
 
-    /**
-     * HR approve: verify current step, approve canonical approval,
-     * verify workflow COMPLETED (terminal approved), then update HR state + consume ledger.
-     */
     @Transactional
     public void hrApprove(UUID tenantId, UUID requestId, UUID hrUserId,
                           HrTimeAttendanceV2Controller.ApproveLeaveRequest request) {
@@ -269,7 +247,6 @@ public class HrLeaveService {
         workflowAdapter.approveApproval(tenantId, pending.get().id(), hrUserId,
                 pending.get().version(), request.comment());
 
-        // VERIFY workflow is COMPLETED at end_approved (strict terminal)
         if (!workflowAdapter.isCompletedAt(tenantId, workflowInstanceId, "end_approved")) {
             throw new IllegalStateException(
                 "HRM_WORKFLOW_INCONSISTENT: expected COMPLETED at end_approved after HR approve");
@@ -282,10 +259,6 @@ public class HrLeaveService {
         writeAuditAndOutbox(tenantId, "LeaveHrApproved", requestId, hrUserId);
     }
 
-    /**
-     * HR reject: verify current step, reject canonical approval,
-     * verify graph reached rejected terminal, then update HR state.
-     */
     @Transactional
     public void hrReject(UUID tenantId, UUID requestId, UUID hrUserId,
                          HrTimeAttendanceV2Controller.RejectLeaveRequest request) {
@@ -304,7 +277,6 @@ public class HrLeaveService {
         workflowAdapter.rejectApproval(tenantId, pending.get().id(), hrUserId,
                 pending.get().version(), request.reason());
 
-        // VERIFY workflow is COMPLETED at end_rejected (strict terminal)
         if (!workflowAdapter.isCompletedAt(tenantId, workflowInstanceId, "end_rejected")) {
             throw new IllegalStateException(
                 "HRM_WORKFLOW_INCONSISTENT: expected COMPLETED at end_rejected after HR reject");
@@ -317,9 +289,6 @@ public class HrLeaveService {
         writeAuditAndOutbox(tenantId, "LeaveRejected", requestId, hrUserId);
     }
 
-    /**
-     * Withdraw: cancel workflow if still RUNNING + release ledger.
-     */
     @Transactional
     public void withdraw(UUID tenantId, UUID requestId, UUID userId) {
         var reqData = getRequestData(tenantId, requestId);
@@ -328,7 +297,6 @@ public class HrLeaveService {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: cannot withdraw from " + currentState);
         }
 
-        // Cancel workflow via adapter (only if still RUNNING — safe for terminal states)
         UUID workflowInstanceId = getWorkflowInstanceId(tenantId, requestId);
         workflowAdapter.cancelIfRunning(tenantId, workflowInstanceId, userId, "Employee withdrew");
 
@@ -342,11 +310,6 @@ public class HrLeaveService {
         writeAuditAndOutbox(tenantId, "LeaveWithdrawn", requestId, userId);
     }
 
-    /**
-     * Cancel: APPROVED → CANCELLED + ledger compensation.
-     * IMPORTANT: workflow is already COMPLETED — do NOT call cancel on it.
-     * Post-approval cancellation is modeled as business-state compensation.
-     */
     @Transactional
     public void cancel(UUID tenantId, UUID requestId, UUID userId, String reason) {
         var reqData = getRequestData(tenantId, requestId);
@@ -354,17 +317,12 @@ public class HrLeaveService {
             throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: can only cancel APPROVED requests");
         }
 
-        // The workflow is already COMPLETED after HR approval.
-        // The canonical domain forbids cancelling COMPLETED instances.
-        // Post-approval cancellation is a business-state compensation — NOT a workflow cancellation.
-
         int updated = jdbc.update(
                 "UPDATE hr_leave_requests SET state = 'CANCELLED', approver_comment = ?, updated_at = NOW() " +
                 "WHERE id = ? AND tenant_id = ? AND state = 'APPROVED'",
                 reason, requestId, tenantId);
         if (updated == 0) throw new IllegalStateException("HRM_INVALID_STATE_TRANSITION: cancel failed");
 
-        // Compensate: add back the consumed days as an ADJUSTMENT
         UUID leaveTypeId = (UUID) reqData[0];
         UUID employmentId = (UUID) reqData[1];
         BigDecimal daysCount = (BigDecimal) reqData[2];
