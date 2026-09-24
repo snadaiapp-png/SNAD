@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * HRM-G2 PostgreSQL Direct integration test.
@@ -188,12 +187,24 @@ class HrG2PostgresIntegrationTest {
 
     @Test
     void crossTenantAccessDeniedWithoutTenantContext() throws Exception {
+        // After V20260924_6 (NULLIF fail-closed RLS), RESET app.tenant_id no longer
+        // throws a UUID cast exception. Instead, current_setting('app.tenant_id', true)
+        // returns NULL via NULLIF, the comparison tenant_id = NULL yields NULL (not true),
+        // and RLS filters out all rows → query succeeds with zero rows.
         DataSource ds = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
         try (Connection conn = ds.getConnection(); Statement stmt = conn.createStatement()) {
             stmt.execute("RESET app.tenant_id");
-            assertThatThrownBy(() -> stmt.executeQuery("SELECT COUNT(*) FROM hr_leave_requests"))
-                    .as("Missing tenant context must fail closed before any HR rows can be read")
-                    .hasMessageContaining("invalid input syntax for type uuid");
+            var rs = stmt.executeQuery("SELECT COUNT(*) FROM hr_leave_requests");
+            rs.next();
+            assertThat(rs.getInt(1))
+                    .as("Without tenant context, no leave requests should be visible")
+                    .isZero();
+
+            rs = stmt.executeQuery("SELECT COUNT(*) FROM hr_attendance_records");
+            rs.next();
+            assertThat(rs.getInt(1))
+                    .as("Without tenant context, no attendance records should be visible")
+                    .isZero();
         }
     }
 }
