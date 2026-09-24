@@ -117,27 +117,27 @@
 }
 
 .brandKicker {
-  margin-block-end: 1rem;
-  font-size: 0.78rem;
+  margin-block-end: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 750;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   color: var(--snad-color-brand-primary);
 }
 
 .brandHeadline {
-  max-inline-size: 13ch;
-  font-size: clamp(2.4rem, 4.3vw, 4.9rem);
-  line-height: 1.02;
-  letter-spacing: -0.035em;
+  max-inline-size: 15ch;
+  font-size: clamp(2rem, 3vw, 2.85rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
   color: var(--snad-text-primary);
   text-wrap: balance;
 }
 
 .brandBody {
-  margin-block-start: 1.5rem;
+  margin-block-start: 1.25rem;
   max-inline-size: 34rem;
-  font-size: 1rem;
-  line-height: 1.8;
+  font-size: 0.95rem;
+  line-height: 1.75;
   color: var(--snad-text-secondary);
 }
 
@@ -157,14 +157,107 @@
   box-shadow: 0 20px 60px color-mix(in srgb, black 8%, transparent);
 }
 
+.formRegion :global(label[for="login-email"]),
+.formRegion :global(label[for="login-password"]) {
+  margin-block-end: 0.125rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  color: var(--snad-text-primary);
+}
+
 .formRegion :global(#login-email),
 .formRegion :global(#login-password) {
-  min-block-size: 48px;
+  min-block-size: 54px;
+  padding-block: 0;
+  padding-inline-start: 1rem;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--snad-border-default) 68%,
+      var(--snad-color-brand-primary)
+    );
+  border-radius: 16px;
+  background: color-mix(
+    in srgb,
+    var(--snad-surface-primary) 97%,
+    var(--snad-color-brand-primary)
+  );
+  color: var(--snad-text-primary);
+  font-size: 0.95rem;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 36%, transparent),
+    0 1px 2px color-mix(in srgb, black 4%, transparent);
+  transition:
+    border-color var(--snad-motion-fast),
+    box-shadow var(--snad-motion-fast),
+    background var(--snad-motion-fast);
+}
+
+.formRegion :global(#login-email) {
+  padding-inline-end: 1rem;
+}
+
+.formRegion :global(#login-password) {
+  padding-inline-end: 3.5rem;
+}
+
+.formRegion :global(#login-email::placeholder),
+.formRegion :global(#login-password::placeholder) {
+  color: var(--snad-text-muted);
+  opacity: 0.78;
+}
+
+.formRegion :global(#login-email:hover:not(:disabled)),
+.formRegion :global(#login-password:hover:not(:disabled)) {
+  border-color: color-mix(
+    in srgb,
+    var(--snad-color-brand-primary) 55%,
+    var(--snad-border-default)
+  );
+}
+
+.formRegion :global(#login-email:focus),
+.formRegion :global(#login-password:focus) {
+  outline: none;
+  border-color: var(--snad-color-brand-primary);
+  background: var(--snad-surface-primary);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--snad-color-brand-primary) 12%, transparent),
+    0 10px 24px color-mix(in srgb, var(--snad-color-brand-primary) 9%, transparent);
+}
+
+.formRegion :global(#login-email[aria-invalid="true"]),
+.formRegion :global(#login-password[aria-invalid="true"]) {
+  border-color: var(--snad-color-error);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--snad-color-error) 10%, transparent);
 }
 
 .formRegion :global(#login-password) + button {
+  inset-inline-end: 0.35rem;
   min-inline-size: 44px;
   min-block-size: 44px;
+  border-radius: 12px;
+  color: var(--snad-text-secondary);
+}
+
+.formRegion :global(#login-password) + button:hover {
+  color: var(--snad-text-primary);
+  background: color-mix(
+    in srgb,
+    var(--snad-color-brand-primary) 8%,
+    var(--snad-surface-secondary)
+  );
+}
+
+.formRegion :global(#login-password) + button:focus-visible {
+  outline: 2px solid var(--snad-color-focus-ring);
+  outline-offset: 1px;
+  background: color-mix(
+    in srgb,
+    var(--snad-color-brand-primary) 8%,
+    var(--snad-surface-secondary)
+  );
 }
 
 .formRegion :global(button[type="submit"]) {
@@ -200,7 +293,7 @@
 
   .brandHeadline {
     max-inline-size: 18ch;
-    font-size: clamp(1.75rem, 6vw, 2.8rem);
+    font-size: clamp(1.75rem, 5vw, 2.5rem);
   }
 
   .brandBody {
@@ -235,6 +328,12 @@
     max-inline-size: none;
     padding: 1.25rem;
     border-radius: 20px;
+  }
+
+  .formRegion :global(#login-email),
+  .formRegion :global(#login-password) {
+    min-block-size: 52px;
+    border-radius: 15px;
   }
 }
 
