@@ -402,10 +402,12 @@ public class HrLeaveService {
         UUID auditId = UUID.randomUUID();
         UUID outboxId = UUID.randomUUID();
         jdbc.update(
-                "INSERT INTO hr_audit_ledger (id, tenant_id, resource_type, resource_id, action, actor_id, occurred_at, details) " +
-                "VALUES (?, ?, 'LEAVE_REQUEST', ?, ?, ?, ?, ?)",
-                auditId, tenantId, resourceId, eventType, actorId, Timestamp.from(now),
-                "{\"resourceId\":\"" + resourceId + "\",\"eventType\":\"" + eventType + "\"}");
+                "INSERT INTO hr_audit_ledger " +
+                "(id, tenant_id, actor_user_id, action, resource_type, resource_id, data_classification, after_state, result, occurred_at) " +
+                "VALUES (?, ?, ?, ?, 'LEAVE_REQUEST', ?, 'OPERATIONAL', ?::jsonb, 'SUCCESS', ?)",
+                auditId, tenantId, actorId, eventType, resourceId,
+                "{\"resourceId\":\"" + resourceId + "\",\"eventType\":\"" + eventType + "\"}",
+                Timestamp.from(now));
         jdbc.update(
                 "INSERT INTO hr_domain_event_outbox (id, tenant_id, event_type, resource_type, resource_id, payload, created_at) " +
                 "VALUES (?, ?, ?, 'LEAVE_REQUEST', ?, ?::jsonb, ?)",
