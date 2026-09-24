@@ -208,7 +208,7 @@ WHERE m.code = 'HRM'
   );
 
 -- ----------------------------------------------------------------------------
--- 3. Organization (required for user_role_assignments FK)
+-- 3. Organization (required for organization membership fixtures)
 -- ----------------------------------------------------------------------------
 INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at)
 VALUES (
@@ -443,14 +443,17 @@ AND NOT EXISTS (
       AND rc.capability_id = cap.id
 );
 
--- user_role_assignments — link users to roles
+-- G2 acceptance authorization grants are tenant-wide.
+-- Organization membership is represented separately above. These G2 HTTP
+-- capability checks do not supply an organizationId, so organization-scoped
+-- grants would fail closed with NO_MATCHING_ACTIVE_ROLE.
 INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
 VALUES (
     '33333333-3333-4333-8333-333333333381',
     '33333333-3333-4333-8333-333333333331',
     '33333333-3333-4333-8333-333333333341',
     '33333333-3333-4333-8333-333333333371',
-    '33333333-3333-4333-8333-333333333335',
+    NULL,
     'ACTIVE',
     NOW(),
     NOW()
@@ -463,7 +466,7 @@ VALUES (
     '33333333-3333-4333-8333-333333333331',
     '33333333-3333-4333-8333-333333333342',
     '33333333-3333-4333-8333-333333333372',
-    '33333333-3333-4333-8333-333333333335',
+    NULL,
     'ACTIVE',
     NOW(),
     NOW()
@@ -476,7 +479,7 @@ VALUES (
     '33333333-3333-4333-8333-333333333331',
     '33333333-3333-4333-8333-333333333343',
     '33333333-3333-4333-8333-333333333373',
-    '33333333-3333-4333-8333-333333333335',
+    NULL,
     'ACTIVE',
     NOW(),
     NOW()
@@ -553,6 +556,7 @@ SELECT 'g2-acceptance-seed: employees=' || COUNT(*) FROM hr_employees WHERE tena
 SELECT 'g2-acceptance-seed: roles=' || COUNT(*) FROM roles WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
 SELECT 'g2-acceptance-seed: subscriptions=' || COUNT(*) FROM tenant_subscriptions WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND status = 'ACTIVE';
 SELECT 'g2-acceptance-seed: workflow_entitlement=' || COUNT(*) FROM plan_module_entitlements pme JOIN modules m ON m.id = pme.module_id WHERE pme.plan_id = '33333333-3333-4333-8333-333333333332' AND m.code = 'WORKFLOW' AND pme.module_enabled = true;
+SELECT 'g2-acceptance-seed: tenant_wide_grants=' || COUNT(*) FROM user_role_assignments WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND status = 'ACTIVE' AND organization_id IS NULL;
 SELECT 'g2-acceptance-seed: leave_balance_row=' || COUNT(*) || ' entitled_days=' || COALESCE(SUM(entitled_days), 0) || ' used_days=' || COALESCE(SUM(used_days), 0) || ' pending_days=' || COALESCE(SUM(pending_days), 0) || ' carried_over_days=' || COALESCE(SUM(carried_over_days), 0)
 FROM hr_leave_balances WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND employment_id = '33333333-3333-4333-8333-333333333361';
 
