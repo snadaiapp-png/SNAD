@@ -29,9 +29,9 @@ describe("LoginV3Shell", () => {
     expect(screen.getAllByRole("form", { name: "login-form-probe" })).toHaveLength(1);
   });
 
-  it("renders the restrained brand narrative without duplicating the official logo", () => {
+  it("renders localized SNAD narrative without duplicating the official logo", () => {
     const { container } = renderShell();
-    expect(screen.getByText("ابدأ من مساحة عمل واحدة")).toBeInTheDocument();
+    expect(screen.getByText("منصة ذكاء الأعمال الموحدة")).toBeInTheDocument();
     expect(
       container.querySelector('img[src="/assets/brand/snad-logo-official-wordmark.png"]'),
     ).toBeNull();
