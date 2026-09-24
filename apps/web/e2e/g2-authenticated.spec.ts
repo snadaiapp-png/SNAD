@@ -237,7 +237,7 @@ test.describe("G2 HR Nav @desktop", () => {
     await loginThroughUi(page, "hr");
 
     await page.goto(`${BASE_URL}/hr/schedules`);
-    await expect(page.getByRole("heading", { name: "Schedules", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Work Schedules", exact: true })).toBeVisible();
 
     await page.goto(`${BASE_URL}/hr/attendance/admin`);
     await expect(page.getByRole("heading", { name: "Attendance Administration", exact: true })).toBeVisible();
@@ -261,8 +261,8 @@ test.describe("G2 Employee Journey @mobile", () => {
     await expect(page.locator("h1").first()).toBeVisible();
     await page.waitForLoadState("networkidle");
 
-    const clockInBtn = page.locator('button:has-text("Clock In")');
-    const clockOutBtn = page.locator('button:has-text("Clock Out")');
+    const clockInBtn = page.getByTestId("attendance-clock-in");
+    const clockOutBtn = page.getByTestId("attendance-clock-out");
 
     await expect(clockInBtn.or(clockOutBtn)).toBeVisible({ timeout: 10_000 });
 

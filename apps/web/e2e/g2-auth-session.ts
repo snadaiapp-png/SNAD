@@ -114,11 +114,15 @@ export async function loginThroughUi(
 /**
  * Log out the current session via the canonical workspace UI logout button.
  *
- * Fail-closed contract: the helper requires the stable logout test id and the
- * real anonymous auth root. It never falls back to translated text selectors,
+ * The logout button lives on /workspace (not on HR sub-pages). The helper
+ * navigates to /workspace first, then clicks the data-testid="logout"
+ * button and waits for redirect to the auth root.
+ *
+ * Fail-closed contract: never falls back to translated text selectors,
  * raw authenticated fetch, or storage clearing.
  */
 export async function logoutThroughUi(page: Page): Promise<void> {
+  await page.goto(`${process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000"}/workspace`);
   const logoutBtn = page.getByTestId("logout");
   await expect(logoutBtn).toBeVisible({ timeout: 5_000 });
   await logoutBtn.click();
