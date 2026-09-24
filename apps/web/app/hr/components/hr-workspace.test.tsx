@@ -93,16 +93,16 @@ describe("HrWorkspace navigation", () => {
     expect(screen.getByRole("link", { name: "حضور الفريق" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "سجلات وقت الفريق" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "اعتمادات الإجازات" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "جداول العمل" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "إدارة الحضور" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "سياسات الإجازات" })).not.toBeInTheDocument();
   });
 
-  it("shows HR administration surfaces for explicit HR capabilities", () => {
+  it("shows HR administration surfaces without requiring TEAM scope", () => {
     render(
       <HrWorkspace capabilities={[
         HRM_CAPABILITIES.ATTENDANCE_ADMIN,
         HRM_CAPABILITIES.ATTENDANCE_CORRECT,
-        HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW,
         HRM_CAPABILITIES.LEAVE_POLICY_ADMIN,
         HRM_CAPABILITIES.LEAVE_HR_APPROVE,
       ]} activeHref="/hr/attendance/admin">
@@ -115,6 +115,7 @@ describe("HrWorkspace navigation", () => {
     expect(screen.getByRole("link", { name: "سياسات الإجازات" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "تقرير الحضور" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "اعتمادات الإجازات" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "حضور الفريق" })).not.toBeInTheDocument();
   });
 
   it("marks only the most specific nested route as active", () => {
