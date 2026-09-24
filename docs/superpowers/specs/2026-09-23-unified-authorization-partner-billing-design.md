@@ -1,9 +1,10 @@
 # SANAD Unified Authorization, Partner Control Plane & Hierarchical Billing — Architecture Design
 
-**Date:** 2026-09-23  
-**Status:** DESIGN APPROVED IN CONVERSATION — written spec pending user review  
-**Repository baseline:** `7a8399e25fe97758ee1e0ff6df512d18f8654da1`  
+**Date:** 2026-09-23 · **Revision B — 2026-09-24 correction record**  
+**Status:** DESIGN APPROVED — REVISED per independent review (`INDEPENDENT_REVIEW_COMPLETE` → `PLAN_CORRECTION_REQUIRED`). Revision B supersedes Revision A wherever they differ.  
+**Repository baseline:** `8d0d49c7bdd3ad3a886a23cffc1e735e61998712` (= origin/main; correction branch `docs/unified-control-plane-plan-corrections`)  
 **Design branch:** `design/unified-authorization-partner-billing`  
+**Revision B changes:** §4.1 runtime decision algorithm (protected safety is NOT a precedence layer), §5 protected role set, §6.1 Capability Contract Table, §9 Direct DENY v1 database invariant, §13 delegation vocabulary, §13.1 deterministic partner membership, §14.3 platform_files repository-grounded model, §17.2 auto-invoicing carrier, §18.3 agreement temporal integrity, §18.5–§18.7 settlement state machine + adjustments + fee display, §21.1 notification scoping/RLS, §22.4–§22.5 dashboard exact schema + reconciliation invariant, §29.1 progressive cutover, §31.6 correction-mandated tests.  
 
 ---
 
@@ -105,31 +106,49 @@ Tenant-aware
 + Commercial/Delegation Gate
 + Explicit User ALLOW/DENY
 + Dynamic Data Scopes
-+ Protected System Roles
-+ Break-Glass Safety
++ Protected System Roles (administration/mutation invariants — NOT a runtime allow source)
++ Break-Glass (explicit time-bounded audited grant, evaluated normally — never bypasses DENY)
 + Explainable Decisions
 + Event-driven Effective Permissions
 + Immutable Audit
 ```
 
-### 4.1 Decision order
+### 4.1 Runtime decision algorithm (Revision B — authoritative)
 
-The authorization engine evaluates in this order:
+The runtime evaluation is a five-stage algorithm. There is NO "protected safety" runtime precedence stage and NO allow source that outranks explicit DENY:
 
 ```text
-1. Platform boundary
-2. Partner/agent boundary
-3. Tenant boundary
-4. Subscription/application entitlement
-5. Protected system safety rules
-6. Delegated administration boundary
-7. Explicit user DENY
-8. Explicit user ALLOW
-9. Role grants
-10. ABAC / relationship policy
-11. Data scope
-12. Default DENY
+A. HARD GUARDS
+   - authenticated subject / security context
+   - platform boundary
+   - partner boundary
+   - tenant boundary
+   - active/known capability
+   - commercial entitlement where applicable
+   - tenant subscription entitlement where applicable
+   Failure of any hard guard = DENY.
+
+B. EXPLICIT DIRECT DENY
+   - an active direct user DENY for the capability = DENY
+   - For v1: DIRECT DENY IS CAPABILITY-WIDE.
+     Scoped direct DENY is NOT supported in v1.
+
+C. CANDIDATE ALLOW SOURCES
+   - direct ALLOW
+   - active Role Capability
+   - applicable ABAC/ReBAC relationship policy
+   - valid delegated-administration grant
+
+D. DATA/RESOURCE SCOPE
+   - at least one candidate ALLOW must also match the applicable
+     scope/context; multiple valid ALLOW scopes union.
+
+E. RESULT
+   - valid candidate + valid scope = ALLOW
+   - otherwise = DEFAULT DENY
 ```
+
+Protected roles and break-glass protections are NOT a runtime allow precedence layer and NOT a bypass around explicit DENY. They are mutation invariants, protected administration constraints, recovery-path guarantees, and high-risk change safeguards (§5.1). Break-glass emergency access, if implemented, must itself create an explicit, time-bounded, audited authorization grant/override that is evaluated normally by this algorithm; the existence of a protected role never bypasses runtime DENY.
 
 No role, override, policy, partner delegation, or scope may expand access beyond tenant or partner isolation.
 
@@ -164,6 +183,8 @@ AGENT_SUPER_ADMIN
 TENANT_ADMIN
 ```
 
+`AGENT_CUSTOM_ADMIN` remains an administrative hierarchy level and a customizable partner-admin role. It is NOT a protected system role. It must not appear in the `protected_system_roles` registry, must not receive protected-role immutability treatment, and reclassifying it as protected requires a new explicit design decision approved by the owner.
+
 Custom roles remain tenant/partner scoped.
 
 The authority hierarchy is administrative, not an unrestricted inheritance chain:
@@ -193,6 +214,8 @@ The backend must reject changes that would:
 - disable all administrative recovery paths.
 
 The backend must simulate the proposed state before committing high-risk authorization changes.
+
+Break-glass emergency access, where implemented, is not a runtime precedence layer. It creates an explicit, time-bounded, audited authorization grant/override (a direct ALLOW override row with a hard expiry and a mandatory reason) that is evaluated normally by the §4.1 algorithm. An active explicit direct DENY for the capability always beats a break-glass grant. Protected-role status never bypasses runtime DENY, never exempts a subject from hard guards, and never exempts a subject from entitlement checks.
 
 ---
 
@@ -228,6 +251,28 @@ system_protected
 ```
 
 Applications should depend on the registry and unified evaluator, not implement separate authorization engines.
+
+### 6.1 Capability Contract Table (canonical vocabulary — one contract)
+
+Every capability consumed by this design is listed once here. Delegated partner flows wrap the SAME canonical codes with `PartnerDelegationGate` + partner scope; semantically duplicate names (e.g. a parallel `PARTNER.BILLING.MANAGE` next to canonical `BILLING.MANAGE`) are forbidden.
+
+| CAPABILITY | PRINCIPAL TYPES | SCOPE | DELEGATABLE | SYSTEM_PROTECTED | USED BY API | SEEDED IN MIGRATION |
+|---|---|---|---|---|---|---|
+| `BILLING.READ` | TENANT, PARTNER (delegated), PLATFORM | partner/tenant billing read | YES | no | `/api/v1/partner/invoices` (list/read), `/api/v1/partner/settlements` | exists (canonicalized from SCP `billing.read`, `V20260830_2` + `V20260901_1`) |
+| `BILLING.MANAGE` | PARTNER (delegated), PLATFORM | partner billing administration | YES | no | partner invoice draft/issue, credit-note administration | `V20260925_5` (W2 — created once; consumed by platform and delegated surfaces) |
+| `PARTNER.INVOICE.ISSUE` | PARTNER (delegated) | own bound tenants | YES | no | `/api/v1/partner/invoices` issue | `V20260927_9` (W4) |
+| `PARTNER.CREDITNOTE.ISSUE` | PARTNER (delegated) | own bound tenants | YES | no | `/api/v1/partner/credit-notes` | `V20260927_9` (W4) |
+| `SETTLEMENT.VIEW` | PARTNER (self read), PLATFORM | own periods/items | no | no | `/api/v1/partner/settlements`, executive settlements read | `V20260927_9` (W4) |
+| `SETTLEMENT.FINALIZE` | PLATFORM only | platform | no | YES | `/api/v1/executive/settlements` finalize | `V20260927_9` (W4) |
+| `PARTNER.PLATFORM.MANAGE` | PLATFORM only | platform | no | YES | `/api/v1/executive/partners/**` | `V20260925_5` (W2) |
+| `TENANT.CREATE` / `TENANT.ACTIVATE` / `TENANT.SUSPEND` | PARTNER (delegated), PLATFORM | delegated tenant targets | YES | no | partner provisioning paths | `V20260925_5` (W2) |
+| `TENANT.USER.MANAGE` / `TENANT.AUTHORIZATION.MANAGE` | PARTNER (delegated), PLATFORM | delegated tenant targets | YES | no | partner user/authorization delegation | `V20260925_5` (W2) |
+| `SUBSCRIPTION.CREATE` / `SUBSCRIPTION.UPGRADE` / `SUBSCRIPTION.DOWNGRADE` / `SUBSCRIPTION.CANCEL` | PARTNER (delegated), PLATFORM | delegated tenants | YES | no | partner subscription delegation | `V20260925_5` (W2) |
+| `COMMERCIAL.PROFILE.READ` / `COMMERCIAL.PROFILE.WRITE` | TENANT | own tenant | no | no | `/api/v1/commercial/**` | `V20260926_5` (W3) |
+| `PARTNER.COMMERCIAL.READ` / `PARTNER.COMMERCIAL.WRITE` | PARTNER | own partner | no | no | `/api/v1/partner/commercial/**` | `V20260926_5` (W3) |
+| `AUTHORIZATION.OVERRIDE.MANAGE` / `AUTHORIZATION.RELATIONSHIP.MANAGE` / `AUTHORIZATION.RESYNC` / `AUTHORIZATION.BREAK_GLASS` / `AUTHORIZATION.RECOVER` / `AUTHORIZATION.PLATFORM.MANAGE` | PLATFORM, TENANT admins (per code) | tenant/platform | no | YES | `/api/v1/access/**`, `/api/v1/executive/authorization/**` | `V20260924_4` (W1) |
+
+`PARTNER.INVOICE.ISSUE` and `PARTNER.CREDITNOTE.ISSUE` are deliberately distinct from `BILLING.MANAGE`: they authorize creating binding financial documents, so a partner can be granted document issuance without full billing administration. They are used consistently across registry, delegation allowlist, controllers, tests, and UI gates (see §6.1 table).
 
 ---
 
@@ -311,17 +356,29 @@ user_permission_overrides
 - updated_at
 ```
 
-Precedence is fixed:
+Overrides participate in the runtime algorithm of §4.1 (Revision B). There is NO "protected safety" precedence stage:
 
 ```text
-Protected Safety
-> Explicit DENY
-> Explicit ALLOW
-> Role Grant
-> Policy/Relationship Match
-> Scope
-> Default DENY
+A. HARD GUARDS (subject/context; platform; partner; tenant; active/known
+   capability; commercial entitlement where applicable; tenant subscription
+   entitlement where applicable) — any failure = DENY
+B. EXPLICIT DIRECT DENY — active direct user DENY for the capability = DENY
+   (v1: capability-wide; scoped DENY not supported)
+C. CANDIDATE ALLOW SOURCES — direct ALLOW; active Role Capability;
+   applicable ABAC/ReBAC relationship policy; valid delegated grant
+   (including time-bounded break-glass overrides)
+D. DATA/RESOURCE SCOPE — at least one candidate ALLOW must match the
+   applicable scope/context; multiple valid ALLOW scopes union
+E. RESULT — valid candidate + valid scope = ALLOW; otherwise DEFAULT DENY
 ```
+
+Database invariant for v1 (`user_permission_overrides`), enforced by a table CHECK constraint:
+
+```text
+effect = 'DENY'  =>  scope_type IS NULL AND scope_reference IS NULL
+```
+
+A scoped DENY insert is rejected by the database. A capability-wide DENY beats role ALLOWs, direct ALLOWs, relationship-policy ALLOWs, delegated grants, and break-glass overrides, and applies across every data scope. Protected-role status never bypasses this runtime result. `DecisionSource.PROTECTED_SAFETY` (an ALLOW-source/precedence concept) is removed from the engine vocabulary.
 
 ---
 
@@ -444,6 +501,10 @@ Partner A must never access Partner B through caller-supplied IDs. The backend r
 
 Commercial administration does not imply access to CRM, HRM, payroll, accounting, or other tenant business data. Business-data access requires a separate explicit tenant-scoped delegation/role.
 
+### 13.1 Partner user membership — one deterministic v1 model (Revision B)
+
+A user may hold AT MOST ONE ACTIVE partner membership. This is enforced at the database level with a partial unique index equivalent to `UNIQUE(user_id) WHERE status = 'ACTIVE'` on the partner-membership table; historical SUSPENDED memberships may remain. JWT minting assumes one `partner_id`; this constraint is what makes that derivation deterministic. A future multi-partner-user model must use an explicit selected-partner session context and token exchange — never arbitrary first-ACTIVE-row selection. Two simultaneous ACTIVE membership inserts for the same user must fail at the database (concurrency-tested). Partner suspension or partner-admin removal must invalidate session authorization immediately by incrementing the affected user's `session_version` (existing `V13` mechanism + `SessionVersionCache.invalidate`) — never by waiting for a short-lived JWT membership cache (5 s) to expire.
+
 ---
 
 ## 14. Business identity and branding
@@ -493,6 +554,28 @@ The screen supports structured commercial data, tax data, addresses, contact num
 ### 14.2 Future white-label readiness
 
 Branding is modeled separately so future white-label/co-branding can be added without redesigning business identity or authorization.
+
+### 14.3 Logo/asset storage — `platform_files` extension (repository-grounded, Revision B)
+
+The existing `platform_files` table (`V20260911_2`) has exactly: `tenant_id NOT NULL`, `source_module`, `source_entity_type`, `source_entity_id`, `mime_type`, `size_bytes`, `checksum_sha256`, `classification`, `storage_reference`, `uploaded_by`. It has NO `kind` column and NO `partner_id` column. The design therefore:
+
+- does NOT use a fabricated `platform_files.kind = 'BRAND_LOGO'` field;
+- reuses the table without creating a duplicate blob/file registry, and does not fake a partner as a normal customer tenant;
+- stores brand logos with `source_module='COMMERCIAL'`, `source_entity_type='BRAND_LOGO'`, `source_entity_id=<brand/business principal id>`;
+- adds a NULLABLE `partner_id` column for partner-owned assets (additive migration);
+- retains existing `tenant_id` compatibility for all current users of the table (workflow attachments and every other existing consumer);
+- defines ownership without ambiguity:
+
+```text
+platform-owned asset: control-plane tenant context, partner_id NULL
+partner-owned asset:  control-plane tenant carrier + partner_id set
+tenant-owned asset:   tenant_id = actual tenant, partner_id NULL
+```
+
+  (partner assets may use the canonical control-plane tenant carrier only);
+- enforces a CHECK preventing ambiguous ownership (a row with `partner_id` set must carry the control-plane carrier tenant, not a customer tenant);
+- rewrites `platform_files` RLS as ONE fail-closed principal-aware policy (ENABLE + FORCE + `DROP POLICY IF EXISTS` first) or a proven non-overbroad policy set;
+- mandates regression of ALL existing Workflow attachment/file-reference behavior, because `platform_files` is shared infrastructure.
 
 ---
 
@@ -596,6 +679,18 @@ TRIAL
 
 Automatic billing is allowed only when the subscription has automatic invoicing enabled and the customer is explicitly accepted/confirmed for continued paid service according to the product workflow. The confirmation source and timestamp must be auditable.
 
+The authoritative carrier for the automatic-invoicing preference is the SUBSCRIPTION — a pre-invoice entity that exists when the decision is made. `tenant_subscriptions.auto_invoicing_enabled boolean NOT NULL DEFAULT false`. `billing_invoices` must NOT carry the controlling flag (an invoice does not exist when the automatic-invoicing decision is made). The scheduler condition is exactly:
+
+```text
+subscription ACTIVE_BILLABLE
+AND tenant_subscriptions.auto_invoicing_enabled = true
+AND auditable continuation confirmation exists
+AND partner binding ACTIVE
+AND required delegation AND effective commercial agreement valid
+```
+
+then create the invoice.
+
 ---
 
 ## 18. Partner settlement and SANAD-to-partner billing
@@ -656,6 +751,8 @@ PartnerCommercialAgreement v2: 15%
 
 Each qualifying partner-issued tenant invoice binds to the effective agreement version at invoice issuance. Collections, refunds, and credit notes attributable to that invoice retain that bound agreement version for settlement. Later edits do not retroactively rewrite previous invoices or settlement economics.
 
+Agreement versions must not overlap for the same agreement. The database enforces non-overlapping effective windows with an exclusion constraint — `EXCLUDE USING gist (agreement_id WITH =, tstzrange(effective_from, COALESCE(effective_to, 'infinity'::timestamptz), '[)') WITH &&)` with the `btree_gist` extension — the same mechanism family already used by `hr_org_unit_versions` (`V20260905_3`), so it is compatible with repository extension policy. A same-start concurrent insert race must admit exactly one row (constraint-enforced, not SELECT-before-INSERT).
+
 ### 18.4 Settlement lifecycle
 
 ```text
@@ -671,6 +768,39 @@ tenant invoice
 ```
 
 Settlement calculations must be replay-safe, traceable to tenant invoices/payments, and reconcilable.
+
+### 18.5 Settlement period state machine (authoritative, Revision B)
+
+One settlement period row exists per (partner, period window) — `UNIQUE(partner_id, period_start, period_end)`.
+
+```text
+(no row) --calculate--> CALCULATED --submit--> PENDING_APPROVAL --finalize--> FINALIZED --issue invoice--> INVOICED
+                             ^    \
+                             \____/ recalculate (allowed only before FINALIZED)
+```
+
+Before FINALIZED:
+
+- one settlement period row exists;
+- `CALCULATED` may be recalculated — recalculation rebuilds/reconciles the FULL period deterministically (full rebuild, never incremental delta);
+- the SAME idempotency key is a strict no-op/replay (row-count and totals invariant);
+- a NEW idempotency key may create a new run record and updates/replaces the non-finalized calculation transactionally (previous calculation items replaced atomically).
+
+After FINALIZED:
+
+- period economics are immutable;
+- late refund/credit/collection adjustments do NOT rewrite finalized history;
+- they create explicit ADJUSTMENT ITEMS in the next open settlement period, each referencing the original invoice/payment/period (§18.6).
+
+Concurrent calculate/finalize is serialized on the period row; exactly one finalizer wins. "Incremental delta only" is NOT part of the model.
+
+### 18.6 Late adjustments after finalization
+
+Adjustment items live in a dedicated table (`partner_settlement_adjustment_items`) with FKs to the original invoice/payment and the source settlement period, carrying signed amounts. They participate in the next open period's eligible-net calculation. Finalized periods are never mutated.
+
+### 18.7 Fee percentage authority and display (Revision B)
+
+The settlement authority is the per-item bound `agreement_version_id` and its `platform_fee_percent`. A period-level `platform_fee_percent` is NOT persisted as an authoritative column (no "majority version" fee). Dashboards may display a derived, display-only statistic `weighted_effective_fee_percent = Σ(item.platform_charge_minor) / Σ(item.eligible_net_minor)` computed at read time with exact defined arithmetic; dashboards and accounting must never treat it as settlement authority.
 
 ---
 
@@ -772,6 +902,10 @@ For every partner-created account/tenant and every partner change to a tenant or
 
 Notifications and audit are separate. Deleting/reading a notification never deletes audit evidence.
 
+### 21.1 Notification scoping and RLS model (explicit, Revision B)
+
+`notification_events` carries denormalized scope columns `scope CHECK IN ('PLATFORM','PARTNER','TENANT')`, `tenant_id`, `partner_id` with consistency CHECKs (`scope='TENANT'` ⇒ `tenant_id NOT NULL AND partner_id IS NULL`; `scope='PARTNER'` ⇒ `partner_id NOT NULL AND tenant_id IS NULL`; `scope='PLATFORM'` ⇒ both NULL). `notification_deliveries` denormalizes the same scope columns from its event (NOT NULL, consistency CHECKs), so every delivery row is independently RLS-scoped without joins. RLS is ENABLE + FORCE with explicit policies written in the migration (owner rows readable in control-plane context; partner rows only under the matching `app.partner_id` GUC; tenant rows only under the matching `app.tenant_id` GUC). A partner can never read platform-owner deliveries. Acknowledge/read is restricted to the recipient: `WITH CHECK` includes `recipient_user_id` congruence with the session identity, and the service re-validates ownership. Mandatory negative tests: Partner A cannot see Partner B deliveries; Tenant A cannot see Tenant B deliveries; a partner cannot read platform-owner deliveries; a recipient cannot acknowledge another recipient's delivery.
+
 ---
 
 ## 22. Executive dashboards
@@ -864,6 +998,33 @@ SANAD Settlement
 ```
 
 Partner dashboards must not accept arbitrary `partnerId` as authority. Partner scope is derived from authenticated context and verified server-side.
+
+### 22.4 Dashboard projection schema — exact typed design (Revision B)
+
+Projection DDL is written column-exactly in the plans — no schematic placeholders such as `subscriptions_*`. The projection apply-log is typed per scope (one UUID projection_key is never overloaded to mean both a partner UUID and a platform `bucket_month DATE`):
+
+```text
+dashboard_projection_events(
+  id uuid pk,
+  projection_scope text NOT NULL CHECK (projection_scope IN ('PLATFORM','PARTNER')),
+  partner_id uuid NULL REFERENCES partners(id),
+  bucket_month date NULL,
+  source_event_type text NOT NULL,
+  source_event_id uuid NOT NULL,
+  applied_at timestamptz NOT NULL DEFAULT now(),
+  CHECK ( (projection_scope='PARTNER'  AND partner_id IS NOT NULL AND bucket_month IS NULL)
+       OR (projection_scope='PLATFORM' AND partner_id IS NULL     AND bucket_month IS NOT NULL) ),
+  UNIQUE (projection_scope, partner_id, bucket_month, source_event_type, source_event_id)
+)
+```
+
+### 22.5 Global dashboard reconciliation invariant (corrected, Revision B)
+
+```text
+GLOBAL = DIRECT SANAD TENANTS + SUM(PARTNER DASHBOARDS)
+```
+
+under identical period, plan, tenant status, invoice status, and currency/commercial filters. Direct tenants are intentionally supported, so `GLOBAL = SUM(PARTNERS)` alone is WRONG and must never be asserted or tested. Reconciliation fixtures must contain at least 2 partners, multiple tenants per partner, and at least 1 direct SANAD tenant, and must reconcile every governed metric.
 
 ---
 
@@ -1146,6 +1307,22 @@ Add event-driven partner notifications, global owner dashboard, per-partner owne
 
 Move remaining application-specific authorization/billing surfaces onto the unified model only after compatibility and security gates pass.
 
+### 29.1 Progressive cutover — no big bang (Revision B)
+
+All feature flags remain default OFF in code/config until their own gate is passed. Cutover is ordered, staged, and independently rollback-capable — flags are never all turned on in one commit or one deployment:
+
+```text
+G7-A Unified Authorization shadow/equivalence mode
+G7-B Unified Authorization authoritative mode (after compatibility/security gate)
+G7-C Partner Principal + Delegated Administration
+G7-D Commercial Identity
+G7-E Partner Billing / Trial Continuation
+G7-F Settlement
+G7-G Notifications + Dashboards
+```
+
+Each stage defines: exact precondition; same-SHA tests; negative security gates; observability; rollback flag; rollback trigger; post-enable smoke; evidence path.
+
 ---
 
 ## 30. Security invariants
@@ -1244,6 +1421,30 @@ Partner dashboards must be tenant/partner isolated under direct API attempts, no
 ### 31.5 Environment
 
 PostgreSQL Direct remains the required database test path. Security/RLS/tenant-isolation and partner-isolation tests are release gates.
+
+### 31.6 Correction-mandated negative and concurrency tests (Revision B)
+
+```text
+scoped DENY insert rejected (DB CHECK)
+capability-wide DENY beats role ALLOW
+capability-wide DENY beats direct ALLOW
+capability-wide DENY beats relationship-policy ALLOW
+capability-wide DENY applies across every data scope
+two simultaneous ACTIVE partner memberships: exactly one succeeds
+partner suspension/admin removal invalidates sessions immediately (session_version)
+two different Partner principals coexist; duplicate Partner principal rejected
+two different Tenant principals coexist; duplicate Tenant principal rejected
+second PLATFORM principal rejected
+agreement v1 [T1,T2) accepted; v2 [T2,T3) accepted
+agreement overlap rejected; same-start race admits exactly one row
+open-ended active agreement version blocks overlapping later version until properly closed
+settlement: concurrent calculate/finalize — exactly one finalizer wins
+settlement: same idempotency key = strict no-op replay; new key = full deterministic rebuild
+settlement: late refund after FINALIZED creates next-period adjustment item
+platform_files: ambiguous-ownership insert rejected; workflow attachment regression suite green
+notification: Partner A/B isolation; Tenant A/B isolation; partner cannot read owner deliveries; cross-recipient ack denied
+dashboard: GLOBAL = DIRECT + SUM(PARTNERS) with ≥2 partners, multiple tenants per partner, ≥1 direct tenant
+```
 
 ---
 
