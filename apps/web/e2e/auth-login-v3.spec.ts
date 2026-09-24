@@ -36,6 +36,42 @@ test.describe("SNAD Login v3 visual acceptance", () => {
     expect(layout.columns).not.toBe("none");
   });
 
+  test("uses a compact brand headline and enhanced credential controls", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    const headlineSize = await page
+      .locator('[data-auth-version="v3"] aside h2')
+      .evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+    expect(headlineSize).toBeLessThanOrEqual(48);
+
+    for (const selector of ["#login-email", "#login-password"]) {
+      const metrics = await page.locator(selector).evaluate((node) => {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return {
+          height: rect.height,
+          radius: Number.parseFloat(style.borderRadius),
+        };
+      });
+      expect(metrics.height).toBeGreaterThanOrEqual(52);
+      expect(metrics.radius).toBeGreaterThanOrEqual(14);
+    }
+
+    const passwordToggleSize = await page.locator("#login-password + button").evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+    expect(passwordToggleSize.width).toBeGreaterThanOrEqual(44);
+    expect(passwordToggleSize.height).toBeGreaterThanOrEqual(44);
+
+    await page.locator("#login-email").focus();
+    const focusShadow = await page
+      .locator("#login-email")
+      .evaluate((node) => getComputedStyle(node).boxShadow);
+    expect(focusShadow).not.toBe("none");
+  });
+
   test("keeps the full login flow reachable at 360x640 without horizontal overflow", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 640 });
     await page.goto("/", { waitUntil: "domcontentloaded" });
