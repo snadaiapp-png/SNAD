@@ -60,7 +60,9 @@ test.describe("G2 Desktop Journey @desktop", () => {
     expect(submitRes.ok(), `Leave submit failed: ${submitRes.status()}`).toBe(true);
     expect(submitRes.url()).toContain(`/leave/requests/${leaveRequestId}/submit`);
 
-    await expect(employeePage.getByRole("status")).toBeVisible({ timeout: 10_000 });
+    await expect(
+      employeePage.getByRole("status").filter({ hasText: "تم إرسال طلب الإجازة" }),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(employeePage.locator("tr", { hasText: LEAVE_REASON })).toBeVisible({ timeout: 15_000 });
 
     await logoutThroughUi(employeePage);
@@ -88,7 +90,9 @@ test.describe("G2 Desktop Journey @desktop", () => {
     await managerApproveBtn.click();
     const mgrApproveRes = await managerApproveResponse;
     expect(mgrApproveRes.ok(), `Manager approve failed: ${mgrApproveRes.status()}`).toBe(true);
-    await expect(managerPage.getByRole("status")).toContainText(/Manager approved/i, { timeout: 10_000 });
+    await expect(
+      managerPage.getByRole("status").filter({ hasText: /Manager approved/i }),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(managerPage.locator("tr", { hasText: LEAVE_REASON })).toHaveCount(0, { timeout: 15_000 });
 
     await logoutThroughUi(managerPage);
@@ -115,7 +119,9 @@ test.describe("G2 Desktop Journey @desktop", () => {
     await hrApproveBtn.click();
     const hrApproveRes = await hrApproveResponse;
     expect(hrApproveRes.ok(), `HR approve failed: ${hrApproveRes.status()}`).toBe(true);
-    await expect(hrPage.getByRole("status")).toContainText(/HR approved/i, { timeout: 10_000 });
+    await expect(
+      hrPage.getByRole("status").filter({ hasText: /HR approved/i }),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(hrPage.locator("tr", { hasText: LEAVE_REASON })).toHaveCount(0, { timeout: 15_000 });
 
     await logoutThroughUi(hrPage);
