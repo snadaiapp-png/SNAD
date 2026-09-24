@@ -47,6 +47,8 @@ class HrG2AuthorizationScopeTest {
                 "/time/attendance/monthly-report/team", TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW);
         assertScopedGet(HrG2ScopedReadController.class,
                 "/time/attendance/monthly-report/admin", TimeAttendanceCapabilities.ATTENDANCE_ADMIN);
+        assertScopedGet(HrTimeAttendanceV2Controller.class,
+                "/time/schedules", TimeAttendanceCapabilities.ATTENDANCE_ADMIN);
     }
 
     @Test
