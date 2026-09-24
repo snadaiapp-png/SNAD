@@ -1,9 +1,8 @@
 "use client";
 
 /**
- * Attendance Tracking — G2-T03.
+ * Attendance Tracking — G2-T03 SELF surface.
  * Clock in/out + monthly attendance records.
- * Arabic/RTL: logical CSS only; i18n keys; SDS tokens.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -47,7 +46,6 @@ export default function AttendancePage() {
   const { state, me } = useAuth();
   const { t } = useI18n();
   const capabilities = me?.capabilities ?? [];
-
   const canView = capabilities.includes(HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW);
   const canManage = capabilities.includes(HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD);
 
@@ -91,16 +89,11 @@ export default function AttendancePage() {
     }
   }
 
-  async function clockOut() {
+  async function clockOut(recordId: string) {
     setBusy(true);
     setDialogError(null);
     try {
-      const openRecord = records.find((r) => r.state === "OPEN");
-      if (!openRecord) {
-        setDialogError("No open attendance record to clock out");
-        return;
-      }
-      await hrG2Api.clockOut(openRecord.id);
+      await hrG2Api.clockOut(recordId);
       setNotice(t("hrm.attendance.notice.clockedOut"));
       await load();
     } catch (err) {
@@ -122,6 +115,8 @@ export default function AttendancePage() {
     );
   }
 
+  const openRecord = records.find((record) => record.state === "OPEN" && !record.clockOut);
+
   const columns: HrColumn<AttendanceRecord>[] = [
     { key: "recordDate", header: t("hrm.attendance.col.date"), render: (r) => formatArabicDate(r.recordDate) },
     { key: "clockIn", header: t("hrm.attendance.col.clockIn"), render: (r) => formatTime(r.clockIn) },
@@ -135,36 +130,40 @@ export default function AttendancePage() {
   return (
     <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance">
       <header>
-        <h1>{t("hrm.attendance.title")}</h1>
+        <h1 data-testid="g2-page-title">{t("hrm.attendance.title")}</h1>
         <p className={styles.kpiHint}>{t("hrm.attendance.subtitle")}</p>
       </header>
 
       {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
       {dialogError ? <p role="alert" className={styles.kpiHint} data-kind="error">{dialogError}</p> : null}
 
-      {canManage ? (
-        <div className={styles.actionRow}>
-          <button type="button" className={styles.linkButton} onClick={() => void clockIn()} disabled={busy}>
-            {busy ? t("hrm.attendance.clockingIn") : t("hrm.attendance.clockIn")}
-          </button>
-          <button type="button" className={styles.linkButton} onClick={() => void clockOut()} disabled={busy}>
-            {t("hrm.attendance.clockOut")}
-          </button>
-        </div>
-      ) : null}
-
       {loading ? (
         <HrLoading />
       ) : error ? (
         <HrErrorState error={error} onRetry={load} />
       ) : (
-        <HrDataTable<AttendanceRecord>
-          caption={t("hrm.attendance.title")}
-          columns={columns}
-          rows={records}
-          rowKey={(r) => r.id}
-          emptyTitle={t("hrm.attendance.empty")}
-        />
+        <div data-testid="attendance-ready">
+          {canManage ? (
+            <div className={styles.actionRow}>
+              {openRecord ? (
+                <button type="button" data-testid="attendance-clock-out" className={styles.linkButton} onClick={() => void clockOut(openRecord.id)} disabled={busy}>
+                  {t("hrm.attendance.clockOut")}
+                </button>
+              ) : (
+                <button type="button" data-testid="attendance-clock-in" className={styles.linkButton} onClick={() => void clockIn()} disabled={busy}>
+                  {busy ? t("hrm.attendance.clockingIn") : t("hrm.attendance.clockIn")}
+                </button>
+              )}
+            </div>
+          ) : null}
+          <HrDataTable<AttendanceRecord>
+            caption={t("hrm.attendance.title")}
+            columns={columns}
+            rows={records}
+            rowKey={(r) => r.id}
+            emptyTitle={t("hrm.attendance.empty")}
+          />
+        </div>
       )}
     </HrWorkspace>
   );
