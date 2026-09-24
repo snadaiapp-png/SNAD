@@ -1,7 +1,7 @@
 package com.sanad.platform.hr.time;
 
 import com.sanad.platform.hr.time.application.HrLeaveWorkflowAdapter;
-import com.sanad.platform.workflow.application.WorkflowApprovalService;
+import com.sanad.platform.workflow.application.WorkflowApprovalCommandPort;
 import com.sanad.platform.workflow.application.WorkflowEntitlementGuard;
 import com.sanad.platform.workflow.application.WorkflowExecutionService;
 import com.sanad.platform.workflow.application.WorkflowGraphExecutionService;
@@ -114,7 +114,7 @@ class HrG2LeavePostgresIntegrationTest {
                 instanceRepo,
                 stepInstanceRepo,
                 approvalRepo,
-                mock(WorkflowApprovalService.class),
+                mock(WorkflowApprovalCommandPort.class),
                 mock(WorkflowExecutionService.class),
                 mock(WorkflowGraphExecutionService.class),
                 mock(WorkflowEntitlementGuard.class));
