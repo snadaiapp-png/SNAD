@@ -117,8 +117,48 @@ export interface G2CreateLeaveRequest {
 }
 
 export const hrG2Api = {
+  // SELF-scoped reads. Wave 3 binds identity server-side and removes caller-selected employment ids.
   listAttendance: (query?: { employmentId?: string; startDate?: string; endDate?: string }) =>
     apiClient.get<G2AttendanceRecord[]>(`${ROOT}/time/attendance`, { query }),
+
+  listTimesheets: (query?: { employmentId?: string; state?: string }) =>
+    apiClient.get<G2Timesheet[]>(`${ROOT}/time/timesheets`, { query }),
+
+  listLeaveTypes: () => apiClient.get<G2LeaveType[]>(`${ROOT}/leave/types`),
+
+  listLeaveRequests: (query?: { employmentId?: string; state?: string }) =>
+    apiClient.get<G2LeaveRequest[]>(`${ROOT}/leave/requests`, { query }),
+
+  listLeaveBalances: (query?: { employmentId?: string; year?: number }) =>
+    apiClient.get<G2LeaveBalance[]>(`${ROOT}/leave/balances`, { query }),
+
+  // Explicit TEAM / HR / ADMIN reads. TEAM responses are relationship-filtered by the backend.
+  listTeamAttendance: (query?: { startDate?: string; endDate?: string }) =>
+    apiClient.get<G2AttendanceRecord[]>(`${ROOT}/time/attendance/team`, { query }),
+
+  listAdminAttendance: (query?: { employmentId?: string; startDate?: string; endDate?: string }) =>
+    apiClient.get<G2AttendanceRecord[]>(`${ROOT}/time/attendance/admin`, { query }),
+
+  listTeamTimesheets: (state?: string) =>
+    apiClient.get<G2Timesheet[]>(`${ROOT}/time/timesheets/team`, { query: { state } }),
+
+  listTeamLeaveRequests: (state?: string) =>
+    apiClient.get<G2LeaveRequest[]>(`${ROOT}/leave/requests/team`, { query: { state } }),
+
+  listHrLeaveRequests: (state?: string) =>
+    apiClient.get<G2LeaveRequest[]>(`${ROOT}/leave/requests/hr`, { query: { state } }),
+
+  listAdminLeaveTypes: () => apiClient.get<G2LeaveType[]>(`${ROOT}/leave/types/admin`),
+
+  teamMonthlyAttendanceReport: (year: number, month: number) =>
+    apiClient.get<G2MonthlyAttendanceReportRow[]>(`${ROOT}/time/attendance/monthly-report/team`, {
+      query: { year, month },
+    }),
+
+  adminMonthlyAttendanceReport: (year: number, month: number, employmentId?: string) =>
+    apiClient.get<G2MonthlyAttendanceReportRow[]>(`${ROOT}/time/attendance/monthly-report/admin`, {
+      query: { year, month, employmentId },
+    }),
 
   clockIn: (body: { employmentId: string; recordDate: string }) =>
     apiClient.post<G2AttendanceRecord>(`${ROOT}/time/attendance/clock-in`, body, mutationOptions()),
@@ -131,9 +171,6 @@ export const hrG2Api = {
   createSchedule: (body: G2CreateScheduleRequest) =>
     apiClient.post<{ id: string }>(`${ROOT}/time/schedules`, body, mutationOptions()),
 
-  listTimesheets: (query?: { employmentId?: string; state?: string }) =>
-    apiClient.get<G2Timesheet[]>(`${ROOT}/time/timesheets`, { query }),
-
   submitTimesheet: (timesheetId: string, employmentId: string) =>
     apiClient.post<void>(`${ROOT}/time/timesheets/${timesheetId}/submit`, undefined, {
       ...mutationOptions(),
@@ -145,14 +182,6 @@ export const hrG2Api = {
 
   rejectTimesheet: (timesheetId: string, reason: string) =>
     apiClient.post<void>(`${ROOT}/time/timesheets/${timesheetId}/reject`, { reason }, mutationOptions()),
-
-  listLeaveTypes: () => apiClient.get<G2LeaveType[]>(`${ROOT}/leave/types`),
-
-  listLeaveRequests: (query?: { employmentId?: string; state?: string }) =>
-    apiClient.get<G2LeaveRequest[]>(`${ROOT}/leave/requests`, { query }),
-
-  listLeaveBalances: (query?: { employmentId?: string; year?: number }) =>
-    apiClient.get<G2LeaveBalance[]>(`${ROOT}/leave/balances`, { query }),
 
   createLeaveRequest: (body: G2CreateLeaveRequest) =>
     apiClient.post<{ requestId: string }>(`${ROOT}/leave/requests`, body, mutationOptions()),
@@ -174,9 +203,4 @@ export const hrG2Api = {
 
   legacyLeaveDecision: (requestId: string, action: "approve" | "reject", body: { comment?: string; reason?: string }) =>
     apiClient.post<void>(`${ROOT}/leave/requests/${requestId}/${action}`, body, mutationOptions()),
-
-  monthlyAttendanceReport: (year: number, month: number, employmentId?: string) =>
-    apiClient.get<G2MonthlyAttendanceReportRow[]>(`${ROOT}/time/attendance/monthly-report`, {
-      query: { year, month, employmentId },
-    }),
 };
