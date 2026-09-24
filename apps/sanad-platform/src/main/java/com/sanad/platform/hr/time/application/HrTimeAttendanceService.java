@@ -4,7 +4,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
@@ -15,17 +14,9 @@ import java.util.UUID;
 /**
  * HRM-G2 Time & Attendance service.
  *
- * <p>Manages attendance records (clock-in/clock-out) and leave requests/balances.
- * Tenant-scoped: every method takes {@code tenantId} as its first parameter.
- *
- * <p>Idempotency: clock-in is idempotent per (tenant, employment, record_date)
- * — if a record already exists for the given date, it returns the existing
- * record instead of creating a duplicate. Leave requests use a separate
- * idempotency key passed by the controller.
- *
- * <p>RLS is enforced at the database level (V20260923_2). The service
- * connects as the {@code sanad} role (NOSUPERUSER NOBYPASSRLS) with
- * {@code SET app.tenant_id} set by the JWT filter.
+ * <p>SELF mutation methods receive employmentId only from trusted controller
+ * resolution. Every write additionally includes tenant + employment predicates,
+ * while PostgreSQL FORCE RLS remains the final isolation layer.</p>
  */
 @Service
 public class HrTimeAttendanceService {
@@ -38,16 +29,15 @@ public class HrTimeAttendanceService {
         this.clock = clock;
     }
 
-    // ==================== Attendance ====================
-
     @Transactional
     public HrTimeAttendanceV2Controller.HrAttendanceRecordResponse clockIn(
-            UUID tenantId, UUID userId,
+            UUID tenantId,
+            UUID userId,
+            UUID employmentId,
             HrTimeAttendanceV2Controller.ClockInRequest request
     ) {
-        // Idempotent: if a record already exists for this date, return it.
         List<HrTimeAttendanceV2Controller.HrAttendanceRecordResponse> existing =
-                listAttendance(tenantId, request.employmentId(), request.recordDate(), request.recordDate());
+                listAttendance(tenantId, employmentId, request.recordDate(), request.recordDate());
         if (!existing.isEmpty()) {
             return existing.get(0);
         }
@@ -57,25 +47,31 @@ public class HrTimeAttendanceService {
         jdbc.update(
                 "INSERT INTO hr_attendance_records (id, tenant_id, employment_id, record_date, clock_in, source, state) " +
                 "VALUES (?, ?, ?, ?, ?, 'MANUAL', 'OPEN')",
-                id, tenantId, request.employmentId(), request.recordDate(), Timestamp.from(now)
+                id, tenantId, employmentId, request.recordDate(), Timestamp.from(now)
         );
-        return getAttendanceRecord(tenantId, id);
+        return getAttendanceRecord(tenantId, employmentId, id);
     }
 
     @Transactional
     public HrTimeAttendanceV2Controller.HrAttendanceRecordResponse clockOut(
-            UUID tenantId, UUID userId, UUID recordId
+            UUID tenantId,
+            UUID userId,
+            UUID employmentId,
+            UUID recordId
     ) {
         Instant now = clock.instant();
-        // Calculate worked minutes
         Timestamp clockOutTs = Timestamp.from(now);
-        jdbc.update(
+        int updated = jdbc.update(
                 "UPDATE hr_attendance_records SET clock_out = ?, worked_minutes = " +
                 "EXTRACT(EPOCH FROM (? - clock_in))::int / 60, state = 'COMPLETED', updated_at = NOW() " +
-                "WHERE id = ? AND tenant_id = ?",
-                clockOutTs, clockOutTs, recordId, tenantId
+                "WHERE id = ? AND tenant_id = ? AND employment_id = ? AND state = 'OPEN'",
+                clockOutTs, clockOutTs, recordId, tenantId, employmentId
         );
-        return getAttendanceRecord(tenantId, recordId);
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "HRM_ATTENDANCE_NOT_OWNED_OR_NOT_OPEN: attendance record is unavailable for this employee");
+        }
+        return getAttendanceRecord(tenantId, employmentId, recordId);
     }
 
     @Transactional(readOnly = true)
@@ -115,10 +111,13 @@ public class HrTimeAttendanceService {
         ), params.toArray());
     }
 
-    private HrTimeAttendanceV2Controller.HrAttendanceRecordResponse getAttendanceRecord(UUID tenantId, UUID id) {
+    private HrTimeAttendanceV2Controller.HrAttendanceRecordResponse getAttendanceRecord(
+            UUID tenantId,
+            UUID employmentId,
+            UUID id) {
         List<HrTimeAttendanceV2Controller.HrAttendanceRecordResponse> records = jdbc.query(
                 "SELECT id, employment_id, record_date, clock_in, clock_out, break_minutes, worked_minutes, source, state " +
-                "FROM hr_attendance_records WHERE id = ? AND tenant_id = ?",
+                "FROM hr_attendance_records WHERE id = ? AND tenant_id = ? AND employment_id = ?",
                 (rs, rowNum) -> new HrTimeAttendanceV2Controller.HrAttendanceRecordResponse(
                         UUID.fromString(rs.getString("id")),
                         UUID.fromString(rs.getString("employment_id")),
@@ -130,32 +129,14 @@ public class HrTimeAttendanceService {
                         rs.getString("source"),
                         rs.getString("state")
                 ),
-                id, tenantId
+                id, tenantId, employmentId
         );
-        return records.isEmpty() ? null : records.get(0);
+        if (records.isEmpty()) {
+            throw new IllegalStateException("HRM_ATTENDANCE_NOT_FOUND_IN_SELF_SCOPE");
+        }
+        return records.get(0);
     }
 
-    // ==================== G2-T05: Monthly Attendance Report ====================
-
-    /**
-     * Generate a monthly attendance report per employee for the given year+month.
-     *
-     * <p>The report is a DERIVED projection from {@code hr_attendance_records}
-     * — no separate report table is maintained. The query aggregates per
-     * employment_id for the given month:
-     * <ul>
-     *   <li>worked_minutes: sum of worked_minutes from COMPLETED records</li>
-     *   <li>absent_days: count of dates with state=MISSED</li>
-     *   <li>missing_punches: count of OPEN records (clock-in without clock-out)</li>
-     * </ul>
-     *
-     * <p>Leave days are derived from {@code hr_leave_requests} where state=APPROVED
-     * and the request overlaps the given month.
-     *
-     * <p>Scheduled days/minutes are not yet available (scheduling domain is
-     * not implemented in this PR — follow-up needed). These are NULL in the
-     * report until the scheduling domain is built.
-     */
     @Transactional(readOnly = true)
     public List<HrTimeAttendanceV2Controller.MonthlyAttendanceReportRow> monthlyAttendanceReport(
             UUID tenantId, int year, int month, UUID employmentId
@@ -188,7 +169,6 @@ public class HrTimeAttendanceService {
             int missedDays = rs.getInt("missed_count");
             int missingPunches = rs.getInt("missing_punches");
 
-            // Count approved leave days overlapping this month
             Integer leaveDays = jdbc.queryForObject(
                     "SELECT COALESCE(SUM(days_count), 0)::int FROM hr_leave_requests " +
                     "WHERE tenant_id = ? AND employment_id = ? AND state = 'APPROVED' " +
@@ -201,13 +181,13 @@ public class HrTimeAttendanceService {
 
             return new HrTimeAttendanceV2Controller.MonthlyAttendanceReportRow(
                     empId,
-                    null,  // scheduledDays — not yet available (scheduling domain pending)
-                    null,  // scheduledMinutes — not yet available
+                    null,
+                    null,
                     totalWorked,
                     missedDays,
                     leaveDays,
-                    0,  // lateOccurrences — requires schedule comparison (pending)
-                    0,  // earlyDepartures — requires schedule comparison (pending)
+                    0,
+                    0,
                     missingPunches,
                     status
             );
