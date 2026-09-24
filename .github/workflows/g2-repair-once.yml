@@ -12,20 +12,21 @@ permissions:
 
 jobs:
   repair:
-    if: ${{ github.event.head_commit.message != 'fix(hr): align G2 outbox and governance tests' }}
+    if: "${{ github.event.head_commit.message != 'fix(hr): align G2 outbox and governance tests' }}"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact repair trigger
         uses: actions/checkout@v4
         with:
           ref: hr/g2-time-attendance-leave
-          fetch-depth: 2
+          fetch-depth: 3
 
-      - name: Verify repair parent
+      - name: Verify repair ancestry
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "027f2fbd00a38659938d4d13fb21c2cf22521e54"
+          git merge-base --is-ancestor 027f2fbd00a38659938d4d13fb21c2cf22521e54 HEAD
+          test "$(git rev-parse HEAD~2)" = "027f2fbd00a38659938d4d13fb21c2cf22521e54"
 
       - name: Apply canonical G2 repair
         shell: bash
@@ -42,7 +43,6 @@ jobs:
                   raise SystemExit(f"{path}: expected {expected_count} occurrences, found {actual}")
               p.write_text(text.replace(old, new))
 
-          # 1) Runtime root cause: use the canonical HR outbox schema from V20260905_14.
           replace_exact(
               "apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrLeaveService.java",
               '''        jdbc.update(
@@ -59,7 +59,6 @@ jobs:
                   "{\\\"eventType\\\":\\\"" + eventType + "\\\",\\\"resourceId\\\":\\\"" + resourceId + "\\\"}");'''
           )
 
-          # 2) Canonical Flyway history now legitimately ends at the G2 20260924.5 migration.
           replace_exact(
               "apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java",
               '''            , "20260921.1"   // canonical project-owner permissions and control-plane identity
@@ -154,7 +153,6 @@ jobs:
           )
           PY
 
-          # Keep the one-shot helper out of the resulting candidate commit.
           git rm .github/workflows/g2-repair-once.yml
           git diff --check
 
@@ -164,14 +162,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrLeaveService.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/hr/recruitment/db/HrG1MigrationTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java \
-            apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G02SchemaPostgresTest.java \
-            .github/workflows/g2-repair-once.yml
+          git add -A
           git commit -m "fix(hr): align G2 outbox and governance tests"
           git push origin HEAD:hr/g2-time-attendance-leave
