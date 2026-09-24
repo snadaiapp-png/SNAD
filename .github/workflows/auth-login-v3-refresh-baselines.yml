@@ -1,0 +1,104 @@
+name: Refresh approved Login v3 visual baselines
+
+on:
+  push:
+    branches:
+      - design/auth-login-v3-full-visual-redesign
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auth-login-v3-refresh-baselines
+  cancel-in-progress: false
+
+jobs:
+  refresh-approved-baselines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@v4
+        with:
+          ref: design/auth-login-v3-full-visual-redesign
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production frontend
+        run: npm run build
+
+      - name: Start production frontend
+        id: server
+        shell: bash
+        run: |
+          set -euo pipefail
+          NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production ./node_modules/.bin/next start -H 127.0.0.1 -p 3001 > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          echo "pid=$!" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 20); do
+            curl --fail --silent http://127.0.0.1:3001/ >/dev/null 2>&1 && exit 0
+            sleep 3
+          done
+          tail -100 "$RUNNER_TEMP/frontend.log" || true
+          exit 1
+
+      - name: Refresh only owner-approved Login v3 light baselines
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+        run: |
+          set -euo pipefail
+          npx playwright test e2e/visual-regression.spec.ts \
+            --config=playwright.standard.config.ts \
+            --project=ar-rtl-light \
+            --grep='login screen — Arabic RTL Light|login screen — English LTR Light|workspace redirect — Arabic RTL|control-plane redirect — English LTR' \
+            --update-snapshots \
+            --reporter=line
+
+      - name: Verify refreshed baselines immediately
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+        run: |
+          set -euo pipefail
+          npx playwright test e2e/visual-regression.spec.ts \
+            --config=playwright.standard.config.ts \
+            --project=ar-rtl-light \
+            --grep='login screen — Arabic RTL Light|login screen — English LTR Light|workspace redirect — Arabic RTL|control-plane redirect — English LTR' \
+            --reporter=line
+
+      - name: Commit baselines and remove one-shot workflow
+        shell: bash
+        working-directory: .
+        run: |
+          set -euo pipefail
+          git config user.name 'snad'
+          git config user.email 'snad.ai.app@gmail.com'
+          git add \
+            apps/web/e2e/__screenshots__/login-ar-rtl-light.png \
+            apps/web/e2e/__screenshots__/login-en-ltr-light.png \
+            apps/web/e2e/__screenshots__/workspace-redirect-ar-rtl.png \
+            apps/web/e2e/__screenshots__/control-plane-redirect-en-ltr.png
+          git rm .github/workflows/auth-login-v3-refresh-baselines.yml
+          changed="$(git diff --cached --name-only)"
+          printf '%s\n' "$changed"
+          test "$(printf '%s\n' "$changed" | grep -c '^apps/web/e2e/__screenshots__/')" -eq 4
+          test "$(printf '%s\n' "$changed" | grep -c '^.github/workflows/auth-login-v3-refresh-baselines.yml$')" -eq 1
+          git commit -m 'test(auth): refresh approved Login v3 visual baselines'
+          git push origin HEAD:design/auth-login-v3-full-visual-redesign
+
+      - name: Stop frontend
+        if: always()
+        shell: bash
+        run: |
+          kill ${{ steps.server.outputs.pid }} 2>/dev/null || true
+          wait ${{ steps.server.outputs.pid }} 2>/dev/null || true
