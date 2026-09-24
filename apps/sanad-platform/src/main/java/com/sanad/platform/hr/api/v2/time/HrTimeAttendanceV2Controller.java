@@ -51,7 +51,7 @@ public class HrTimeAttendanceV2Controller {
 
     @GetMapping("/time/schedules")
     @Operation(operationId = "hrSchedulesList")
-    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW)
+    @RequireCapability(TimeAttendanceCapabilities.ATTENDANCE_ADMIN)
     public ResponseEntity<List<HrScheduleService.ScheduleResponse>> listSchedules(Authentication authentication) {
         UUID tenantId = SecurityContextUtils.tenantId(authentication);
         return ResponseEntity.ok(scheduleService.listSchedules(tenantId));
