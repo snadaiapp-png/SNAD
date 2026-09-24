@@ -1,0 +1,416 @@
+# ============================================================
+# SNAD Platform — G2 Authenticated Acceptance (PostgreSQL Direct + Spring Boot + Next.js + Playwright)
+# ------------------------------------------------------------
+# Dedicated required G2 authenticated acceptance job. Provisions:
+#   - host-native PostgreSQL 16 (no Docker, no Testcontainers)
+#   - Spring Boot backend with the `local` profile
+#   - G2 acceptance seed (tenant + Employee/Manager/HR users + WORKFLOW
+#     module entitlement + RBAC capabilities)
+#   - Next.js frontend
+#   - E2E_<ROLE>_EMAIL/PASSWORD env vars for g2-authenticated.spec.ts
+#
+# Security model:
+#   - NO committed password literals. Both the PostgreSQL application role
+#     password AND the G2 E2E user password are generated at runtime as
+#     cryptographically random per-run values.
+#   - The cleartext values are masked via `::add-mask::` and exported to
+#     GITHUB_ENV so subsequent steps can use them without re-derivation.
+#   - The seed SQL receives the G2 E2E password via psql variable binding
+#     (`-v g2_e2e_password="$G2_E2E_PASSWORD"`) so the cleartext never
+#     appears in SQL text either; the bcrypt hash is computed at runtime
+#     via `crypt(:'g2_e2e_password', gen_salt('bf', 10))`.
+#
+# Then runs Playwright via playwright-g2.config.ts (single project, no
+# locale/theme matrix — the G2 spec is a stateful cross-role journey).
+#
+# Missing credentials or failed provisioning FAILS this job (no test.skip,
+# no Assumptions soft-skip, no continue-on-error).
+# ============================================================
+name: G2 Authenticated Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/workflow/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/module/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
+      - 'apps/sanad-platform/pom.xml'
+      - 'apps/web/app/hr/**'
+      - 'apps/web/components/auth/**'
+      - 'apps/web/e2e/g2-auth-session.ts'
+      - 'apps/web/e2e/g2-authenticated.spec.ts'
+      - 'apps/web/playwright-g2.config.ts'
+      - 'apps/web/package.json'
+      - 'apps/web/package-lock.json'
+      - '.github/workflows/g2-authenticated-acceptance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/**'
+      - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
+      - 'apps/web/app/hr/**'
+      - 'apps/web/e2e/g2-authenticated.spec.ts'
+      - '.github/workflows/g2-authenticated-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g2-authenticated-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  g2-authenticated-acceptance:
+    name: G2 Authenticated Acceptance (PostgreSQL Direct + Spring Boot + Next.js + Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Connection coordinates only — NO password literal here. The password
+      # is generated at runtime in the bootstrap step and exported to GITHUB_ENV.
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g2
+      DATABASE_USERNAME: sanad_g2
+      DATABASE_NAME: sanad_g2
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+      SERVER_PORT: '8080'
+      JWT_ISSUER: sanad-platform-ci
+      JWT_ACCESS_TOKEN_TTL: 60m
+      REFRESH_TOKEN_TTL: 720h
+      COOKIE_SECURE: 'false'
+      COOKIE_SAME_SITE: lax
+      BOOTSTRAP_ENABLED: 'false'
+      SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+      SECURITY_NOTIFICATION_PROVIDER: disabled
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+      # The Next.js platform BFF is exercised by the real browser login path.
+      # Point it explicitly at the host-native Spring Boot process started below.
+      # Without this, backendBaseUrl() fails closed and returns HTTP 503 before
+      # the request ever reaches Spring Boot.
+      BACKEND_API_BASE_URL: http://127.0.0.1:8080
+      # E2E test emails — deterministic, but NOT secrets. The matching passwords
+      # are generated at runtime and exported to GITHUB_ENV below.
+      E2E_EMPLOYEE_EMAIL: g2-employee@g2-acceptance.example
+      E2E_MANAGER_EMAIL: g2-manager@g2-acceptance.example
+      E2E_HR_EMAIL: g2-hr@g2-acceptance.example
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify checkout identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          echo "candidate_sha=$CANDIDATE_SHA"
+          echo "event_sha=$GITHUB_SHA"
+
+      - name: Generate ephemeral per-run credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_CRED="$(openssl rand -hex 24)"
+          E2E_CRED="$(openssl rand -hex 24)"
+          echo "::add-mask::$DB_CRED"
+          echo "::add-mask::$E2E_CRED"
+          echo "DATABASE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "SPRING_DATASOURCE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "PGPASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "G2_E2E_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "E2E_EMPLOYEE_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "E2E_MANAGER_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "E2E_HR_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "Ephemeral credentials generated (lengths masked):"
+          echo "  DB_CRED length: ${#DB_CRED}"
+          echo "  E2E_CRED length: ${#E2E_CRED}"
+
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (psql not found on runner)"
+            exit 1
+          }
+          command -v pg_isready >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (pg_isready not found on runner)"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (cluster failed to start)"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision G2 role and database (runtime credential via psql variable interpolation)
+        shell: bash
+        env:
+          DB_CRED: ${{ env.DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql \
+            -v ON_ERROR_STOP=1 \
+            -v db_credential="$DB_CRED" <<'SQL'
+          SELECT format(
+            'CREATE ROLE sanad_g2 WITH LOGIN PASSWORD %L',
+            :'db_credential'
+          )
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g2'
+          )
+          \gexec
+
+          SELECT format(
+            'ALTER ROLE sanad_g2 WITH LOGIN PASSWORD %L',
+            :'db_credential'
+          )
+          WHERE EXISTS (
+            SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g2'
+          )
+          \gexec
+
+          ALTER ROLE sanad_g2
+            NOSUPERUSER
+            NOCREATEDB
+            NOCREATEROLE
+            NOBYPASSRLS;
+
+          SELECT 'CREATE DATABASE sanad_g2 OWNER sanad_g2'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pg_database WHERE datname = 'sanad_g2'
+          )
+          \gexec
+
+          ALTER DATABASE sanad_g2 OWNER TO sanad_g2;
+          GRANT CONNECT ON DATABASE postgres TO sanad_g2;
+
+          \c sanad_g2
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_g2;
+          SQL
+
+          PGPASSWORD="$DB_CRED" psql \
+            -h 127.0.0.1 \
+            -U sanad_g2 \
+            -d sanad_g2 \
+            -v ON_ERROR_STOP=1 \
+            -Atc "SELECT current_database() || '|' || current_user"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build backend JAR (skip tests)
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true clean package
+
+      - name: Apply all Flyway migrations to PostgreSQL
+        working-directory: apps/sanad-platform
+        run: >-
+          mvn --batch-mode --no-transfer-progress flyway:migrate
+          -Dflyway.url="$DATABASE_URL"
+          -Dflyway.user="$DATABASE_USERNAME"
+          -Dflyway.password="$DATABASE_PASSWORD"
+          -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql
+          -Dflyway.baselineOnMigrate=true
+          -Dflyway.validateOnMigrate=false
+          -Dflyway.outOfOrder=true
+          -Dflyway.baselineVersion=0
+
+      - name: Provision G2 acceptance seed (runtime password via psql variable binding)
+        shell: bash
+        env:
+          G2_E2E_PASSWORD: ${{ env.G2_E2E_PASSWORD }}
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 \
+            -U "$DATABASE_USERNAME" \
+            -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -v g2_e2e_password="$G2_E2E_PASSWORD" \
+            -f apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql \
+            2>&1 | tee "$RUNNER_TEMP/g2-seed.log"
+
+          G2_TENANT_ID='33333333-3333-4333-8333-333333333331'
+          g2_psql() {
+            PGPASSWORD="$DATABASE_PASSWORD" \
+            PGOPTIONS="-c app.tenant_id=$G2_TENANT_ID" \
+              psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -v ON_ERROR_STOP=1 -Atc "$1"
+          }
+
+          TENANT_COUNT=$(g2_psql "SELECT COUNT(*) FROM tenants WHERE id = '$G2_TENANT_ID'")
+          test "$TENANT_COUNT" = "1" || { echo "::error::G2 seed tenant not found"; exit 1; }
+
+          USER_COUNT=$(g2_psql "SELECT COUNT(*) FROM users WHERE tenant_id = '$G2_TENANT_ID'")
+          test "$USER_COUNT" = "3" || { echo "::error::G2 seed users count=$USER_COUNT (expected 3)"; exit 1; }
+
+          EMP_COUNT=$(g2_psql "SELECT COUNT(*) FROM hr_employees WHERE tenant_id = '$G2_TENANT_ID'")
+          test "$EMP_COUNT" = "3" || { echo "::error::G2 seed employees count=$EMP_COUNT (expected 3)"; exit 1; }
+
+          SUB_COUNT=$(g2_psql "SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = '$G2_TENANT_ID' AND status = 'ACTIVE'")
+          test "$SUB_COUNT" = "1" || { echo "::error::G2 ACTIVE subscription count=$SUB_COUNT (expected 1)"; exit 1; }
+
+          WF_ENT=$(g2_psql "SELECT COUNT(*) FROM plan_module_entitlements pme JOIN modules m ON m.id = pme.module_id WHERE pme.plan_id = '33333333-3333-4333-8333-333333333332' AND m.code = 'WORKFLOW' AND pme.module_enabled = true")
+          test "$WF_ENT" -ge "1" || { echo "::error::G2 WORKFLOW entitlement count=$WF_ENT (expected >= 1)"; exit 1; }
+
+          LB_ROW=$(g2_psql "SELECT COUNT(*) FROM hr_leave_balances WHERE tenant_id = '$G2_TENANT_ID' AND employment_id = '33333333-3333-4333-8333-333333333361'")
+          test "$LB_ROW" -ge "1" || { echo "::error::G2 leave balance row count=$LB_ROW (expected >= 1)"; exit 1; }
+
+          LB_COLS=$(g2_psql "SELECT entitled_days || '|' || used_days || '|' || pending_days || '|' || carried_over_days FROM hr_leave_balances WHERE tenant_id = '$G2_TENANT_ID' AND employment_id = '33333333-3333-4333-8333-333333333361' LIMIT 1")
+          echo "G2 leave balance row: $LB_COLS"
+          echo "G2 seed verified: tenant=1 users=3 employees=3 subscriptions=1 workflow_entitlements=$WF_ENT leave_balance_rows=$LB_ROW"
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Verify runner Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          google-chrome --version
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Next.js frontend
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Verify Playwright project configs (G2 spec routing)
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Generic Playwright matrix (playwright.standard.config.ts) — G2 spec must be ABSENT ==="
+          STD_COUNT=$(npx playwright test --config=playwright.standard.config.ts --list 2>&1 | grep -c "g2-authenticated.spec.ts" || true)
+          echo "Generic matrix g2-authenticated.spec.ts test count: $STD_COUNT"
+          test "$STD_COUNT" = "0" || { echo "::error::G2 spec must NOT run in generic visual matrix; found $STD_COUNT tests"; exit 1; }
+
+          echo "=== Dedicated G2 Playwright (playwright-g2.config.ts) — G2 spec must be PRESENT ==="
+          G2_COUNT=$(npx playwright test --config=playwright-g2.config.ts --list 2>&1 | grep -c "g2-authenticated.spec.ts" || true)
+          echo "Dedicated G2 matrix g2-authenticated.spec.ts test count: $G2_COUNT"
+          test "$G2_COUNT" -ge "1" || { echo "::error::G2 spec must run in dedicated G2 matrix; found $G2_COUNT tests"; exit 1; }
+          echo "G2 spec routing verified: generic=0, dedicated=$G2_COUNT"
+
+      - name: Start Spring Boot backend (background)
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup java -jar target/sanad-platform-*.jar \
+            --server.port=8080 \
+            --spring.datasource.url="$DATABASE_URL" \
+            --spring.datasource.username="$DATABASE_USERNAME" \
+            --spring.datasource.password="$DATABASE_PASSWORD" \
+            --spring.profiles.active=local \
+            --sanad.rls.enabled=true \
+            > "$RUNNER_TEMP/backend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/backend.pid"
+          echo "Backend PID: $(cat "$RUNNER_TEMP/backend.pid")"
+
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8080/actuator/health >/dev/null 2>&1; then
+              echo "Backend ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8080/actuator/health | tee -a "$RUNNER_TEMP/backend.log"
+          echo ""
+
+      - name: Start Next.js frontend (background)
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npm run start -- -p 3001 > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/frontend.pid"
+          echo "Frontend PID: $(cat "$RUNNER_TEMP/frontend.pid")"
+
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:3001/ >/dev/null 2>&1; then
+              echo "Frontend ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:3001/ -o /dev/null -w "Frontend HTTP %{http_code}\n"
+
+      - name: Run G2 authenticated Playwright suite (single project, no locale matrix)
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npx playwright test --config=playwright-g2.config.ts
+
+      - name: Upload G2 Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g2-playwright-report-${{ github.run_id }}
+          path: apps/web/playwright-g2-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload G2 Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g2-playwright-test-results-${{ github.run_id }}
+          path: apps/web/test-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload backend + frontend server logs (no credentials)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g2-server-logs-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/frontend.log
+            ${{ runner.temp }}/g2-seed.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop backend + frontend (cleanup)
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -f "$RUNNER_TEMP/backend.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/backend.pid")" 2>/dev/null || true
+          fi
+          if [ -f "$RUNNER_TEMP/frontend.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/frontend.pid")" 2>/dev/null || true
+          fi

@@ -76,9 +76,10 @@ class PlatformApiCountTest {
      *  (POST /api/v1/executive/tenants/{tenantId}/login-link-events,
      *  EXECUTIVE_MANAGE-gated; /api/v1/executive group 81 → 82) = 856.
      *  + 38 HRM-G1 T10 recruitment/onboarding canonical v2 operations
-     *  under /api/v2/hr/recruitment and /api/v2/hr/onboarding = 894. */
-    private static final long EXPECTED_TOTAL_OPS = 894;
-    private static final long EXPECTED_HRM_V2_OPS = 96;
+     *  under /api/v2/hr/recruitment and /api/v2/hr/onboarding = 894.
+     *  + 31 HRM-G2 time, attendance, timesheet, leave and scoped read operations = 925. */
+    private static final long EXPECTED_TOTAL_OPS = 925;
+    private static final long EXPECTED_HRM_V2_OPS = 127;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;

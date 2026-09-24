@@ -1,12 +1,5 @@
 // @vitest-environment jsdom
 
-/**
- * WS5 Task 8 — shared HR workspace contract tests.
- *
- * Pins the Arabic-first workspace shell: the authoritative navigation set,
- * RTL direction semantics, accessibility landmarks, and the capability-aware
- * (UX-only) gating contract. Backend authorization remains authoritative.
- */
 import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen } from "@testing-library/react";
@@ -35,7 +28,7 @@ const NO_HR_CAPS: string[] = [];
 afterEach(() => cleanup());
 
 describe("HrWorkspace navigation", () => {
-  it("renders every authoritative workspace link", () => {
+  it("renders every authoritative workspace link for a fully privileged user", () => {
     render(
       <HrWorkspace capabilities={FULL_CAPS} activeHref="/hr">
         <p>المحتوى</p>
@@ -43,29 +36,97 @@ describe("HrWorkspace navigation", () => {
     );
 
     const expected = [
-      { href: "/hr", name: "الرئيسية" },
-      { href: "/hr/employees", name: "الموظفون" },
-      { href: "/hr/org-structure", name: "الهيكل التنظيمي" },
-      { href: "/hr/jobs", name: "الوظائف" },
-      { href: "/hr/positions", name: "المناصب" },
-      { href: "/hr/assignments", name: "الإسنادات" },
-      { href: "/hr/compliance", name: "الالتزام" },
-      { href: "/hr/execution", name: "لوحة التنفيذ" },
-    ];
-    for (const { href, name } of expected) {
-      const link = screen.getByRole("link", { name });
-      expect(link).toHaveAttribute("href", href);
+      ["/hr", "الرئيسية"],
+      ["/hr/employees", "الموظفون"],
+      ["/hr/org-structure", "الهيكل التنظيمي"],
+      ["/hr/jobs", "الوظائف"],
+      ["/hr/positions", "المناصب"],
+      ["/hr/assignments", "الإسنادات"],
+      ["/hr/compliance", "الالتزام"],
+      ["/hr/attendance", "حضوري"],
+      ["/hr/timesheets", "سجلات وقتي"],
+      ["/hr/leave", "إجازاتي"],
+      ["/hr/team-attendance", "حضور الفريق"],
+      ["/hr/team-timesheets", "سجلات وقت الفريق"],
+      ["/hr/leave/approvals", "اعتمادات الإجازات"],
+      ["/hr/schedules", "جداول العمل"],
+      ["/hr/attendance/admin", "إدارة الحضور"],
+      ["/hr/leave/policies", "سياسات الإجازات"],
+      ["/hr/reports/attendance", "تقرير الحضور"],
+      ["/hr/execution", "لوحة التنفيذ"],
+    ] as const;
+
+    for (const [href, name] of expected) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
     }
   });
 
-  it("marks the active route with aria-current", () => {
+  it("shows employee self-service links only for SELF capabilities", () => {
     render(
-      <HrWorkspace capabilities={FULL_CAPS} activeHref="/hr/employees">
+      <HrWorkspace capabilities={[
+        HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW,
+        HRM_CAPABILITIES.TIMESHEET_SELF_VIEW,
+        HRM_CAPABILITIES.LEAVE_SELF_VIEW,
+      ]} activeHref="/hr/attendance">
         <p>المحتوى</p>
       </HrWorkspace>,
     );
-    expect(screen.getByRole("link", { name: "الموظفون" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "الرئيسية" })).not.toHaveAttribute("aria-current");
+
+    expect(screen.getByRole("link", { name: "حضوري" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "سجلات وقتي" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "إجازاتي" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "حضور الفريق" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "إدارة الحضور" })).not.toBeInTheDocument();
+  });
+
+  it("shows manager team links without exposing HR administration", () => {
+    render(
+      <HrWorkspace capabilities={[
+        HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW,
+        HRM_CAPABILITIES.TIMESHEET_TEAM_APPROVE,
+        HRM_CAPABILITIES.LEAVE_TEAM_APPROVE,
+      ]} activeHref="/hr/team-attendance">
+        <p>المحتوى</p>
+      </HrWorkspace>,
+    );
+
+    expect(screen.getByRole("link", { name: "حضور الفريق" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "سجلات وقت الفريق" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "اعتمادات الإجازات" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "جداول العمل" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "إدارة الحضور" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "سياسات الإجازات" })).not.toBeInTheDocument();
+  });
+
+  it("shows HR administration surfaces without requiring TEAM scope", () => {
+    render(
+      <HrWorkspace capabilities={[
+        HRM_CAPABILITIES.ATTENDANCE_ADMIN,
+        HRM_CAPABILITIES.ATTENDANCE_CORRECT,
+        HRM_CAPABILITIES.LEAVE_POLICY_ADMIN,
+        HRM_CAPABILITIES.LEAVE_HR_APPROVE,
+      ]} activeHref="/hr/attendance/admin">
+        <p>المحتوى</p>
+      </HrWorkspace>,
+    );
+
+    expect(screen.getByRole("link", { name: "جداول العمل" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "إدارة الحضور" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "سياسات الإجازات" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "تقرير الحضور" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "اعتمادات الإجازات" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "حضور الفريق" })).not.toBeInTheDocument();
+  });
+
+  it("marks only the most specific nested route as active", () => {
+    render(
+      <HrWorkspace capabilities={FULL_CAPS} activeHref="/hr/attendance/admin">
+        <p>المحتوى</p>
+      </HrWorkspace>,
+    );
+
+    expect(screen.getByRole("link", { name: "إدارة الحضور" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "حضوري" })).not.toHaveAttribute("aria-current");
   });
 
   it("keeps the execution dashboard reachable regardless of capabilities", () => {
@@ -86,6 +147,7 @@ describe("HrWorkspace navigation", () => {
     );
     expect(screen.queryByRole("link", { name: "الموظفون" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "الالتزام" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "حضوري" })).not.toBeInTheDocument();
   });
 
   it("exposes navigation as a labelled landmark and renders children in main", () => {

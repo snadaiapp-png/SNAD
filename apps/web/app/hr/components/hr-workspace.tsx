@@ -1,14 +1,6 @@
 "use client";
 
-/**
- * Shared Arabic-first HR workspace shell — WS5 Task 8.
- *
- * - Renders the authoritative navigation set of the HR workspace.
- * - Capability checks here are UX-only convenience: the backend remains
- *   the authoritative authorization layer, and every page handles backend
- *   403/404/409/422 responses explicitly.
- * - RTL/Arabic-first: logical CSS properties only, no left/right assumptions.
- */
+/** Shared Arabic-first HR workspace shell. Backend authorization remains authoritative. */
 
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -18,13 +10,10 @@ import styles from "../hr.module.css";
 export interface HrWorkspaceLink {
   href: string;
   label: string;
-  /** UX-only single-capability gate (backend authorization stays authoritative). */
   capability?: string;
-  /** UX-only any-of capability gate for composite workspaces such as G1. */
   capabilitiesAny?: readonly string[];
 }
 
-/** The authoritative workspace navigation set (plan Task 8 Step 4). */
 export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
   { href: "/hr", label: "الرئيسية" },
   { href: "/hr/employees", label: "الموظفون", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
@@ -54,19 +43,73 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
       HRM_CAPABILITIES.ONBOARDING_TASK_WAIVE,
     ],
   },
-  // The execution dashboard is part of the workspace foundation — always reachable.
+
+  // G2 employee self-service surfaces.
+  {
+    href: "/hr/attendance",
+    label: "حضوري",
+    capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW, HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD],
+  },
+  {
+    href: "/hr/timesheets",
+    label: "سجلات وقتي",
+    capabilitiesAny: [HRM_CAPABILITIES.TIMESHEET_SELF_VIEW, HRM_CAPABILITIES.TIMESHEET_SELF_SUBMIT],
+  },
+  {
+    href: "/hr/leave",
+    label: "إجازاتي",
+    capabilitiesAny: [HRM_CAPABILITIES.LEAVE_SELF_VIEW, HRM_CAPABILITIES.LEAVE_SELF_REQUEST],
+  },
+
+  // G2 manager/team surfaces.
+  { href: "/hr/team-attendance", label: "حضور الفريق", capability: HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW },
+  { href: "/hr/team-timesheets", label: "سجلات وقت الفريق", capability: HRM_CAPABILITIES.TIMESHEET_TEAM_APPROVE },
+  {
+    href: "/hr/leave/approvals",
+    label: "اعتمادات الإجازات",
+    capabilitiesAny: [HRM_CAPABILITIES.LEAVE_TEAM_APPROVE, HRM_CAPABILITIES.LEAVE_HR_APPROVE],
+  },
+
+  // G2 HR administration surfaces.
+  { href: "/hr/schedules", label: "جداول العمل", capability: HRM_CAPABILITIES.ATTENDANCE_ADMIN },
+  {
+    href: "/hr/attendance/admin",
+    label: "إدارة الحضور",
+    capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_ADMIN, HRM_CAPABILITIES.ATTENDANCE_CORRECT],
+  },
+  { href: "/hr/leave/policies", label: "سياسات الإجازات", capability: HRM_CAPABILITIES.LEAVE_POLICY_ADMIN },
+  {
+    href: "/hr/reports/attendance",
+    label: "تقرير الحضور",
+    capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW, HRM_CAPABILITIES.ATTENDANCE_ADMIN],
+  },
+
   { href: "/hr/execution", label: "لوحة التنفيذ" },
 ];
 
 export interface HrWorkspaceProps {
-  /** Effective capabilities of the current user (from /me) — UX-only. */
   capabilities: string[];
-  /** The active workspace route (marked with aria-current="page"). */
   activeHref: string;
   children: ReactNode;
 }
 
+function isVisible(link: HrWorkspaceLink, capabilities: string[]): boolean {
+  if (link.capability && !capabilities.includes(link.capability)) return false;
+  if (link.capabilitiesAny && !link.capabilitiesAny.some((capability) => capabilities.includes(capability))) return false;
+  return true;
+}
+
+function matchesRoute(linkHref: string, activeHref: string): boolean {
+  if (linkHref === "/hr") return activeHref === "/hr";
+  return activeHref === linkHref || activeHref.startsWith(`${linkHref}/`);
+}
+
 export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceProps) {
+  const visibleLinks = HR_WORKSPACE_LINKS.filter((link) => isVisible(link, capabilities));
+  const activeLinkHref = visibleLinks
+    .filter((link) => matchesRoute(link.href, activeHref))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+
   return (
     <div className={styles.workspace}>
       <header className={styles.workspaceHeader}>
@@ -77,24 +120,14 @@ export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceP
       </header>
       <nav aria-label="أقسام الموارد البشرية" className={styles.workspaceNav}>
         <ul className={styles.workspaceNavList}>
-          {HR_WORKSPACE_LINKS.map((link) => {
-            // UX-only gate: hide sections the user cannot use. Hidden is NOT
-            // protected — backend capability checks remain authoritative.
-            if (link.capability && !capabilities.includes(link.capability)) {
-              return null;
-            }
-            if (link.capabilitiesAny && !link.capabilitiesAny.some((capability) => capabilities.includes(capability))) {
-              return null;
-            }
-            const isActive = link.href === "/hr"
-              ? activeHref === "/hr"
-              : activeHref === link.href || activeHref.startsWith(`${link.href}/`);
+          {visibleLinks.map((link) => {
+            const active = activeLinkHref === link.href;
             return (
               <li key={link.href} className={styles.workspaceNavItem}>
                 <Link
                   href={link.href}
-                  aria-current={isActive ? "page" : undefined}
-                  className={isActive ? `${styles.workspaceNavLink} ${styles.workspaceNavLinkActive}` : styles.workspaceNavLink}
+                  aria-current={active ? "page" : undefined}
+                  className={active ? `${styles.workspaceNavLink} ${styles.workspaceNavLinkActive}` : styles.workspaceNavLink}
                 >
                   {link.label}
                 </Link>
