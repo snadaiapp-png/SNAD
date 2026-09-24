@@ -301,6 +301,7 @@ public final class CrmDtos {
             String tagColor,
             String subjectType,
             UUID subjectId,
+            UUID assignedBy,
             OffsetDateTime assignedAt) {}
     // Notes (feature/crm-notes)
     // ────────────────────────────────────────────────────────────────────
@@ -348,5 +349,27 @@ public final class CrmDtos {
             String status,
             Integer priority,
             OffsetDateTime dueAt,
+            OffsetDateTime updatedAt) {}
+
+    // ────────────────────────────────────────────────────────────────────
+    // Cases
+    // ────────────────────────────────────────────────────────────────────
+
+    public record CaseResponse(
+            UUID id,
+            long version,
+            String subject,
+            String description,
+            String caseType,
+            String status,
+            int priority,
+            UUID customerId,
+            UUID assigneeUserId,
+            UUID ownerUserId,
+            UUID relatedId,
+            OffsetDateTime dueAt,
+            OffsetDateTime resolvedAt,
+            OffsetDateTime closedAt,
+            OffsetDateTime createdAt,
             OffsetDateTime updatedAt) {}
 }

@@ -1,0 +1,54 @@
+name: Test DB Connection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-db:
+    name: Test database connectivity
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Test JDBC connection
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "=== DB URL format check ==="
+          echo "PROD_JDBC_URL starts with: ${PROD_JDBC_URL:0:25}..."
+          echo "PROD_JDBC_URL length: ${#PROD_JDBC_URL}"
+          echo "PROD_DB_USER length: ${#PROD_DB_USER}"
+          echo "PROD_DB_PASSWORD length: ${#PROD_DB_PASSWORD}"
+          echo ""
+          
+          # Extract host and port from JDBC URL
+          HOST=$(echo "$PROD_JDBC_URL" | sed -n 's/.*\/\/\([^:\/]*\).*/\1/p')
+          PORT=$(echo "$PROD_JDBC_URL" | sed -n 's/.*:\/\/[^:\/]*:\([0-9]*\).*/\1/p')
+          echo "DB Host: $HOST"
+          echo "DB Port: ${PORT:-5432}"
+          echo ""
+          
+          echo "=== DNS resolution test ==="
+          if [ -n "$HOST" ]; then
+            nslookup "$HOST" 2>&1 || dig "$HOST" 2>&1 || echo "DNS lookup failed"
+          fi
+          echo ""
+          
+          echo "=== TCP connectivity test ==="
+          if [ -n "$HOST" ]; then
+            timeout 10 bash -c "echo > /dev/tcp/$HOST/${PORT:-5432}" 2>&1 && echo "✓ TCP connection to $HOST:${PORT:-5432} succeeded" || echo "✗ TCP connection failed"
+          fi
+          echo ""
+          
+          echo "=== PostgreSQL connection test (using psql) ==="
+          # Install psql client
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+          
+          # Try to connect and run a simple query
+          PGPASSWORD="$PROD_DB_PASSWORD" psql "$PROD_JDBC_URL" -U "$PROD_DB_USER" -c "SELECT version();" -c "SELECT count(*) FROM users;" -c "SELECT count(*) FROM access_capabilities;" 2>&1 || echo "psql connection failed"

@@ -30,10 +30,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.List;
 import java.util.UUID;
@@ -43,16 +40,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.CopyOnWriteArrayList;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
-@Testcontainers
 class SalesTeamUseCasesPostgresTest {
-
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine");
 
     private static NamedParameterJdbcTemplate jdbc;
     private static TransactionTemplate transactions;
@@ -69,18 +63,18 @@ class SalesTeamUseCasesPostgresTest {
 
     @BeforeAll
     static void migrateAndCreateService() {
-        boolean dockerAvailable;
+        boolean postgresAvailable;
         try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         } catch (Throwable ignored) {
-            dockerAvailable = false;
+            postgresAvailable = false;
         }
         Assumptions.assumeTrue(
-                dockerAvailable,
-                "Docker is required for CRM-008B WP-03 PostgreSQL acceptance.");
+                postgresAvailable,
+                "PostgreSQL Direct is required for CRM-008B WP-03 PostgreSQL acceptance.");
 
         Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -89,7 +83,7 @@ class SalesTeamUseCasesPostgresTest {
                 .migrate();
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         jdbc = new NamedParameterJdbcTemplate(dataSource);
         transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
 

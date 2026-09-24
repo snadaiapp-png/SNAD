@@ -118,6 +118,21 @@ sanad:
       admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
       admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:SNAD Admin}
       audit-actor: ${BOOTSTRAP_AUDIT_ACTOR:credential-bootstrap}
+  tenancy:
+    domains:
+      # No permanent hard-coded public domain. The base-domain value comes
+      # from the env var SANAD_BASE_DOMAIN (set per-deployment in Vercel/Render).
+      # When unset, default-generated hostnames are not produced — the
+      # TenantDomainService.generateDefaultHostname() method returns null
+      # and the caller decides how to handle the absence.
+      base-domain: ${SANAD_BASE_DOMAIN:}
+      verification-timeout-minutes: ${SANAD_DOMAIN_VERIFICATION_TIMEOUT_MIN:60}
+      ssl-termination: ${SANAD_DOMAIN_SSL_TERMINATION:vercel}
+    billing:
+      dunning-enabled: ${SANAD_DUNNING_ENABLED:false}
+      dunning-interval-ms: ${SANAD_DUNNING_INTERVAL_MS:3600000}
+      past-due-grace-hours: ${SANAD_PAST_DUE_GRACE_HOURS:72}
+      suspend-grace-hours: ${SANAD_SUSPEND_GRACE_HOURS:168}
 
 snad:
   security:

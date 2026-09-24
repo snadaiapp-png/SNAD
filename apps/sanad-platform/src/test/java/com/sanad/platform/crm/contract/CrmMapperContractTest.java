@@ -226,7 +226,7 @@ class CrmMapperContractTest {
         assertNull(mapper.toContactResponse(null));
         assertNull(mapper.toLeadResponse(null));
         assertNull(mapper.toOpportunityResponse(null));
-        assertNull(mapper.toActivityResponse(null));
+        assertNull(mapper.toActivityResponse((java.util.Map<String, Object>) null));
     }
 
     private static Map<String, Object> baseAccountRow(UUID id, UUID ownerId, long version, String status) {

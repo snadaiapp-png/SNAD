@@ -1,0 +1,167 @@
+name: Debug Render Deploy (No Flyway/Validate)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'debug-no-flyway' to deploy with Flyway and Hibernate validation disabled"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  debug-deploy:
+    name: Deploy with Flyway and validate disabled
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "debug-no-flyway" ]; then exit 1; fi
+
+      - name: Temporarily disable Flyway and Hibernate validate
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== Fetch existing env vars ==="
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+
+          python3 - <<'PY' > /tmp/payload.json
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          items = []
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if not key:
+                      continue
+                  # Override Flyway and JPA settings
+                  if key == 'FLYWAY_ENABLED':
+                      items.append({'key': key, 'value': 'false'})
+                  elif key == 'JPA_DDL_AUTO':
+                      items.append({'key': key, 'value': 'none'})
+                  else:
+                      items.append({'key': key, 'value': val})
+          print(json.dumps(items))
+          PY
+
+          echo "=== PUTting env vars with FLYWAY_ENABLED=false and JPA_DDL_AUTO=none ==="
+          STATUS=$(curl -sS -o /tmp/render-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X PUT "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data @/tmp/payload.json)
+          echo "PUT returned HTTP ${STATUS}"
+
+      - name: Trigger Render deploy
+        id: deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" \
+            --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache": "do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id', ''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
+          for i in $(seq 1 40); do
+            sleep 20
+            STATUS=$(curl -sS --max-time 15 \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', 'unknown'))")
+            echo "  Attempt ${i}: status = ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then echo "DEPLOY LIVE!"; exit 0; fi
+            if echo "${STATUS}" | grep -qE "failed|canceled|deactivated"; then echo "FAILED: ${STATUS}"; exit 1; fi
+          done
+          echo "TIMEOUT"; exit 1
+
+      - name: Verify health
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+        run: |
+          sleep 10
+          STATUS=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 \
+            "${PRODUCTION_BASE_URL}/actuator/health")
+          echo "Health: HTTP ${STATUS}"
+          cat /tmp/health.json
+          curl -sS --max-time 30 "${PRODUCTION_BASE_URL}/v3/api-docs" > /tmp/api-docs.json
+          python3 -c "
+          import json
+          with open('/tmp/api-docs.json') as f:
+              data = json.load(f)
+          paths = data.get('paths', {})
+          bootstrap = [p for p in paths if 'bootstrap' in p.lower()]
+          print('Bootstrap paths:', bootstrap if bootstrap else 'NONE')
+          "
+
+      - name: Restore Flyway and validate settings
+        if: always()
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          curl -sS --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" > /tmp/env-vars.json
+          python3 - <<'PY' > /tmp/payload.json
+          import json
+          with open('/tmp/env-vars.json') as f:
+              data = json.load(f)
+          items = []
+          if isinstance(data, list):
+              for item in data:
+                  ev = item.get('envVar', item) if isinstance(item, dict) else {}
+                  key = ev.get('key', '') if isinstance(ev, dict) else ''
+                  val = ev.get('value', '') if isinstance(ev, dict) else ''
+                  if not key: continue
+                  if key == 'FLYWAY_ENABLED':
+                      items.append({'key': key, 'value': 'true'})
+                  elif key == 'JPA_DDL_AUTO':
+                      items.append({'key': key, 'value': 'validate'})
+                  else:
+                      items.append({'key': key, 'value': val})
+          print(json.dumps(items))
+          PY
+          STATUS=$(curl -sS -o /tmp/restore.json -w "%{http_code}" \
+            --max-time 60 \
+            -X PUT "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data @/tmp/payload.json)
+          echo "Restore PUT HTTP ${STATUS}"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/env-vars.json /tmp/payload.json /tmp/render-response.json /tmp/deploy.json /tmp/health.json /tmp/api-docs.json /tmp/restore.json

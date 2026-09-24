@@ -45,6 +45,7 @@ export interface AuthResponse {
   credentialRotationRequired: boolean;
   memberships: MeMembership[];
   effectiveRoleGrants: MeRoleGrant[];
+  capabilities: string[];
   defaultOrganizationId: string | null;
   defaultDestination: string;
   availableDestinations: string[];
@@ -57,6 +58,7 @@ export interface MeResponse extends AuthUser {
   credentialRotationRequired: boolean;
   memberships: MeMembership[];
   roleGrants: MeRoleGrant[];
+  capabilities: string[];
 }
 export interface ForgotPasswordRequest { email: string; }
 export interface ForgotPasswordResponse { message: string; token?: string; resetUrl?: string; }
@@ -81,6 +83,7 @@ export function authResponseToMe(response: AuthResponse): MeResponse {
     credentialRotationRequired: response.credentialRotationRequired,
     memberships: response.memberships,
     roleGrants: response.effectiveRoleGrants,
+    capabilities: response.capabilities ?? [],
   };
 }
 

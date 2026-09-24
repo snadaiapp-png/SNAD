@@ -1,0 +1,63 @@
+name: Test DB credential candidates (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test DB connection candidates
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 6
+    steps:
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null
+
+      - name: Test candidate DB URLs (read-only SELECT 1 + schema)
+        env:
+          SPRING_DS_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          SPRING_DS_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          PROD_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set +e
+          REAL_HOST="db.hxhvfqxzigrqoxxnnzje.supabase.co"
+
+          echo "=== Candidate A: SPRING_DATASOURCE_URL as-is (libpq, may embed creds) ==="
+          if [ -n "$SPRING_DS_URL" ]; then
+            PG_URL="${SPRING_DS_URL#jdbc:}"
+            # host present?
+            echo "$SPRING_DS_URL" | grep -q "$REAL_HOST" && echo "matches sanad-production-v2 host: YES" || echo "matches sanad-production-v2 host: NO"
+            out=$(psql "$PG_URL" -tAc "SELECT 1;" 2>&1)
+            echo "psql result: $out"
+            if echo "$out" | grep -q "^1$"; then echo "CANDIDATE_A=OK (embedded creds work)"; fi
+          else
+            echo "SPRING_DATASOURCE_URL MISSING"
+          fi
+
+          echo ""
+          echo "=== Candidate B: SPRING_DS_URL host + SPRING_DS_USER + PROD_PASS ==="
+          if [ -n "$SPRING_DS_URL" ] && [ -n "$SPRING_DS_USER" ] && [ -n "$PROD_PASS" ]; then
+            PG_URL="${SPRING_DS_URL#jdbc:}"
+            out=$(PGPASSWORD="$PROD_PASS" psql "$PG_URL" -U "$SPRING_DS_USER" -tAc "SELECT 1;" 2>&1)
+            echo "psql result: $out"
+            if echo "$out" | grep -q "^1$"; then echo "CANDIDATE_B=OK"; fi
+          fi
+
+          echo ""
+          echo "=== Candidate C: build URL from known host + PROD creds (postgres user) ==="
+          if [ -n "$PROD_PASS" ]; then
+            out=$(PGPASSWORD="$PROD_PASS" psql "host=$REAL_HOST port=5432 dbname=postgres sslmode=require" -U postgres -tAc "SELECT 1;" 2>&1)
+            echo "psql result: $out"
+            if echo "$out" | grep -q "^1$"; then echo "CANDIDATE_C=OK (postgres/PROD_PASS)"; fi
+          fi
+
+          echo ""
+          echo "=== Candidate D: known host + SPRING_DS_USER + PROD_PASS ==="
+          if [ -n "$SPRING_DS_USER" ] && [ -n "$PROD_PASS" ]; then
+            out=$(PGPASSWORD="$PROD_PASS" psql "host=$REAL_HOST port=5432 dbname=postgres sslmode=require" -U "$SPRING_DS_USER" -tAc "SELECT 1;" 2>&1)
+            echo "psql result: $out"
+            if echo "$out" | grep -q "^1$"; then echo "CANDIDATE_D=OK"; fi
+          fi

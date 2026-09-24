@@ -253,9 +253,9 @@ export class ApiClient {
   }
 
   get<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse>({ method: "GET", path, ...options }); }
-  post<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "POST", path, body, ...options }); }
-  put<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "PUT", path, body, ...options }); }
-  patch<TResponse, TBody = undefined>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "PATCH", path, body, ...options }); }
+  post<TResponse, TBody = unknown>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "POST", path, body, ...options }); }
+  put<TResponse, TBody = unknown>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "PUT", path, body, ...options }); }
+  patch<TResponse, TBody = unknown>(path: string, body?: TBody, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse, TBody>({ method: "PATCH", path, body, ...options }); }
   delete<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> { return this.request<TResponse>({ method: "DELETE", path, ...options }); }
 
   /**

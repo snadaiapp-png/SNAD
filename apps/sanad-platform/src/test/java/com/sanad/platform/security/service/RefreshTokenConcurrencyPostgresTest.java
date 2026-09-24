@@ -20,9 +20,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
 import java.util.UUID;
@@ -36,21 +33,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @ActiveProfiles("local")
-@Testcontainers(disabledWithoutDocker = true)
 class RefreshTokenConcurrencyPostgresTest {
-
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("sanad_refresh_lock")
-            .withUsername("sanad_test")
-            .withPassword(UUID.randomUUID().toString());
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("spring.datasource.driver-class-name", POSTGRES::getDriverClassName);
+        registry.add("spring.datasource.url", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"));
+        registry.add("spring.datasource.username", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"));
+        registry.add("spring.datasource.password", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
         registry.add("spring.flyway.enabled", () -> "true");
     }
@@ -60,6 +52,7 @@ class RefreshTokenConcurrencyPostgresTest {
     @Autowired private UserRepository userRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     private UUID tenantId;
     private UUID userId;
@@ -69,8 +62,52 @@ class RefreshTokenConcurrencyPostgresTest {
     @BeforeEach
     void setUp() {
         refreshTokenRepository.deleteAll();
-        userRepository.deleteAll();
-        tenantRepository.deleteAll();
+        // PostgreSQL strictly enforces FK constraints. The CRM schema has
+        // dozens of cross-referencing tables (crm_accounts → crm_contacts →
+        // crm_communication_methods → crm_addresses → ...). Manually listing
+        // every child table is fragile and has repeatedly missed tables.
+        //
+        // TRUNCATE ... CASCADE is PostgreSQL's canonical way to clear data
+        // across an FK graph: PostgreSQL itself walks the dependency graph
+        // and clears in the correct order. This is the correct boundary:
+        //   - H2 (local dev): TRUNCATE works identically
+        //   - PostgreSQL (CI): TRUNCATE handles the FK graph automatically
+        //
+        // The RESTART IDENTITY option resets sequences so test fixtures get
+        // deterministic IDs. We exclude the Flyway tracking table and the
+        // module catalog tables (modules, module_capabilities) which are
+        // seeded by migrations and should persist across tests.
+        //
+        // We also exclude access_capabilities (capabilities catalog) —
+        // only role_capabilities (the per-tenant binding) is truncated.
+        jdbcTemplate.execute("""
+                TRUNCATE TABLE
+                    crm_tag_assignments,
+                    crm_communication_methods,
+                    crm_party_addresses,
+                    crm_opportunity_stage_history,
+                    crm_opportunities,
+                    crm_pipeline_stages,
+                    crm_pipelines,
+                    crm_tasks,
+                    crm_notes,
+                    crm_tags,
+                    crm_activities,
+                    crm_contacts,
+                    crm_leads,
+                    crm_accounts,
+                    user_role_assignments,
+                    role_capabilities,
+                    roles,
+                    users,
+                    tenants,
+                    refresh_tokens
+                RESTART IDENTITY CASCADE
+                """);
+        // TRUNCATE cleared all rows; JPA first-level cache may still hold
+        // stale entities, so we clear the persistence context to avoid
+        // accidental re-inserts of detached entities.
+        // No further delete calls needed — TRUNCATE is authoritative.
 
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Refresh Lock Tenant",

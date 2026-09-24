@@ -1,0 +1,51 @@
+name: Resume Backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "resume" to resume backend'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    if: github.event.inputs.confirm == 'resume'
+    steps:
+      - name: Resume backend
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          echo "=== Resuming sanad-backend ==="
+          STATUS=$(curl -sS -o /tmp/resume.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/resume" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+          echo "Resume HTTP ${STATUS}"
+          cat /tmp/resume.json || true
+          echo ""
+          echo "Waiting 60s for backend to start..."
+          sleep 60
+          echo ""
+          echo "=== Health check ==="
+          for i in $(seq 1 12); do
+            CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 \
+              "https://sanad-backend-mcrj.onrender.com/actuator/health" || echo "000")
+            echo "  Attempt $i: HTTP $CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "✓ Backend is UP!"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Backend did not become healthy"
+          exit 1

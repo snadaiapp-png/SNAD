@@ -100,20 +100,20 @@ class CustomerMasterSecurityIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
-                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", now));
+                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'CRM Security User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)
                         .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
-                        .addValue("now", now));
+                        .addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:code,'CRM Security Role','CRM-005 security tests','ACTIVE',:now,:now)",
                 p().addValue("id", roleId).addValue("tenantId", tenantId)
-                        .addValue("code", "CRM_SEC_" + key.toUpperCase().replace('-', '_')).addValue("now", now));
+                        .addValue("code", "CRM_SEC_" + key.toUpperCase().replace('-', '_')).addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO user_role_assignments (id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
                 p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", now));
+                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
         if (grantCapabilities) {
             List<UUID> capabilityIds = jdbc.query(
                     "SELECT id FROM access_capabilities WHERE code IN ('CRM.ACCOUNT.READ','CRM.ACCOUNT.WRITE')",
@@ -122,7 +122,7 @@ class CustomerMasterSecurityIntegrationTest {
                 jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
                                 "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
                         p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                                .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", now));
+                                .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", java.sql.Timestamp.from(now)));
             }
         }
         return new Fixture(tenantId, userId);
@@ -136,7 +136,7 @@ class CustomerMasterSecurityIntegrationTest {
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
                         "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM005_SECURITY_TEST',:owner,:owner,:owner,:now,:now)",
                 p().addValue("id", id).addValue("tenantId", fixture.tenantId()).addValue("name", name)
-                        .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", now));
+                        .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
         return id;
     }
 

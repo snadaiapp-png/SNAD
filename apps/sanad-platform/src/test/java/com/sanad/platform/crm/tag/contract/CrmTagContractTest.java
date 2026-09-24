@@ -104,7 +104,7 @@ class CrmTagContractTest {
 
     @Test
     void nullRowProducesNullDto() {
-        assertNull(mapper.toTagResponse(null));
-        assertNull(mapper.toTagAssignmentResponse(null, "VIP", "#FF0000"));
+        assertNull(mapper.toTagResponse((java.util.Map<String, Object>) null));
+        assertNull(mapper.toTagAssignmentResponse((java.util.Map<String, Object>) null, "VIP", "#FF0000"));
     }
 }

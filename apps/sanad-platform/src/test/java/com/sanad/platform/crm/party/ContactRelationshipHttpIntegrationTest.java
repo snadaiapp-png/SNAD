@@ -15,7 +15,6 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -31,10 +30,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+// NOTE: @Transactional removed.
+// This test class performs multiple MockMvc HTTP requests within a single
+// test method, simulating independent production HTTP requests. In production,
+// each HTTP request is its own transaction. The previous @Transactional class
+// annotation incorrectly grouped independent HTTP requests into ONE transaction,
+// which caused PostgreSQL to abort the entire transaction after a deliberate
+// duplicate-key insert (SQLSTATE 25P02). H2 tolerated this; PostgreSQL does not.
+//
+// Test isolation between @Test methods is now achieved via @AfterEach
+// TRUNCATE CASCADE (same pattern as RefreshTokenConcurrencyPostgresTest).
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
 class ContactRelationshipHttpIntegrationTest {
 
     private static final List<String> CAPABILITIES = List.of(
@@ -286,16 +294,16 @@ class ContactRelationshipHttpIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
-                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", now));
+                        .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'CRM 006 User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)
                         .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
-                        .addValue("now", now));
+                        .addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:code,'CRM 006 Role','CRM-006 tests','ACTIVE',:now,:now)",
                 p().addValue("id", roleId).addValue("tenantId", tenantId)
-                        .addValue("code", "CRM006_" + key.toUpperCase().replace('-', '_')).addValue("now", now));
+                        .addValue("code", "CRM006_" + key.toUpperCase().replace('-', '_')).addValue("now", java.sql.Timestamp.from(now)));
         if (grantCapabilities) {
             List<UUID> capabilityIds = jdbc.query(
                     "SELECT id FROM access_capabilities WHERE code IN (:codes)",
@@ -306,14 +314,14 @@ class ContactRelationshipHttpIntegrationTest {
                 jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) " +
                                 "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
                         p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                                .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", now));
+                                .addValue("roleId", roleId).addValue("capabilityId", capabilityId).addValue("now", java.sql.Timestamp.from(now)));
             }
         }
         jdbc.update("INSERT INTO user_role_assignments " +
                         "(id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
                 p().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", now));
+                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
         return new Fixture(tenantId, userId);
     }
 
@@ -324,7 +332,7 @@ class ContactRelationshipHttpIntegrationTest {
                         "VALUES (:id,:tenantId,:email,:name,'ACTIVE','dummy',:now,:now)",
                 p().addValue("id", id).addValue("tenantId", tenantId)
                         .addValue("email", key + "-" + id.toString().substring(0, 8) + "@example.test")
-                        .addValue("name", key).addValue("now", now));
+                        .addValue("name", key).addValue("now", java.sql.Timestamp.from(now)));
         return id;
     }
 
@@ -336,7 +344,7 @@ class ContactRelationshipHttpIntegrationTest {
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
                         "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM006_TEST',:owner,:owner,:owner,:now,:now)",
                 p().addValue("id", id).addValue("tenantId", fixture.tenantId()).addValue("name", name)
-                        .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", now));
+                        .addValue("normalized", name.toLowerCase()).addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
         return id;
     }
 
@@ -355,7 +363,7 @@ class ContactRelationshipHttpIntegrationTest {
                         .addValue("givenName", givenName).addValue("familyName", familyName)
                         .addValue("displayName", displayName).addValue("normalizedName", displayName.toLowerCase())
                         .addValue("email", email).addValue("normalizedEmail", email.toLowerCase())
-                        .addValue("owner", fixture.userId()).addValue("now", now));
+                        .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
         return id;
     }
 
@@ -380,4 +388,42 @@ class ContactRelationshipHttpIntegrationTest {
     }
 
     private record Fixture(UUID tenantId, UUID userId) {}
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanupTestData() {
+        // Test isolation: clear CRM test data between @Test methods.
+        // Without @Transactional class-level, each test method commits its data.
+        // TRUNCATE ... CASCADE is PostgreSQL's canonical way to clear an FK graph
+        // in the correct dependency order. H2 also supports TRUNCATE.
+        // We exclude access_capabilities (catalog), modules, module_capabilities
+        // (migration-seeded catalog), and flyway_schema_history (Flyway tracking).
+        jdbc.getJdbcTemplate().execute("""
+                TRUNCATE TABLE
+                    crm_contact_relationship_roles,
+                    crm_contact_relationship_history,
+                    crm_contact_account_relationships,
+                    crm_communication_methods,
+                    crm_party_addresses,
+                    crm_timeline_events,
+                    crm_audit_logs,
+                    crm_opportunity_stage_history,
+                    crm_opportunities,
+                    crm_pipeline_stages,
+                    crm_pipelines,
+                    crm_tasks,
+                    crm_notes,
+                    crm_tags,
+                    crm_tag_assignments,
+                    crm_activities,
+                    crm_contacts,
+                    crm_leads,
+                    crm_accounts,
+                    user_role_assignments,
+                    role_capabilities,
+                    roles,
+                    users,
+                    tenants
+                RESTART IDENTITY CASCADE
+                """);
+    }
 }

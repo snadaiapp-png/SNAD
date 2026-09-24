@@ -1,0 +1,56 @@
+name: Find Users Table
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "find" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    if: github.event.inputs.confirm == 'find'
+    steps:
+      - name: Install deps
+        run: pip3 install psycopg2-binary
+      - name: Find tables
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          python3 << 'PYEOF'
+          import psycopg2, os, sys
+          jdbc_url = os.environ['PROD_JDBC_URL']
+          db_user = os.environ['PROD_DB_USER']
+          db_pass = os.environ['PROD_DB_PASSWORD']
+          conn_str = jdbc_url.replace('jdbc:postgresql://', '')
+          host_port = conn_str.split('/')[0]
+          host = host_port.split(':')[0]
+          port = host_port.split(':')[1] if ':' in host_port else '5432'
+          db_name = conn_str.split('/')[1].split('?')[0] if '/' in conn_str else 'postgres'
+          print(f"Host: {host}:{port}", file=sys.stderr)
+          print(f"User: {db_user}", file=sys.stderr)
+          conn = psycopg2.connect(host=host, port=port, dbname=db_name, user=db_user, password=db_pass, sslmode='require')
+          cur = conn.cursor()
+          cur.execute("SELECT schemaname, tablename FROM pg_tables WHERE tablename ILIKE '%user%' ORDER BY schemaname, tablename")
+          print("=== Tables with 'user' ===", file=sys.stderr)
+          for row in cur.fetchall():
+              print(f"  {row[0]}.{row[1]}", file=sys.stderr)
+          cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")
+          print("=== ALL public tables ===", file=sys.stderr)
+          for row in cur.fetchall():
+              print(f"  {row[0]}", file=sys.stderr)
+          cur.execute("SELECT count(*) FROM pg_tables WHERE schemaname='public'")
+          print(f"Total: {cur.fetchone()[0]}", file=sys.stderr)
+          cur.close()
+          conn.close()
+          PYEOF

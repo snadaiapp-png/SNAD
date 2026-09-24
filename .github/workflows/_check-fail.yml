@@ -1,0 +1,30 @@
+name: Check latest deploy failure mode
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Latest deploy + events
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set +e
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          echo "=== LATEST 3 DEPLOYS ==="
+          curl -s --max-time 30 -H "$AUTH" "$BASE/deploys?limit=3" \
+            | jq '[.[] | (.deploy // .) | {id,status,imageRef:.image.ref,started:.startedAt,finished:.finishedAt}]'
+          echo ""
+          echo "=== RECENT EVENTS (failure reasons + server_failed) ==="
+          curl -s --max-time 30 -H "$AUTH" "$BASE/events?limit=15" \
+            | jq -c '[.[] | (.event // .) | select(.type=="deploy_ended" or .type=="server_failed" or .type=="server_available") | {type, ts:.timestamp, reason:.details.reason, deployId:.details.deployId, status:.details.deployStatus}]'
+          exit 0

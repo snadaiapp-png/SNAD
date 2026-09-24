@@ -150,7 +150,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         Optional<ShiftAssignment> updated = inTransaction(() -> repo.update(
                 tenantId, created.id(), new UpdateShiftAssignmentCommand(
                         newTemplateId, LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 15),
-                        ShiftAssignmentStatus.ACTIVE, actorId, 0)));
+                        ShiftAssignmentStatus.ACTIVE, actorId, 1)));
 
         assertThat(updated).isPresent();
         assertThat(updated.get().version()).isEqualTo(2);
@@ -167,10 +167,10 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
                         UUID.randomUUID(), templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14), actorId)));
 
-        // first update (v0 -> v1)
+        // first update (v1 -> v2)
         inTransaction(() -> repo.update(tenantId, created.id(), new UpdateShiftAssignmentCommand(
                 templateId, LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 15),
-                ShiftAssignmentStatus.ACTIVE, actorId, 0)));
+                ShiftAssignmentStatus.ACTIVE, actorId, 1)));
 
         // stale version returns Optional.empty()
         Optional<ShiftAssignment> conflict = inTransaction(() -> repo.update(
@@ -217,7 +217,7 @@ class JdbcShiftAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresTes
         inTransaction(() -> repo.update(tenantId, cancelled.id(),
                 new UpdateShiftAssignmentCommand(templateId,
                         LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14),
-                        ShiftAssignmentStatus.CANCELLED, actorId, 0)));
+                        ShiftAssignmentStatus.CANCELLED, actorId, 1)));
 
         // cancelled assignment should not be detected as overlapping
         assertThat(repo.hasOverlap(tenantId, staffId,

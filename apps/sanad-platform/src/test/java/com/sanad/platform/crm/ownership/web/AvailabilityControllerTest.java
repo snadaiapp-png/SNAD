@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static com.sanad.platform.crm.ownership.web.CrmOwnershipControllerTestSupport.*;
@@ -50,7 +51,7 @@ class AvailabilityControllerTest {
         jdbc.update("""
                 INSERT INTO crm_staff_availability (id,tenant_id,staff_id,type,start_date,end_date,
                     created_by,updated_by,created_at,updated_at,version)
-                VALUES (:id,:tenantId,:staffId,:type,:startDate,:endDate,
+                VALUES (:id,:tenantId,:staffId,:type,CAST(:startDate AS DATE),CAST(:endDate AS DATE),
                     :actor,:actor,:now,:now,1)
                 """, p()
                 .addValue("id", id)
@@ -60,7 +61,7 @@ class AvailabilityControllerTest {
                 .addValue("startDate", startDate)
                 .addValue("endDate", endDate)
                 .addValue("actor", fixture.userId())
-                .addValue("now", java.time.Instant.now()));
+                .addValue("now", java.sql.Timestamp.from(Instant.now())));
         return id;
     }
 

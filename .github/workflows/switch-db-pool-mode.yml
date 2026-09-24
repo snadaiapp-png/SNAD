@@ -1,0 +1,168 @@
+name: Switch DB to Transaction Pool + Deploy
+
+# ============================================================
+# FIX: Switch Supabase from session mode (port 5432, max 15
+# connections) to transaction mode (port 6543, max 200
+# connections) to resolve the DB pool exhaustion deadlock.
+# ------------------------------------------------------------
+# Session mode: max 15 connections — exhausted by old container
+# Transaction mode: max 200 connections — sufficient for deploys
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "switch-pool" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  switch:
+    name: Switch to transaction pool + deploy
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 25
+    if: github.event.inputs.confirm == 'switch-pool'
+
+    steps:
+      - name: Resume sanad-backend if suspended
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          echo "=== Resuming sanad-backend ==="
+          STATUS=$(curl -sS -o /tmp/resume.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/resume" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json")
+          echo "Resume HTTP ${STATUS}"
+          cat /tmp/resume.json || true
+          echo ""
+          echo "Waiting 10s..."
+          sleep 10
+
+      - name: Update DATABASE_URL to use transaction mode (port 6543)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+        run: |
+          set -euo pipefail
+          
+          # Convert session-mode URL to transaction-mode URL
+          # Original: jdbc:postgresql://host:5432/db?sslmode=require
+          # New:      jdbc:postgresql://host:6543/db?sslmode=require&prepareThreshold=0
+          # prepareThreshold=0 disables prepared statement caching (required for transaction mode)
+          
+          ORIGINAL_URL="$PROD_JDBC_URL"
+          echo "Original URL: ${ORIGINAL_URL:0:50}..."
+          
+          # Replace port 5432 with 6543
+          TXN_URL=$(echo "$ORIGINAL_URL" | sed 's/:5432\//:6543\//')
+          # If no port specified, add :6543 after host
+          if [[ "$TXN_URL" != *":6543"* ]]; then
+            TXN_URL=$(echo "$TXN_URL" | sed 's|//\([^/]*\)/|//\1:6543/|')
+          fi
+          # Add prepareThreshold=0 if not present
+          if [[ "$TXN_URL" != *"prepareThreshold"* ]]; then
+            if [[ "$TXN_URL" == *"?"* ]]; then
+              TXN_URL="${TXN_URL}&prepareThreshold=0"
+            else
+              TXN_URL="${TXN_URL}?prepareThreshold=0"
+            fi
+          fi
+          
+          echo "Transaction-mode URL: ${TXN_URL:0:60}..."
+          echo "::add-mask::$TXN_URL"
+          
+          echo ""
+          echo "=== Setting DATABASE_URL to transaction-mode pooler ==="
+          PAYLOAD=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1], "type": "SECRET"}))' "$TXN_URL")
+          STATUS=$(curl -sS -o /tmp/url.json -w "%{http_code}" --max-time 30 \
+            -X PUT \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/DATABASE_URL")
+          echo "Set DATABASE_URL HTTP ${STATUS}"
+          
+          # Also update DATABASE_POOL_MAX to 3 (safe for transaction mode)
+          echo ""
+          echo "=== Setting DATABASE_POOL_MAX=3 ==="
+          PAYLOAD=$(python3 -c 'import json; print(json.dumps({"value": "3"}))')
+          STATUS=$(curl -sS -o /tmp/pool.json -w "%{http_code}" --max-time 30 \
+            -X PUT \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/DATABASE_POOL_MAX")
+          echo "Set DATABASE_POOL_MAX HTTP ${STATUS}"
+
+      - name: Trigger deploy
+        id: deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          echo "=== Triggering deploy ==="
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          cat /tmp/deploy.json
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
+          if [ -z "$DEPLOY_ID" ]; then
+            echo "::error::No deploy ID"
+            exit 1
+          fi
+          echo "Waiting for deploy ${DEPLOY_ID}..."
+          for i in $(seq 1 100); do
+            sleep 15
+            STATUS=$(curl -sS --max-time 30 \
+              "https://api.render.com/v1/services/${BACKEND_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+            echo "  Attempt ${i}: ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then echo "✓ DEPLOY LIVE!"; exit 0; fi
+            if echo "${STATUS}" | grep -qE "failed|canceled|deactivated"; then
+              echo "::error::Deploy ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "::error::Timeout"
+          exit 1
+
+      - name: Verify health and login
+        run: |
+          sleep 15
+          echo "=== Health ==="
+          curl -sS --max-time 15 "https://sanad-backend-mcrj.onrender.com/actuator/health"
+          echo ""
+          echo "=== Login test ==="
+          curl -sS --max-time 15 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -H "Origin: https://snad-app.vercel.app" \
+            -d '{"email":"admin@snad.ai","password":"wrong"}' \
+            -w "\nHTTP %{http_code}\n"

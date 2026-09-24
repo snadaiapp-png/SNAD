@@ -59,6 +59,7 @@ export interface CrmStage {
   sequence: number;
   probability: number;
   terminal_state?: string | null;
+  active: boolean;
 }
 
 export interface CrmOpportunity {
@@ -78,14 +79,20 @@ export interface CrmOpportunity {
 
 export interface CrmActivity {
   id: string;
+  version?: number;
   activity_type: string;
   subject: string;
   body?: string | null;
   related_type?: string | null;
   related_id?: string | null;
+  owner_user_id?: string | null;
   status: string;
   priority: number;
+  start_at?: string | null;
   due_at?: string | null;
+  completed_at?: string | null;
+  result?: string | null;
+  created_at?: string | null;
   updated_at: string;
 }
 
@@ -254,7 +261,7 @@ export interface CrmCase {
  * The V1 CRM surface is deprecated (see V1DeprecationHeaderFilter on the
  * backend). Methods below that have a verified V2 equivalent are migrated to
  * the {@code v2root} constant; methods that have NO V2 equivalent (dashboard,
- * createPipeline, tags, notes, tasks, reports, search, export, custom-field
+ * createPipeline, notes, tasks, reports, search, export, custom-field
  * sensitive read) remain on V1 until TD-006 builds the missing V2 surface.
  */
 const root = "/api/v1/crm";
@@ -364,14 +371,20 @@ function mapV2Opportunity(o: V2OpportunityResponse): CrmOpportunity {
 function mapV2Activity(a: V2ActivityResponse): CrmActivity {
   return {
     id: a.id,
+    version: a.version,
     activity_type: a.activityType,
     subject: a.subject,
     body: a.body ?? null,
     related_type: a.relatedType ?? null,
     related_id: a.relatedId ?? null,
+    owner_user_id: a.ownerUserId ?? null,
     status: a.status,
     priority: a.priority,
+    start_at: a.startAt ?? null,
     due_at: a.dueAt ?? null,
+    completed_at: a.completedAt ?? null,
+    result: a.result ?? null,
+    created_at: a.createdAt ?? null,
     updated_at: a.updatedAt,
   };
 }
@@ -393,6 +406,7 @@ function mapV2Stage(s: V2StageResponse): CrmStage {
     sequence: s.sequence,
     probability: s.probability,
     terminal_state: s.terminalState ?? null,
+    active: s.active,
   };
 }
 
@@ -441,6 +455,51 @@ function mapV2CustomField(cf: V2CustomFieldResponse): CrmCustomField {
   };
 }
 
+function mapV2Tag(t: V2TagResponse): CrmTag {
+  return {
+    id: t.id,
+    version: t.version,
+    name: t.name,
+    color: t.color ?? null,
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+  };
+}
+
+function mapV2TagAssignment(a: V2TagAssignmentResponse): CrmTagAssignment {
+  return {
+    id: a.id,
+    tag_id: a.tagId,
+    tag_name: a.tagName,
+    tag_color: a.tagColor ?? null,
+    subject_type: a.subjectType,
+    subject_id: a.subjectId,
+    assigned_by: a.assignedBy ?? null,
+    assigned_at: a.assignedAt,
+  };
+}
+
+function mapV2Case(c: V2CaseResponse): CrmCase {
+  return {
+    id: c.id,
+    version: c.version,
+    subject: c.subject,
+    description: c.description ?? null,
+    case_type: c.caseType ?? null,
+    status: c.status,
+    priority: c.priority,
+    customer_id: c.customerId ?? null,
+    assignee_user_id: c.assigneeUserId ?? null,
+    owner_user_id: c.ownerUserId ?? null,
+    related_id: c.relatedId ?? null,
+    due_at: c.dueAt ?? null,
+    resolved_at: c.resolvedAt ?? null,
+    closed_at: c.closedAt ?? null,
+    created_at: c.createdAt,
+    updated_at: c.updatedAt,
+  };
+}
+
 // ── V2 typed DTO interfaces (camelCase, matching backend CrmDtos.java) ──
 
 interface V2AccountResponse {
@@ -466,16 +525,18 @@ interface V2OpportunityResponse {
   status: string; expectedCloseDate?: string | null; updatedAt: string;
 }
 interface V2ActivityResponse {
-  id: string; activityType: string; subject: string; body?: string | null;
-  relatedType?: string | null; relatedId?: string | null; status: string;
-  priority: number; dueAt?: string | null; updatedAt: string;
+  id: string; version?: number; activityType: string; subject: string;
+  body?: string | null; relatedType?: string | null; relatedId?: string | null;
+  ownerUserId?: string | null; status: string; priority: number;
+  startAt?: string | null; dueAt?: string | null; completedAt?: string | null;
+  result?: string | null; createdAt?: string | null; updatedAt: string;
 }
 interface V2PipelineResponse {
   id: string; name: string; currencyCode?: string | null; active: boolean;
 }
 interface V2StageResponse {
   id: string; pipelineId: string; name: string; sequence: number;
-  probability: number; terminalState?: string | null;
+  probability: number; terminalState?: string | null; active: boolean;
 }
 interface V2TimelineEventResponse {
   id: string; subjectType: string; subjectId: string; eventType: string;
@@ -506,6 +567,48 @@ interface V2Customer360Response {
 interface V2CustomFieldValuesResponse {
   entityType: string; entityId: string;
   values: Record<string, unknown>;
+}
+
+/** V2 Tag response (camelCase, matches backend TagResponse record). */
+interface V2TagResponse {
+  id: string;
+  version: number;
+  name: string;
+  color?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** V2 Case response (camelCase, matches backend CaseResponse record). */
+interface V2CaseResponse {
+  id: string;
+  version: number;
+  subject: string;
+  description?: string | null;
+  caseType?: string | null;
+  status: string;
+  priority: number;
+  customerId?: string | null;
+  assigneeUserId?: string | null;
+  ownerUserId?: string | null;
+  relatedId?: string | null;
+  dueAt?: string | null;
+  resolvedAt?: string | null;
+  closedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** V2 Tag assignment response (camelCase, matches backend TagAssignmentResponse record). */
+interface V2TagAssignmentResponse {
+  id: string;
+  tagId: string;
+  tagName: string;
+  tagColor?: string | null;
+  subjectType: string;
+  subjectId: string;
+  assignedBy?: string | null;
+  assignedAt: string;
 }
 
 export const crmApi = {
@@ -616,7 +719,9 @@ export const crmApi = {
   },
   convertLead: async (id: string, body: { createOpportunity: boolean; currencyCode: string; opportunityName?: string; amount?: number; pipelineId?: string; stageId?: string }) => {
     const data = await unwrapSingle(
-      apiClient.post<V2SingleResponse<Record<string, unknown>>, typeof body>(`${v2root}/leads/${id}/convert`, body),
+      apiClient.post<V2SingleResponse<Record<string, unknown>>, typeof body>(`${v2root}/leads/${id}/convert`, body, {
+        context: { headers: { "Idempotency-Key": `convert-lead-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } },
+      }),
     );
     return data;
   },
@@ -630,6 +735,21 @@ export const crmApi = {
   stages: async (pipelineId: string) => {
     const res = await apiClient.get<V2ListResponse<V2StageResponse>>(`${v2root}/pipelines/${pipelineId}/stages`, { cache: "no-store" });
     return (res.data ?? []).map(mapV2Stage);
+  },
+  createStage: async (pipelineId: string, body: { name: string; probability?: number; terminalState?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2StageResponse>, typeof body>(`${v2root}/pipelines/${pipelineId}/stages`, body),
+    );
+    return mapV2Stage(data);
+  },
+  updateStage: async (pipelineId: string, stageId: string, body: { name?: string; probability?: number; terminalState?: string; sequence?: number }) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2StageResponse>, typeof body>(`${v2root}/pipelines/${pipelineId}/stages/${stageId}`, body, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Stage(data);
+  },
+  deleteStage: async (pipelineId: string, stageId: string) => {
+    await apiClient.delete<void>(`${v2root}/pipelines/${pipelineId}/stages/${stageId}`);
   },
 
   // ── Opportunities (V2 — migrated TD-002-2) ─────────────────────────────
@@ -666,6 +786,12 @@ export const crmApi = {
   createActivity: async (body: { activityType: string; subject: string; body?: string; relatedType?: string; relatedId?: string; priority?: number; dueAt?: string; ownerUserId?: string }) => {
     const data = await unwrapSingle(
       apiClient.post<V2SingleResponse<V2ActivityResponse>, typeof body>(`${v2root}/activities`, body, { context: { headers: { "Idempotency-Key": `act-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Activity(data);
+  },
+  updateActivity: async (id: string, body: { subject?: string; body?: string; priority?: number; startAt?: string; dueAt?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2ActivityResponse>, typeof body>(`${v2root}/activities/${id}`, body, { context: { headers: { "If-Match": "*" } } }),
     );
     return mapV2Activity(data);
   },
@@ -762,21 +888,46 @@ export const crmApi = {
     } satisfies CrmCustomFieldValues;
   },
 
-  // ── Tags (CRM.TAG.READ / WRITE) — V1 ONLY (no V2 equivalent; TD-006) ──
-  tags: (search?: string) =>
-    apiClient.get<CrmTag[]>(`${root}/tags`, { query: { limit: 200, search }, cache: "no-store" }),
-  tag: (id: string) => apiClient.get<CrmTag>(`${root}/tags/${id}`, { cache: "no-store" }),
-  createTag: (body: { name: string; color?: string }) =>
-    apiClient.post<CrmTag, typeof body>(`${root}/tags`, body),
-  updateTag: (id: string, body: { name?: string; color?: string }) =>
-    apiClient.patch<CrmTag, typeof body>(`${root}/tags/${id}`, body),
-  deleteTag: (id: string) => apiClient.delete<void>(`${root}/tags/${id}`),
-  tagAssignmentsBySubject: (subjectType: string, subjectId: string) =>
-    apiClient.get<CrmTagAssignment[]>(`${root}/tags/assignments/by-subject`, { query: { subjectType, subjectId }, cache: "no-store" }),
-  assignTag: (tagId: string, body: { subjectType: string; subjectId: string }) =>
-    apiClient.post<CrmTagAssignment, typeof body>(`${root}/tags/${tagId}/assignments`, body),
+  // ── Tags (CRM.TAG.READ / WRITE) — V2 (TD-006) ──────────────────────────
+  tags: async (search?: string) => {
+    const data = await fetchAllPages<V2TagResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2TagResponse>>(`${v2root}/tags`, { query: { limit: 200, search, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Tag);
+  },
+  tag: async (id: string) => {
+    const data = await unwrapSingle(
+      apiClient.get<V2SingleResponse<V2TagResponse>>(`${v2root}/tags/${id}`, { cache: "no-store" }),
+    );
+    return mapV2Tag(data);
+  },
+  createTag: async (body: { name: string; color?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2TagResponse>, typeof body>(`${v2root}/tags`, body, { context: { headers: { "Idempotency-Key": `tag-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2Tag(data);
+  },
+  updateTag: async (id: string, body: { name?: string; color?: string }) => {
+    const data = await unwrapSingle(
+      apiClient.patch<V2SingleResponse<V2TagResponse>, typeof body>(`${v2root}/tags/${id}`, body, { context: { headers: { "If-Match": "*" } } }),
+    );
+    return mapV2Tag(data);
+  },
+  deleteTag: (id: string) => apiClient.delete<void>(`${v2root}/tags/${id}`),
+  tagAssignmentsBySubject: async (subjectType: string, subjectId: string) => {
+    const data = await fetchAllPages<V2TagAssignmentResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2TagAssignmentResponse>>(`${v2root}/tags/assignments/by-subject`, { query: { subjectType, subjectId, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2TagAssignment);
+  },
+  assignTag: async (tagId: string, body: { subjectType: string; subjectId: string }) => {
+    const data = await unwrapSingle(
+      apiClient.post<V2SingleResponse<V2TagAssignmentResponse>, typeof body>(`${v2root}/tags/${tagId}/assignments`, body, { context: { headers: { "Idempotency-Key": `tag-assign-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } } }),
+    );
+    return mapV2TagAssignment(data);
+  },
   unassignTag: (tagId: string, subjectType: string, subjectId: string) =>
-    apiClient.delete<void>(`${root}/tags/${tagId}/assignments`, { query: { subjectType, subjectId } }),
+    apiClient.delete<void>(`${v2root}/tags/${tagId}/assignments`, { query: { subjectType, subjectId } }),
   // ── Notes (CRM.NOTE.READ / WRITE) — V1 ONLY (no V2 equivalent; TD-006) ─
   notes: (subjectType: string, subjectId: string, includeArchived?: boolean) =>
     apiClient.get<CrmNote[]>(`${root}/notes`, { query: { subjectType, subjectId, includeArchived: includeArchived ?? false, limit: 200 }, cache: "no-store" }),
@@ -816,10 +967,16 @@ export const crmApi = {
   cancelTask: (id: string, reason?: string) => apiClient.patch<CrmTask, { reason?: string }>(`${root}/tasks/${id}/cancel`, { reason }),
 
   // ── Cases (CRM.CASE.READ / WRITE) — MOD-001 ────────────────────────────
-  cases: (status?: string, assigneeUserId?: string, customerId?: string) =>
-    apiClient.get<CrmCase[]>(`/api/v2/crm/cases`, { query: { limit: 200, status, assigneeUserId, customerId }, cache: "no-store" }),
-  case: (id: string) =>
-    apiClient.get<CrmCase>(`/api/v2/crm/cases/${id}`, { cache: "no-store" }),
+  cases: async (status?: string, assigneeUserId?: string, customerId?: string) => {
+    const data = await fetchAllPages<V2CaseResponse>((cursor) =>
+      apiClient.get<V2ListResponse<V2CaseResponse>>(`${v2root}/cases`, { query: { limit: 200, status, assigneeUserId, customerId, cursor }, cache: "no-store" }),
+    );
+    return data.map(mapV2Case);
+  },
+  case: async (id: string) => {
+    const data = await unwrapSingle(apiClient.get<V2SingleResponse<V2CaseResponse>>(`${v2root}/cases/${id}`, { cache: "no-store" }));
+    return mapV2Case(data);
+  },
   createCase: (body: {
     subject: string;
     description?: string;

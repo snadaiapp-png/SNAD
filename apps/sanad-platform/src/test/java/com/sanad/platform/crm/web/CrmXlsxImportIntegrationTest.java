@@ -40,7 +40,7 @@ class CrmXlsxImportIntegrationTest {
     void seed() {
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
-        Instant now = Instant.now();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
                 tenantId, "xlsx-" + tenantId.toString().substring(0, 8), "XLSX Tenant", now, now);
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",

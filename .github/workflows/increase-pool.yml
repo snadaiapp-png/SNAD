@@ -1,0 +1,78 @@
+name: Increase DB Pool
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "pool" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  pool:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    if: github.event.inputs.confirm == 'pool'
+    steps:
+      - name: Set DATABASE_POOL_MAX=5
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          PAYLOAD=$(python3 -c 'import json; print(json.dumps({"value": "5"}))')
+          curl -sS -o /dev/null -w "Set DATABASE_POOL_MAX: HTTP %{http_code}\n" --max-time 30 \
+            -X PUT -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" -H "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/DATABASE_POOL_MAX"
+      - name: Suspend+Resume
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          curl -sS -o /dev/null -w "Suspend: %{http_code}\n" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/suspend" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json" || true
+          sleep 15
+          curl -sS -o /dev/null -w "Resume: %{http_code}\n" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/resume" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json" || true
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 30); do
+            CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 \
+              "https://sanad-backend-mcrj.onrender.com/actuator/health" 2>/dev/null || echo "000")
+            echo "Health $i: HTTP $CODE"
+            if [ "$CODE" = "200" ]; then echo "UP!"; exit 0; fi
+            sleep 10
+          done
+      - name: Re-insert admin data
+        env:
+          SUPABASE_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          pip3 install bcrypt > /dev/null 2>&1
+          HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'SNad@2026', bcrypt.gensalt(rounds=10)).decode())")
+          curl -sS --max-time 30 -X POST "https://api.supabase.com/v1/projects/hxhvfqxzigrqoxxnnzje/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"BEGIN; INSERT INTO public.access_capabilities (id, code, name, description, status, created_at, updated_at) SELECT gen_random_uuid(), c.code, c.name, c.description, 'ACTIVE', NOW(), NOW() FROM (VALUES ('EXECUTIVE_VIEW', 'View Executive Dashboard', 'View executive dashboard'), ('EXECUTIVE_MANAGE', 'Manage Platform', 'Manage platform'), ('EXECUTIVE_BILLING', 'Manage Billing', 'Manage billing'), ('SYSTEM_HEALTH_VIEW', 'View System Health', 'View system health'), ('SYSTEM_HEALTH_MONITOR', 'Monitor System', 'Monitor system'), ('SYSTEM_HEALTH_ALERTS', 'Manage Alerts', 'Manage alerts')) AS c(code, name, description) WHERE NOT EXISTS (SELECT 1 FROM public.access_capabilities WHERE code = c.code); INSERT INTO public.tenants (id, name, subdomain, status, created_at, updated_at) VALUES ('958bbb1c-eece-4839-bca8-a5bfa14e6ac1', 'SNAD Control Plane', 'control-plane', 'ACTIVE', NOW(), NOW()) ON CONFLICT (id) DO NOTHING; INSERT INTO public.roles (id, tenant_id, code, name, description, status, created_at, updated_at) SELECT gen_random_uuid(), '958bbb1c-eece-4839-bca8-a5bfa14e6ac1', 'ADMIN', 'Administrator', 'Full admin', 'ACTIVE', NOW(), NOW() WHERE NOT EXISTS (SELECT 1 FROM public.roles WHERE tenant_id = '958bbb1c-eece-4839-bca8-a5bfa14e6ac1' AND code = 'ADMIN'); INSERT INTO public.users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (gen_random_uuid(), '958bbb1c-eece-4839-bca8-a5bfa14e6ac1', 'admin@snad.ai', 'SNAD Admin', 'ACTIVE', '$HASH', NOW(), NOW()) ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = EXCLUDED.password_hash, status = 'ACTIVE', updated_at = NOW(); INSERT INTO public.user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at) SELECT gen_random_uuid(), u.tenant_id, u.id, r.id, NULL, 'ACTIVE', NOW(), NOW() FROM public.users u JOIN public.roles r ON r.tenant_id = u.tenant_id AND r.code = 'ADMIN' WHERE u.email = 'admin@snad.ai' AND NOT EXISTS (SELECT 1 FROM public.user_role_assignments ura WHERE ura.user_id = u.id AND ura.role_id = r.id); DELETE FROM public.role_capabilities WHERE tenant_id = '958bbb1c-eece-4839-bca8-a5bfa14e6ac1'; INSERT INTO public.role_capabilities (id, tenant_id, role_id, capability_id, created_at) SELECT gen_random_uuid(), r.tenant_id, r.id, ac.id, NOW() FROM public.roles r CROSS JOIN public.access_capabilities ac WHERE r.tenant_id = '958bbb1c-eece-4839-bca8-a5bfa14e6ac1' AND r.code = 'ADMIN' AND ac.status = 'ACTIVE'; COMMIT;\"}" \
+            -w "\nDB: HTTP %{http_code}\n" 2>&1
+      - name: Wait 90s
+        run: sleep 90
+      - name: Test login + API
+        run: |
+          TOKEN=$(curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@snad.ai","password":"SNad@2026"}' 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null)
+          echo "Token: ${TOKEN:0:20}..."
+          echo "=== Dashboard ==="
+          curl -sS --max-time 30 "https://sanad-backend-mcrj.onrender.com/api/v1/control-plane/dashboard" \
+            -H "Authorization: Bearer $TOKEN" -w "\nHTTP %{http_code}\n" 2>&1 | tail -3
+          echo "=== Tenants ==="
+          curl -sS --max-time 30 "https://sanad-backend-mcrj.onrender.com/api/v1/control-plane/tenants" \
+            -H "Authorization: Bearer $TOKEN" -w "\nHTTP %{http_code}\n" 2>&1 | tail -3

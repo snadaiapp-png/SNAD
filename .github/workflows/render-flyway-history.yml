@@ -1,0 +1,32 @@
+name: Render Flyway History Detail (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hist:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 8
+    steps:
+      - name: Show flyway_schema_history + last pending migrations
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          fv() { curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/$1" | jq -r '(.envVar // .).value // empty'; }
+          DB_URL="$(fv DATABASE_URL)"; DB_USER="$(fv DATABASE_USERNAME)"; DB_PASS="$(fv DATABASE_PASSWORD)"
+          echo "::add-mask::$DB_URL"; echo "::add-mask::$DB_USER"; echo "::add-mask::$DB_PASS"
+          HOST="$(printf '%s\n' "$DB_URL" | sed -E 's#.*://##; s#/.*##; s#:.*##; s#\?.*##')"
+          SES_URL="postgresql://$HOST:6543/postgres"; export PGPASSWORD="$DB_PASS"
+          echo "=== flyway_schema_history (all rows) ==="
+          psql "$SES_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "SELECT installed_rank, version, description, success, installed_on::timestamptz(0) FROM public.flyway_schema_history ORDER BY installed_rank;" || true
+          echo ""
+          echo "=== last successful version + total ==="
+          psql "$SES_URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -c "SELECT max(installed_rank) AS max_rank, count(*) AS total, count(*) FILTER (WHERE success) AS ok FROM public.flyway_schema_history;" || true

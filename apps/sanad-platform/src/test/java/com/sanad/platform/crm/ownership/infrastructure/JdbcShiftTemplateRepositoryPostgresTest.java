@@ -120,7 +120,7 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
                 tenantId, created.id(), new UpdateShiftTemplateCommand(
                         "Afternoon", LocalTime.of(12, 0), LocalTime.of(20, 0),
                         List.of(DayOfWeek.FRIDAY), ShiftTemplateStatus.INACTIVE,
-                        actorId, 0)));
+                        actorId, 1)));
 
         assertThat(updated).isPresent();
         assertThat(updated.get().version()).isEqualTo(2);
@@ -138,11 +138,11 @@ class JdbcShiftTemplateRepositoryPostgresTest extends CrmRepositoryPostgresTestB
                         LocalTime.of(8, 0), LocalTime.of(16, 0),
                         List.of(DayOfWeek.MONDAY), actorId)));
 
-        // first update succeeds (v0 -> v1)
+        // first update succeeds (v1 -> v2)
         inTransaction(() -> repo.update(tenantId, created.id(), new UpdateShiftTemplateCommand(
                 "Afternoon", LocalTime.of(12, 0), LocalTime.of(20, 0),
                 List.of(DayOfWeek.FRIDAY), ShiftTemplateStatus.INACTIVE,
-                actorId, 0)));
+                actorId, 1)));
 
         // stale version returns Optional.empty()
         Optional<ShiftTemplate> conflict = inTransaction(() -> repo.update(

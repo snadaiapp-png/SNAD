@@ -1,0 +1,87 @@
+name: Final Solution — Create Admin Inline
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "solve" to create admin with known email'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  solve:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    if: github.event.inputs.confirm == 'solve'
+    steps:
+      - name: Install deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1 && pip3 install bcrypt > /dev/null 2>&1
+
+      - name: Generate hash
+        id: h
+        run: |
+          HASH=$(python3 -c "import bcrypt,sys; print(bcrypt.hashpw(b'@Snad@2026',bcrypt.gensalt(10)).decode())")
+          echo "::add-mask::$HASH"
+          echo "v=$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Create admin with explicit email
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          HASH: ${{ steps.h.outputs.v }}
+        run: |
+          set -euo pipefail
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+
+          # Use CONTROL_PLANE_TENANT_ID from secrets
+          TENANT_ID="${{ secrets.CONTROL_PLANE_TENANT_ID }}"
+          EMAIL="admin@snad.ai"
+
+          echo "Creating admin: email=$EMAIL tenant=$TENANT_ID"
+
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 << SQL
+          SET search_path TO public;
+          BEGIN;
+          INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
+          SELECT '$TENANT_ID'::uuid, 'SNAD', 'snad', 'ACTIVE', now(), now()
+          WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE id = '$TENANT_ID'::uuid);
+          INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at)
+          SELECT gen_random_uuid(), '$TENANT_ID'::uuid, 'ADMIN', 'Admin', 'Full', 'ACTIVE', now(), now()
+          WHERE NOT EXISTS (SELECT 1 FROM roles WHERE tenant_id = '$TENANT_ID'::uuid AND code = 'ADMIN');
+          INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at)
+          SELECT gen_random_uuid(), r.tenant_id, r.id, c.id, now()
+          FROM roles r CROSS JOIN access_capabilities c
+          WHERE r.tenant_id = '$TENANT_ID'::uuid AND r.code = 'ADMIN' AND c.status = 'ACTIVE'
+            AND NOT EXISTS (SELECT 1 FROM role_capabilities x WHERE x.tenant_id = r.tenant_id AND x.role_id = r.id AND x.capability_id = c.id);
+          INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at)
+          SELECT gen_random_uuid(), '$TENANT_ID'::uuid, '$EMAIL', 'Admin', 'ACTIVE', '$HASH', now(), now()
+          WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = '$EMAIL');
+          UPDATE users SET password_hash = '$HASH', status = 'ACTIVE' WHERE email = '$EMAIL';
+          INSERT INTO user_role_assignments (id, tenant_id, user_id, role_id, organization_id, status, created_at, updated_at)
+          SELECT gen_random_uuid(), u.tenant_id, u.id, r.id, NULL, 'ACTIVE', now(), now()
+          FROM users u JOIN roles r ON r.tenant_id = u.tenant_id AND r.code = 'ADMIN'
+          WHERE u.email = '$EMAIL'
+            AND NOT EXISTS (SELECT 1 FROM user_role_assignments x WHERE x.tenant_id = u.tenant_id AND x.user_id = u.id AND x.role_id = r.id);
+          SELECT email, status FROM users WHERE email = '$EMAIL';
+          COMMIT;
+          SQL
+
+          echo "✓ Admin created!"
+          echo ""
+          echo "=== Login test ==="
+          curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@snad.ai","password":"@Snad@2026"}' \
+            -w "\nHTTP %{http_code}\n" | head -c 300

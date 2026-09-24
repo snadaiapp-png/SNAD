@@ -94,7 +94,7 @@ public class JdbcContactRepository implements ContactRepository {
                 VALUES (:id, :tenantId, 0, :accountId, :displayName, :givenName,
                         :givenName, :familyName, :displayName, LOWER(:displayName),
                         :primaryEmail, :normalizedEmail, :primaryPhone, :locale,
-                        :timeZone, 'ACTIVE', :ownerUserId, :consent,
+                        :timeZone, 'ACTIVE', :ownerUserId, COALESCE(:consent, 'UNKNOWN'),
                         :actorId, :actorId, :now, :now)
                 """,
                 params("id", contactId).addValue("tenantId", tenantId)
@@ -188,7 +188,7 @@ public class JdbcContactRepository implements ContactRepository {
                 """
                 UPDATE crm_contacts
                 SET lifecycle_status = :lifecycle,
-                    archived_at = CASE WHEN :archive = TRUE THEN :now ELSE NULL END,
+                    archived_at = CASE WHEN :archive = TRUE THEN CAST(:now AS TIMESTAMP WITH TIME ZONE) ELSE NULL END,
                     updated_by = :actorId, updated_at = :now, version = version + 1
                 WHERE tenant_id = :tenantId AND id = :id AND version = :expectedVersion
                 """,

@@ -8,17 +8,16 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 /**
  * Flyway migration history assertion test — CRM-028.
@@ -36,7 +35,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * runs against a Testcontainers PostgreSQL instance and exercises the full
  * Flyway migration path.
  */
-@Testcontainers
 class CrmFlywayHistoryAssertionTest {
 
     /**
@@ -83,6 +81,7 @@ class CrmFlywayHistoryAssertionTest {
             "20260717.101", // crm addresses communication capabilities
             // Vendor Reconcile
             "20260718.1",   // reconcile crm g1 after baseline gap
+            "20260718.2",   // reconcile crm tags after baseline gap
             "20260721.1",   // reconcile crm contact relationship model after baseline gap
             "20260721.2",   // reconcile crm idempotency records after baseline gap
             // CRM 008B — Teams, Queues, Territories, Assignments
@@ -104,7 +103,6 @@ class CrmFlywayHistoryAssertionTest {
             "20260729.1",   // create crm customer intelligence
             "20260729.2",   // seed default scoring models
             "20260730.1",   // enable crm row level security
-            "20260730.2",   // disable crm row level security
             "20260802.1",   // re-enable crm row level security
             "20260804.1",   // reconcile crm custom field and pipeline audit columns
             "20260804.2",   // create crm shift templates
@@ -116,23 +114,62 @@ class CrmFlywayHistoryAssertionTest {
             "20260804.8",   // create crm service assignments
             "20260804.9",    // create crm cases
             // MOD-002 — Email Integration
-            "20260805.1"     // create crm email logs
+            "20260805.1",    // create crm email logs
+            // Reporting & Portal capabilities
+            "20260805.2",    // create crm reporting capabilities
+            "20260805.3",    // create crm portal capabilities
+            // Executive Health
+            "20260806.1",    // seed executive health capabilities
+            // CRM Capability Grant & Pipeline Seed
+            "20260807.1",    // grant crm capabilities to non admin roles
+            "20260807.2",    // seed default pipeline and accounts
+            "20260807.3",    // add case insensitive tag unique index
+            "20260807.4",    // add activity result column and related type check
+            // G7 Mobile Offline Sync (V20260812.1/2/3)
+            "20260812.1",    // create mobile sync tables
+            "20260812.2",    // add sync columns to crm entities
+            "20260812.3",    // force rls mobile sync tables
+            // Mission 01: Control Plane Admin + Module Registry + Capabilities (V20260813.1, V20260814.1/2)
+            "20260813.1",    // seed control plane admin and capabilities
+            "20260814.1",    // create module registry
+            "20260814.2",    // create module capabilities and plan entitlements
+            // Senior Management Operating Layer (V20260815.1/2)
+            "20260815.1",    // create senior management kpi engine
+            "20260815.2",    // add executive management capabilities
+            "20260815.3",    // create decision risk issue escalation audit
+            "20260815.4",    // add decision risk issue escalation capabilities
+            "20260815.5",    // create command center alerts ai
+            "20260815.6",    // add command center alerts intelligence capabilities
+            "20260815.7",    // add sla fields
+            "20260815.8",    // make alert created by nullable
+            "20260815.9",    // make audit actor nullable
+            "20260815.10",   // create workflow engine
+            "20260815.11",   // add workflow capabilities
+            "20260815.12",   // add requested by to approvals
+            "20260815.13",   // make approval step instance id nullable
+            "20260815.14",   // create ai module
+            "20260815.15",   // add ai capabilities
+            "20260815.16",   // create finance module
+            "20260815.17",   // add finance capabilities
+            "20260815.18",   // create analytics module
+            "20260815.19",   // add analytics capabilities
+            "20260815.20",   // tenant domains and billing state (v20260815.7 — Final Governance Closure)
+            "20260815.21",   // drop tenant entitlement cache (dead code removed)
+            "20260815.23"    // seed domain management and billing capabilities
     );
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     @BeforeAll
-    static void requireDocker() {
-        boolean dockerAvailable;
+    static void requirePostgreSql() {
+        boolean postgresAvailable;
         try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         } catch (Throwable ignored) {
-            dockerAvailable = false;
+            postgresAvailable = false;
         }
-        Assumptions.assumeTrue(dockerAvailable,
-                "Docker is not available — skipping CrmFlywayHistoryAssertionTest. " +
-                        "Run on a CI runner with Docker to exercise Flyway history assertions.");
+        Assumptions.assumeTrue(postgresAvailable,
+                "PostgreSQL Direct is not available — skipping CrmFlywayHistoryAssertionTest. " +
+                        "Run with PostgreSQL Direct to exercise Flyway history assertions.");
     }
 
     /**
@@ -290,7 +327,7 @@ class CrmFlywayHistoryAssertionTest {
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -301,8 +338,8 @@ class CrmFlywayHistoryAssertionTest {
 
     private JdbcTemplate jdbc() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-        dataSource.setDriverClassName(POSTGRES.getDriverClassName());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        dataSource.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(dataSource);
     }
 

@@ -1,0 +1,22 @@
+-- ============================================================
+-- V20260815_21: Drop tenant_entitlement_cache (dead code)
+--
+-- The tenant_entitlement_cache table was created by V20260814_2 as
+-- a write-through cache, but never wired up:
+--   * No JPA entity class exists (Glob `**/TenantEntitlementCache*.java` = 0).
+--   * No repository interface exists.
+--   * No code reads from it.
+--   * No code writes to it.
+--   * The EntitlementResolver javadoc (lines 254-268) explicitly
+--     declares it as a "legacy artifact" with the OPTION-A note
+--     that the real-time resolver is the Source of Truth.
+--
+-- The table is misleading dead code. Forward-only migration drops it
+-- to remove the false appearance of a caching layer. Real-time
+-- resolution continues to be the single source of truth.
+--
+-- H2 compatibility: DROP TABLE IF EXISTS is standard SQL; this migration
+-- runs unchanged on PostgreSQL and H2.
+-- ============================================================
+
+DROP TABLE IF EXISTS tenant_entitlement_cache;

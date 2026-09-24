@@ -59,7 +59,7 @@ class JdbcExportRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
     @Test
     void exportContacts_mapsNameAndEmail() {
-        var rows = export.exportContacts(tenantId, "export", 50);
+        var rows = export.exportContacts(tenantId, "jane", 50);
 
         assertThat(rows).hasSize(1);
         ContactExportRow row = rows.get(0);

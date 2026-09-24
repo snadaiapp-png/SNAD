@@ -1,0 +1,77 @@
+name: Deploy with 256MB Heap
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy-256" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 25
+    if: github.event.inputs.confirm == 'deploy-256'
+    steps:
+      - name: Update JAVA_OPTS (256MB heap)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          PAYLOAD=$(python3 -c 'import json; print(json.dumps({"value": "-Xms64m -Xmx256m -XX:MaxDirectMemorySize=64m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"}))')
+          STATUS=$(curl -sS -o /tmp/r.json -w "%{http_code}" --max-time 30 \
+            -X PUT \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/JAVA_OPTS")
+          echo "Set JAVA_OPTS HTTP $STATUS"
+      - name: Deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "Deploy HTTP $STATUS"
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))")
+          echo "Deploy ID: $DEPLOY_ID"
+          for i in $(seq 1 100); do
+            sleep 15
+            S=$(curl -sS --max-time 30 \
+              "https://api.render.com/v1/services/${BACKEND_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+            echo "  Attempt ${i}: ${S}"
+            if [ "${S}" = "live" ]; then echo "✓ LIVE!"; exit 0; fi
+            if echo "${S}" | grep -qE "failed|canceled|deactivated"; then
+              echo "::error::${S}"
+              exit 1
+            fi
+          done
+          echo "::error::Timeout"
+          exit 1
+      - name: Verify
+        run: |
+          sleep 15
+          echo "=== Health ==="
+          curl -sS --max-time 15 "https://sanad-backend-mcrj.onrender.com/actuator/health"
+          echo ""
+          echo "=== Login ==="
+          curl -sS --max-time 15 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@snad.ai","password":"wrong"}' \
+            -w "\nHTTP %{http_code}\n"

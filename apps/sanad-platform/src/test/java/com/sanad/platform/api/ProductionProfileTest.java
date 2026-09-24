@@ -12,61 +12,54 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.DockerClientFactory;
-
-import java.util.UUID;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 /**
- * Production-profile integration tests using Testcontainers PostgreSQL.
+ * Production-profile integration tests using PostgreSQL Direct.
  *
  * <p>Verifies that the {@code prod} profile loads correctly against a
  * real PostgreSQL database, health/liveness/readiness endpoints work,
  * sensitive actuator endpoints are not exposed, and Swagger is disabled.</p>
  *
- * <p>Automatically disabled when Docker is not available (e.g. local
- * dev environment without Docker). Runs in CI where Docker is present.</p>
+ * <p>Automatically disabled when PostgreSQL Direct is not available (e.g. local
+ * dev environment without PostgreSQL). Runs in CI where PostgreSQL is present.</p>
  */
 @SpringBootTest(
     properties = {
         "sanad.cors.allowed-origins=https://snad-app.vercel.app",
         "sanad.production-guard.enabled=false",
         "management.health.mail.enabled=false",
-        // Required before DynamicPropertySource runs because ProductionDatasourceGuard
-        // is an EnvironmentPostProcessor. DynamicPropertySource still overrides this
-        // placeholder with the real Testcontainers PostgreSQL JDBC URL for the test.
-        "spring.datasource.url=jdbc:postgresql://localhost:5432/sanad_test_guard_placeholder",
-        "spring.datasource.username=sanad_test",
-        "spring.datasource.password=sanad_test"
+        "spring.datasource.url=jdbc:postgresql://localhost:5432/sanad",
+        "spring.datasource.username=sanad",
+        "spring.datasource.password="
     }
 )
 @Import(SecurityPermitAllTestConfig.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")
-@DisabledIf("dockerNotAvailable")
+@DisabledIf("postgresqlNotAvailable")
 class ProductionProfileTest {
 
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("sanad_test")
-            .withUsername("sanad_test")
-            .withPassword(UUID.randomUUID().toString());
-
-    static boolean dockerNotAvailable() {
-        return !DockerClientFactory.instance().isDockerAvailable();
+    static boolean postgresqlNotAvailable() {
+        try {
+            return !Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("ProductionProfileTest");
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
-        postgres.start();
-        registry.add("sanad.database.url", postgres::getJdbcUrl);
-        registry.add("sanad.database.username", postgres::getUsername);
-        registry.add("sanad.database.password", postgres::getPassword);
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("spring.datasource.url", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"));
+        registry.add("spring.datasource.username", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"));
+        registry.add("spring.datasource.password", () ->
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
     }
 
     @Autowired

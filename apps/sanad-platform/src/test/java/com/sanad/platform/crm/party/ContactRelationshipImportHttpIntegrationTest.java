@@ -150,17 +150,17 @@ class ContactRelationshipImportHttpIntegrationTest {
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 parameters().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8))
-                        .addValue("now", now));
+                        .addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'Import User','ACTIVE','dummy',:now,:now)",
                 parameters().addValue("id", userId).addValue("tenantId", tenantId)
                         .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
-                        .addValue("now", now));
+                        .addValue("now", java.sql.Timestamp.from(now)));
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:code,'Import Role','CRM-006 import test','ACTIVE',:now,:now)",
                 parameters().addValue("id", roleId).addValue("tenantId", tenantId)
                         .addValue("code", "CRM006_IMPORT_" + key.toUpperCase().replace('-', '_'))
-                        .addValue("now", now));
+                        .addValue("now", java.sql.Timestamp.from(now)));
         if (grantImport) {
             UUID capabilityId = jdbc.queryForObject(
                     "SELECT id FROM access_capabilities WHERE code='CRM.CONTACT.IMPORT'",
@@ -169,13 +169,13 @@ class ContactRelationshipImportHttpIntegrationTest {
                             "VALUES (:id,:tenantId,:roleId,:capabilityId,:now)",
                     parameters().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
                             .addValue("roleId", roleId).addValue("capabilityId", capabilityId)
-                            .addValue("now", now));
+                            .addValue("now", java.sql.Timestamp.from(now)));
         }
         jdbc.update("INSERT INTO user_role_assignments " +
                         "(id,tenant_id,user_id,role_id,organization_id,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:userId,:roleId,NULL,'ACTIVE',:now,:now)",
                 parameters().addValue("id", UUID.randomUUID()).addValue("tenantId", tenantId)
-                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", now));
+                        .addValue("userId", userId).addValue("roleId", roleId).addValue("now", java.sql.Timestamp.from(now)));
         return new Fixture(tenantId, userId);
     }
 
@@ -189,7 +189,7 @@ class ContactRelationshipImportHttpIntegrationTest {
                         "'CRM006_IMPORT_TEST',:owner,:owner,:owner,:now,:now)",
                 parameters().addValue("id", id).addValue("tenantId", fixture.tenantId())
                         .addValue("name", name).addValue("normalized", name.toLowerCase())
-                        .addValue("owner", fixture.userId()).addValue("now", now));
+                        .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
         return id;
     }
 

@@ -94,9 +94,12 @@ class JdbcNoteRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
     void archive_withStaleVersionThrowsConcurrencyConflict() {
         NoteRecord created = inTransaction(() -> notes.create(tenantId, actorId,
                 new CreateNoteCommand("ACCOUNT", subjectId, "v0", null)));
-        inTransaction(() -> notes.archive(tenantId, actorId, created.id(), 0)); // now v1
+        // Simulate concurrent update: bump version without archiving
+        jdbc().update("UPDATE crm_notes SET version = version + 1 WHERE tenant_id = :t AND id = :id",
+                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
+                        .addValue("t", tenantId)
+                        .addValue("id", created.id()));
 
-        // attempting to archive again using the stale expectedVersion=0 must fail
         assertThatThrownBy(() -> inTransaction(() ->
                 notes.archive(tenantId, actorId, created.id(), 0)))
                 .isInstanceOf(CrmContractException.class)

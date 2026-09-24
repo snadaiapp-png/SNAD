@@ -5,7 +5,7 @@ import { crmApi, type CrmAccount, type CrmTask } from "@/lib/api/crm";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { formValue, optionalValue, formatDate } from "../../crm-view-utils";
+import { formValue, optionalValue, formatDate, toIsoDateTime } from "../../crm-view-utils";
 import { CrmLoading } from "../../components/crm-loading";
 import { CrmEmpty } from "../../components/crm-empty";
 import styles from "../../crm.module.css";
@@ -85,7 +85,7 @@ export default function CrmTasksPage() {
           relatedType: relatedId ? "ACCOUNT" : undefined,
           relatedId,
           priority,
-          dueAt,
+          dueAt: toIsoDateTime(dueAt),
           assigneeUserId: me?.id,
         }),
       t("crm.tasks.created"),

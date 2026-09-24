@@ -25,7 +25,10 @@ spring:
     show-sql: true
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
+        # Dialect is auto-detected from JDBC connection (H2 when running locally,
+        # PostgreSQL when CI provides a postgres SPRING_DATASOURCE_URL override).
+        # Hard-coding H2Dialect caused schema-validation failures in CI because
+        # Hibernate tried to validate PostgreSQL columns against H2 type mappings.
         format_sql: true
 
   # Flyway stays enabled so local and integration tests exercise the

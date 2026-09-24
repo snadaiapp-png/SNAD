@@ -7,17 +7,16 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 /**
  * CRM-008B Foundation WP-01 acceptance tests.
@@ -38,7 +37,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>All tests require Docker to run PostgreSQL 16 Testcontainers. They are
  * skipped automatically when Docker is unavailable.</p>
  */
-@Testcontainers
 class Crm008bFoundationAcceptanceTest {
 
     private static final String CRM_G1_EXTENSION_VERSION = "20260717.6";
@@ -59,7 +57,11 @@ class Crm008bFoundationAcceptanceTest {
     private static final String CRM_009_COMMAND_EXECUTIONS_VERSION = "20260724.1";
     private static final String CRM_009_COMMAND_ARTIFACTS_VERSION = "20260724.2";
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
-    private static final String CRM_RLS_RE_ENABLE_VERSION = "20260802.1";
+    // CRM-018: V20260730_2 (disable RLS) was removed from Flyway forward path
+    // Terminal CRM migration as of Senior Management Operating Layer:
+    //   V20260815.23 - seed domain management and billing capabilities
+    // (was 20260815.19 before v20260815.7 — Final Governance Closure added 3 migrations)
+    private static final String CRM_LATEST_VERSION = "20260815.23";
 
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
@@ -71,20 +73,18 @@ class Crm008bFoundationAcceptanceTest {
     private static final UUID ACTIVITY_ID = UUID.fromString("00000000-0000-0000-0000-000000000024");
     private static final UUID TASK_ID = UUID.fromString("00000000-0000-0000-0000-000000000025");
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     @BeforeAll
-    static void requireDocker() {
-        boolean dockerAvailable;
+    static void requirePostgreSql() {
+        boolean postgresAvailable;
         try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         } catch (Throwable ignored) {
-            dockerAvailable = false;
+            postgresAvailable = false;
         }
-        Assumptions.assumeTrue(dockerAvailable,
-                "Docker is not available — skipping Crm008bFoundationAcceptanceTest. " +
-                        "Run on a CI runner with Docker to exercise PostgreSQL fail-closed invariants.");
+        Assumptions.assumeTrue(postgresAvailable,
+                "PostgreSQL Direct is not available — skipping Crm008bFoundationAcceptanceTest. " +
+                        "Run with PostgreSQL Direct to exercise PostgreSQL fail-closed invariants.");
     }
 
     // ============================================================
@@ -508,11 +508,13 @@ class Crm008bFoundationAcceptanceTest {
 
         JdbcTemplate jdbc = jdbc();
 
-        // Latest version is 20260802.1 (RLS re-enable after V20260730.2 rollback)
+        // Latest version is 20260807.4 (activity result column).
+        // V20260730_2 (disable RLS) was removed from Flyway forward path under
+        // RECOVERY-CRM-022 R1, so terminal migration is V20260807_4 (activity result).
         String latest = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE " +
                 "ORDER BY installed_rank DESC LIMIT 1", String.class);
-        assertThat(latest).isEqualTo(CRM_RLS_RE_ENABLE_VERSION);
+        assertThat(latest).isEqualTo(CRM_LATEST_VERSION);
 
         // All 13 new CRM-008B tables exist
         List<String> expectedTables = List.of(
@@ -619,7 +621,7 @@ class Crm008bFoundationAcceptanceTest {
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false)
                 .validateOnMigrate(false);
@@ -629,8 +631,8 @@ class Crm008bFoundationAcceptanceTest {
 
     private JdbcTemplate jdbc() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-        dataSource.setDriverClassName(POSTGRES.getDriverClassName());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        dataSource.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(dataSource);
     }
 

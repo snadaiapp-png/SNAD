@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Sanad CRM",
+    "slug": "sanad-crm",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sanad.crm"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.sanad.crm"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-crypto",
+      "expo-sqlite"
+    ]
+  }
+}

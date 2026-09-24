@@ -29,6 +29,7 @@ vi.mock("@/lib/api/auth", () => ({
     credentialRotationRequired: response.credentialRotationRequired,
     memberships: response.memberships,
     roleGrants: response.effectiveRoleGrants,
+    capabilities: (response as any).capabilities ?? [],
   }),
   AmbiguousTenantError: class AmbiguousTenantError extends Error {
     readonly tenantIds: string[];
@@ -73,6 +74,7 @@ function bootstrap(accessToken = "token"): AuthResponse {
       organizationId: null,
       status: "ACTIVE",
     }],
+    capabilities: [],
     defaultOrganizationId: null,
     defaultDestination: "/control-plane",
     availableDestinations: ["/workspace", "/crm", "/crm/command-center", "/control-plane"],

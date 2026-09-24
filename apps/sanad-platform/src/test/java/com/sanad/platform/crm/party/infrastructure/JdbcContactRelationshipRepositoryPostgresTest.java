@@ -33,7 +33,9 @@ class JdbcContactRelationshipRepositoryPostgresTest extends CrmRepositoryPostgre
 
     @BeforeEach
     void setUp() {
-        relationships = new JdbcContactRelationshipRepository(jdbc(), new ObjectMapper());
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        relationships = new JdbcContactRelationshipRepository(jdbc(), mapper);
         tenantId = newTenant();
         actorId = UUID.randomUUID();
         // account + contact are required FK targets; contact seeded WITHOUT account_id so the

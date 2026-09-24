@@ -1,0 +1,49 @@
+name: Flyway production info (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  info:
+    name: Flyway info + validate against production
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 8
+    steps:
+      - name: Checkout migrations
+        uses: actions/checkout@v4
+
+      - name: Flyway info + validate (read-only) via Docker
+        env:
+          DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+          DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+          DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          MIGRATIONS="$(pwd)/apps/sanad-platform/src/main/resources/db/migration"
+          VENDOR="$(pwd)/apps/sanad-platform/src/main/resources/db/vendor"
+          echo "=== Flyway INFO (read-only: shows applied + pending) ==="
+          docker run --rm \
+            -v "$MIGRATIONS:/flyway/sql:ro" \
+            -v "$VENDOR:/flyway/vendor:ro" \
+            flyway/flyway:10 \
+            -url="$DB_URL" \
+            -user="$DB_USER" \
+            -password="$DB_PASS" \
+            -connectRetries=5 \
+            -table=flyway_schema_history \
+            info
+          echo ""
+          echo "=== Flyway VALIDATE (read-only: detects drift) ==="
+          docker run --rm \
+            -v "$MIGRATIONS:/flyway/sql:ro" \
+            flyway/flyway:10 \
+            -url="$DB_URL" \
+            -user="$DB_USER" \
+            -password="$DB_PASS" \
+            -connectRetries=5 \
+            -table=flyway_schema_history \
+            validate || echo "VALIDATE_FAILED (drift detected — this explains update_failed)"

@@ -13,7 +13,7 @@ import java.util.UUID;
  * Mock Commerce (e-commerce) adapter — returns deterministic synthetic purchase data.
  */
 @Component
-@ConditionalOnProperty(name = "sanad.intelligence.commerce.provider", havingValue = "mock", matchIfMissing = true)
+@ConditionalOnProperty(name = "sanad.intelligence.commerce.provider", havingValue = "mock", matchIfMissing = false)
 public class MockCommerceDataAdapter implements CommerceDataPort {
 
     @Override

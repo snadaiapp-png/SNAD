@@ -228,6 +228,10 @@ export const ar: TranslationDictionary = {
   "workspace.sessionStatus": "حالة الجلسة",
   "workspace.sessionActive": "نشطة",
   "workspace.openControlPlane": "فتح مركز الإدارة العليا",
+  "workspace.openExecutive": "الإدارة التنفيذية",
+  "workspace.executiveDescription": "إدارة المستأجرين والباقات والاشتراكات والفوترة.",
+  "workspace.openSystemHealth": "صحة النظام",
+  "workspace.systemHealthDescription": "مراقبة البنية التحتية والتشخيصات وحالة النظام.",
   "workspace.openCrm": "نظام CRM",
   "workspace.openCrmCommandCenter": "مركز قيادة CRM",
 
@@ -294,6 +298,7 @@ export const ar: TranslationDictionary = {
   "crm.accounts.create.type": "النوع",
   "crm.accounts.create.currency": "العملة",
   "crm.accounts.create.submit": "إنشاء",
+  "crm.accounts.validation.nameRequired": "اسم الحساب مطلوب.",
   "crm.accounts.type.BUSINESS": "منشأة",
   "crm.accounts.type.PERSON": "فرد",
   "crm.accounts.type.PARTNER": "شريك",
@@ -388,6 +393,9 @@ export const ar: TranslationDictionary = {
   "crm.pipelines.list.stages": "المراحل",
   "crm.pipelines.empty": "لا توجد قنوات بيع بعد.",
   "crm.pipelines.created": "تم إنشاء قناة المبيعات.",
+  "crm.pipelines.stages.newPlaceholder": "اسم المرحلة الجديدة",
+  "crm.pipelines.stages.add": "+ إضافة مرحلة",
+  "crm.pipelines.stages.confirmDelete": "هل أنت متأكد من حذف هذه المرحلة؟ لن تتأثر الفرص في هذه المرحلة.",
 
   "crm.opportunities.title": "الفرص البيعية",
   "crm.opportunities.description": "إدارة الفرص البيعية عبر قنوات البيع.",
@@ -585,6 +593,9 @@ export const ar: TranslationDictionary = {
   "crm.common.notFound": "تعذّر العثور على السجل.",
   "crm.common.archived": "تمت الأرشفة",
   "crm.common.restored": "تمت الاستعادة",
+  "crm.common.save": "حفظ",
+  "crm.common.edit": "تعديل",
+  "crm.common.delete": "حذف",
 
   // === CRM Detail Pages (CRM-002b) ===
   "crm.contactDetail.title": "تفاصيل جهة الاتصال",
@@ -675,6 +686,8 @@ export const ar: TranslationDictionary = {
   "crm.tags.confirmDelete": "هل أنت متأكد من حذف هذا الوسم؟ سيتم إزالته من جميع الكيانات.",
   "crm.tags.created": "تم إنشاء الوسم.",
   "crm.tags.deleted": "تم حذف الوسم.",
+  "crm.tags.duplicateName": "يوجد وسم بهذا الاسم بالفعل.",
+  "crm.tags.validation.nameRequired": "اسم الوسم مطلوب.",
   "crm.tags.assignments.title": "الإسنادات",
   "crm.tags.assignments.account": "الحساب",
   "crm.tags.assignments.accountNone": "اختر حساباً...",
@@ -918,4 +931,7 @@ export const ar: TranslationDictionary = {
   "crm.intelligence.loadingSegments": "جاري تحميل الشرائح...",
   "crm.intelligence.noSegmentsYet": "لم يتم إنشاء شرائح بعد.",
   "crm.intelligence.loading": "جاري تحميل بيانات الذكاء...",
+
+  // ── Errors
+  "crm.errors.insufficientCapabilities": "ليس لديك الصلاحية الكافية للوصول إلى هذه الصفحة.",
 };

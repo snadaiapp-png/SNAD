@@ -49,7 +49,7 @@ public class JdbcReportsRepository implements ReportsRepository {
                 .map(row -> new StageSummary(
                         (String) row.get("stage_name"),
                         (UUID) row.get("stage_id"),
-                        ((Number) row.get("opp_count")).intValue(),
+                        toInt(row.get("opp_count")),
                         toBigDecimal(row.get("total_amount")),
                         toBigDecimal(row.get("avg_prob"))))
                 .toList();
@@ -63,7 +63,7 @@ public class JdbcReportsRepository implements ReportsRepository {
         return new SalesPipelineReport(
                 stages,
                 toBigDecimal(totals.get("total")),
-                ((Number) totals.get("cnt")).intValue(),
+                toInt(totals.get("cnt")),
                 toBigDecimal(totals.get("weighted")));
     }
 
@@ -81,8 +81,8 @@ public class JdbcReportsRepository implements ReportsRepository {
                 "FROM crm_leads WHERE tenant_id = :t",
                 params);
 
-        int totalLeads = ((Number) totals.get("total")).intValue();
-        int convertedLeads = ((Number) totals.get("converted")).intValue();
+        int totalLeads = toInt(totals.get("total"));
+        int convertedLeads = toInt(totals.get("converted"));
         double conversionRate = totalLeads > 0 ? (convertedLeads * 100.0 / totalLeads) : 0.0;
 
         // By source
@@ -97,16 +97,16 @@ public class JdbcReportsRepository implements ReportsRepository {
                 .stream()
                 .map(row -> new LeadSourceSummary(
                         (String) row.get("source"),
-                        ((Number) row.get("cnt")).intValue(),
-                        ((Number) row.get("converted")).intValue()))
+                        toInt(row.get("cnt")),
+                        toInt(row.get("converted"))))
                 .toList();
 
         return new LeadConversionReport(
                 totalLeads,
                 convertedLeads,
-                ((Number) totals.get("qualified")).intValue(),
-                ((Number) totals.get("disqualified")).intValue(),
-                ((Number) totals.get("new_leads")).intValue(),
+                toInt(totals.get("qualified")),
+                toInt(totals.get("disqualified")),
+                toInt(totals.get("new_leads")),
                 conversionRate,
                 bySource);
     }
@@ -141,17 +141,17 @@ public class JdbcReportsRepository implements ReportsRepository {
                 .stream()
                 .map(row -> new ActivityTypeBreakdown(
                         (String) row.get("activity_type"),
-                        ((Number) row.get("cnt")).intValue(),
-                        ((Number) row.get("open_cnt")).intValue()))
+                        toInt(row.get("cnt")),
+                        toInt(row.get("open_cnt"))))
                 .toList();
 
         return new ActivitySummaryReport(
-                ((Number) actTotals.get("total")).intValue(),
-                ((Number) actTotals.get("open_cnt")).intValue(),
-                ((Number) actTotals.get("completed")).intValue(),
-                ((Number) taskTotals.get("total")).intValue(),
-                ((Number) taskTotals.get("open_cnt")).intValue(),
-                ((Number) taskTotals.get("completed")).intValue(),
+                toInt(actTotals.get("total")),
+                toInt(actTotals.get("open_cnt")),
+                toInt(actTotals.get("completed")),
+                toInt(taskTotals.get("total")),
+                toInt(taskTotals.get("open_cnt")),
+                toInt(taskTotals.get("completed")),
                 byType);
     }
 
@@ -184,7 +184,7 @@ public class JdbcReportsRepository implements ReportsRepository {
                 .toList();
 
         // Compute cumulative
-        int cumulative = ((Number) totals.get("total")).intValue();
+        int cumulative = toInt(totals.get("total"));
         List<MonthlyGrowth> withCumulative = new java.util.ArrayList<>();
         for (MonthlyGrowth m : monthlyGrowth) {
             cumulative -= m.newAccounts();
@@ -192,10 +192,10 @@ public class JdbcReportsRepository implements ReportsRepository {
         }
 
         return new AccountGrowthReport(
-                ((Number) totals.get("total")).intValue(),
-                ((Number) totals.get("active")).intValue(),
-                ((Number) totals.get("new_month")).intValue(),
-                ((Number) totals.get("new_quarter")).intValue(),
+                toInt(totals.get("total")),
+                toInt(totals.get("active")),
+                toInt(totals.get("new_month")),
+                toInt(totals.get("new_quarter")),
                 withCumulative);
     }
 
@@ -204,5 +204,11 @@ public class JdbcReportsRepository implements ReportsRepository {
         if (v instanceof BigDecimal bd) return bd;
         if (v instanceof Number n) return BigDecimal.valueOf(n.doubleValue());
         try { return new BigDecimal(String.valueOf(v)); } catch (Exception e) { return BigDecimal.ZERO; }
+    }
+
+    private static int toInt(Object v) {
+        if (v == null) return 0;
+        if (v instanceof Number n) return n.intValue();
+        return 0;
     }
 }

@@ -1,0 +1,28 @@
+name: List Render Deploys (commits)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: List deploys with commit + status
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          echo "=== DEPLOYS (limit 15) — id | status | commit | imageRef | created | finished ==="
+          curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/deploys?limit=15" \
+            | jq -r '.[]? | (.deploy // .) | "\(.status)\t\(.commit.id // "no-commit")\t\(.image.ref // "no-image")\t\(.createdAt)\t\(.finishedAt // "running")"'
+          echo ""
+          echo "=== SERVICE status + suspendedAt ==="
+          curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE" | jq '{status, suspendedAt: .serviceDetails.suspendedAt, createdAt}'

@@ -24,6 +24,7 @@ describe("Auth bootstrap contract", () => {
       organizationId: "org-1",
       status: "ACTIVE",
     }],
+    capabilities: [],
     defaultOrganizationId: "org-1",
     defaultDestination: "/crm",
     availableDestinations: ["/workspace", "/crm"],

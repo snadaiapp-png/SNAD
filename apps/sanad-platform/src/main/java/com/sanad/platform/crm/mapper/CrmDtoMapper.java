@@ -186,6 +186,18 @@ public class CrmDtoMapper {
                 boolVal(row.get("active")));
     }
 
+    public StageResponse toStageResponse(com.sanad.platform.crm.opportunity.domain.PipelineRepository.StageRecord stage) {
+        if (stage == null) return null;
+        return new StageResponse(
+                stage.id(),
+                stage.pipelineId(),
+                stage.name(),
+                stage.sequence(),
+                stage.probability(),
+                stage.terminalState(),
+                stage.active());
+    }
+
     // ── Opportunities ───────────────────────────────────────────────────
 
     public OpportunityResponse toOpportunityResponse(Map<String, Object> row) {
@@ -242,6 +254,15 @@ public class CrmDtoMapper {
                 str(row.get("result")),
                 offsetDateTime(row.get("created_at")),
                 offsetDateTime(row.get("updated_at")));
+    }
+
+    public ActivityResponse toActivityResponse(com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord rec) {
+        if (rec == null) return null;
+        return new ActivityResponse(
+                rec.id(), rec.version(), rec.activityType(), rec.subject(), rec.body(),
+                rec.relatedType(), rec.relatedId(), rec.ownerUserId(), rec.status(), rec.priority(),
+                rec.startAt(), rec.dueAt(), rec.completedAt(), rec.result(),
+                toOffsetDateTime(rec.createdAt()), toOffsetDateTime(rec.updatedAt()));
     }
 
     public ActivitySummaryResponse toActivitySummary(Map<String, Object> row) {
@@ -393,6 +414,11 @@ public class CrmDtoMapper {
         return null;
     }
 
+    private static OffsetDateTime toOffsetDateTime(Instant inst) {
+        if (inst == null) return null;
+        return inst.atOffset(ZoneOffset.UTC);
+    }
+
     private static LocalDate localDate(Object v) {
         if (v == null) return null;
         if (v instanceof LocalDate ld) return ld;
@@ -491,6 +517,38 @@ public class CrmDtoMapper {
                 tagColor,
                 str(row.get("subject_type")),
                 uuid(row.get("subject_id")),
+                null, // assignedBy not available in Map-based V1 rows
                 offsetDateTime(row.get("assigned_at")));
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Tags — Domain-record overloads (V2 controller)
+    // ────────────────────────────────────────────────────────────────────
+
+    public com.sanad.platform.crm.dto.CrmDtos.TagResponse toTagResponse(
+            com.sanad.platform.crm.tag.domain.TagRepository.TagRecord record) {
+        if (record == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.TagResponse(
+                record.id(),
+                record.version(),
+                record.name(),
+                record.color(),
+                offsetDateTime(record.createdAt()),
+                offsetDateTime(record.updatedAt()));
+    }
+
+    public com.sanad.platform.crm.dto.CrmDtos.TagAssignmentResponse toTagAssignmentResponse(
+            com.sanad.platform.crm.tag.domain.TagRepository.TagAssignmentRecord record,
+            String tagName, String tagColor) {
+        if (record == null) return null;
+        return new com.sanad.platform.crm.dto.CrmDtos.TagAssignmentResponse(
+                record.id(),
+                record.tagId(),
+                tagName,
+                tagColor,
+                record.subjectType(),
+                record.subjectId(),
+                record.assignedBy(),
+                offsetDateTime(record.assignedAt()));
     }
 }

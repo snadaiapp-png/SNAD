@@ -61,7 +61,7 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         String sql = "SELECT " + ADDRESS_COLUMNS + " FROM crm_party_addresses " +
                 "WHERE tenant_id=:tenantId AND owner_type=:ownerType AND owner_id=:ownerId " +
                 (includeArchived ? "" : "AND status<>'ARCHIVED' ") +
-                "AND (CAST(:beforeTime AS TIMESTAMP) IS NULL OR updated_at<:beforeTime " +
+                "AND (CAST(:beforeTime AS TIMESTAMP WITH TIME ZONE) IS NULL OR updated_at<:beforeTime " +
                 "OR (updated_at=:beforeTime AND (CAST(:beforeId AS UUID) IS NULL OR id<:beforeId))) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
         return jdbc.query(sql, p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
@@ -165,7 +165,7 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         int updated = jdbc.update("UPDATE crm_party_addresses SET status=:status," +
                         "primary_address=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE primary_address END," +
                         "primary_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE primary_slot END," +
-                        "archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END," +
+                        "archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP WITH TIME ZONE) ELSE NULL END," +
                         "updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND id=:id AND version=:expectedVersion",
                 p().addValue("tenantId", tenantId).addValue("id", addressId)
@@ -212,7 +212,7 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
                 (includeArchived ? "" : "AND status<>'ARCHIVED' ") +
                 "AND (CAST(:methodType AS VARCHAR) IS NULL OR method_type=:methodType) " +
                 "AND (CAST(:verificationStatus AS VARCHAR) IS NULL OR verification_status=:verificationStatus) " +
-                "AND (CAST(:beforeTime AS TIMESTAMP) IS NULL OR updated_at<:beforeTime " +
+                "AND (CAST(:beforeTime AS TIMESTAMP WITH TIME ZONE) IS NULL OR updated_at<:beforeTime " +
                 "OR (updated_at=:beforeTime AND (CAST(:beforeId AS UUID) IS NULL OR id<:beforeId))) " +
                 "ORDER BY updated_at DESC,id DESC LIMIT :limit";
         return jdbc.query(sql, p().addValue("tenantId", tenantId).addValue("ownerType", ownerType)
@@ -330,7 +330,7 @@ public class JdbcAddressCommunicationRepository implements AddressCommunicationR
         int updated = jdbc.update("UPDATE crm_communication_methods SET status=:status," +
                         "preferred=CASE WHEN :status='ARCHIVED' THEN FALSE ELSE preferred END," +
                         "preferred_slot=CASE WHEN :status='ARCHIVED' THEN NULL ELSE preferred_slot END," +
-                        "archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP) ELSE NULL END," +
+                        "archived_at=CASE WHEN :status='ARCHIVED' THEN CAST(:now AS TIMESTAMP WITH TIME ZONE) ELSE NULL END," +
                         "updated_by=:actorId,updated_at=:now,version=version+1 " +
                         "WHERE tenant_id=:tenantId AND id=:id AND version=:expectedVersion",
                 p().addValue("tenantId", tenantId).addValue("id", communicationMethodId)

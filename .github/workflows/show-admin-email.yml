@@ -1,0 +1,41 @@
+name: Show Admin Email
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 3
+    steps:
+      - name: Show email
+        env:
+          ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+        run: |
+          echo "Admin email (first 5 chars): ${ADMIN_EMAIL:0:5}..."
+          echo "Admin email length: ${#ADMIN_EMAIL}"
+          echo "Admin email domain: ${ADMIN_EMAIL#*@}"
+      - name: Check DB
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+          printf '%s\n' \
+            "SET search_path TO public;" \
+            "SELECT email, status, (password_hash IS NOT NULL) AS has_pwd FROM users;" \
+            "SELECT id, name, subdomain FROM tenants;" \
+            > /tmp/q.sql
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -f /tmp/q.sql

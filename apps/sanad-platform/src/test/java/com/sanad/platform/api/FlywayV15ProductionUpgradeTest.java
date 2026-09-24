@@ -8,36 +8,32 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.UUID;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
-@Testcontainers
 class FlywayV15ProductionUpgradeTest {
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     /**
-     * Skip gracefully on machines without Docker (e.g. dev Windows boxes).
-     * On CI runners with Docker, the test runs normally.
+     * Skip gracefully on machines without PostgreSQL (e.g. dev Windows boxes).
+     * On CI runners with PostgreSQL, the test runs normally.
      */
     @BeforeAll
-    static void requireDocker() {
-        boolean dockerAvailable = false;
+    static void requirePostgreSql() {
+        boolean postgresAvailable = false;
         try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         } catch (Throwable t) {
-            dockerAvailable = false;
+            postgresAvailable = false;
         }
-        Assumptions.assumeTrue(dockerAvailable,
-                "Docker is not available — skipping FlywayV15ProductionUpgradeTest. " +
-                "Run on a CI runner with Docker to exercise the production upgrade path.");
+        Assumptions.assumeTrue(postgresAvailable,
+                "PostgreSQL Direct is not available — skipping FlywayV15ProductionUpgradeTest. " +
+                "Run with PostgreSQL Direct to exercise the production upgrade path.");
     }
 
     @Test
@@ -102,6 +98,10 @@ class FlywayV15ProductionUpgradeTest {
                 "SELECT COUNT(*) FROM roles WHERE tenant_id=? AND code='ADMIN'",
                 Long.class, tenantId)).isOne();
 
+        // Mission 01 (V20260813.1) introduced 12 new capabilities
+        // (EXECUTIVE_*, SYSTEM_HEALTH_*). The migration was updated to bind them
+        // to ALL existing ADMIN roles (not just the seed tenant), preserving
+        // the 'ADMIN gets all active capabilities' invariant.
         Long activeCapabilities = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE status='ACTIVE'",
                 Long.class);
@@ -126,7 +126,7 @@ class FlywayV15ProductionUpgradeTest {
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -139,8 +139,8 @@ class FlywayV15ProductionUpgradeTest {
 
     private JdbcTemplate jdbc() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-        dataSource.setDriverClassName(POSTGRES.getDriverClassName());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        dataSource.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(dataSource);
     }
 }

@@ -24,6 +24,7 @@ import com.sanad.platform.crm.dto.CrmDtos.ImportRunResponse;
 import com.sanad.platform.crm.dto.CrmDtos.LeadResponse;
 import com.sanad.platform.crm.dto.CrmDtos.OpportunityResponse;
 import com.sanad.platform.crm.dto.CrmDtos.PipelineResponse;
+import com.sanad.platform.crm.dto.CrmDtos.StageResponse;
 import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.error.CrmErrorCode;
 import com.sanad.platform.crm.mapper.CrmDtoMapper;
@@ -39,6 +40,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -221,11 +223,17 @@ public class CrmContractControllerR1 {
             @Valid @RequestBody CrmUpdateDtos.UpdateActivityRequest body,
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
-        Map<String, Object> current = extended.getActivity(auth, activityId);
-        long expectedVersion = asLong(current.get("version"));
+        UUID tId = tenantId(auth);
+        UUID uId = userId(auth);
+        com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord current =
+                activityUseCases.getById(tId, activityId);
+        long expectedVersion = current.version();
         etags.validateIfMatch(ifMatch, "activity", activityId, expectedVersion);
-        Map<String, Object> updated = extended.updateActivity(
-                auth, activityId, body.subject(), body.body(), body.priority(), expectedVersion);
+        com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord updated =
+                activityUseCases.update(tId, uId, activityId,
+                        new com.sanad.platform.crm.activity.domain.ActivityRepository.UpdateActivityCommand(
+                                body.subject(), body.body(), body.priority(), body.startAt(), body.dueAt()),
+                        expectedVersion);
         ActivityResponse response = mapper.toActivityResponse(updated);
         return withEtag(response, "activity", activityId, response.version(), request);
     }
@@ -238,11 +246,15 @@ public class CrmContractControllerR1 {
             @Valid @RequestBody CompleteActivityRequest body,
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             HttpServletRequest request) {
-        Map<String, Object> current = extended.getActivity(auth, activityId);
-        long expectedVersion = asLong(current.get("version"));
+        UUID tId = tenantId(auth);
+        UUID uId = userId(auth);
+        com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord current =
+                activityUseCases.getById(tId, activityId);
+        long expectedVersion = current.version();
         etags.validateIfMatch(ifMatch, "activity", activityId, expectedVersion);
-        ActivityResponse response = mapper.toActivityResponse(
-                atomic.completeActivity(auth, activityId, body, expectedVersion));
+        com.sanad.platform.crm.activity.domain.ActivityRepository.ActivityRecord updated =
+                activityUseCases.complete(tId, uId, activityId, body.result(), expectedVersion);
+        ActivityResponse response = mapper.toActivityResponse(updated);
         return withEtag(response, "activity", activityId, response.version(), request);
     }
 
@@ -264,6 +276,53 @@ public class CrmContractControllerR1 {
                 auth, pipelineId, body.name(), body.currencyCode(), expectedVersion);
         PipelineResponse response = mapper.toPipelineResponse(updated, List.of());
         return withEtag(response, "pipeline", pipelineId, response.version(), request);
+    }
+
+    @RequireCapability("CRM.ADMIN")
+    @PostMapping("/pipelines/{pipelineId}/stages")
+    public ResponseEntity<SingleResponse<StageResponse>> createStage(
+            Authentication auth,
+            @PathVariable UUID pipelineId,
+            @Valid @RequestBody CrmUpdateDtos.CreateStageRequest body,
+            HttpServletRequest request) {
+        UUID tId = tenantId(auth);
+        com.sanad.platform.crm.opportunity.domain.PipelineRepository.CreateStageCommand cmd =
+                new com.sanad.platform.crm.opportunity.domain.PipelineRepository.CreateStageCommand(
+                        body.name(), body.probability(), body.terminalState());
+        com.sanad.platform.crm.opportunity.domain.PipelineRepository.StageRecord stage =
+                opportunityUseCases.createStage(tId, pipelineId, cmd);
+        StageResponse response = mapper.toStageResponse(stage);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(SingleResponse.of(response, requestId(request)));
+    }
+
+    @RequireCapability("CRM.ADMIN")
+    @PatchMapping("/pipelines/{pipelineId}/stages/{stageId}")
+    public ResponseEntity<SingleResponse<StageResponse>> updateStage(
+            Authentication auth,
+            @PathVariable UUID pipelineId,
+            @PathVariable UUID stageId,
+            @Valid @RequestBody CrmUpdateDtos.UpdateStageRequest body,
+            HttpServletRequest request) {
+        UUID tId = tenantId(auth);
+        com.sanad.platform.crm.opportunity.domain.PipelineRepository.UpdateStageCommand cmd =
+                new com.sanad.platform.crm.opportunity.domain.PipelineRepository.UpdateStageCommand(
+                        body.name(), body.probability(), body.terminalState(), body.sequence());
+        com.sanad.platform.crm.opportunity.domain.PipelineRepository.StageRecord stage =
+                opportunityUseCases.updateStage(tId, stageId, cmd);
+        StageResponse response = mapper.toStageResponse(stage);
+        return withEtag(response, "stage", stageId, 0L, request);
+    }
+
+    @RequireCapability("CRM.ADMIN")
+    @DeleteMapping("/pipelines/{pipelineId}/stages/{stageId}")
+    public ResponseEntity<Void> deleteStage(
+            Authentication auth,
+            @PathVariable UUID pipelineId,
+            @PathVariable UUID stageId) {
+        UUID tId = tenantId(auth);
+        opportunityUseCases.deleteStage(tId, stageId);
+        return ResponseEntity.noContent().build();
     }
 
     @RequireCapability("CRM.CUSTOM_FIELD.WRITE")
@@ -469,6 +528,25 @@ public class CrmContractControllerR1 {
         } catch (NumberFormatException exception) {
             return 0L;
         }
+    }
+
+    private static UUID tenantId(Authentication auth) {
+        return contextValue(auth, "tenant_id");
+    }
+
+    private static UUID userId(Authentication auth) {
+        return contextValue(auth, "user_id");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static UUID contextValue(Authentication auth, String key) {
+        if (auth == null || !auth.isAuthenticated()
+                || !(auth.getDetails() instanceof Map<?, ?> details)
+                || details.get(key) == null) {
+            throw new CrmContractException(CrmErrorCode.VALIDATION_ERROR,
+                    "Authenticated CRM context is required");
+        }
+        return UUID.fromString(details.get(key).toString());
     }
 
     private static ImportRunResponse mapImportRun(Map<String, Object> row) {

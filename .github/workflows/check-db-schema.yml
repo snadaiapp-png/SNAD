@@ -1,0 +1,88 @@
+name: Check DB Schema & Flyway
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-db:
+    name: Check database schema and Flyway state
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: Install psql and check DB
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+          
+          # Parse JDBC URL: jdbc:postgresql://host:port/db?params
+          # Extract host, port, db, and params
+          JDBC_URL="$PROD_JDBC_URL"
+          # Remove jdbc:postgresql:// prefix
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          # Extract host:port
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          # Extract db name (before ?)
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+          # Extract params (after ?)
+          PARAMS=""
+          if [[ "$CONN_STR" == *"?"* ]]; then
+            PARAMS="${CONN_STR##*\?}"
+          fi
+          
+          echo "Host: $HOST"
+          echo "Port: $PORT"
+          echo "DB: $DB_NAME"
+          echo "Params: $PARAMS"
+          
+          # Build psql connection string
+          PSQL_ARGS="-h $HOST -p $PORT -U $PROD_DB_USER -d $DB_NAME"
+          if [ -n "$PARAMS" ]; then
+            # Convert sslmode=require to sslmode=require
+            PSQL_ARGS="$PSQL_ARGS \"--set=sslmode=$PARAMS\""
+          fi
+          
+          echo ""
+          echo "=== Flyway schema history ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SELECT version, description, success, installed_on FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 20;" 2>&1 || echo "flyway_schema_history query failed"
+          
+          echo ""
+          echo "=== Check if EXECUTIVE_VIEW capability exists ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SELECT code, name, status FROM access_capabilities WHERE code LIKE 'EXECUTIVE%' OR code LIKE 'SYSTEM_HEALTH%';" 2>&1 || echo "access_capabilities query failed"
+          
+          echo ""
+          echo "=== Count existing capabilities ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SELECT count(*) as total_caps FROM access_capabilities;" -c "SELECT count(*) as total_roles FROM roles;" -c "SELECT count(*) as total_users FROM users;" -c "SELECT code, status FROM roles WHERE code = 'ADMIN' LIMIT 5;" 2>&1 || echo "count query failed"
+          
+          echo ""
+          echo "=== Try the V20260725.1 migration INSERT (dry run) ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "
+          BEGIN;
+          INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+          SELECT gen_random_uuid(), capability.code, capability.name, capability.description,
+                 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          FROM (
+              VALUES
+                  ('EXECUTIVE_VIEW_TEST', 'View Executive Dashboard', 'Test'),
+                  ('SYSTEM_HEALTH_VIEW_TEST', 'View System Health', 'Test')
+          ) AS capability(code, name, description)
+          WHERE NOT EXISTS (
+              SELECT 1 FROM access_capabilities existing WHERE existing.code = capability.code
+          );
+          SELECT code FROM access_capabilities WHERE code LIKE '%TEST%';
+          ROLLBACK;
+          " 2>&1 || echo "migration dry run failed"
+          
+          echo ""
+          echo "=== Check users table for admin@snad.ai ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SELECT email, status, tenant_id FROM users WHERE email = 'admin@snad.ai' LIMIT 5;" 2>&1 || echo "users query failed"

@@ -22,18 +22,19 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 class CrmWorkflowIntegrationPostgresTest {
 
-    private static PostgreSQLContainer<?> POSTGRES;
     private static JdbcTemplate jdbc;
     private static CrmIntegrationStore store;
     private static CrmWorkflowUseCases useCases;
@@ -48,15 +49,13 @@ class CrmWorkflowIntegrationPostgresTest {
 
     @BeforeAll
     static void setup() {
-        boolean docker = Crm009TestEnvironment.requireDockerOrSkip(
+        boolean postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
                 "CrmWorkflowIntegrationPostgresTest");
         Assumptions.assumeTrue(
-                docker,
-                "Docker unavailable in local development — skipping in non-CI environment");
-        POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-        POSTGRES.start();
+                postgresAvailable,
+                "PostgreSQL Direct unavailable — skipping in non-CI environment");
         Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -65,7 +64,7 @@ class CrmWorkflowIntegrationPostgresTest {
                 .migrate();
 
         DriverManagerDataSource ds = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         jdbc = new JdbcTemplate(ds);
         store = new CrmIntegrationStore(jdbc, mapper);
         CrmWorkflowStore workflowStore = new CrmWorkflowStore(jdbc, store);

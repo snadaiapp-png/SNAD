@@ -3,6 +3,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api/client";
 import { toUserFacingError } from "@/lib/api/user-facing-errors";
+import { toIsoDateTime } from "../../../crm-view-utils";
 import styles from "../../../crm.module.css";
 
 interface CustomerMasterProfile {
@@ -149,8 +150,8 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
         primaryPhone: field(form, "primaryPhone"),
         countryCode: field(form, "countryCode"),
         riskRating: field(form, "riskRating"),
-        creditLimit: field(form, "creditLimit") ? Number(field(form, "creditLimit")) : undefined,
-        paymentTermsDays: field(form, "paymentTermsDays") ? Number(field(form, "paymentTermsDays")) : undefined,
+        creditLimit: (() => { const v = Number(field(form, "creditLimit")); return Number.isFinite(v) ? v : undefined; })(),
+        paymentTermsDays: (() => { const v = Number(field(form, "paymentTermsDays")); return Number.isFinite(v) ? v : undefined; })(),
       }, {
         context: { headers: { "If-Match": await etag("customer-master", accountId, profile.version) } },
       }),
@@ -202,8 +203,8 @@ export function CustomerMasterPanel({ accountId }: { accountId: string }) {
       () => apiClient.post(`${root}/${accountId}/relationships`, {
         targetAccountId: field(form, "targetAccountId"),
         relationshipType: field(form, "relationshipType") ?? "AFFILIATE",
-        effectiveFrom: field(form, "effectiveFrom"),
-        effectiveTo: field(form, "effectiveTo"),
+        effectiveFrom: toIsoDateTime(field(form, "effectiveFrom")),
+        effectiveTo: toIsoDateTime(field(form, "effectiveTo")),
         notes: field(form, "relationshipNotes"),
       }, { context: { headers: idempotencyHeaders() } }),
       "تمت إضافة علاقة الحساب.",

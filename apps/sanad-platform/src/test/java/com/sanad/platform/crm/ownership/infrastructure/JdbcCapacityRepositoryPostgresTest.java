@@ -103,7 +103,7 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
         inTransaction(() -> repo.update(tenantId, draft.id(),
-                new UpdateCapacityPlanCommand(100, 0, CapacityStatus.ACTIVE, actorId, 0)));
+                new UpdateCapacityPlanCommand(100, 0, CapacityStatus.ACTIVE, actorId, 1)));
 
         // query mid-August -> should find it
         Optional<CapacityPlan> found = repo.findActiveByTeamAndPeriod(
@@ -133,7 +133,7 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
         inTransaction(() -> repo.update(tenantId, draft.id(),
-                new UpdateCapacityPlanCommand(100, 0, CapacityStatus.ACTIVE, actorId, 0)));
+                new UpdateCapacityPlanCommand(100, 0, CapacityStatus.ACTIVE, actorId, 1)));
 
         // query September -> no match
         assertThat(repo.findActiveByTeamAndPeriod(
@@ -152,7 +152,7 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
 
         Optional<CapacityPlan> updated = inTransaction(() -> repo.update(
                 tenantId, created.id(), new UpdateCapacityPlanCommand(
-                        200, 50, CapacityStatus.ACTIVE, actorId, 0)));
+                        200, 50, CapacityStatus.ACTIVE, actorId, 1)));
 
         assertThat(updated).isPresent();
         assertThat(updated.get().version()).isEqualTo(2);
@@ -169,9 +169,9 @@ class JdbcCapacityRepositoryPostgresTest extends CrmRepositoryPostgresTestBase {
                         LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                         100, actorId)));
 
-        // first update (v0 -> v1)
+        // first update (v1 -> v2)
         inTransaction(() -> repo.update(tenantId, created.id(),
-                new UpdateCapacityPlanCommand(150, 0, CapacityStatus.ACTIVE, actorId, 0)));
+                new UpdateCapacityPlanCommand(150, 0, CapacityStatus.ACTIVE, actorId, 1)));
 
         // stale version
         Optional<CapacityPlan> conflict = inTransaction(() -> repo.update(

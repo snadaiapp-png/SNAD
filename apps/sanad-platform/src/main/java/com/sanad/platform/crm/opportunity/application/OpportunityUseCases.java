@@ -81,4 +81,21 @@ public class OpportunityUseCases {
                                          String name, String currencyCode, long expectedVersion) {
         return pipelineRepo.update(tenantId, actorId, pipelineId, name, currencyCode, expectedVersion);
     }
+
+    @Transactional
+    public PipelineRepository.StageRecord createStage(UUID tenantId, UUID pipelineId,
+                                                      PipelineRepository.CreateStageCommand command) {
+        return pipelineRepo.createStage(tenantId, pipelineId, command);
+    }
+
+    @Transactional
+    public PipelineRepository.StageRecord updateStage(UUID tenantId, UUID stageId,
+                                                      PipelineRepository.UpdateStageCommand command) {
+        return pipelineRepo.updateStage(tenantId, stageId, command);
+    }
+
+    @Transactional
+    public void deleteStage(UUID tenantId, UUID stageId) {
+        pipelineRepo.deleteStage(tenantId, stageId);
+    }
 }

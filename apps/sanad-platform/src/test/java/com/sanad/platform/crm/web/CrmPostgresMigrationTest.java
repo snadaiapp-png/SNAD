@@ -9,18 +9,16 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Stream;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
-@Testcontainers
 class CrmPostgresMigrationTest {
     private static final String MAIN_SCHEMA_VERSION = "20260629.2";
     private static final String CRM_CORE_VERSION = "20260702.1";
@@ -43,6 +41,7 @@ class CrmPostgresMigrationTest {
     private static final String CRM_ADDRESS_COMMUNICATION_VERSION = "20260717.100";
     private static final String CRM_ADDRESS_COMMUNICATION_RBAC_VERSION = "20260717.101";
     private static final String VENDOR_RECONCILE_G1_VERSION = "20260718.1";
+    private static final String VENDOR_RECONCILE_TAGS_VERSION = "20260718.2";
     private static final String VENDOR_RECONCILE_CONTACT_REL_VERSION = "20260721.1";
     private static final String VENDOR_RECONCILE_IDEMPOTENCY_VERSION = "20260721.2";
     private static final String CRM_008B_SALES_TEAMS_VERSION = "20260722.1";
@@ -61,7 +60,8 @@ class CrmPostgresMigrationTest {
     private static final String CRM_010_SCORING_MODELS_VERSION = "20260729.2";
     private static final String CRM_008B_TEAM_MGMT_CAPABILITIES_VERSION = "20260728.1";
     private static final String CRM_RLS_ENABLE_VERSION = "20260730.1";
-    private static final String CRM_RLS_DISABLE_VERSION = "20260730.2";
+    // CRM-018: V20260730_2 (disable RLS) removed from Flyway forward path
+    // under RECOVERY-CRM-022 R1. Terminal migration is V20260802_1 (re-enable).
     private static final String CRM_RLS_RE_ENABLE_VERSION = "20260802.1";
     private static final String CRM_RECONCILE_CUSTOM_FIELD_VERSION = "20260804.1";
     private static final String CRM_SHIFT_TEMPLATES_VERSION = "20260804.2";
@@ -73,6 +73,51 @@ class CrmPostgresMigrationTest {
     private static final String CRM_SERVICE_ASSIGNMENTS_VERSION = "20260804.8";
     private static final String CRM_CASES_VERSION = "20260804.9";
     private static final String CRM_EMAIL_LOGS_VERSION = "20260805.1";
+    private static final String CRM_REPORTING_CAPABILITIES_VERSION = "20260805.2";
+    private static final String CRM_PORTAL_CAPABILITIES_VERSION = "20260805.3";
+    private static final String CRM_EXECUTIVE_HEALTH_VERSION = "20260806.1";
+    private static final String CRM_GRANT_CAPABILITIES_VERSION = "20260807.1";
+    private static final String CRM_SEED_DEFAULT_PIPELINE_VERSION = "20260807.2";
+    private static final String CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION = "20260807.3";
+    private static final String CRM_ACTIVITY_RESULT_VERSION = "20260807.4";
+    // G7 Mobile Offline Sync (V20260812.1/2/3)
+    private static final String G7_MOBILE_SYNC_TABLES_VERSION = "20260812.1";
+    private static final String G7_MOBILE_SYNC_COLUMNS_VERSION = "20260812.2";
+    private static final String G7_MOBILE_SYNC_RLS_VERSION = "20260812.3";
+    // Mission 01: Control Plane Admin + Module Registry + Capabilities (V20260813.1, V20260814.1/2)
+    private static final String MISSION_01_ADMIN_SEED_VERSION = "20260813.1";
+    private static final String MISSION_01_MODULE_REGISTRY_VERSION = "20260814.1";
+    private static final String MISSION_01_MODULE_CAPABILITIES_VERSION = "20260814.2";
+    // Senior Management Operating Layer (V20260815.1/2)
+    private static final String MGMT_KPI_ENGINE_VERSION = "20260815.1";
+    private static final String MGMT_CAPABILITIES_VERSION = "20260815.2";
+    // Senior Management Phase B+C (V20260815.3/4)
+    private static final String MGMT_DECISION_RISK_ISSUE_VERSION = "20260815.3";
+    private static final String MGMT_PHASE_BC_CAPABILITIES_VERSION = "20260815.4";
+    // Senior Management Phase D-G (V20260815.5/6)
+    private static final String MGMT_COMMAND_CENTER_VERSION = "20260815.5";
+    private static final String MGMT_COMMAND_CENTER_CAPS_VERSION = "20260815.6";
+    // SLA fields (V20260815.7)
+    private static final String MGMT_SLA_FIELDS_VERSION = "20260815.7";
+    private static final String MGMT_ALERT_NULLABLE_VERSION = "20260815.8";
+    private static final String MGMT_AUDIT_NULLABLE_VERSION = "20260815.9";
+    // Workflow Engine (V20260815.10/11)
+    private static final String WORKFLOW_ENGINE_VERSION = "20260815.10";
+    private static final String WORKFLOW_CAPABILITIES_VERSION = "20260815.11";
+    private static final String WORKFLOW_SOD_VERSION = "20260815.12";
+    private static final String WORKFLOW_STEP_NULLABLE_VERSION = "20260815.13";
+    private static final String AI_MODULE_VERSION = "20260815.14";
+    private static final String AI_CAPABILITIES_VERSION = "20260815.15";
+    private static final String FINANCE_MODULE_VERSION = "20260815.16";
+    private static final String FINANCE_CAPABILITIES_VERSION = "20260815.17";
+    private static final String ANALYTICS_MODULE_VERSION = "20260815.18";
+    private static final String ANALYTICS_CAPABILITIES_VERSION = "20260815.19";
+    // v20260815.7 — Final Governance Closure
+    private static final String TENANT_DOMAINS_VERSION = "20260815.20";
+    private static final String DROP_ENTITLEMENT_CACHE_VERSION = "20260815.21";
+    private static final String DOMAIN_MGMT_CAPABILITIES_VERSION = "20260815.23";
+    // Latest migration after Final Governance Closure
+    private static final String LATEST_MIGRATION_VERSION = DOMAIN_MGMT_CAPABILITIES_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -132,20 +177,18 @@ class CrmPostgresMigrationTest {
             "crm_capacity_plans", "crm_workload_assignments",
             "crm_service_assignments");
 
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     @BeforeAll
-    static void requireDocker() {
-        boolean dockerAvailable;
+    static void requirePostgreSql() {
+        boolean postgresAvailable;
         try {
-            dockerAvailable = DockerClientFactory.instance().isDockerAvailable();
+            postgresAvailable = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip("testClassName");
         } catch (Throwable ignored) {
-            dockerAvailable = false;
+            postgresAvailable = false;
         }
-        Assumptions.assumeTrue(dockerAvailable,
-                "Docker is not available — skipping CrmPostgresMigrationTest. " +
-                        "Run on a CI runner with Docker to exercise PostgreSQL migrations.");
+        Assumptions.assumeTrue(postgresAvailable,
+                "PostgreSQL Direct is not available — skipping CrmPostgresMigrationTest. " +
+                        "Run with PostgreSQL Direct to exercise PostgreSQL migrations.");
     }
 
     @Test
@@ -181,6 +224,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_G1_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_TAGS_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_CONTACT_REL_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_SALES_TEAMS_VERSION),
@@ -199,7 +243,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
-                        MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
+                        // V20260730_2 (disable RLS) removed from Flyway forward path
+                        // under RECOVERY-CRM-022 R1 — skip to re-enable V20260802_1.
                         MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RECONCILE_CUSTOM_FIELD_VERSION),
                         MigrationVersion.fromVersion(CRM_SHIFT_TEMPLATES_VERSION),
@@ -210,7 +255,42 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_WORKLOAD_ASSIGNMENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_SERVICE_ASSIGNMENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_CASES_VERSION),
-                        MigrationVersion.fromVersion(CRM_EMAIL_LOGS_VERSION));
+                        MigrationVersion.fromVersion(CRM_EMAIL_LOGS_VERSION),
+                        MigrationVersion.fromVersion(CRM_REPORTING_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_PORTAL_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_EXECUTIVE_HEALTH_VERSION),
+                        MigrationVersion.fromVersion(CRM_GRANT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_SEED_DEFAULT_PIPELINE_VERSION),
+                        MigrationVersion.fromVersion(CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION),
+                        MigrationVersion.fromVersion(CRM_ACTIVITY_RESULT_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_TABLES_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_COLUMNS_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_RLS_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_ADMIN_SEED_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_MODULE_REGISTRY_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_MODULE_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(MGMT_KPI_ENGINE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(MGMT_DECISION_RISK_ISSUE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_PHASE_BC_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_VERSION),
+                        MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_CAPS_VERSION),
+                        MigrationVersion.fromVersion(MGMT_SLA_FIELDS_VERSION),
+                        MigrationVersion.fromVersion(MGMT_ALERT_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_AUDIT_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_ENGINE_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_SOD_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_STEP_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(AI_MODULE_VERSION),
+                        MigrationVersion.fromVersion(AI_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(FINANCE_MODULE_VERSION),
+                        MigrationVersion.fromVersion(FINANCE_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(ANALYTICS_MODULE_VERSION),
+                        MigrationVersion.fromVersion(ANALYTICS_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(TENANT_DOMAINS_VERSION),
+                        MigrationVersion.fromVersion(DROP_ENTITLEMENT_CACHE_VERSION),
+                        MigrationVersion.fromVersion(DOMAIN_MGMT_CAPABILITIES_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -249,6 +329,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_VERSION),
                         MigrationVersion.fromVersion(CRM_ADDRESS_COMMUNICATION_RBAC_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_G1_VERSION),
+                        MigrationVersion.fromVersion(VENDOR_RECONCILE_TAGS_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_CONTACT_REL_VERSION),
                         MigrationVersion.fromVersion(VENDOR_RECONCILE_IDEMPOTENCY_VERSION),
                         MigrationVersion.fromVersion(CRM_008B_SALES_TEAMS_VERSION),
@@ -267,7 +348,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_010_INTELLIGENCE_VERSION),
                         MigrationVersion.fromVersion(CRM_010_SCORING_MODELS_VERSION),
                         MigrationVersion.fromVersion(CRM_RLS_ENABLE_VERSION),
-                        MigrationVersion.fromVersion(CRM_RLS_DISABLE_VERSION),
+                        // V20260730_2 (disable RLS) removed from Flyway forward path
+                        // under RECOVERY-CRM-022 R1 — skip to re-enable V20260802_1.
                         MigrationVersion.fromVersion(CRM_RLS_RE_ENABLE_VERSION),
                         MigrationVersion.fromVersion(CRM_RECONCILE_CUSTOM_FIELD_VERSION),
                         MigrationVersion.fromVersion(CRM_SHIFT_TEMPLATES_VERSION),
@@ -278,7 +360,42 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(CRM_WORKLOAD_ASSIGNMENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_SERVICE_ASSIGNMENTS_VERSION),
                         MigrationVersion.fromVersion(CRM_CASES_VERSION),
-                        MigrationVersion.fromVersion(CRM_EMAIL_LOGS_VERSION));
+                        MigrationVersion.fromVersion(CRM_EMAIL_LOGS_VERSION),
+                        MigrationVersion.fromVersion(CRM_REPORTING_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_PORTAL_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_EXECUTIVE_HEALTH_VERSION),
+                        MigrationVersion.fromVersion(CRM_GRANT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(CRM_SEED_DEFAULT_PIPELINE_VERSION),
+                        MigrationVersion.fromVersion(CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION),
+                        MigrationVersion.fromVersion(CRM_ACTIVITY_RESULT_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_TABLES_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_COLUMNS_VERSION),
+                        MigrationVersion.fromVersion(G7_MOBILE_SYNC_RLS_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_ADMIN_SEED_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_MODULE_REGISTRY_VERSION),
+                        MigrationVersion.fromVersion(MISSION_01_MODULE_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(MGMT_KPI_ENGINE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(MGMT_DECISION_RISK_ISSUE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_PHASE_BC_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_VERSION),
+                        MigrationVersion.fromVersion(MGMT_COMMAND_CENTER_CAPS_VERSION),
+                        MigrationVersion.fromVersion(MGMT_SLA_FIELDS_VERSION),
+                        MigrationVersion.fromVersion(MGMT_ALERT_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(MGMT_AUDIT_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_ENGINE_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_SOD_VERSION),
+                        MigrationVersion.fromVersion(WORKFLOW_STEP_NULLABLE_VERSION),
+                        MigrationVersion.fromVersion(AI_MODULE_VERSION),
+                        MigrationVersion.fromVersion(AI_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(FINANCE_MODULE_VERSION),
+                        MigrationVersion.fromVersion(FINANCE_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(ANALYTICS_MODULE_VERSION),
+                        MigrationVersion.fromVersion(ANALYTICS_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(TENANT_DOMAINS_VERSION),
+                        MigrationVersion.fromVersion(DROP_ENTITLEMENT_CACHE_VERSION),
+                        MigrationVersion.fromVersion(DOMAIN_MGMT_CAPABILITIES_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
@@ -378,6 +495,7 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_VERSION, "SQL", "crm addresses communication methods");
         assertMigration(jdbc, CRM_ADDRESS_COMMUNICATION_RBAC_VERSION, "SQL", "crm addresses communication capabilities");
         assertMigration(jdbc, VENDOR_RECONCILE_G1_VERSION, "SQL", "reconcile crm g1 after baseline gap");
+        assertMigration(jdbc, VENDOR_RECONCILE_TAGS_VERSION, "SQL", "reconcile crm tags after baseline gap");
         assertMigration(jdbc, VENDOR_RECONCILE_CONTACT_REL_VERSION, "SQL", "reconcile crm contact relationship model after baseline gap");
         assertMigration(jdbc, VENDOR_RECONCILE_IDEMPOTENCY_VERSION, "SQL", "reconcile crm idempotency records after baseline gap");
         assertMigration(jdbc, CRM_008B_SALES_TEAMS_VERSION, "SQL", "create crm sales teams");
@@ -394,6 +512,8 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_009_COMMAND_ARTIFACTS_VERSION, "SQL", "create crm command artifacts");
         assertMigration(jdbc, CRM_010_INTELLIGENCE_VERSION, "SQL", "create crm customer intelligence");
         assertMigration(jdbc, CRM_010_SCORING_MODELS_VERSION, "SQL", "seed default scoring models");
+        assertMigration(jdbc, CRM_RLS_ENABLE_VERSION, "SQL", "enable crm row level security");
+        // V20260730_2 (disable RLS) removed from Flyway forward path under RECOVERY-CRM-022 R1.
         assertMigration(jdbc, CRM_RECONCILE_CUSTOM_FIELD_VERSION, "SQL", "reconcile crm custom field and pipeline audit columns");
         assertMigration(jdbc, CRM_SHIFT_TEMPLATES_VERSION, "SQL", "create crm shift templates");
         assertMigration(jdbc, CRM_SHIFT_ASSIGNMENTS_VERSION, "SQL", "create crm shift assignments");
@@ -404,8 +524,48 @@ class CrmPostgresMigrationTest {
         assertMigration(jdbc, CRM_SERVICE_ASSIGNMENTS_VERSION, "SQL", "create crm service assignments");
         assertMigration(jdbc, CRM_CASES_VERSION, "SQL", "create crm cases");
         assertMigration(jdbc, CRM_EMAIL_LOGS_VERSION, "SQL", "create crm email logs");
+        assertMigration(jdbc, CRM_REPORTING_CAPABILITIES_VERSION, "SQL", "create crm reporting capabilities");
+        assertMigration(jdbc, CRM_PORTAL_CAPABILITIES_VERSION, "SQL", "create crm portal capabilities");
+        assertMigration(jdbc, CRM_EXECUTIVE_HEALTH_VERSION, "SQL", "seed executive health capabilities");
+        assertMigration(jdbc, CRM_GRANT_CAPABILITIES_VERSION, "SQL", "grant crm capabilities to non admin roles");
+        assertMigration(jdbc, CRM_SEED_DEFAULT_PIPELINE_VERSION, "SQL", "seed default pipeline and accounts");
+        assertMigration(jdbc, CRM_CASE_INSENSITIVE_TAG_INDEX_VERSION, "SQL", "add case insensitive tag unique index");
+        assertMigration(jdbc, CRM_ACTIVITY_RESULT_VERSION, "SQL", "add activity result column and related type check");
 
-        assertThat(latestVersion(jdbc)).isEqualTo(CRM_EMAIL_LOGS_VERSION);
+        // G7 Mobile Offline Sync migrations
+        assertMigration(jdbc, G7_MOBILE_SYNC_TABLES_VERSION, "SQL", "create mobile sync tables");
+        assertMigration(jdbc, G7_MOBILE_SYNC_COLUMNS_VERSION, "SQL", "add sync columns to crm entities");
+        assertMigration(jdbc, G7_MOBILE_SYNC_RLS_VERSION, "SQL", "force rls mobile sync tables");
+        // Mission 01: Control Plane Admin + Module Registry + Capabilities
+        assertMigration(jdbc, MISSION_01_ADMIN_SEED_VERSION, "SQL", "seed control plane admin and capabilities");
+        assertMigration(jdbc, MISSION_01_MODULE_REGISTRY_VERSION, "SQL", "create module registry");
+        assertMigration(jdbc, MISSION_01_MODULE_CAPABILITIES_VERSION, "SQL", "create module capabilities and plan entitlements");
+
+        // Senior Management Operating Layer
+        assertMigration(jdbc, MGMT_KPI_ENGINE_VERSION, "SQL", "create senior management kpi engine");
+        assertMigration(jdbc, MGMT_CAPABILITIES_VERSION, "SQL", "add executive management capabilities");
+        assertMigration(jdbc, MGMT_DECISION_RISK_ISSUE_VERSION, "SQL", "create decision risk issue escalation audit");
+        assertMigration(jdbc, MGMT_PHASE_BC_CAPABILITIES_VERSION, "SQL", "add decision risk issue escalation capabilities");
+        assertMigration(jdbc, MGMT_COMMAND_CENTER_VERSION, "SQL", "create command center alerts ai");
+        assertMigration(jdbc, MGMT_COMMAND_CENTER_CAPS_VERSION, "SQL", "add command center alerts intelligence capabilities");
+        assertMigration(jdbc, MGMT_SLA_FIELDS_VERSION, "SQL", "add sla fields");
+        assertMigration(jdbc, MGMT_ALERT_NULLABLE_VERSION, "SQL", "make alert created by nullable");
+        assertMigration(jdbc, MGMT_AUDIT_NULLABLE_VERSION, "SQL", "make audit actor nullable");
+        assertMigration(jdbc, WORKFLOW_ENGINE_VERSION, "SQL", "create workflow engine");
+        assertMigration(jdbc, WORKFLOW_CAPABILITIES_VERSION, "SQL", "add workflow capabilities");
+        assertMigration(jdbc, WORKFLOW_SOD_VERSION, "SQL", "add requested by to approvals");
+        assertMigration(jdbc, WORKFLOW_STEP_NULLABLE_VERSION, "SQL", "make approval step instance id nullable");
+        assertMigration(jdbc, AI_MODULE_VERSION, "SQL", "create ai module");
+        assertMigration(jdbc, AI_CAPABILITIES_VERSION, "SQL", "add ai capabilities");
+        assertMigration(jdbc, FINANCE_MODULE_VERSION, "SQL", "create finance module");
+        assertMigration(jdbc, FINANCE_CAPABILITIES_VERSION, "SQL", "add finance capabilities");
+        assertMigration(jdbc, ANALYTICS_MODULE_VERSION, "SQL", "create analytics module");
+        assertMigration(jdbc, ANALYTICS_CAPABILITIES_VERSION, "SQL", "add analytics capabilities");
+        assertMigration(jdbc, TENANT_DOMAINS_VERSION, "SQL", "tenant domains and billing state");
+        assertMigration(jdbc, DROP_ENTITLEMENT_CACHE_VERSION, "SQL", "drop tenant entitlement cache");
+        assertMigration(jdbc, DOMAIN_MGMT_CAPABILITIES_VERSION, "SQL", "seed domain management and billing capabilities");
+
+        assertThat(latestVersion(jdbc)).isEqualTo(LATEST_MIGRATION_VERSION);
         assertThat(existingTables(jdbc)).containsExactlyInAnyOrderElementsOf(allCrmTables());
         assertNoDuplicateVersions(jdbc);
 
@@ -542,7 +702,7 @@ class CrmPostgresMigrationTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'CRM.%' AND status='ACTIVE'",
-                Long.class)).isEqualTo(80L); // 55 CRM-008B + 13 CRM-008B team mgmt + 3 CRM-009 + 5 CRM-010 + 2 CRM-001 + 2 CRM-002
+                Long.class)).isEqualTo(83L); // 79 previous + 1 reporting + 2 portal + 2 executive health - 1 dedup
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM access_capabilities WHERE code LIKE 'BUSINESS_PROCESS.%' AND status='ACTIVE'",
                 Long.class)).isEqualTo(2L);
@@ -573,7 +733,7 @@ class CrmPostgresMigrationTest {
 
     private Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""))
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .javaMigrations(new V15__seed_rbac_roles_and_capabilities())
                 .cleanDisabled(false)
@@ -584,8 +744,8 @@ class CrmPostgresMigrationTest {
 
     private JdbcTemplate jdbc() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-        dataSource.setDriverClassName(POSTGRES.getDriverClassName());
+                System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
+        dataSource.setDriverClassName("org.postgresql.Driver");
         return new JdbcTemplate(dataSource);
     }
 

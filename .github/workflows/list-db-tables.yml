@@ -1,0 +1,63 @@
+name: List DB Tables
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - name: List tables and schemas
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+
+          echo "Host: $HOST"
+          echo "Port: $PORT"
+          echo "DB: $DB_NAME"
+          echo "User: $PROD_DB_USER"
+          echo ""
+
+          echo "=== Current schema ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SELECT current_schema(), current_user, current_database();" 2>&1
+
+          echo ""
+          echo "=== All schemas ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SELECT schema_name FROM information_schema.schemata ORDER BY schema_name;" 2>&1
+
+          echo ""
+          echo "=== All tables in all schemas ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SELECT schemaname, tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY schemaname, tablename;" 2>&1
+
+          echo ""
+          echo "=== Search path ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SHOW search_path;" 2>&1
+
+          echo ""
+          echo "=== Try different schemas ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SET search_path TO public, auth, storage, extensions; SELECT count(*) FROM access_capabilities;" 2>&1 || true
+
+          echo ""
+          echo "=== Count users (try public schema) ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "SELECT count(*) FROM public.users;" 2>&1 || true
+
+          echo ""
+          echo "=== Tables in public schema ==="
+          PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -c "\dt public.*" 2>&1

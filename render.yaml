@@ -19,8 +19,11 @@ services:
         value: prod
       - key: SERVER_PORT
         value: "8080"
-      - key: JAVA_OPTS
-        value: -Xms64m -Xmx128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -Xss256k -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
+      # JAVA_OPTS is NOT set here — the Dockerfile ENV provides optimized
+      # settings (-Xmx192m -XX:MaxMetaspaceSize=160m) designed for the
+      # 512MB Render free tier. Setting JAVA_OPTS here would override the
+      # Dockerfile value with a more restrictive config that causes OOM
+      # during Spring Boot startup (Flyway + Hibernate init).
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_DRIVER

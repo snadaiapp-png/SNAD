@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static com.sanad.platform.crm.ownership.web.CrmOwnershipControllerTestSupport.*;
@@ -61,7 +62,7 @@ class WorkloadControllerTest {
                 .addValue("staffId", staffId)
                 .addValue("serviceId", serviceId)
                 .addValue("actor", fixture.userId())
-                .addValue("now", java.time.Instant.now()));
+                .addValue("now", java.sql.Timestamp.from(Instant.now())));
     }
 
     // ── GET /api/v1/crm/workload ───────────────────────────────────────────

@@ -111,7 +111,7 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
 
         Optional<ServiceAssignment> updated = inTransaction(() -> repo.update(
                 tenantId, created.id(), new UpdateServiceAssignmentCommand(
-                        ServiceAssignmentStatus.INACTIVE, actorId, 0)));
+                        ServiceAssignmentStatus.INACTIVE, actorId, 1)));
 
         assertThat(updated).isPresent();
         assertThat(updated.get().version()).isEqualTo(2);
@@ -125,9 +125,9 @@ class JdbcServiceAssignmentRepositoryPostgresTest extends CrmRepositoryPostgresT
         ServiceAssignment created = inTransaction(() -> repo.create(
                 new CreateServiceAssignmentCommand(tenantId, teamId, serviceId, actorId)));
 
-        // first update (v0 -> v1)
+        // first update (v1 -> v2)
         inTransaction(() -> repo.update(tenantId, created.id(),
-                new UpdateServiceAssignmentCommand(ServiceAssignmentStatus.INACTIVE, actorId, 0)));
+                new UpdateServiceAssignmentCommand(ServiceAssignmentStatus.INACTIVE, actorId, 1)));
 
         // stale version
         Optional<ServiceAssignment> conflict = inTransaction(() -> repo.update(

@@ -29,6 +29,7 @@ public class AuthResponse {
     private boolean credentialRotationRequired;
     private List<MeResponse.MembershipSummary> memberships = List.of();
     private List<MeResponse.RoleGrantSummary> effectiveRoleGrants = List.of();
+    private List<String> capabilities = List.of();
     private UUID defaultOrganizationId;
     private String defaultDestination = "/workspace";
     private List<String> availableDestinations = List.of("/workspace");
@@ -65,6 +66,10 @@ public class AuthResponse {
     public List<MeResponse.RoleGrantSummary> getEffectiveRoleGrants() { return effectiveRoleGrants; }
     public void setEffectiveRoleGrants(List<MeResponse.RoleGrantSummary> effectiveRoleGrants) {
         this.effectiveRoleGrants = effectiveRoleGrants == null ? List.of() : List.copyOf(effectiveRoleGrants);
+    }
+    public List<String> getCapabilities() { return capabilities; }
+    public void setCapabilities(List<String> capabilities) {
+        this.capabilities = capabilities == null ? List.of() : List.copyOf(capabilities);
     }
     public UUID getDefaultOrganizationId() { return defaultOrganizationId; }
     public void setDefaultOrganizationId(UUID defaultOrganizationId) { this.defaultOrganizationId = defaultOrganizationId; }

@@ -1,0 +1,60 @@
+name: Verify Direct DB Conn + True Schema State (read-only)
+
+# Reads PRODUCTION_DATABASE_JDBC_URL secret, classifies it (direct vs pooler)
+# WITHOUT printing the value, connects via it, and reports the consistent
+# schema state + flyway history. Establishes ground truth via direct conn.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Classify direct URL + read schema via it
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 8
+    steps:
+      - name: Connect via PRODUCTION_DATABASE_JDBC_URL and inspect
+        env:
+          PROD_JDBC: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+          PROD_USER: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          PROD_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$PROD_JDBC" ] && [ -n "$PROD_USER" ] && [ -n "$PROD_PASS" ] || { echo "::error::missing prod DB secret"; exit 1; }
+          echo "::add-mask::$PROD_JDBC"; echo "::add-mask::$PROD_USER"; echo "::add-mask::$PROD_PASS"
+
+          echo "=== Classify connection host (no value printed) ==="
+          if echo "$PROD_JDBC" | grep -qi 'pooler\.supabase\.com'; then
+            echo "PRODUCTION_DATABASE_JDBC_URL = POOLER (would NOT fix the issue)"
+          elif echo "$PROD_JDBC" | grep -qiE 'supabase\.co|db\.[a-z0-9-]+\.'; then
+            echo "PRODUCTION_DATABASE_JDBC_URL = DIRECT (good - bypasses pooler)"
+          else
+            echo "PRODUCTION_DATABASE_JDBC_URL = OTHER host pattern"
+          fi
+          echo "URL length: ${#PROD_JDBC}"
+
+          PSQL_URL="postgresql://${PROD_JDBC#jdbc:postgresql://}"
+          PSQL_URL="postgresql://${PSQL_URL#postgresql://}"
+          export PGPASSWORD="$PROD_PASS"
+          q() { psql "$PSQL_URL" -U "$PROD_USER" -v ON_ERROR_STOP=0 -c "$1" 2>&1 || true; }
+
+          echo ""
+          echo "=== Connection OK? server version ==="
+          q "SELECT version() AS v;"
+
+          echo ""
+          echo "=== public table count + names ==="
+          q "SELECT count(*) AS public_tables FROM information_schema.tables WHERE table_schema='public';"
+          q "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name;"
+
+          echo ""
+          echo "=== flyway_schema_history via direct conn ==="
+          q "SELECT installed_rank, version, description, success, installed_on::timestamptz(0) FROM public.flyway_schema_history ORDER BY installed_rank;"
+
+          echo ""
+          echo "=== G7 + key tables via direct conn ==="
+          q "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('mobile_device_registry','mobile_sync_cursor','mobile_sync_log','mobile_conflict_log','tenants','users','roles','crm_contacts','crm_assignment_rules') ORDER BY table_name;"

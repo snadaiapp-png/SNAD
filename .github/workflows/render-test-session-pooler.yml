@@ -1,0 +1,55 @@
+name: Test Session-Mode Pooler + Advisory Lock + True Schema (read-only)
+
+# Supabase Supavisor: transaction mode (port 5432) routes catalog reads to a
+# lagging replica AND orphans Flyway advisory locks. This tests the SESSION-mode
+# pooler (port 6543) for: (a) advisory lock acquire/release works, (b) consistent
+# schema read (primary). No secrets printed.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test pooler :6543 (session) advisory lock + schema
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 8
+    steps:
+      - name: Probe session-mode pooler
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set +e
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          DB_URL="$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/DATABASE_URL" | jq -r '(.envVar // .).value // empty')"
+          DB_USER="$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/DATABASE_USERNAME" | jq -r '(.envVar // .).value // empty')"
+          DB_PASS="$(curl -s --max-time 30 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/DATABASE_PASSWORD" | jq -r '(.envVar // .).value // empty')"
+          echo "::add-mask::$DB_URL"; echo "::add-mask::$DB_USER"; echo "::add-mask::$DB_PASS"
+          # DB_URL like jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:5432/postgres
+          HOSTPORT="$(printf '%s\n' "$DB_URL" | sed -E 's#.*://##; s#/.*##; s#\?.*##')"  # host:port
+          HOST="$(printf '%s\n' "$HOSTPORT" | sed -E 's#:.*##')"
+          DBNAME="$(printf '%s\n' "$DB_URL" | sed -E 's#.*/##; s#\?.*##')"
+          echo "pooler host: $HOST (db: $DBNAME)"
+
+          export PGPASSWORD="$DB_PASS"
+          for PORT in 6543 5432; do
+            URL="postgresql://$HOST:$PORT/$DBNAME"
+            echo "::add-mask::$URL"
+            echo ""
+            echo "========== PORT $PORT =========="
+            echo "--- connectivity + server version ---"
+            psql "$URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT version();" 2>&1 | head -1
+            echo "--- advisory lock acquire+release in ONE session (should print t/t) ---"
+            psql "$URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT pg_try_advisory_lock(987654321) AS got; SELECT pg_advisory_unlock(987654321) AS released;" 2>&1 | head -3
+            echo "--- public table count (primary truth) ---"
+            psql "$URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>&1 | head -1
+            echo "--- flyway_schema_history rows ---"
+            psql "$URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT count(*) FROM public.flyway_schema_history;" 2>&1 | head -1
+            echo "--- G7 tables present? ---"
+            psql "$URL" -U "$DB_USER" -v ON_ERROR_STOP=0 -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('mobile_device_registry','mobile_sync_cursor','mobile_sync_log','mobile_conflict_log');" 2>&1 | head -1
+          done

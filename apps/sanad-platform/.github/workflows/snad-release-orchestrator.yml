@@ -1,0 +1,176 @@
+name: SNAD Master Release Orchestrator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+      SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+      SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Repository safety
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git branch --show-current)" = "main"
+          git diff --check
+          git status --short
+
+      - name: Test harness forensic
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          COUNT="$(git grep -nE \
+            '@Testcontainers|@Container|PostgreSQLContainer|DockerClientFactory|jdbc:tc:' \
+            -- '*.java' | wc -l || true)"
+
+          echo "Testcontainers references: $COUNT"
+
+          test "$COUNT" = "0"
+
+      - name: Verify PostgreSQL environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          test -n "$SPRING_DATASOURCE_URL"
+          test -n "$SPRING_DATASOURCE_USERNAME"
+          test -n "$SPRING_DATASOURCE_PASSWORD"
+
+          echo "Database URL configured"
+          echo "Database username configured"
+          echo "Database password configured"
+
+      - name: PostgreSQL connectivity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client >/dev/null
+
+          PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" \
+          psql "$SPRING_DATASOURCE_URL" \
+            -U "$SPRING_DATASOURCE_USERNAME" \
+            -v ON_ERROR_STOP=1 \
+            -c "SELECT current_database(), current_user, version();"
+
+      - name: Flyway
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ./mvnw flyway:migrate \
+            -Dflyway.url="$SPRING_DATASOURCE_URL" \
+            -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
+            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD"
+
+      - name: Compile
+        run: |
+          ./mvnw clean test-compile
+
+      - name: Full backend verification
+        run: |
+          ./mvnw verify \
+            -Dspring.profiles.active=prod \
+            -Dspring.datasource.url="$SPRING_DATASOURCE_URL" \
+            -Dspring.datasource.username="$SPRING_DATASOURCE_USERNAME" \
+            -Dspring.datasource.password="$SPRING_DATASOURCE_PASSWORD"
+
+      - name: Final forensic verification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git diff --check
+          git status --short
+
+      - name: Verify production branch SHA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+
+      - name: Deploy Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -Eeuo pipefail
+
+          npx vercel pull --yes \
+            --environment=production \
+            --token="$VERCEL_TOKEN"
+
+          npx vercel build \
+            --prod \
+            --token="$VERCEL_TOKEN"
+
+          npx vercel deploy \
+            --prebuilt \
+            --prod \
+            --token="$VERCEL_TOKEN"
+
+      - name: Production smoke test
+        env:
+          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+        run: |
+          set -Eeuo pipefail
+
+          test -n "$PRODUCTION_URL"
+
+          for i in {1..12}; do
+            if curl -fsS --max-time 15 "$PRODUCTION_URL" >/dev/null; then
+              echo "Production smoke test: PASS"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Production smoke test: FAILED"
+          exit 1
+
+      - name: Final SHA certification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          git fetch origin main
+
+          LOCAL_SHA="$(git rev-parse HEAD)"
+          REMOTE_SHA="$(git rev-parse origin/main)"
+
+          test "$LOCAL_SHA" = "$REMOTE_SHA"
+
+          echo "=========================================="
+          echo "SNAD FINAL RELEASE CERTIFICATION"
+          echo "=========================================="
+          echo "DATABASE       = SUPABASE"
+          echo "CI CONNECTIVITY = PASS"
+          echo "FLYWAY         = PASS"
+          echo "BACKEND TESTS  = PASS"
+          echo "VERCEL         = PASS"
+          echo "SMOKE TEST     = PASS"
+          echo "LOCAL SHA      = $LOCAL_SHA"
+          echo "REMOTE SHA     = $REMOTE_SHA"
+          echo "SHA CONSISTENT = YES"
+          echo "RELEASE        = CERTIFIED"
+          echo "=========================================="

@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests that {@link ProductionDatabaseProperties} validation fails
  * when mandatory database properties are missing.
  *
- * <p>Uses {@link Validator} directly — no Spring context or Docker
+ * <p>Uses {@link Validator} directly — no Spring context or Docker (uses PostgreSQL Direct)
  * required. The {@code @Validated} + {@code @ConfigurationProperties}
  * integration in Spring Boot guarantees that these validation
  * violations cause startup failure in a real application.</p>

@@ -1,0 +1,183 @@
+name: Enable Flyway & Fix Migrations
+
+# ============================================================
+# 1. Register V20260725.1 and V20260806.1 in flyway_schema_history
+#    (already applied manually via psql)
+# 2. Enable Flyway + JPA validate
+# 3. Increase DATABASE_POOL_MAX to 2
+# 4. Trigger deploy
+# 5. Verify
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "enable-flyway" to confirm'
+        required: true
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    if: github.event.inputs.confirm == 'enable-flyway'
+
+    steps:
+      - name: Suspend backend to free DB connections
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          curl -sS -o /dev/null -w "Suspend HTTP %{http_code}\n" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/suspend" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" || true
+          echo "Waiting 20s for connections to be released..."
+          sleep 20
+
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null 2>&1
+
+      - name: Register V20260725.1 and V20260806.1 in flyway_schema_history
+        env:
+          PROD_JDBC_URL: ${{ secrets.PROD_JDBC_URL }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          JDBC_URL="$PROD_JDBC_URL"
+          CONN_STR="${JDBC_URL#jdbc:postgresql://}"
+          HOST_PORT="${CONN_STR%%/*}"
+          HOST="${HOST_PORT%%:*}"
+          PORT="${HOST_PORT##*:}"
+          DB_PART="${CONN_STR#*/}"
+          DB_NAME="${DB_PART%%\?*}"
+
+          printf '%s\n' \
+            "SET search_path TO public;" \
+            "BEGIN;" \
+            "INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success)" \
+            "SELECT COALESCE(MAX(installed_rank),0)+1, v.version, v.description, 'SQL', v.script, 0, current_user, CURRENT_TIMESTAMP, 0, TRUE" \
+            "FROM flyway_schema_history, (VALUES" \
+            "  ('20260725.1', 'seed executive and system health capabilities', 'V20260725_1__seed_executive_and_system_health_capabilities.sql')," \
+            "  ('20260806.1', 'seed executive health capabilities', 'V20260806_1__seed_executive_health_capabilities.sql')" \
+            ") AS v(version, description, script)" \
+            "WHERE NOT EXISTS (SELECT 1 FROM flyway_schema_history WHERE version = v.version);" \
+            "SELECT version, description FROM flyway_schema_history WHERE version IN ('20260725.1','20260806.1');" \
+            "COMMIT;" \
+            > /tmp/fix_flyway.sql
+
+          for attempt in 1 2 3 4 5; do
+            echo "=== Attempt $attempt ==="
+            if PGPASSWORD="$PROD_DB_PASSWORD" psql -h "$HOST" -p "$PORT" -U "$PROD_DB_USER" -d "$DB_NAME" -f /tmp/fix_flyway.sql; then
+              echo "✓ Flyway history fixed!"
+              exit 0
+            fi
+            echo "Attempt $attempt failed. Waiting 15s..."
+            sleep 15
+          done
+          echo "All attempts failed"
+          exit 1
+
+      - name: Enable Flyway + JPA validate + pool=2
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+
+          set_var() {
+            local key="$1"
+            local value="$2"
+            local payload
+            payload=$(python3 -c 'import json,sys; print(json.dumps({"value": sys.argv[1]}))' "$value")
+            local status
+            status=$(curl -sS -o /tmp/r.json -w "%{http_code}" --max-time 30 \
+              -X PUT \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "https://api.render.com/v1/services/${BACKEND_ID}/env-vars/${key}")
+            echo "  $key: HTTP $status"
+          }
+
+          echo "=== Enabling Flyway ==="
+          set_var "FLYWAY_ENABLED" "true"
+          set_var "FLYWAY_LOCATIONS" "classpath:db/migration,classpath:db/vendor/{vendor}"
+          set_var "FLYWAY_BASELINE_ON_MIGRATE" "false"
+          set_var "FLYWAY_VALIDATE_ON_MIGRATE" "true"
+          set_var "JPA_DDL_AUTO" "validate"
+          set_var "DATABASE_POOL_MAX" "2"
+          set_var "DATABASE_POOL_MIN" "1"
+
+      - name: Resume backend
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          curl -sS -o /dev/null -w "Resume HTTP %{http_code}\n" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/resume" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json"
+          echo "Waiting 30s for backend to resume..."
+          sleep 30
+
+      - name: Trigger deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          STATUS=$(curl -sS -o /tmp/deploy.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${BACKEND_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data '{"clearCache":"do_not_clear"}')
+          echo "Deploy trigger HTTP ${STATUS}"
+          DEPLOY_ID=$(python3 -c "import json; print(json.load(open('/tmp/deploy.json')).get('id',''))")
+          echo "Deploy ID: ${DEPLOY_ID}"
+          echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_ENV"
+
+      - name: Wait for deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
+        run: |
+          set -euo pipefail
+          DEPLOY_ID="${deploy_id}"
+          if [ -z "$DEPLOY_ID" ]; then echo "No deploy ID"; exit 1; fi
+          echo "Waiting for deploy ${DEPLOY_ID}..."
+          for i in $(seq 1 120); do
+            sleep 15
+            STATUS=$(curl -sS --max-time 30 \
+              "https://api.render.com/v1/services/${BACKEND_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H "Accept: application/json" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status','unknown'))")
+            echo "  Attempt ${i}: ${STATUS}"
+            if [ "${STATUS}" = "live" ]; then echo "✓ DEPLOY LIVE!"; exit 0; fi
+            if echo "${STATUS}" | grep -qE "failed|canceled|deactivated"; then
+              echo "::error::Deploy ${STATUS}"
+              exit 1
+            fi
+          done
+          echo "Timeout"
+          exit 1
+
+      - name: Verify
+        run: |
+          sleep 15
+          echo "=== Health ==="
+          curl -sS --max-time 30 "https://sanad-backend-mcrj.onrender.com/actuator/health" || true
+          echo ""
+          echo "=== Login (wrong password) ==="
+          curl -sS --max-time 20 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@snad.ai","password":"wrong"}' \
+            -w "\nHTTP %{http_code}\n" || true

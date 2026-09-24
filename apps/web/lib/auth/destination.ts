@@ -1,5 +1,5 @@
 const FALLBACK_DESTINATION = "/workspace";
-const KNOWN_DESTINATIONS = ["/workspace", "/crm", "/crm/command-center", "/control-plane"] as const;
+const KNOWN_DESTINATIONS = ["/workspace", "/crm", "/crm/command-center", "/control-plane", "/executive", "/system-health"] as const;
 
 function normalizeInternalPath(candidate: string): string | null {
   const value = candidate.trim();
