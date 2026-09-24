@@ -1,10 +1,9 @@
 "use client";
 
 /**
- * Leave Management — G2-T04.
- * Request leave + view balance + manager approval.
- * Permission-scoped: HRM.LEAVE.VIEW + .REQUEST + .APPROVE.
- * Arabic/RTL: logical CSS only; i18n keys; SDS tokens.
+ * Leave Management — G2-T04 SELF surface.
+ * Employees request leave and view only their own requests/balances.
+ * Manager/HR decisions live on the scoped /hr/leave/approvals surface.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -13,7 +12,7 @@ import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
-import { HrErrorState, HrLoading, HrEmptyState, hrmErrorMessage } from "../components/hr-feedback";
+import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
 import { formatArabicDate } from "../hr-labels";
@@ -36,16 +35,14 @@ export default function LeavePage() {
   const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
 
-  const canView = capabilities.includes("HRM.LEAVE.SELF_VIEW") || capabilities.includes("HRM.LEAVE.SELF_REQUEST") || capabilities.includes("HRM.LEAVE.TEAM_APPROVE") || capabilities.includes("HRM.LEAVE.HR_APPROVE");
+  const canView = capabilities.includes("HRM.LEAVE.SELF_VIEW") || capabilities.includes("HRM.LEAVE.SELF_REQUEST");
   const canRequest = capabilities.includes("HRM.LEAVE.SELF_REQUEST");
-  const canApprove = capabilities.includes("HRM.LEAVE.TEAM_APPROVE") || capabilities.includes("HRM.LEAVE.HR_APPROVE");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
-
   const [showForm, setShowForm] = useState(false);
   const [formLeaveType, setFormLeaveType] = useState("");
   const [formStartDate, setFormStartDate] = useState("");
@@ -54,11 +51,6 @@ export default function LeavePage() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  const [dialog, setDialog] = useState<"approve" | "reject" | null>(null);
-  const [dialogTarget, setDialogTarget] = useState<LeaveRequest | null>(null);
-  const [dialogComment, setDialogComment] = useState("");
-  const [dialogError, setDialogError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,55 +85,22 @@ export default function LeavePage() {
 
     setBusy(true);
     try {
-      await hrG2Api.createLeaveRequest({
-        employmentId: me?.id ?? "",
+      const created = await hrG2Api.createLeaveRequest({
         leaveTypeId: formLeaveType,
         startDate: formStartDate,
         endDate: formEndDate,
         reason: formReason,
       });
+      await hrG2Api.submitLeaveRequest(created.requestId);
       setNotice(t("hrm.leave.notice.requested"));
       setShowForm(false);
-      setFormLeaveType(""); setFormStartDate(""); setFormEndDate(""); setFormReason("");
+      setFormLeaveType("");
+      setFormStartDate("");
+      setFormEndDate("");
+      setFormReason("");
       await load();
     } catch (err) {
       setFormError(hrmErrorMessage(err).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function openDialog(kind: "approve" | "reject", req: LeaveRequest) {
-    setDialog(kind);
-    setDialogTarget(req);
-    setDialogComment("");
-    setDialogError(null);
-  }
-
-  function closeDialog() {
-    setDialog(null); setDialogTarget(null); setDialogComment(""); setDialogError(null);
-  }
-
-  async function submitDialog() {
-    if (!dialogTarget || !dialog) return;
-    if (dialog === "reject" && !dialogComment.trim()) {
-      setDialogError(t("hrm.leave.reasonDialog.comment"));
-      return;
-    }
-    setBusy(true);
-    setDialogError(null);
-    try {
-      const body = dialog === "approve"
-        ? { comment: dialogComment }
-        : { reason: dialogComment };
-      // Preserve the current endpoint contract in Wave 1. Wave 4 replaces this
-      // legacy decision path with explicit manager/HR workflow transitions.
-      await hrG2Api.legacyLeaveDecision(dialogTarget.id, dialog, body);
-      setNotice(t("hrm.leave.notice." + dialog));
-      closeDialog();
-      await load();
-    } catch (err) {
-      setDialogError(hrmErrorMessage(err).message);
     } finally {
       setBusy(false);
     }
@@ -173,24 +132,6 @@ export default function LeavePage() {
     { key: "state", header: t("hrm.leave.col.state"), render: (r) => (
       <HrStateBadge label={t("hrm.leave.state." + r.state)} code={r.state} tone={toneForState(r.state)} />
     )},
-    ...(canApprove ? [{
-      key: "actions",
-      header: t("hrm.leave.col.actions"),
-      render: (r: LeaveRequest) => (
-        <span className={styles.actionRow}>
-          {r.state === "PENDING" ? (
-            <>
-              <button type="button" className={styles.linkButton} onClick={() => openDialog("approve", r)} disabled={busy}>
-                {t("hrm.leave.action.approve")}
-              </button>
-              <button type="button" className={styles.linkButton} onClick={() => openDialog("reject", r)} disabled={busy}>
-                {t("hrm.leave.action.reject")}
-              </button>
-            </>
-          ) : null}
-        </span>
-      ),
-    }] : []),
   ];
 
   const balColumns: HrColumn<LeaveBalance>[] = [
@@ -205,7 +146,7 @@ export default function LeavePage() {
   return (
     <HrWorkspace capabilities={capabilities} activeHref="/hr/leave">
       <header>
-        <h1>{t("hrm.leave.title")}</h1>
+        <h1 data-testid="g2-page-title">{t("hrm.leave.title")}</h1>
         <p className={styles.kpiHint}>{t("hrm.leave.subtitle")}</p>
       </header>
 
@@ -259,7 +200,7 @@ export default function LeavePage() {
       ) : error ? (
         <HrErrorState error={error} onRetry={load} />
       ) : (
-        <>
+        <div data-testid="leave-ready">
           <section aria-label={t("hrm.leave.balances.title")}>
             <h2>{t("hrm.leave.balances.title")}</h2>
             <HrDataTable<LeaveBalance>
@@ -281,29 +222,8 @@ export default function LeavePage() {
               emptyTitle={t("hrm.leave.empty")}
             />
           </section>
-        </>
-      )}
-
-      {dialog && dialogTarget ? (
-        <div role="dialog" aria-modal="true" aria-label={t("hrm.leave.reasonDialog.title." + dialog)} className={styles.feedbackError}>
-          <h3>{t("hrm.leave.reasonDialog.title." + dialog)}</h3>
-          <label htmlFor="dialog-comment" className={styles.kpiLabel}>{t("hrm.leave.reasonDialog.comment")}</label>
-          <textarea id="dialog-comment" className={styles.reasonTextarea} value={dialogComment}
-            onChange={(e) => setDialogComment(e.target.value)}
-            required={dialog === "reject"} aria-required={dialog === "reject" ? "true" : "false"}
-            placeholder={t("hrm.leave.reasonDialog.commentPlaceholder")} />
-          {dialogError ? <p role="alert">{dialogError}</p> : null}
-          <div className={styles.actionRow}>
-            <button type="button" className={styles.linkButton} onClick={closeDialog} disabled={busy}>
-              {t("hrm.leave.reasonDialog.cancel")}
-            </button>
-            <button type="button" className={styles.linkButton}
-              onClick={() => void submitDialog()} disabled={busy || (dialog === "reject" && !dialogComment.trim())}>
-              {t("hrm.leave.reasonDialog.confirm." + dialog)}
-            </button>
-          </div>
         </div>
-      ) : null}
+      )}
     </HrWorkspace>
   );
 }
