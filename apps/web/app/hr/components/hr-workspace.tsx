@@ -71,11 +71,7 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
   },
 
   // G2 HR administration surfaces.
-  {
-    href: "/hr/schedules",
-    label: "جداول العمل",
-    capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW, HRM_CAPABILITIES.ATTENDANCE_ADMIN],
-  },
+  { href: "/hr/schedules", label: "جداول العمل", capability: HRM_CAPABILITIES.ATTENDANCE_ADMIN },
   {
     href: "/hr/attendance/admin",
     label: "إدارة الحضور",
