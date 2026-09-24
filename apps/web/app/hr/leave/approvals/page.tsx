@@ -24,10 +24,7 @@ interface LeaveRequest {
   submittedAt: string | null;
 }
 
-/**
- * Leave Approval Queue — handles BOTH Manager-level (PENDING_MANAGER) and
- * HR-level (PENDING_HR) approvals via the canonical V2 endpoints.
- */
+/** Leave Approval Queue with explicit TEAM and HR data scopes. */
 export default function LeaveApprovalsPage() {
   const { state, me } = useAuth();
   const { t } = useI18n();
@@ -45,11 +42,15 @@ export default function LeaveApprovalsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      // Preserve the current contract in Wave 1. Wave 4 will align the queue
-      // semantics with PENDING_MANAGER/PENDING_HR explicitly.
-      setRequests(await hrG2Api.listLeaveRequests({ state: "PENDING" }));
+      const [team, hr] = await Promise.all([
+        canManagerApprove ? hrG2Api.listTeamLeaveRequests("PENDING_MANAGER") : Promise.resolve([]),
+        canHrApprove ? hrG2Api.listHrLeaveRequests("PENDING_HR") : Promise.resolve([]),
+      ]);
+      const byId = new Map<string, LeaveRequest>();
+      for (const request of [...team, ...hr]) byId.set(request.id, request);
+      setRequests(Array.from(byId.values()));
     } catch (err) { setError(err); } finally { setLoading(false); }
-  }, []);
+  }, [canManagerApprove, canHrApprove]);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
@@ -128,7 +129,6 @@ export default function LeaveApprovalsPage() {
               <button type="button" className={styles.linkButton} onClick={() => void hrReject(r.id)} disabled={busy} data-testid={`hr-reject-${r.id}`}>HR Reject</button>
             </>
           ) : null}
-          {r.state === "APPROVED" ? <span data-testid={`approved-badge-${r.id}`}>✓ Approved</span> : null}
         </span>
       ),
     },
