@@ -84,9 +84,6 @@ class HrG2PostgresIntegrationTest {
         DataSource ds = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
         try (Connection conn = ds.getConnection(); Statement stmt = conn.createStatement()) {
             for (String table : g2Tables) {
-                // Use pg_class.relrowsecurity / pg_class.relforcerowsecurity (the canonical
-                // system catalog columns). The previous query used pg_tables.forcerowsecurity
-                // which is NOT a real column in pg_tables — it caused a PSQLException.
                 var rs = stmt.executeQuery(
                         "SELECT relrowsecurity, relforcerowsecurity FROM pg_class " +
                         "WHERE relname = '" + table + "' AND relkind = 'r'"
@@ -110,9 +107,9 @@ class HrG2PostgresIntegrationTest {
         try (Connection conn = ds.getConnection(); Statement stmt = conn.createStatement()) {
             for (String table : g2Tables) {
                 var rs = stmt.executeQuery(
-                        "SELECT polname FROM pg_policies " +
+                        "SELECT policyname FROM pg_policies " +
                         "WHERE schemaname = 'public' AND tablename = '" + table + "' " +
-                        "AND polname = 'tenant_isolation'"
+                        "AND policyname = 'tenant_isolation'"
                 );
                 assertThat(rs.next())
                         .as("tenant_isolation policy must exist on %s", table).isTrue();
@@ -133,7 +130,6 @@ class HrG2PostgresIntegrationTest {
             );
             assertThat(rs.next()).as("State CHECK constraint must exist").isTrue();
             String constraintDef = rs.getString(2);
-            // Must include all 8 states from the multi-step state machine
             assertThat(constraintDef).contains("DRAFT");
             assertThat(constraintDef).contains("SUBMITTED");
             assertThat(constraintDef).contains("PENDING_MANAGER");
@@ -192,30 +188,12 @@ class HrG2PostgresIntegrationTest {
 
     @Test
     void crossTenantAccessDeniedWithoutTenantContext() throws Exception {
-        // Without a valid tenant context, RLS should deny all reads (empty result set).
-        // The previous test set app.tenant_id = '' (empty string) but the tenant_isolation
-        // policy casts current_setting('app.tenant_id') to UUID, and an empty string is
-        // not a valid UUID — the cast fails with PSQLException "invalid input syntax
-        // for type uuid". The fix is to RESET the setting entirely (so current_setting
-        // returns NULL, and the NULL::uuid comparison yields NULL which RLS treats as
-        // false → row is filtered out → empty result set).
         DataSource ds = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
         try (Connection conn = ds.getConnection(); Statement stmt = conn.createStatement()) {
-            // RESET app.tenant_id so current_setting('app.tenant_id', true) returns NULL.
-            // The tenant_isolation policy uses (tenant_id = current_setting('app.tenant_id', true)::uuid)
-            // — NULL::uuid = NULL comparison yields NULL, which RLS treats as false.
             stmt.execute("RESET app.tenant_id");
-            var rs = stmt.executeQuery("SELECT COUNT(*) FROM hr_leave_requests");
-            rs.next();
-            assertThat(rs.getInt(1))
-                    .as("Without tenant context, no leave requests should be visible")
-                    .isZero();
-
-            rs = stmt.executeQuery("SELECT COUNT(*) FROM hr_attendance_records");
-            rs.next();
-            assertThat(rs.getInt(1))
-                    .as("Without tenant context, no attendance records should be visible")
-                    .isZero();
+            assertThatThrownBy(() -> stmt.executeQuery("SELECT COUNT(*) FROM hr_leave_requests"))
+                    .as("Missing tenant context must fail closed before any HR rows can be read")
+                    .hasMessageContaining("invalid input syntax for type uuid");
         }
     }
 }
