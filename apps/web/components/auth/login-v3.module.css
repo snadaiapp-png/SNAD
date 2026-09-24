@@ -162,6 +162,11 @@
   min-block-size: 48px;
 }
 
+.formRegion :global(#login-password) + button {
+  min-inline-size: 44px;
+  min-block-size: 44px;
+}
+
 .formRegion :global(button[type="submit"]) {
   min-block-size: 50px;
   border-radius: 14px;
