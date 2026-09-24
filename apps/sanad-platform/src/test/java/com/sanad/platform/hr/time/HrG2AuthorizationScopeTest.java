@@ -1,5 +1,6 @@
 package com.sanad.platform.hr.time;
 
+import com.sanad.platform.hr.time.application.HrG2ScopedReadController;
 import com.sanad.platform.hr.time.application.HrTimeAttendanceV2Controller;
 import com.sanad.platform.security.authorization.RequireCapability;
 import org.junit.jupiter.api.Test;
@@ -14,35 +15,52 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Contract-level proof that G2 read APIs expose explicit SELF/TEAM/HR scopes.
  *
- * <p>This deliberately verifies route + capability metadata without booting the
- * application. Relationship filtering is covered by PostgreSQL integration
- * tests after the scoped service methods are implemented.</p>
+ * <p>SELF routes remain on the canonical G2 controller. TEAM/HR reads use a
+ * dedicated scoped controller so broader capabilities never reuse SELF-only
+ * list contracts. Relationship filtering is enforced by the scoped read
+ * service and PostgreSQL RLS remains authoritative for tenant isolation.</p>
  */
 class HrG2AuthorizationScopeTest {
 
     @Test
     void teamAndHrReadRoutesUseDedicatedCapabilities() {
-        assertScopedGet("/time/attendance/team", TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW);
-        assertScopedGet("/time/attendance/admin", TimeAttendanceCapabilities.ATTENDANCE_ADMIN);
-        assertScopedGet("/time/timesheets/team", TimeAttendanceCapabilities.TIMESHEET_TEAM_APPROVE);
-        assertScopedGet("/leave/requests/team", TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE);
-        assertScopedGet("/leave/requests/hr", TimeAttendanceCapabilities.LEAVE_HR_APPROVE);
-        assertScopedGet("/leave/types/admin", TimeAttendanceCapabilities.LEAVE_POLICY_ADMIN);
-        assertScopedGet("/time/attendance/monthly-report/team", TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW);
-        assertScopedGet("/time/attendance/monthly-report/admin", TimeAttendanceCapabilities.ATTENDANCE_ADMIN);
+        assertScopedGet(HrG2ScopedReadController.class,
+                "/time/attendance/team", TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW);
+        assertScopedGet(HrG2ScopedReadController.class,
+                "/time/attendance/admin", TimeAttendanceCapabilities.ATTENDANCE_ADMIN);
+        assertScopedGet(HrG2ScopedReadController.class,
+                "/time/timesheets/team", TimeAttendanceCapabilities.TIMESHEET_TEAM_APPROVE);
+        assertScopedGet(HrG2ScopedReadController.class,
+                "/leave/requests/team", TimeAttendanceCapabilities.LEAVE_TEAM_APPROVE);
+        assertScopedGet(HrG2ScopedReadController.class,
+                "/leave/requests/hr", TimeAttendanceCapabilities.LEAVE_HR_APPROVE);
+        assertScopedGet(HrG2ScopedReadController.class,
+                "/leave/types/admin", TimeAttendanceCapabilities.LEAVE_POLICY_ADMIN);
+        assertScopedGet(HrG2ScopedReadController.class,
+                "/time/attendance/monthly-report/team", TimeAttendanceCapabilities.ATTENDANCE_TEAM_VIEW);
+        assertScopedGet(HrG2ScopedReadController.class,
+                "/time/attendance/monthly-report/admin", TimeAttendanceCapabilities.ATTENDANCE_ADMIN);
     }
 
     @Test
     void selfReadRoutesRemainNarrowlyProtected() {
-        assertScopedGet("/time/attendance", TimeAttendanceCapabilities.ATTENDANCE_SELF_VIEW);
-        assertScopedGet("/time/timesheets", TimeAttendanceCapabilities.TIMESHEET_SELF_VIEW);
-        assertScopedGet("/leave/requests", TimeAttendanceCapabilities.LEAVE_SELF_VIEW);
-        assertScopedGet("/leave/types", TimeAttendanceCapabilities.LEAVE_SELF_VIEW);
-        assertScopedGet("/leave/balances", TimeAttendanceCapabilities.LEAVE_SELF_VIEW);
+        assertScopedGet(HrTimeAttendanceV2Controller.class,
+                "/time/attendance", TimeAttendanceCapabilities.ATTENDANCE_SELF_VIEW);
+        assertScopedGet(HrTimeAttendanceV2Controller.class,
+                "/time/timesheets", TimeAttendanceCapabilities.TIMESHEET_SELF_VIEW);
+        assertScopedGet(HrTimeAttendanceV2Controller.class,
+                "/leave/requests", TimeAttendanceCapabilities.LEAVE_SELF_VIEW);
+        assertScopedGet(HrTimeAttendanceV2Controller.class,
+                "/leave/types", TimeAttendanceCapabilities.LEAVE_SELF_VIEW);
+        assertScopedGet(HrTimeAttendanceV2Controller.class,
+                "/leave/balances", TimeAttendanceCapabilities.LEAVE_SELF_VIEW);
     }
 
-    private static void assertScopedGet(String path, String expectedCapability) {
-        Optional<Method> route = Arrays.stream(HrTimeAttendanceV2Controller.class.getDeclaredMethods())
+    private static void assertScopedGet(
+            Class<?> controllerType,
+            String path,
+            String expectedCapability) {
+        Optional<Method> route = Arrays.stream(controllerType.getDeclaredMethods())
                 .filter(method -> {
                     GetMapping mapping = method.getAnnotation(GetMapping.class);
                     return mapping != null && Arrays.asList(mapping.value()).contains(path);
