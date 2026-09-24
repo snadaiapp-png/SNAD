@@ -6,7 +6,7 @@ import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../../components/hr-workspace";
-import { HrErrorState, HrLoading, hrmErrorMessage } from "../../components/hr-feedback";
+import { HrErrorState, HrLoading } from "../../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../../components/hr-state-badge";
 import { formatArabicDate } from "../../hr-labels";
@@ -29,8 +29,6 @@ export default function AttendanceAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -45,17 +43,6 @@ export default function AttendanceAdminPage() {
     return () => window.clearTimeout(timer);
   }, [state, load]);
 
-  async function correct(id: string) {
-    setBusy(true);
-    try {
-      // Wave 5 replaces this placeholder mutation with the canonical correction command.
-      // Keeping the existing action behavior here avoids silently widening this Wave 2 scope change.
-      await hrG2Api.clockIn({ employmentId: me?.id ?? "", recordDate: new Date().toISOString().slice(0, 10) });
-      setNotice(`Correction action submitted for ${id}`);
-      await load();
-    } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
-  }
-
   if (["INITIALIZING","CHECKING_SESSION","REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
   if (!canAdmin && !canCorrect) return <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance/admin"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
 
@@ -65,22 +52,19 @@ export default function AttendanceAdminPage() {
     { key: "clockOut", header: "Clock Out", render: (r: AttendanceRecord) => formatTime(r.clockOut) },
     { key: "workedMinutes", header: "Worked", align: "end", render: (r: AttendanceRecord) => r.workedMinutes ? `${Math.floor(r.workedMinutes/60)}h ${r.workedMinutes%60}m` : "—" },
     { key: "state", header: "State", render: (r: AttendanceRecord) => <HrStateBadge label={r.state} code={r.state} tone={toneForState(r.state)} /> },
-    ...(canCorrect ? [{
-      key: "actions", header: "Correction",
-      render: (r: AttendanceRecord) => (
-        <button type="button" className={styles.linkButton} onClick={() => void correct(r.id)} disabled={busy}>
-          Correct
-        </button>
-      ),
-    }] : []),
   ];
 
   return (
     <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance/admin">
-      <header><h1>Attendance Administration</h1>
-      <p className={styles.kpiHint}>Manual corrections append provenance — never silently overwrite historical truth.</p>
+      <header>
+        <h1>Attendance Administration</h1>
+        <p className={styles.kpiHint}>Manual corrections append provenance — never silently overwrite historical truth.</p>
       </header>
-      {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
+      {canCorrect ? (
+        <p role="status" className={styles.kpiHint}>
+          Attendance correction is unavailable until the canonical correction command is active; no self clock mutation is used as an administrative fallback.
+        </p>
+      ) : null}
       {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
         <HrDataTable<AttendanceRecord> caption="Attendance Records (Admin)" columns={columns} rows={records} rowKey={(r) => r.id} emptyTitle="No attendance records" />
       )}
