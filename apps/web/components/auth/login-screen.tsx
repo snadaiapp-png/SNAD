@@ -1,9 +1,7 @@
 "use client";
 
-import styles from "./auth.module.css";
-import v2Styles from "./login-v2.module.css";
-import { AuthIntelligenceVisual } from "./auth-intelligence-visual";
 import { LoginForm } from "./login-form";
+import { LoginV3Shell } from "./login-v3-shell";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
 
 interface LoginScreenProps {
@@ -22,17 +20,14 @@ export function LoginScreen({
   onRetrySession,
 }: LoginScreenProps) {
   return (
-    <div className={`${styles.authShell} ${v2Styles.loginV2Shell}`}>
-      <AuthIntelligenceVisual />
-      <div className={styles.loginPanel}>
-        <LoginForm
-          onLogin={onLogin}
-          authenticating={authenticating}
-          error={error}
-          sessionExpired={sessionExpired}
-          onRetrySession={onRetrySession}
-        />
-      </div>
-    </div>
+    <LoginV3Shell>
+      <LoginForm
+        onLogin={onLogin}
+        authenticating={authenticating}
+        error={error}
+        sessionExpired={sessionExpired}
+        onRetrySession={onRetrySession}
+      />
+    </LoginV3Shell>
   );
 }
