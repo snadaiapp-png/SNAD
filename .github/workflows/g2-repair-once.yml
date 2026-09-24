@@ -1,4 +1,4 @@
-name: G2 Canonical Repair (one-shot)
+name: G2 Canonical Repair
 
 on:
   push:
@@ -12,151 +12,33 @@ permissions:
 
 jobs:
   repair:
-    if: "${{ github.event.head_commit.message != 'fix(hr): align G2 outbox and governance tests' }}"
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact repair trigger
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: hr/g2-time-attendance-leave
-          fetch-depth: 3
+          fetch-depth: 8
 
-      - name: Verify repair ancestry
+      - name: Guard exact diagnosed baseline
         shell: bash
         run: |
           set -euo pipefail
           git merge-base --is-ancestor 027f2fbd00a38659938d4d13fb21c2cf22521e54 HEAD
-          test "$(git rev-parse HEAD~2)" = "027f2fbd00a38659938d4d13fb21c2cf22521e54"
+          unexpected="$(git diff --name-only 027f2fbd00a38659938d4d13fb21c2cf22521e54..HEAD | grep -Ev '^\.github/(workflows/g2-repair-once\.yml|scripts/g2_repair_once\.py)$' || true)"
+          test -z "$unexpected" || { echo "$unexpected"; exit 1; }
 
-      - name: Apply canonical G2 repair
+      - name: Apply diagnosed repair
+        run: python3 .github/scripts/g2_repair_once.py
+
+      - name: Verify patch shape
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_exact(path, old, new, expected_count=1):
-              p = Path(path)
-              text = p.read_text()
-              actual = text.count(old)
-              if actual != expected_count:
-                  raise SystemExit(f"{path}: expected {expected_count} occurrences, found {actual}")
-              p.write_text(text.replace(old, new))
-
-          replace_exact(
-              "apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrLeaveService.java",
-              '''        jdbc.update(
-                  "INSERT INTO hr_domain_event_outbox (id, tenant_id, event_type, resource_type, resource_id, payload, created_at) " +
-                  "VALUES (?, ?, ?, 'LEAVE_REQUEST', ?, ?::jsonb, ?)",
-                  outboxId, tenantId, eventType, resourceId,
-                  "{\\\"eventType\\\":\\\"" + eventType + "\\\",\\\"resourceId\\\":\\\"" + resourceId + "\\\"}",
-                  Timestamp.from(now));''',
-              '''        jdbc.update(
-                  "INSERT INTO hr_domain_event_outbox " +
-                  "(event_id, tenant_id, event_type, aggregate_type, aggregate_id, actor_user_id, occurred_at, payload) " +
-                  "VALUES (?, ?, ?, 'LEAVE_REQUEST', ?, ?, ?, ?::jsonb)",
-                  outboxId, tenantId, eventType, resourceId, actorId, Timestamp.from(now),
-                  "{\\\"eventType\\\":\\\"" + eventType + "\\\",\\\"resourceId\\\":\\\"" + resourceId + "\\\"}");'''
-          )
-
-          replace_exact(
-              "apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java",
-              '''            , "20260921.1"   // canonical project-owner permissions and control-plane identity
-              , "20260922.1"   // hrm g1 canonical operator capabilities + admin tenant scopes
-      );''',
-              '''            , "20260921.1"   // canonical project-owner permissions and control-plane identity
-              , "20260922.1"   // hrm g1 canonical operator capabilities + admin tenant scopes
-              // HRM-G2 — time, attendance, timesheets, leave
-              , "20260923.1"   // hr g2 time attendance leave schema
-              , "20260923.2"   // hr g2 fail-closed rls policies
-              , "20260923.3"   // hr g2 leave types + capability seed
-              , "20260924.1"   // hr g2 scheduling schema
-              , "20260924.2"   // hr g2 attendance events + leave ledger
-              , "20260924.3"   // hr g2 workflow linkage
-              , "20260924.4"   // hr g2 idempotency constraint
-              , "20260924.5"   // hr g2 leave state canonical alignment
-      );'''
-          )
-
-          replace_exact(
-              "apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java",
-              '''    //   V20260922_1 = HRM-G1 canonical operator capabilities + ADMIN tenant scopes
-      private static final String CRM_LATEST_VERSION = "20260922.1"; // terminal versioned migration''',
-              '''    //   V20260922_1 = HRM-G1 canonical operator capabilities + ADMIN tenant scopes
-      //   V20260923_1..3 + V20260924_1..5 = HRM-G2 canonical migration chain
-      private static final String CRM_LATEST_VERSION = "20260924.5"; // terminal versioned migration'''
-          )
-
-          crm_postgres = "apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java"
-          replace_exact(
-              crm_postgres,
-              '''    private static final String HR_G1_OPERATOR_CAPABILITIES_VERSION = "20260922.1";
-      private static final String LATEST_MIGRATION_VERSION = HR_G1_OPERATOR_CAPABILITIES_VERSION;''',
-              '''    private static final String HR_G1_OPERATOR_CAPABILITIES_VERSION = "20260922.1";
-      private static final String HR_G2_TIME_ATTENDANCE_LEAVE_SCHEMA_VERSION = "20260923.1";
-      private static final String HR_G2_RLS_POLICIES_VERSION = "20260923.2";
-      private static final String HR_G2_SEED_LEAVE_TYPES_CAPABILITIES_VERSION = "20260923.3";
-      private static final String HR_G2_SCHEDULING_SCHEMA_VERSION = "20260924.1";
-      private static final String HR_G2_ATTENDANCE_EVENTS_LEDGER_VERSION = "20260924.2";
-      private static final String HR_G2_WORKFLOW_LINKAGE_VERSION = "20260924.3";
-      private static final String HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION = "20260924.4";
-      private static final String HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION = "20260924.5";
-      private static final String LATEST_MIGRATION_VERSION = HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION;'''
-          )
-          replace_exact(
-              crm_postgres,
-              '''                        MigrationVersion.fromVersion(HR_G1_OPERATOR_CAPABILITIES_VERSION));''',
-              '''                        MigrationVersion.fromVersion(HR_G1_OPERATOR_CAPABILITIES_VERSION),
-                          MigrationVersion.fromVersion(HR_G2_TIME_ATTENDANCE_LEAVE_SCHEMA_VERSION),
-                          MigrationVersion.fromVersion(HR_G2_RLS_POLICIES_VERSION),
-                          MigrationVersion.fromVersion(HR_G2_SEED_LEAVE_TYPES_CAPABILITIES_VERSION),
-                          MigrationVersion.fromVersion(HR_G2_SCHEDULING_SCHEMA_VERSION),
-                          MigrationVersion.fromVersion(HR_G2_ATTENDANCE_EVENTS_LEDGER_VERSION),
-                          MigrationVersion.fromVersion(HR_G2_WORKFLOW_LINKAGE_VERSION),
-                          MigrationVersion.fromVersion(HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION),
-                          MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION));''',
-              expected_count=2
-          )
-
-          replace_exact(
-              "apps/sanad-platform/src/test/java/com/sanad/platform/hr/recruitment/db/HrG1MigrationTest.java",
-              '''    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20260922.1";''',
-              '''    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20260924.5";'''
-          )
-
-          replace_exact(
-              "apps/sanad-platform/src/test/java/com/sanad/platform/hr/rls/HrRlsFailClosedIntegrationTest.java",
-              '''                "hr_tenant_policies"
-          );''',
-              '''                "hr_tenant_policies",
-                  // G2 time, attendance, scheduling, timesheets and leave — all tenant-scoped.
-                  "hr_attendance_events",
-                  "hr_attendance_records",
-                  "hr_g2_idempotency_records",
-                  "hr_leave_balances",
-                  "hr_leave_ledger_entries",
-                  "hr_leave_policies",
-                  "hr_leave_requests",
-                  "hr_leave_types",
-                  "hr_schedule_assignments",
-                  "hr_schedule_versions",
-                  "hr_timesheet_entries",
-                  "hr_timesheets",
-                  "hr_work_schedules"
-          );'''
-          )
-
-          replace_exact(
-              "apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G02SchemaPostgresTest.java",
-              '''            assertThat(rs.getString(1)).isEqualTo("20260922.1");''',
-              '''            assertThat(rs.getString(1)).isEqualTo("20260924.5");'''
-          )
-          PY
-
-          git rm .github/workflows/g2-repair-once.yml
+          git rm .github/workflows/g2-repair-once.yml .github/scripts/g2_repair_once.py
           git diff --check
+          git diff --name-only 027f2fbd00a38659938d4d13fb21c2cf22521e54..HEAD >/dev/null
 
-      - name: Commit and push repair
+      - name: Commit repair to PR branch
         shell: bash
         run: |
           set -euo pipefail
