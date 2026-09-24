@@ -1,6 +1,6 @@
 {
   "generatedFrom": "runtime platform contract export",
-  "hrmV2Operations": 119,
+  "hrmV2Operations": 127,
   "paths": {
     "/api/v2/hr/assignments": {
       "get": "hrAssignmentsList",
@@ -114,6 +114,12 @@
       "get": "hrLeaveRequestsList",
       "post": "hrLeaveRequestCreate"
     },
+    "/api/v2/hr/leave/requests/hr": {
+      "get": "hrHrLeaveRequestsList"
+    },
+    "/api/v2/hr/leave/requests/team": {
+      "get": "hrTeamLeaveRequestsList"
+    },
     "/api/v2/hr/leave/requests/{requestId}/cancel": {
       "post": "hrLeaveRequestCancel"
     },
@@ -137,6 +143,9 @@
     },
     "/api/v2/hr/leave/types": {
       "get": "hrLeaveTypesList"
+    },
+    "/api/v2/hr/leave/types/admin": {
+      "get": "hrAdminLeaveTypesList"
     },
     "/api/v2/hr/onboarding/plans": {
       "get": "hrOnboardingPlanList",
@@ -290,11 +299,23 @@
     "/api/v2/hr/time/attendance": {
       "get": "hrAttendanceList"
     },
+    "/api/v2/hr/time/attendance/admin": {
+      "get": "hrAdminAttendanceList"
+    },
     "/api/v2/hr/time/attendance/clock-in": {
       "post": "hrAttendanceClockIn"
     },
     "/api/v2/hr/time/attendance/monthly-report": {
       "get": "hrAttendanceMonthlyReport"
+    },
+    "/api/v2/hr/time/attendance/monthly-report/admin": {
+      "get": "hrAdminAttendanceMonthlyReport"
+    },
+    "/api/v2/hr/time/attendance/monthly-report/team": {
+      "get": "hrTeamAttendanceMonthlyReport"
+    },
+    "/api/v2/hr/time/attendance/team": {
+      "get": "hrTeamAttendanceList"
     },
     "/api/v2/hr/time/attendance/{recordId}/clock-out": {
       "post": "hrAttendanceClockOut"
@@ -309,6 +330,9 @@
     "/api/v2/hr/time/timesheets": {
       "get": "hrTimesheetsList",
       "post": "hrTimesheetCreate"
+    },
+    "/api/v2/hr/time/timesheets/team": {
+      "get": "hrTeamTimesheetsList"
     },
     "/api/v2/hr/time/timesheets/{timesheetId}/approve": {
       "post": "hrTimesheetApprove"
