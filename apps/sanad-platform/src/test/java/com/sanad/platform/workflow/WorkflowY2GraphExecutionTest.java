@@ -189,7 +189,7 @@ class WorkflowY2GraphExecutionTest {
 
         var completed = graphExecutionService.advance(tenantId, instanceId, "SUCCESS", userId);
         assertThat(completed.status()).isEqualTo(WorkflowInstance.Status.COMPLETED);
-        assertThat(completed.currentStepKey()).isNull();
+        assertThat(completed.currentStepKey()).isEqualTo("end");
     }
 
     // ===== fixture helpers =====
