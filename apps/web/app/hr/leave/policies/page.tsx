@@ -34,7 +34,7 @@ export default function LeavePoliciesPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      setPolicies(await hrG2Api.listLeaveTypes() as LeaveType[]);
+      setPolicies(await hrG2Api.listAdminLeaveTypes() as LeaveType[]);
     } catch (err) { setError(err); } finally { setLoading(false); }
   }, []);
 
