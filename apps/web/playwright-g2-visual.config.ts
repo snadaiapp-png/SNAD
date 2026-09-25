@@ -17,7 +17,6 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   use: {
     baseURL: BASE_URL,
-    channel: "chrome",
     locale: "ar",
     colorScheme: "light",
     trace: "retain-on-failure",
