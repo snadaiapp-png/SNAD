@@ -6,6 +6,11 @@ on:
     paths:
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/security/rls/UserPermissionOverrideRlsPostgresTest.java'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/api/FlywayJavaMigrationsChainConsistencyTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/recruitment/db/HrG1MigrationTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G02SchemaPostgresTest.java'
       - 'apps/sanad-platform/src/main/resources/db/migration/V20261001_1__uac_overrides_relationships_events.sql'
       - '.github/workflows/wave1-task1-targeted.yml'
 
@@ -16,7 +21,7 @@ jobs:
   targeted-postgres:
     name: Wave 1 Task 1 PostgreSQL Direct
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
       SPRING_DATASOURCE_USERNAME: sanad
@@ -77,8 +82,8 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Run Task 1 contract and affected Flyway-chain regression
+      - name: Run Task 1 contract and migration-ledger regressions
         run: >-
           mvn -B -ntp -Dsurefire.useFile=false
-          -Dtest=com.sanad.platform.security.rls.UserPermissionOverrideRlsPostgresTest,com.sanad.platform.api.FlywayJavaMigrationsChainConsistencyTest
+          -Dtest=com.sanad.platform.security.rls.UserPermissionOverrideRlsPostgresTest,com.sanad.platform.api.FlywayJavaMigrationsChainConsistencyTest,com.sanad.platform.crm.web.CrmPostgresMigrationTest,com.sanad.platform.hr.recruitment.db.HrG1MigrationTest,com.sanad.platform.crm.web.CrmFlywayHistoryAssertionTest,com.sanad.platform.crm.web.Crm008bFoundationAcceptanceTest,com.sanad.platform.subscription.billing.R0C13G02SchemaPostgresTest
           test
