@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { HRM_G2_I18N_AR, HRM_G2_I18N_EN } from "@/lib/i18n/locales/hrm-g2-i18n";
 
 const HR_ROOT = resolve(__dirname);
-const WEB_ROOT = resolve(HR_ROOT, "../../..");
+const WEB_ROOT = resolve(HR_ROOT, "../..");
 const REQUIRED_FOUNDATION_KEYS = [
   "hrm.g2.landing.myWorkday",
   "hrm.g2.landing.myTeam",
