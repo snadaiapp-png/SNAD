@@ -3,9 +3,9 @@
 /** Shared Arabic-first HR workspace shell. Backend authorization remains authoritative. */
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
-import { useI18n } from "@/lib/i18n/I18nProvider";
+import { I18nContext } from "@/lib/i18n/I18nProvider";
 import styles from "../hr.module.css";
 import visualStyles from "./hr-g2-visual.module.css";
 
@@ -46,8 +46,6 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
       HRM_CAPABILITIES.ONBOARDING_TASK_WAIVE,
     ],
   },
-
-  // G2 employee self-service surfaces.
   {
     href: "/hr/attendance",
     label: "حضوري",
@@ -66,8 +64,6 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
     labelKey: "hrm.g2.landing.leave",
     capabilitiesAny: [HRM_CAPABILITIES.LEAVE_SELF_VIEW, HRM_CAPABILITIES.LEAVE_SELF_REQUEST],
   },
-
-  // G2 manager/team surfaces.
   { href: "/hr/team-attendance", label: "حضور الفريق", labelKey: "hrm.g2.landing.teamAttendance", capability: HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW },
   { href: "/hr/team-timesheets", label: "سجلات وقت الفريق", labelKey: "hrm.g2.landing.teamTimesheets", capability: HRM_CAPABILITIES.TIMESHEET_TEAM_APPROVE },
   {
@@ -76,8 +72,6 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
     labelKey: "hrm.g2.landing.leaveApprovals",
     capabilitiesAny: [HRM_CAPABILITIES.LEAVE_TEAM_APPROVE, HRM_CAPABILITIES.LEAVE_HR_APPROVE],
   },
-
-  // G2 HR administration surfaces.
   { href: "/hr/schedules", label: "جداول العمل", labelKey: "hrm.g2.landing.schedules", capability: HRM_CAPABILITIES.ATTENDANCE_ADMIN },
   {
     href: "/hr/attendance/admin",
@@ -92,7 +86,6 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
     labelKey: "hrm.g2.landing.attendanceReport",
     capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW, HRM_CAPABILITIES.ATTENDANCE_ADMIN],
   },
-
   { href: "/hr/execution", label: "لوحة التنفيذ" },
 ];
 
@@ -114,7 +107,10 @@ function matchesRoute(linkHref: string, activeHref: string): boolean {
 }
 
 export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceProps) {
-  const { t } = useI18n();
+  // Optional context avoids coupling the reusable shell to a provider in unit
+  // tests/isolated renders. Real /hr routes have HrI18nAugmenter and therefore
+  // resolve localized G2 labels; fallback preserves the historic Arabic label.
+  const i18n = useContext(I18nContext);
   const visibleLinks = HR_WORKSPACE_LINKS.filter((link) => isVisible(link, capabilities));
   const activeLinkHref = visibleLinks
     .filter((link) => matchesRoute(link.href, activeHref))
@@ -132,6 +128,7 @@ export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceP
         <ul className={styles.workspaceNavList}>
           {visibleLinks.map((link) => {
             const active = activeLinkHref === link.href;
+            const label = link.labelKey && i18n ? i18n.t(link.labelKey) : link.label;
             return (
               <li key={link.href} className={styles.workspaceNavItem}>
                 <Link
@@ -139,7 +136,7 @@ export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceP
                   aria-current={active ? "page" : undefined}
                   className={active ? `${styles.workspaceNavLink} ${styles.workspaceNavLinkActive}` : styles.workspaceNavLink}
                 >
-                  {link.labelKey ? t(link.labelKey) : link.label}
+                  {label}
                 </Link>
               </li>
             );
