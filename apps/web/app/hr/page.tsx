@@ -13,6 +13,7 @@ import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { hrmV2Api, type AssignmentResponse, type EmploymentResponse, type OverrideRequestResponse, type PositionResponse } from "@/lib/api/hr-v2-api";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "./components/hr-workspace";
 import { HrG2Launcher } from "./components/hr-g2-launcher";
 import { HrErrorState, HrLoading } from "./components/hr-feedback";
@@ -24,6 +25,7 @@ function todayIso(): string {
 
 export default function HrPage() {
   const { state, me } = useAuth();
+  const { locale, t } = useI18n();
 
   const capabilities = me?.capabilities ?? [];
   // A G2-only identity is still an HRM identity and must reach the HR landing
@@ -94,12 +96,17 @@ export default function HrPage() {
   }, [positions, assignments]);
 
   const pendingOverrides = (overrides ?? []).filter((o) => o.status === "PENDING").length;
+  const foundationLinks = [
+    { href: "/hr/employees", ar: "سجل الموظفين", en: "Employee records", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
+    { href: "/hr/org-structure", ar: "الهيكل التنظيمي", en: "Organization structure", capability: HRM_CAPABILITIES.ORG_STRUCTURE_VIEW },
+    { href: "/hr/compliance", ar: "الالتزام", en: "Compliance", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
+  ].filter((link) => capabilities.includes(link.capability));
 
   if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state))
     return <AuthLoadingState phase="session" />;
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr">
+    <HrWorkspace capabilities={capabilities} activeHref="/hr" translate={t}>
       {!canSeeHr ? (
         <HrErrorState
           error={{ details: { status: 403, body: { code: "HRM_SCOPE_DENIED", message: null } } }}
@@ -109,49 +116,52 @@ export default function HrPage() {
       ) : error ? (
         <HrErrorState error={error} onRetry={load} />
       ) : (
-        <section aria-label="ملخص الموارد البشرية" data-testid="hr-landing-ready">
+        <section aria-label={locale === "ar" ? "ملخص الموارد البشرية" : "Human resources summary"} data-testid="hr-landing-ready">
           <div className={styles.dashboardGrid}>
             <div className={styles.statCard}>
               <span className={styles.statValue}>{statusCounts.ACTIVE}</span>
-              <span className={styles.statLabel}>توظيف نشِط</span>
+              <span className={styles.statLabel}>{locale === "ar" ? "توظيف نشِط" : "Active employment"}</span>
             </div>
             <div className={styles.statCard}>
               <span className={styles.statValue}>{statusCounts.ONBOARDING}</span>
-              <span className={styles.statLabel}>قيد التأهيل</span>
+              <span className={styles.statLabel}>{locale === "ar" ? "قيد التأهيل" : "Onboarding"}</span>
             </div>
             <div className={styles.statCard}>
               <span className={styles.statValue}>{statusCounts.ON_LEAVE + statusCounts.SUSPENDED}</span>
-              <span className={styles.statLabel}>في إجازة / موقوف</span>
+              <span className={styles.statLabel}>{locale === "ar" ? "في إجازة / موقوف" : "On leave / suspended"}</span>
             </div>
             {occupancy ? (
               <>
                 <div className={styles.statCard}>
                   <span className={styles.statValue}>{occupancy.occupied}</span>
-                  <span className={styles.statLabel}>منصب مشغول</span>
+                  <span className={styles.statLabel}>{locale === "ar" ? "منصب مشغول" : "Occupied position"}</span>
                 </div>
                 <div className={styles.statCard}>
                   <span className={styles.statValue}>{occupancy.vacant}</span>
-                  <span className={styles.statLabel}>منصب شاغر</span>
+                  <span className={styles.statLabel}>{locale === "ar" ? "منصب شاغر" : "Vacant position"}</span>
                 </div>
               </>
             ) : null}
             {overrides !== null ? (
               <div className={pendingOverrides > 0 ? `${styles.statCard} ${styles.statAlert}` : styles.statCard}>
                 <span className={styles.statValue}>{pendingOverrides}</span>
-                <span className={styles.statLabel}>تجاوزات قيد المراجعة</span>
+                <span className={styles.statLabel}>{locale === "ar" ? "تجاوزات قيد المراجعة" : "Overrides under review"}</span>
               </div>
             ) : null}
           </div>
 
           <HrG2Launcher capabilities={capabilities} />
 
-          <p className={styles.mutedNote}>
-            <Link href="/hr/employees" className={styles.tableLink}>سجل الموظفين</Link>
-            {" · "}
-            <Link href="/hr/org-structure" className={styles.tableLink}>الهيكل التنظيمي</Link>
-            {" · "}
-            <Link href="/hr/compliance" className={styles.tableLink}>الالتزام</Link>
-          </p>
+          {foundationLinks.length > 0 ? (
+            <p className={styles.mutedNote}>
+              {foundationLinks.map((link, index) => (
+                <span key={link.href}>
+                  {index > 0 ? " · " : null}
+                  <Link href={link.href} className={styles.tableLink}>{locale === "ar" ? link.ar : link.en}</Link>
+                </span>
+              ))}
+            </p>
+          ) : null}
         </section>
       )}
     </HrWorkspace>
