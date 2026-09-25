@@ -5,7 +5,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
-import { useI18n } from "@/lib/i18n/I18nProvider";
 import styles from "../hr.module.css";
 import visualStyles from "./hr-g2-visual.module.css";
 
@@ -45,7 +44,7 @@ export interface HrWorkspaceProps {
   capabilities: string[];
   activeHref: string;
   children: ReactNode;
-  /** Optional route-scoped translator. Legacy callers remain provider-free. */
+  /** Optional route-scoped translator. Legacy callers remain provider-free and Arabic-first. */
   translate?: (messageId: string) => string;
 }
 
@@ -60,8 +59,13 @@ function matchesRoute(linkHref: string, activeHref: string): boolean {
   return activeHref === linkHref || activeHref.startsWith(`${linkHref}/`);
 }
 
+function workspaceLocale(translate?: (messageId: string) => string): "ar" | "en" {
+  if (!translate) return "ar";
+  return translate("hrm.g2.landing.myWorkday") === "My Workday" ? "en" : "ar";
+}
+
 export function HrWorkspace({ capabilities, activeHref, children, translate }: HrWorkspaceProps) {
-  const { locale } = useI18n();
+  const locale = workspaceLocale(translate);
   const visibleLinks = HR_WORKSPACE_LINKS.filter((link) => isVisible(link, capabilities));
   const activeLinkHref = visibleLinks.filter((link) => matchesRoute(link.href, activeHref)).sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
