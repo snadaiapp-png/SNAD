@@ -12,7 +12,15 @@ import { HrStateBadge, toneForState } from "../components/hr-state-badge";
 import { formatArabicDate } from "../hr-labels";
 import styles from "../hr.module.css";
 
-interface Timesheet { id: string; employmentId: string; periodStart: string; periodEnd: string; state: string; submittedAt: string | null; approverComment: string | null; }
+interface Timesheet {
+  id: string;
+  employmentId: string;
+  periodStart: string;
+  periodEnd: string;
+  state: string;
+  submittedAt: string | null;
+  approverComment: string | null;
+}
 
 export default function TeamTimesheetsPage() {
   const { state, me } = useAuth();
@@ -27,10 +35,15 @@ export default function TeamTimesheetsPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
       setTimesheets(await hrG2Api.listTeamTimesheets("SUBMITTED"));
-    } catch (err) { setError(err); } finally { setLoading(false); }
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -43,40 +56,88 @@ export default function TeamTimesheetsPage() {
     setBusy(true);
     try {
       await hrG2Api.approveTimesheet(id, "approved");
-      setNotice("Timesheet approved"); await load();
-    } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
+      setNotice(t("hrm.timesheets.team.approved"));
+      await load();
+    } catch (err) {
+      setNotice(hrmErrorMessage(err).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function reject(id: string) {
     setBusy(true);
     try {
       await hrG2Api.rejectTimesheet(id, "rejected");
-      setNotice("Timesheet rejected"); await load();
-    } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
+      setNotice(t("hrm.timesheets.team.rejected"));
+      await load();
+    } catch (err) {
+      setNotice(hrmErrorMessage(err).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  if (["INITIALIZING","CHECKING_SESSION","REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
-  if (!canApprove) return <HrWorkspace capabilities={capabilities} activeHref="/hr/team-timesheets"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
+  if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state)) {
+    return <AuthLoadingState phase="session" />;
+  }
+
+  if (!canApprove) {
+    return (
+      <HrWorkspace capabilities={capabilities} activeHref="/hr/team-timesheets" translate={t}>
+        <p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p>
+      </HrWorkspace>
+    );
+  }
 
   const columns: HrColumn<Timesheet>[] = [
-    { key: "periodStart", header: "Period", render: (r) => `${formatArabicDate(r.periodStart)} — ${formatArabicDate(r.periodEnd)}` },
-    { key: "state", header: "State", render: (r) => <HrStateBadge label={r.state} code={r.state} tone={toneForState(r.state)} /> },
-    { key: "actions", header: "Actions", render: (r) => (
-      <span className={styles.actionRow}>
-        {r.state === "SUBMITTED" ? <>
-          <button type="button" className={styles.linkButton} onClick={() => void approve(r.id)} disabled={busy}>Approve</button>
-          <button type="button" className={styles.linkButton} onClick={() => void reject(r.id)} disabled={busy}>Reject</button>
-        </> : null}
-      </span>
-    )},
+    {
+      key: "periodStart",
+      header: t("hrm.timesheets.period"),
+      render: (r) => `${formatArabicDate(r.periodStart)} — ${formatArabicDate(r.periodEnd)}`,
+    },
+    {
+      key: "state",
+      header: t("hrm.timesheets.state"),
+      render: (r) => <HrStateBadge label={r.state} code={r.state} tone={toneForState(r.state)} />,
+    },
+    {
+      key: "actions",
+      header: t("hrm.timesheets.actions"),
+      render: (r) => (
+        <span className={styles.actionRow}>
+          {r.state === "SUBMITTED" ? (
+            <>
+              <button type="button" className={styles.linkButton} onClick={() => void approve(r.id)} disabled={busy}>
+                {t("hrm.timesheets.team.approve")}
+              </button>
+              <button type="button" className={styles.linkButton} onClick={() => void reject(r.id)} disabled={busy}>
+                {t("hrm.timesheets.team.reject")}
+              </button>
+            </>
+          ) : null}
+        </span>
+      ),
+    },
   ];
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr/team-timesheets">
-      <header><h1>Team Timesheets</h1></header>
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/team-timesheets" translate={t}>
+      <header>
+        <h1>{t("hrm.timesheets.team.title")}</h1>
+        <p className={styles.kpiHint}>{t("hrm.timesheets.team.subtitle")}</p>
+      </header>
       {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
       {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
-        <HrDataTable<Timesheet> caption="Pending Timesheet Approvals" columns={columns} rows={timesheets} rowKey={(r) => r.id} emptyTitle="No pending timesheets" />
+        <div data-testid="team-timesheets-ready">
+          <HrDataTable<Timesheet>
+            caption={t("hrm.timesheets.team.caption")}
+            columns={columns}
+            rows={timesheets}
+            rowKey={(r) => r.id}
+            emptyTitle={t("hrm.timesheets.team.empty")}
+          />
+        </div>
       )}
     </HrWorkspace>
   );
