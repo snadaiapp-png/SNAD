@@ -74,3 +74,49 @@ describe("G2 employee product surfaces", () => {
     expect(attendance).not.toContain('toLocaleTimeString("ar"');
   });
 });
+
+describe("G2 manager/team product surfaces", () => {
+  it("provides deterministic ready-state selectors for every manager visual route", () => {
+    const teamAttendance = readFileSync(resolve(HR_ROOT, "team-attendance/page.tsx"), "utf8");
+    const teamTimesheets = readFileSync(resolve(HR_ROOT, "team-timesheets/page.tsx"), "utf8");
+    const approvals = readFileSync(resolve(HR_ROOT, "leave/approvals/page.tsx"), "utf8");
+    const report = readFileSync(resolve(HR_ROOT, "reports/attendance/page.tsx"), "utf8");
+
+    expect(teamAttendance).toContain('data-testid="team-attendance-ready"');
+    expect(teamTimesheets).toContain('data-testid="team-timesheets-ready"');
+    expect(approvals).toContain('data-testid="leave-approvals-ready"');
+    expect(report).toContain('data-testid="attendance-report-ready"');
+  });
+
+  it("removes legacy manager hard-coded page copy in favor of G2 i18n", () => {
+    const files = [
+      "team-attendance/page.tsx",
+      "team-timesheets/page.tsx",
+      "leave/approvals/page.tsx",
+      "reports/attendance/page.tsx",
+    ] as const;
+    const forbidden = /(?:>Team Attendance<|>Team Timesheets<|>Leave Approval Queue<|>Monthly Attendance Report<|caption="Pending Timesheet Approvals"|caption="Pending Leave Requests"|emptyTitle="No pending timesheets"|emptyTitle="No pending leave requests")/;
+    for (const relative of files) {
+      const source = readFileSync(resolve(HR_ROOT, relative), "utf8");
+      expect(source, relative).not.toMatch(forbidden);
+      expect(source, relative).toContain("translate={t}");
+    }
+  });
+
+  it("preserves Workflow Y2 role separation selectors on leave approvals", () => {
+    const approvals = readFileSync(resolve(HR_ROOT, "leave/approvals/page.tsx"), "utf8");
+    expect(approvals).toContain('data-testid={`manager-approve-${r.id}`}');
+    expect(approvals).toContain('data-testid={`manager-reject-${r.id}`}');
+    expect(approvals).toContain('data-testid={`hr-approve-${r.id}`}');
+    expect(approvals).toContain('data-testid={`hr-reject-${r.id}`}');
+    expect(approvals).toContain('r.state === "PENDING_MANAGER" && canManagerApprove');
+    expect(approvals).toContain('r.state === "PENDING_HR" && canHrApprove');
+  });
+
+  it("keeps report API scope backend-authoritative by role capability", () => {
+    const report = readFileSync(resolve(HR_ROOT, "reports/attendance/page.tsx"), "utf8");
+    expect(report).toContain("canAdmin");
+    expect(report).toContain("hrG2Api.adminMonthlyAttendanceReport(year, month)");
+    expect(report).toContain("hrG2Api.teamMonthlyAttendanceReport(year, month)");
+  });
+});
