@@ -22,57 +22,21 @@ export default defineConfig({
     "**/crm-rbac-acceptance.spec.ts",
     "**/crm-accessibility.spec.ts",
     "**/crm-route-smoke.spec.ts",
-    // Requires authentication + CRM leads data to verify terminal status UX.
-    // Runs in CRM acceptance workflow only.
     "**/crm-035-terminal-leads.spec.ts",
-    // Stateful authenticated CRM workflow suites run exactly once in the
-    // PostgreSQL + Spring Boot CRM acceptance workflow. Running them in this
-    // six-project visual matrix duplicates mutations without a backend fixture.
     "**/crm-transfer-workflow.spec.ts",
     "**/crm-import-workflow.spec.ts",
     "**/crm-pipeline-export.spec.ts",
-    // Requires CRM_TENANT_A_EMAIL/PASSWORD env vars (authenticated acceptance).
-    // Runs in production closure workflows only.
     "**/crm-lifecycle.spec.ts",
-    // CRM-EXEC acceptance: requires the same CRM_TENANT_A credentials as
-    // crm-authenticated-acceptance. Runs in CRM Authenticated E2E workflow
-    // (playwright.crm-acceptance.config.ts) only.
     "**/crm-execution-acceptance.spec.ts",
-    // Mutates the real Production environment and requires protected secrets.
-    // It is mandatory in playwright.crm007-production.config.ts only.
     "**/crm-007-production-closure.spec.ts",
-    // Mutates the real Production environment and requires the exact-SHA
-    // Vercel/Render/Flyway gate plus protected two-tenant credentials.
-    // It is mandatory in playwright.crm008r-production.config.ts only.
     "**/crm-008r-production-closure.spec.ts",
-    // The Workflow Y2 release matrix requires the workflow-e2e Spring profile
-    // (deterministic multi-actor fixture seed) on top of its own real stack.
-    // It runs exclusively through playwright.workflow-y2.config.ts in the
-    // Workflow Y2 Playwright Release Gate workflow.
     "**/workflow-y2-release.spec.ts",
-    // Requires the dedicated real Workflow E2E backend + host-native PostgreSQL Direct.
-    // It runs only through playwright.workflow-designer.config.ts in the
-    // G4 Workflow Designer Browser Acceptance job.
     "**/workflow-designer-browser.spec.ts",
-    // Stateful Subscription acceptance owns its own PostgreSQL Direct database,
-    // seed, backend, frontend, and credentials. It runs exactly once through
-    // playwright.subscription-acceptance.config.ts in the dedicated CI job.
     "**/subscription-executive-acceptance.spec.ts",
-    // Stateful authenticated G2 acceptance — runs exactly once in the dedicated
-    // G2 Authenticated Acceptance workflow (.github/workflows/g2-authenticated-acceptance.yml).
-    // The spec is a cross-role stateful journey (Employee → Manager → HR → APPROVED
-    // using the SAME leave request) that requires:
-    //   - host-native PostgreSQL Direct database (no Docker/Testcontainers)
-    //   - Spring Boot backend with `local` profile + g2-acceptance-seed.sql
-    //     (isolated G2 test tenant + Employee/Manager/HR users + WORKFLOW
-    //     module entitlement + RBAC capabilities)
-    //   - E2E_<ROLE>_EMAIL/PASSWORD env vars provisioned as runtime secrets
-    // Running it inside this six-project locale/theme visual matrix would
-    // (a) fail because the generic CI job doesn't provision the secrets, and
-    // (b) cause mutable-state collisions if it did (each of the 6 projects
-    //     would create a leave request with the same deterministic reason
-    //     text, breaking the cross-role row-matching logic).
+    // Stateful G2 business acceptance owns its dedicated PostgreSQL Direct stack.
     "**/g2-authenticated.spec.ts",
+    // Read-oriented authenticated G2 visual proof owns a separate role/device stack.
+    "**/g2-visual.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
