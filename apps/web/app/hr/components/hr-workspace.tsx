@@ -5,11 +5,14 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import styles from "../hr.module.css";
+import visualStyles from "./hr-g2-visual.module.css";
 
 export interface HrWorkspaceLink {
   href: string;
   label: string;
+  labelKey?: string;
   capability?: string;
   capabilitiesAny?: readonly string[];
 }
@@ -48,39 +51,45 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
   {
     href: "/hr/attendance",
     label: "حضوري",
+    labelKey: "hrm.g2.landing.attendance",
     capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW, HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD],
   },
   {
     href: "/hr/timesheets",
     label: "سجلات وقتي",
+    labelKey: "hrm.g2.landing.timesheets",
     capabilitiesAny: [HRM_CAPABILITIES.TIMESHEET_SELF_VIEW, HRM_CAPABILITIES.TIMESHEET_SELF_SUBMIT],
   },
   {
     href: "/hr/leave",
     label: "إجازاتي",
+    labelKey: "hrm.g2.landing.leave",
     capabilitiesAny: [HRM_CAPABILITIES.LEAVE_SELF_VIEW, HRM_CAPABILITIES.LEAVE_SELF_REQUEST],
   },
 
   // G2 manager/team surfaces.
-  { href: "/hr/team-attendance", label: "حضور الفريق", capability: HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW },
-  { href: "/hr/team-timesheets", label: "سجلات وقت الفريق", capability: HRM_CAPABILITIES.TIMESHEET_TEAM_APPROVE },
+  { href: "/hr/team-attendance", label: "حضور الفريق", labelKey: "hrm.g2.landing.teamAttendance", capability: HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW },
+  { href: "/hr/team-timesheets", label: "سجلات وقت الفريق", labelKey: "hrm.g2.landing.teamTimesheets", capability: HRM_CAPABILITIES.TIMESHEET_TEAM_APPROVE },
   {
     href: "/hr/leave/approvals",
     label: "اعتمادات الإجازات",
+    labelKey: "hrm.g2.landing.leaveApprovals",
     capabilitiesAny: [HRM_CAPABILITIES.LEAVE_TEAM_APPROVE, HRM_CAPABILITIES.LEAVE_HR_APPROVE],
   },
 
   // G2 HR administration surfaces.
-  { href: "/hr/schedules", label: "جداول العمل", capability: HRM_CAPABILITIES.ATTENDANCE_ADMIN },
+  { href: "/hr/schedules", label: "جداول العمل", labelKey: "hrm.g2.landing.schedules", capability: HRM_CAPABILITIES.ATTENDANCE_ADMIN },
   {
     href: "/hr/attendance/admin",
     label: "إدارة الحضور",
+    labelKey: "hrm.g2.landing.attendanceAdmin",
     capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_ADMIN, HRM_CAPABILITIES.ATTENDANCE_CORRECT],
   },
-  { href: "/hr/leave/policies", label: "سياسات الإجازات", capability: HRM_CAPABILITIES.LEAVE_POLICY_ADMIN },
+  { href: "/hr/leave/policies", label: "سياسات الإجازات", labelKey: "hrm.g2.landing.leavePolicies", capability: HRM_CAPABILITIES.LEAVE_POLICY_ADMIN },
   {
     href: "/hr/reports/attendance",
     label: "تقرير الحضور",
+    labelKey: "hrm.g2.landing.attendanceReport",
     capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW, HRM_CAPABILITIES.ATTENDANCE_ADMIN],
   },
 
@@ -105,6 +114,7 @@ function matchesRoute(linkHref: string, activeHref: string): boolean {
 }
 
 export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceProps) {
+  const { t } = useI18n();
   const visibleLinks = HR_WORKSPACE_LINKS.filter((link) => isVisible(link, capabilities));
   const activeLinkHref = visibleLinks
     .filter((link) => matchesRoute(link.href, activeHref))
@@ -118,7 +128,7 @@ export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceP
           إدارة الموظفين والهيكل التنظيمي والتوظيف والتأهيل والإسنادات والعقود والالتزام
         </p>
       </header>
-      <nav aria-label="أقسام الموارد البشرية" className={styles.workspaceNav}>
+      <nav aria-label="أقسام الموارد البشرية" className={`${styles.workspaceNav} ${visualStyles.workspaceNavResponsive}`}>
         <ul className={styles.workspaceNavList}>
           {visibleLinks.map((link) => {
             const active = activeLinkHref === link.href;
@@ -129,7 +139,7 @@ export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceP
                   aria-current={active ? "page" : undefined}
                   className={active ? `${styles.workspaceNavLink} ${styles.workspaceNavLinkActive}` : styles.workspaceNavLink}
                 >
-                  {link.label}
+                  {link.labelKey ? t(link.labelKey) : link.label}
                 </Link>
               </li>
             );
