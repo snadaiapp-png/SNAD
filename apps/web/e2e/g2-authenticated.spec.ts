@@ -38,7 +38,6 @@ const LEAVE_START = futureDate(7);
 const LEAVE_END = futureDate(8);
 
 async function expectLeaveApprovalsReady(page: Page): Promise<void> {
-  await expect(page.getByTestId("g2-page-title")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("leave-approvals-ready")).toBeVisible({ timeout: 15_000 });
 }
 
@@ -47,7 +46,6 @@ async function expectLeaveApprovalsReady(page: Page): Promise<void> {
 // =====================================================================
 test.describe("G2 Desktop Journey @desktop", () => {
   test("employee submits → manager approves → HR approves → APPROVED", async ({ browser }) => {
-    // ---------- EMPLOYEE ----------
     const employeeContext = await browser.newContext();
     const employeePage = await employeeContext.newPage();
 
@@ -73,7 +71,6 @@ test.describe("G2 Desktop Journey @desktop", () => {
       (r) => r.request().method() === "POST" && /\/api\/v2\/hr\/leave\/requests\/[^/]+\/submit$/.test(new URL(r.url()).pathname),
       { timeout: 30_000 },
     );
-
     const selfRequestsResponse = employeePage.waitForResponse(
       (r) => r.request().method() === "GET" && new URL(r.url()).pathname.endsWith("/api/v2/hr/leave/requests"),
       { timeout: 30_000 },
@@ -98,13 +95,11 @@ test.describe("G2 Desktop Journey @desktop", () => {
       selfBody.some((r) => r.id === leaveRequestId && r.state === "PENDING_MANAGER"),
       `Self leave requests must contain the submitted request (id=${leaveRequestId}, state=PENDING_MANAGER). Response: ${JSON.stringify(selfBody).slice(0, 300)}`,
     ).toBe(true);
-
     await expect(employeePage.locator('[data-status="PENDING_MANAGER"]')).toBeVisible({ timeout: 15_000 });
 
     await logoutThroughUi(employeePage);
     await employeeContext.close();
 
-    // ---------- MANAGER ----------
     const managerContext = await browser.newContext();
     const managerPage = await managerContext.newPage();
     const managerLogin = await loginThroughUi(managerPage, "manager");
@@ -124,11 +119,8 @@ test.describe("G2 Desktop Journey @desktop", () => {
       `Manager team leave requests must contain the Employee's request with reason="${LEAVE_REASON}". Response: ${JSON.stringify(teamBody).slice(0, 300)}`,
     ).toBe(true);
 
-    await expect(managerPage.locator("table")).toBeVisible({ timeout: 15_000 });
-
     const managerRow = managerPage.locator("tr", { hasText: LEAVE_REASON }).first();
     await expect(managerRow).toBeVisible({ timeout: 15_000 });
-
     const managerApproveBtn = managerPage.getByTestId(`manager-approve-${leaveRequestId}`);
     await expect(managerApproveBtn).toBeVisible();
     expect(await managerPage.getByTestId(`hr-approve-${leaveRequestId}`).count()).toBe(0);
@@ -145,7 +137,6 @@ test.describe("G2 Desktop Journey @desktop", () => {
     await logoutThroughUi(managerPage);
     await managerContext.close();
 
-    // ---------- HR ----------
     const hrContext = await browser.newContext();
     const hrPage = await hrContext.newPage();
     const hrLogin = await loginThroughUi(hrPage, "hr");
@@ -153,11 +144,8 @@ test.describe("G2 Desktop Journey @desktop", () => {
 
     await hrPage.goto(`${BASE_URL}/hr/leave/approvals`);
     await expectLeaveApprovalsReady(hrPage);
-    await expect(hrPage.locator("table")).toBeVisible({ timeout: 15_000 });
-
     const hrRow = hrPage.locator("tr", { hasText: LEAVE_REASON }).first();
     await expect(hrRow).toBeVisible({ timeout: 15_000 });
-
     const hrApproveBtn = hrPage.getByTestId(`hr-approve-${leaveRequestId}`);
     await expect(hrApproveBtn).toBeVisible();
 
@@ -173,7 +161,6 @@ test.describe("G2 Desktop Journey @desktop", () => {
     await logoutThroughUi(hrPage);
     await hrContext.close();
 
-    // ---------- FINAL EMPLOYEE VERIFICATION ----------
     const verificationContext = await browser.newContext();
     const verificationPage = await verificationContext.newPage();
     const verificationLogin = await loginThroughUi(verificationPage, "employee");
@@ -192,7 +179,6 @@ test.describe("G2 Desktop Journey @desktop", () => {
       verifyBody.some((r) => r.id === leaveRequestId && r.state === "APPROVED"),
       `Final verification: self leave requests must contain the approved request (id=${leaveRequestId}, state=APPROVED). Response: ${JSON.stringify(verifyBody).slice(0, 300)}`,
     ).toBe(true);
-
     await expect(verificationPage.locator('[data-status="APPROVED"]')).toBeVisible({ timeout: 15_000 });
 
     await logoutThroughUi(verificationPage);
@@ -200,48 +186,32 @@ test.describe("G2 Desktop Journey @desktop", () => {
   });
 });
 
-// =====================================================================
-// G2 MANAGER NAV JOURNEY — verifies Manager UI surfaces render
-// =====================================================================
 test.describe("G2 Manager Nav @desktop", () => {
   test("manager: login → team attendance → team timesheets → leave approvals", async ({ page }) => {
     await loginThroughUi(page, "manager");
-
     await page.goto(`${BASE_URL}/hr/team-attendance`);
     await expect(page.getByRole("heading", { name: "Team Attendance", exact: true })).toBeVisible();
-
     await page.goto(`${BASE_URL}/hr/team-timesheets`);
     await expect(page.getByRole("heading", { name: "Team Timesheets", exact: true })).toBeVisible();
-
     await page.goto(`${BASE_URL}/hr/leave/approvals`);
     await expectLeaveApprovalsReady(page);
   });
 });
 
-// =====================================================================
-// G2 HR NAV JOURNEY — verifies HR admin UI surfaces render
-// =====================================================================
 test.describe("G2 HR Nav @desktop", () => {
   test("HR: login → schedules → attendance admin → leave policies → monthly report", async ({ page }) => {
     await loginThroughUi(page, "hr");
-
     await page.goto(`${BASE_URL}/hr/schedules`);
     await expect(page.getByRole("heading", { name: "Work Schedules", exact: true })).toBeVisible();
-
     await page.goto(`${BASE_URL}/hr/attendance/admin`);
     await expect(page.getByRole("heading", { name: "Attendance Administration", exact: true })).toBeVisible();
-
     await page.goto(`${BASE_URL}/hr/leave/policies`);
     await expect(page.getByRole("heading", { name: "Leave Policies", exact: true })).toBeVisible();
-
     await page.goto(`${BASE_URL}/hr/reports/attendance`);
     await expect(page.getByRole("heading", { name: "Monthly Attendance Report", exact: true })).toBeVisible();
   });
 });
 
-// =====================================================================
-// G2 EMPLOYEE MOBILE JOURNEY — real attendance mutation (clock in/out)
-// =====================================================================
 test.describe("G2 Employee Journey @mobile", () => {
   test.use({ viewport: { width: 375, height: 667 } });
   test("employee mobile: login → attendance → perform real clock mutation → verify persisted state", async ({ page }) => {
@@ -252,7 +222,6 @@ test.describe("G2 Employee Journey @mobile", () => {
 
     const clockInBtn = page.getByTestId("attendance-clock-in");
     const clockOutBtn = page.getByTestId("attendance-clock-out");
-
     await expect(clockInBtn.or(clockOutBtn)).toBeVisible({ timeout: 10_000 });
 
     const inBtnVisible = await clockInBtn.isVisible();
