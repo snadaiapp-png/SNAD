@@ -43,10 +43,11 @@ const LANDING_GROUP = {
 for (const role of ["employee", "manager", "hr"] as const) {
   test.describe(`G2 visual ${role}`, () => {
     test(`${role} role surfaces are visually certifiable`, async ({ page }, testInfo) => {
-      await page.addInitScript(() => {
-        localStorage.setItem("snad.locale", "ar");
+      const locale = testInfo.project.use.locale === "en" ? "en" : "ar";
+      await page.addInitScript((selectedLocale) => {
+        localStorage.setItem("snad.locale", selectedLocale);
         localStorage.setItem("snad.theme", "light");
-      });
+      }, locale);
       initializeVisualDiagnostics(page);
 
       const login = await loginThroughUi(page, role);
@@ -56,6 +57,9 @@ for (const role of ["employee", "manager", "hr"] as const) {
         await page.goto(`${BASE_URL}${surface.route}`);
         await page.waitForLoadState("domcontentloaded");
         await assertVisualSurface(page, surface);
+
+        await expect(page.locator("html")).toHaveAttribute("lang", locale);
+        await expect(page.locator("html")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
 
         if (surface.route === "/hr") {
           await expect(page.getByTestId(LANDING_GROUP[role])).toBeVisible();
