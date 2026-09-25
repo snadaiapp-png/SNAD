@@ -56,6 +56,48 @@
   line-height: 1.5;
 }
 
+.g2PageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-block-end: 1rem;
+}
+
+.g2PageHeader h1 {
+  margin: 0;
+}
+
+.g2FormGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0.75rem;
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.75rem;
+  background: var(--snad-color-surface-primary);
+}
+
+.g2FormGrid label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.g2FormGrid button {
+  align-self: end;
+  justify-self: start;
+}
+
+.g2FilterBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+  margin-block-end: 1rem;
+}
+
 .workspaceNavResponsive {
   overflow-x: auto;
   overscroll-behavior-inline: contain;
