@@ -46,7 +46,7 @@ export default function LeavePoliciesPage() {
   }, [state, load]);
 
   if (["INITIALIZING","CHECKING_SESSION","REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
-  if (!canAdmin) return <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/policies"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
+  if (!canAdmin) return <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/policies" translate={t}><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
 
   const boolLabel = (value: boolean) => t(value ? "hrm.leavePolicies.yes" : "hrm.leavePolicies.no");
   const columns: HrColumn<LeaveType>[] = [
@@ -59,7 +59,7 @@ export default function LeavePoliciesPage() {
   ];
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/policies">
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/policies" translate={t}>
       <header className={visualStyles.g2PageHeader}>
         <div>
           <h1>{t("hrm.leavePolicies.title")}</h1>
