@@ -139,8 +139,8 @@ describe("G2 HR administration product surfaces", () => {
   });
 });
 
-describe("G2 role-device visual evidence harness", () => {
-  it("defines a dedicated fail-closed visual suite for desktop and mobile", () => {
+describe("G2 role-locale-device visual evidence harness", () => {
+  it("defines a dedicated fail-closed visual suite for Arabic and English on desktop and mobile", () => {
     const configPath = resolve(WEB_ROOT, "playwright-g2-visual.config.ts");
     const specPath = resolve(WEB_ROOT, "e2e/g2-visual.spec.ts");
     const helperPath = resolve(WEB_ROOT, "e2e/g2-visual-helpers.ts");
@@ -151,11 +151,21 @@ describe("G2 role-device visual evidence harness", () => {
     const config = readFileSync(configPath, "utf8");
     const spec = readFileSync(specPath, "utf8");
     const helper = readFileSync(helperPath, "utf8");
-    expect(config).toContain('name: "g2-visual-desktop"');
-    expect(config).toContain('name: "g2-visual-mobile"');
+    for (const project of [
+      'name: "g2-visual-ar-desktop"',
+      'name: "g2-visual-ar-mobile"',
+      'name: "g2-visual-en-desktop"',
+      'name: "g2-visual-en-mobile"',
+    ]) {
+      expect(config).toContain(project);
+    }
+    expect(config).toContain('locale: "ar"');
+    expect(config).toContain('locale: "en"');
     expect(config).toContain('screenshot: "on"');
     expect(config).toContain("375");
     for (const role of ['"employee"','"manager"','"hr"']) expect(spec).toContain(role);
+    expect(spec).toContain('toHaveAttribute("lang", locale)');
+    expect(spec).toContain('toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr")');
     expect(helper).toContain("process.env.GITHUB_HEAD_SHA ??");
     expect(helper).toContain("manifest.ndjson");
     expect(helper).toContain("document.documentElement.scrollWidth");
