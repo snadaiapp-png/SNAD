@@ -9,6 +9,7 @@ import { HrWorkspace } from "../components/hr-workspace";
 import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import styles from "../hr.module.css";
+import visualStyles from "../components/hr-g2-visual.module.css";
 
 interface Schedule { id: string; code: string; nameAr: string; nameEn: string; timezone: string; shiftStart: string; shiftEnd: string; breakMinutes: number; expectedMinutes: number; isOvernight: boolean; state: string; }
 
@@ -57,31 +58,38 @@ export default function SchedulesPage() {
   if (!canAdmin) return <HrWorkspace capabilities={capabilities} activeHref="/hr/schedules"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
 
   const columns: HrColumn<Schedule>[] = [
-    { key: "code", header: "Code" },
-    { key: "name", header: "Name", render: (r) => locale === "ar" ? r.nameAr : r.nameEn },
-    { key: "shiftStart", header: "Shift", render: (r) => `${r.shiftStart}—${r.shiftEnd}${r.isOvernight ? " (overnight)" : ""}` },
-    { key: "breakMinutes", header: "Break", align: "end", render: (r) => `${r.breakMinutes}m` },
-    { key: "expectedMinutes", header: "Expected", align: "end", render: (r) => `${Math.floor(r.expectedMinutes/60)}h ${r.expectedMinutes%60}m` },
+    { key: "code", header: t("hrm.schedules.code") },
+    { key: "name", header: t("hrm.schedules.name"), render: (r) => locale === "ar" ? r.nameAr : r.nameEn },
+    { key: "shiftStart", header: t("hrm.schedules.shift"), render: (r) => `${r.shiftStart}—${r.shiftEnd}${r.isOvernight ? ` (${t("hrm.schedules.overnight")})` : ""}` },
+    { key: "breakMinutes", header: t("hrm.schedules.break"), align: "end", render: (r) => `${r.breakMinutes}` },
+    { key: "expectedMinutes", header: t("hrm.schedules.expected"), align: "end", render: (r) => `${Math.floor(r.expectedMinutes/60)}:${String(r.expectedMinutes%60).padStart(2,"0")}` },
   ];
 
   return (
     <HrWorkspace capabilities={capabilities} activeHref="/hr/schedules">
-      <header><h1>Work Schedules</h1></header>
-      {canAdmin ? <button type="button" className={styles.linkButton} onClick={() => setShowForm(!showForm)}>Create Schedule</button> : null}
+      <header className={visualStyles.g2PageHeader}>
+        <div>
+          <h1>{t("hrm.schedules.title")}</h1>
+          <p className={styles.kpiHint}>{t("hrm.schedules.subtitle")}</p>
+        </div>
+        <button type="button" className={styles.linkButton} onClick={() => setShowForm(!showForm)}>{t("hrm.schedules.create")}</button>
+      </header>
       {showForm ? (
-        <form onSubmit={(e) => { e.preventDefault(); void createSchedule(); }}>
-          <p><label className={styles.kpiLabel}>Code: <input className={styles.filterSelect} value={formCode} onChange={(e) => setFormCode(e.target.value)} required /></label></p>
-          <p><label className={styles.kpiLabel}>Name (AR): <input className={styles.filterSelect} value={formNameAr} onChange={(e) => setFormNameAr(e.target.value)} required /></label></p>
-          <p><label className={styles.kpiLabel}>Name (EN): <input className={styles.filterSelect} value={formNameEn} onChange={(e) => setFormNameEn(e.target.value)} required /></label></p>
-          <p><label className={styles.kpiLabel}>Start: <input className={styles.filterSelect} type="time" value={formShiftStart} onChange={(e) => setFormShiftStart(e.target.value)} /></label></p>
-          <p><label className={styles.kpiLabel}>End: <input className={styles.filterSelect} type="time" value={formShiftEnd} onChange={(e) => setFormShiftEnd(e.target.value)} /></label></p>
-          <p><label className={styles.kpiLabel}>Break (min): <input className={styles.filterSelect} type="number" value={formBreak} onChange={(e) => setFormBreak(e.target.value)} /></label></p>
+        <form className={visualStyles.g2FormGrid} onSubmit={(e) => { e.preventDefault(); void createSchedule(); }}>
+          <label className={styles.kpiLabel}>{t("hrm.schedules.code")}<input className={styles.filterSelect} value={formCode} onChange={(e) => setFormCode(e.target.value)} required /></label>
+          <label className={styles.kpiLabel}>{t("hrm.schedules.nameAr")}<input className={styles.filterSelect} value={formNameAr} onChange={(e) => setFormNameAr(e.target.value)} required /></label>
+          <label className={styles.kpiLabel}>{t("hrm.schedules.nameEn")}<input className={styles.filterSelect} value={formNameEn} onChange={(e) => setFormNameEn(e.target.value)} required /></label>
+          <label className={styles.kpiLabel}>{t("hrm.schedules.start")}<input className={styles.filterSelect} type="time" value={formShiftStart} onChange={(e) => setFormShiftStart(e.target.value)} /></label>
+          <label className={styles.kpiLabel}>{t("hrm.schedules.end")}<input className={styles.filterSelect} type="time" value={formShiftEnd} onChange={(e) => setFormShiftEnd(e.target.value)} /></label>
+          <label className={styles.kpiLabel}>{t("hrm.schedules.breakMinutes")}<input className={styles.filterSelect} type="number" min="0" value={formBreak} onChange={(e) => setFormBreak(e.target.value)} /></label>
           {formError ? <p role="alert" className={styles.kpiHint} data-kind="error">{formError}</p> : null}
-          <button type="submit" className={styles.linkButton} disabled={busy}>Create</button>
+          <button type="submit" className={styles.linkButton} disabled={busy}>{t("hrm.schedules.create")}</button>
         </form>
       ) : null}
       {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
-        <HrDataTable<Schedule> caption="Work Schedules" columns={columns} rows={schedules} rowKey={(r) => r.id} emptyTitle="No schedules" />
+        <div data-testid="schedules-ready">
+          <HrDataTable<Schedule> caption={t("hrm.schedules.caption")} columns={columns} rows={schedules} rowKey={(r) => r.id} emptyTitle={t("hrm.schedules.empty")} />
+        </div>
       )}
     </HrWorkspace>
   );
