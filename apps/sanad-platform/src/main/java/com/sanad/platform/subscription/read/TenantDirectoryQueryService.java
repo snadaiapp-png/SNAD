@@ -23,6 +23,7 @@ public class TenantDirectoryQueryService {
     public record TenantRow(UUID id, String name, String code, String status,
                             String countryCode, String currencyCode,
                             int subscriptionCount, String subscriptionStatus,
+                            String applicationHostname,
                             java.time.Instant createdAt) {
     }
 
@@ -73,7 +74,14 @@ public class TenantDirectoryQueryService {
                                t.created_at,
                                (SELECT COUNT(*) FROM tenant_subscriptions s WHERE s.tenant_id = t.id) AS subscription_count,
                                (SELECT s.status FROM tenant_subscriptions s WHERE s.tenant_id = t.id
-                                ORDER BY s.created_at DESC, s.id DESC LIMIT 1) AS subscription_status
+                                ORDER BY s.created_at DESC, s.id DESC LIMIT 1) AS subscription_status,
+                               (SELECT d.hostname FROM tenant_domains d
+                                WHERE d.tenant_id = t.id
+                                  AND d.domain_type = 'APPLICATION'
+                                  AND d.origin = 'DEFAULT_GENERATED'
+                                  AND d.status = 'ACTIVE'
+                                ORDER BY d.is_primary DESC, d.created_at ASC, d.id ASC
+                                LIMIT 1) AS application_hostname
                         FROM tenants t
                         """ + where
                         + " ORDER BY t." + sortColumn + " " + sortDirection
@@ -90,6 +98,7 @@ public class TenantDirectoryQueryService {
                         (String) r.get("currency_code"),
                         ((Number) r.getOrDefault("subscription_count", 0)).intValue(),
                         (String) r.get("subscription_status"),
+                        (String) r.get("application_hostname"),
                         r.get("created_at") == null ? null
                                 : ((java.sql.Timestamp) r.get("created_at")).toInstant()))
                 .toList();

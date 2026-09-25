@@ -25,11 +25,15 @@ import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
 import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.security.ratelimit.LoginRateLimiter;
+import com.sanad.platform.tenant.domain.TenantStatus;
+import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,7 +69,10 @@ public class AuthService {
     private final Cache<String, Integer> loginFailureCache;
     private final Cache<String, Integer> resetRequestCache;
     private final SessionVersionCache sessionVersionCache;
+    private final TenantRepository tenantRepository;
+    private final SubscriptionResolutionService subscriptionResolution;
 
+    @Autowired
     public AuthService(
             UserRepository userRepository,
             RefreshTokenRepository refreshTokenRepository,
@@ -74,7 +81,9 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             SecurityProperties securityProperties,
             LoginRateLimiter loginRateLimiter,
-            SessionVersionCache sessionVersionCache
+            SessionVersionCache sessionVersionCache,
+            TenantRepository tenantRepository,
+            SubscriptionResolutionService subscriptionResolution
     ) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -84,6 +93,8 @@ public class AuthService {
         this.securityProperties = securityProperties;
         this.loginRateLimiter = loginRateLimiter;
         this.sessionVersionCache = sessionVersionCache;
+        this.tenantRepository = tenantRepository;
+        this.subscriptionResolution = subscriptionResolution;
 
         SecurityProperties.LoginRateLimit rateLimit = securityProperties.getLoginRateLimit();
         // Legacy in-process cache retained as a secondary defense-in-depth counter
@@ -96,6 +107,25 @@ public class AuthService {
         this.resetRequestCache = Caffeine.newBuilder()
                 .expireAfterWrite(1, TimeUnit.HOURS)
                 .build();
+    }
+
+    /**
+     * Backward-compatible direct-instantiation constructor for legacy unit
+     * tests. Production Spring wiring always supplies TenantRepository.
+     */
+    public AuthService(
+            UserRepository userRepository,
+            RefreshTokenRepository refreshTokenRepository,
+            PasswordResetTokenRepository passwordResetTokenRepository,
+            JwtTokenProvider jwtTokenProvider,
+            PasswordEncoder passwordEncoder,
+            SecurityProperties securityProperties,
+            LoginRateLimiter loginRateLimiter,
+            SessionVersionCache sessionVersionCache
+    ) {
+        this(userRepository, refreshTokenRepository, passwordResetTokenRepository,
+                jwtTokenProvider, passwordEncoder, securityProperties,
+                loginRateLimiter, sessionVersionCache, null, null);
     }
 
     @Transactional
@@ -174,11 +204,48 @@ public class AuthService {
             log.warn("Login blocked: user status={} userId={}", user.getStatus(), user.getId());
             throw new AccountInactiveException("حساب المستخدم غير نشط");
         }
+        requireLoginEligibleTenant(user.getTenantId());
+        requireLoginEligibleSubscription(user);
 
         recordLoginSuccess(rateLimitKeys, normalizedEmail);
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
         return issueTokens(user);
+    }
+
+    private void requireLoginEligibleTenant(UUID tenantId) {
+        if (tenantRepository == null) {
+            // Legacy direct-instantiation tests only. Production must always
+            // have the repository through the @Autowired constructor above.
+            return;
+        }
+        TenantStatus status = tenantRepository.findById(tenantId)
+                .map(tenant -> tenant.getStatus())
+                .orElseThrow(() -> new AccountInactiveException("المستأجر غير موجود"));
+        if (status != TenantStatus.ACTIVE
+                && status != TenantStatus.TRIAL
+                && status != TenantStatus.PAST_DUE) {
+            log.warn("Authentication blocked: tenant status={} tenantId={}", status, tenantId);
+            throw new AccountInactiveException("المستأجر غير نشط");
+        }
+    }
+
+    private void requireLoginEligibleSubscription(User user) {
+        if (user == null || user.isPlatformAdmin() || subscriptionResolution == null) {
+            // Platform operators are governed by the control-plane tenant and
+            // must remain able to recover customer subscription incidents.
+            // The null case exists only for legacy direct-instantiation tests.
+            return;
+        }
+        SubscriptionResolutionService.EffectiveSubscription subscription =
+                subscriptionResolution.findEffectiveSubscription(user.getTenantId())
+                        .orElseThrow(() -> new AccountInactiveException("لا يوجد اشتراك فعال للمستأجر"));
+        if (!java.util.Set.of("TRIAL", "TRIALING", "ACTIVE", "PAST_DUE", "GRACE_PERIOD")
+                .contains(subscription.status())) {
+            log.warn("Authentication blocked: subscription status={} tenantId={}",
+                    subscription.status(), user.getTenantId());
+            throw new AccountInactiveException("الاشتراك غير متاح لتسجيل الدخول");
+        }
     }
 
     private void recordLoginFailure(String[] rateLimitKeys, String normalizedEmail) {
@@ -247,6 +314,14 @@ public class AuthService {
             refreshTokenRepository.revokeAllActive(
                     refreshToken.getTenantId(), refreshToken.getUserId());
             throw new AccountInactiveException("حساب المستخدم غير نشط");
+        }
+        try {
+            requireLoginEligibleTenant(user.getTenantId());
+            requireLoginEligibleSubscription(user);
+        } catch (AccountInactiveException inactiveTenant) {
+            refreshTokenRepository.revokeAllActive(
+                    refreshToken.getTenantId(), refreshToken.getUserId());
+            throw inactiveTenant;
         }
 
         if (user.isMustChangePassword()) {

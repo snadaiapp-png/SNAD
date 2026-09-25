@@ -53,6 +53,8 @@ export interface TenantRow {
   currencyCode: string | null;
   subscriptionCount: number;
   subscriptionStatus: string | null;
+  /** Active application hostname used to isolate tenant sign-in sessions by host. */
+  applicationHostname: string | null;
   createdAt: string;
 }
 

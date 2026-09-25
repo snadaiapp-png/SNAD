@@ -2,6 +2,7 @@ package com.sanad.platform.executive.service;
 
 import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ class ExecutivePlatformLoginLinkTest {
 
     private JdbcTemplate jdbc;
     private PlatformAuditService audit;
+    private TenantDomainService domains;
     private Authentication authentication;
     private ExecutivePlatformService service;
 
@@ -36,20 +38,24 @@ class ExecutivePlatformLoginLinkTest {
     void setUp() {
         jdbc = mock(JdbcTemplate.class);
         audit = mock(PlatformAuditService.class);
+        domains = mock(TenantDomainService.class);
         authentication = mock(Authentication.class);
-        service = new ExecutivePlatformService(jdbc, audit, mock(RegistrationProvisioner.class));
+        service = new ExecutivePlatformService(
+                jdbc, audit, mock(RegistrationProvisioner.class), domains);
     }
 
     @Test
     void recordsAnOpenEventForAnActiveTenantWithoutCreatingCredentials() {
         when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(TENANT_ID)))
                 .thenReturn(List.of(tenant("ACTIVE")));
-
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
+                .thenReturn(1);
         service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication);
 
+        verify(domains, never()).ensureDefaultDomain(any(), anyString(), any(), any());
         verify(audit).success(authentication, TENANT_ID, "TENANT_LOGIN_LINK_OPEN", "TENANT",
                 TENANT_ID.toString(), "Executive opened tenant sign-in link", null,
-                java.util.Map.of("action", "OPEN"));
+                java.util.Map.of("action", "OPEN", "sessionScope", "TENANT"));
     }
 
     @Test
@@ -58,6 +64,22 @@ class ExecutivePlatformLoginLinkTest {
                 .thenReturn(List.of(tenant("ARCHIVED")));
 
         assertThatThrownBy(() -> service.recordTenantLoginLinkEvent(TENANT_ID, "COPY", authentication))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
+                                .isEqualTo(HttpStatus.CONFLICT));
+
+        verify(audit, never()).success(any(), any(), anyString(), anyString(), anyString(),
+                anyString(), any(), any());
+    }
+
+    @Test
+    void rejectsActiveTenantWhenEffectiveSubscriptionIsNotUnique() {
+        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(TENANT_ID)))
+                .thenReturn(List.of(tenant("ACTIVE")));
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
+                .thenReturn(2);
+
+        assertThatThrownBy(() -> service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
                                 .isEqualTo(HttpStatus.CONFLICT));

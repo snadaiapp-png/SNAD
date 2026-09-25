@@ -121,12 +121,25 @@ function SubscriptionsContent() {
       ]);
       if (generation !== upgradeRequestGeneration.current) return;
       const activePlans = plans.filter((plan) => plan.status === "ACTIVE");
+      // Fail-closed plan-version currency: an operator may only target a plan
+      // whose canonical backend version is still ACTIVE. Retired plans and
+      // active plans without a live version are never offered for upgrade.
+      const currencyEligible = await Promise.all(
+        activePlans.map(async (plan) => {
+          const planVersions = await scpApi.planVersions(plan.id);
+          return planVersions.some((version) => version.status === "ACTIVE") ? plan : null;
+        }),
+      );
+      if (generation !== upgradeRequestGeneration.current) return;
+      const selectablePlans = currencyEligible.filter(
+        (plan): plan is SaasPlan => plan !== null,
+      );
       setUpgradeTenant(tenant);
-      setUpgradePlans(activePlans);
+      setUpgradePlans(selectablePlans);
       setUpgradePlanId((current) =>
-        current && activePlans.some((plan) => plan.id === current)
+        current && selectablePlans.some((plan) => plan.id === current)
           ? current
-          : activePlans[0]?.id ?? "",
+          : selectablePlans[0]?.id ?? "",
       );
     } catch (reason) {
       if (generation === upgradeRequestGeneration.current) {

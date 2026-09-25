@@ -69,13 +69,55 @@ export interface BillingInvoice {
 
 export interface ManagedOrganization {
   id: string; tenantId: string; name: string; description: string | null;
-  status: string; createdAt: string; updatedAt: string;
+  status: string; unitType: "GENERAL" | "LEGAL_ENTITY" | "BRANCH" | "DEPARTMENT" | "LOCATION";
+  createdAt: string; updatedAt: string;
 }
 
 export interface ManagedMembership {
   id: string; tenantId: string; organizationId: string;
   userId: string | null; email: string; displayName: string | null;
   roleCode: string; status: string; createdAt: string; updatedAt: string;
+}
+
+export interface SubscriptionOperatingUnit {
+  organizationId: string;
+  organizationName: string;
+  unitType: "GENERAL" | "LEGAL_ENTITY" | "BRANCH" | "DEPARTMENT" | "LOCATION";
+  status: "ACTIVE" | "INACTIVE";
+  billingMode: "CONSOLIDATED" | "SEPARATE";
+}
+
+export interface SubscriptionBillingProfile {
+  id: string;
+  organizationId: string | null;
+  profileName: string;
+  billingEmail: string | null;
+  currencyCode: string;
+  billingMode: "CONSOLIDATED" | "SEPARATE";
+  status: "ACTIVE" | "INACTIVE";
+}
+
+export interface SubscriptionUnitApplication {
+  applicationId: string;
+  applicationCode: string;
+  applicationName: string;
+  enabled: boolean;
+}
+
+export interface SubscriptionResourceBinding {
+  organizationId: string;
+  resourceType: "WEBSITE" | "STORE" | "POS_LOCATION";
+  resourceId: string;
+  resourceName: string | null;
+  status: "ACTIVE" | "INACTIVE";
+}
+
+export interface SubscriptionAvailableResource {
+  resourceType: "WEBSITE" | "STORE";
+  resourceId: string;
+  resourceName: string;
+  resourceStatus: string;
+  boundOrganizationId: string | null;
 }
 
 export interface Entitlement {
@@ -118,8 +160,16 @@ export const executiveApi = {
   accessCheck: () => apiClient.get<{ authenticated: boolean; canRead: boolean; canWrite: boolean }>(`${root}/access-check`),
   tenants: () => apiClient.get<ManagedTenant[]>(`${root}/tenants`),
   tenant: (tenantId: string) => apiClient.get<ManagedTenant>(`${root}/tenants/${tenantId}`),
-  createTenant: (body: { name: string; subdomain: string; adminEmail: string; adminDisplayName: string }) =>
-    apiClient.post<ManagedTenant, typeof body>(`${root}/tenants`, body),
+  createTenant: (body: {
+    name: string;
+    subdomain: string;
+    adminEmail: string;
+    adminDisplayName: string;
+    countryCode?: string;
+    locale?: string;
+    timezone?: string;
+    currencyCode?: string;
+  }) => apiClient.post<ManagedTenant, typeof body>(`${root}/tenants`, body),
   updateTenant: (tenantId: string, body: TenantProfileUpdate) =>
     apiClient.patch<ManagedTenant, TenantProfileUpdate>(`${root}/tenants/${tenantId}`, body),
   changeTenantStatus: (tenantId: string, status: string, reason: string) =>
@@ -142,8 +192,101 @@ export const executiveApi = {
   invoices: (tenantId: string) =>
     apiClient.get<BillingInvoice[]>(`${root}/billing/invoices?tenantId=${encodeURIComponent(tenantId)}`),
   organizations: (tenantId: string) => apiClient.get<ManagedOrganization[]>(`${root}/tenants/${tenantId}/organizations`),
+  createOrganization: (
+    tenantId: string,
+    body: { name: string; description?: string | null; unitType?: ManagedOrganization["unitType"] },
+  ) => apiClient.post<ManagedOrganization, typeof body>(
+    `${root}/tenants/${tenantId}/organizations`,
+    body,
+  ),
+  updateOrganization: (
+    tenantId: string,
+    organizationId: string,
+    body: { name: string; description?: string | null; unitType?: ManagedOrganization["unitType"] },
+  ) => apiClient.put<ManagedOrganization, typeof body>(
+    `${root}/tenants/${tenantId}/organizations/${organizationId}`,
+    body,
+  ),
+  changeOrganizationStatus: (
+    tenantId: string,
+    organizationId: string,
+    status: "ACTIVE" | "INACTIVE" | "ARCHIVED",
+    reason: string,
+  ) => apiClient.patch<ManagedOrganization, { status: string; reason: string }>(
+    `${root}/tenants/${tenantId}/organizations/${organizationId}/status`,
+    { status, reason },
+  ),
   memberships: (tenantId: string, organizationId: string) =>
     apiClient.get<ManagedMembership[]>(`${root}/tenants/${tenantId}/organizations/${organizationId}/memberships`),
+
+  operatingUnits: (subscriptionId: string) =>
+    apiClient.get<SubscriptionOperatingUnit[]>(`${root}/subscriptions/${subscriptionId}/operating-units`),
+  operatingUnitApplications: (subscriptionId: string, organizationId: string) =>
+    apiClient.get<SubscriptionUnitApplication[]>(
+      `${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}/applications`,
+    ),
+  subscriptionBillingProfiles: (subscriptionId: string) =>
+    apiClient.get<SubscriptionBillingProfile[]>(
+      `${root}/subscriptions/${subscriptionId}/billing-profiles`,
+    ),
+  subscriptionResourceBindings: (subscriptionId: string) =>
+    apiClient.get<SubscriptionResourceBinding[]>(
+      `${root}/subscriptions/${subscriptionId}/resource-bindings`,
+    ),
+  subscriptionAvailableResources: (subscriptionId: string) =>
+    apiClient.get<SubscriptionAvailableResource[]>(
+      `${root}/subscriptions/${subscriptionId}/available-resources`,
+    ),
+  bindOperatingUnit: (
+    subscriptionId: string,
+    organizationId: string,
+    billingMode: "CONSOLIDATED" | "SEPARATE",
+  ) => apiClient.put<SubscriptionOperatingUnit, { billingMode: string }>(
+    `${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}`,
+    { billingMode },
+  ),
+  deactivateOperatingUnit: (subscriptionId: string, organizationId: string) =>
+    apiClient.delete<void>(`${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}`),
+  setOperatingUnitApplication: (
+    subscriptionId: string,
+    organizationId: string,
+    applicationId: string,
+    enabled: boolean,
+  ) => apiClient.put<void, { enabled: boolean }>(
+    `${root}/subscriptions/${subscriptionId}/operating-units/${organizationId}/applications/${applicationId}`,
+    { enabled },
+  ),
+  bindSubscriptionResource: (
+    subscriptionId: string,
+    organizationId: string,
+    resourceType: "WEBSITE" | "STORE",
+    resourceId: string,
+  ) => apiClient.put<void, { organizationId: string }>(
+    `${root}/subscriptions/${subscriptionId}/resources/${resourceType}/${resourceId}`,
+    { organizationId },
+  ),
+
+  unbindSubscriptionResource: (
+    subscriptionId: string,
+    resourceType: "WEBSITE" | "STORE" | "POS_LOCATION",
+    resourceId: string,
+  ) => apiClient.delete<void>(
+    `${root}/subscriptions/${subscriptionId}/resources/${resourceType}/${resourceId}`,
+  ),
+
+  upsertSubscriptionBillingProfile: (
+    subscriptionId: string,
+    body: {
+      organizationId?: string | null;
+      profileName: string;
+      billingEmail?: string | null;
+      currencyCode: string;
+      billingMode: "CONSOLIDATED" | "SEPARATE";
+    },
+  ) => apiClient.put<SubscriptionBillingProfile, typeof body>(
+    `${root}/subscriptions/${subscriptionId}/billing-profile`,
+    body,
+  ),
 
   // Module Registry + Entitlements (EXECUTIVE V2)
   modules: () => apiClient.get<ModuleResponse[]>(`${root}/modules`),

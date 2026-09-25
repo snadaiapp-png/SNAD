@@ -77,8 +77,12 @@ class PlatformApiCountTest {
      *  EXECUTIVE_MANAGE-gated; /api/v1/executive group 81 → 82) = 856.
      *  + 38 HRM-G1 T10 recruitment/onboarding canonical v2 operations
      *  under /api/v2/hr/recruitment and /api/v2/hr/onboarding = 894.
-     *  + 31 HRM-G2 time, attendance, timesheet, leave and scoped read operations = 925. */
-    private static final long EXPECTED_TOTAL_OPS = 925;
+     *  + 31 HRM-G2 time, attendance, timesheet, leave and scoped read operations = 925.
+     *  + 11 Subscription WS8 operating-unit governance operations
+     *  (read units/apps/billing/resources + bind/deactivate/app/profile/resource commands;
+     *  /api/v1/executive group 82 → 93) = 936.
+     *  + 2 Store-domain lifecycle operations (disable + set-primary) = 938. */
+    private static final long EXPECTED_TOTAL_OPS = 938;
     private static final long EXPECTED_HRM_V2_OPS = 127;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -95,7 +99,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(82);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(93);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
