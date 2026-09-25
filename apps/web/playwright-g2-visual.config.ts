@@ -17,7 +17,6 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   use: {
     baseURL: BASE_URL,
-    locale: "ar",
     colorScheme: "light",
     trace: "retain-on-failure",
     screenshot: "on",
@@ -26,15 +25,28 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "g2-visual-desktop",
+      name: "g2-visual-ar-desktop",
       use: { ...devices["Desktop Chrome"], locale: "ar", colorScheme: "light" },
     },
     {
-      name: "g2-visual-mobile",
+      name: "g2-visual-ar-mobile",
       use: {
         ...devices["Pixel 5"],
         viewport: { width: 375, height: 667 },
         locale: "ar",
+        colorScheme: "light",
+      },
+    },
+    {
+      name: "g2-visual-en-desktop",
+      use: { ...devices["Desktop Chrome"], locale: "en", colorScheme: "light" },
+    },
+    {
+      name: "g2-visual-en-mobile",
+      use: {
+        ...devices["Pixel 5"],
+        viewport: { width: 375, height: 667 },
+        locale: "en",
         colorScheme: "light",
       },
     },
