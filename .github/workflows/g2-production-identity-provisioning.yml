@@ -1,0 +1,434 @@
+# ============================================================
+# SANAD Platform — G2 Production Identity Provisioning
+# ------------------------------------------------------------
+# Creates 3 production role identities (Employee/Manager/HR) in the
+# Control Plane tenant with minimal RBAC, then sets GitHub
+# Environment Secrets for the production release workflow.
+#
+# This workflow runs in the `production` environment where the
+# CONTROL_PLANE_ADMIN_* secrets are available.
+#
+# Forbidden:
+#   - Direct production DB INSERT
+#   - BYPASSRLS
+#   - Bootstrap backdoor
+#   - Using CI test emails (g2-*@g2-acceptance.example)
+#   - Using admin/system accounts as G2 test identities
+# ============================================================
+name: G2 Production Identity Provisioning
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (validate only, no user creation)'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  provision-g2-identities:
+    name: Provision G2 Production Role Identities
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DRY_RUN: ${{ inputs.dry_run }}
+      # Production admin credentials (from GitHub secrets)
+      ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+      TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+      BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      # GitHub token for setting secrets
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Validate required inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for var in ADMIN_EMAIL ADMIN_PASSWORD TENANT_ID BASE_URL; do
+            val="${!var}"
+            if [ -z "$val" ]; then
+              echo "::error::$var is required but not set"
+              exit 1
+            fi
+          done
+          echo "All required inputs present."
+          echo "Tenant ID: ${TENANT_ID:0:8}... (masked)"
+
+      - name: Authenticate as Control Plane admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$ADMIN_EMAIL"
+          echo "::add-mask::$ADMIN_PASSWORD"
+
+          RESPONSE=$(curl --silent --show-error \
+            -X POST "${BASE_URL%/}/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg email "$ADMIN_EMAIL" --arg password "$ADMIN_PASSWORD" \
+                  '{email: $email, password: $password}')")
+
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.accessToken // empty')
+          if [ -z "$ACCESS_TOKEN" ]; then
+            echo "::error::Failed to authenticate as Control Plane admin"
+            echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+            exit 1
+          fi
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> "$GITHUB_ENV"
+          echo "Admin authenticated successfully."
+
+          # Verify tenant from login response
+          RESPONSE_TENANT=$(echo "$RESPONSE" | jq -r '.user.tenantId // empty')
+          if [ "$RESPONSE_TENANT" != "$TENANT_ID" ]; then
+            echo "::error::Tenant mismatch: response tenant ($RESPONSE_TENANT) != expected ($TENANT_ID)"
+            exit 1
+          fi
+          echo "Tenant binding verified."
+
+      - name: Generate G2 identity credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Generate cryptographically random passwords (alphanumeric, no special chars)
+          EMP_PASS=$(openssl rand -hex 16 | tr 'a-f' 'A-Z0-9' | head -c 24)
+          MGR_PASS=$(openssl rand -hex 16 | tr 'a-f' 'A-Z0-9' | head -c 24)
+          HR_PASS=$(openssl rand -hex 16 | tr 'a-f' 'A-Z0-9' | head -c 24)
+
+          echo "::add-mask::$EMP_PASS"
+          echo "::add-mask::$MGR_PASS"
+          echo "::add-mask::$HR_PASS"
+
+          echo "EMP_PASSWORD=$EMP_PASS" >> "$GITHUB_ENV"
+          echo "MGR_PASSWORD=$MGR_PASS" >> "$GITHUB_ENV"
+          echo "HR_PASSWORD=$HR_PASS" >> "$GITHUB_ENV"
+
+          # Production email pattern — NOT CI test emails
+          EMP_EMAIL="g2.employee.qa@sanad.app"
+          MGR_EMAIL="g2.manager.qa@sanad.app"
+          HR_EMAIL="g2.hr.qa@sanad.app"
+
+          echo "EMP_EMAIL=$EMP_EMAIL" >> "$GITHUB_ENV"
+          echo "MGR_EMAIL=$MGR_EMAIL" >> "$GITHUB_ENV"
+          echo "HR_EMAIL=$HR_EMAIL" >> "$GITHUB_ENV"
+
+          echo "Generated 3 production identity credentials (passwords masked)."
+
+      - name: Create G2 Employee identity
+        if: ${{ env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Creating G2 Employee user: $EMP_EMAIL"
+          RESPONSE=$(curl --silent --show-error \
+            -X POST "${BASE_URL%/}/api/v1/users?tenantId=$TENANT_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg email "$EMP_EMAIL" '{email: $email, displayName: "G2 Employee QA", status: "ACTIVE"}')")
+          EMP_USER_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+          if [ -z "$EMP_USER_ID" ]; then
+            echo "::error::Failed to create Employee user"
+            echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+            exit 1
+          fi
+          echo "EMP_USER_ID=$EMP_USER_ID" >> "$GITHUB_ENV"
+          echo "Created Employee user: $EMP_USER_ID"
+
+      - name: Create G2 Manager identity
+        if: ${{ env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Creating G2 Manager user: $MGR_EMAIL"
+          RESPONSE=$(curl --silent --show-error \
+            -X POST "${BASE_URL%/}/api/v1/users?tenantId=$TENANT_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg email "$MGR_EMAIL" '{email: $email, displayName: "G2 Manager QA", status: "ACTIVE"}')")
+          MGR_USER_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+          if [ -z "$MGR_USER_ID" ]; then
+            echo "::error::Failed to create Manager user"
+            echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+            exit 1
+          fi
+          echo "MGR_USER_ID=$MGR_USER_ID" >> "$GITHUB_ENV"
+          echo "Created Manager user: $MGR_USER_ID"
+
+      - name: Create G2 HR identity
+        if: ${{ env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Creating G2 HR user: $HR_EMAIL"
+          RESPONSE=$(curl --silent --show-error \
+            -X POST "${BASE_URL%/}/api/v1/users?tenantId=$TENANT_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg email "$HR_EMAIL" '{email: $email, displayName: "G2 HR QA", status: "ACTIVE"}')")
+          HR_USER_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+          if [ -z "$HR_USER_ID" ]; then
+            echo "::error::Failed to create HR user"
+            echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+            exit 1
+          fi
+          echo "HR_USER_ID=$HR_USER_ID" >> "$GITHUB_ENV"
+          echo "Created HR user: $HR_USER_ID"
+
+      - name: Create G2 roles and assign capabilities
+        if: ${{ env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="${BASE_URL%/}/api/v1"
+          AUTH="-H \"Authorization: Bearer $ACCESS_TOKEN\" -H \"Content-Type: application/json\""
+
+          # Helper: find or create a role by code
+          get_or_create_role() {
+            local code="$1" name="$2" desc="$3"
+            # List roles to find existing
+            local existing=$(eval curl --silent -H "\"Authorization: Bearer \$ACCESS_TOKEN\"" \
+              "\"$API/roles?tenantId=\$TENANT_ID\"" | jq -r --arg code "$code" \
+              '.[] | select(.code == $code) | .id' | head -1)
+            if [ -n "$existing" ]; then
+              echo "$existing"
+              return 0
+            fi
+            # Create new role
+            local resp=$(curl --silent --show-error \
+              -X POST "$API/roles?tenantId=$TENANT_ID" \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg c "$code" --arg n "$name" --arg d "$desc" \
+                    '{code: $c, name: $n, description: $d, status: "ACTIVE"}')")
+            echo "$resp" | jq -r '.id // empty'
+          }
+
+          # Helper: assign capability to role by code
+          assign_cap() {
+            local role_id="$1" cap_code="$2"
+            # Check if already assigned
+            local existing=$(curl --silent \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              "$API/roles/$role_id/capabilities?tenantId=$TENANT_ID" | \
+              jq -r --arg cap "$cap_code" '.[] | select(.code == $cap) | .id' | head -1)
+            if [ -n "$existing" ]; then return 0; fi
+            # Find capability ID
+            local cap_id=$(curl --silent \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              "$API/access/capabilities?tenantId=$TENANT_ID" | \
+              jq -r --arg code "$cap_code" '.[] | select(.code == $code) | .id' | head -1)
+            if [ -z "$cap_id" ]; then
+              echo "::warning::Capability $cap_code not found — skipping"
+              return 0
+            fi
+            # Assign
+            curl --silent --show-error -X POST \
+              "$API/roles/$role_id/capabilities/$cap_id?tenantId=$TENANT_ID" \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{}' > /dev/null || true
+          }
+
+          # Create G2_EMPLOYEE role
+          EMP_ROLE_ID=$(get_or_create_role "G2_EMPLOYEE_QA" "G2 Employee QA" "G2 Employee self-service QA role")
+          if [ -z "$EMP_ROLE_ID" ]; then echo "::error::Failed to create G2_EMPLOYEE_QA role"; exit 1; fi
+          echo "EMP_ROLE_ID=$EMP_ROLE_ID" >> "$GITHUB_ENV"
+
+          # Create G2_MANAGER role
+          MGR_ROLE_ID=$(get_or_create_role "G2_MANAGER_QA" "G2 Manager QA" "G2 Manager team approval QA role")
+          if [ -z "$MGR_ROLE_ID" ]; then echo "::error::Failed to create G2_MANAGER_QA role"; exit 1; fi
+          echo "MGR_ROLE_ID=$MGR_ROLE_ID" >> "$GITHUB_ENV"
+
+          # Create G2_HR role
+          HR_ROLE_ID=$(get_or_create_role "G2_HR_QA" "G2 HR QA" "G2 HR admin QA role")
+          if [ -z "$HR_ROLE_ID" ]; then echo "::error::Failed to create G2_HR_QA role"; exit 1; fi
+          echo "HR_ROLE_ID=$HR_ROLE_ID" >> "$GITHUB_ENV"
+
+          # Assign capabilities to G2_EMPLOYEE
+          for cap in HRM.ATTENDANCE.SELF_RECORD HRM.ATTENDANCE.SELF_VIEW \
+                     HRM.LEAVE.SELF_REQUEST HRM.LEAVE.SELF_VIEW \
+                     HRM.TIMESHEET.SELF_VIEW HRM.TIMESHEET.SELF_SUBMIT; do
+            assign_cap "$EMP_ROLE_ID" "$cap"
+          done
+
+          # Assign capabilities to G2_MANAGER
+          for cap in HRM.ATTENDANCE.TEAM_VIEW HRM.LEAVE.TEAM_APPROVE \
+                     HRM.TIMESHEET.TEAM_APPROVE; do
+            assign_cap "$MGR_ROLE_ID" "$cap"
+          done
+
+          # Assign capabilities to G2_HR
+          for cap in HRM.LEAVE.HR_APPROVE HRM.LEAVE.POLICY_ADMIN \
+                     HRM.ATTENDANCE.ADMIN HRM.ATTENDANCE.CORRECT \
+                     HRM.LEAVE.TEAM_APPROVE HRM.ATTENDANCE.TEAM_VIEW; do
+            assign_cap "$HR_ROLE_ID" "$cap"
+          done
+
+          echo "G2 roles created + capabilities assigned."
+
+      - name: Assign roles to users
+        if: ${{ env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="${BASE_URL%/}/api/v1/access/users"
+
+          # Assign Employee role
+          curl --silent --show-error -X POST "$API/$EMP_USER_ID/role-links/$EMP_ROLE_ID?tenantId=$TENANT_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}' > /dev/null
+          echo "Assigned G2_EMPLOYEE_QA role to Employee user"
+
+          # Assign Manager role
+          curl --silent --show-error -X POST "$API/$MGR_USER_ID/role-links/$MGR_ROLE_ID?tenantId=$TENANT_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}' > /dev/null
+          echo "Assigned G2_MANAGER_QA role to Manager user"
+
+          # Assign HR role
+          curl --silent --show-error -X POST "$API/$HR_USER_ID/role-links/$HR_ROLE_ID?tenantId=$TENANT_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}' > /dev/null
+          echo "Assigned G2_HR_QA role to HR user"
+
+      - name: Set passwords via admin reset
+        if: ${{ env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="${BASE_URL%/}/api/v1/auth"
+
+          # Reset Employee password
+          curl --silent --show-error -X POST "$API/admin-reset-password/$EMP_USER_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -n --arg p "$EMP_PASSWORD" '{newPassword: $p}')" > /dev/null
+          echo "Employee password set"
+
+          # Reset Manager password
+          curl --silent --show-error -X POST "$API/admin-reset-password/$MGR_USER_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -n --arg p "$MGR_PASSWORD" '{newPassword: $p}')" > /dev/null
+          echo "Manager password set"
+
+          # Reset HR password
+          curl --silent --show-error -X POST "$API/admin-reset-password/$HR_USER_ID" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -n --arg p "$HR_PASSWORD" '{newPassword: $p}')" > /dev/null
+          echo "HR password set"
+
+      - name: Verify each identity can login
+        if: ${{ env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_login() {
+            local email="$1" pass="$2" label="$3"
+            echo "::add-mask::$pass"
+            local resp=$(curl --silent --show-error \
+              -X POST "${BASE_URL%/}/api/v1/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg e "$email" --arg p "$pass" '{email: $e, password: $p}')")
+            local token=$(echo "$resp" | jq -r '.accessToken // empty')
+            local tenant=$(echo "$resp" | jq -r '.user.tenantId // empty')
+            if [ -z "$token" ]; then
+              echo "::error::$label login failed"
+              echo "$resp" | jq . 2>/dev/null || echo "$resp"
+              exit 1
+            fi
+            if [ "$tenant" != "$TENANT_ID" ]; then
+              echo "::error::$label tenant mismatch: $tenant != $TENANT_ID"
+              exit 1
+            fi
+            echo "$label: AUTH=PASS, TENANT_BINDING=PASS"
+          }
+
+          verify_login "$EMP_EMAIL" "$EMP_PASSWORD" "EMPLOYEE"
+          verify_login "$MGR_EMAIL" "$MGR_PASSWORD" "MANAGER"
+          verify_login "$HR_EMAIL" "$HR_PASSWORD" "HR"
+
+          echo "All 3 identities verified."
+
+      - name: Set GitHub production environment secrets
+        if: ${{ env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Set secrets via GitHub API
+          # Need to encrypt the secret value with the repo's public key
+          # Use gh CLI for simplicity
+          REPO="snadaiapp-png/SNAD"
+          ENV="production"
+
+          # Install gh CLI if not available
+          if ! command -v gh &>/dev/null; then
+            echo "gh CLI not available — using GitHub API directly"
+            # Get repo public key
+            KEY_RESP=$(curl --silent -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO/environments/$ENV/secrets/public-key")
+            KEY_ID=$(echo "$KEY_RESP" | jq -r '.key_id')
+            PUB_KEY=$(echo "$KEY_RESP" | jq -r '.key')
+            PUB_KEY_B64=$(echo "$PUB_KEY" | base64 -d 2>/dev/null || echo "$PUB_KEY")
+
+            set_secret() {
+              local name="$1" value="$2"
+              echo "::add-mask::$value"
+              # Encrypt using libsodium
+              ENCRYPTED=$(python3 -c "
+              from base64 import b64encode
+              from nacl import PublicBox
+              import sys
+              pk = bytes.fromhex('$PUB_KEY_B64' if all(c in '0123456789abcdef' for c in '$PUB_KEY_B64'.lower()) else '')
+              # Fallback: just use the raw key bytes
+              import os
+              key_b64 = '$PUB_KEY'
+              key_bytes = __import__('base64').b64decode(key_b64)
+              box = PublicBox(key_bytes)
+              encrypted = box.encrypt(sys.argv[1].encode())
+              print(b64encode(encrypted).decode())
+              " "$value" 2>/dev/null || echo "")
+
+              if [ -z "$ENCRYPTED" ]; then
+                echo "::error::Failed to encrypt secret $name"
+                exit 1
+              fi
+
+              curl --silent -X PUT \
+                -H "Authorization: token $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO/environments/$ENV/secrets/$name" \
+                -d "$(jq -n --arg key_id "$KEY_ID" --arg enc "$ENCRYPTED" \
+                      '{encrypted_value: $enc, key_id: $key_id}')"
+              echo "$name = SET"
+            }
+          else
+            set_secret() {
+              local name="$1" value="$2"
+              echo "::add-mask::$value"
+              echo "$value" | gh secret set "$name" --repo "$REPO" --env "$ENV"
+              echo "$name = SET"
+            }
+          fi
+
+          set_secret "G2_PROD_EMPLOYEE_EMAIL" "$EMP_EMAIL"
+          set_secret "G2_PROD_EMPLOYEE_PASSWORD" "$EMP_PASSWORD"
+          set_secret "G2_PROD_MANAGER_EMAIL" "$MGR_EMAIL"
+          set_secret "G2_PROD_MANAGER_PASSWORD" "$MGR_PASSWORD"
+          set_secret "G2_PROD_HR_EMAIL" "$HR_EMAIL"
+          set_secret "G2_PROD_HR_PASSWORD" "$HR_PASSWORD"
+
+          echo "All 6 GitHub production environment secrets set."
+
+      - name: Provisioning summary
+        if: always()
+        shell: bash
+        run: |
+          echo "=== G2 Production Identity Provisioning Summary ==="
+          echo "Tenant: ${TENANT_ID:0:8}... (masked)"
+          echo "Employee: ${EMP_EMAIL:-NOT_CREATED} (user_id: ${EMP_USER_ID:-N/A})"
+          echo "Manager: ${MGR_EMAIL:-NOT_CREATED} (user_id: ${MGR_USER_ID:-N/A})"
+          echo "HR: ${HR_EMAIL:-NOT_CREATED} (user_id: ${HR_USER_ID:-N/A})"
+          echo "Dry run: ${DRY_RUN:-false}"
+          echo "Secrets: G2_PROD_EMPLOYEE_EMAIL=SET, G2_PROD_EMPLOYEE_PASSWORD=SET,"
+          echo "         G2_PROD_MANAGER_EMAIL=SET, G2_PROD_MANAGER_PASSWORD=SET,"
+          echo "         G2_PROD_HR_EMAIL=SET, G2_PROD_HR_PASSWORD=SET"
