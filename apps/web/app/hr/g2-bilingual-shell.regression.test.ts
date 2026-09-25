@@ -27,4 +27,15 @@ describe("G2 bilingual HR shell", () => {
     expect(page).toContain('Compliance');
     expect(page).toContain('translate={t}');
   });
+
+  it("propagates the route translator into every HR-admin G2 workspace shell", () => {
+    for (const relative of [
+      "schedules/page.tsx",
+      "attendance/admin/page.tsx",
+      "leave/policies/page.tsx",
+    ] as const) {
+      const source = readFileSync(resolve(HR_ROOT, relative), "utf8");
+      expect(source, relative).toContain('translate={t}');
+    }
+  });
 });
