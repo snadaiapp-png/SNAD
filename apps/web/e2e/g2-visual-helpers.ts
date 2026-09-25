@@ -38,6 +38,8 @@ export async function assertVisualSurface(page: Page, surface: VisualSurface): P
   expect(state!.failedHrResponses, `failed HR API responses on ${surface.route}: ${state!.failedHrResponses.join(" | ")}`).toEqual([]);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow, `page-level horizontal overflow on ${surface.route}`).toBeLessThanOrEqual(1);
+  state!.pageErrors.length = 0;
+  state!.failedHrResponses.length = 0;
 }
 
 function safeRoute(route: string): string {
