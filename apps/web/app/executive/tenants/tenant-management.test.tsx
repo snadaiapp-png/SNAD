@@ -100,7 +100,7 @@ describe("Executive tenant management controls", () => {
     expect(hasMock).toHaveBeenCalledWith("EXECUTIVE_MANAGE");
   });
 
-  it("opens a synchronous placeholder and navigates it only after the audit event succeeds", async () => {
+  it("opens an isolated synchronous placeholder and navigates it only after the audit event succeeds", async () => {
     const user = userEvent.setup();
     const popup = { close: vi.fn(), location: { href: "about:blank" }, opener: window } as unknown as Window;
     const openMock = vi.spyOn(window, "open").mockReturnValue(popup);
