@@ -55,7 +55,7 @@ export default function SchedulesPage() {
   }
 
   if (["INITIALIZING","CHECKING_SESSION","REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
-  if (!canAdmin) return <HrWorkspace capabilities={capabilities} activeHref="/hr/schedules"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
+  if (!canAdmin) return <HrWorkspace capabilities={capabilities} activeHref="/hr/schedules" translate={t}><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
 
   const columns: HrColumn<Schedule>[] = [
     { key: "code", header: t("hrm.schedules.code") },
@@ -66,7 +66,7 @@ export default function SchedulesPage() {
   ];
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr/schedules">
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/schedules" translate={t}>
       <header className={visualStyles.g2PageHeader}>
         <div>
           <h1>{t("hrm.schedules.title")}</h1>
