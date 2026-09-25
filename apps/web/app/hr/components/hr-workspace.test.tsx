@@ -22,6 +22,28 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+const G2_LABELS: Record<string, string> = {
+  "hrm.g2.landing.attendance": "حضوري",
+  "hrm.g2.landing.timesheets": "سجلات وقتي",
+  "hrm.g2.landing.leave": "إجازاتي",
+  "hrm.g2.landing.teamAttendance": "حضور الفريق",
+  "hrm.g2.landing.teamTimesheets": "سجلات وقت الفريق",
+  "hrm.g2.landing.leaveApprovals": "اعتمادات الإجازات",
+  "hrm.g2.landing.schedules": "جداول العمل",
+  "hrm.g2.landing.attendanceAdmin": "إدارة الحضور",
+  "hrm.g2.landing.leavePolicies": "سياسات الإجازات",
+  "hrm.g2.landing.attendanceReport": "تقرير الحضور",
+};
+
+vi.mock("@/lib/i18n/I18nProvider", () => ({
+  useI18n: () => ({
+    locale: "ar",
+    direction: "rtl",
+    setLocale: vi.fn(),
+    t: (key: string) => G2_LABELS[key] ?? key,
+  }),
+}));
+
 const FULL_CAPS = Object.values(HRM_CAPABILITIES);
 const NO_HR_CAPS: string[] = [];
 
