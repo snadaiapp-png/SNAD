@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest";
 const HR_ROOT = resolve(__dirname);
 
 describe("G2 bilingual HR shell", () => {
-  it("localizes the shared HR workspace chrome in English as well as Arabic", () => {
+  it("localizes the shared HR workspace chrome while preserving provider-free legacy callers", () => {
     const workspace = readFileSync(resolve(HR_ROOT, "components/hr-workspace.tsx"), "utf8");
-    expect(workspace).toContain('useI18n');
+    expect(workspace).not.toContain('useI18n');
+    expect(workspace).toContain('if (!translate) return "ar"');
+    expect(workspace).toContain('translate("hrm.g2.landing.myWorkday") === "My Workday"');
     expect(workspace).toContain('Human Resources Workspace');
     expect(workspace).toContain('Home');
     expect(workspace).toContain('Execution Board');
