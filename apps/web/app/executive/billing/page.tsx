@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { executiveApi, type BillingInvoice } from "@/lib/api/executive-api";
+import { executiveApi, type ExecutiveBillingRow } from "@/lib/api/executive-api";
 import { scpApi, type TenantRow } from "@/lib/api/scp-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { Button, Input } from "@/components/sds";
 import {
   ScpEmpty,
   ScpError,
+  ScpNotice,
   ScpPage,
   ScpSkeleton,
   ScpStatusPill,
@@ -18,8 +19,9 @@ import styles from "../scp.module.css";
 
 /**
  * Billing — invoices are always loaded in an explicit tenant context.
- * The backend deliberately returns no rows for an unscoped request, so the
- * UI must never issue one.
+ * Finance is the accounting source of truth. The SCP invoice is shown as the
+ * subscription billing/dunning projection and is never presented as a second
+ * accounting ledger.
  */
 export default function BillingPage() {
   const { t } = useI18n();
@@ -28,7 +30,7 @@ export default function BillingPage() {
   const [tenantId, setTenantId] = useState("");
   const [matches, setMatches] = useState<TenantRow[]>([]);
   const tenantSearchGeneration = useRef(0);
-  const [invoices, setInvoices] = useState<BillingInvoice[] | null>(null);
+  const [invoices, setInvoices] = useState<ExecutiveBillingRow[] | null>(null);
   const [searchError, setSearchError] = useState("");
   const [invoiceError, setInvoiceError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -63,7 +65,7 @@ export default function BillingPage() {
     setLoading(true);
     setInvoiceError("");
     try {
-      setInvoices(await executiveApi.invoices(tenantId));
+      setInvoices(await executiveApi.billingV2(tenantId));
     } catch (reason) {
       setInvoiceError(scpErrorMessage(reason));
     } finally {
@@ -75,7 +77,7 @@ export default function BillingPage() {
     const matchesSearch =
       !search.trim() ||
       invoice.invoiceNumber.toLowerCase().includes(search.trim().toLowerCase());
-    const matchesStatus = !status || invoice.status === status;
+    const matchesStatus = !status || invoice.projectionStatus === status;
     return matchesSearch && matchesStatus;
   });
 
@@ -127,6 +129,8 @@ export default function BillingPage() {
         </Button>
       </div>
 
+      <ScpNotice>{t("scp.billing.financeTruthNotice")}</ScpNotice>
+
       {loading ? <ScpSkeleton lines={6} /> : null}
       {searchError ? <ScpError message={searchError} /> : null}
       {invoiceError ? <ScpError message={invoiceError} onRetry={load} /> : null}
@@ -163,20 +167,51 @@ export default function BillingPage() {
                   <thead>
                     <tr>
                       <th scope="col">{t("scp.billing.number")}</th>
-                      <th scope="col">{t("scp.billing.status")}</th>
+                      <th scope="col">{t("scp.billing.projectionStatus")}</th>
+                      <th scope="col">{t("scp.billing.financeStatus")}</th>
                       <th scope="col">{t("scp.billing.total")}</th>
+                      <th scope="col">{t("scp.billing.paid")}</th>
+                      <th scope="col">{t("scp.billing.outstanding")}</th>
+                      <th scope="col">{t("scp.billing.tax")}</th>
+                      <th scope="col">{t("scp.billing.credit")}</th>
+                      <th scope="col">{t("scp.billing.settlement")}</th>
+                      <th scope="col">{t("scp.billing.reconciliation")}</th>
                       <th scope="col">{t("scp.billing.period")}</th>
                       <th scope="col">{t("scp.billing.dueAt")}</th>
+                      <th scope="col">{t("scp.billing.paidAt")}</th>
+                      <th scope="col">{t("scp.billing.paymentReference")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.map((invoice) => (
                       <tr key={invoice.id}>
-                        <td data-label={t("scp.billing.number")}>{invoice.invoiceNumber}</td>
-                        <td data-label={t("scp.billing.status")}><ScpStatusPill value={invoice.status} /></td>
+                        <td data-label={t("scp.billing.number")}>
+                          {invoice.invoiceNumber}
+                          <div className={styles.appCardMeta}>{invoice.projectionSource}</div>
+                        </td>
+                        <td data-label={t("scp.billing.projectionStatus")}>
+                          <ScpStatusPill value={invoice.projectionStatus} />
+                        </td>
+                        <td data-label={t("scp.billing.financeStatus")}>
+                          {invoice.financeLinkId ? <ScpStatusPill value={invoice.financeStatus} /> : t("scp.billing.notLinked")}
+                          <div className={styles.appCardMeta}>{invoice.accountingSourceOfTruth}</div>
+                        </td>
                         <td data-label={t("scp.billing.total")}>{money(invoice.totalMinor, invoice.currencyCode)}</td>
+                        <td data-label={t("scp.billing.paid")}>{money(invoice.amountPaidMinor, invoice.currencyCode)}</td>
+                        <td data-label={t("scp.billing.outstanding")}>{money(invoice.outstandingMinor, invoice.currencyCode)}</td>
+                        <td data-label={t("scp.billing.tax")}>{money(invoice.taxMinor, invoice.currencyCode)}</td>
+                        <td data-label={t("scp.billing.credit")}>{money(invoice.creditAppliedMinor, invoice.currencyCode)}</td>
+                        <td data-label={t("scp.billing.settlement")}><ScpStatusPill value={invoice.settlementState} /></td>
+                        <td data-label={t("scp.billing.reconciliation")}>
+                          <ScpStatusPill value={invoice.reconciliationState} />
+                          {invoice.reconciliationClassification ? (
+                            <div className={styles.appCardMeta}>{invoice.reconciliationClassification}</div>
+                          ) : null}
+                        </td>
                         <td data-label={t("scp.billing.period")}>{day(invoice.periodStart)} → {day(invoice.periodEnd)}</td>
                         <td data-label={t("scp.billing.dueAt")}>{day(invoice.dueAt)}</td>
+                        <td data-label={t("scp.billing.paidAt")}>{invoice.paidAt ? day(invoice.paidAt) : "—"}</td>
+                        <td data-label={t("scp.billing.paymentReference")}>{invoice.paymentReference || "—"}</td>
                       </tr>
                     ))}
                   </tbody>

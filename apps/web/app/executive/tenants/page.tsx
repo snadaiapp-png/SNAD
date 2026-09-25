@@ -25,6 +25,23 @@ type TenantDialog =
   | { kind: "status"; tenantId: string; targetStatus: "SUSPENDED" | "ACTIVE" | "ARCHIVED"; sourceStatus: string }
   | null;
 
+type CommercialAction =
+  | "UPGRADE"
+  | "RESUME"
+  | "CREATE_SUBSCRIPTION"
+  | "CREATE_SUCCESSOR"
+  | "NONE"
+  | "BLOCKED";
+
+type CommercialTenantRow = TenantRow & {
+  effectiveSubscriptionId?: string | null;
+  billingState?: string | null;
+  accessDecision?: string | null;
+  commercialAction?: CommercialAction | string | null;
+  anomalyCode?: string | null;
+  loginAllowed?: boolean;
+};
+
 const EMPTY_CREATE = {
   name: "",
   subdomain: "",
@@ -126,11 +143,46 @@ function validateEditTenant(form: typeof EMPTY_EDIT, t: Translate): string {
   return "";
 }
 
+function commercialControl(tenant: CommercialTenantRow, t: Translate) {
+  switch (tenant.commercialAction) {
+    case "UPGRADE":
+      return tenant.effectiveSubscriptionId ? (
+        <Link href={`/executive/subscriptions/${tenant.effectiveSubscriptionId}`}>
+          {t("scp.tenants.upgrade")}
+        </Link>
+      ) : (
+        <span className={styles.appCardMeta}>{t("scp.tenants.commercialBlocked")}</span>
+      );
+    case "RESUME":
+      return (
+        <Link href={`/executive/subscriptions?tenantId=${tenant.id}&intent=resume`}>
+          {t("scp.tenants.resumeSubscription")}
+        </Link>
+      );
+    case "CREATE_SUBSCRIPTION":
+      return (
+        <Link href={`/executive/subscriptions?tenantId=${tenant.id}&intent=create`}>
+          {t("scp.tenants.createSubscription")}
+        </Link>
+      );
+    case "CREATE_SUCCESSOR":
+      return (
+        <Link href={`/executive/subscriptions?tenantId=${tenant.id}&intent=create-successor`}>
+          {t("scp.tenants.createSuccessor")}
+        </Link>
+      );
+    case "NONE":
+      return null;
+    case "BLOCKED":
+    default:
+      return <span className={styles.appCardMeta}>{t("scp.tenants.commercialBlocked")}</span>;
+  }
+}
+
 /**
- * Tenant directory and management surface. All mutation controls are gated by
- * the exact broad backend authority EXECUTIVE_MANAGE. Deletion is a soft
- * delete only: the tenant transitions to ARCHIVED and no physical DELETE is
- * issued by this surface.
+ * Tenant directory and management surface. Mutation controls are capability
+ * gated. Commercial access/actions are backend-derived and fail closed: the
+ * UI never grants login or invents a continuation action from raw statuses.
  */
 export default function TenantsPage() {
   const { t } = useI18n();
@@ -156,16 +208,14 @@ export default function TenantsPage() {
     setLoading(true);
     setError("");
     try {
-      setPage(
-        await scpApi.tenants({
-          search: search || undefined,
-          status: status || undefined,
-          page: pageIndex,
-          size: 20,
-          sort: "name",
-          direction: "ASC",
-        }),
-      );
+      setPage(await scpApi.tenants({
+        search: search || undefined,
+        status: status || undefined,
+        page: pageIndex,
+        size: 20,
+        sort: "name",
+        direction: "ASC",
+      }));
     } catch (reasonValue) {
       setError(scpErrorMessage(reasonValue));
     } finally {
@@ -173,9 +223,7 @@ export default function TenantsPage() {
     }
   }, [search, status, pageIndex]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function createTenant() {
     const validationError = validateCreateTenant(createForm, t);
@@ -275,13 +323,11 @@ export default function TenantsPage() {
       await executiveApi.changeTenantStatus(tenantId, targetStatus, reason.trim());
       setDialog(null);
       setReason("");
-      setNotice(
-        targetStatus === "ARCHIVED"
-          ? t("scp.tenants.notice.archived")
-          : targetStatus === "SUSPENDED"
-            ? t("scp.tenants.notice.suspended")
-            : t("scp.tenants.notice.reactivated"),
-      );
+      setNotice(targetStatus === "ARCHIVED"
+        ? t("scp.tenants.notice.archived")
+        : targetStatus === "SUSPENDED"
+          ? t("scp.tenants.notice.suspended")
+          : t("scp.tenants.notice.reactivated"));
       await load();
     } catch (reasonValue) {
       setDialogError(scpErrorMessage(reasonValue));
@@ -330,9 +376,8 @@ export default function TenantsPage() {
     try {
       await executiveApi.recordTenantLoginLinkEvent(tenantId, action);
       const url = tenantLoginUrl(tenantId);
-      if (action === "OPEN") {
-        popup!.location.href = url;
-      } else {
+      if (action === "OPEN") popup!.location.href = url;
+      else {
         await navigator.clipboard.writeText(url);
         setNotice(t("scp.tenants.notice.loginLinkCopied"));
       }
@@ -345,11 +390,7 @@ export default function TenantsPage() {
   }
 
   if (loading && !page) {
-    return (
-      <ScpPage title={t("scp.tenants.title")}>
-        <ScpSkeleton lines={8} />
-      </ScpPage>
-    );
+    return <ScpPage title={t("scp.tenants.title")}><ScpSkeleton lines={8} /></ScpPage>;
   }
 
   return (
@@ -362,82 +403,50 @@ export default function TenantsPage() {
         </div>
       ) : null}
 
-      <form
-        className={styles.filters}
-        onSubmit={(event) => {
-          event.preventDefault();
-          setPageIndex(0);
-          void load();
-        }}
-      >
-        <Input
-          type="search"
-          value={search}
-          placeholder={t("scp.tenants.searchPlaceholder")}
-          onChange={(event) => setSearch(event.target.value)}
-          aria-label={t("scp.tenants.searchPlaceholder")}
-        />
-        <select
-          value={status}
-          onChange={(event) => {
-            setStatus(event.target.value);
-            setPageIndex(0);
-          }}
-          aria-label={t("scp.tenants.statusFilter")}
-        >
+      <form className={styles.filters} onSubmit={(event) => { event.preventDefault(); setPageIndex(0); void load(); }}>
+        <Input type="search" value={search} placeholder={t("scp.tenants.searchPlaceholder")} onChange={(event) => setSearch(event.target.value)} aria-label={t("scp.tenants.searchPlaceholder")} />
+        <select value={status} onChange={(event) => { setStatus(event.target.value); setPageIndex(0); }} aria-label={t("scp.tenants.statusFilter")}>
           <option value="">{t("scp.filters.allStatuses")}</option>
-          {["PENDING", "TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED", "ARCHIVED"].map(
-            (value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ),
-          )}
+          {["PENDING", "TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED", "ARCHIVED"].map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
-        <Button type="submit" variant="primary" size="sm">
-          {t("scp.filters.apply")}
-        </Button>
+        <Button type="submit" variant="primary" size="sm">{t("scp.filters.apply")}</Button>
       </form>
 
       {notice ? <ScpNotice>{notice}</ScpNotice> : null}
       {error ? <ScpError message={error} onRetry={load} /> : null}
 
-      {page && page.content.length === 0 ? (
-        <ScpEmpty message={t("scp.state.empty")} />
-      ) : page ? (
+      {page && page.content.length === 0 ? <ScpEmpty message={t("scp.state.empty")} /> : page ? (
         <div className={styles.panel}>
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <caption>{t("scp.tenants.count", { count: page.totalElements })}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">{t("scp.tenants.code")}</th>
-                  <th scope="col">{t("scp.tenants.name")}</th>
-                  <th scope="col">{t("scp.tenants.status")}</th>
-                  <th scope="col">{t("scp.tenants.country")}</th>
-                  <th scope="col">{t("scp.tenants.subscription")}</th>
-                  <th scope="col">{t("scp.tenants.createdAt")}</th>
-                  <th scope="col">{t("scp.common.actions")}</th>
-                </tr>
-              </thead>
+              <thead><tr>
+                <th scope="col">{t("scp.tenants.code")}</th>
+                <th scope="col">{t("scp.tenants.name")}</th>
+                <th scope="col">{t("scp.tenants.status")}</th>
+                <th scope="col">{t("scp.tenants.country")}</th>
+                <th scope="col">{t("scp.tenants.subscription")}</th>
+                <th scope="col">{t("scp.tenants.createdAt")}</th>
+                <th scope="col">{t("scp.common.actions")}</th>
+              </tr></thead>
               <tbody>
-                {page.content.map((tenant) => {
+                {page.content.map((rawTenant) => {
+                  const tenant = rawTenant as CommercialTenantRow;
                   const archived = tenant.status === "ARCHIVED";
-                  const loginEligibleSubscription = tenant.subscriptionStatus !== null
-                    && ["TRIAL", "TRIALING", "ACTIVE", "PAST_DUE", "GRACE_PERIOD"]
-                      .includes(tenant.subscriptionStatus);
+                  // Login eligibility is backend-derived (canonical commercial
+                  // resolver) and fail-closed: the UI never grants login from
+                  // raw subscription statuses.
                   const canUseLoginLink = canManage
                     && tenant.status === "ACTIVE"
-                    && loginEligibleSubscription;
+                    && tenant.subscriptionStatus !== "TERMINATED"
+                    && tenant.loginAllowed === true;
                   const canFreeze = tenant.status === "ACTIVE" || tenant.status === "PAST_DUE";
                   const canActivate = ["PENDING", "TRIAL", "PAST_DUE", "SUSPENDED"].includes(tenant.status);
                   return (
                     <tr key={tenant.id}>
                       <td data-label={t("scp.tenants.code")}>{tenant.code || tenant.id}</td>
                       <td data-label={t("scp.tenants.name")}>{tenant.name}</td>
-                      <td data-label={t("scp.tenants.status")}>
-                        <ScpStatusPill value={tenant.status} />
-                      </td>
+                      <td data-label={t("scp.tenants.status")}><ScpStatusPill value={tenant.status} /></td>
                       <td data-label={t("scp.tenants.country")}>{tenant.countryCode || "—"}</td>
                       <td data-label={t("scp.tenants.subscription")}>
                         {tenant.subscriptionStatus ? <ScpStatusPill value={tenant.subscriptionStatus} /> : "—"}
@@ -478,9 +487,7 @@ export default function TenantsPage() {
                               <Button type="button" variant="danger" size="sm" onClick={() => { setDialogError(""); setReason(""); setDialog({ kind: "status", tenantId: tenant.id, targetStatus: "ARCHIVED", sourceStatus: tenant.status }); }}>
                                 {t("scp.tenants.archive")}
                               </Button>
-                              <Link href={`/executive/subscriptions?tenantId=${tenant.id}&intent=upgrade`}>
-                                {t("scp.tenants.upgrade")}
-                              </Link>
+                              {commercialControl(tenant, t)}
                             </>
                           ) : null}
                         </div>
@@ -500,14 +507,10 @@ export default function TenantsPage() {
         onClose={() => !busy && setDialog(null)}
         title={t("scp.tenants.createDialogTitle")}
         closeButtonLabel={t("common.close")}
-        footer={
-          <>
-            <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
-            <Button variant="primary" loading={busy} disabled={!createForm.name || !createForm.subdomain || !createForm.adminEmail || !createForm.adminDisplayName} onClick={() => void createTenant()}>
-              {t("form.action.create")}
-            </Button>
-          </>
-        }
+        footer={<>
+          <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
+          <Button variant="primary" loading={busy} disabled={!createForm.name || !createForm.subdomain || !createForm.adminEmail || !createForm.adminDisplayName} onClick={() => void createTenant()}>{t("form.action.create")}</Button>
+        </>}
       >
         <div className={styles.filters}>
           <Input label={t("scp.tenants.form.name")} aria-label={t("scp.tenants.form.name")} required placeholder={t("scp.tenants.form.namePlaceholder")} value={createForm.name} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, name: e.target.value }); }} />
@@ -571,14 +574,10 @@ export default function TenantsPage() {
         onClose={() => !busy && setDialog(null)}
         title={t("scp.tenants.editDialogTitle")}
         closeButtonLabel={t("common.close")}
-        footer={
-          <>
-            <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
-            <Button variant="primary" loading={busy} disabled={!editForm.name} onClick={() => dialog?.kind === "edit" && void updateTenant(dialog.tenantId)}>
-              {t("form.action.save")}
-            </Button>
-          </>
-        }
+        footer={<>
+          <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
+          <Button variant="primary" loading={busy} disabled={!editForm.name} onClick={() => dialog?.kind === "edit" && void updateTenant(dialog.tenantId)}>{t("form.action.save")}</Button>
+        </>}
       >
         <div className={styles.filters}>
           <Input label={t("scp.tenants.form.name")} aria-label={t("scp.tenants.form.name")} required value={editForm.name} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, name: e.target.value }); }} />
@@ -656,23 +655,12 @@ export default function TenantsPage() {
               ? t("scp.tenants.activateDialogTitle")
               : t("scp.tenants.reactivateDialogTitle")}
         closeButtonLabel={t("common.close")}
-        footer={
-          <>
-            <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
-            <Button
-              variant={dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED" ? "danger" : "primary"}
-              loading={busy}
-              disabled={!reason.trim()}
-              onClick={() => dialog?.kind === "status" && void applyStatus(dialog.tenantId, dialog.targetStatus)}
-            >
-              {t("form.action.confirm")}
-            </Button>
-          </>
-        }
+        footer={<>
+          <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
+          <Button variant={dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED" ? "danger" : "primary"} loading={busy} disabled={!reason.trim()} onClick={() => dialog?.kind === "status" && void applyStatus(dialog.tenantId, dialog.targetStatus)}>{t("form.action.confirm")}</Button>
+        </>}
       >
-        {dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED" ? (
-          <p>{t("scp.tenants.archiveWarning")}</p>
-        ) : null}
+        {dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED" ? <p>{t("scp.tenants.archiveWarning")}</p> : null}
         <Input label={t("scp.tenants.form.reason")} aria-label={t("scp.tenants.form.reason")} required placeholder={t("scp.tenants.form.reasonPlaceholder")} value={reason} maxLength={500} onChange={(e) => { setDialogError(""); setReason(e.target.value); }} />
         {dialogError ? <ScpError message={dialogError} /> : null}
       </Modal>
@@ -680,35 +668,13 @@ export default function TenantsPage() {
   );
 }
 
-function Pagination({
-  page,
-  onPage,
-}: {
-  page: PageResponse<unknown>;
-  onPage: (index: number) => void;
-}) {
+function Pagination({ page, onPage }: { page: PageResponse<unknown>; onPage: (index: number) => void }) {
   const { t } = useI18n();
   return (
     <nav className={styles.filters} aria-label={t("scp.common.pagination")}>
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={page.page === 0}
-        onClick={() => onPage(page.page - 1)}
-      >
-        {t("scp.common.previous")}
-      </Button>
-      <span className={styles.appCardMeta}>
-        {t("scp.common.pageOf", { page: page.page + 1, total: Math.max(page.totalPages, 1) })}
-      </span>
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={page.page + 1 >= page.totalPages}
-        onClick={() => onPage(page.page + 1)}
-      >
-        {t("scp.common.next")}
-      </Button>
+      <Button variant="secondary" size="sm" disabled={page.page === 0} onClick={() => onPage(page.page - 1)}>{t("scp.common.previous")}</Button>
+      <span className={styles.appCardMeta}>{t("scp.common.pageOf", { page: page.page + 1, total: Math.max(page.totalPages, 1) })}</span>
+      <Button variant="secondary" size="sm" disabled={page.page + 1 >= page.totalPages} onClick={() => onPage(page.page + 1)}>{t("scp.common.next")}</Button>
     </nav>
   );
 }

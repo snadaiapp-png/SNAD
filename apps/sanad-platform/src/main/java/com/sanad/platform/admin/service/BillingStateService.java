@@ -19,7 +19,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -174,10 +173,14 @@ public class BillingStateService {
         long suspendGraceOverdueCount = countOverdueInvoices(sub.id(), SUSPEND_GRACE_HOURS);
 
         String targetState;
-        if (suspendGraceOverdueCount > 0 && !"SUSPENDED".equals(currentState)) {
+        // Preserve the state-machine stages even when an invoice is already
+        // older than both thresholds. A CURRENT subscription must first become
+        // PAST_DUE; only a subsequent evaluation of a PAST_DUE subscription may
+        // suspend it. This keeps billing_state and canonical lifecycle commands
+        // convergent (MARK_PAST_DUE before SUSPEND) instead of skipping a stage.
+        if ("PAST_DUE".equals(currentState) && suspendGraceOverdueCount > 0) {
             targetState = "SUSPENDED";
-        } else if (pastDueGraceOverdueCount > 0 && !"PAST_DUE".equals(currentState)
-                && !"SUSPENDED".equals(currentState)) {
+        } else if ("CURRENT".equals(currentState) && pastDueGraceOverdueCount > 0) {
             targetState = "PAST_DUE";
         } else if (overdueCount == 0
                 && ("PAST_DUE".equals(currentState) || "SUSPENDED".equals(currentState))) {

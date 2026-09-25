@@ -19,6 +19,25 @@ export interface ManagedTenant {
   createdAt: string; updatedAt: string;
 }
 
+export interface CreateTenantRequest {
+  name: string;
+  legalName?: string | null;
+  subdomain: string;
+  billingEmail?: string | null;
+  adminEmail: string;
+  adminDisplayName: string;
+  countryCode?: string | null;
+  locale?: string | null;
+  timezone?: string | null;
+  currencyCode?: string | null;
+  trialDays?: number | null;
+  planCode?: string | null;
+  planId?: string | null;
+  billingCycle?: "MONTHLY" | "ANNUAL" | null;
+  seatQuantity?: number | null;
+  createDefaultOrganization?: boolean | null;
+}
+
 export interface TenantProfileUpdate {
   name?: string;
   legalName?: string;
@@ -49,7 +68,7 @@ export interface TenantSubscription {
   createdAt: string; updatedAt: string;
 }
 
-export interface CreateSubscriptionInput {
+export interface CreateSubscriptionRequest {
   tenantId: string;
   planId: string;
   billingCycle: "MONTHLY" | "ANNUAL";
@@ -65,6 +84,37 @@ export interface BillingInvoice {
   periodStart: string; periodEnd: string; dueAt: string;
   paidAt: string | null; paymentReference: string | null;
   createdAt: string; updatedAt: string;
+}
+
+export interface ExecutiveBillingRow {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  subscriptionId: string;
+  invoiceNumber: string;
+  projectionStatus: string;
+  currencyCode: string;
+  subtotalMinor: number;
+  creditAppliedMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  amountPaidMinor: number;
+  outstandingMinor: number;
+  description: string | null;
+  periodStart: string;
+  periodEnd: string;
+  dueAt: string;
+  paidAt: string | null;
+  paymentReference: string | null;
+  financeLinkId: string | null;
+  financeInvoiceId: string | null;
+  financeStatus: string;
+  settlementState: string;
+  reconciliationClassification: string | null;
+  reconciliationState: string;
+  accountingSourceOfTruth: "FINANCE";
+  projectionSource: "SCP_BILLING_PROJECTION";
+  createdAt: string;
 }
 
 export interface ManagedOrganization {
@@ -160,16 +210,8 @@ export const executiveApi = {
   accessCheck: () => apiClient.get<{ authenticated: boolean; canRead: boolean; canWrite: boolean }>(`${root}/access-check`),
   tenants: () => apiClient.get<ManagedTenant[]>(`${root}/tenants`),
   tenant: (tenantId: string) => apiClient.get<ManagedTenant>(`${root}/tenants/${tenantId}`),
-  createTenant: (body: {
-    name: string;
-    subdomain: string;
-    adminEmail: string;
-    adminDisplayName: string;
-    countryCode?: string;
-    locale?: string;
-    timezone?: string;
-    currencyCode?: string;
-  }) => apiClient.post<ManagedTenant, typeof body>(`${root}/tenants`, body),
+  createTenant: (body: CreateTenantRequest) =>
+    apiClient.post<ManagedTenant, CreateTenantRequest>(`${root}/tenants`, body),
   updateTenant: (tenantId: string, body: TenantProfileUpdate) =>
     apiClient.patch<ManagedTenant, TenantProfileUpdate>(`${root}/tenants/${tenantId}`, body),
   changeTenantStatus: (tenantId: string, status: string, reason: string) =>
@@ -181,8 +223,8 @@ export const executiveApi = {
     ),
   plans: () => apiClient.get<SaasPlan[]>(`${root}/plans`),
   subscriptions: () => apiClient.get<TenantSubscription[]>(`${root}/subscriptions`),
-  createSubscription: (body: CreateSubscriptionInput) =>
-    apiClient.post<TenantSubscription, CreateSubscriptionInput>(`${root}/subscriptions`, body),
+  createSubscription: (body: CreateSubscriptionRequest) =>
+    apiClient.post<TenantSubscription, CreateSubscriptionRequest>(`${root}/subscriptions`, body),
   cancelSubscription: (subscriptionId: string, body: { immediate: boolean; reason: string }) =>
     apiClient.patch<TenantSubscription, typeof body>(`${root}/subscriptions/${subscriptionId}/cancel`, body),
   resumeSubscription: (subscriptionId: string) =>
@@ -191,6 +233,8 @@ export const executiveApi = {
     apiClient.post<TenantSubscription, Record<string, never>>(`${root}/subscriptions/${subscriptionId}/renew`, {}),
   invoices: (tenantId: string) =>
     apiClient.get<BillingInvoice[]>(`${root}/billing/invoices?tenantId=${encodeURIComponent(tenantId)}`),
+  billingV2: (tenantId: string) =>
+    apiClient.get<ExecutiveBillingRow[]>(`${root}/billing/v2?tenantId=${encodeURIComponent(tenantId)}`),
   organizations: (tenantId: string) => apiClient.get<ManagedOrganization[]>(`${root}/tenants/${tenantId}/organizations`),
   createOrganization: (
     tenantId: string,

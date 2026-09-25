@@ -62,6 +62,12 @@ const PAGE = {
     currencyCode: "SAR",
     subscriptionCount: 1,
     subscriptionStatus: "ACTIVE",
+    effectiveSubscriptionId: "22222222-2222-2222-2222-222222222222",
+    billingState: "CURRENT",
+    accessDecision: "ACCESS_ALLOWED",
+    commercialAction: "UPGRADE",
+    anomalyCode: null,
+    loginAllowed: true,
     createdAt: "2026-09-09T00:00:00Z",
   }],
   page: 0,
@@ -95,7 +101,7 @@ describe("Executive tenant management controls", () => {
     expect(screen.getByRole("button", { name: "scp.tenants.archive" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "scp.tenants.upgrade" })).toHaveAttribute(
       "href",
-      "/executive/subscriptions?tenantId=11111111-1111-1111-1111-111111111111&intent=upgrade",
+      "/executive/subscriptions/22222222-2222-2222-2222-222222222222",
     );
     expect(hasMock).toHaveBeenCalledWith("EXECUTIVE_MANAGE");
   });
@@ -273,7 +279,6 @@ describe("Executive tenant management controls", () => {
     const alert = screen.getByRole("alert");
     const alertText = alert.textContent ?? "";
     expect(alertText).toMatch(/scp\.tenants\.validation\.(subdomainInvalid|adminEmailInvalid)/i);
-    // No raw regex as the primary user message.
     expect(alertText).not.toMatch(/[\^$\\]|(?:\(\?)/);
   });
 
@@ -306,6 +311,20 @@ describe("Executive tenant management controls", () => {
     const country = screen.getByLabelText("scp.tenants.form.countryCode");
     const locale = screen.getByLabelText("scp.tenants.form.locale");
     const timezone = screen.getByLabelText("scp.tenants.form.timezone");
+
+    // Invalid country codes are rejected locally and never reach the API.
+    await user.clear(country);
+    await user.type(country, "S1");
+    await user.click(screen.getByRole("button", { name: "form.action.save" }));
+
+    expect(updateTenantMock).not.toHaveBeenCalled();
+    const countryAlert = screen.getByRole("alert");
+    expect(countryAlert.textContent).toMatch(/scp\.tenants\.validation\.countryInvalid/);
+    expect(countryAlert.textContent).not.toMatch(/[\^$\\[\]{}]/);
+
+    const countryFixed = screen.getByLabelText("scp.tenants.form.countryCode");
+    await user.clear(countryFixed);
+    await user.type(countryFixed, "SA");
     const currency = screen.getByLabelText("scp.tenants.form.currencyCode");
 
     expect(country.tagName).toBe("SELECT");
@@ -357,13 +376,12 @@ describe("Executive tenant management controls", () => {
 
     await waitFor(() => expect(createTenantMock).toHaveBeenCalledTimes(1));
 
-    // The dialog must stay open and carry the localized error inside it.
     expect(screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" })).toBeInTheDocument();
     const dialog = screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" });
     const alert = within(dialog).getByRole("alert");
     const alertText = alert.textContent ?? "";
-    expect(alertText).toMatch(/خطأ|تعذر|حدث/); // Arabic localized backend failure
-    expect(alertText).not.toMatch(/uk_tenants_subdomain|Duplicate key|constraint/i); // no raw internals
+    expect(alertText).toMatch(/خطأ|تعذر|حدث/);
+    expect(alertText).not.toMatch(/uk_tenants_subdomain|Duplicate key|constraint/i);
   });
 
   it("uses archive terminology for the non-destructive tenant action", async () => {

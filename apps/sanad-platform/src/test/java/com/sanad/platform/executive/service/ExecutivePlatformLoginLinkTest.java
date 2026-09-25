@@ -4,6 +4,10 @@ import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
+import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
+import com.sanad.platform.subscription.commercial.TenantCommercialStateService.AccessDecision;
+import com.sanad.platform.subscription.commercial.TenantCommercialStateService.CommercialAction;
+import com.sanad.platform.subscription.commercial.TenantCommercialStateService.TenantCommercialState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -27,11 +31,13 @@ import static org.mockito.Mockito.when;
 class ExecutivePlatformLoginLinkTest {
 
     private static final UUID TENANT_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID SUBSCRIPTION_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
     private JdbcTemplate jdbc;
     private PlatformAuditService audit;
     private TenantDomainService domains;
     private Authentication authentication;
+    private TenantCommercialStateService commercialState;
     private ExecutivePlatformService service;
 
     @BeforeEach
@@ -40,22 +46,73 @@ class ExecutivePlatformLoginLinkTest {
         audit = mock(PlatformAuditService.class);
         domains = mock(TenantDomainService.class);
         authentication = mock(Authentication.class);
+        commercialState = mock(TenantCommercialStateService.class);
         service = new ExecutivePlatformService(
-                jdbc, audit, mock(RegistrationProvisioner.class), domains);
+                jdbc, audit, mock(RegistrationProvisioner.class), domains, null,
+                commercialState, mock(ExecutiveTenantProvisioningService.class));
     }
 
     @Test
-    void recordsAnOpenEventForAnActiveTenantWithoutCreatingCredentials() {
+    void recordsAnOpenEventOnlyWhenCanonicalCommercialStateAllowsLogin() {
         when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(TENANT_ID)))
                 .thenReturn(List.of(tenant("ACTIVE")));
         when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
                 .thenReturn(1);
+        when(commercialState.resolve(TENANT_ID, "ACTIVE")).thenReturn(allowedState());
+
         service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication);
 
+        verify(commercialState).resolve(TENANT_ID, "ACTIVE");
         verify(domains, never()).ensureDefaultDomain(any(), anyString(), any(), any());
         verify(audit).success(authentication, TENANT_ID, "TENANT_LOGIN_LINK_OPEN", "TENANT",
                 TENANT_ID.toString(), "Executive opened tenant sign-in link", null,
                 java.util.Map.of("action", "OPEN", "sessionScope", "TENANT"));
+    }
+
+    @Test
+    void rejectsActiveTenantWithoutEffectiveSubscription() {
+        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(TENANT_ID)))
+                .thenReturn(List.of(tenant("ACTIVE")));
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
+                .thenReturn(1);
+        when(commercialState.resolve(TENANT_ID, "ACTIVE")).thenReturn(new TenantCommercialState(
+                TENANT_ID, "ACTIVE", null, null, null,
+                AccessDecision.NO_EFFECTIVE_SUBSCRIPTION,
+                CommercialAction.CREATE_SUBSCRIPTION,
+                "ACTIVE_WITHOUT_EFFECTIVE_SUBSCRIPTION",
+                false));
+
+        assertThatThrownBy(() -> service.recordTenantLoginLinkEvent(TENANT_ID, "COPY", authentication))
+                .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
+                    org.assertj.core.api.Assertions.assertThat(error.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                    org.assertj.core.api.Assertions.assertThat(error.getReason())
+                            .contains("NO_EFFECTIVE_SUBSCRIPTION");
+                });
+
+        verify(audit, never()).success(any(), any(), anyString(), anyString(), anyString(),
+                anyString(), any(), any());
+    }
+
+    @Test
+    void rejectsActiveTenantWhenBillingStateSuspendsCommercialAccess() {
+        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(TENANT_ID)))
+                .thenReturn(List.of(tenant("ACTIVE")));
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), eq(TENANT_ID)))
+                .thenReturn(1);
+        when(commercialState.resolve(TENANT_ID, "ACTIVE")).thenReturn(new TenantCommercialState(
+                TENANT_ID, "ACTIVE", SUBSCRIPTION_ID, "ACTIVE", "SUSPENDED",
+                AccessDecision.SUBSCRIPTION_SUSPENDED,
+                CommercialAction.NONE,
+                "BILLING_STATE_SUSPENDED",
+                false));
+
+        assertThatThrownBy(() -> service.recordTenantLoginLinkEvent(TENANT_ID, "OPEN", authentication))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
+                                .isEqualTo(HttpStatus.CONFLICT));
+
+        verify(audit, never()).success(any(), any(), anyString(), anyString(), anyString(),
+                anyString(), any(), any());
     }
 
     @Test
@@ -68,6 +125,7 @@ class ExecutivePlatformLoginLinkTest {
                         error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
                                 .isEqualTo(HttpStatus.CONFLICT));
 
+        verify(commercialState, never()).resolve(any(), anyString());
         verify(audit, never()).success(any(), any(), anyString(), anyString(), anyString(),
                 anyString(), any(), any());
     }
@@ -95,8 +153,18 @@ class ExecutivePlatformLoginLinkTest {
                         error -> org.assertj.core.api.Assertions.assertThat(error.getStatusCode())
                                 .isEqualTo(HttpStatus.BAD_REQUEST));
 
+        verify(commercialState, never()).resolve(any(), anyString());
         verify(audit, never()).success(any(), any(), anyString(), anyString(), anyString(),
                 anyString(), any(), any());
+    }
+
+    private static TenantCommercialState allowedState() {
+        return new TenantCommercialState(
+                TENANT_ID, "ACTIVE", SUBSCRIPTION_ID, "ACTIVE", "CURRENT",
+                AccessDecision.ACCESS_ALLOWED,
+                CommercialAction.UPGRADE,
+                null,
+                true);
     }
 
     private static TenantResponse tenant(String status) {

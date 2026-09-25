@@ -10,6 +10,7 @@ import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
 import com.sanad.platform.security.filter.SessionVersionCache;
+import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -20,8 +21,6 @@ import org.springframework.http.HttpStatus;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.time.ZoneId;
 import java.util.*;
 
@@ -49,6 +48,8 @@ public class ExecutivePlatformService {
     private final RegistrationProvisioner registrationProvisioner;
     private final TenantDomainService tenantDomainService;
     private final SessionVersionCache sessionVersionCache;
+    private final TenantCommercialStateService commercialStateService;
+    private final ExecutiveTenantProvisioningService provisioningService;
 
     @Autowired
     public ExecutivePlatformService(
@@ -56,13 +57,17 @@ public class ExecutivePlatformService {
             PlatformAuditService auditService,
             RegistrationProvisioner registrationProvisioner,
             TenantDomainService tenantDomainService,
-            SessionVersionCache sessionVersionCache
+            SessionVersionCache sessionVersionCache,
+            TenantCommercialStateService commercialStateService,
+            ExecutiveTenantProvisioningService provisioningService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.registrationProvisioner = registrationProvisioner;
         this.tenantDomainService = tenantDomainService;
         this.sessionVersionCache = sessionVersionCache;
+        this.commercialStateService = commercialStateService;
+        this.provisioningService = provisioningService;
     }
 
     /** Backward-compatible direct-instantiation constructor for focused tests. */
@@ -72,7 +77,7 @@ public class ExecutivePlatformService {
             RegistrationProvisioner registrationProvisioner,
             TenantDomainService tenantDomainService
     ) {
-        this(jdbcTemplate, auditService, registrationProvisioner, tenantDomainService, null);
+        this(jdbcTemplate, auditService, registrationProvisioner, tenantDomainService, null, null, null);
     }
 
     public DashboardResponse dashboard() {
@@ -121,47 +126,11 @@ public class ExecutivePlatformService {
 
     @Transactional
     public TenantResponse createTenant(CreateTenantRequest request, Authentication authentication) {
-        // RegistrationProvisioner is the single tenant-creation authority. The
-        // previous implementation inserted one tenant here and then called the
-        // provisioner, which created a second tenant containing the administrator
-        // and roles. Use the provisioner's tenant id and update that same row.
-        String countryCode = normalizeCountryCode(request.countryCode());
-        String locale = normalizeLocale(request.locale(), "en");
-        String timezone = normalizeTimezone(request.timezone(), "UTC");
-        String currencyCode = normalizeCurrencyCode(request.currencyCode(), "SAR");
-
-        RegistrationProvisioner.ProvisionedRegistration provisioned = registrationProvisioner.provision(
-                request.adminEmail(), request.adminDisplayName(), request.name(), request.subdomain(),
-                null, countryCode);
-        UUID tenantId = provisioned.tenantId();
-
-        Timestamp trialEndsAt = request.trialDays() != null && request.trialDays() > 0
-                ? Timestamp.from(Instant.now().plusSeconds(request.trialDays() * 86400L))
-                : null;
-        jdbcTemplate.update(
-                "UPDATE tenants SET name=?, legal_name=?, subdomain=?, status='PENDING', billing_email=?, "
-                        + "country_code=?, locale=?, timezone=?, currency_code=?, trial_ends_at=?, updated_at=NOW() "
-                        + "WHERE id=?",
-                request.name().trim(), trimToNull(request.legalName()), request.subdomain().trim().toLowerCase(Locale.ROOT),
-                lowerEmail(request.billingEmail()), countryCode, locale, timezone, currencyCode,
-                trialEndsAt, tenantId);
-
-        var defaultDomain = tenantDomainService.ensureDefaultDomain(
-                tenantId,
-                request.subdomain(),
-                DomainType.APPLICATION,
-                authentication
-        );
-        if (defaultDomain == null || defaultDomain.hostname() == null || defaultDomain.hostname().isBlank()) {
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "Platform base domain is not configured; tenant routing cannot be provisioned");
-        }
-
-        TenantResponse created = getTenant(tenantId);
-        auditService.success(authentication, tenantId, "CREATE_TENANT", "TENANT", tenantId.toString(),
-                request.name(), null, created);
-        return created;
+        // Atomic canonical provisioning: ExecutiveTenantProvisioningService is
+        // the single writer for executive tenant creation. It composes the
+        // RegistrationProvisioner tenant authority, the default application
+        // domain, and fail-closed commercial state in one transaction.
+        return provisioningService.provision(request, authentication).tenant();
     }
 
     @Transactional
@@ -264,6 +233,19 @@ public class ExecutivePlatformService {
         // Login-link availability must not depend on DNS/custom-domain rollout.
         // Subscriber session isolation is enforced by the web BFF using a
         // dedicated refresh cookie namespace on the same proven frontend origin.
+        // Canonical commercial resolver is the single login-eligibility authority.
+        if (commercialStateService != null) {
+            TenantCommercialStateService.TenantCommercialState commercialState =
+                    commercialStateService.resolve(tenantId, tenant.status());
+            if (!commercialState.loginAllowed()) {
+                String reason = "Tenant login link blocked: " + commercialState.accessDecision();
+                if (commercialState.anomalyCode() != null && !commercialState.anomalyCode().isBlank()) {
+                    reason += " (" + commercialState.anomalyCode() + ")";
+                }
+                throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
+            }
+        }
+
         auditService.success(
                 authentication,
                 tenantId,
