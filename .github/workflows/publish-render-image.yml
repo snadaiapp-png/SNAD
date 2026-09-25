@@ -1,4 +1,4 @@
-# FINAL-CLOSURE-ALIGNMENT-20260919: inert trigger for exact-main immutable backend image publication after protected release-control merge.
+# PRODUCTION-AUTHORIZATION-EB19-20260925: inert trigger for exact-main immutable backend image publication after protected release-control merge.
 name: Publish Render Backend Image
 
 on:
