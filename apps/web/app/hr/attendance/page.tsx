@@ -29,22 +29,23 @@ interface AttendanceRecord {
   state: string;
 }
 
-function formatTime(iso: string | null): string {
+function formatTime(iso: string | null, locale: "ar" | "en"): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" });
+  const timeLocale = locale === "ar" ? "ar-SA" : "en-US";
+  return d.toLocaleTimeString(timeLocale, { hour: "2-digit", minute: "2-digit" });
 }
 
-function formatHours(minutes: number | null): string {
+function formatHours(minutes: number | null, locale: "ar" | "en"): string {
   if (minutes === null || minutes === 0) return "—";
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  return `${h}س ${m}د`;
+  return locale === "ar" ? `${h}س ${m}د` : `${h}h ${m}m`;
 }
 
 export default function AttendancePage() {
   const { state, me } = useAuth();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
   const canView = capabilities.includes(HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW);
   const canManage = capabilities.includes(HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD);
@@ -109,7 +110,7 @@ export default function AttendancePage() {
 
   if (!canView) {
     return (
-      <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance">
+      <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance" translate={t}>
         <p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p>
       </HrWorkspace>
     );
@@ -119,16 +120,16 @@ export default function AttendancePage() {
 
   const columns: HrColumn<AttendanceRecord>[] = [
     { key: "recordDate", header: t("hrm.attendance.col.date"), render: (r) => formatArabicDate(r.recordDate) },
-    { key: "clockIn", header: t("hrm.attendance.col.clockIn"), render: (r) => formatTime(r.clockIn) },
-    { key: "clockOut", header: t("hrm.attendance.col.clockOut"), render: (r) => formatTime(r.clockOut) },
-    { key: "workedMinutes", header: t("hrm.attendance.col.worked"), render: (r) => formatHours(r.workedMinutes) },
+    { key: "clockIn", header: t("hrm.attendance.col.clockIn"), render: (r) => formatTime(r.clockIn, locale) },
+    { key: "clockOut", header: t("hrm.attendance.col.clockOut"), render: (r) => formatTime(r.clockOut, locale) },
+    { key: "workedMinutes", header: t("hrm.attendance.col.worked"), render: (r) => formatHours(r.workedMinutes, locale) },
     { key: "state", header: t("hrm.attendance.col.state"), render: (r) => (
       <HrStateBadge label={t("hrm.attendance.state." + r.state)} code={r.state} tone={toneForState(r.state)} />
     )},
   ];
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance">
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance" translate={t}>
       <header>
         <h1 data-testid="g2-page-title">{t("hrm.attendance.title")}</h1>
         <p className={styles.kpiHint}>{t("hrm.attendance.subtitle")}</p>
