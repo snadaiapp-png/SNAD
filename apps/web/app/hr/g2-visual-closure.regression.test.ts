@@ -120,3 +120,40 @@ describe("G2 manager/team product surfaces", () => {
     expect(report).toContain("hrG2Api.teamMonthlyAttendanceReport(year, month)");
   });
 });
+
+describe("G2 HR administration product surfaces", () => {
+  it("provides deterministic ready-state selectors for all HR administration routes", () => {
+    const schedules = readFileSync(resolve(HR_ROOT, "schedules/page.tsx"), "utf8");
+    const attendanceAdmin = readFileSync(resolve(HR_ROOT, "attendance/admin/page.tsx"), "utf8");
+    const leavePolicies = readFileSync(resolve(HR_ROOT, "leave/policies/page.tsx"), "utf8");
+
+    expect(schedules).toContain('data-testid="schedules-ready"');
+    expect(attendanceAdmin).toContain('data-testid="attendance-admin-ready"');
+    expect(leavePolicies).toContain('data-testid="leave-policies-ready"');
+  });
+
+  it("removes legacy HR administration hard-coded copy in favor of G2 i18n", () => {
+    const checks = [
+      ["schedules/page.tsx", /(?:>Work Schedules<|>Create Schedule<|header: "Code"|header: "Name"|header: "Shift"|header: "Break"|header: "Expected")/],
+      ["attendance/admin/page.tsx", /(?:>Attendance Administration<|Attendance correction is unavailable|caption="Attendance Records \(Admin\)"|emptyTitle="No attendance records")/],
+      ["leave/policies/page.tsx", /(?:>Leave Policies<|header: "Code"|header: "Name \(AR\)"|header: "Name \(EN\)"|header: "Paid"|header: "Attachment"|header: "Default Days"|configure via policy)/],
+    ] as const;
+
+    for (const [relative, forbidden] of checks) {
+      const source = readFileSync(resolve(HR_ROOT, relative), "utf8");
+      expect(source, relative).not.toMatch(forbidden);
+    }
+
+    expect(readFileSync(resolve(HR_ROOT, "schedules/page.tsx"), "utf8")).toContain('t("hrm.schedules.title")');
+    expect(readFileSync(resolve(HR_ROOT, "attendance/admin/page.tsx"), "utf8")).toContain('t("hrm.attendanceAdmin.title")');
+    expect(readFileSync(resolve(HR_ROOT, "leave/policies/page.tsx"), "utf8")).toContain('t("hrm.leavePolicies.title")');
+  });
+
+  it("keeps HR administration contracts fail-closed and country-neutral", () => {
+    const admin = readFileSync(resolve(HR_ROOT, "attendance/admin/page.tsx"), "utf8");
+    const policies = readFileSync(resolve(HR_ROOT, "leave/policies/page.tsx"), "utf8");
+    expect(admin).not.toContain("clockIn(");
+    expect(admin).not.toContain("clockOut(");
+    expect(policies).not.toMatch(/\b(?:21|30|70)\b/);
+  });
+});
