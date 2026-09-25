@@ -3,9 +3,8 @@
 /** Shared Arabic-first HR workspace shell. Backend authorization remains authoritative. */
 
 import Link from "next/link";
-import { useContext, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
-import { I18nContext } from "@/lib/i18n/I18nProvider";
 import styles from "../hr.module.css";
 import visualStyles from "./hr-g2-visual.module.css";
 
@@ -93,6 +92,8 @@ export interface HrWorkspaceProps {
   capabilities: string[];
   activeHref: string;
   children: ReactNode;
+  /** Optional route-scoped translator. Legacy callers remain provider-free. */
+  translate?: (key: string) => string;
 }
 
 function isVisible(link: HrWorkspaceLink, capabilities: string[]): boolean {
@@ -106,11 +107,7 @@ function matchesRoute(linkHref: string, activeHref: string): boolean {
   return activeHref === linkHref || activeHref.startsWith(`${linkHref}/`);
 }
 
-export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceProps) {
-  // Optional context avoids coupling the reusable shell to a provider in unit
-  // tests/isolated renders. Real /hr routes have HrI18nAugmenter and therefore
-  // resolve localized G2 labels; fallback preserves the historic Arabic label.
-  const i18n = useContext(I18nContext);
+export function HrWorkspace({ capabilities, activeHref, children, translate }: HrWorkspaceProps) {
   const visibleLinks = HR_WORKSPACE_LINKS.filter((link) => isVisible(link, capabilities));
   const activeLinkHref = visibleLinks
     .filter((link) => matchesRoute(link.href, activeHref))
@@ -128,7 +125,7 @@ export function HrWorkspace({ capabilities, activeHref, children }: HrWorkspaceP
         <ul className={styles.workspaceNavList}>
           {visibleLinks.map((link) => {
             const active = activeLinkHref === link.href;
-            const label = link.labelKey && i18n ? i18n.t(link.labelKey) : link.label;
+            const label = link.labelKey && translate ? translate(link.labelKey) : link.label;
             return (
               <li key={link.href} className={styles.workspaceNavItem}>
                 <Link
