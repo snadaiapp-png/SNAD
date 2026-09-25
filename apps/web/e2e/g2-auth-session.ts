@@ -56,6 +56,11 @@ function requireCredentials(role: "employee" | "manager" | "hr"): {
  *   - Browser URL lands on /workspace
  *   - Stable workspace identity matches the authenticated principal
  *
+ * Locale contract:
+ *   - If the caller already selected a locale (for visual AR/EN coverage), preserve it.
+ *   - Otherwise default authenticated business acceptance to English because that suite
+ *     intentionally uses stable English copy assertions in addition to data-testids.
+ *
  * Returns the parsed login response for downstream assertions.
  */
 export async function loginThroughUi(
@@ -63,6 +68,12 @@ export async function loginThroughUi(
   role: "employee" | "manager" | "hr"
 ): Promise<G2LoginResponse> {
   const { email, password } = requireCredentials(role);
+
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("snad.locale")) {
+      localStorage.setItem("snad.locale", "en");
+    }
+  });
 
   await page.goto("/");
   await page.locator("#login-email").fill(email);

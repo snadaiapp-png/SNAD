@@ -40,7 +40,8 @@ export default function LeaveApprovalsPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
       const [team, hr] = await Promise.all([
         canManagerApprove ? hrG2Api.listTeamLeaveRequests("PENDING_MANAGER") : Promise.resolve([]),
@@ -49,7 +50,11 @@ export default function LeaveApprovalsPage() {
       const byId = new Map<string, LeaveRequest>();
       for (const request of [...team, ...hr]) byId.set(request.id, request);
       setRequests(Array.from(byId.values()));
-    } catch (err) { setError(err); } finally { setLoading(false); }
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
   }, [canManagerApprove, canHrApprove]);
 
   useEffect(() => {
@@ -62,36 +67,52 @@ export default function LeaveApprovalsPage() {
     setBusy(true);
     try {
       await hrG2Api.managerApproveLeave(id, "Manager approved (G2 E2E)");
-      setNotice("Manager approved — request escalated to HR");
+      setNotice(t("hrm.leaveApprovals.managerApproved"));
       await load();
-    } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
+    } catch (err) {
+      setNotice(hrmErrorMessage(err).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function hrApprove(id: string) {
     setBusy(true);
     try {
       await hrG2Api.hrApproveLeave(id, "HR approved (G2 E2E)");
-      setNotice("HR approved — leave request is now APPROVED");
+      setNotice(t("hrm.leaveApprovals.hrApproved"));
       await load();
-    } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
+    } catch (err) {
+      setNotice(hrmErrorMessage(err).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function managerReject(id: string) {
     setBusy(true);
     try {
       await hrG2Api.managerRejectLeave(id, "Manager rejected (G2 E2E)");
-      setNotice("Manager rejected");
+      setNotice(t("hrm.leaveApprovals.managerRejected"));
       await load();
-    } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
+    } catch (err) {
+      setNotice(hrmErrorMessage(err).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function hrReject(id: string) {
     setBusy(true);
     try {
       await hrG2Api.hrRejectLeave(id, "HR rejected (G2 E2E)");
-      setNotice("HR rejected");
+      setNotice(t("hrm.leaveApprovals.hrRejected"));
       await load();
-    } catch (err) { setNotice(hrmErrorMessage(err).message); } finally { setBusy(false); }
+    } catch (err) {
+      setNotice(hrmErrorMessage(err).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state)) {
@@ -100,33 +121,41 @@ export default function LeaveApprovalsPage() {
 
   if (!canView) {
     return (
-      <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/approvals">
+      <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/approvals" translate={t}>
         <p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p>
       </HrWorkspace>
     );
   }
 
   const columns: HrColumn<LeaveRequest>[] = [
-    { key: "startDate", header: "From", render: (r) => formatArabicDate(r.startDate) },
-    { key: "endDate", header: "To", render: (r) => formatArabicDate(r.endDate) },
-    { key: "daysCount", header: "Days", align: "end" },
-    { key: "reason", header: "Reason", render: (r) => r.reason ?? "—" },
-    { key: "state", header: "State", render: (r) => <HrStateBadge label={r.state} code={r.state} tone={toneForState(r.state)} /> },
+    { key: "startDate", header: t("hrm.leaveApprovals.from"), render: (r) => formatArabicDate(r.startDate) },
+    { key: "endDate", header: t("hrm.leaveApprovals.to"), render: (r) => formatArabicDate(r.endDate) },
+    { key: "daysCount", header: t("hrm.leaveApprovals.days"), align: "end" },
+    { key: "reason", header: t("hrm.leaveApprovals.reason"), render: (r) => r.reason ?? "—" },
+    { key: "state", header: t("hrm.leaveApprovals.state"), render: (r) => <HrStateBadge label={r.state} code={r.state} tone={toneForState(r.state)} /> },
     {
       key: "actions",
-      header: "Actions",
+      header: t("hrm.leaveApprovals.actions"),
       render: (r) => (
         <span className={styles.actionRow}>
           {r.state === "PENDING_MANAGER" && canManagerApprove ? (
             <>
-              <button type="button" className={styles.linkButton} onClick={() => void managerApprove(r.id)} disabled={busy} data-testid={`manager-approve-${r.id}`}>Manager Approve</button>
-              <button type="button" className={styles.linkButton} onClick={() => void managerReject(r.id)} disabled={busy} data-testid={`manager-reject-${r.id}`}>Manager Reject</button>
+              <button type="button" className={styles.linkButton} onClick={() => void managerApprove(r.id)} disabled={busy} data-testid={`manager-approve-${r.id}`}>
+                {t("hrm.leaveApprovals.managerApprove")}
+              </button>
+              <button type="button" className={styles.linkButton} onClick={() => void managerReject(r.id)} disabled={busy} data-testid={`manager-reject-${r.id}`}>
+                {t("hrm.leaveApprovals.managerReject")}
+              </button>
             </>
           ) : null}
           {r.state === "PENDING_HR" && canHrApprove ? (
             <>
-              <button type="button" className={styles.linkButton} onClick={() => void hrApprove(r.id)} disabled={busy} data-testid={`hr-approve-${r.id}`}>HR Approve</button>
-              <button type="button" className={styles.linkButton} onClick={() => void hrReject(r.id)} disabled={busy} data-testid={`hr-reject-${r.id}`}>HR Reject</button>
+              <button type="button" className={styles.linkButton} onClick={() => void hrApprove(r.id)} disabled={busy} data-testid={`hr-approve-${r.id}`}>
+                {t("hrm.leaveApprovals.hrApprove")}
+              </button>
+              <button type="button" className={styles.linkButton} onClick={() => void hrReject(r.id)} disabled={busy} data-testid={`hr-reject-${r.id}`}>
+                {t("hrm.leaveApprovals.hrReject")}
+              </button>
             </>
           ) : null}
         </span>
@@ -135,11 +164,22 @@ export default function LeaveApprovalsPage() {
   ];
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/approvals">
-      <header><h1>Leave Approval Queue</h1></header>
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/approvals" translate={t}>
+      <header>
+        <h1>{t("hrm.leaveApprovals.title")}</h1>
+        <p className={styles.kpiHint}>{t("hrm.leaveApprovals.subtitle")}</p>
+      </header>
       {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
       {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
-        <HrDataTable<LeaveRequest> caption="Pending Leave Requests" columns={columns} rows={requests} rowKey={(r) => r.id} emptyTitle="No pending leave requests" />
+        <div data-testid="leave-approvals-ready">
+          <HrDataTable<LeaveRequest>
+            caption={t("hrm.leaveApprovals.caption")}
+            columns={columns}
+            rows={requests}
+            rowKey={(r) => r.id}
+            emptyTitle={t("hrm.leaveApprovals.empty")}
+          />
+        </div>
       )}
     </HrWorkspace>
   );

@@ -112,7 +112,7 @@ export default function LeavePage() {
 
   if (!canView) {
     return (
-      <HrWorkspace capabilities={capabilities} activeHref="/hr/leave">
+      <HrWorkspace capabilities={capabilities} activeHref="/hr/leave" translate={t}>
         <p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p>
       </HrWorkspace>
     );
@@ -144,7 +144,7 @@ export default function LeavePage() {
   ];
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave">
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave" translate={t}>
       <header>
         <h1 data-testid="g2-page-title">{t("hrm.leave.title")}</h1>
         <p className={styles.kpiHint}>{t("hrm.leave.subtitle")}</p>

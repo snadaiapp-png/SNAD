@@ -5,8 +5,8 @@
  *
  * Design:
  *   - Semantic <table> with <caption> for screen readers (G0 a11y standard).
- *   - Logical CSS only (no physical left/right). RTL is handled by the dir
- *     attribute on the wrapping div + logical CSS properties in hr.module.css.
+ *   - Logical CSS only (no physical left/right). Direction is inherited from
+ *     the active application locale so the same table is correct in RTL/LTR.
  *   - Column definitions: { key, header, render?, align? }. The render
  *     function receives the row and returns a ReactNode — caller controls
  *     cell content (badge, action buttons, masked value, etc.).
@@ -59,7 +59,7 @@ export function HrDataTable<T>({
   captionSide = "top",
 }: HrDataTableProps<T>) {
   return (
-    <div className={styles.hrTableWrap} dir="rtl">
+    <div className={styles.hrTableWrap}>
       <table className={styles.hrTable} data-caption-side={captionSide}>
         <caption>{caption}</caption>
         <thead>
