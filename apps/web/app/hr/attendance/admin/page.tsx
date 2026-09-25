@@ -45,7 +45,7 @@ export default function AttendanceAdminPage() {
   }, [state, load]);
 
   if (["INITIALIZING","CHECKING_SESSION","REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
-  if (!canAdmin && !canCorrect) return <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance/admin"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
+  if (!canAdmin && !canCorrect) return <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance/admin" translate={t}><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
 
   const columns: HrColumn<AttendanceRecord>[] = [
     { key: "recordDate", header: t("hrm.attendanceAdmin.date"), render: (r) => formatArabicDate(r.recordDate) },
@@ -56,7 +56,7 @@ export default function AttendanceAdminPage() {
   ];
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance/admin">
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance/admin" translate={t}>
       <header className={visualStyles.g2PageHeader}>
         <div>
           <h1>{t("hrm.attendanceAdmin.title")}</h1>
