@@ -1,18 +1,10 @@
 "use client";
 
 /**
- * HR operational dashboard — WS5 Task 10 Step 5.
+ * HR operational dashboard — WS5 Task 10 Step 5 + G2 visual closure launcher.
  *
- * Summaries derive exclusively from the canonical v2 API (no mock data):
- * - Employment status counts (active / onboarding / on-leave / suspended)
- *   from the safe Employment directory;
- * - Position occupancy (occupied / vacant) derived from effective occupying
- *   assignments — the same documented projection as the Positions page;
- * - Pending compliance override requests (capability-gated fetch).
- *
- * Compliance mode is per-employment in the canonical model, so no
- * tenant-wide mode badge is synthesized here. Authorization remains
- * backend-authoritative; capability checks are UX-only.
+ * Summaries derive exclusively from the canonical v2 API (no mock data).
+ * Capability checks remain UX-only; backend authorization is authoritative.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -22,6 +14,7 @@ import { useAuth } from "@/lib/auth/auth-provider";
 import { hrmV2Api, type AssignmentResponse, type EmploymentResponse, type OverrideRequestResponse, type PositionResponse } from "@/lib/api/hr-v2-api";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
 import { HrWorkspace } from "./components/hr-workspace";
+import { HrG2Launcher } from "./components/hr-g2-launcher";
 import { HrErrorState, HrLoading } from "./components/hr-feedback";
 import styles from "./hr.module.css";
 
@@ -33,9 +26,9 @@ export default function HrPage() {
   const { state, me } = useAuth();
 
   const capabilities = me?.capabilities ?? [];
-  const canSeeHr = capabilities.includes(HRM_CAPABILITIES.EMPLOYEE_VIEW)
-    || capabilities.includes(HRM_CAPABILITIES.ORG_STRUCTURE_VIEW)
-    || capabilities.includes(HRM_CAPABILITIES.ASSIGNMENT_VIEW);
+  // A G2-only identity is still an HRM identity and must reach the HR landing
+  // page. This is UX discoverability only; every API remains backend-authorized.
+  const canSeeHr = capabilities.some((capability) => capability.startsWith("HRM."));
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -51,8 +44,6 @@ export default function HrPage() {
     const canAssignment = caps.includes(HRM_CAPABILITIES.ASSIGNMENT_VIEW);
     const canOverride = caps.includes(HRM_CAPABILITIES.COMPLIANCE_OVERRIDE_REQUEST);
     try {
-      // Each fetch is independent: a 403 on one surface must not blank the
-      // whole dashboard (backend authorization is authoritative).
       const [emps, pos, asg, ovr] = await Promise.allSettled([
         canEmployee ? hrmV2Api.listEmployments() : Promise.resolve(null),
         canStructure ? hrmV2Api.listPositions() : Promise.resolve(null),
@@ -118,7 +109,7 @@ export default function HrPage() {
       ) : error ? (
         <HrErrorState error={error} onRetry={load} />
       ) : (
-        <section aria-label="ملخص الموارد البشرية">
+        <section aria-label="ملخص الموارد البشرية" data-testid="hr-landing-ready">
           <div className={styles.dashboardGrid}>
             <div className={styles.statCard}>
               <span className={styles.statValue}>{statusCounts.ACTIVE}</span>
@@ -151,6 +142,8 @@ export default function HrPage() {
               </div>
             ) : null}
           </div>
+
+          <HrG2Launcher capabilities={capabilities} />
 
           <p className={styles.mutedNote}>
             <Link href="/hr/employees" className={styles.tableLink}>سجل الموظفين</Link>
