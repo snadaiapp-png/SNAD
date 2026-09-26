@@ -80,7 +80,7 @@ export function HrDataTable<T>({
             </tr>
           ) : (
             rows.map((row) => (
-              <tr key={rowKey(row)}>
+              <tr key={rowKey(row)} data-testid="hr-data-row">
                 {columns.map((col) => (
                   <td key={col.key} data-align={col.align ?? "start"}>
                     {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "")}

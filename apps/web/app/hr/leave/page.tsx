@@ -15,7 +15,7 @@ import { HrWorkspace } from "../components/hr-workspace";
 import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
-import { formatArabicDate } from "../hr-labels";
+import { formatLocalizedDate } from "../hr-labels";
 import styles from "../hr.module.css";
 
 interface LeaveType { id: string; code: string; nameAr: string; nameEn: string; isPaid: boolean; }
@@ -126,8 +126,8 @@ export default function LeavePage() {
 
   const reqColumns: HrColumn<LeaveRequest>[] = [
     { key: "leaveTypeId", header: t("hrm.leave.col.type"), render: (r) => typeName(r.leaveTypeId) },
-    { key: "startDate", header: t("hrm.leave.col.startDate"), render: (r) => formatArabicDate(r.startDate) },
-    { key: "endDate", header: t("hrm.leave.col.endDate"), render: (r) => formatArabicDate(r.endDate) },
+    { key: "startDate", header: t("hrm.leave.col.startDate"), render: (r) => formatLocalizedDate(r.startDate, locale) },
+    { key: "endDate", header: t("hrm.leave.col.endDate"), render: (r) => formatLocalizedDate(r.endDate, locale) },
     { key: "daysCount", header: t("hrm.leave.col.days"), align: "end" },
     { key: "state", header: t("hrm.leave.col.state"), render: (r) => (
       <HrStateBadge label={t("hrm.leave.state." + r.state)} code={r.state} tone={toneForState(r.state)} />

@@ -9,7 +9,7 @@ import { HrWorkspace } from "../../components/hr-workspace";
 import { HrErrorState, HrLoading, hrmErrorMessage } from "../../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../../components/hr-state-badge";
-import { formatArabicDate } from "../../hr-labels";
+import { formatLocalizedDate } from "../../hr-labels";
 import styles from "../../hr.module.css";
 
 interface LeaveRequest {
@@ -27,7 +27,7 @@ interface LeaveRequest {
 /** Leave Approval Queue with explicit TEAM and HR data scopes. */
 export default function LeaveApprovalsPage() {
   const { state, me } = useAuth();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
   const canManagerApprove = capabilities.includes("HRM.LEAVE.TEAM_APPROVE");
   const canHrApprove = capabilities.includes("HRM.LEAVE.HR_APPROVE");
@@ -128,8 +128,8 @@ export default function LeaveApprovalsPage() {
   }
 
   const columns: HrColumn<LeaveRequest>[] = [
-    { key: "startDate", header: t("hrm.leaveApprovals.from"), render: (r) => formatArabicDate(r.startDate) },
-    { key: "endDate", header: t("hrm.leaveApprovals.to"), render: (r) => formatArabicDate(r.endDate) },
+    { key: "startDate", header: t("hrm.leaveApprovals.from"), render: (r) => formatLocalizedDate(r.startDate, locale) },
+    { key: "endDate", header: t("hrm.leaveApprovals.to"), render: (r) => formatLocalizedDate(r.endDate, locale) },
     { key: "daysCount", header: t("hrm.leaveApprovals.days"), align: "end" },
     { key: "reason", header: t("hrm.leaveApprovals.reason"), render: (r) => r.reason ?? "—" },
     { key: "state", header: t("hrm.leaveApprovals.state"), render: (r) => <HrStateBadge label={r.state} code={r.state} tone={toneForState(r.state)} /> },

@@ -9,7 +9,7 @@ import { HrWorkspace } from "../../components/hr-workspace";
 import { HrErrorState, HrLoading } from "../../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../../components/hr-state-badge";
-import { formatArabicDate } from "../../hr-labels";
+import { formatLocalizedDate } from "../../hr-labels";
 import styles from "../../hr.module.css";
 import visualStyles from "../../components/hr-g2-visual.module.css";
 
@@ -48,7 +48,7 @@ export default function AttendanceAdminPage() {
   if (!canAdmin && !canCorrect) return <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance/admin" translate={t}><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
 
   const columns: HrColumn<AttendanceRecord>[] = [
-    { key: "recordDate", header: t("hrm.attendanceAdmin.date"), render: (r) => formatArabicDate(r.recordDate) },
+    { key: "recordDate", header: t("hrm.attendanceAdmin.date"), render: (r) => formatLocalizedDate(r.recordDate, locale) },
     { key: "clockIn", header: t("hrm.attendanceAdmin.clockIn"), render: (r) => formatTime(r.clockIn, locale) },
     { key: "clockOut", header: t("hrm.attendanceAdmin.clockOut"), render: (r) => formatTime(r.clockOut, locale) },
     { key: "workedMinutes", header: t("hrm.attendanceAdmin.worked"), align: "end", render: (r) => r.workedMinutes ? `${Math.floor(r.workedMinutes/60)}h ${r.workedMinutes%60}m` : "—" },

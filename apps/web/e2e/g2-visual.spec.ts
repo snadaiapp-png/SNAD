@@ -9,6 +9,7 @@ import {
 } from "./g2-visual-helpers";
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
+const REQUIRE_PRODUCT_DATA = process.env.G2_VISUAL_REQUIRE_PRODUCT_DATA === "true";
 
 const SURFACES = {
   employee: [
@@ -60,11 +61,21 @@ for (const role of ["employee", "manager", "hr"] as const) {
 
         await expect(page.locator("html")).toHaveAttribute("lang", locale);
         await expect(page.locator("html")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+        await expect(
+          page.locator("body"),
+          `${role} ${surface.route} must not expose unresolved HRM translation keys`,
+        ).not.toContainText("hrm.");
 
         if (surface.route === "/hr") {
           await expect(page.getByTestId(LANDING_GROUP[role])).toBeVisible();
         } else {
           await expect(page.locator(`nav a[href="${surface.route}"]`).first()).toBeVisible();
+          if (REQUIRE_PRODUCT_DATA) {
+            await expect(
+              page.locator('main tbody tr[data-testid="hr-data-row"]').first(),
+              `${role} ${surface.route} must render a real product-data row; an empty-state row is not visual closure`,
+            ).toBeVisible({ timeout: 20_000 });
+          }
         }
 
         await captureVisualEvidence(page, role, surface.route, testInfo.project.name);

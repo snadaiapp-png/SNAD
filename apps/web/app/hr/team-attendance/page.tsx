@@ -9,7 +9,7 @@ import { HrWorkspace } from "../components/hr-workspace";
 import { HrErrorState, HrLoading } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
-import { formatArabicDate } from "../hr-labels";
+import { formatLocalizedDate } from "../hr-labels";
 import styles from "../hr.module.css";
 
 interface AttendanceRecord {
@@ -76,7 +76,7 @@ export default function TeamAttendancePage() {
   }
 
   const columns: HrColumn<AttendanceRecord>[] = [
-    { key: "recordDate", header: t("hrm.teamAttendance.date"), render: (r) => formatArabicDate(r.recordDate) },
+    { key: "recordDate", header: t("hrm.teamAttendance.date"), render: (r) => formatLocalizedDate(r.recordDate, locale) },
     { key: "clockIn", header: t("hrm.teamAttendance.clockIn"), render: (r) => formatTime(r.clockIn, locale) },
     { key: "clockOut", header: t("hrm.teamAttendance.clockOut"), render: (r) => formatTime(r.clockOut, locale) },
     { key: "workedMinutes", header: t("hrm.teamAttendance.worked"), align: "end", render: (r) => formatWorked(r.workedMinutes, locale) },
