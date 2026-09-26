@@ -16,6 +16,7 @@ interface G2LauncherItem {
 interface G2LauncherGroup {
   id: "self" | "team" | "hr";
   titleMessageId: string;
+  summaryMessageId: string;
   items: readonly G2LauncherItem[];
 }
 
@@ -23,6 +24,7 @@ const GROUPS: readonly G2LauncherGroup[] = [
   {
     id: "self",
     titleMessageId: "hrm.g2.landing.myWorkday",
+    summaryMessageId: "hrm.g2.landing.selfSummary",
     items: [
       { href: "/hr/attendance", labelMessageId: "hrm.g2.landing.attendance", descriptionMessageId: "hrm.attendance.subtitle", capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW, HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD], testId: "g2-launcher-attendance" },
       { href: "/hr/timesheets", labelMessageId: "hrm.g2.landing.timesheets", descriptionMessageId: "hrm.timesheets.subtitle", capabilitiesAny: [HRM_CAPABILITIES.TIMESHEET_SELF_VIEW, HRM_CAPABILITIES.TIMESHEET_SELF_SUBMIT], testId: "g2-launcher-timesheets" },
@@ -32,6 +34,7 @@ const GROUPS: readonly G2LauncherGroup[] = [
   {
     id: "team",
     titleMessageId: "hrm.g2.landing.myTeam",
+    summaryMessageId: "hrm.g2.landing.teamSummary",
     items: [
       { href: "/hr/team-attendance", labelMessageId: "hrm.g2.landing.teamAttendance", descriptionMessageId: "hrm.teamAttendance.subtitle", capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW], testId: "g2-launcher-team-attendance" },
       { href: "/hr/team-timesheets", labelMessageId: "hrm.g2.landing.teamTimesheets", descriptionMessageId: "hrm.timesheets.team.subtitle", capabilitiesAny: [HRM_CAPABILITIES.TIMESHEET_TEAM_APPROVE], testId: "g2-launcher-team-timesheets" },
@@ -42,6 +45,7 @@ const GROUPS: readonly G2LauncherGroup[] = [
   {
     id: "hr",
     titleMessageId: "hrm.g2.landing.hrOperations",
+    summaryMessageId: "hrm.g2.landing.hrSummary",
     items: [
       { href: "/hr/schedules", labelMessageId: "hrm.g2.landing.schedules", descriptionMessageId: "hrm.schedules.subtitle", capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_ADMIN], testId: "g2-launcher-schedules" },
       { href: "/hr/attendance/admin", labelMessageId: "hrm.g2.landing.attendanceAdmin", descriptionMessageId: "hrm.attendanceAdmin.subtitle", capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_ADMIN, HRM_CAPABILITIES.ATTENDANCE_CORRECT], testId: "g2-launcher-attendance-admin" },
@@ -62,20 +66,29 @@ export function HrG2Launcher({ capabilities }: { capabilities: string[] }) {
   if (visibleGroups.length === 0) return null;
 
   return (
-    <section className={styles.launcher} aria-label={t("hrm.g2.landing.myWorkday")}>
-      {visibleGroups.map((group) => (
-        <section key={group.id} className={styles.launcherSection} data-testid={`g2-launcher-${group.id}`}>
-          <h2 className={styles.launcherHeading}>{t(group.titleMessageId)}</h2>
-          <div className={styles.launcherGrid}>
-            {group.items.map((item) => (
-              <Link key={item.href} href={item.href} className={styles.launcherCard} data-testid={item.testId}>
-                <span className={styles.launcherCardTitle}>{t(item.labelMessageId)}</span>
-                <p className={styles.launcherCardDescription}>{t(item.descriptionMessageId)}</p>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ))}
+    <section className={styles.launcher} aria-label={t("hrm.g2.landing.myWorkday")} data-testid="g2-product-areas">
+      {visibleGroups.map((group) => {
+        const headingId = `g2-launcher-${group.id}-heading`;
+        return (
+          <section key={group.id} className={styles.launcherSection} data-testid={`g2-launcher-${group.id}`} data-g2-product-area="true" aria-labelledby={headingId}>
+            <div className={styles.launcherSectionHeader}>
+              <h2 id={headingId} className={styles.launcherHeading}>{t(group.titleMessageId)}</h2>
+              <p className={styles.launcherSummary} data-testid={`g2-launcher-${group.id}-summary`}>{t(group.summaryMessageId)}</p>
+            </div>
+            <ul className={styles.launcherGrid}>
+              {group.items.map((item) => (
+                <li key={item.href} className={styles.launcherItem}>
+                  <Link href={item.href} className={styles.launcherCard} data-testid={item.testId}>
+                    <span className={styles.launcherCardTitle}>{t(item.labelMessageId)}</span>
+                    <p className={styles.launcherCardDescription}>{t(item.descriptionMessageId)}</p>
+                    <span className={styles.launcherCardAction} aria-hidden="true">{t("hrm.g2.landing.openArea")} →</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
     </section>
   );
 }
