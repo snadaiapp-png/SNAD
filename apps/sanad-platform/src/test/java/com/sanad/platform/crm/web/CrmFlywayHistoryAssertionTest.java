@@ -278,6 +278,7 @@ class CrmFlywayHistoryAssertionTest {
             // subscription convergence — renumbered forward-only above the HRM-G2 chain (out-of-order=false)
             , "20260925.1"   // subscription website/store resource entitlement limits
             , "20260925.2"   // subscription operating-unit / branch attribution
+            , "20261001.1"   // Wave 1 Task 1 UAC override/relationship/authorization-event foundation
     );
 
 
