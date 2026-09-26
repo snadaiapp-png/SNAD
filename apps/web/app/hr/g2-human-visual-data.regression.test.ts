@@ -9,6 +9,15 @@ const WEB_ROOT = resolve(REPO_ROOT, "apps/web");
 const VISUAL_FIXTURE_PATH = resolve(REPO_ROOT, "apps/sanad-platform/src/test/resources/sql/g2-human-visual-fixtures.sql");
 const PREVIEW_WORKFLOW_PATH = resolve(REPO_ROOT, ".github/workflows/hrm-human-preview.yml");
 const VISUAL_SPEC_PATH = resolve(WEB_ROOT, "e2e/g2-visual.spec.ts");
+const BILINGUAL_G2_DATE_SURFACES = [
+  "attendance/page.tsx",
+  "team-attendance/page.tsx",
+  "attendance/admin/page.tsx",
+  "timesheets/page.tsx",
+  "team-timesheets/page.tsx",
+  "leave/page.tsx",
+  "leave/approvals/page.tsx",
+];
 
 describe("G2 human visual acceptance data contract", () => {
   it("uses preview-only representative product data instead of certifying empty-only G2 screens", () => {
@@ -40,5 +49,14 @@ describe("G2 human visual acceptance data contract", () => {
     expect(english).toMatch(/Sep/i);
     expect(english).not.toMatch(/[\u0600-\u06FF]/);
     expect(arabic).toMatch(/[\u0600-\u06FF]/);
+  });
+
+  it("wires every bilingual G2 date surface to the selected locale", () => {
+    for (const relativePath of BILINGUAL_G2_DATE_SURFACES) {
+      const source = readFileSync(resolve(HR_ROOT, relativePath), "utf8");
+      expect(source, relativePath).toContain("formatLocalizedDate");
+      expect(source, relativePath).not.toContain("formatArabicDate");
+      expect(source, relativePath).toMatch(/useI18n\(\)[\s\S]*locale/);
+    }
   });
 });
