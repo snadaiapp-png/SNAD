@@ -25,7 +25,7 @@ function todayIso(): string {
 
 export default function HrPage() {
   const { state, me } = useAuth();
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
 
   const capabilities = me?.capabilities ?? [];
   // A G2-only identity is still an HRM identity and must reach the HR landing
@@ -97,9 +97,9 @@ export default function HrPage() {
 
   const pendingOverrides = (overrides ?? []).filter((o) => o.status === "PENDING").length;
   const foundationLinks = [
-    { href: "/hr/employees", ar: "سجل الموظفين", en: "Employee records", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
-    { href: "/hr/org-structure", ar: "الهيكل التنظيمي", en: "Organization structure", capability: HRM_CAPABILITIES.ORG_STRUCTURE_VIEW },
-    { href: "/hr/compliance", ar: "الالتزام", en: "Compliance", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
+    { href: "/hr/employees", labelMessageId: "hrm.g2.landing.employeeRecords", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
+    { href: "/hr/org-structure", labelMessageId: "hrm.g2.landing.organizationStructure", capability: HRM_CAPABILITIES.ORG_STRUCTURE_VIEW },
+    { href: "/hr/compliance", labelMessageId: "hrm.g2.landing.compliance", capability: HRM_CAPABILITIES.EMPLOYEE_VIEW },
   ].filter((link) => capabilities.includes(link.capability));
 
   if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state))
@@ -116,36 +116,36 @@ export default function HrPage() {
       ) : error ? (
         <HrErrorState error={error} onRetry={load} />
       ) : (
-        <section aria-label={locale === "ar" ? "ملخص الموارد البشرية" : "Human resources summary"} data-testid="hr-landing-ready">
+        <section aria-label={t("hrm.g2.landing.summary")} data-testid="hr-landing-ready">
           <div className={styles.dashboardGrid}>
             <div className={styles.statCard}>
               <span className={styles.statValue}>{statusCounts.ACTIVE}</span>
-              <span className={styles.statLabel}>{locale === "ar" ? "توظيف نشِط" : "Active employment"}</span>
+              <span className={styles.statLabel}>{t("hrm.g2.landing.activeEmployment")}</span>
             </div>
             <div className={styles.statCard}>
               <span className={styles.statValue}>{statusCounts.ONBOARDING}</span>
-              <span className={styles.statLabel}>{locale === "ar" ? "قيد التأهيل" : "Onboarding"}</span>
+              <span className={styles.statLabel}>{t("hrm.g2.landing.onboarding")}</span>
             </div>
             <div className={styles.statCard}>
               <span className={styles.statValue}>{statusCounts.ON_LEAVE + statusCounts.SUSPENDED}</span>
-              <span className={styles.statLabel}>{locale === "ar" ? "في إجازة / موقوف" : "On leave / suspended"}</span>
+              <span className={styles.statLabel}>{t("hrm.g2.landing.onLeaveSuspended")}</span>
             </div>
             {occupancy ? (
               <>
                 <div className={styles.statCard}>
                   <span className={styles.statValue}>{occupancy.occupied}</span>
-                  <span className={styles.statLabel}>{locale === "ar" ? "منصب مشغول" : "Occupied position"}</span>
+                  <span className={styles.statLabel}>{t("hrm.g2.landing.occupiedPosition")}</span>
                 </div>
                 <div className={styles.statCard}>
                   <span className={styles.statValue}>{occupancy.vacant}</span>
-                  <span className={styles.statLabel}>{locale === "ar" ? "منصب شاغر" : "Vacant position"}</span>
+                  <span className={styles.statLabel}>{t("hrm.g2.landing.vacantPosition")}</span>
                 </div>
               </>
             ) : null}
             {overrides !== null ? (
               <div className={pendingOverrides > 0 ? `${styles.statCard} ${styles.statAlert}` : styles.statCard}>
                 <span className={styles.statValue}>{pendingOverrides}</span>
-                <span className={styles.statLabel}>{locale === "ar" ? "تجاوزات قيد المراجعة" : "Overrides under review"}</span>
+                <span className={styles.statLabel}>{t("hrm.g2.landing.pendingOverrides")}</span>
               </div>
             ) : null}
           </div>
@@ -157,7 +157,7 @@ export default function HrPage() {
               {foundationLinks.map((link, index) => (
                 <span key={link.href}>
                   {index > 0 ? " · " : null}
-                  <Link href={link.href} className={styles.tableLink}>{locale === "ar" ? link.ar : link.en}</Link>
+                  <Link href={link.href} className={styles.tableLink}>{t(link.labelMessageId)}</Link>
                 </span>
               ))}
             </p>

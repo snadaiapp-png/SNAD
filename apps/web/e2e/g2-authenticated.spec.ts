@@ -16,7 +16,7 @@
  * Employee self-service table (/hr/leave) does NOT render a Reason column.
  * The test uses leaveRequestId (captured from create response) as the
  * canonical identity for cross-role verification. On the Employee page,
- * it verifies via API response (GET /leave/requests) + the request-panel
+ * it verifies via API response (GET /leave/requests) + the desktop request table
  * [data-status] badge. On the Manager/HR approval pages (which DO render
  * Reason), it uses LEAVE_REASON text matching + data-testid for action buttons.
  */
@@ -96,7 +96,10 @@ test.describe("G2 Desktop Journey @desktop", () => {
       `Self leave requests must contain the submitted request (id=${leaveRequestId}, state=PENDING_MANAGER). Response: ${JSON.stringify(selfBody).slice(0, 300)}`,
     ).toBe(true);
     await expect(
-      employeePage.getByTestId("leave-requests-panel").locator('[data-status="PENDING_MANAGER"]'),
+      employeePage
+        .getByTestId("leave-requests-panel")
+        .getByRole("table")
+        .locator('[data-status="PENDING_MANAGER"]'),
     ).toBeVisible({ timeout: 15_000 });
 
     await logoutThroughUi(employeePage);
@@ -182,7 +185,10 @@ test.describe("G2 Desktop Journey @desktop", () => {
       `Final verification: self leave requests must contain the approved request (id=${leaveRequestId}, state=APPROVED). Response: ${JSON.stringify(verifyBody).slice(0, 300)}`,
     ).toBe(true);
     await expect(
-      verificationPage.getByTestId("leave-requests-panel").locator('[data-status="APPROVED"]'),
+      verificationPage
+        .getByTestId("leave-requests-panel")
+        .getByRole("table")
+        .locator('[data-status="APPROVED"]'),
     ).toBeVisible({ timeout: 15_000 });
 
     await logoutThroughUi(verificationPage);

@@ -22,4 +22,26 @@ describe("generalized HRM Human Preview governance", () => {
     expect(source).toContain("playwright-g2-visual-report");
     expect(source).toContain("if-no-files-found: error");
   });
+
+  it("derives the visual matrix from role routes and projects instead of hard-coded historical counts", () => {
+    const source = readFileSync(WORKFLOW, "utf8");
+    expect(source).not.toContain('test "$VISUAL" = "12"');
+    expect(source).not.toContain("EXPECTED=60");
+    expect(source).toContain("G2_VISUAL_EXPECTED_CASES");
+    expect(source).toContain("expected_cases");
+    expect(source).toContain('"employee": ["/hr", "/hr/attendance", "/hr/timesheets", "/hr/leave"]');
+    expect(source).toContain('"manager": ["/hr", "/hr/team-attendance", "/hr/team-timesheets", "/hr/leave/approvals", "/hr/reports/attendance"]');
+    expect(source).toContain('"hr": ["/hr", "/hr/schedules", "/hr/attendance/admin", "/hr/leave/policies", "/hr/leave/approvals", "/hr/reports/attendance"]');
+    expect(source).toContain('"g2-visual-ar-desktop"');
+    expect(source).toContain('"g2-visual-en-mobile"');
+  });
+
+  it("requires a complete unique PASS manifest with exact-head screenshots for every matrix case", () => {
+    const source = readFileSync(WORKFLOW, "utf8");
+    expect(source).toContain('row["sha"] != head_sha');
+    expect(source).toContain('row["result"] != "PASS"');
+    expect(source).toContain('Path(row["screenshot"]).is_file()');
+    expect(source).toContain("len(actual_cases) != len(set(actual_cases))");
+    expect(source).toContain("set(actual_cases) != expected_cases");
+  });
 });
