@@ -1,6 +1,6 @@
 "use client";
 
-/** Shared semantic HR table with a mobile card representation for dense data. */
+/** Shared semantic HR table with opt-in mobile card rendering for dense G2 data. */
 
 import type { ReactNode } from "react";
 import styles from "../hr.module.css";
@@ -23,6 +23,8 @@ interface HrDataTableProps<T> {
   emptyDescription?: string;
   emptyAction?: ReactNode;
   captionSide?: "top" | "bottom";
+  /** G2 product surfaces opt in; legacy HR tables retain a single DOM representation. */
+  mobileCards?: boolean;
 }
 
 function cellValue<T>(row: T, col: HrColumn<T>): ReactNode {
@@ -38,10 +40,11 @@ export function HrDataTable<T>({
   emptyDescription,
   emptyAction,
   captionSide = "top",
+  mobileCards = false,
 }: HrDataTableProps<T>) {
   return (
     <>
-      <div className={`${styles.hrTableWrap} ${visualStyles.desktopTable}`}>
+      <div className={mobileCards ? `${styles.hrTableWrap} ${visualStyles.desktopTable}` : styles.hrTableWrap}>
         <table className={styles.hrTable} data-caption-side={captionSide}>
           <caption>{caption}</caption>
           <thead>
@@ -75,22 +78,24 @@ export function HrDataTable<T>({
         </table>
       </div>
 
-      <section className={visualStyles.mobileRecordList} data-testid="hr-mobile-records" aria-label={caption}>
-        {rows.length === 0 ? (
-          <HrEmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
-        ) : (
-          rows.map((row) => (
-            <article className={visualStyles.mobileRecord} data-testid="hr-mobile-record" key={rowKey(row)}>
-              {columns.map((col) => (
-                <div className={visualStyles.mobileRecordField} key={col.key}>
-                  <span className={visualStyles.mobileRecordLabel}>{col.header}</span>
-                  <div className={visualStyles.mobileRecordValue}>{cellValue(row, col)}</div>
-                </div>
-              ))}
-            </article>
-          ))
-        )}
-      </section>
+      {mobileCards ? (
+        <section className={visualStyles.mobileRecordList} data-testid="hr-mobile-records" aria-label={caption}>
+          {rows.length === 0 ? (
+            <HrEmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
+          ) : (
+            rows.map((row) => (
+              <article className={visualStyles.mobileRecord} data-testid="hr-mobile-record" key={rowKey(row)}>
+                {columns.map((col) => (
+                  <div className={visualStyles.mobileRecordField} key={col.key}>
+                    <span className={visualStyles.mobileRecordLabel}>{col.header}</span>
+                    <div className={visualStyles.mobileRecordValue}>{cellValue(row, col)}</div>
+                  </div>
+                ))}
+              </article>
+            ))
+          )}
+        </section>
+      ) : null}
     </>
   );
 }
