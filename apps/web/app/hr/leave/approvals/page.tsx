@@ -68,7 +68,7 @@ export default function LeaveApprovalsPage() {
     <div data-testid="leave-approvals-product-surface">
       <HrProductHeader eyebrow={canHrApprove ? t("hrm.g2.landing.hrOperations") : t("hrm.g2.landing.myTeam")} title={t("hrm.leaveApprovals.title")} subtitle={t("hrm.leaveApprovals.subtitle")} />
       {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
-      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <>
+      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <div data-testid="leave-approvals-ready">
         <HrKpiGrid label={t("hrm.leaveApprovals.title")}>
           <div data-testid="leave-approvals-manager-count"><HrKpiCard label={t("hrm.leave.state.PENDING_MANAGER")} value={managerCount} tone={managerCount > 0 ? "attention" : "neutral"} /></div>
           <div data-testid="leave-approvals-hr-count"><HrKpiCard label={t("hrm.leave.state.PENDING_HR")} value={hrCount} tone={hrCount > 0 ? "attention" : "neutral"} /></div>
@@ -79,7 +79,7 @@ export default function LeaveApprovalsPage() {
           <HrDataTable<LeaveRequest> caption={t("hrm.leaveApprovals.caption")} columns={columns} rows={requests} rowKey={(r) => r.id} emptyTitle={t("hrm.leaveApprovals.empty")} />
           <HrMobileRecordList label={t("hrm.leaveApprovals.caption")}>{requests.map((r) => <article key={r.id} className={styles.statCard}><strong>{formatLocalizedDate(r.startDate, locale)} — {formatLocalizedDate(r.endDate, locale)}</strong><span>{r.daysCount}</span><HrStateBadge label={t("hrm.leave.state." + r.state)} code={r.state} tone={toneForState(r.state)} /><span className={styles.actionRow}>{r.state === "PENDING_MANAGER" && canManagerApprove ? <button type="button" className={styles.linkButton} onClick={() => void managerApprove(r.id)} disabled={busy}>{t("hrm.leaveApprovals.managerApprove")}</button> : null}{r.state === "PENDING_HR" && canHrApprove ? <button type="button" className={styles.linkButton} onClick={() => void hrApprove(r.id)} disabled={busy}>{t("hrm.leaveApprovals.hrApprove")}</button> : null}</span></article>)}</HrMobileRecordList>
         </HrOperationalPanel></div>
-      </>}
+      </div>}
     </div>
   </HrWorkspace>;
 }
