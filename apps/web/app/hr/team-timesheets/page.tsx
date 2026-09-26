@@ -9,7 +9,7 @@ import { HrWorkspace } from "../components/hr-workspace";
 import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
-import { formatArabicDate } from "../hr-labels";
+import { formatLocalizedDate } from "../hr-labels";
 import styles from "../hr.module.css";
 
 interface Timesheet {
@@ -24,7 +24,7 @@ interface Timesheet {
 
 export default function TeamTimesheetsPage() {
   const { state, me } = useAuth();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
   const canApprove = capabilities.includes("HRM.TIMESHEET.TEAM_APPROVE");
 
@@ -94,7 +94,7 @@ export default function TeamTimesheetsPage() {
     {
       key: "periodStart",
       header: t("hrm.timesheets.period"),
-      render: (r) => `${formatArabicDate(r.periodStart)} — ${formatArabicDate(r.periodEnd)}`,
+      render: (r) => `${formatLocalizedDate(r.periodStart, locale)} — ${formatLocalizedDate(r.periodEnd, locale)}`,
     },
     {
       key: "state",
