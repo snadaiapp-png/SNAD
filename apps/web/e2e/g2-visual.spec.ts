@@ -9,6 +9,7 @@ import {
 } from "./g2-visual-helpers";
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
+const REQUIRE_PRODUCT_DATA = process.env.G2_VISUAL_REQUIRE_PRODUCT_DATA === "true";
 
 const SURFACES = {
   employee: [
@@ -65,6 +66,12 @@ for (const role of ["employee", "manager", "hr"] as const) {
           await expect(page.getByTestId(LANDING_GROUP[role])).toBeVisible();
         } else {
           await expect(page.locator(`nav a[href="${surface.route}"]`).first()).toBeVisible();
+          if (REQUIRE_PRODUCT_DATA) {
+            await expect(
+              page.locator("main tbody tr").first(),
+              `${role} ${surface.route} must render representative product data during HRM Human Preview`,
+            ).toBeVisible({ timeout: 20_000 });
+          }
         }
 
         await captureVisualEvidence(page, role, surface.route, testInfo.project.name);
