@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { HRM_G2_I18N_AR, HRM_G2_I18N_EN } from "@/lib/i18n/locales/hrm-g2-i18n";
 import { formatLocalizedDate } from "./hr-labels";
 
 const HR_ROOT = resolve(__dirname);
@@ -19,6 +20,16 @@ const BILINGUAL_G2_DATE_SURFACES = [
   "leave/page.tsx",
   "leave/approvals/page.tsx",
 ];
+const LEAVE_LIFECYCLE_STATES = [
+  "DRAFT",
+  "SUBMITTED",
+  "PENDING_MANAGER",
+  "PENDING_HR",
+  "APPROVED",
+  "REJECTED",
+  "WITHDRAWN",
+  "CANCELLED",
+] as const;
 
 describe("G2 human visual acceptance data contract", () => {
   it("uses preview-only representative product data instead of certifying empty-only G2 screens", () => {
@@ -44,6 +55,21 @@ describe("G2 human visual acceptance data contract", () => {
     expect(visualSpec).toContain('process.env.G2_VISUAL_REQUIRE_PRODUCT_DATA === "true"');
     expect(visualSpec).toContain('tr[data-testid="hr-data-row"]');
     expect(dataTable).toContain('data-testid="hr-data-row"');
+  });
+
+  it("fails visual closure when a raw HRM translation key is visible", () => {
+    const visualSpec = readFileSync(VISUAL_SPEC_PATH, "utf8");
+    expect(visualSpec).toContain('not.toContainText("hrm.")');
+  });
+
+  it("localizes every canonical leave lifecycle state in Arabic and English", () => {
+    for (const state of LEAVE_LIFECYCLE_STATES) {
+      const key = `hrm.leave.state.${state}`;
+      expect(HRM_G2_I18N_AR[key], `Arabic ${key}`).toBeTruthy();
+      expect(HRM_G2_I18N_EN[key], `English ${key}`).toBeTruthy();
+      expect(HRM_G2_I18N_AR[key]).not.toBe(key);
+      expect(HRM_G2_I18N_EN[key]).not.toBe(key);
+    }
   });
 
   it("formats G2 dates in the selected UI locale", () => {
