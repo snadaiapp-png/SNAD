@@ -1,7 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { createContext, type ReactNode } from "react";
 import visualStyles from "./hr-g2-visual.module.css";
+
+export const HrG2ProductSurfaceContext = createContext(false);
 
 export interface HrG2Metric {
   label: string;
@@ -33,33 +35,35 @@ export function HrG2ProductSurface({
   children,
 }: HrG2ProductSurfaceProps) {
   return (
-    <section className={visualStyles.productSurface} data-testid="g2-product-surface">
-      <header className={visualStyles.productHero}>
-        <div className={visualStyles.productHeroCopy}>
-          <span className={visualStyles.productEyebrow}>{eyebrow}</span>
-          <h1 className={visualStyles.productTitle} data-testid="g2-page-title">{title}</h1>
-          <p className={visualStyles.productSubtitle}>{subtitle}</p>
+    <HrG2ProductSurfaceContext.Provider value={true}>
+      <section className={visualStyles.productSurface} data-testid="g2-product-surface">
+        <header className={visualStyles.productHero}>
+          <div className={visualStyles.productHeroCopy}>
+            <span className={visualStyles.productEyebrow}>{eyebrow}</span>
+            <h1 className={visualStyles.productTitle} data-testid="g2-page-title">{title}</h1>
+            <p className={visualStyles.productSubtitle}>{subtitle}</p>
+          </div>
+          <div className={visualStyles.productActions} data-testid="g2-primary-action-region">
+            {primaryAction ?? <span className={visualStyles.productActionPlaceholder} aria-hidden="true" />}
+          </div>
+        </header>
+
+        <div className={visualStyles.metricGrid} data-testid="g2-kpi-grid">
+          {metrics.map((metric, index) => (
+            <article className={visualStyles.metricCard} key={`${metric.label}-${index}`}>
+              <span className={visualStyles.metricLabel}>{metric.label}</span>
+              <strong className={visualStyles.metricValue}>{metric.value}</strong>
+              {metric.hint ? <span className={visualStyles.metricHint}>{metric.hint}</span> : null}
+            </article>
+          ))}
         </div>
-        <div className={visualStyles.productActions} data-testid="g2-primary-action-region">
-          {primaryAction ?? <span className={visualStyles.productActionPlaceholder} aria-hidden="true" />}
+
+        {toolbar ? <div className={visualStyles.productToolbar}>{toolbar}</div> : null}
+
+        <div className={visualStyles.productContent} data-testid="g2-product-content">
+          {children}
         </div>
-      </header>
-
-      <div className={visualStyles.metricGrid} data-testid="g2-kpi-grid">
-        {metrics.map((metric, index) => (
-          <article className={visualStyles.metricCard} key={`${metric.label}-${index}`}>
-            <span className={visualStyles.metricLabel}>{metric.label}</span>
-            <strong className={visualStyles.metricValue}>{metric.value}</strong>
-            {metric.hint ? <span className={visualStyles.metricHint}>{metric.hint}</span> : null}
-          </article>
-        ))}
-      </div>
-
-      {toolbar ? <div className={visualStyles.productToolbar}>{toolbar}</div> : null}
-
-      <div className={visualStyles.productContent} data-testid="g2-product-content">
-        {children}
-      </div>
-    </section>
+      </section>
+    </HrG2ProductSurfaceContext.Provider>
   );
 }
