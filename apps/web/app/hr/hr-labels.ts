@@ -42,12 +42,15 @@ export const WORKER_CLASSIFICATION_AR: Record<string, string> = {
   INTERN: "متدرب",
 };
 
-/** Gregorian calendar with Arabic month names and Latin digits. */
-export function formatArabicDate(iso: string | null | undefined): string {
+/** Gregorian date rendered in the explicitly selected application locale. */
+export function formatLocalizedDate(
+  iso: string | null | undefined,
+  locale: "ar" | "en",
+): string {
   if (!iso) return "—";
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat("ar", {
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar" : "en-US", {
     calendar: "gregory",
     numberingSystem: "latn",
     timeZone: "UTC",
@@ -55,6 +58,11 @@ export function formatArabicDate(iso: string | null | undefined): string {
     month: "short",
     day: "numeric",
   }).format(d);
+}
+
+/** Gregorian calendar with Arabic month names and Latin digits. */
+export function formatArabicDate(iso: string | null | undefined): string {
+  return formatLocalizedDate(iso, "ar");
 }
 
 export function employmentStatusAr(status: string): string {

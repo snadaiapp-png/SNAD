@@ -126,6 +126,12 @@ class SubscriptionChangeServiceTest {
         lenient().when(itemRepository.findActiveBySubscriptionIdAndPlanId(
                 SUBSCRIPTION_ID, ANCHOR_PLAN_ID))
                 .thenReturn(Optional.of(planItem));
+        // The canonical preview recomputes the CURRENT side from the pinned
+        // version only for PER_BRANCH prices; a missing current price keeps
+        // the anchored item's monetary snapshot. Default: no pinned price.
+        lenient().when(priceResolver.resolveForPlanVersion(
+                eq(planItem.getPlanVersionId()), any(), any(), any()))
+                .thenReturn(Optional.empty());
     }
 
     @Test

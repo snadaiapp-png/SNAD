@@ -1,0 +1,1 @@
+RED phase evidence: `apps/web/e2e/g2-visual.spec.ts` now requires `tr[data-testid="hr-data-row"]` during HRM Human Preview, so an empty-state table row cannot satisfy visual product-data acceptance. No production UI code has been changed yet.

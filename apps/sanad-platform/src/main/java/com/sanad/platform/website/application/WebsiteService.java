@@ -1,6 +1,7 @@
 package com.sanad.platform.website.application;
 
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.website.api.WebsiteDtos.*;
 import com.sanad.platform.website.domain.WebsiteDomain;
 import org.springframework.dao.DuplicateKeyException;
@@ -26,21 +27,36 @@ import java.util.UUID;
 @Service
 public class WebsiteService {
 
+    private static final String MODULE_CODE = "WEBSITES";
+    private static final String WEBSITE_LIMIT_CODE = "WEBSITES.MAX_WEBSITES";
+
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
+    private final EntitlementResolver entitlementResolver;
+    private final WebsiteDomainService domainService;
 
-    public WebsiteService(JdbcTemplate jdbc, PlatformAuditService auditService) {
+    public WebsiteService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            EntitlementResolver entitlementResolver,
+            WebsiteDomainService domainService
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
+        this.entitlementResolver = entitlementResolver;
+        this.domainService = domainService;
     }
 
     @Transactional
     public WebsiteResponse create(UUID tenantId, CreateWebsiteRequest request, Authentication auth) {
         if (request == null || request.name() == null || request.name().isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        enforceCreationLimit(tenantId);
         String slug = normalizeSlug(request.slug() != null ? request.slug() : request.name());
-        String locale = request.defaultLocale() != null && !request.defaultLocale().isBlank()
-                ? request.defaultLocale() : "ar";
+        String locale = normalizeLocale(
+                request.defaultLocale() != null && !request.defaultLocale().isBlank()
+                        ? request.defaultLocale()
+                        : tenantLocale(tenantId));
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         try {
@@ -52,6 +68,7 @@ public class WebsiteService {
         } catch (DuplicateKeyException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "slug already exists for this tenant: " + slug);
         }
+        domainService.generateAndRegisterDefaultDomain(tenantId, id, slug, auth);
         audit(tenantId, auth, "WEBSITE.CREATED", id, "slug=" + slug);
         return getOrThrow(tenantId, id);
     }
@@ -65,8 +82,9 @@ public class WebsiteService {
                     request.name().trim(), Timestamp.from(now), tenantId, websiteId);
         }
         if (request.defaultLocale() != null) {
+            String locale = normalizeLocale(request.defaultLocale());
             jdbc.update("UPDATE websites SET default_locale = ?, updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
-                    request.defaultLocale(), Timestamp.from(now), tenantId, websiteId);
+                    locale, Timestamp.from(now), tenantId, websiteId);
         }
         if (request.themeConfig() != null) {
             jdbc.update("UPDATE websites SET theme_config = ?::jsonb, updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
@@ -102,6 +120,10 @@ public class WebsiteService {
     @Transactional
     public WebsiteResponse setPrimary(UUID tenantId, UUID websiteId, Authentication auth) {
         WebsiteResponse website = getOrThrow(tenantId, websiteId);
+        if (website.status() != WebsiteDomain.WebsiteStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "website must be ACTIVE before setting primary");
+        }
         jdbc.update("UPDATE websites SET is_primary = FALSE, updated_at = ? WHERE tenant_id = ? AND is_primary = TRUE",
                 Timestamp.from(Instant.now()), tenantId);
         jdbc.update("UPDATE websites SET is_primary = TRUE, updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
@@ -129,6 +151,54 @@ public class WebsiteService {
     }
 
     // ===== Helpers =====
+    private void enforceCreationLimit(UUID tenantId) {
+        if (!entitlementResolver.hasExplicitModuleEntitlement(tenantId, MODULE_CODE)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "explicit website subscription entitlement is required"
+            );
+        }
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null, "WEBSITE_LIMIT:" + tenantId);
+        long limit = entitlementResolver.getLimit(tenantId, MODULE_CODE, WEBSITE_LIMIT_CODE);
+        if (limit <= 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "active website subscription entitlement is required"
+            );
+        }
+        Long current = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM websites WHERE tenant_id = ? AND status <> 'ARCHIVED'",
+                Long.class,
+                tenantId
+        );
+        long used = current == null ? 0 : current;
+        if (used >= limit) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "website limit for the subscription has been reached"
+            );
+        }
+    }
+
+    private String normalizeLocale(String value) {
+        String locale = value == null ? "" : value.trim();
+        if (locale.isEmpty() || locale.length() > 10
+                || !locale.matches("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "defaultLocale is invalid");
+        }
+        return locale;
+    }
+
+    private String tenantLocale(UUID tenantId) {
+        String locale = jdbc.queryForObject(
+                "SELECT locale FROM tenants WHERE id = ?",
+                String.class,
+                tenantId
+        );
+        return locale == null || locale.isBlank() ? "ar-SA" : locale;
+    }
+
     private WebsiteResponse getOrThrow(UUID tenantId, UUID websiteId) {
         try {
             return jdbc.queryForObject("SELECT * FROM websites WHERE tenant_id = ? AND id = ?", this::mapRow, tenantId, websiteId);
@@ -139,10 +209,54 @@ public class WebsiteService {
 
     private WebsiteResponse transition(UUID tenantId, UUID websiteId, String newStatus, String auditAction, Authentication auth) {
         WebsiteResponse existing = getOrThrow(tenantId, websiteId);
+        WebsiteDomain.WebsiteStatus target = WebsiteDomain.WebsiteStatus.valueOf(newStatus);
+        WebsiteDomain.WebsiteStatus current = existing.status();
+        if (current == target) return existing;
+        if (target == WebsiteDomain.WebsiteStatus.ACTIVE
+                && !entitlementResolver.hasExplicitModuleEntitlement(tenantId, MODULE_CODE)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "explicit website subscription entitlement is required for activation");
+        }
+
+        boolean allowed = switch (current) {
+            case DRAFT -> target == WebsiteDomain.WebsiteStatus.ACTIVE
+                    || target == WebsiteDomain.WebsiteStatus.ARCHIVED;
+            case ACTIVE -> target == WebsiteDomain.WebsiteStatus.SUSPENDED
+                    || target == WebsiteDomain.WebsiteStatus.ARCHIVED;
+            case SUSPENDED -> target == WebsiteDomain.WebsiteStatus.ACTIVE
+                    || target == WebsiteDomain.WebsiteStatus.ARCHIVED;
+            case ARCHIVED -> false;
+        };
+        if (!allowed) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "invalid website lifecycle transition: " + current + " -> " + target);
+        }
+
         Instant now = Instant.now();
+        if (target == WebsiteDomain.WebsiteStatus.ARCHIVED) {
+            jdbc.update("""
+                    UPDATE website_domains
+                       SET activation_status = 'DISABLED', is_primary = FALSE,
+                           updated_at = ?, version = version + 1
+                     WHERE tenant_id = ? AND website_id = ?
+                    """, Timestamp.from(now), tenantId, websiteId);
+            jdbc.update("""
+                    UPDATE subscription_resource_bindings
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND resource_type = 'WEBSITE'
+                       AND resource_id = ? AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, websiteId);
+            jdbc.update("""
+                    UPDATE websites
+                       SET organization_id = NULL
+                     WHERE tenant_id = ? AND id = ?
+                    """, tenantId, websiteId);
+        }
         jdbc.update("UPDATE websites SET status = ?, updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
-                newStatus, Timestamp.from(now), tenantId, websiteId);
-        audit(tenantId, auth, auditAction, websiteId, "name=" + existing.name() + ",to=" + newStatus);
+                target.name(), Timestamp.from(now), tenantId, websiteId);
+        audit(tenantId, auth, auditAction, websiteId, "name=" + existing.name() + ",to=" + target);
         return getOrThrow(tenantId, websiteId);
     }
 
@@ -161,13 +275,16 @@ public class WebsiteService {
     }
 
     private void audit(UUID tenantId, Authentication auth, String action, UUID resourceId, String reason) {
-        try { auditService.success(auth, tenantId, action, "WEBSITE", resourceId == null ? null : resourceId.toString(), reason, null, null); }
-        catch (Exception ignored) {}
+        auditService.success(auth, tenantId, action, "WEBSITE",
+                resourceId == null ? null : resourceId.toString(), reason, null, null);
     }
 
     private String toJson(Map<String, Object> map) {
-        try { return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(map); }
-        catch (Exception e) { return "{}"; }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(map);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "themeConfig is not valid JSON data", e);
+        }
     }
 
     @SuppressWarnings("unchecked")

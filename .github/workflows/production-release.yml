@@ -35,17 +35,28 @@ jobs:
     name: Deploy exact image and verify production
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 55
+    timeout-minutes: 75
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Dedicated production-only G2 identities. These are role-scoped QA
+      # principals; never substitute Control Plane or Tenant B admin credentials.
+      E2E_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}
+      E2E_EMPLOYEE_PASSWORD: ${{ secrets.G2_PROD_EMPLOYEE_PASSWORD }}
+      E2E_MANAGER_EMAIL: ${{ secrets.G2_PROD_MANAGER_EMAIL }}
+      E2E_MANAGER_PASSWORD: ${{ secrets.G2_PROD_MANAGER_PASSWORD }}
+      E2E_HR_EMAIL: ${{ secrets.G2_PROD_HR_EMAIL }}
+      E2E_HR_PASSWORD: ${{ secrets.G2_PROD_HR_PASSWORD }}
     steps:
       - name: Validate protected release inputs
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL; do
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL \
+            E2E_EMPLOYEE_EMAIL E2E_EMPLOYEE_PASSWORD \
+            E2E_MANAGER_EMAIL E2E_MANAGER_PASSWORD \
+            E2E_HR_EMAIL E2E_HR_PASSWORD; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           [[ "${{ inputs.commit_sha }}" =~ ^[0-9a-f]{40}$ ]]
@@ -276,6 +287,65 @@ jobs:
           bff_status=$(curl --silent --show-error --output /tmp/control-plane-api.json --write-out '%{http_code}' --max-time 90 "$WEB_PRODUCTION_BASE_URL/api/platform/api/v1/control-plane/dashboard" || true)
           case "$bff_status" in 401|403) ;; *) exit 1 ;; esac
 
+      - name: Set up Node.js 24 for G2 production visual smoke
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies and Chromium for G2 production visual smoke
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install chromium --with-deps
+
+      - name: Verify authenticated G2 production visual smoke
+        working-directory: apps/web
+        shell: bash
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.WEB_PRODUCTION_BASE_URL }}
+          GITHUB_HEAD_SHA: ${{ steps.target.outputs.sha }}
+          CI: '1'
+        run: |
+          set -euo pipefail
+
+          # Bind frontend evidence to the exact release SHA before authenticating.
+          release_status=$(curl --silent --show-error --location \
+            --output "$RUNNER_TEMP/g2-production-release.json" \
+            --write-out '%{http_code}' --max-time 60 \
+            "$PLAYWRIGHT_BASE_URL/api/system/release")
+          test "$release_status" = "200"
+          jq -e --arg sha "$GITHUB_HEAD_SHA" \
+            '.commitSha==$sha and (.environment=="production" or .environment=="prod")' \
+            "$RUNNER_TEMP/g2-production-release.json" >/dev/null
+
+          # Never allow stale local evidence to satisfy the production gate.
+          rm -rf test-results/g2-visual-evidence playwright-g2-visual-report
+          npx playwright test --config=playwright-g2-visual.config.ts
+
+          MANIFEST='test-results/g2-visual-evidence/manifest.ndjson'
+          test -s "$MANIFEST"
+          EXPECTED=60
+          ACTUAL=$(wc -l < "$MANIFEST" | tr -d ' ')
+          test "$ACTUAL" = "$EXPECTED" || {
+            echo "::error::G2 production visual evidence rows=$ACTUAL expected=$EXPECTED"
+            exit 1
+          }
+          if grep -v "\"sha\":\"$GITHUB_HEAD_SHA\"" "$MANIFEST"; then
+            echo "::error::G2 production visual evidence contains non-release SHA"
+            exit 1
+          fi
+          for role in employee manager hr; do
+            grep -q "\"role\":\"$role\"" "$MANIFEST"
+          done
+          for project in g2-visual-ar-desktop g2-visual-ar-mobile g2-visual-en-desktop g2-visual-en-mobile; do
+            grep -q "\"viewport\":\"$project\"" "$MANIFEST"
+          done
+          echo 'g2-production-visual=PASS'
+
       - name: Write sanitized release evidence
         if: success()
         shell: bash
@@ -287,7 +357,7 @@ jobs:
             --arg previousImage "${{ steps.previous.outputs.image_ref }}" \
             --arg backendUrl "$PRODUCTION_BASE_URL" \
             --arg webUrl "$WEB_PRODUCTION_BASE_URL" \
-            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,imageRef:$imageRef,deploymentId:$deployment,previousImageRef:$previousImage,backendUrl:$backendUrl,webUrl:$webUrl,health:"UP",readiness:"UP",flyway:"PASS",securityBoundary:"PASS",vercelControlPlane:"UP",vercelBff:"CONNECTED"}' \
+            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,imageRef:$imageRef,deploymentId:$deployment,previousImageRef:$previousImage,backendUrl:$backendUrl,webUrl:$webUrl,health:"UP",readiness:"UP",flyway:"PASS",securityBoundary:"PASS",vercelControlPlane:"UP",vercelBff:"CONNECTED",g2ProductionVisual:"PASS"}' \
             > production-release-evidence.json
 
       - name: Upload release evidence
@@ -301,6 +371,8 @@ jobs:
             production-release-evidence.json
             render-rollback.json
             scp-contract-smoke.json
+            apps/web/test-results/g2-visual-evidence/
+            apps/web/playwright-g2-visual-report/
           if-no-files-found: warn
           retention-days: 90
 
@@ -310,7 +382,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production deployment passed for exact image \`${{ steps.image.outputs.image_ref }}\` (commit \`${{ steps.target.outputs.sha }}\`), deployment \`${{ steps.deploy.outputs.id }}\`. Readiness, Control Plane tenant, Flyway, security boundary, Vercel Control Plane and BFF checks passed."
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production deployment passed for exact image \`${{ steps.image.outputs.image_ref }}\` (commit \`${{ steps.target.outputs.sha }}\`), deployment \`${{ steps.deploy.outputs.id }}\`. Readiness, Control Plane tenant, Flyway, security boundary, Vercel Control Plane/BFF and authenticated G2 Employee/Manager/HR desktop+mobile visual smoke passed."
 
       - name: Roll back failed release
         if: failure() && inputs.rollback_on_failure && steps.previous.outputs.image_ref != ''

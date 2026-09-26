@@ -46,6 +46,12 @@ vi.mock("@/lib/api/scp-api", () => ({
 vi.mock("@/lib/api/executive-api", () => ({
   executiveApi: {
     plans: (...args: unknown[]) => plansMock(...args),
+    organizations: vi.fn().mockResolvedValue([]),
+    operatingUnits: vi.fn().mockResolvedValue([]),
+    subscriptionBillingProfiles: vi.fn().mockResolvedValue([]),
+    subscriptionResourceBindings: vi.fn().mockResolvedValue([]),
+    subscriptionAvailableResources: vi.fn().mockResolvedValue([]),
+    operatingUnitApplications: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -77,6 +83,7 @@ import SubscriptionDetailPage from "./page";
 const ADMIN_MAP = {
   authenticated: true,
   capabilities: {
+    "EXECUTIVE_MANAGE": true,
     "subscription.read": true,
     "subscription.create": true,
     "subscription.change_plan": true,
@@ -93,6 +100,7 @@ const ADMIN_MAP = {
 const READ_ONLY_MAP = {
   authenticated: true,
   capabilities: {
+    "EXECUTIVE_MANAGE": false,
     "subscription.read": true,
     "entitlement.read": true,
     "provisioning.read": true,

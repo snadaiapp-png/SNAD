@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-/** WS5 Task 10 — /hr operational dashboard: authoritative summary counts. */
+/** WS5 Task 10 — /hr operational dashboard + G2 discoverability. */
 import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen, within } from "@testing-library/react";
@@ -27,6 +27,15 @@ vi.mock("@/lib/auth/auth-provider", () => ({
   useAuth: () => ({ state: authMock.state, me: { capabilities: authMock.capabilities } }),
 }));
 
+vi.mock("@/lib/i18n/I18nProvider", () => ({
+  useI18n: () => ({
+    locale: "ar",
+    direction: "rtl",
+    setLocale: vi.fn(),
+    t: (key: string) => key,
+  }),
+}));
+
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
     <a href={String(href)} {...props}>{children}</a>
@@ -50,7 +59,6 @@ const POSITIONS = [
 
 const ASSIGNMENTS = [
   { assignmentId: "a-1", employmentId: "e-1", organizationId: "o-1", orgUnitId: null, positionId: "pos-1", reportsToAssignmentId: null, assignmentType: "PRIMARY", occupancyMode: "DEDICATED", allocationPercent: 100, effectiveFrom: "2020-01-01", effectiveTo: null, status: "ACTIVE", version: 1 },
-  // Ended assignment — must NOT count as occupying.
   { assignmentId: "a-2", employmentId: "e-2", organizationId: "o-1", orgUnitId: null, positionId: "pos-2", reportsToAssignmentId: null, assignmentType: "PRIMARY", occupancyMode: "DEDICATED", allocationPercent: 100, effectiveFrom: "2020-01-01", effectiveTo: "2021-01-01", status: "ENDED", version: 1 },
 ];
 
@@ -74,7 +82,6 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-/** Read the numeric value of the stat card bearing the given Arabic label. */
 function statValue(label: string): string {
   const card = screen.getByText(label).closest("div")!;
   return within(card).getByText(/^\d+$/).textContent ?? "";
@@ -83,26 +90,19 @@ function statValue(label: string): string {
 async function renderDashboard() {
   render(<HrPage />);
   await screen.findByRole("region", { name: "ملخص الموارد البشرية" });
-  // Wait until loading finished (stat cards render).
   await screen.findByText("توظيف نشِط");
 }
 
 describe("HR operational dashboard", () => {
   it("derives authoritative employment status counts", async () => {
     await renderDashboard();
-    expect(screen.getByText("توظيف نشِط")).toBeInTheDocument();
-    expect(screen.getByText("قيد التأهيل")).toBeInTheDocument();
-    expect(screen.getByText("في إجازة / موقوف")).toBeInTheDocument();
     expect(statValue("توظيف نشِط")).toBe("2");
     expect(statValue("قيد التأهيل")).toBe("1");
     expect(statValue("في إجازة / موقوف")).toBe("1");
   });
 
-  it("derives occupancy from effective assignments only (ended ≠ occupying)", async () => {
+  it("derives occupancy from effective assignments only", async () => {
     await renderDashboard();
-    expect(screen.getByText("منصب مشغول")).toBeInTheDocument();
-    expect(screen.getByText("منصب شاغر")).toBeInTheDocument();
-    // pos-1 occupied; pos-2's assignment ENDED; pos-3 vacant → 1 / 2.
     expect(statValue("منصب مشغول")).toBe("1");
     expect(statValue("منصب شاغر")).toBe("2");
   });
@@ -115,5 +115,15 @@ describe("HR operational dashboard", () => {
   it("renders the workspace home with navigation", async () => {
     await renderDashboard();
     expect(screen.getByRole("navigation", { name: "أقسام الموارد البشرية" })).toBeInTheDocument();
+  });
+
+  it("allows a G2-only HR identity to discover its authorized self-service surface", async () => {
+    authMock.capabilities = ["HRM.ATTENDANCE.SELF_VIEW"];
+    render(<HrPage />);
+    expect(await screen.findByTestId("hr-landing-ready")).toBeInTheDocument();
+    expect(screen.getByTestId("g2-launcher-self")).toBeInTheDocument();
+    expect(screen.queryByTestId("g2-launcher-team")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("g2-launcher-hr")).not.toBeInTheDocument();
+    expect(hrmV2ApiMock.listEmployments).not.toHaveBeenCalled();
   });
 });

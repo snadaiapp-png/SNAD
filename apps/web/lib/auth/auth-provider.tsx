@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   authApi,
+  createTenantAuthApi,
   authResponseToMe,
   type AuthResponse,
   type AuthUser,
@@ -24,7 +25,7 @@ import { apiClient } from "@/lib/api/client";
 import { ApiHttpError } from "@/lib/api/errors";
 import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 import { SingleFlight } from "@/lib/auth/single-flight";
-import { hasSessionHint } from "@/lib/auth/session-hint";
+import { hasSessionHint, type SessionHintScope } from "@/lib/auth/session-hint";
 import { withCrossTabRefreshLock } from "@/lib/auth/cross-tab-refresh-lock";
 
 export type AuthState =
@@ -95,6 +96,39 @@ function isTerminalSessionFailure(error: unknown): boolean {
   return error instanceof ApiHttpError && (error.status === 401 || error.status === 403);
 }
 
+const TENANT_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+const TAB_SESSION_SCOPE_KEY = "snad_session_scope";
+const TAB_TENANT_TARGET_KEY = "snad_tenant_target_id";
+
+function browserSessionScope(): SessionHintScope {
+  if (typeof window === "undefined") return "default";
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("tenantLogin") === "1") {
+    const target = params.get("tenantId")?.trim() ?? "";
+    return TENANT_ID_PATTERN.test(target) ? "tenant" : "default";
+  }
+  if (window.sessionStorage.getItem(TAB_SESSION_SCOPE_KEY) !== "tenant") {
+    return "default";
+  }
+  const storedTarget = window.sessionStorage.getItem(TAB_TENANT_TARGET_KEY)?.trim() ?? "";
+  if (TENANT_ID_PATTERN.test(storedTarget)) {
+    return "tenant";
+  }
+  // A tenant scope without a valid tenant target must never fall back to the
+  // default/admin auth channel. Persistence cleanup happens in a layout effect
+  // so render remains pure.
+  return "default";
+}
+
+function requestedTenantIdFromLocation(): string | null {
+  if (typeof window === "undefined") return null;
+  const queryValue = new URLSearchParams(window.location.search).get("tenantId")?.trim() ?? "";
+  if (TENANT_ID_PATTERN.test(queryValue)) return queryValue;
+  const stored = window.sessionStorage.getItem(TAB_TENANT_TARGET_KEY)?.trim() ?? "";
+  return TENANT_ID_PATTERN.test(stored) ? stored : null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>("INITIALIZING");
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -111,7 +145,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshEnabledRef = useRef(true);
   const sessionGenerationRef = useRef(0);
   const bootstrapStartedRef = useRef(false);
+  const [sessionScope] = useState<SessionHintScope>(() => browserSessionScope());
+  const [tenantSessionId] = useState<string | null>(() => requestedTenantIdFromLocation());
+  const scopedAuthApi = useMemo(
+    () => sessionScope === "tenant" && tenantSessionId
+      ? createTenantAuthApi(tenantSessionId)
+      : authApi,
+    [sessionScope, tenantSessionId],
+  );
   const session = useInMemorySession();
+
+  // Persist only the tab-scoped tenant-session selector. This deliberately
+  // happens after render so React rendering stays pure while subsequent
+  // navigations in the subscriber tab retain the isolated session channel.
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sessionScope === "tenant" && tenantSessionId) {
+      window.sessionStorage.setItem(TAB_SESSION_SCOPE_KEY, "tenant");
+      window.sessionStorage.setItem(TAB_TENANT_TARGET_KEY, tenantSessionId.toLowerCase());
+      return;
+    }
+    window.sessionStorage.removeItem(TAB_SESSION_SCOPE_KEY);
+    window.sessionStorage.removeItem(TAB_TENANT_TARGET_KEY);
+  }, [sessionScope, tenantSessionId]);
 
   if (refreshFlightRef.current === null) {
     refreshFlightRef.current = new SingleFlight<AuthResponse>();
@@ -148,14 +204,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // SingleFlight prevents duplicate refreshes inside one React tree; the Web
     // Lock additionally serializes refresh-token rotation across browser tabs.
     return flight.run(async () => {
-      const response = await withCrossTabRefreshLock(() => authApi.refresh());
+      const response = await withCrossTabRefreshLock(() => scopedAuthApi.refresh());
       if (!refreshEnabledRef.current || generation !== sessionGenerationRef.current) {
         throw new Error("Stale session refresh result");
       }
       applyAuthResponse(response);
       return response;
     });
-  }, [applyAuthResponse]);
+  }, [applyAuthResponse, scopedAuthApi]);
 
   const restoreSession = useCallback(async () => {
     refreshEnabledRef.current = true;
@@ -164,6 +220,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCanRetrySessionRestore(false);
     try {
       const response = await runRefresh();
+      if (sessionScope === "tenant"
+          && tenantSessionId
+          && response.user.tenantId !== tenantSessionId) {
+        // A previous subscriber tab must never satisfy a new tenant-targeted
+        // login link. Revoke only the isolated tenant session and show login.
+        await scopedAuthApi.logout().catch(() => undefined);
+        clearIdentity();
+        setState("ANONYMOUS");
+        return;
+      }
       setState(response.credentialRotationRequired ? "CREDENTIAL_ROTATION_REQUIRED" : "AUTHENTICATED");
     } catch (err) {
       clearIdentity();
@@ -177,7 +243,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCanRetrySessionRestore(true);
       setState("ERROR");
     }
-  }, [clearIdentity, runRefresh]);
+  }, [clearIdentity, runRefresh, scopedAuthApi, sessionScope, tenantSessionId]);
 
   useEffect(() => {
     apiClient.setUnauthorizedHandler(async () => {
@@ -200,12 +266,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     if (bootstrapStartedRef.current) return;
     bootstrapStartedRef.current = true;
-    if (!hasSessionHint()) {
+    if (!hasSessionHint(undefined, sessionScope, tenantSessionId)) {
       queueMicrotask(() => setState("ANONYMOUS"));
       return;
     }
     queueMicrotask(() => { void restoreSession(); });
-  }, [restoreSession]);
+  }, [restoreSession, sessionScope, tenantSessionId]);
 
   const login = useCallback(async (req: LoginRequest) => {
     refreshEnabledRef.current = true;
@@ -217,7 +283,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLastLoginEmail(req.email);
     lastLoginPasswordRef.current = req.password;
     try {
-      const response = await authApi.login(req);
+      const response = await scopedAuthApi.login(req);
       applyAuthResponse(response);
       setState(response.credentialRotationRequired ? "CREDENTIAL_ROTATION_REQUIRED" : "AUTHENTICATED");
       lastLoginPasswordRef.current = "";
@@ -231,7 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastLoginPasswordRef.current = "";
       }
     }
-  }, [applyAuthResponse]);
+  }, [applyAuthResponse, scopedAuthApi]);
 
   const loginWithTenant = useCallback(async (tenantId: string) => {
     refreshEnabledRef.current = true;
@@ -239,7 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState("AUTHENTICATING");
     setError(null);
     try {
-      const response = await authApi.login({
+      const response = await scopedAuthApi.login({
         email: lastLoginEmail,
         password: lastLoginPasswordRef.current,
         tenantId,
@@ -257,7 +323,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastLoginPasswordRef.current = "";
       }
     }
-  }, [applyAuthResponse, lastLoginEmail]);
+  }, [applyAuthResponse, lastLoginEmail, scopedAuthApi]);
 
   const dismissAmbiguousTenant = useCallback(() => {
     setAmbiguousTenantIds([]);
@@ -270,7 +336,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionGenerationRef.current += 1;
     setState("LOGGING_OUT");
     try {
-      await authApi.logout();
+      await scopedAuthApi.logout();
     } catch {
       // Local logout is authoritative; the BFF clears first-party cookies.
     }
@@ -279,7 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCanRetrySessionRestore(false);
     setState("ANONYMOUS");
     lastLoginPasswordRef.current = "";
-  }, [clearIdentity]);
+  }, [clearIdentity, scopedAuthApi]);
 
   const refresh = useCallback(async () => {
     refreshEnabledRef.current = true;
@@ -302,11 +368,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadMe = useCallback(async () => {
     try {
-      setMe(await authApi.me());
+      setMe(await scopedAuthApi.me());
     } catch (err) {
       setError(toUserFacingError(err));
     }
-  }, []);
+  }, [scopedAuthApi]);
 
   const changeCredential = useCallback(async (currentPassword: string, newPassword: string) => {
     const email = lastLoginEmail || user?.email || "";
@@ -315,7 +381,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCredentialProcessing(true);
     setError(null);
     try {
-      await authApi.changeCredential({
+      await scopedAuthApi.changeCredential({
         currentCredential: currentPassword,
         newCredential: newPassword,
       });
@@ -326,7 +392,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearIdentity();
       sessionGenerationRef.current += 1;
       refreshEnabledRef.current = true;
-      const response = await authApi.login({ email, password: newPassword, tenantId });
+      const response = await scopedAuthApi.login({ email, password: newPassword, tenantId });
       applyAuthResponse(response);
       setState("AUTHENTICATED");
     } catch (err) {
@@ -339,7 +405,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setCredentialProcessing(false);
     }
-  }, [applyAuthResponse, clearIdentity, lastLoginEmail, user]);
+  }, [applyAuthResponse, clearIdentity, lastLoginEmail, scopedAuthApi, user]);
 
   const clearError = useCallback(() => {
     setError(null);

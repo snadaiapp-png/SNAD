@@ -7,6 +7,8 @@ import com.sanad.platform.subscription.pricing.PriceEntity;
 import com.sanad.platform.subscription.pricing.PriceRepository;
 import com.sanad.platform.subscription.pricing.PriceResolver;
 import com.sanad.platform.subscription.pricing.PriceTier;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -41,13 +43,27 @@ public class SubscriptionChangeService {
     private final JdbcTemplate jdbc;
     private final SubscriptionItemRepository itemRepository;
     private final PriceResolver priceResolver;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
+    @Autowired
     public SubscriptionChangeService(JdbcTemplate jdbc,
                                      SubscriptionItemRepository itemRepository,
-                                     PriceResolver priceResolver) {
+                                     PriceResolver priceResolver,
+                                     TenantRlsTransactionContext tenantRlsContext) {
         this.jdbc = jdbc;
         this.itemRepository = itemRepository;
         this.priceResolver = priceResolver;
+        this.tenantRlsContext = tenantRlsContext;
+    }
+
+    /**
+     * Backward-compatible direct-instantiation constructor for legacy tests.
+     * Production wiring always supplies TenantRlsTransactionContext.
+     */
+    public SubscriptionChangeService(JdbcTemplate jdbc,
+                                     SubscriptionItemRepository itemRepository,
+                                     PriceResolver priceResolver) {
+        this(jdbc, itemRepository, priceResolver, null);
     }
 
     public record ItemLine(UUID itemId, String itemType, String name, int quantity,
@@ -106,6 +122,24 @@ public class SubscriptionChangeService {
         long currentMonthly = planItem.map(i -> nvl(i.getUnitAmountMinor())).orElse(0L);
         String currentCurrency = planItem.map(SubscriptionItemEntity::getCurrencyCode).orElse(null);
 
+        // A PER_BRANCH price is quantity-dynamic. The anchored item's monetary
+        // snapshot can become stale whenever an operating unit is bound or
+        // deactivated, so preview must recompute the CURRENT side from the
+        // pinned version using the same active-branch authority as billing.
+        if (planItem.isPresent() && planItem.get().getPlanVersionId() != null) {
+            Optional<PriceEntity> currentPrice = priceResolver.resolveForPlanVersion(
+                    planItem.get().getPlanVersionId(), pricingCountry, billingInterval, at);
+            if (currentPrice.isPresent()
+                    && "PER_BRANCH".equals(currentPrice.get().getPriceModel())) {
+                currentMonthly = compute(
+                        currentPrice.get(),
+                        subscriptionId,
+                        ctx.tenantId(),
+                        planItem.get().getQuantity());
+                currentCurrency = currentPrice.get().getCurrencyCode();
+            }
+        }
+
         List<String> warnings = new ArrayList<>();
         Long targetMonthly = null;
         Long delta = null;
@@ -116,7 +150,11 @@ public class SubscriptionChangeService {
                     targetPlanVersionId, pricingCountry, billingInterval, at);
             if (price.isPresent()) {
                 targetCurrency = price.get().getCurrencyCode();
-                targetMonthly = compute(price.get(), planItem.get().getQuantity());
+                targetMonthly = compute(
+                        price.get(),
+                        subscriptionId,
+                        ctx.tenantId(),
+                        planItem.get().getQuantity());
                 if (currentCurrency == null || targetCurrency == null) {
                     warnings.add("Currency metadata is missing; change cannot be compared safely");
                 } else if (!currentCurrency.equals(targetCurrency)) {
@@ -348,7 +386,34 @@ public class SubscriptionChangeService {
                 actorTenantId, actorUserId, null);
     }
 
-    private long compute(PriceEntity price, int quantity) {
+    private long compute(
+            PriceEntity price,
+            UUID subscriptionId,
+            UUID tenantId,
+            int fallbackQuantity
+    ) {
+        int quantity = fallbackQuantity;
+        if ("PER_BRANCH".equals(price.getPriceModel())) {
+            // PER_BRANCH preview must use the same quantity authority as
+            // invoicing. Using the anchored PLAN item's seat mirror here made
+            // preview/delta disagree with the eventual invoice.
+            if (tenantRlsContext != null) {
+                tenantRlsContext.applyForCurrentTransaction(tenantId);
+            }
+            Integer branchCount = jdbc.queryForObject("""
+                    SELECT COUNT(*)
+                      FROM subscription_operating_units sou
+                      JOIN organizations o
+                        ON o.tenant_id = sou.tenant_id
+                       AND o.id = sou.organization_id
+                     WHERE sou.subscription_id = ?
+                       AND sou.tenant_id = ?
+                       AND sou.status = 'ACTIVE'
+                       AND o.status = 'ACTIVE'
+                       AND o.unit_type = 'BRANCH'
+                    """, Integer.class, subscriptionId, tenantId);
+            quantity = branchCount == null ? 0 : branchCount;
+        }
         List<PriceTier> tiers = PriceRepository.parseTiers(price.getTiersJson());
         return PriceCalculator.computeWithBounds(
                 price.getPriceModel(), price.getBaseAmountMinor(), price.getUnitAmountMinor(),

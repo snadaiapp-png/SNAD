@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -48,6 +49,7 @@ class RefreshTokenConcurrencyPostgresTest {
     }
 
     @Autowired private AuthService authService;
+    @Autowired private JdbcTemplate jdbc;
     @Autowired private TenantRepository tenantRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
@@ -128,6 +130,7 @@ class RefreshTokenConcurrencyPostgresTest {
         User user = new User(tenantId, email, "Refresh Lock User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(credential));
         userId = userRepository.save(user).getId();
+        seedLoginEligibleSubscription(tenantId);
     }
 
     @Test
@@ -171,5 +174,30 @@ class RefreshTokenConcurrencyPostgresTest {
         } catch (Exception exception) {
             return false;
         }
+    }
+
+    /**
+     * Canonical login-eligibility fixture: authentication gates require an
+     * ACTIVE tenant with exactly one login-eligible effective subscription
+     * (fail-closed). Tests seed that subscription alongside the tenant.
+     */
+    private void seedLoginEligibleSubscription(UUID tenantId) {
+        UUID planId = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO saas_plans (id, code, name, status, currency_code,
+                                                monthly_price_minor, annual_price_minor, trial_days,
+                                                max_users, max_organizations, storage_mb, created_at, updated_at)
+                        VALUES (?, ?, 'Auth Test Plan', 'ACTIVE', 'SAR', 1000, 10000, 0, 10, 5, 1024, NOW(), NOW())
+                        """,
+                planId, "login-" + tenantId.toString().substring(0, 8));
+        jdbc.update("""
+                        INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
+                                                          billing_cycle, seat_quantity, credit_balance_minor,
+                                                          started_at, current_period_start, current_period_end,
+                                                          cancel_at_period_end, billing_state, created_at, updated_at)
+                        VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
+                                NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
+                        """,
+                UUID.randomUUID(), tenantId, planId);
     }
 }

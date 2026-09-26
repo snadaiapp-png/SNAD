@@ -179,21 +179,36 @@ public final class SaasAdminDtos {
             String name,
             String description,
             String status,
+            String unitType,
             Instant createdAt,
             Instant updatedAt
     ) {
+        public OrganizationAdminResponse(
+                UUID id, UUID tenantId, String name, String description,
+                String status, Instant createdAt, Instant updatedAt
+        ) {
+            this(id, tenantId, name, description, status, "GENERAL", createdAt, updatedAt);
+        }
     }
 
     public record CreateOrganizationAdminRequest(
             @NotBlank @Size(max = 200) String name,
-            @Size(max = 1000) String description
+            @Size(max = 1000) String description,
+            @Pattern(regexp = "^(GENERAL|LEGAL_ENTITY|BRANCH|DEPARTMENT|LOCATION)$") String unitType
     ) {
+        public CreateOrganizationAdminRequest(String name, String description) {
+            this(name, description, "GENERAL");
+        }
     }
 
     public record UpdateOrganizationAdminRequest(
             @NotBlank @Size(max = 200) String name,
-            @Size(max = 1000) String description
+            @Size(max = 1000) String description,
+            @Pattern(regexp = "^(GENERAL|LEGAL_ENTITY|BRANCH|DEPARTMENT|LOCATION)$") String unitType
     ) {
+        public UpdateOrganizationAdminRequest(String name, String description) {
+            this(name, description, null);
+        }
     }
 
     public record MembershipAdminResponse(

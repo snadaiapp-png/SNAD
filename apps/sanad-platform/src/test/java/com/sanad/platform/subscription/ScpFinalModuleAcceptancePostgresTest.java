@@ -193,6 +193,13 @@ class ScpFinalModuleAcceptancePostgresTest {
                 id, tenantId, planId, versionId, status);
     }
 
+    /** Canonical usage gate: ingestion requires exactly one usage-eligible subscription. */
+    private void seedActiveSubscriptionFor(UUID tenantId) {
+        UUID planId = seedPlan("USG-" + tenantId.toString().substring(0, 8));
+        UUID versionId = seedPlanVersion(planId, 1);
+        seedSubscription(UUID.randomUUID(), tenantId, planId, versionId, "ACTIVE");
+    }
+
     private void seedPlanEntitlement(UUID planId, UUID moduleId, String capability, Long limit) {
         jdbc.update("""
                         INSERT INTO plan_module_entitlements (id, plan_id, module_id, module_enabled,
@@ -305,6 +312,7 @@ class ScpFinalModuleAcceptancePostgresTest {
     @DisplayName("US-01: ingest → aggregate → batched snapshot round-trip on real schema")
     void batchedUsageRoundTrip() {
         UUID tenantId = seedTenant("SA");
+        seedActiveSubscriptionFor(tenantId);
         transactions.executeWithoutResult(tx -> {
             usageService.ingest(tenantId, "users", 100L, "test", "us01-a", java.time.Instant.now());
             usageService.ingest(tenantId, "users", 50L, "test", "us01-b", java.time.Instant.now());
@@ -406,6 +414,8 @@ class ScpFinalModuleAcceptancePostgresTest {
 
         UUID tenantA = seedTenant("SA");
         UUID tenantB = seedTenant("SA");
+        seedActiveSubscriptionFor(tenantA);
+        seedActiveSubscriptionFor(tenantB);
         transactions.executeWithoutResult(tx -> {
             usageService.ingest(tenantA, "users", 10L, "test", "us04-a", java.time.Instant.now());
             usageService.ingest(tenantB, "users", 20L, "test", "us04-b", java.time.Instant.now());
@@ -425,6 +435,7 @@ class ScpFinalModuleAcceptancePostgresTest {
     @DisplayName("US-05: duplicate idempotency key is rejected by the real UNIQUE constraint")
     void idempotencyUniqueConstraint() {
         UUID tenantId = seedTenant("SA");
+        seedActiveSubscriptionFor(tenantId);
         String key = "us05-" + UUID.randomUUID();
         transactions.executeWithoutResult(tx ->
                 usageService.ingest(tenantId, "users", 5L, "test", key, java.time.Instant.now()));

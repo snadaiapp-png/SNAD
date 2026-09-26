@@ -9,6 +9,7 @@ import { HrWorkspace } from "../../components/hr-workspace";
 import { HrErrorState, HrLoading } from "../../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../../components/hr-data-table";
 import styles from "../../hr.module.css";
+import visualStyles from "../../components/hr-g2-visual.module.css";
 
 interface LeaveType {
   id: string;
@@ -45,24 +46,30 @@ export default function LeavePoliciesPage() {
   }, [state, load]);
 
   if (["INITIALIZING","CHECKING_SESSION","REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
-  if (!canAdmin) return <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/policies"><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
+  if (!canAdmin) return <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/policies" translate={t}><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
 
+  const boolLabel = (value: boolean) => t(value ? "hrm.leavePolicies.yes" : "hrm.leavePolicies.no");
   const columns: HrColumn<LeaveType>[] = [
-    { key: "code", header: "Code" },
-    { key: "nameAr", header: "Name (AR)" },
-    { key: "nameEn", header: "Name (EN)" },
-    { key: "isPaid", header: "Paid", render: (r) => String(r.isPaid) },
-    { key: "requiresAttachment", header: "Attachment", render: (r) => String(r.requiresAttachment) },
-    { key: "defaultDaysPerYear", header: "Default Days", render: (r) => r.defaultDaysPerYear != null ? String(r.defaultDaysPerYear) : "— (configure via policy)" },
+    { key: "code", header: t("hrm.leavePolicies.code") },
+    { key: "nameAr", header: t("hrm.leavePolicies.nameAr") },
+    { key: "nameEn", header: t("hrm.leavePolicies.nameEn") },
+    { key: "isPaid", header: t("hrm.leavePolicies.paid"), render: (r) => boolLabel(r.isPaid) },
+    { key: "requiresAttachment", header: t("hrm.leavePolicies.attachment"), render: (r) => boolLabel(r.requiresAttachment) },
+    { key: "defaultDaysPerYear", header: t("hrm.leavePolicies.defaultDays"), render: (r) => r.defaultDaysPerYear != null ? String(r.defaultDaysPerYear) : t("hrm.leavePolicies.configureViaPolicy") },
   ];
 
   return (
-    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/policies">
-      <header><h1>Leave Policies</h1>
-      <p className={styles.kpiHint}>Country-neutral configuration — no statutory entitlement values are hardcoded.</p>
+    <HrWorkspace capabilities={capabilities} activeHref="/hr/leave/policies" translate={t}>
+      <header className={visualStyles.g2PageHeader}>
+        <div>
+          <h1>{t("hrm.leavePolicies.title")}</h1>
+          <p className={styles.kpiHint}>{t("hrm.leavePolicies.subtitle")}</p>
+        </div>
       </header>
       {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
-        <HrDataTable<LeaveType> caption="Leave Types (identity only — no statutory days)" columns={columns} rows={policies} rowKey={(r) => r.id} emptyTitle="No leave types" />
+        <div data-testid="leave-policies-ready">
+          <HrDataTable<LeaveType> caption={t("hrm.leavePolicies.caption")} columns={columns} rows={policies} rowKey={(r) => r.id} emptyTitle={t("hrm.leavePolicies.empty")} />
+        </div>
       )}
     </HrWorkspace>
   );

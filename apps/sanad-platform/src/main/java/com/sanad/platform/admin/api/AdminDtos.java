@@ -57,7 +57,8 @@ public final class AdminDtos {
             @NotBlank @Email @Size(max = 255) String adminEmail,
             @NotBlank @Size(max = 200) String adminDisplayName,
             @Pattern(regexp = "^[A-Z]{2}$") String countryCode,
-            @Size(max = 10) String locale,
+            @Size(max = 10)
+            @Pattern(regexp = "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$") String locale,
             @Size(max = 64) String timezone,
             @Pattern(regexp = "^[A-Z]{3}$") String currencyCode,
             Integer trialDays,
@@ -79,7 +80,8 @@ public final class AdminDtos {
             @Size(max = 250) String legalName,
             @Email @Size(max = 255) String billingEmail,
             @Pattern(regexp = "^[A-Z]{2}$") String countryCode,
-            @Size(max = 10) String locale,
+            @Size(max = 10)
+            @Pattern(regexp = "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$") String locale,
             @Size(max = 64) String timezone,
             @Pattern(regexp = "^[A-Z]{3}$") String currencyCode
     ) {
@@ -93,6 +95,11 @@ public final class AdminDtos {
 
     public record TenantLoginLinkEventRequest(
             @NotNull @Pattern(regexp = "^(OPEN|COPY)$") String action
+    ) {
+    }
+
+    public record TenantLoginLinkEventResponse(
+            @NotBlank String hostname
     ) {
     }
 

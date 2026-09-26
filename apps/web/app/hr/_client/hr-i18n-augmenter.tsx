@@ -35,14 +35,15 @@ import { useMemo, type ReactNode } from "react";
 import { I18nContext, interpolate, useI18n, type I18nContextValue } from "@/lib/i18n/I18nProvider";
 import { HRM_G1_I18N_AR, HRM_G1_I18N_EN } from "@/lib/i18n/locales/hrm-g1-i18n";
 import { HRM_G2_I18N_AR, HRM_G2_I18N_EN } from "@/lib/i18n/locales/hrm-g2-i18n";
+import { HRM_G2_LIFECYCLE_I18N_AR, HRM_G2_LIFECYCLE_I18N_EN } from "@/lib/i18n/locales/hrm-g2-lifecycle-i18n";
 import { translations } from "@/lib/i18n";
 
 export function HrI18nAugmenter({ children }: { children: ReactNode }) {
   const parent = useI18n();
 
   const augmentedT = useMemo(() => {
-    const extraAr = { ...HRM_G1_I18N_AR, ...HRM_G2_I18N_AR };
-    const extraEn = { ...HRM_G1_I18N_EN, ...HRM_G2_I18N_EN };
+    const extraAr = { ...HRM_G1_I18N_AR, ...HRM_G2_I18N_AR, ...HRM_G2_LIFECYCLE_I18N_AR };
+    const extraEn = { ...HRM_G1_I18N_EN, ...HRM_G2_I18N_EN, ...HRM_G2_LIFECYCLE_I18N_EN };
     const extra = parent.locale === "ar" ? extraAr : extraEn;
     return (key: string, params?: Record<string, string | number>) => {
       // Check HRM namespace first (HRM keys take precedence over global keys

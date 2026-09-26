@@ -58,6 +58,13 @@ beforeEach(() => {
       currencyCode: "SAR",
       subscriptionCount: 1,
       subscriptionStatus: "ACTIVE",
+      applicationHostname: null,
+      effectiveSubscriptionId: "22222222-2222-2222-2222-222222222222",
+      billingState: "CURRENT",
+      accessDecision: "ACCESS_ALLOWED",
+      commercialAction: "UPGRADE",
+      anomalyCode: null,
+      loginAllowed: true,
       createdAt: "2026-09-09T00:00:00Z",
     }],
     page: 0,
@@ -100,7 +107,7 @@ it("keeps a usable popup handle while severing opener before async audit", async
   releaseAudit();
   await waitFor(() => {
     expect(popup.location.href).toBe(
-      "http://localhost:3000/?tenantId=11111111-1111-1111-1111-111111111111",
+      "http://localhost:3000/?tenantId=11111111-1111-1111-1111-111111111111&tenantLogin=1",
     );
   });
 });

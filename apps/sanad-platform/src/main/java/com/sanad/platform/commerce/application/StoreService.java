@@ -2,6 +2,7 @@ package com.sanad.platform.commerce.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
 import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.domain.CommerceDomain;
 import org.springframework.dao.DuplicateKeyException;
@@ -32,27 +33,48 @@ import java.util.UUID;
 @Service
 public class StoreService {
 
+    private static final String MODULE_CODE = "ECOMMERCE_CX";
+    private static final String STORE_LIMIT_CODE = "ECOMMERCE_CX.MAX_STORES";
+
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
     private final ObjectMapper objectMapper;
+    private final EntitlementResolver entitlementResolver;
+    private final StoreDomainService domainService;
 
-    public StoreService(JdbcTemplate jdbc, PlatformAuditService auditService, ObjectMapper objectMapper) {
+    public StoreService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            ObjectMapper objectMapper,
+            EntitlementResolver entitlementResolver,
+            StoreDomainService domainService
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
+        this.entitlementResolver = entitlementResolver;
+        this.domainService = domainService;
     }
 
     @Transactional
     public StoreResponse create(UUID tenantId, CreateStoreRequest request, Authentication auth) {
         if (request == null || request.name() == null || request.name().isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        enforceCreationLimit(tenantId);
         String slug = normalizeSlug(request.slug() != null ? request.slug() : request.name());
         String code = (request.code() != null && !request.code().isBlank())
                 ? normalizeCode(request.code()) : slug.toUpperCase();
-        String locale = request.defaultLocale() != null && !request.defaultLocale().isBlank()
-                ? request.defaultLocale() : "ar";
+        String locale = normalizeLocale(
+                request.defaultLocale() != null && !request.defaultLocale().isBlank()
+                        ? request.defaultLocale()
+                        : tenantLocale(tenantId));
         String currency = request.defaultCurrency() != null && !request.defaultCurrency().isBlank()
-                ? request.defaultCurrency() : "SAR";
+                ? request.defaultCurrency().trim().toUpperCase()
+                : tenantCurrency(tenantId);
+        if (!currency.matches("^[A-Z]{3}$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "defaultCurrency must be an ISO-4217 currency code");
+        }
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         try {
@@ -65,6 +87,7 @@ public class StoreService {
         } catch (DuplicateKeyException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "slug already exists for this tenant: " + slug);
         }
+        domainService.generateAndRegisterDefaultDomain(tenantId, id, slug, auth);
         audit(tenantId, auth, "STORE.CREATED", id, "slug=" + slug);
         return getOrThrow(tenantId, id);
     }
@@ -79,14 +102,24 @@ public class StoreService {
                     request.name().trim(), Timestamp.from(now), tenantId, storeId);
         }
         if (request.defaultLocale() != null) {
+            String locale = request.defaultLocale().trim();
+            if (locale.isEmpty() || locale.length() > 10
+                    || !locale.matches("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "defaultLocale is invalid");
+            }
             jdbc.update("UPDATE commerce_stores SET default_locale = ?, updated_at = ?, version = version + 1 "
                             + "WHERE tenant_id = ? AND id = ?",
-                    request.defaultLocale(), Timestamp.from(now), tenantId, storeId);
+                    locale, Timestamp.from(now), tenantId, storeId);
         }
         if (request.defaultCurrency() != null) {
+            String currency = request.defaultCurrency().trim().toUpperCase();
+            if (!currency.matches("^[A-Z]{3}$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "defaultCurrency must be an ISO-4217 currency code");
+            }
             jdbc.update("UPDATE commerce_stores SET default_currency = ?, updated_at = ?, version = version + 1 "
                             + "WHERE tenant_id = ? AND id = ?",
-                    request.defaultCurrency(), Timestamp.from(now), tenantId, storeId);
+                    currency, Timestamp.from(now), tenantId, storeId);
         }
         if (request.settings() != null) {
             jdbc.update("UPDATE commerce_stores SET settings = ?::jsonb, updated_at = ?, version = version + 1 "
@@ -125,6 +158,10 @@ public class StoreService {
     @Transactional
     public StoreResponse setPrimary(UUID tenantId, UUID storeId, Authentication auth) {
         StoreResponse store = getOrThrow(tenantId, storeId);
+        if (store.status() != CommerceDomain.StoreStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "store must be ACTIVE before setting primary");
+        }
         Instant now = Instant.now();
         jdbc.update("UPDATE commerce_stores SET is_primary = FALSE, updated_at = ? "
                         + "WHERE tenant_id = ? AND is_primary = TRUE", Timestamp.from(now), tenantId);
@@ -153,6 +190,67 @@ public class StoreService {
     }
 
     // ===== Helpers =====
+    private void enforceCreationLimit(UUID tenantId) {
+        if (!entitlementResolver.hasExplicitModuleEntitlement(tenantId, MODULE_CODE)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "explicit ecommerce subscription entitlement is required"
+            );
+        }
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null, "STORE_LIMIT:" + tenantId);
+        long limit = entitlementResolver.getLimit(tenantId, MODULE_CODE, STORE_LIMIT_CODE);
+        if (limit <= 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "active ecommerce subscription entitlement is required"
+            );
+        }
+        Long current = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM commerce_stores WHERE tenant_id = ? AND status <> 'ARCHIVED'",
+                Long.class,
+                tenantId
+        );
+        long used = current == null ? 0 : current;
+        if (used >= limit) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "store limit for the subscription has been reached"
+            );
+        }
+    }
+
+    private String normalizeLocale(String value) {
+        String locale = value == null ? "" : value.trim();
+        if (locale.isEmpty() || locale.length() > 10
+                || !locale.matches("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "defaultLocale is invalid");
+        }
+        return locale;
+    }
+
+    private String tenantLocale(UUID tenantId) {
+        String locale = jdbc.queryForObject(
+                "SELECT locale FROM tenants WHERE id = ?",
+                String.class,
+                tenantId
+        );
+        return locale == null || locale.isBlank() ? "ar-SA" : locale;
+    }
+
+    private String tenantCurrency(UUID tenantId) {
+        String currency = jdbc.queryForObject(
+                "SELECT currency_code FROM tenants WHERE id = ?",
+                String.class,
+                tenantId
+        );
+        if (currency == null || !currency.trim().toUpperCase().matches("^[A-Z]{3}$")) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "tenant currency is not configured");
+        }
+        return currency.trim().toUpperCase();
+    }
+
     private StoreResponse getOrThrow(UUID tenantId, UUID storeId) {
         try {
             return jdbc.queryForObject("SELECT * FROM commerce_stores WHERE tenant_id = ? AND id = ?",
@@ -164,10 +262,54 @@ public class StoreService {
 
     private StoreResponse transition(UUID tenantId, UUID storeId, String newStatus, String auditAction, Authentication auth) {
         StoreResponse existing = getOrThrow(tenantId, storeId);
+        CommerceDomain.StoreStatus target = CommerceDomain.StoreStatus.valueOf(newStatus);
+        CommerceDomain.StoreStatus current = existing.status();
+        if (current == target) return existing;
+        if (target == CommerceDomain.StoreStatus.ACTIVE
+                && !entitlementResolver.hasExplicitModuleEntitlement(tenantId, MODULE_CODE)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "explicit ecommerce subscription entitlement is required for activation");
+        }
+
+        boolean allowed = switch (current) {
+            case DRAFT -> target == CommerceDomain.StoreStatus.ACTIVE
+                    || target == CommerceDomain.StoreStatus.ARCHIVED;
+            case ACTIVE -> target == CommerceDomain.StoreStatus.SUSPENDED
+                    || target == CommerceDomain.StoreStatus.ARCHIVED;
+            case SUSPENDED -> target == CommerceDomain.StoreStatus.ACTIVE
+                    || target == CommerceDomain.StoreStatus.ARCHIVED;
+            case ARCHIVED -> false;
+        };
+        if (!allowed) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "invalid store lifecycle transition: " + current + " -> " + target);
+        }
+
         Instant now = Instant.now();
+        if (target == CommerceDomain.StoreStatus.ARCHIVED) {
+            jdbc.update("""
+                    UPDATE commerce_store_domains
+                       SET activation_status = 'DISABLED', is_primary = FALSE,
+                           updated_at = ?, version = version + 1
+                     WHERE tenant_id = ? AND store_id = ?
+                    """, Timestamp.from(now), tenantId, storeId);
+            jdbc.update("""
+                    UPDATE subscription_resource_bindings
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND resource_type = 'STORE'
+                       AND resource_id = ? AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, storeId);
+            jdbc.update("""
+                    UPDATE commerce_stores
+                       SET organization_id = NULL
+                     WHERE tenant_id = ? AND id = ?
+                    """, tenantId, storeId);
+        }
         jdbc.update("UPDATE commerce_stores SET status = ?, updated_at = ?, version = version + 1 "
-                        + "WHERE tenant_id = ? AND id = ?", newStatus, Timestamp.from(now), tenantId, storeId);
-        audit(tenantId, auth, auditAction, storeId, "name=" + existing.name() + ",to=" + newStatus);
+                        + "WHERE tenant_id = ? AND id = ?", target.name(), Timestamp.from(now), tenantId, storeId);
+        audit(tenantId, auth, auditAction, storeId, "name=" + existing.name() + ",to=" + target);
         return getOrThrow(tenantId, storeId);
     }
 
@@ -200,13 +342,16 @@ public class StoreService {
     }
 
     private void audit(UUID tenantId, Authentication auth, String action, UUID resourceId, String reason) {
-        try { auditService.success(auth, tenantId, action, "STORE", resourceId == null ? null : resourceId.toString(), reason, null, null); }
-        catch (Exception ignored) {}
+        auditService.success(auth, tenantId, action, "STORE",
+                resourceId == null ? null : resourceId.toString(), reason, null, null);
     }
 
     private String toJson(Map<String, Object> map) {
-        try { return objectMapper.writeValueAsString(map); }
-        catch (Exception e) { return "{}"; }
+        try {
+            return objectMapper.writeValueAsString(map);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "settings is not valid JSON data", e);
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -32,6 +32,7 @@ vi.mock("@/lib/api/scp-api", () => ({
 vi.mock("@/lib/api/executive-api", () => ({
   executiveApi: {
     invoices: vi.fn().mockResolvedValue([]),
+    billingV2: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -115,7 +116,6 @@ describe("Usage — state semantics (Blocker G / UAT-12)", () => {
     await settle();
     await selectTenantAndLoad(user);
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    // raw internals must not leak
     expect(screen.getByRole("alert").textContent).not.toContain("upstream-cluster-7");
   });
 });

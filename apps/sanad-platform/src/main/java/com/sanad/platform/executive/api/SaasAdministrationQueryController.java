@@ -5,11 +5,13 @@ import com.sanad.platform.admin.service.SaasAdministrationService;
 import com.sanad.platform.admin.service.TenantDirectoryAdministrationService;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.subscription.read.ExecutiveBillingQueryService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
@@ -22,15 +24,18 @@ public class SaasAdministrationQueryController {
     private final ControlPlaneAccessGuard accessGuard;
     private final SaasAdministrationService saasService;
     private final TenantDirectoryAdministrationService directoryService;
+    private final ExecutiveBillingQueryService executiveBillingQueryService;
 
     public SaasAdministrationQueryController(
             ControlPlaneAccessGuard accessGuard,
             SaasAdministrationService saasService,
-            TenantDirectoryAdministrationService directoryService
+            TenantDirectoryAdministrationService directoryService,
+            ExecutiveBillingQueryService executiveBillingQueryService
     ) {
         this.accessGuard = accessGuard;
         this.saasService = saasService;
         this.directoryService = directoryService;
+        this.executiveBillingQueryService = executiveBillingQueryService;
     }
 
     @GetMapping("/plans")
@@ -44,7 +49,7 @@ public class SaasAdministrationQueryController {
     @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SaasAdminDtos.SubscriptionResponse>> subscriptions(
             Authentication authentication,
-            @org.springframework.web.bind.annotation.RequestParam(required = false) UUID tenantId
+            @RequestParam(required = false) UUID tenantId
     ) {
         accessGuard.require(authentication);
         if (tenantId != null) {
@@ -57,13 +62,30 @@ public class SaasAdministrationQueryController {
     @RequireCapability("EXECUTIVE_VIEW")
     public ResponseEntity<List<SaasAdminDtos.InvoiceResponse>> invoices(
             Authentication authentication,
-            @org.springframework.web.bind.annotation.RequestParam(required = false) UUID tenantId
+            @RequestParam(required = false) UUID tenantId
     ) {
         accessGuard.require(authentication);
         if (tenantId != null) {
             return ResponseEntity.ok(saasService.listInvoices(tenantId));
         }
         return ResponseEntity.ok(List.of());
+    }
+
+    /**
+     * Finance-aware billing read model. This is deliberately additive so the
+     * legacy compatibility invoice response remains backward compatible.
+     */
+    @GetMapping("/billing/v2")
+    @RequireCapability("EXECUTIVE_VIEW")
+    public ResponseEntity<List<ExecutiveBillingQueryService.BillingRow>> billingV2(
+            Authentication authentication,
+            @RequestParam(required = false) UUID tenantId
+    ) {
+        accessGuard.require(authentication);
+        if (tenantId == null) {
+            return ResponseEntity.ok(List.of());
+        }
+        return ResponseEntity.ok(executiveBillingQueryService.list(tenantId));
     }
 
     @GetMapping("/tenants/{tenantId}/organizations")

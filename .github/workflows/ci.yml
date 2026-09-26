@@ -124,6 +124,13 @@ jobs:
           set -euo pipefail
           python3 tests/ci/test_workflow_final_closure_unified.py
 
+      - name: Subscription #1055 comprehensive closure contract
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/ci/test_subscription_1055_comprehensive_closure.py
+
       - name: Start host-native PostgreSQL (no containers)
         # G0 reconciliation directive: GITHUB_POSTGRES_SERVICE_CONTAINER is
         # forbidden. The runner image ships a real PostgreSQL server — start

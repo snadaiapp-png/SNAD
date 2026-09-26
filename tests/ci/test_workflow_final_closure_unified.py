@@ -7,6 +7,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 FINAL_WF = ROOT / ".github" / "workflows" / "workflow-production-3user-final-gate.yml"
 RECONCILE_WF = ROOT / ".github" / "workflows" / "workflow-production-qa-subscription-bootstrap-once.yml"
+PROD_RELEASE_WF = ROOT / ".github" / "workflows" / "production-release.yml"
+G2_PROVISION_WF = ROOT / ".github" / "workflows" / "g2-production-identity-provisioning.yml"
 JOURNEY = ROOT / "scripts" / "production" / "verify-workflow-production-3user-journey.sh"
 RECONCILE = ROOT / "scripts" / "production" / "bootstrap-workflow-production-qa-subscription.sh"
 VISUAL = ROOT / "scripts" / "production" / "verify-workflow-production-visual.mjs"
@@ -17,6 +19,8 @@ class WorkflowFinalClosureUnifiedContractTest(unittest.TestCase):
     def setUpClass(cls):
         cls.final_wf = FINAL_WF.read_text(encoding="utf-8")
         cls.reconcile_wf = RECONCILE_WF.read_text(encoding="utf-8")
+        cls.prod_release_wf = PROD_RELEASE_WF.read_text(encoding="utf-8")
+        cls.g2_provision_wf = G2_PROVISION_WF.read_text(encoding="utf-8")
         cls.journey = JOURNEY.read_text(encoding="utf-8")
         cls.reconcile = RECONCILE.read_text(encoding="utf-8")
         cls.visual = VISUAL.read_text(encoding="utf-8")
@@ -139,6 +143,45 @@ class WorkflowFinalClosureUnifiedContractTest(unittest.TestCase):
             "Control Plane operator: Executive APIs only",
         ):
             self.assertIn(phrase, self.final_wf)
+
+    def test_canonical_release_requires_dedicated_g2_production_credentials(self):
+        for role in ("EMPLOYEE", "MANAGER", "HR"):
+            self.assertIn(
+                f"E2E_{role}_EMAIL: ${{{{ secrets.G2_PROD_{role}_EMAIL }}}}",
+                self.prod_release_wf,
+            )
+            self.assertIn(
+                f"E2E_{role}_PASSWORD: ${{{{ secrets.G2_PROD_{role}_PASSWORD }}}}",
+                self.prod_release_wf,
+            )
+        self.assertIn("E2E_EMPLOYEE_EMAIL E2E_EMPLOYEE_PASSWORD", self.prod_release_wf)
+        self.assertIn("E2E_MANAGER_EMAIL E2E_MANAGER_PASSWORD", self.prod_release_wf)
+        self.assertIn("E2E_HR_EMAIL E2E_HR_PASSWORD", self.prod_release_wf)
+
+    def test_canonical_release_runs_exact_sha_g2_visual_matrix_fail_closed(self):
+        text = self.prod_release_wf
+        self.assertIn("Verify authenticated G2 production visual smoke", text)
+        self.assertIn("PLAYWRIGHT_BASE_URL: ${{ env.WEB_PRODUCTION_BASE_URL }}", text)
+        self.assertIn("GITHUB_HEAD_SHA: ${{ steps.target.outputs.sha }}", text)
+        self.assertIn("/api/system/release", text)
+        self.assertIn("npx playwright test --config=playwright-g2-visual.config.ts", text)
+        self.assertIn("EXPECTED=60", text)
+        self.assertIn('grep -v "\\\"sha\\\":\\\"$GITHUB_HEAD_SHA\\\""', text)
+        self.assertIn("g2-production-visual=PASS", text)
+        self.assertNotIn("continue-on-error: true", text)
+
+    def test_canonical_release_persists_g2_visual_evidence(self):
+        text = self.prod_release_wf
+        self.assertIn("apps/web/test-results/g2-visual-evidence/", text)
+        self.assertIn("apps/web/playwright-g2-visual-report/", text)
+        self.assertIn('g2ProductionVisual:"PASS"', text)
+
+    def test_g2_provisioning_logins_are_tenant_scoped(self):
+        text = self.g2_provision_wf
+        self.assertGreaterEqual(text.count('--arg tenant "$G2_TENANT_ID"'), 2)
+        self.assertGreaterEqual(text.count('tenantId: $tenant'), 2)
+        self.assertNotIn("'{email: $email, password: $password}'", text)
+        self.assertNotIn("'{email: $e, password: $p}'", text)
 
 
 if __name__ == "__main__":

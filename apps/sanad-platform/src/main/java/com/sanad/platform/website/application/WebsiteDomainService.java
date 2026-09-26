@@ -3,6 +3,8 @@ package com.sanad.platform.website.application;
 import com.sanad.platform.admin.service.PlatformAuditService;
 import com.sanad.platform.website.api.WebsiteDtos.*;
 import com.sanad.platform.website.domain.WebsiteDomain;
+import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
+import com.sanad.platform.tenancy.routing.HostRoutingService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,10 +29,19 @@ public class WebsiteDomainService {
 
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
+    private final HostRoutingService hostRoutingService;
+    private final DomainOwnershipVerifier ownershipVerifier;
 
-    public WebsiteDomainService(JdbcTemplate jdbc, PlatformAuditService auditService) {
+    public WebsiteDomainService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            HostRoutingService hostRoutingService,
+            DomainOwnershipVerifier ownershipVerifier
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
+        this.hostRoutingService = hostRoutingService;
+        this.ownershipVerifier = ownershipVerifier;
     }
 
     /**
@@ -40,8 +51,40 @@ public class WebsiteDomainService {
      */
     public String generateDefaultDomain(String websiteSlug) {
         String baseDomain = resolvePlatformBaseDomain();
-        if (baseDomain == null || baseDomain.isBlank()) return null;
-        return (websiteSlug + "." + baseDomain).toLowerCase(Locale.ROOT);
+        if (baseDomain == null || baseDomain.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SANAD_BASE_DOMAIN is required for generated website hostnames");
+        }
+        String hostname = hostRoutingService.normalizeHostname(websiteSlug + "." + baseDomain);
+        if (hostname == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "configured platform base domain cannot produce a valid website hostname");
+        }
+        return hostname;
+    }
+
+    /**
+     * Tenant-scoped generated website hostname. The tenant segment prevents
+     * identical website slugs in different tenants from colliding globally.
+     */
+    public String generateDefaultDomain(UUID tenantId, String websiteSlug) {
+        String baseDomain = resolvePlatformBaseDomain();
+        if (baseDomain == null || baseDomain.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SANAD_BASE_DOMAIN is required for generated website hostnames");
+        }
+        String tenantSubdomain = tenantSubdomain(tenantId);
+        String hostname = hostRoutingService.normalizeHostname(
+                websiteSlug + "." + tenantSubdomain + "." + baseDomain);
+        if (hostname == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "configured platform base domain cannot produce a valid tenant-scoped website hostname");
+        }
+        return hostname;
     }
 
     /**
@@ -53,16 +96,23 @@ public class WebsiteDomainService {
         ensureWebsite(tenantId, websiteId);
         if (request == null || request.hostname() == null || request.hostname().isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is required");
-        String hostname = request.hostname().trim().toLowerCase(Locale.ROOT);
-        if (!isValidHostname(hostname))
+        String hostname = hostRoutingService.normalizeHostname(request.hostname());
+        if (hostname == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid hostname format");
         if (WebsiteDomain.isReservedHostname(hostname))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is reserved or protected");
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname, HostRoutingService.Surface.WEBSITE, tenantId, websiteId, false);
 
         UUID id = UUID.randomUUID();
         String token = "snad-site-" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
         Instant now = Instant.now();
         var method = request.verificationMethod() != null ? request.verificationMethod() : WebsiteDomain.VerificationMethod.DNS_TXT;
+        if (method == WebsiteDomain.VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "HTTP domain verification is disabled; use DNS_TXT or DNS_CNAME");
+        }
         try {
             jdbc.update("INSERT INTO website_domains (id, tenant_id, website_id, hostname, domain_type, "
                             + "verification_status, activation_status, is_primary, verification_token, verification_method, "
@@ -83,19 +133,44 @@ public class WebsiteDomainService {
     @Transactional
     public DomainResponse generateAndRegisterDefaultDomain(UUID tenantId, UUID websiteId, String websiteSlug, Authentication auth) {
         ensureWebsite(tenantId, websiteId);
-        String hostname = generateDefaultDomain(websiteSlug);
-        if (hostname == null) return null; // no base domain configured
+        String hostname = generateDefaultDomain(tenantId, websiteSlug);
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname, HostRoutingService.Surface.WEBSITE, tenantId, websiteId, true);
+
+        DomainResponse existing = findExactHostname(hostname);
+        if (existing != null) {
+            if (!tenantId.equals(existing.tenantId())
+                    || !websiteId.equals(existing.websiteId())
+                    || existing.domainType() != WebsiteDomain.DomainType.DEFAULT_GENERATED) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "hostname already claimed: " + hostname);
+            }
+            Instant now = Instant.now();
+            jdbc.update("UPDATE website_domains SET is_primary = FALSE, updated_at = ? "
+                            + "WHERE tenant_id = ? AND website_id = ? AND id <> ?",
+                    Timestamp.from(now), tenantId, websiteId, existing.id());
+            jdbc.update("UPDATE website_domains SET verification_status = 'VERIFIED', activation_status = 'ACTIVE', "
+                            + "is_primary = TRUE, failure_reason = NULL, updated_at = ?, version = version + 1 "
+                            + "WHERE tenant_id = ? AND website_id = ? AND id = ?",
+                    Timestamp.from(now), tenantId, websiteId, existing.id());
+            audit(tenantId, auth, "DOMAIN.DEFAULT_RECONCILED", existing.id(), "hostname=" + hostname);
+            return getOrThrow(tenantId, websiteId, existing.id());
+        }
 
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
+        jdbc.update("UPDATE website_domains SET is_primary = FALSE, updated_at = ? "
+                        + "WHERE tenant_id = ? AND website_id = ?",
+                Timestamp.from(now), tenantId, websiteId);
         try {
             jdbc.update("INSERT INTO website_domains (id, tenant_id, website_id, hostname, domain_type, "
                             + "verification_status, activation_status, is_primary, version, created_at, updated_at) "
                             + "VALUES (?, ?, ?, ?, 'DEFAULT_GENERATED', 'VERIFIED', 'ACTIVE', TRUE, 0, ?, ?)",
                     id, tenantId, websiteId, hostname, Timestamp.from(now), Timestamp.from(now));
         } catch (DuplicateKeyException e) {
-            // Already exists — return existing
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "hostname already claimed: " + hostname, e);
         }
+        audit(tenantId, auth, "DOMAIN.DEFAULT_CREATED", id, "hostname=" + hostname);
         return getOrThrow(tenantId, websiteId, id);
     }
 
@@ -105,7 +180,14 @@ public class WebsiteDomainService {
         DomainResponse domain = getOrThrow(tenantId, websiteId, domainId);
         if (domain.verificationToken() == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "no verification token for this domain");
-        return switch (domain.verificationMethod() != null ? domain.verificationMethod() : WebsiteDomain.VerificationMethod.DNS_TXT) {
+        WebsiteDomain.VerificationMethod method = domain.verificationMethod() != null
+                ? domain.verificationMethod()
+                : WebsiteDomain.VerificationMethod.DNS_TXT;
+        if (method == WebsiteDomain.VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "HTTP domain verification is disabled; migrate the domain to DNS_TXT or DNS_CNAME");
+        }
+        return switch (method) {
             case DNS_TXT -> new DomainVerificationInstructions(
                     domain.hostname(), "DNS_TXT",
                     "_snad-verify." + domain.hostname(), domain.verificationToken(),
@@ -114,10 +196,7 @@ public class WebsiteDomainService {
                     domain.hostname(), "DNS_CNAME",
                     null, null,
                     domain.hostname() + " → snad-verify.vercel-dns.com", null, null);
-            case HTTP -> new DomainVerificationInstructions(
-                    domain.hostname(), "HTTP",
-                    null, null,
-                    null, "/.well-known/snad-verify.txt", domain.verificationToken());
+            case HTTP -> throw new IllegalStateException("HTTP verification is disabled");
         };
     }
 
@@ -125,8 +204,23 @@ public class WebsiteDomainService {
     @Transactional
     public DomainResponse verifyDomain(UUID tenantId, UUID websiteId, UUID domainId, VerifyDomainRequest request, Authentication auth) {
         DomainResponse existing = getOrThrow(tenantId, websiteId, domainId);
-        if (request == null || request.verificationToken() == null || !request.verificationToken().equals(existing.verificationToken()))
+        if (request == null || request.verificationToken() == null
+                || !request.verificationToken().equals(existing.verificationToken()))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "verification token mismatch");
+        WebsiteDomain.VerificationMethod method = existing.verificationMethod() != null
+                ? existing.verificationMethod()
+                : WebsiteDomain.VerificationMethod.DNS_TXT;
+        if (method == WebsiteDomain.VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "HTTP domain verification is disabled; migrate the domain to DNS_TXT or DNS_CNAME");
+        }
+        if (!ownershipVerifier.verify(
+                existing.hostname(),
+                DomainOwnershipVerifier.Method.valueOf(method.name()),
+                existing.verificationToken())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "external domain ownership challenge is not satisfied");
+        }
         Instant now = Instant.now();
         UUID actor = actorUserId(auth);
         jdbc.update("UPDATE website_domains SET verification_status = 'VERIFIED', verified_at = ?, verified_by = ?, "
@@ -187,7 +281,6 @@ public class WebsiteDomainService {
     /** Find an active website domain by hostname (used by public resolver). */
     @Transactional(readOnly = true)
     public DomainResponse findByHostname(String hostname) {
-        if (hostname == null) return null;
         try {
             return jdbc.queryForObject(
                     "SELECT * FROM website_domains WHERE hostname = ? AND activation_status = 'ACTIVE'",
@@ -198,16 +291,32 @@ public class WebsiteDomainService {
     }
 
     // ===== Helpers =====
+    private DomainResponse findExactHostname(String hostname) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT * FROM website_domains WHERE lower(hostname) = lower(?)",
+                    this::mapRow,
+                    hostname
+            );
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
     private String resolvePlatformBaseDomain() {
-        // Check system property first, then env var
-        String base = System.getProperty("sanad.tenancy.domains.base-domain");
-        if (base == null || base.isBlank()) {
-            base = System.getenv("SANAD_BASE_DOMAIN");
+        return hostRoutingService.configuredBaseDomain();
+    }
+
+    private String tenantSubdomain(UUID tenantId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT subdomain FROM tenants WHERE id = ?",
+                    String.class,
+                    tenantId
+            );
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "tenant not found");
         }
-        if (base == null || base.isBlank()) {
-            base = System.getenv("PLATFORM_BASE_DOMAIN");
-        }
-        return (base != null && !base.isBlank()) ? base.trim().toLowerCase(Locale.ROOT) : null;
     }
 
     private void ensureWebsite(UUID tenantId, UUID websiteId) {
@@ -241,8 +350,8 @@ public class WebsiteDomainService {
     }
 
     private void audit(UUID tenantId, Authentication auth, String action, UUID resourceId, String reason) {
-        try { auditService.success(auth, tenantId, action, "WEBSITE_DOMAIN", resourceId == null ? null : resourceId.toString(), reason, null, null); }
-        catch (Exception ignored) {}
+        auditService.success(auth, tenantId, action, "WEBSITE_DOMAIN",
+                resourceId == null ? null : resourceId.toString(), reason, null, null);
     }
 
     private DomainResponse mapRow(ResultSet rs, int rowNum) throws SQLException {

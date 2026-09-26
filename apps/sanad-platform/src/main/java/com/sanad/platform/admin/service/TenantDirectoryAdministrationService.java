@@ -6,6 +6,8 @@ import com.sanad.platform.admin.api.SaasAdminDtos.MembershipAdminResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.OrganizationAdminResponse;
 import com.sanad.platform.admin.api.SaasAdminDtos.UpdateMembershipAdminRequest;
 import com.sanad.platform.admin.api.SaasAdminDtos.UpdateOrganizationAdminRequest;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,21 +31,44 @@ import java.util.UUID;
 public class TenantDirectoryAdministrationService {
 
     private static final Set<String> ORGANIZATION_STATUSES = Set.of("ACTIVE", "INACTIVE", "ARCHIVED");
+    private static final Set<String> ORGANIZATION_UNIT_TYPES =
+            Set.of("GENERAL", "LEGAL_ENTITY", "BRANCH", "DEPARTMENT", "LOCATION");
     private static final Set<String> MEMBERSHIP_STATUSES = Set.of("INVITED", "ACTIVE", "INACTIVE", "REMOVED");
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
+    private final TenantRlsTransactionContext tenantRlsContext;
 
-    public TenantDirectoryAdministrationService(JdbcTemplate jdbcTemplate, PlatformAuditService auditService) {
+    @Autowired
+    public TenantDirectoryAdministrationService(
+            JdbcTemplate jdbcTemplate,
+            PlatformAuditService auditService,
+            TenantRlsTransactionContext tenantRlsContext
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
+        this.tenantRlsContext = tenantRlsContext;
+    }
+
+    /** Backward-compatible direct-instantiation constructor for legacy tests. */
+    public TenantDirectoryAdministrationService(
+            JdbcTemplate jdbcTemplate,
+            PlatformAuditService auditService
+    ) {
+        this(jdbcTemplate, auditService, null);
+    }
+
+    private void applyTenantRls(UUID tenantId) {
+        if (tenantRlsContext != null) {
+            tenantRlsContext.applyForCurrentTransaction(tenantId);
+        }
     }
 
     @Transactional(readOnly = true)
     public List<OrganizationAdminResponse> listOrganizations(UUID tenantId) {
         ensureTenant(tenantId);
         return jdbcTemplate.query(
-                "SELECT id, tenant_id, name, description, status, created_at, updated_at "
+                "SELECT id, tenant_id, name, description, status, unit_type, created_at, updated_at "
                         + "FROM organizations WHERE tenant_id = ? ORDER BY created_at",
                 this::mapOrganization,
                 tenantId
@@ -57,6 +82,8 @@ public class TenantDirectoryAdministrationService {
             Authentication authentication
     ) {
         ensureTenant(tenantId);
+        jdbcTemplate.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null, "ORGANIZATION_LIMIT:" + tenantId);
         LimitSnapshot limits = limits(tenantId);
         long current = count(
                 "SELECT COUNT(*) FROM organizations WHERE tenant_id = ? AND status <> 'ARCHIVED'",
@@ -69,12 +96,14 @@ public class TenantDirectoryAdministrationService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Organization name already exists for the tenant");
         }
 
+        String unitType = normalizeUnitType(request.unitType(), "GENERAL");
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         jdbcTemplate.update(
-                "INSERT INTO organizations (id, tenant_id, name, description, status, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)",
-                id, tenantId, name, blankToNull(request.description()), Timestamp.from(now), Timestamp.from(now));
+                "INSERT INTO organizations (id, tenant_id, name, description, status, unit_type, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?)",
+                id, tenantId, name, blankToNull(request.description()), unitType,
+                Timestamp.from(now), Timestamp.from(now));
         OrganizationAdminResponse created = getOrganization(tenantId, id);
         auditService.success(authentication, tenantId, "ORGANIZATION.CREATE", "ORGANIZATION", id.toString(),
                 "Created from control plane", null, created);
@@ -95,9 +124,25 @@ public class TenantDirectoryAdministrationService {
                 tenantId, organizationId, name) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Organization name already exists for the tenant");
         }
+        String unitType = normalizeUnitType(request.unitType(), before.unitType());
+        if (!unitType.equals(before.unitType())) {
+            // subscription_operating_units is FORCE-RLS.
+            applyTenantRls(tenantId);
+            long activeBindings = count(
+                    "SELECT COUNT(*) FROM subscription_operating_units "
+                            + "WHERE tenant_id = ? AND organization_id = ? AND status = 'ACTIVE'",
+                    tenantId, organizationId);
+            if (activeBindings > 0) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "deactivate subscription operating-unit bindings before changing unit type");
+            }
+        }
         jdbcTemplate.update(
-                "UPDATE organizations SET name = ?, description = ?, updated_at = ? WHERE tenant_id = ? AND id = ?",
-                name, blankToNull(request.description()), Timestamp.from(Instant.now()), tenantId, organizationId);
+                "UPDATE organizations SET name = ?, description = ?, unit_type = ?, updated_at = ? "
+                        + "WHERE tenant_id = ? AND id = ?",
+                name, blankToNull(request.description()), unitType,
+                Timestamp.from(Instant.now()), tenantId, organizationId);
         OrganizationAdminResponse after = getOrganization(tenantId, organizationId);
         auditService.success(authentication, tenantId, "ORGANIZATION.UPDATE", "ORGANIZATION", organizationId.toString(),
                 "Updated from control plane", before, after);
@@ -117,9 +162,48 @@ public class TenantDirectoryAdministrationService {
         if (!ORGANIZATION_STATUSES.contains(status)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported organization status");
         }
+        Instant now = Instant.now();
+        if (!"ACTIVE".equals(status)) {
+            // Branch-scoped subscription projection tables are FORCE-RLS.
+            applyTenantRls(tenantId);
+            // Organization deactivation must atomically retire every branch-scoped
+            // subscription projection. Leaving active bindings behind would leak
+            // pricing/resource state through an inactive operating unit.
+            jdbcTemplate.update("""
+                    UPDATE websites SET organization_id = NULL
+                     WHERE tenant_id = ? AND organization_id = ?
+                    """, tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE commerce_stores SET organization_id = NULL
+                     WHERE tenant_id = ? AND organization_id = ?
+                    """, tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE subscription_unit_applications
+                       SET enabled = FALSE, updated_at = ?
+                     WHERE tenant_id = ? AND organization_id = ?
+                    """, Timestamp.from(now), tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE subscription_resource_bindings
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND organization_id = ?
+                       AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE subscription_billing_profiles
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND organization_id = ?
+                       AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, organizationId);
+            jdbcTemplate.update("""
+                    UPDATE subscription_operating_units
+                       SET status = 'INACTIVE', updated_at = ?
+                     WHERE tenant_id = ? AND organization_id = ?
+                       AND status = 'ACTIVE'
+                    """, Timestamp.from(now), tenantId, organizationId);
+        }
         jdbcTemplate.update(
                 "UPDATE organizations SET status = ?, updated_at = ? WHERE tenant_id = ? AND id = ?",
-                status, Timestamp.from(Instant.now()), tenantId, organizationId);
+                status, Timestamp.from(now), tenantId, organizationId);
         OrganizationAdminResponse after = getOrganization(tenantId, organizationId);
         auditService.success(authentication, tenantId, "ORGANIZATION.STATUS.CHANGE", "ORGANIZATION",
                 organizationId.toString(), reason, before, after);
@@ -145,6 +229,8 @@ public class TenantDirectoryAdministrationService {
             Authentication authentication
     ) {
         getOrganization(tenantId, organizationId);
+        jdbcTemplate.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null, "SEAT_LIMIT:" + tenantId);
         LimitSnapshot limits = limits(tenantId);
         long occupiedSeats = count(
                 "SELECT COUNT(DISTINCT LOWER(email)) FROM organization_memberships "
@@ -223,7 +309,7 @@ public class TenantDirectoryAdministrationService {
     @Transactional(readOnly = true)
     public OrganizationAdminResponse getOrganization(UUID tenantId, UUID organizationId) {
         List<OrganizationAdminResponse> rows = jdbcTemplate.query(
-                "SELECT id, tenant_id, name, description, status, created_at, updated_at "
+                "SELECT id, tenant_id, name, description, status, unit_type, created_at, updated_at "
                         + "FROM organizations WHERE tenant_id = ? AND id = ?",
                 this::mapOrganization,
                 tenantId, organizationId);
@@ -256,7 +342,7 @@ public class TenantDirectoryAdministrationService {
                         + "FROM tenant_subscriptions s "
                         + "JOIN saas_plans p ON p.id = s.plan_id "
                         + "LEFT JOIN plan_versions pv ON pv.id = s.plan_version_id "
-                        + "WHERE s.tenant_id = ? AND s.status IN ('TRIALING', 'ACTIVE', 'PAST_DUE') "
+                        + "WHERE s.tenant_id = ? AND s.status IN ('TRIAL', 'TRIALING', 'ACTIVE', 'PAST_DUE', 'GRACE_PERIOD') "
                         + "ORDER BY s.created_at DESC, s.id DESC",
                 (rs, rowNum) -> new LimitSnapshot(rs.getInt("max_users"), rs.getInt("max_organizations")),
                 tenantId);
@@ -333,6 +419,7 @@ public class TenantDirectoryAdministrationService {
                 rs.getString("name"),
                 rs.getString("description"),
                 rs.getString("status"),
+                rs.getString("unit_type"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at")
         );
@@ -364,6 +451,16 @@ public class TenantDirectoryAdministrationService {
 
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeUnitType(String value, String fallback) {
+        String normalized = value == null || value.isBlank()
+                ? (fallback == null ? "GENERAL" : fallback.trim().toUpperCase(Locale.ROOT))
+                : value.trim().toUpperCase(Locale.ROOT);
+        if (!ORGANIZATION_UNIT_TYPES.contains(normalized)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported organization unit type");
+        }
+        return normalized;
     }
 
     private static String normalizeRoleCode(String value) {

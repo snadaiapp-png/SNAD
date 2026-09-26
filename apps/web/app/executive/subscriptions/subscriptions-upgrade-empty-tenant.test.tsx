@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const subscriptionsMock = vi.fn();
 const provisionMock = vi.fn();
 const plansMock = vi.fn();
+const planVersionsMock = vi.fn();
 const tenantMock = vi.fn();
 const createSubscriptionMock = vi.fn();
 const changeTenantStatusMock = vi.fn();
@@ -14,6 +15,7 @@ const pushMock = vi.fn();
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: {
     subscriptions: (...args: unknown[]) => subscriptionsMock(...args),
+    planVersions: (...args: unknown[]) => planVersionsMock(...args),
     provision: (...args: unknown[]) => provisionMock(...args),
   },
 }));
@@ -110,6 +112,14 @@ beforeEach(() => {
     skippedSteps: [],
   });
   plansMock.mockReset().mockResolvedValue([starterPlan]);
+  planVersionsMock.mockReset().mockResolvedValue([
+    {
+      id: "44444444-4444-4444-8444-444444444444",
+      planId: starterPlan.id,
+      versionNumber: 1,
+      status: "ACTIVE",
+    },
+  ]);
   tenantMock.mockReset().mockResolvedValue(pendingTenant);
   createSubscriptionMock.mockReset().mockResolvedValue({
     id: "33333333-3333-4333-8333-333333333333",
