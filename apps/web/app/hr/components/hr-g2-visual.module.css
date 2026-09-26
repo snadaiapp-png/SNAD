@@ -109,6 +109,152 @@
   flex-wrap: nowrap;
 }
 
+.productSurface {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-block-end: 1rem;
+  padding-block-end: 0.75rem;
+  border-block-end: 1px solid var(--snad-color-border-default);
+}
+
+.productHeaderCopy {
+  display: grid;
+  gap: 0.35rem;
+  min-inline-size: 0;
+}
+
+.productHeaderCopy h1,
+.productPanelHeader h2,
+.productPanelHeader p,
+.productSubtitle {
+  margin: 0;
+}
+
+.productEyebrow {
+  color: var(--snad-color-action-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.productSubtitle,
+.productKpiHint,
+.productPanelHeader p {
+  color: var(--snad-text-muted);
+  line-height: 1.5;
+}
+
+.productHeaderTrailing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.productKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 0.75rem;
+  margin-block: 1rem;
+}
+
+.productKpiCard {
+  display: grid;
+  gap: 0.25rem;
+  min-block-size: 6.25rem;
+  padding: 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.75rem;
+  background: var(--snad-color-surface-primary);
+}
+
+.productKpiCard[data-tone="positive"] {
+  border-color: var(--snad-color-action-primary);
+}
+
+.productKpiCard[data-tone="attention"] {
+  border-color: var(--snad-color-border-strong);
+}
+
+.productKpiValue {
+  color: var(--snad-color-text-primary);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.productKpiLabel {
+  color: var(--snad-color-text-primary);
+  font-weight: 600;
+}
+
+.productKpiHint {
+  font-size: 0.75rem;
+}
+
+.productActionBar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-block: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.75rem;
+  background: var(--snad-color-surface-secondary);
+}
+
+.productActionBar :where(button, a):focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 2px;
+}
+
+.productOperationalPanel {
+  display: grid;
+  gap: 1rem;
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.75rem;
+  background: var(--snad-color-surface-primary);
+}
+
+.productPanelHeader {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.productPanelBody {
+  min-inline-size: 0;
+}
+
+.productMobileRecords {
+  display: none;
+  gap: 0.75rem;
+}
+
+@media (max-width: 47.999rem) {
+  .productSurface,
+  .productActionBar {
+    align-items: stretch;
+  }
+
+  .productHeaderTrailing,
+  .productActionBar {
+    inline-size: 100%;
+  }
+
+  .productKpiGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .productMobileRecords {
+    display: grid;
+  }
+}
+
 @media (min-width: 48rem) {
   .workspaceNavResponsive {
     overflow-x: visible;
