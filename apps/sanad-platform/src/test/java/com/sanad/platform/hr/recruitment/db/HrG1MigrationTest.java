@@ -39,7 +39,7 @@ class HrG1MigrationTest {
     static final String G1_SCHEMA_VERSION = "20260918.2";
     static final String G1_RLS_VERSION = "20260918.3";
     static final String G1_SEED_VERSION = "20260918.4";
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20260925.2";
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20260926.2";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
