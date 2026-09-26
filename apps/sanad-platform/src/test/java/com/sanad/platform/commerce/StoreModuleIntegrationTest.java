@@ -52,6 +52,7 @@ class StoreModuleIntegrationTest {
     @BeforeEach
     void setUp() {
         System.setProperty("sanad.tenancy.domains.base-domain", "snad.example");
+        when(entitlementResolver.hasExplicitModuleEntitlement(any(UUID.class), anyString())).thenReturn(true);
         when(entitlementResolver.getLimit(any(UUID.class), anyString(), anyString())).thenReturn(10L);
         when(ownershipVerifier.verify(anyString(), any(DomainOwnershipVerifier.Method.class), anyString()))
                 .thenReturn(true);
