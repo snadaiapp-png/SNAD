@@ -38,6 +38,15 @@ describe("G2 Employee product surfaces", () => {
     expect(source).toContain("timesheets-history-panel");
   });
 
+  it("keeps Timesheets state and KPI copy inside route-scoped i18n", () => {
+    const source = page("timesheets/page.tsx");
+    expect(source).not.toContain("function stateLabel");
+    expect(source).toContain('t("hrm.timesheets.state." +');
+    expect(source).toContain('t("hrm.timesheets.kpi.awaitingApproval")');
+    expect(source).toContain('t("hrm.timesheets.kpi.approved")');
+    expect(source).not.toContain('locale === "ar" ? "بانتظار الاعتماد"');
+  });
+
   it("renders My Leave with balances, lifecycle summary, request action, and recent requests", () => {
     const source = page("leave/page.tsx");
     expectProductSurface(source, "leave-product-surface");
