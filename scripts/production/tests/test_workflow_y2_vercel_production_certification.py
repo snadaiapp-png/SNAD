@@ -62,6 +62,7 @@ class WorkflowY2VercelProductionCertificationTest(unittest.TestCase):
             '"apps/web/lib/api/workflow-api.ts"',
             '"apps/web/lib/workflow/**"',
             '"apps/web/app/api/platform/**"',
+            '"apps/sanad-platform/.release/workflow-y2-production-release-authorized.md"',
         ]
         for path in required_paths:
             self.assertIn(
