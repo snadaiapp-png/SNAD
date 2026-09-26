@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import {
@@ -12,16 +13,16 @@ import {
   type SubscriptionItem,
   type UsageSnapshot,
 } from "@/lib/api/scp-api";
-import {
-  executiveApi,
-  type SaasPlan,
-  type SubscriptionOperatingUnit,
-  type SubscriptionBillingProfile,
-  type SubscriptionUnitApplication,
-  type SubscriptionResourceBinding,
-  type SubscriptionAvailableResource,
-  type ManagedOrganization,
-} from "@/lib/api/executive-api";
+import { executiveApi, type SaasPlan } from "@/lib/api/executive-api";
+
+// The operating-governance admin section (units, applications, resource
+// bindings, billing profiles) is below-the-fold tooling and is loaded on
+// demand so the detail route's initial JS stays within the fail-closed
+// performance budget.
+const SubscriptionOperatingGovernanceLazy = dynamic(
+  () => import("./SubscriptionOperatingGovernance"),
+  { ssr: false },
+);
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { Button, Input } from "@/components/sds";
 import {
@@ -80,42 +81,17 @@ export default function SubscriptionDetailPage() {
   const [busy, setBusy] = useState(false);
   const [changePlanId, setChangePlanId] = useState("");
   const [changePreview, setChangePreview] = useState<ChangePreview | null>(null);
-  const [operatingUnits, setOperatingUnits] = useState<SubscriptionOperatingUnit[]>([]);
-  const [unitApplications, setUnitApplications] = useState<SubscriptionUnitApplication[]>([]);
-  const [billingProfiles, setBillingProfiles] = useState<SubscriptionBillingProfile[]>([]);
-  const [resourceBindings, setResourceBindings] = useState<SubscriptionResourceBinding[]>([]);
-  const [availableResources, setAvailableResources] = useState<SubscriptionAvailableResource[]>([]);
+  // Operator-entered governance form values. They live at page level so the
+  // lazily-loaded governance section can remount on reload without discarding
+  // in-progress operator input.
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [branchName, setBranchName] = useState("");
   const [billingProfileOrganizationId, setBillingProfileOrganizationId] = useState("");
   const [billingProfileName, setBillingProfileName] = useState("");
   const [billingEmail, setBillingEmail] = useState("");
   const [selectedResource, setSelectedResource] = useState("");
-  const [tenantOrganizations, setTenantOrganizations] = useState<ManagedOrganization[]>([]);
   const [existingOrganizationId, setExistingOrganizationId] = useState("");
-
-  const loadOperatingGovernance = useCallback(async () => {
-    try {
-      const [units, profiles, bindings, resources] = await Promise.all([
-        executiveApi.operatingUnits(subscriptionId),
-        executiveApi.subscriptionBillingProfiles(subscriptionId),
-        executiveApi.subscriptionResourceBindings(subscriptionId),
-        executiveApi.subscriptionAvailableResources(subscriptionId),
-      ]);
-      setOperatingUnits(units);
-      setBillingProfiles(profiles);
-      setResourceBindings(bindings);
-      setAvailableResources(resources);
-      setSelectedOrganizationId((current) => {
-        if (current && units.some((unit) => unit.organizationId === current && unit.status === "ACTIVE")) {
-          return current;
-        }
-        return units.find((unit) => unit.status === "ACTIVE")?.organizationId ?? "";
-      });
-    } catch (reason) {
-      setError(scpErrorMessage(reason));
-    }
-  }, [subscriptionId]);
+  const [governanceVersion, setGovernanceVersion] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -127,15 +103,11 @@ export default function SubscriptionDetailPage() {
       ]);
       setDetail(detailResult);
       setItems(itemsResult);
-      void loadOperatingGovernance();
+      setGovernanceVersion((version) => version + 1);
       const tenantId = String(detailResult.overview.tenantId ?? "");
       if (tenantId) {
         scpApi.usage(tenantId).then(setUsage).catch((reason) => {
           setUsage(null);
-          setError(scpErrorMessage(reason));
-        });
-        executiveApi.organizations(tenantId).then(setTenantOrganizations).catch((reason) => {
-          setTenantOrganizations([]);
           setError(scpErrorMessage(reason));
         });
       }
@@ -144,30 +116,11 @@ export default function SubscriptionDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [loadOperatingGovernance, subscriptionId]);
+  }, [subscriptionId]);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    if (!selectedOrganizationId) {
-      setUnitApplications([]);
-      return;
-    }
-    let active = true;
-    executiveApi
-      .operatingUnitApplications(subscriptionId, selectedOrganizationId)
-      .then((applications) => {
-        if (active) setUnitApplications(applications);
-      })
-      .catch((reason) => {
-        if (active) setError(scpErrorMessage(reason));
-      });
-    return () => {
-      active = false;
-    };
-  }, [selectedOrganizationId, subscriptionId]);
 
   useEffect(() => {
     if (!canChangePlan) {
@@ -235,185 +188,6 @@ export default function SubscriptionDetailPage() {
       );
       setNotice(t("scp.detail.commandApplied", { command: result.command, from: result.fromStatus, to: result.toStatus }));
       await load();
-    } catch (reason) {
-      setError(scpErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function createAndBindBranch() {
-    const tenantId = String(detail?.overview.tenantId ?? "");
-    if (!tenantId || !branchName.trim()) return;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    let createdOrganizationId = "";
-    try {
-      const organization = await executiveApi.createOrganization(tenantId, {
-        name: branchName.trim(),
-        unitType: "BRANCH",
-      });
-      createdOrganizationId = organization.id;
-      await executiveApi.bindOperatingUnit(subscriptionId, organization.id, "CONSOLIDATED");
-      setBranchName("");
-      setSelectedOrganizationId(organization.id);
-      setNotice(t("scp.detail.branchCreated"));
-      await loadOperatingGovernance();
-    } catch (reason) {
-      // The UI spans two governed commands. If subscription binding fails
-      // after organization creation, archive the just-created branch so the
-      // operator is not left with an orphan operating unit.
-      if (createdOrganizationId) {
-        try {
-          await executiveApi.changeOrganizationStatus(
-            tenantId,
-            createdOrganizationId,
-            "ARCHIVED",
-            "Rollback failed subscription operating-unit binding",
-          );
-        } catch {
-          // Preserve the authoritative original failure. A rollback failure is
-          // still visible in audit/organization state and must not mask it.
-        }
-      }
-      setError(scpErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function bindExistingOperatingUnit() {
-    if (!existingOrganizationId) return;
-    setBusy(true);
-    setError("");
-    try {
-      await executiveApi.bindOperatingUnit(
-        subscriptionId,
-        existingOrganizationId,
-        "CONSOLIDATED",
-      );
-      setSelectedOrganizationId(existingOrganizationId);
-      setExistingOrganizationId("");
-      setNotice(t("scp.detail.branchBound"));
-      await loadOperatingGovernance();
-    } catch (reason) {
-      setError(scpErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function updateOperatingUnit(
-    organizationId: string,
-    billingMode: "CONSOLIDATED" | "SEPARATE",
-  ) {
-    setBusy(true);
-    setError("");
-    try {
-      await executiveApi.bindOperatingUnit(subscriptionId, organizationId, billingMode);
-      setNotice(t("scp.detail.branchBound"));
-      await loadOperatingGovernance();
-    } catch (reason) {
-      setError(scpErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function unbindOperatingUnit(organizationId: string) {
-    setBusy(true);
-    setError("");
-    try {
-      await executiveApi.deactivateOperatingUnit(subscriptionId, organizationId);
-      setNotice(t("scp.detail.branchUnbound"));
-      if (selectedOrganizationId === organizationId) setSelectedOrganizationId("");
-      await loadOperatingGovernance();
-    } catch (reason) {
-      setError(scpErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function toggleUnitApplication(application: SubscriptionUnitApplication) {
-    if (!selectedOrganizationId) return;
-    setBusy(true);
-    setError("");
-    try {
-      await executiveApi.setOperatingUnitApplication(
-        subscriptionId,
-        selectedOrganizationId,
-        application.applicationId,
-        !application.enabled,
-      );
-      setNotice(t("scp.detail.applicationUpdated"));
-      setUnitApplications(await executiveApi.operatingUnitApplications(subscriptionId, selectedOrganizationId));
-    } catch (reason) {
-      setError(scpErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function saveBillingProfile() {
-    const currencyCode = String(detail?.overview.currencyCode ?? "").trim().toUpperCase();
-    if (!billingProfileName.trim() || !currencyCode) return;
-    setBusy(true);
-    setError("");
-    try {
-      await executiveApi.upsertSubscriptionBillingProfile(subscriptionId, {
-        organizationId: billingProfileOrganizationId || null,
-        profileName: billingProfileName.trim(),
-        billingEmail: billingEmail.trim() || null,
-        currencyCode,
-        billingMode: billingProfileOrganizationId ? "SEPARATE" : "CONSOLIDATED",
-      });
-      setBillingProfileName("");
-      setBillingEmail("");
-      setNotice(t("scp.detail.billingProfileSaved"));
-      await loadOperatingGovernance();
-    } catch (reason) {
-      setError(scpErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function bindResource() {
-    if (!selectedOrganizationId || !selectedResource) return;
-    const [resourceType, resourceId] = selectedResource.split(":");
-    if ((resourceType !== "WEBSITE" && resourceType !== "STORE") || !resourceId) return;
-    setBusy(true);
-    setError("");
-    try {
-      await executiveApi.bindSubscriptionResource(
-        subscriptionId,
-        selectedOrganizationId,
-        resourceType,
-        resourceId,
-      );
-      setSelectedResource("");
-      setNotice(t("scp.detail.resourceBound"));
-      await loadOperatingGovernance();
-    } catch (reason) {
-      setError(scpErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function unbindResource(binding: SubscriptionResourceBinding) {
-    setBusy(true);
-    setError("");
-    try {
-      await executiveApi.unbindSubscriptionResource(
-        subscriptionId,
-        binding.resourceType,
-        binding.resourceId,
-      );
-      setNotice(t("scp.detail.resourceUnbound"));
-      await loadOperatingGovernance();
     } catch (reason) {
       setError(scpErrorMessage(reason));
     } finally {
@@ -634,304 +408,33 @@ export default function SubscriptionDetailPage() {
         )}
       </section>
 
-      <section className={styles.panel} aria-labelledby="scp-operating-units-heading">
-        <h2 id="scp-operating-units-heading" className={styles.pageSubtitle}>
-          {t("scp.detail.operatingUnits")}
-        </h2>
-        <p className={styles.appCardMeta}>{t("scp.detail.operatingUnitsHelp")}</p>
-
-        {canManage ? (
-          <div className={styles.filters}>
-            <Input
-              label={t("scp.detail.branchName")}
-              aria-label={t("scp.detail.branchName")}
-              value={branchName}
-              maxLength={200}
-              onChange={(event) => setBranchName(event.target.value)}
-            />
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={busy || !branchName.trim()}
-              onClick={() => void createAndBindBranch()}
-            >
-              {t("scp.detail.createBranch")}
-            </Button>
-            <select
-              aria-label={t("scp.detail.existingBranch")}
-              value={existingOrganizationId}
-              onChange={(event) => setExistingOrganizationId(event.target.value)}
-            >
-              <option value="">{t("scp.detail.existingBranch")}</option>
-              {tenantOrganizations
-                .filter((organization) =>
-                  organization.status === "ACTIVE"
-                  && organization.unitType === "BRANCH"
-                  && !operatingUnits.some((unit) =>
-                    unit.organizationId === organization.id && unit.status === "ACTIVE"))
-                .map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-            </select>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={busy || !existingOrganizationId}
-              onClick={() => void bindExistingOperatingUnit()}
-            >
-              {t("scp.detail.bindExistingBranch")}
-            </Button>
-          </div>
-        ) : null}
-
-        {operatingUnits.length > 0 ? (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th scope="col">{t("scp.detail.branchName")}</th>
-                  <th scope="col">{t("scp.subscriptions.status")}</th>
-                  <th scope="col">{t("scp.detail.billingMode")}</th>
-                  <th scope="col">{t("scp.common.actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {operatingUnits.map((unit) => (
-                  <tr key={unit.organizationId}>
-                    <td>{unit.organizationName}</td>
-                    <td><ScpStatusPill value={unit.status} /></td>
-                    <td>
-                      {canManage && unit.status === "ACTIVE" ? (
-                        <select
-                          aria-label={`${t("scp.detail.billingMode")} — ${unit.organizationName}`}
-                          value={unit.billingMode}
-                          disabled={busy}
-                          onChange={(event) => void updateOperatingUnit(
-                            unit.organizationId,
-                            event.target.value as "CONSOLIDATED" | "SEPARATE",
-                          )}
-                        >
-                          <option value="CONSOLIDATED">{t("scp.detail.consolidated")}</option>
-                          <option
-                            value="SEPARATE"
-                            disabled={!billingProfiles.some((profile) =>
-                              profile.organizationId === unit.organizationId
-                              && profile.status === "ACTIVE")}
-                          >
-                            {t("scp.detail.separate")}
-                          </option>
-                        </select>
-                      ) : unit.billingMode}
-                    </td>
-                    <td>
-                      <div className={styles.filters}>
-                        {unit.status === "ACTIVE" ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => setSelectedOrganizationId(unit.organizationId)}
-                          >
-                            {t("scp.detail.selectBranch")}
-                          </Button>
-                        ) : null}
-                        {canManage && unit.status === "ACTIVE" ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => void unbindOperatingUnit(unit.organizationId)}
-                          >
-                            {t("scp.detail.unbindUnit")}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <ScpEmpty message={t("scp.state.empty")} />
-        )}
-
-        {selectedOrganizationId ? (
-          <>
-            <h3 className={styles.pageSubtitle}>{t("scp.detail.applications")}</h3>
-            {unitApplications.length > 0 ? (
-              <div className={styles.filters}>
-                {unitApplications.map((application) => (
-                  <Button
-                    key={application.applicationId}
-                    variant={application.enabled ? "primary" : "secondary"}
-                    size="sm"
-                    disabled={busy || !canManage}
-                    aria-pressed={application.enabled}
-                    aria-label={application.enabled
-                      ? `${t("scp.detail.disableApplication")} — ${application.applicationName}`
-                      : `${t("scp.detail.enableApplication")} — ${application.applicationName}`}
-                    onClick={() => void toggleUnitApplication(application)}
-                  >
-                    {application.applicationName} ({application.applicationCode})
-                  </Button>
-                ))}
-              </div>
-            ) : (
-              <ScpEmpty message={t("scp.state.empty")} />
-            )}
-
-            <h3 className={styles.pageSubtitle}>{t("scp.detail.resources")}</h3>
-            {canManage ? (
-              <div className={styles.filters}>
-                <select
-                  aria-label={t("scp.detail.selectResource")}
-                  value={selectedResource}
-                  onChange={(event) => setSelectedResource(event.target.value)}
-                >
-                  <option value="">{t("scp.detail.selectResource")}</option>
-                  {availableResources
-                    .filter((resource) => !resource.boundOrganizationId
-                      || resource.boundOrganizationId === selectedOrganizationId)
-                    .map((resource) => (
-                      <option
-                        key={`${resource.resourceType}:${resource.resourceId}`}
-                        value={`${resource.resourceType}:${resource.resourceId}`}
-                      >
-                        {resource.resourceName} ({resource.resourceType})
-                      </option>
-                    ))}
-                </select>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={busy || !selectedResource}
-                  onClick={() => void bindResource()}
-                >
-                  {t("scp.detail.assignResource")}
-                </Button>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-
-        {resourceBindings.length > 0 ? (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th scope="col">{t("scp.detail.resource")}</th>
-                  <th scope="col">{t("scp.detail.branchName")}</th>
-                  <th scope="col">{t("scp.subscriptions.status")}</th>
-                  <th scope="col">{t("scp.common.actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resourceBindings.map((binding) => {
-                  const unit = operatingUnits.find(
-                    (candidate) => candidate.organizationId === binding.organizationId,
-                  );
-                  return (
-                    <tr key={`${binding.resourceType}:${binding.resourceId}`}>
-                      <td>{binding.resourceName ?? binding.resourceId} ({binding.resourceType})</td>
-                      <td>{unit?.organizationName ?? binding.organizationId}</td>
-                      <td><ScpStatusPill value={binding.status} /></td>
-                      <td>
-                        {canManage && binding.status === "ACTIVE" ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => void unbindResource(binding)}
-                          >
-                            {t("scp.detail.unbindResource")}
-                          </Button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-
-        <h3 className={styles.pageSubtitle}>{t("scp.detail.billingProfiles")}</h3>
-        {billingProfiles.length > 0 ? (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th scope="col">{t("scp.detail.profileName")}</th>
-                  <th scope="col">{t("scp.detail.branchName")}</th>
-                  <th scope="col">{t("scp.detail.billingMode")}</th>
-                  <th scope="col">{t("scp.subscriptions.status")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {billingProfiles.map((profile) => (
-                  <tr key={profile.id}>
-                    <td>{profile.profileName}</td>
-                    <td>{profile.organizationId
-                      ? operatingUnits.find((unit) => unit.organizationId === profile.organizationId)?.organizationName
-                        ?? profile.organizationId
-                      : t("scp.detail.consolidated")}</td>
-                    <td>{profile.billingMode}</td>
-                    <td><ScpStatusPill value={profile.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-
-        {canManage ? (
-          <div className={styles.filters}>
-            <label>
-              <span>{t("scp.detail.billingMode")}</span>
-              <select
-                aria-label={t("scp.detail.billingMode")}
-                value={billingProfileOrganizationId}
-                onChange={(event) => setBillingProfileOrganizationId(event.target.value)}
-              >
-                <option value="">{t("scp.detail.consolidated")}</option>
-                {operatingUnits
-                  .filter((unit) => unit.status === "ACTIVE")
-                  .map((unit) => (
-                    <option key={unit.organizationId} value={unit.organizationId}>
-                      {unit.organizationName} — {t("scp.detail.separate")}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <Input
-              label={t("scp.detail.profileName")}
-              aria-label={t("scp.detail.profileName")}
-              value={billingProfileName}
-              maxLength={160}
-              onChange={(event) => setBillingProfileName(event.target.value)}
-            />
-            <Input
-              type="email"
-              label={t("scp.detail.billingEmail")}
-              aria-label={t("scp.detail.billingEmail")}
-              value={billingEmail}
-              maxLength={255}
-              onChange={(event) => setBillingEmail(event.target.value)}
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={busy || !billingProfileName.trim() || !String(overview.currencyCode ?? "")}
-              onClick={() => void saveBillingProfile()}
-            >
-              {t("scp.detail.saveBillingProfile")}
-            </Button>
-          </div>
-        ) : null}
-      </section>
+      <SubscriptionOperatingGovernanceLazy
+        subscriptionId={subscriptionId}
+        tenantId={String(overview.tenantId ?? "")}
+        currencyCode={String(overview.currencyCode ?? "")}
+        canManage={canManage}
+        busy={busy}
+        dataVersion={governanceVersion}
+        onError={setError}
+        onNotice={setNotice}
+        setBusy={setBusy}
+        forms={{
+          selectedOrganizationId,
+          setSelectedOrganizationId,
+          branchName,
+          setBranchName,
+          existingOrganizationId,
+          setExistingOrganizationId,
+          billingProfileOrganizationId,
+          setBillingProfileOrganizationId,
+          billingProfileName,
+          setBillingProfileName,
+          billingEmail,
+          setBillingEmail,
+          selectedResource,
+          setSelectedResource,
+        }}
+      />
 
       <section className={styles.panel} aria-labelledby="scp-lifecycle-heading">
         <h2 id="scp-lifecycle-heading" className={styles.pageSubtitle}>{t("scp.detail.lifecycleCommands")}</h2>
