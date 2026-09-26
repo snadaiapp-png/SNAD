@@ -41,6 +41,19 @@ const LANDING_GROUP = {
   hr: "g2-launcher-hr",
 } satisfies Record<G2Role, string>;
 
+const PRODUCT_PROOF: Record<string, string> = {
+  "/hr/attendance": "attendance-history-panel",
+  "/hr/timesheets": "timesheet-period-panel",
+  "/hr/leave": "leave-lifecycle-panel",
+  "/hr/team-attendance": "team-attendance-dashboard",
+  "/hr/team-timesheets": "team-timesheet-queue",
+  "/hr/leave/approvals": "leave-approval-queue",
+  "/hr/schedules": "schedule-operations-panel",
+  "/hr/attendance/admin": "attendance-admin-dashboard",
+  "/hr/leave/policies": "leave-policy-operations",
+  "/hr/reports/attendance": "attendance-report-dashboard",
+};
+
 for (const role of ["employee", "manager", "hr"] as const) {
   test.describe(`G2 visual ${role}`, () => {
     test(`${role} role surfaces are visually certifiable`, async ({ page }, testInfo) => {
@@ -61,15 +74,18 @@ for (const role of ["employee", "manager", "hr"] as const) {
 
         await expect(page.locator("html")).toHaveAttribute("lang", locale);
         await expect(page.locator("html")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
-        await expect(
-          page.locator("body"),
-          `${role} ${surface.route} must not expose unresolved HRM translation keys`,
-        ).not.toContainText("hrm.");
+        await expect(page.locator("body"), `${role} ${surface.route} must not expose unresolved HRM translation keys`).not.toContainText("hrm.");
 
         if (surface.route === "/hr") {
           await expect(page.getByTestId(LANDING_GROUP[role])).toBeVisible();
         } else {
           await expect(page.locator(`nav a[href="${surface.route}"]`).first()).toBeVisible();
+          await expect(page.getByTestId("g2-product-surface"), `${surface.route} must render the G2 product frame`).toBeVisible();
+          await expect(page.getByTestId("g2-kpi-grid"), `${surface.route} must expose operational KPIs`).toBeVisible();
+          await expect(page.getByTestId("g2-primary-action-region"), `${surface.route} must reserve a primary action region`).toBeVisible();
+          await expect(page.getByTestId("g2-product-content"), `${surface.route} must expose product content`).toBeVisible();
+          await expect(page.getByTestId(PRODUCT_PROOF[surface.route]), `${surface.route} must expose its route-specific product dashboard`).toBeVisible();
+
           if (REQUIRE_PRODUCT_DATA) {
             await expect(
               page.locator('main tbody tr[data-testid="hr-data-row"]').first(),
