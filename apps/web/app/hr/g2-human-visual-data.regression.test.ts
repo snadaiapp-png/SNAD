@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { HRM_G2_I18N_AR, HRM_G2_I18N_EN } from "@/lib/i18n/locales/hrm-g2-i18n";
+import { HRM_G2_LIFECYCLE_I18N_AR, HRM_G2_LIFECYCLE_I18N_EN } from "@/lib/i18n/locales/hrm-g2-lifecycle-i18n";
 import { formatLocalizedDate } from "./hr-labels";
 
 const HR_ROOT = resolve(__dirname);
@@ -65,10 +65,10 @@ describe("G2 human visual acceptance data contract", () => {
   it("localizes every canonical leave lifecycle state in Arabic and English", () => {
     for (const state of LEAVE_LIFECYCLE_STATES) {
       const key = `hrm.leave.state.${state}`;
-      expect(HRM_G2_I18N_AR[key], `Arabic ${key}`).toBeTruthy();
-      expect(HRM_G2_I18N_EN[key], `English ${key}`).toBeTruthy();
-      expect(HRM_G2_I18N_AR[key]).not.toBe(key);
-      expect(HRM_G2_I18N_EN[key]).not.toBe(key);
+      expect(HRM_G2_LIFECYCLE_I18N_AR[key], `Arabic ${key}`).toBeTruthy();
+      expect(HRM_G2_LIFECYCLE_I18N_EN[key], `English ${key}`).toBeTruthy();
+      expect(HRM_G2_LIFECYCLE_I18N_AR[key]).not.toBe(key);
+      expect(HRM_G2_LIFECYCLE_I18N_EN[key]).not.toBe(key);
     }
   });
 
