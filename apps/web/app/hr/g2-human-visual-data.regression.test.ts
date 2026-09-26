@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { formatLocalizedDate } from "./hr-labels";
 
 const HR_ROOT = resolve(__dirname);
 const REPO_ROOT = resolve(HR_ROOT, "../../../..");
@@ -31,5 +32,13 @@ describe("G2 human visual acceptance data contract", () => {
     expect(workflow).toContain('G2_VISUAL_REQUIRE_PRODUCT_DATA: "true"');
     expect(visualSpec).toContain('process.env.G2_VISUAL_REQUIRE_PRODUCT_DATA === "true"');
     expect(visualSpec).toContain('locator("main tbody tr")');
+  });
+
+  it("formats G2 dates in the selected UI locale", () => {
+    const english = formatLocalizedDate("2026-09-26", "en");
+    const arabic = formatLocalizedDate("2026-09-26", "ar");
+    expect(english).toMatch(/Sep/i);
+    expect(english).not.toMatch(/[\u0600-\u06FF]/);
+    expect(arabic).toMatch(/[\u0600-\u06FF]/);
   });
 });
