@@ -68,8 +68,8 @@ for (const role of ["employee", "manager", "hr"] as const) {
           await expect(page.locator(`nav a[href="${surface.route}"]`).first()).toBeVisible();
           if (REQUIRE_PRODUCT_DATA) {
             await expect(
-              page.locator("main tbody tr").first(),
-              `${role} ${surface.route} must render representative product data during HRM Human Preview`,
+              page.locator('main tbody tr[data-testid="hr-data-row"]').first(),
+              `${role} ${surface.route} must render a real product-data row; an empty-state row is not visual closure`,
             ).toBeVisible({ timeout: 20_000 });
           }
         }
