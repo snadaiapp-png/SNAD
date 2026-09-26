@@ -173,7 +173,25 @@ class Subscription1055ClosureContract(unittest.TestCase):
         )
 
     def test_executive_ui_exposes_branch_billing_and_resource_governance(self):
+        # The subscription-detail route exposes branch, billing-profile and
+        # resource governance through its operating-governance section. Since
+        # the fail-closed performance-budget fix that section is a dedicated
+        # route-local component loaded lazily by the page, so the canonical
+        # contract is pinned across BOTH halves of the route:
+        #   1. page.tsx must compose the governance component (the route can
+        #      not silently drop the section) — a stronger pin than scanning
+        #      for API tokens, because wiring and tokens are asserted
+        #      separately.
+        #   2. SubscriptionOperatingGovernance.tsx must carry the actual
+        #      governance controls: operating units, billing profiles and
+        #      resource bindings, driven by the canonical executive API
+        #      commands (never direct status writes).
         page = self.read("apps/web/app/executive/subscriptions/[id]/page.tsx")
+        self.assertIn('dynamic(\n  () => import("./SubscriptionOperatingGovernance")', page)
+        self.assertIn("<SubscriptionOperatingGovernanceLazy", page)
+        governance = self.read(
+            "apps/web/app/executive/subscriptions/[id]/SubscriptionOperatingGovernance.tsx"
+        )
         for token in (
             "operatingUnits",
             "billingProfiles",
@@ -182,7 +200,7 @@ class Subscription1055ClosureContract(unittest.TestCase):
             "upsertSubscriptionBillingProfile",
             "bindSubscriptionResource",
         ):
-            self.assertIn(token, page)
+            self.assertIn(token, governance)
 
 if __name__ == "__main__":
     unittest.main()
