@@ -213,6 +213,8 @@ class CrmPostgresMigrationTest {
     private static final String HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION = "20260924.4";
     private static final String HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION = "20260924.5";
     private static final String HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION = "20260924.6";
+    private static final String SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION = "20260925.1";
+    private static final String SUBSCRIPTION_OPERATING_UNITS_VERSION = "20260925.2";
     private static final String PLATFORM_IAM_MEMBERSHIPS_VERSION = "20260926.1";
     private static final String PLATFORM_IAM_ROLE_METADATA_VERSION = "20260926.2";
     private static final String PLATFORM_IAM_CAPABILITIES_VERSION = "20260926.3";
@@ -482,6 +484,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION),
                         MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_CAPABILITIES_VERSION),
@@ -688,6 +692,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION),
                         MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_CAPABILITIES_VERSION),

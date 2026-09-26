@@ -275,6 +275,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20260924.4"   // hr g2 idempotency constraint
             , "20260924.5"   // hr g2 leave state canonical alignment
             , "20260924.6"   // hr g2 fail-closed RLS empty context repair
+            , "20260925.1"   // subscription resource entitlements
+            , "20260925.2"   // subscription operating units
             , "20260926.1"   // platform iam memberships
             , "20260926.2"   // platform iam role metadata
             , "20260926.3"   // platform iam capabilities
