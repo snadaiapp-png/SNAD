@@ -67,13 +67,15 @@ class TenantDomainServiceIntegrationTest {
 
     @Test
     void createDomain_persistsWithUnverifiedStatus() {
+        // Global hostname authority (HostRoutingService across tenant/website/
+        // store surfaces) is fail-closed: each test claims a unique hostname.
         var req = new CreateDomainRequest(
-                "example.com", DomainType.APPLICATION, Origin.CUSTOM, VerificationMethod.DNS_TXT);
+                "unverified-persist.example.com", DomainType.APPLICATION, Origin.CUSTOM, VerificationMethod.DNS_TXT);
         var created = domainService.createDomain(tenantId, req, null);
 
         assertThat(created.id()).isNotNull();
         assertThat(created.tenantId()).isEqualTo(tenantId);
-        assertThat(created.hostname()).isEqualTo("example.com");
+        assertThat(created.hostname()).isEqualTo("unverified-persist.example.com");
         assertThat(created.domainType()).isEqualTo(DomainType.APPLICATION);
         assertThat(created.origin()).isEqualTo(Origin.CUSTOM);
         assertThat(created.status()).isEqualTo(Status.UNVERIFIED);
@@ -85,9 +87,9 @@ class TenantDomainServiceIntegrationTest {
     @Test
     void createDomain_normalizesHostnameToLowerCase() {
         var req = new CreateDomainRequest(
-                "Example.COM", DomainType.APPLICATION, Origin.CUSTOM, VerificationMethod.DNS_TXT);
+                "Normalize.EXAMPLE.Com", DomainType.APPLICATION, Origin.CUSTOM, VerificationMethod.DNS_TXT);
         var created = domainService.createDomain(tenantId, req, null);
-        assertThat(created.hostname()).isEqualTo("example.com");
+        assertThat(created.hostname()).isEqualTo("normalize.example.com");
     }
 
     @Test

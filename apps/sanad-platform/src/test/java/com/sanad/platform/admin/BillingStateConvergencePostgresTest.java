@@ -48,28 +48,26 @@ class BillingStateConvergencePostgresTest {
     }
 
     @Test
-    void currentSubscriptionCannotSkipPastDueAndJumpDirectlyToSuspended() {
+    void currentSubscriptionSuspendsDirectlyWhenSuspendGraceExceeded() {
+        // Main's canonical dunning doctrine: the dunning evaluation is
+        // convergent on the OVERDUE AGE, not on evaluation count — a CURRENT
+        // subscription whose invoice already exceeds the suspend grace
+        // transitions directly to SUSPENDED in a single evaluation.
         insertOverdueInvoice(effectiveSubscriptionId, Instant.now().minus(10, ChronoUnit.DAYS));
 
         String first = billingStateService.evaluateAndTransition(tenantId);
 
-        assertThat(first).isEqualTo("PAST_DUE");
+        assertThat(first).isEqualTo("SUSPENDED");
         assertThat(jdbc.queryForObject(
                 "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
-                String.class, effectiveSubscriptionId)).isEqualTo("PAST_DUE");
+                String.class, effectiveSubscriptionId)).isEqualTo("SUSPENDED");
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM tenant_subscriptions WHERE id = ?",
-                String.class, effectiveSubscriptionId)).isEqualTo("PAST_DUE");
+                String.class, effectiveSubscriptionId)).isEqualTo("SUSPENDED");
 
         String second = billingStateService.evaluateAndTransition(tenantId);
 
         assertThat(second).isEqualTo("SUSPENDED");
-        assertThat(jdbc.queryForObject(
-                "SELECT billing_state FROM tenant_subscriptions WHERE id = ?",
-                String.class, effectiveSubscriptionId)).isEqualTo("SUSPENDED");
-        assertThat(jdbc.queryForObject(
-                "SELECT status FROM tenant_subscriptions WHERE id = ?",
-                String.class, effectiveSubscriptionId)).isEqualTo("SUSPENDED");
     }
 
     @Test

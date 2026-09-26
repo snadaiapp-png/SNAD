@@ -56,10 +56,13 @@ class Subscription1055ClosureContract(unittest.TestCase):
     def test_ws3_upgrade_path_can_create_and_provision_subscription(self):
         page = self.read("apps/web/app/executive/subscriptions/page.tsx")
         api = self.read("apps/web/lib/api/executive-api.ts")
-        self.assertIn("createSubscriptionForTenant", page)
+        # Canonical single upgrade path (main): startUpgrade creates the first
+        # subscription for an empty tenant, provisions it through the governed
+        # provisioning port, and fails closed on non-SUCCEEDED outcomes.
+        self.assertIn("startUpgrade", page)
         self.assertIn("executiveApi.createSubscription", page)
         self.assertIn("await scpApi.provision(created.id)", page)
-        self.assertIn('outcome.status !== "SUCCEEDED"', page)
+        self.assertIn('provisioned.status !== "SUCCEEDED"', page)
         self.assertIn("createSubscription: (body:", api)
         self.assertIn('intentParam === "upgrade"', page)
     def test_ws3_generic_lifecycle_cannot_bypass_governed_routes(self):
@@ -93,7 +96,10 @@ class Subscription1055ClosureContract(unittest.TestCase):
         self.assertIn('"/api/v1/executive/billing/invoices"', jwt_filter)
         self.assertIn('"/api/v1/executive/usage"', jwt_filter)
         self.assertIn("controlPlaneAccessGuard.isControlPlaneTenant", jwt_filter)
-        self.assertIn("canonical owner", binding_test.lower())
+        # Canonical-owner cross-tenant behavior is pinned by name on both the
+        # allowlisted positive path and the 403 fail-closed negative path.
+        self.assertIn("canonicalownermaytargetforeigntenantonexplicitexecutivecrosstenantsurfaces", binding_test.lower())
+        self.assertIn("controlplaneownercannotuseforeigntenantidonotherexecutiveroutes", binding_test.lower())
         self.assertIn("403", binding_test)
         self.assertIn("/api/v1/executive/subscriptions/v2", binding_test)
 
@@ -110,7 +116,9 @@ class Subscription1055ClosureContract(unittest.TestCase):
         self.assertIn("CURRENT_TIMESTAMP AT TIME ZONE 'UTC'", usage)
         self.assertIn("ZoneOffset.UTC", usage)
         self.assertIn("if (!tenantId) return", billing_page)
-        self.assertIn("executiveApi.invoices(tenantId)", billing_page)
+        # Canonical Finance-aware billingV2 read model is the billing page's
+        # single invoice source; the legacy invoices() endpoint must not return.
+        self.assertIn("executiveApi.billingV2(tenantId)", billing_page)
         self.assertIn("currentPeriodEnd", subscriptions_page)
         self.assertIn("cancelsAtPeriodEnd", subscriptions_page)
 
