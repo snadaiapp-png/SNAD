@@ -30,16 +30,6 @@ interface Timesheet {
   approverComment: string | null;
 }
 
-function stateLabel(state: string, locale: "ar" | "en"): string {
-  const labels: Record<string, { ar: string; en: string }> = {
-    DRAFT: { ar: "مسودة", en: "Draft" },
-    SUBMITTED: { ar: "مرسل", en: "Submitted" },
-    APPROVED: { ar: "معتمد", en: "Approved" },
-    REJECTED: { ar: "مرفوض", en: "Rejected" },
-  };
-  return labels[state]?.[locale] ?? state;
-}
-
 export default function TimesheetsPage() {
   const { state, me } = useAuth();
   const { t, locale } = useI18n();
@@ -100,6 +90,7 @@ export default function TimesheetsPage() {
   const currentTimesheet = orderedTimesheets[0] ?? null;
   const submittedCount = timesheets.filter((item) => item.state === "SUBMITTED").length;
   const approvedCount = timesheets.filter((item) => item.state === "APPROVED").length;
+  const timesheetStateLabel = (timesheetState: string) => t("hrm.timesheets.state." + timesheetState);
 
   const columns: HrColumn<Timesheet>[] = [
     {
@@ -110,7 +101,7 @@ export default function TimesheetsPage() {
     {
       key: "state",
       header: t("hrm.timesheets.state"),
-      render: (r) => <HrStateBadge label={stateLabel(r.state, locale)} code={r.state} tone={toneForState(r.state)} />,
+      render: (r) => <HrStateBadge label={timesheetStateLabel(r.state)} code={r.state} tone={toneForState(r.state)} />,
     },
     {
       key: "approverComment",
@@ -135,7 +126,7 @@ export default function TimesheetsPage() {
           eyebrow={t("hrm.g2.landing.myWorkday")}
           title={t("hrm.timesheets.title")}
           subtitle={t("hrm.timesheets.subtitle")}
-          trailing={currentTimesheet ? <HrStateBadge label={stateLabel(currentTimesheet.state, locale)} code={currentTimesheet.state} tone={toneForState(currentTimesheet.state)} /> : null}
+          trailing={currentTimesheet ? <HrStateBadge label={timesheetStateLabel(currentTimesheet.state)} code={currentTimesheet.state} tone={toneForState(currentTimesheet.state)} /> : null}
         />
 
         {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
@@ -152,12 +143,12 @@ export default function TimesheetsPage() {
               <div data-testid="timesheets-current-state">
                 <HrKpiCard
                   label={t("hrm.timesheets.state")}
-                  value={currentTimesheet ? stateLabel(currentTimesheet.state, locale) : "—"}
+                  value={currentTimesheet ? timesheetStateLabel(currentTimesheet.state) : "—"}
                   tone={currentTimesheet?.state === "APPROVED" ? "positive" : currentTimesheet?.state === "SUBMITTED" ? "attention" : "neutral"}
                 />
               </div>
-              <HrKpiCard label={locale === "ar" ? "بانتظار الاعتماد" : "Awaiting approval"} value={submittedCount} />
-              <HrKpiCard label={locale === "ar" ? "معتمدة" : "Approved"} value={approvedCount} tone="positive" />
+              <HrKpiCard label={t("hrm.timesheets.kpi.awaitingApproval")} value={submittedCount} />
+              <HrKpiCard label={t("hrm.timesheets.kpi.approved")} value={approvedCount} tone="positive" />
             </HrKpiGrid>
 
             <HrActionBar label={t("hrm.timesheets.actions")}>
@@ -166,7 +157,7 @@ export default function TimesheetsPage() {
                   <button type="button" className={styles.linkButton} onClick={() => void submit(currentTimesheet)} disabled={busy}>
                     {busy ? t("hrm.timesheets.submitting") : t("hrm.timesheets.submit")}
                   </button>
-                ) : <span className={styles.kpiHint}>{currentTimesheet ? stateLabel(currentTimesheet.state, locale) : t("hrm.timesheets.empty")}</span>}
+                ) : <span className={styles.kpiHint}>{currentTimesheet ? timesheetStateLabel(currentTimesheet.state) : t("hrm.timesheets.empty")}</span>}
               </div>
             </HrActionBar>
 
@@ -183,7 +174,7 @@ export default function TimesheetsPage() {
                   {orderedTimesheets.slice(0, 5).map((item) => (
                     <article key={item.id} className={styles.statCard}>
                       <strong>{formatLocalizedDate(item.periodStart, locale)} — {formatLocalizedDate(item.periodEnd, locale)}</strong>
-                      <HrStateBadge label={stateLabel(item.state, locale)} code={item.state} tone={toneForState(item.state)} />
+                      <HrStateBadge label={timesheetStateLabel(item.state)} code={item.state} tone={toneForState(item.state)} />
                       {item.approverComment ? <span>{item.approverComment}</span> : null}
                     </article>
                   ))}
