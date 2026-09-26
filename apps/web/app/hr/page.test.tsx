@@ -28,12 +28,39 @@ vi.mock("@/lib/auth/auth-provider", () => ({
 }));
 
 vi.mock("@/lib/i18n/I18nProvider", () => ({
-  useI18n: () => ({
-    locale: "ar",
-    direction: "rtl",
-    setLocale: vi.fn(),
-    t: (key: string) => key,
-  }),
+  useI18n: () => {
+    const messages: Record<string, string> = {
+      "hrm.g2.landing.summary": "ملخص الموارد البشرية",
+      "hrm.g2.landing.activeEmployment": "توظيف نشِط",
+      "hrm.g2.landing.onboarding": "قيد التأهيل",
+      "hrm.g2.landing.onLeaveSuspended": "في إجازة / موقوف",
+      "hrm.g2.landing.occupiedPosition": "منصب مشغول",
+      "hrm.g2.landing.vacantPosition": "منصب شاغر",
+      "hrm.g2.landing.pendingOverrides": "تجاوزات قيد المراجعة",
+      "hrm.g2.landing.employeeRecords": "سجل الموظفين",
+      "hrm.g2.landing.organizationStructure": "الهيكل التنظيمي",
+      "hrm.g2.landing.compliance": "الالتزام",
+      "hrm.g2.workspace.title": "مساحة عمل الموارد البشرية",
+      "hrm.g2.workspace.subtitle": "إدارة الموظفين والهيكل التنظيمي والتوظيف والتأهيل والإسنادات والعقود والالتزام",
+      "hrm.g2.workspace.navLabel": "أقسام الموارد البشرية",
+      "hrm.g2.workspace.nav.home": "الرئيسية",
+      "hrm.g2.workspace.nav.employees": "الموظفون",
+      "hrm.g2.workspace.nav.organizationStructure": "الهيكل التنظيمي",
+      "hrm.g2.workspace.nav.jobs": "الوظائف",
+      "hrm.g2.workspace.nav.positions": "المناصب",
+      "hrm.g2.workspace.nav.assignments": "الإسنادات",
+      "hrm.g2.workspace.nav.compliance": "الالتزام",
+      "hrm.g2.workspace.nav.recruitment": "التوظيف",
+      "hrm.g2.workspace.nav.onboarding": "التأهيل",
+      "hrm.g2.workspace.nav.execution": "لوحة التنفيذ",
+    };
+    return {
+      locale: "ar",
+      direction: "rtl",
+      setLocale: vi.fn(),
+      t: (key: string) => messages[key] ?? key,
+    };
+  },
 }));
 
 vi.mock("next/link", () => ({
