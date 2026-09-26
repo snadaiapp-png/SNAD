@@ -2,10 +2,11 @@
 
 /** Shared semantic HR table with opt-in mobile card rendering for dense G2 data. */
 
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import styles from "../hr.module.css";
 import visualStyles from "./hr-g2-visual.module.css";
 import { HrEmptyState } from "./hr-feedback";
+import { HrG2ProductSurfaceContext } from "./hr-g2-product-surface";
 
 export interface HrColumn<T> {
   key: string;
@@ -23,7 +24,7 @@ interface HrDataTableProps<T> {
   emptyDescription?: string;
   emptyAction?: ReactNode;
   captionSide?: "top" | "bottom";
-  /** G2 product surfaces opt in; legacy HR tables retain a single DOM representation. */
+  /** Explicit override; otherwise G2 product-surface context controls responsive cards. */
   mobileCards?: boolean;
 }
 
@@ -40,11 +41,14 @@ export function HrDataTable<T>({
   emptyDescription,
   emptyAction,
   captionSide = "top",
-  mobileCards = false,
+  mobileCards,
 }: HrDataTableProps<T>) {
+  const inG2ProductSurface = useContext(HrG2ProductSurfaceContext);
+  const renderMobileCards = mobileCards ?? inG2ProductSurface;
+
   return (
     <>
-      <div className={mobileCards ? `${styles.hrTableWrap} ${visualStyles.desktopTable}` : styles.hrTableWrap}>
+      <div className={renderMobileCards ? `${styles.hrTableWrap} ${visualStyles.desktopTable}` : styles.hrTableWrap}>
         <table className={styles.hrTable} data-caption-side={captionSide}>
           <caption>{caption}</caption>
           <thead>
@@ -78,7 +82,7 @@ export function HrDataTable<T>({
         </table>
       </div>
 
-      {mobileCards ? (
+      {renderMobileCards ? (
         <section className={visualStyles.mobileRecordList} data-testid="hr-mobile-records" aria-label={caption}>
           {rows.length === 0 ? (
             <HrEmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
