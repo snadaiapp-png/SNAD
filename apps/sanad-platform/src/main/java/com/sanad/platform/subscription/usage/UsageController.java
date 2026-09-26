@@ -25,7 +25,8 @@ public class UsageController {
             @NotNull Long quantity,
             String source,
             @NotBlank String idempotencyKey,
-            Instant occurredAt) {
+            Instant occurredAt,
+            UUID organizationId) {
     }
 
     private final ControlPlaneAccessGuard accessGuard;
@@ -45,7 +46,7 @@ public class UsageController {
             Authentication authentication) {
         accessGuard.require(authentication);
         UsageMeteringService.IngestResult result = usageMeteringService.ingest(
-                tenantId, request.metricCode(), request.quantity(),
+                tenantId, request.organizationId(), request.metricCode(), request.quantity(),
                 request.source(), request.idempotencyKey(),
                 request.occurredAt() == null ? Instant.now() : request.occurredAt());
         return ResponseEntity.ok(result);
@@ -55,10 +56,11 @@ public class UsageController {
     @RequireCapability("usage.read")
     public ResponseEntity<List<UsageMeteringService.UsageSnapshot>> usage(
             @RequestParam("tenantId") UUID tenantId,
+            @RequestParam(name = "organizationId", required = false) UUID organizationId,
             Authentication authentication) {
         accessGuard.require(authentication);
-        // batched read model — fixed statement budget regardless of metric count
-        return ResponseEntity.ok(usageMeteringService.usageSnapshots(tenantId));
+        // Tenant-wide when organizationId is absent; branch-attributed when present.
+        return ResponseEntity.ok(usageMeteringService.usageSnapshots(tenantId, organizationId));
     }
 
 }

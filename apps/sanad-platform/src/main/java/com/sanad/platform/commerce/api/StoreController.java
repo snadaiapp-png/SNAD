@@ -336,4 +336,18 @@ public class StoreController {
                                                           @PathVariable UUID domainId) {
         return ResponseEntity.ok(domainService.activate(tenantId(auth), id, domainId, auth));
     }
+
+    @PostMapping("/{id}/domains/{domainId}/disable")
+    @RequireCapability("ECOMMERCE.ADMIN")
+    public ResponseEntity<DomainResponse> disableDomain(Authentication auth, @PathVariable UUID id,
+                                                         @PathVariable UUID domainId) {
+        return ResponseEntity.ok(domainService.disable(tenantId(auth), id, domainId, auth));
+    }
+
+    @PostMapping("/{id}/domains/{domainId}/primary")
+    @RequireCapability("ECOMMERCE.ADMIN")
+    public ResponseEntity<DomainResponse> setPrimaryDomain(Authentication auth, @PathVariable UUID id,
+                                                            @PathVariable UUID domainId) {
+        return ResponseEntity.ok(domainService.setPrimary(tenantId(auth), id, domainId, auth));
+    }
 }

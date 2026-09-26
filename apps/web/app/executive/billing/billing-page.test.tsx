@@ -6,12 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiHttpError } from "@/lib/api/errors";
 
 const tenantSearchMock = vi.fn();
-const invoicesMock = vi.fn();
+const billingMock = vi.fn();
 vi.mock("@/lib/api/scp-api", () => ({
   scpApi: { tenants: (...args: unknown[]) => tenantSearchMock(...args) },
 }));
 vi.mock("@/lib/api/executive-api", () => ({
-  executiveApi: { invoices: (...args: unknown[]) => invoicesMock(...args) },
+  executiveApi: { billingV2: (...args: unknown[]) => billingMock(...args) },
 }));
 vi.mock("@/lib/i18n/I18nProvider", () => ({
   useI18n: () => ({ t: (key: string) => key }),
@@ -24,28 +24,76 @@ import BillingPage from "./page";
 
 beforeEach(() => {
   tenantSearchMock.mockReset();
-  invoicesMock.mockReset();
+  billingMock.mockReset();
   tenantSearchMock.mockResolvedValue({
     content: [{ id: "tenant-1", name: "Acme", code: "acme" }],
     page: 0, size: 8, totalElements: 1, totalPages: 1,
   });
-  invoicesMock.mockResolvedValue([]);
+  billingMock.mockResolvedValue([]);
 });
 afterEach(() => { vi.useRealTimers(); cleanup(); });
 
 describe("Billing tenant context", () => {
-  it("does not issue an unscoped request and loads invoices only for the selected tenant", async () => {
+  it("does not issue an unscoped request and loads billing only for the selected tenant", async () => {
     const user = userEvent.setup();
     render(<BillingPage />);
-    expect(invoicesMock).not.toHaveBeenCalled();
+    expect(billingMock).not.toHaveBeenCalled();
 
     const tenantSearch = screen.getByRole("searchbox", { name: "scp.entitlements.searchTenant" });
     await user.type(tenantSearch, "Acme");
     await waitFor(() => expect(tenantSearchMock).toHaveBeenCalled(), { timeout: 1000 });
     await user.click(await screen.findByRole("button", { name: /Acme · acme/ }));
     await user.click(screen.getByRole("button", { name: "scp.billing.load" }));
-    await waitFor(() => expect(invoicesMock).toHaveBeenCalledWith("tenant-1"));
+    await waitFor(() => expect(billingMock).toHaveBeenCalledWith("tenant-1"));
   });
+
+  it("renders projection and Finance state without inferring a missing Finance link", async () => {
+    const user = userEvent.setup();
+    billingMock.mockResolvedValue([{
+      id: "invoice-1",
+      tenantId: "tenant-1",
+      tenantName: "Acme",
+      subscriptionId: "subscription-1",
+      invoiceNumber: "INV-100",
+      projectionStatus: "OPEN",
+      currencyCode: "SAR",
+      subtotalMinor: 10000,
+      creditAppliedMinor: 1000,
+      taxMinor: 1350,
+      totalMinor: 10350,
+      amountPaidMinor: 4000,
+      outstandingMinor: 6350,
+      description: null,
+      periodStart: "2026-09-01T00:00:00Z",
+      periodEnd: "2026-10-01T00:00:00Z",
+      dueAt: "2026-09-10T00:00:00Z",
+      paidAt: null,
+      paymentReference: null,
+      financeLinkId: null,
+      financeInvoiceId: null,
+      financeStatus: "UNLINKED",
+      settlementState: "UNKNOWN",
+      reconciliationClassification: null,
+      reconciliationState: "UNRECONCILED",
+      accountingSourceOfTruth: "FINANCE",
+      projectionSource: "SCP_BILLING_PROJECTION",
+      createdAt: "2026-09-01T00:00:00Z",
+    }]);
+
+    render(<BillingPage />);
+    await user.type(screen.getByRole("searchbox", { name: "scp.entitlements.searchTenant" }), "Acme");
+    await waitFor(() => expect(tenantSearchMock).toHaveBeenCalled(), { timeout: 1000 });
+    await user.click(await screen.findByRole("button", { name: /Acme · acme/ }));
+    await user.click(screen.getByRole("button", { name: "scp.billing.load" }));
+
+    expect(await screen.findByText("INV-100")).toBeInTheDocument();
+    expect(screen.getByText("scp.billing.notLinked")).toBeInTheDocument();
+    expect(screen.getByText("FINANCE")).toBeInTheDocument();
+    expect(screen.getByText("SCP_BILLING_PROJECTION")).toBeInTheDocument();
+    expect(screen.getByText("UNRECONCILED")).toBeInTheDocument();
+    expect(screen.getByText("6350")).toBeInTheDocument();
+  });
+
   it("surfaces tenant-search failures instead of misrepresenting them as an empty result", async () => {
     const user = userEvent.setup();
     tenantSearchMock.mockRejectedValue(
@@ -67,9 +115,8 @@ describe("Billing tenant context", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).not.toMatch(/relation tenants|does not exist/i);
-    expect(invoicesMock).not.toHaveBeenCalled();
+    expect(billingMock).not.toHaveBeenCalled();
   });
-
 
   it("ignores a stale tenant-search response that resolves after a newer query", async () => {
     vi.useFakeTimers();
@@ -120,5 +167,4 @@ describe("Billing tenant context", () => {
     await screen.findByRole("alert");
     expect(screen.queryByRole("button", { name: "scp.state.retry" })).not.toBeInTheDocument();
   });
-
 });

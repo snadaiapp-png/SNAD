@@ -4,11 +4,14 @@ import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import com.sanad.platform.website.application.*;
 import com.sanad.platform.website.api.WebsiteDtos.*;
 import com.sanad.platform.website.domain.WebsiteDomain;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
+import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,6 +25,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 /**
  * Website Platform Integration Test (v20260816.3).
@@ -39,11 +45,18 @@ class WebsiteModuleIntegrationTest {
     @Autowired private WebsiteDomainService domainService;
     @Autowired private WebsitePublicResolutionService publicResolutionService;
     @Autowired private JdbcTemplate jdbc;
+    @MockBean private EntitlementResolver entitlementResolver;
+    @MockBean private DomainOwnershipVerifier ownershipVerifier;
 
     private UUID tenantId;
 
     @BeforeEach
     void setUp() {
+        System.setProperty("sanad.tenancy.domains.base-domain", "snad.example");
+        when(entitlementResolver.hasExplicitModuleEntitlement(any(UUID.class), anyString())).thenReturn(true);
+        when(entitlementResolver.getLimit(any(UUID.class), anyString(), anyString())).thenReturn(10L);
+        when(ownershipVerifier.verify(anyString(), any(DomainOwnershipVerifier.Method.class), anyString()))
+                .thenReturn(true);
         // Clean website tables to prevent stale domain hostname conflicts
         // from prior test runs. The test uses hardcoded hostnames like
         // "pub-test.example.com" which collide if stale rows persist.
@@ -57,6 +70,11 @@ class WebsiteModuleIntegrationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wp-" + tenantId.toString().substring(0, 8), now, now);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void clearBaseDomain() {
+        System.clearProperty("sanad.tenancy.domains.base-domain");
     }
 
     @Test
@@ -143,12 +161,11 @@ class WebsiteModuleIntegrationTest {
     }
 
     @Test
-    void defaultDomainGeneration_returnsNullWithoutBaseDomain() {
-        String result = domainService.generateDefaultDomain("my-site");
-        // When SANAD_BASE_DOMAIN is not set, should return null
-        if (System.getenv("SANAD_BASE_DOMAIN") == null && System.getProperty("sanad.tenancy.domains.base-domain") == null) {
-            assertThat(result).isNull();
-        }
+    void defaultDomainGeneration_rejectsInvalidConfiguredBaseDomain() {
+        System.setProperty("sanad.tenancy.domains.base-domain", "invalid host");
+        assertThatThrownBy(() -> domainService.generateDefaultDomain("my-site"))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("statusCode").isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     @Test
@@ -215,7 +232,7 @@ class WebsiteModuleIntegrationTest {
     void verifyDomain_thenActivate_succeeds() {
         var website = websiteService.create(tenantId, new CreateWebsiteRequest("Test", "verify-test", "ar"), null);
         var domain = domainService.registerCustomDomain(tenantId, website.id(),
-                new CreateDomainRequest("verify.example.com", WebsiteDomain.VerificationMethod.DNS_TXT), null);
+                new CreateDomainRequest("website-module-verify.example.com", WebsiteDomain.VerificationMethod.DNS_TXT), null);
         // Verify with correct token
         var verified = domainService.verifyDomain(tenantId, website.id(), domain.id(),
                 new VerifyDomainRequest(domain.verificationToken()), null);
@@ -292,12 +309,19 @@ class WebsiteModuleIntegrationTest {
     }
 
     @Test
-    void noHardcodedRootDomain() {
-        // Verify the domain service does NOT hard-code a root domain.
-        // When no env/property is set, generateDefaultDomain returns null.
-        if (System.getenv("SANAD_BASE_DOMAIN") == null && System.getProperty("sanad.tenancy.domains.base-domain") == null) {
-            assertThat(domainService.generateDefaultDomain("test")).isNull();
-        }
+    void generatedWebsiteHostname_isTenantScoped() {
+        UUID otherTenant = UUID.randomUUID();
+        var now = Timestamp.from(Instant.now());
+        jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
+                        + "VALUES (?, 'Other', ?, 'ACTIVE', ?, ?)",
+                otherTenant, "wp-other-" + otherTenant.toString().substring(0, 8), now, now);
+
+        String first = domainService.generateDefaultDomain(tenantId, "portal");
+        String second = domainService.generateDefaultDomain(otherTenant, "portal");
+
+        assertThat(first).isNotEqualTo(second);
+        assertThat(first).endsWith(".snad.example");
+        assertThat(second).endsWith(".snad.example");
     }
 
     @Test

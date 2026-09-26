@@ -4,6 +4,8 @@ import com.sanad.platform.commerce.api.CommerceDtos.*;
 import com.sanad.platform.commerce.application.*;
 import com.sanad.platform.commerce.domain.CommerceDomain;
 import com.sanad.platform.crm.test.RlsTestSupport;
+import com.sanad.platform.module.entitlement.EntitlementResolver;
+import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,6 +27,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -38,11 +44,18 @@ class StoreModuleIntegrationTest {
     @Autowired private OrderService orderService;
     @Autowired private StoreDomainService domainService;
     @Autowired private JdbcTemplate jdbc;
+    @MockBean private EntitlementResolver entitlementResolver;
+    @MockBean private DomainOwnershipVerifier ownershipVerifier;
     private UUID tenantId;
     private UUID userId;
 
     @BeforeEach
     void setUp() {
+        System.setProperty("sanad.tenancy.domains.base-domain", "snad.example");
+        when(entitlementResolver.hasExplicitModuleEntitlement(any(UUID.class), anyString())).thenReturn(true);
+        when(entitlementResolver.getLimit(any(UUID.class), anyString(), anyString())).thenReturn(10L);
+        when(ownershipVerifier.verify(anyString(), any(DomainOwnershipVerifier.Method.class), anyString()))
+                .thenReturn(true);
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         var now = Timestamp.from(Instant.now());
@@ -60,6 +73,7 @@ class StoreModuleIntegrationTest {
     @AfterEach
     void clearContext() {
         RlsTestSupport.clearSecurityContext();
+        System.clearProperty("sanad.tenancy.domains.base-domain");
     }
 
     @Test

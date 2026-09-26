@@ -9,6 +9,8 @@ import com.sanad.platform.admin.api.TenantDomainDtos.Status;
 import com.sanad.platform.admin.api.TenantDomainDtos.UpdateDomainRequest;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerificationMethod;
 import com.sanad.platform.admin.api.TenantDomainDtos.VerifyDomainRequest;
+import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
+import com.sanad.platform.tenancy.routing.HostRoutingService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,10 +32,9 @@ import java.util.UUID;
  * application/store/website surfaces.
  *
  * <p>This service backs the {@code /api/v1/executive/tenants/{tenantId}/domains}
- * API surface and the future {@code DomainRoutingFilter}. It does NOT
- * perform DNS resolution or SSL cert provisioning — those are external
- * concerns handled by the CDN/reverse-proxy layer (Vercel in production,
- * localhost otherwise). This service is responsible for:
+ * API surface and the future {@code DomainRoutingFilter}. Custom-domain
+ * ownership is proven against public DNS; SSL certificate provisioning remains
+ * an external CDN/reverse-proxy concern. This service is responsible for:
  * <ul>
  *   <li>Persisting the tenant's claim on a hostname.</li>
  *   <li>Issuing a verification challenge token.</li>
@@ -57,10 +58,19 @@ public class TenantDomainService {
 
     private final JdbcTemplate jdbc;
     private final PlatformAuditService auditService;
+    private final HostRoutingService hostRoutingService;
+    private final DomainOwnershipVerifier ownershipVerifier;
 
-    public TenantDomainService(JdbcTemplate jdbc, PlatformAuditService auditService) {
+    public TenantDomainService(
+            JdbcTemplate jdbc,
+            PlatformAuditService auditService,
+            HostRoutingService hostRoutingService,
+            DomainOwnershipVerifier ownershipVerifier
+    ) {
         this.jdbc = jdbc;
         this.auditService = auditService;
+        this.hostRoutingService = hostRoutingService;
+        this.ownershipVerifier = ownershipVerifier;
     }
 
     // ============================================================
@@ -73,14 +83,34 @@ public class TenantDomainService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body is required");
         }
-        String hostname = normalizeHostname(request.hostname());
+        String hostname = hostRoutingService.normalizeHostname(request.hostname());
         if (hostname == null || hostname.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hostname is required");
         }
         DomainType type = request.domainType() == null ? DomainType.APPLICATION : request.domainType();
+        if (type != DomainType.APPLICATION) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "tenant-level domains support APPLICATION only; website/store domains require their resource API");
+        }
         Origin origin = request.origin() == null ? Origin.CUSTOM : request.origin();
+        if (origin != Origin.CUSTOM) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "DEFAULT_GENERATED domains are platform-managed");
+        }
         VerificationMethod method = request.verificationMethod() == null
                 ? VerificationMethod.DNS_TXT : request.verificationMethod();
+        if (method == VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "HTTP domain verification is disabled; use DNS_TXT or DNS_CNAME");
+        }
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname,
+                HostRoutingService.Surface.TENANT_APPLICATION,
+                tenantId,
+                tenantId,
+                false
+        );
 
         UUID id = UUID.randomUUID();
         String token = generateToken();
@@ -104,6 +134,111 @@ public class TenantDomainService {
         }
 
         audit(tenantId, auth, "DOMAIN.CREATED", id, "tenant_domains", hostname);
+        return getDomainOrThrow(tenantId, id);
+    }
+
+    /**
+     * Ensure the platform-generated tenant hostname exists and is active.
+     *
+     * <p>The generated hostname is a platform-owned routing address, not a
+     * customer custom domain, so it is activated without an external DNS
+     * ownership challenge. This method is idempotent and is used by tenant
+     * provisioning/reconciliation.
+     */
+    @Transactional
+    public DomainResponse ensureDefaultDomain(
+            UUID tenantId,
+            String subdomain,
+            DomainType type,
+            Authentication auth
+    ) {
+        ensureTenant(tenantId);
+        DomainType effectiveType = type == null ? DomainType.APPLICATION : type;
+        if (effectiveType != DomainType.APPLICATION) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "tenant default routing supports APPLICATION only; website/store defaults use their resource services"
+            );
+        }
+        String hostname = generateDefaultHostname(subdomain, effectiveType);
+        if (hostname == null || hostname.isBlank()) {
+            return null;
+        }
+
+        hostRoutingService.requireHostnameAvailable(
+                hostname,
+                HostRoutingService.Surface.TENANT_APPLICATION,
+                tenantId,
+                tenantId,
+                true
+        );
+
+        List<DomainResponse> existing = jdbc.query(
+                "SELECT * FROM tenant_domains WHERE lower(hostname) = lower(?) ORDER BY created_at, id",
+                this::mapRow,
+                hostname
+        );
+        if (!existing.isEmpty()) {
+            DomainResponse owned = existing.stream()
+                    .filter(row -> tenantId.equals(row.tenantId())
+                            && row.domainType() == effectiveType
+                            && row.origin() == Origin.DEFAULT_GENERATED)
+                    .findFirst()
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.CONFLICT,
+                            "generated hostname is already claimed: " + hostname
+                    ));
+            if (owned.status() != Status.ACTIVE || !owned.isPrimary()) {
+                Instant now = Instant.now();
+                Boolean otherPrimary = jdbc.queryForObject(
+                        "SELECT EXISTS (SELECT 1 FROM tenant_domains "
+                                + "WHERE tenant_id = ? AND domain_type = ? AND id <> ? "
+                                + "AND is_primary = TRUE AND status = ?)",
+                        Boolean.class, tenantId, effectiveType.name(), owned.id(), Status.ACTIVE.name());
+                boolean shouldBePrimary = !Boolean.TRUE.equals(otherPrimary);
+                if (shouldBePrimary) {
+                    jdbc.update(
+                            "UPDATE tenant_domains SET is_primary = FALSE, updated_at = ?, version = version + 1 "
+                                    + "WHERE tenant_id = ? AND domain_type = ? AND id <> ?",
+                            Timestamp.from(now), tenantId, effectiveType.name(), owned.id());
+                }
+                jdbc.update(
+                        "UPDATE tenant_domains SET status = ?, is_primary = ?, failure_reason = NULL, "
+                                + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
+                        Status.ACTIVE.name(), shouldBePrimary, Timestamp.from(now), tenantId, owned.id());
+                audit(tenantId, auth, "DOMAIN.DEFAULT_RECONCILED", owned.id(), "tenant_domains", hostname);
+                return getDomainOrThrow(tenantId, owned.id());
+            }
+            return owned;
+        }
+
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.now();
+        Boolean currentPrimary = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM tenant_domains "
+                        + "WHERE tenant_id = ? AND domain_type = ? AND is_primary = TRUE AND status = ?)",
+                Boolean.class, tenantId, effectiveType.name(), Status.ACTIVE.name());
+        boolean makePrimary = !Boolean.TRUE.equals(currentPrimary);
+        try {
+            jdbc.update(
+                    "INSERT INTO tenant_domains "
+                            + "(id, tenant_id, hostname, domain_type, origin, status, verification_token, "
+                            + " verification_method, verified_at, verified_by, is_primary, version, "
+                            + " created_at, updated_at, created_by) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 0, ?, ?, ?)",
+                    id, tenantId, hostname, effectiveType.name(), Origin.DEFAULT_GENERATED.name(),
+                    Status.ACTIVE.name(), Timestamp.from(now), actorUserId(auth), makePrimary,
+                    Timestamp.from(now), Timestamp.from(now), actorUserId(auth)
+            );
+        } catch (DuplicateKeyException duplicate) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "generated hostname is already claimed: " + hostname,
+                    duplicate
+            );
+        }
+
+        audit(tenantId, auth, "DOMAIN.DEFAULT_CREATED", id, "tenant_domains", hostname);
         return getDomainOrThrow(tenantId, id);
     }
 
@@ -177,13 +312,33 @@ public class TenantDomainService {
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
         Instant now = Instant.now();
 
-        if (request.verificationMethod() != null) {
+        if (request.verificationMethod() == VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "HTTP domain verification is disabled; use DNS_TXT or DNS_CNAME");
+        }
+        if (request.verificationMethod() != null
+                && request.verificationMethod() != existing.verificationMethod()) {
+            if (existing.origin() != Origin.CUSTOM) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "platform-generated domain verification method is immutable");
+            }
+            if (existing.status() == Status.ACTIVE) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "deactivate the domain before changing its verification method");
+            }
             jdbc.update(
-                    "UPDATE tenant_domains SET verification_method = ?, updated_at = ?, version = version + 1 "
-                            + "WHERE tenant_id = ? AND id = ?",
-                    request.verificationMethod().name(), Timestamp.from(now), tenantId, domainId);
+                    "UPDATE tenant_domains SET verification_method = ?, status = ?, "
+                            + "verified_at = NULL, verified_by = NULL, last_verified_at = NULL, "
+                            + "updated_at = ?, version = version + 1 WHERE tenant_id = ? AND id = ?",
+                    request.verificationMethod().name(), Status.UNVERIFIED.name(),
+                    Timestamp.from(now), tenantId, domainId);
         }
         if (Boolean.TRUE.equals(request.isPrimary())) {
+            DomainResponse current = getDomainOrThrow(tenantId, domainId);
+            if (current.status() != Status.ACTIVE) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "domain must be ACTIVE before setting primary");
+            }
             // Demote any other primary of the same domain_type first
             jdbc.update(
                     "UPDATE tenant_domains SET is_primary = FALSE, updated_at = ?, version = version + 1 "
@@ -206,18 +361,34 @@ public class TenantDomainService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "verificationToken is required");
         }
+        if (existing.origin() != Origin.CUSTOM) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "platform-generated domains do not require external ownership verification");
+        }
+        if (existing.verificationMethod() == null
+                || existing.verificationMethod() == VerificationMethod.HTTP) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "custom domain has no supported DNS verification method");
+        }
         if (!request.verificationToken().equals(existing.verificationToken())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "verification token mismatch — DNS challenge not satisfied");
+                    "verification token mismatch");
+        }
+        if (!ownershipVerifier.verify(
+                        existing.hostname(),
+                        DomainOwnershipVerifier.Method.valueOf(existing.verificationMethod().name()),
+                        existing.verificationToken())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "external domain ownership challenge is not satisfied");
         }
         Instant now = Instant.now();
         // Verify transitions UNVERIFIED → VERIFIED. If ACTIVE/INACTIVE, verification is a no-op refresh.
         jdbc.update(
                 "UPDATE tenant_domains "
-                        + "SET status = ?, verified_at = ?, verified_by = ?, last_verified_at = ?, "
-                        + " failure_reason = NULL, updated_at = ?, version = version + 1 "
+                        + "SET status = CASE WHEN status = 'UNVERIFIED' THEN 'VERIFIED' ELSE status END, "
+                        + " verified_at = COALESCE(verified_at, ?), verified_by = COALESCE(verified_by, ?), "
+                        + " last_verified_at = ?, failure_reason = NULL, updated_at = ?, version = version + 1 "
                         + "WHERE tenant_id = ? AND id = ?",
-                Status.VERIFIED.name(),
                 Timestamp.from(now), actorUserId(auth), Timestamp.from(now),
                 Timestamp.from(now), tenantId, domainId);
         audit(tenantId, auth, "DOMAIN.VERIFIED", domainId, "tenant_domains", existing.hostname());
@@ -259,13 +430,20 @@ public class TenantDomainService {
     @Transactional
     public void deleteDomain(UUID tenantId, UUID domainId, Authentication auth) {
         DomainResponse existing = getDomainOrThrow(tenantId, domainId);
-        int rows = jdbc.update(
-                "DELETE FROM tenant_domains WHERE tenant_id = ? AND id = ?",
-                tenantId, domainId);
-        if (rows == 0) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "domain not found");
-        }
-        audit(tenantId, auth, "DOMAIN.DELETED", domainId, "tenant_domains", existing.hostname());
+        // Preserve routing history. The public DELETE contract is retained for
+        // compatibility, but its storage semantics are a governed soft remove.
+        jdbc.update(
+                "UPDATE tenant_domains "
+                        + "SET status = ?, is_primary = FALSE, failure_reason = ?, "
+                        + "updated_at = ?, version = version + 1 "
+                        + "WHERE tenant_id = ? AND id = ?",
+                Status.INACTIVE.name(),
+                "REMOVED_BY_OPERATOR",
+                Timestamp.from(Instant.now()),
+                tenantId,
+                domainId
+        );
+        audit(tenantId, auth, "DOMAIN.REMOVED", domainId, "tenant_domains", existing.hostname());
     }
 
     // ============================================================
@@ -277,19 +455,23 @@ public class TenantDomainService {
         if (subdomain == null || subdomain.isBlank()) {
             return null;
         }
-        String baseDomain = System.getenv("SANAD_BASE_DOMAIN");
-        if (baseDomain == null || baseDomain.isBlank()) {
-            baseDomain = System.getProperty("sanad.tenancy.domains.base-domain");
-        }
-        if (baseDomain == null || baseDomain.isBlank()) {
-            return null; // caller decides how to handle (e.g. skip default-generation)
+        String baseDomain = hostRoutingService.configuredBaseDomain();
+        if (baseDomain == null) {
+            return null; // caller decides whether generated routing is mandatory
         }
         String prefix = switch (type) {
             case APPLICATION -> subdomain;
             case STORE -> "store." + subdomain;
             case WEBSITE -> "www." + subdomain;
         };
-        return (prefix + "." + baseDomain).toLowerCase(Locale.ROOT);
+        String generated = hostRoutingService.normalizeHostname(prefix + "." + baseDomain);
+        if (generated == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SANAD_BASE_DOMAIN does not produce a valid routable hostname"
+            );
+        }
+        return generated;
     }
 
     private DomainResponse getDomainOrThrow(UUID tenantId, UUID domainId) {
@@ -348,13 +530,12 @@ public class TenantDomainService {
 
     private void audit(UUID tenantId, Authentication auth, String action,
                        UUID resourceId, String resourceType, String hostname) {
-        try {
-            auditService.success(auth, tenantId, action, resourceType,
-                    resourceId == null ? null : resourceId.toString(),
-                    "domain=" + hostname, null, null);
-        } catch (Exception ignored) {
-            // audit failure must not break the business operation
-        }
+        // Mutations in this closure path are audit-governed. A failed audit
+        // write must roll the surrounding transaction back rather than leaving
+        // an untraceable domain mutation behind.
+        auditService.success(auth, tenantId, action, resourceType,
+                resourceId == null ? null : resourceId.toString(),
+                "domain=" + hostname, null, null);
     }
 
     private DomainResponse mapRow(ResultSet rs, int rowNum) throws SQLException {

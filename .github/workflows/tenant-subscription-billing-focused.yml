@@ -1,0 +1,146 @@
+name: Tenant Subscription Billing Focused TDD
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/**'
+      - 'apps/web/**'
+      - '.github/workflows/tenant-subscription-billing-focused.yml'
+
+concurrency:
+  group: tenant-subscription-billing-focused-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  focused-backend:
+    name: Tenant Billing Focused Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_PROFILES_ACTIVE: default
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove checked-out SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git rev-parse HEAD
+      - name: Start host-native PostgreSQL
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || exit 1
+          sudo systemctl start postgresql
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+      - name: Provision least-privilege application databases
+        run: |
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad WITH LOGIN PASSWORD 'sanad_pass';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_contact_rls_test_user') THEN
+              CREATE ROLE crm_contact_rls_test_user WITH LOGIN PASSWORD 'rls_contact_test_pass';
+            END IF;
+          END $$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER ROLE crm_contact_rls_test_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          SELECT 'CREATE DATABASE sanad OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad')\gexec
+          ALTER DATABASE sanad OWNER TO sanad;
+          SELECT 'CREATE DATABASE test_migration OWNER sanad'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')\gexec
+          GRANT CONNECT ON DATABASE postgres TO sanad;
+          \c sanad
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          \c test_migration
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad;
+          SQL
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+      - name: Generate ephemeral CRM encryption key
+        shell: bash
+        run: |
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$key"
+          echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+      - name: Run convergence-focused tests
+        run: >-
+          mvn -B -ntp test
+          -Dsurefire.useFile=false
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Dtest='TenantCommercialStateServiceTest,TenantDirectoryCommercialStatePostgresTest,ExecutiveReadModelsTest,ExecutivePlatformLoginLinkTest,PlatformOperationsTenantManagementContractTest,ExecutiveTenantProvisioningPostgresTest,*SubscriptionContinuation*Test,*RecurringPrice*Test,*ExecutiveBilling*Test,*ConsistencyDiagnostic*Test,BillingStateConvergencePostgresTest'
+      - name: Upload focused reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenant-billing-focused-surefire
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+  focused-web:
+    name: Tenant Billing Focused Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove checked-out SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git rev-parse HEAD
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run focused web tests
+        run: >-
+          npm test -- --run
+          app/executive/_components/executive-commercial-l10n.test.ts
+          app/executive/tenants/tenant-management.test.tsx
+          app/executive/tenants/tenant-commercial-actions.test.tsx
+          app/executive/subscriptions/subscription-recurring-amount.test.tsx
+          app/executive/subscriptions/subscription-continuation-actions.test.tsx
+          app/executive/billing/billing-page.test.tsx
+          lib/api/subscription-row-commercial-contract.test.ts
+        env:
+          CI: 'true'
+      - name: Typecheck commercial web contract
+        run: npm run typecheck

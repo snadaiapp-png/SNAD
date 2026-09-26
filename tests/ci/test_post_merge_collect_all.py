@@ -387,6 +387,7 @@ def test_24_aggregation_fails_when_fragments_are_missing():
     )
 
 
+
 def test_25_hrm_focused_gate_has_runtime_budget_for_observed_suite_duration():
     timeout_minutes = _job("hrm-focused-security-rls").get("timeout-minutes")
     assert isinstance(timeout_minutes, int)

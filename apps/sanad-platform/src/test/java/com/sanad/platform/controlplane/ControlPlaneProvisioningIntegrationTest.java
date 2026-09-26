@@ -29,7 +29,7 @@ class ControlPlaneProvisioningIntegrationTest {
     @Autowired private JdbcTemplate jdbcTemplate;
 
     @Test
-    void createsTenantOrganizationAdministratorRoleCapabilitiesAndAuditInOneTransaction() {
+    void createsTenantOrganizationAdministratorRoleCapabilitiesSubscriptionAndAuditInOneTransaction() {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         CreateTenantRequest request = new CreateTenantRequest(
                 "منشأة اختبار " + suffix,
@@ -59,7 +59,10 @@ class ControlPlaneProvisioningIntegrationTest {
 
         TenantResponse tenant = platformService.createTenant(request, authentication);
 
-        assertThat(tenant.status()).isEqualTo("TRIAL");
+        // Operational tenant state is deliberately distinct from the commercial
+        // subscription lifecycle. A trial subscription does not turn the tenant
+        // account row itself into the subscription state machine.
+        assertThat(tenant.status()).isEqualTo("ACTIVE");
         assertThat(tenant.trialEndsAt()).isNotNull();
         assertThat(count("organizations", tenant.id())).isEqualTo(1);
         assertThat(count("users", tenant.id())).isEqualTo(1);
@@ -67,7 +70,6 @@ class ControlPlaneProvisioningIntegrationTest {
         // role templates (CRM_SALES, HR_MANAGER, ERP_PURCHASER, ERP_APPROVER,
         // FINANCE_USER, FINANCE_APPROVER, STORE_MANAGER, WORKFLOW_APPROVER,
         // EXECUTIVE_VIEWER) via RoleTemplateProvisioner — 10 roles total.
-        // P0-09 invariant: the 9 canonical templates must be provisioned.
         assertThat(count("roles", tenant.id())).isEqualTo(10);
         assertThat(count("organization_memberships", tenant.id())).isEqualTo(1);
         assertThat(count("user_role_assignments", tenant.id())).isEqualTo(1);
@@ -78,6 +80,17 @@ class ControlPlaneProvisioningIntegrationTest {
                 tenant.id()
         );
         assertThat(roleCapabilityCount).isNotNull().isGreaterThan(0);
+
+        Long effectiveSubscriptionCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM tenant_subscriptions WHERE tenant_id = ? "
+                        + "AND status NOT IN ('CANCELLED','EXPIRED','TERMINATED')",
+                Long.class,
+                tenant.id());
+        assertThat(effectiveSubscriptionCount).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM tenant_subscriptions WHERE tenant_id = ?",
+                String.class,
+                tenant.id())).isEqualTo("TRIALING");
 
         Long auditCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id = ? AND action = 'TENANT.PROVISION'",

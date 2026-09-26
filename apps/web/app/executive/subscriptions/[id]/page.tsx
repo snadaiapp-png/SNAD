@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import {
@@ -13,6 +14,15 @@ import {
   type UsageSnapshot,
 } from "@/lib/api/scp-api";
 import { executiveApi, type SaasPlan } from "@/lib/api/executive-api";
+
+// The operating-governance admin section (units, applications, resource
+// bindings, billing profiles) is below-the-fold tooling and is loaded on
+// demand so the detail route's initial JS stays within the fail-closed
+// performance budget.
+const SubscriptionOperatingGovernanceLazy = dynamic(
+  () => import("./SubscriptionOperatingGovernance"),
+  { ssr: false },
+);
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { Button, Input } from "@/components/sds";
 import {
@@ -51,14 +61,14 @@ export default function SubscriptionDetailPage() {
   const subscriptionsHref = `/executive/subscriptions${backQuery ? `?${backQuery}` : ""}`;
   const { t } = useI18n();
   const { money, day, number } = useScpFormat();
-  const { has, hasAll } = useScpAccess();
-  const canManageLifecycle = hasAll([
-    "subscription.create",
-    "subscription.change_plan",
-    "subscription.cancel",
-    "subscription.suspend",
-  ]);
-  const canChangePlan = has("subscription.change_plan");
+  const { has } = useScpAccess();
+  // Mutation controls must mirror the backend authority exactly. The command,
+  // change-plan and provisioning endpoints are EXECUTIVE_MANAGE-gated; granular
+  // mirrors are informative only and must never expose a control that the
+  // backend will reject (or hide a control from the canonical owner).
+  const canManage = has("EXECUTIVE_MANAGE");
+  const canManageLifecycle = canManage;
+  const canChangePlan = canManage;
 
   const [detail, setDetail] = useState<SubscriptionDetail | null>(null);
   const [items, setItems] = useState<SubscriptionItem[] | null>(null);
@@ -71,6 +81,17 @@ export default function SubscriptionDetailPage() {
   const [busy, setBusy] = useState(false);
   const [changePlanId, setChangePlanId] = useState("");
   const [changePreview, setChangePreview] = useState<ChangePreview | null>(null);
+  // Operator-entered governance form values. They live at page level so the
+  // lazily-loaded governance section can remount on reload without discarding
+  // in-progress operator input.
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [branchName, setBranchName] = useState("");
+  const [billingProfileOrganizationId, setBillingProfileOrganizationId] = useState("");
+  const [billingProfileName, setBillingProfileName] = useState("");
+  const [billingEmail, setBillingEmail] = useState("");
+  const [selectedResource, setSelectedResource] = useState("");
+  const [existingOrganizationId, setExistingOrganizationId] = useState("");
+  const [governanceVersion, setGovernanceVersion] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +103,7 @@ export default function SubscriptionDetailPage() {
       ]);
       setDetail(detailResult);
       setItems(itemsResult);
+      setGovernanceVersion((version) => version + 1);
       const tenantId = String(detailResult.overview.tenantId ?? "");
       if (tenantId) {
         scpApi.usage(tenantId).then(setUsage).catch((reason) => {
@@ -101,6 +123,12 @@ export default function SubscriptionDetailPage() {
   }, [load]);
 
   useEffect(() => {
+    if (!canChangePlan) {
+      setPlans(null);
+      setChangePlanId("");
+      setChangePreview(null);
+      return;
+    }
     let active = true;
     executiveApi
       .plans()
@@ -113,7 +141,7 @@ export default function SubscriptionDetailPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [canChangePlan]);
 
   async function runCommand(command: string) {
     setBusy(true);
@@ -380,6 +408,34 @@ export default function SubscriptionDetailPage() {
         )}
       </section>
 
+      <SubscriptionOperatingGovernanceLazy
+        subscriptionId={subscriptionId}
+        tenantId={String(overview.tenantId ?? "")}
+        currencyCode={String(overview.currencyCode ?? "")}
+        canManage={canManage}
+        busy={busy}
+        dataVersion={governanceVersion}
+        onError={setError}
+        onNotice={setNotice}
+        setBusy={setBusy}
+        forms={{
+          selectedOrganizationId,
+          setSelectedOrganizationId,
+          branchName,
+          setBranchName,
+          existingOrganizationId,
+          setExistingOrganizationId,
+          billingProfileOrganizationId,
+          setBillingProfileOrganizationId,
+          billingProfileName,
+          setBillingProfileName,
+          billingEmail,
+          setBillingEmail,
+          selectedResource,
+          setSelectedResource,
+        }}
+      />
+
       <section className={styles.panel} aria-labelledby="scp-lifecycle-heading">
         <h2 id="scp-lifecycle-heading" className={styles.pageSubtitle}>{t("scp.detail.lifecycleCommands")}</h2>
         <label className={styles.appCardMeta}>
@@ -403,50 +459,52 @@ export default function SubscriptionDetailPage() {
         ) : null}
       </section>
 
-      <section className={styles.panel} aria-labelledby="scp-change-heading">
-        <h2 id="scp-change-heading" className={styles.pageSubtitle}>{t("scp.detail.changePlan")}</h2>
-        <div className={styles.filters}>
-          <select
-            value={changePlanId}
-            onChange={(event) => setChangePlanId(event.target.value)}
-            aria-label={t("scp.detail.targetPlan")}
-          >
-            <option value="">{t("scp.detail.targetPlan")}</option>
-            {(plans ?? []).map((plan) => (
-              <option key={plan.id} value={plan.id}>
-                {plan.name} ({plan.code})
-              </option>
-            ))}
-          </select>
-          <Button variant="secondary" size="sm" disabled={busy || !changePlanId} onClick={() => void previewPlanChange()}>
-            {t("scp.detail.preview")}
-          </Button>
-        </div>
-        {changePreview ? (
-          <div>
-            <p className={styles.pageSubtitle}>
-              {t("scp.detail.currentTotal")}: {money(changePreview.currentMonthlyMinor, changePreview.currentCurrencyCode ?? changePreview.currencyCode)}
-              {" · "}
-              {t("scp.detail.targetTotal")}: {money(changePreview.targetMonthlyMinor, changePreview.targetCurrencyCode ?? changePreview.currencyCode)}
-              {" · "}
-              {t("scp.detail.delta")}: {changePreview.deltaMonthlyMinor === null
-                ? "—"
-                : money(changePreview.deltaMonthlyMinor, changePreview.currencyCode)}
-            </p>
-            {changePreview.warnings.length > 0 ? (
-              <ul>
-                {changePreview.warnings.map((warning, index) => (
-                  <li key={index} className={styles.appCardMeta}>⚠ {warning}</li>
-                ))}
-              </ul>
-            ) : canChangePlan ? (
-              <Button variant="primary" size="sm" disabled={busy} onClick={() => void confirmPlanChange()}>
-                {t("scp.detail.confirmChange")}
-              </Button>
-            ) : null}
+      {canChangePlan ? (
+        <section className={styles.panel} aria-labelledby="scp-change-heading">
+          <h2 id="scp-change-heading" className={styles.pageSubtitle}>{t("scp.detail.changePlan")}</h2>
+          <div className={styles.filters}>
+            <select
+              value={changePlanId}
+              onChange={(event) => setChangePlanId(event.target.value)}
+              aria-label={t("scp.detail.targetPlan")}
+            >
+              <option value="">{t("scp.detail.targetPlan")}</option>
+              {(plans ?? []).map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {plan.name} ({plan.code})
+                </option>
+              ))}
+            </select>
+            <Button variant="secondary" size="sm" disabled={busy || !changePlanId} onClick={() => void previewPlanChange()}>
+              {t("scp.detail.preview")}
+            </Button>
           </div>
-        ) : null}
-      </section>
+          {changePreview ? (
+            <div>
+              <p className={styles.pageSubtitle}>
+                {t("scp.detail.currentTotal")}: {money(changePreview.currentMonthlyMinor, changePreview.currentCurrencyCode ?? changePreview.currencyCode)}
+                {" · "}
+                {t("scp.detail.targetTotal")}: {money(changePreview.targetMonthlyMinor, changePreview.targetCurrencyCode ?? changePreview.currencyCode)}
+                {" · "}
+                {t("scp.detail.delta")}: {changePreview.deltaMonthlyMinor === null
+                  ? "—"
+                  : money(changePreview.deltaMonthlyMinor, changePreview.currencyCode)}
+              </p>
+              {changePreview.warnings.length > 0 ? (
+                <ul>
+                  {changePreview.warnings.map((warning, index) => (
+                    <li key={index} className={styles.appCardMeta}>⚠ {warning}</li>
+                  ))}
+                </ul>
+              ) : (
+                <Button variant="primary" size="sm" disabled={busy} onClick={() => void confirmPlanChange()}>
+                  {t("scp.detail.confirmChange")}
+                </Button>
+              )}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className={styles.panel} aria-labelledby="scp-audit-heading">
         <h2 id="scp-audit-heading" className={styles.pageSubtitle}>{t("scp.detail.audit")}</h2>

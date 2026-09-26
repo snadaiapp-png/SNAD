@@ -68,12 +68,37 @@ class ApiRegressionSuiteTest {
     @Autowired private UserRoleGrantRepository userRoleGrantRepository;
     @Autowired private AccessCapabilityRepository accessCapabilityRepository;
     @Autowired private RoleCapabilityRepository roleCapabilityRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     private UUID tenantId;
     private UUID orgId;
     private String testEmail;
     private String testPassword;
     private UUID userId;
+
+    /**
+     * Canonical login-eligibility fixture: authentication gates require an
+     * ACTIVE tenant with exactly one login-eligible effective subscription.
+     */
+    private void seedLoginEligibleSubscription(UUID tenantId) {
+        UUID planId = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO saas_plans (id, code, name, status, currency_code,
+                                                monthly_price_minor, annual_price_minor, trial_days,
+                                                max_users, max_organizations, storage_mb, created_at, updated_at)
+                        VALUES (?, ?, 'Auth Test Plan', 'ACTIVE', 'SAR', 1000, 10000, 0, 10, 5, 1024, NOW(), NOW())
+                        """,
+                planId, "login-" + tenantId.toString().substring(0, 8));
+        jdbc.update("""
+                        INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status,
+                                                          billing_cycle, seat_quantity, credit_balance_minor,
+                                                          started_at, current_period_start, current_period_end,
+                                                          cancel_at_period_end, billing_state, created_at, updated_at)
+                        VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 1, 0,
+                                NOW(), NOW(), NOW() + INTERVAL '30 days', false, 'CURRENT', NOW(), NOW())
+                        """,
+                UUID.randomUUID(), tenantId, planId);
+    }
 
     @BeforeEach
     void setUp() {
@@ -89,6 +114,10 @@ class ApiRegressionSuiteTest {
         User user = new User(tenantId, testEmail, "Regression User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
         userId = userRepository.save(user).getId();
+
+        // Canonical login-eligibility gate (fail-closed): seed the exactly-one
+        // effective subscription the authentication flow requires.
+        seedLoginEligibleSubscription(tenantId);
 
         Organization org = organizationRepository.save(new Organization(
                 tenant, "Regression Org", "Test organization", OrganizationStatus.ACTIVE));

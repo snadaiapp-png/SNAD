@@ -5,8 +5,13 @@ import com.sanad.platform.admin.api.AdminDtos.TenantResponse;
 import com.sanad.platform.admin.api.AdminDtos.CreateTenantRequest;
 import com.sanad.platform.admin.api.AdminDtos.UpdateTenantRequest;
 import com.sanad.platform.admin.api.AdminDtos.ChangeTenantStatusRequest;
+import com.sanad.platform.admin.api.TenantDomainDtos.DomainType;
 import com.sanad.platform.admin.service.PlatformAuditService;
+import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.security.service.RegistrationProvisioner;
+import com.sanad.platform.security.filter.SessionVersionCache;
+import com.sanad.platform.subscription.commercial.TenantCommercialStateService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -16,8 +21,7 @@ import org.springframework.http.HttpStatus;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.ZoneId;
 import java.util.*;
 
 /**
@@ -42,15 +46,38 @@ public class ExecutivePlatformService {
     private final JdbcTemplate jdbcTemplate;
     private final PlatformAuditService auditService;
     private final RegistrationProvisioner registrationProvisioner;
+    private final TenantDomainService tenantDomainService;
+    private final SessionVersionCache sessionVersionCache;
+    private final TenantCommercialStateService commercialStateService;
+    private final ExecutiveTenantProvisioningService provisioningService;
 
+    @Autowired
     public ExecutivePlatformService(
             JdbcTemplate jdbcTemplate,
             PlatformAuditService auditService,
-            RegistrationProvisioner registrationProvisioner
+            RegistrationProvisioner registrationProvisioner,
+            TenantDomainService tenantDomainService,
+            SessionVersionCache sessionVersionCache,
+            TenantCommercialStateService commercialStateService,
+            ExecutiveTenantProvisioningService provisioningService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.registrationProvisioner = registrationProvisioner;
+        this.tenantDomainService = tenantDomainService;
+        this.sessionVersionCache = sessionVersionCache;
+        this.commercialStateService = commercialStateService;
+        this.provisioningService = provisioningService;
+    }
+
+    /** Backward-compatible direct-instantiation constructor for focused tests. */
+    public ExecutivePlatformService(
+            JdbcTemplate jdbcTemplate,
+            PlatformAuditService auditService,
+            RegistrationProvisioner registrationProvisioner,
+            TenantDomainService tenantDomainService
+    ) {
+        this(jdbcTemplate, auditService, registrationProvisioner, tenantDomainService, null, null, null);
     }
 
     public DashboardResponse dashboard() {
@@ -99,32 +126,11 @@ public class ExecutivePlatformService {
 
     @Transactional
     public TenantResponse createTenant(CreateTenantRequest request, Authentication authentication) {
-        // RegistrationProvisioner is the single tenant-creation authority. The
-        // previous implementation inserted one tenant here and then called the
-        // provisioner, which created a second tenant containing the administrator
-        // and roles. Use the provisioner's tenant id and update that same row.
-        RegistrationProvisioner.ProvisionedRegistration provisioned = registrationProvisioner.provision(
-                request.adminEmail(), request.adminDisplayName(), request.name(), request.subdomain(),
-                null, request.countryCode());
-        UUID tenantId = provisioned.tenantId();
-
-        Timestamp trialEndsAt = request.trialDays() != null && request.trialDays() > 0
-                ? Timestamp.from(Instant.now().plusSeconds(request.trialDays() * 86400L))
-                : null;
-        jdbcTemplate.update(
-                "UPDATE tenants SET name=?, legal_name=?, subdomain=?, status='PENDING', billing_email=?, "
-                        + "country_code=?, locale=?, timezone=?, currency_code=?, trial_ends_at=?, updated_at=NOW() "
-                        + "WHERE id=?",
-                request.name(), request.legalName(), request.subdomain(), request.billingEmail(), request.countryCode(),
-                request.locale() != null ? request.locale() : "en",
-                request.timezone() != null ? request.timezone() : "UTC",
-                request.currencyCode() != null ? request.currencyCode() : "SAR",
-                trialEndsAt, tenantId);
-
-        TenantResponse created = getTenant(tenantId);
-        auditService.success(authentication, tenantId, "CREATE_TENANT", "TENANT", tenantId.toString(),
-                request.name(), null, created);
-        return created;
+        // Atomic canonical provisioning: ExecutiveTenantProvisioningService is
+        // the single writer for executive tenant creation. It composes the
+        // RegistrationProvisioner tenant authority, the default application
+        // domain, and fail-closed commercial state in one transaction.
+        return provisioningService.provision(request, authentication).tenant();
     }
 
     @Transactional
@@ -144,9 +150,10 @@ public class ExecutivePlatformService {
                         + "timezone = COALESCE(?, timezone), "
                         + "currency_code = COALESCE(?, currency_code), "
                         + "updated_at = NOW() WHERE id = ?",
-                trimToNull(request.name()), trimToNull(request.legalName()), trimToNull(request.billingEmail()),
-                trimToNull(request.countryCode()), trimToNull(request.locale()), trimToNull(request.timezone()),
-                trimToNull(request.currencyCode()), tenantId);
+                trimToNull(request.name()), trimToNull(request.legalName()), lowerEmail(request.billingEmail()),
+                normalizeCountryCode(request.countryCode()), normalizeLocale(request.locale(), null),
+                normalizeTimezone(request.timezone(), null), normalizeCurrencyCode(request.currencyCode(), null),
+                tenantId);
 
         TenantResponse after = getTenant(tenantId);
         auditService.success(authentication, tenantId, "UPDATE_TENANT", "TENANT", tenantId.toString(),
@@ -171,6 +178,28 @@ public class ExecutivePlatformService {
                 targetStatus,
                 Set.of("SUSPENDED", "CANCELLED", "ARCHIVED").contains(targetStatus) ? request.reason() : null,
                 tenantId);
+
+        if (Set.of("SUSPENDED", "CANCELLED", "ARCHIVED").contains(targetStatus)) {
+            // Tenant deactivation is a security boundary, not only a UI state.
+            // Revoke refresh families and increment every user session version
+            // in the same transaction so existing access tokens stop working.
+            List<UUID> userIds = jdbcTemplate.queryForList(
+                    "SELECT id FROM users WHERE tenant_id = ?",
+                    UUID.class,
+                    tenantId);
+            jdbcTemplate.update(
+                    "UPDATE refresh_tokens SET status = 'REVOKED' "
+                            + "WHERE tenant_id = ? AND status = 'ACTIVE'",
+                    tenantId);
+            jdbcTemplate.update(
+                    "UPDATE users SET session_version = session_version + 1, updated_at = NOW() "
+                            + "WHERE tenant_id = ?",
+                    tenantId);
+            if (sessionVersionCache != null) {
+                userIds.forEach(userId -> sessionVersionCache.invalidate(tenantId, userId));
+            }
+        }
+
         TenantResponse after = getTenant(tenantId);
         auditService.success(authentication, tenantId, "CHANGE_TENANT_STATUS", "TENANT", tenantId.toString(),
                 request.reason(), before, after);
@@ -189,6 +218,33 @@ public class ExecutivePlatformService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Tenant login link is available only for active tenants");
         }
+        Integer effectiveSubscriptions = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                  FROM tenant_subscriptions
+                 WHERE tenant_id = ?
+                   AND status IN ('TRIAL','TRIALING','ACTIVE','PAST_DUE','GRACE_PERIOD')
+                """, Integer.class, tenantId);
+        if (effectiveSubscriptions == null || effectiveSubscriptions != 1) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Tenant login link requires exactly one login-eligible subscription");
+        }
+
+        // Login-link availability must not depend on DNS/custom-domain rollout.
+        // Subscriber session isolation is enforced by the web BFF using a
+        // dedicated refresh cookie namespace on the same proven frontend origin.
+        // Canonical commercial resolver is the single login-eligibility authority.
+        if (commercialStateService != null) {
+            TenantCommercialStateService.TenantCommercialState commercialState =
+                    commercialStateService.resolve(tenantId, tenant.status());
+            if (!commercialState.loginAllowed()) {
+                String reason = "Tenant login link blocked: " + commercialState.accessDecision();
+                if (commercialState.anomalyCode() != null && !commercialState.anomalyCode().isBlank()) {
+                    reason += " (" + commercialState.anomalyCode() + ")";
+                }
+                throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
+            }
+        }
 
         auditService.success(
                 authentication,
@@ -198,7 +254,7 @@ public class ExecutivePlatformService {
                 tenantId.toString(),
                 "Executive " + ("OPEN".equals(action) ? "opened" : "copied") + " tenant sign-in link",
                 null,
-                Map.of("action", action)
+                Map.of("action", action, "sessionScope", "TENANT")
         );
     }
 
@@ -242,5 +298,52 @@ public class ExecutivePlatformService {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String lowerEmail(String value) {
+        String trimmed = trimToNull(value);
+        return trimmed == null ? null : trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeCountryCode(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) return null;
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        if (!normalized.matches("^[A-Z]{2}$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "countryCode must be ISO-3166 alpha-2");
+        }
+        return normalized;
+    }
+
+    private static String normalizeCurrencyCode(String value, String fallback) {
+        String normalized = trimToNull(value);
+        if (normalized == null) normalized = fallback;
+        if (normalized == null) return null;
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        if (!normalized.matches("^[A-Z]{3}$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "currencyCode must be ISO-4217");
+        }
+        return normalized;
+    }
+
+    private static String normalizeLocale(String value, String fallback) {
+        String normalized = trimToNull(value);
+        if (normalized == null) normalized = fallback;
+        if (normalized == null) return null;
+        if (!normalized.matches("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "locale must be a valid language tag");
+        }
+        return normalized;
+    }
+
+    private static String normalizeTimezone(String value, String fallback) {
+        String normalized = trimToNull(value);
+        if (normalized == null) normalized = fallback;
+        if (normalized == null) return null;
+        try {
+            return ZoneId.of(normalized).getId();
+        } catch (RuntimeException invalidZone) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "timezone must be a valid IANA zone", invalidZone);
+        }
     }
 }
