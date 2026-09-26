@@ -81,8 +81,9 @@ class PlatformApiCountTest {
      *  + 11 Subscription WS8 operating-unit governance operations
      *  (read units/apps/billing/resources + bind/deactivate/app/profile/resource commands;
      *  /api/v1/executive group 82 → 93) = 936.
-     *  + 2 Store-domain lifecycle operations (disable + set-primary) = 938. */
-    private static final long EXPECTED_TOTAL_OPS = 938;
+     *  + 1 executive commercial query read endpoint (billing convergence) = 937.
+     *  + 2 Store-domain lifecycle operations (disable + set-primary) = 939. */
+    private static final long EXPECTED_TOTAL_OPS = 939;
     private static final long EXPECTED_HRM_V2_OPS = 127;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -99,7 +100,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(93);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(94);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
