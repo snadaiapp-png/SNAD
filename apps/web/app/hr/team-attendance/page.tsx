@@ -6,32 +6,23 @@ import { hrG2Api } from "@/lib/api/hr-g2-api";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { HrWorkspace } from "../components/hr-workspace";
+import { HrG2ProductSurface } from "../components/hr-g2-product-surface";
 import { HrErrorState, HrLoading } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
 import { formatLocalizedDate } from "../hr-labels";
+import visualStyles from "../components/hr-g2-visual.module.css";
 import styles from "../hr.module.css";
 
-interface AttendanceRecord {
-  id: string;
-  employmentId: string;
-  recordDate: string;
-  clockIn: string | null;
-  clockOut: string | null;
-  workedMinutes: number | null;
-  state: string;
-}
+interface AttendanceRecord { id: string; employmentId: string; recordDate: string; clockIn: string | null; clockOut: string | null; workedMinutes: number | null; state: string; }
 
 function formatTime(iso: string | null, locale: "ar" | "en"): string {
   if (!iso) return "—";
-  const timeLocale = locale === "ar" ? "ar-SA" : "en-US";
-  return new Date(iso).toLocaleTimeString(timeLocale, { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString(locale === "ar" ? "ar-SA" : "en-US", { hour: "2-digit", minute: "2-digit" });
 }
-
 function formatWorked(minutes: number | null, locale: "ar" | "en"): string {
   if (!minutes) return "—";
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
+  const hours = Math.floor(minutes / 60); const remainder = minutes % 60;
   return locale === "ar" ? `${hours}س ${remainder}د` : `${hours}h ${remainder}m`;
 }
 
@@ -40,68 +31,42 @@ export default function TeamAttendancePage() {
   const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
   const canView = capabilities.includes("HRM.ATTENDANCE.TEAM_VIEW");
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setRecords(await hrG2Api.listTeamAttendance());
-    } catch (err) {
-      setError(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(async () => { setLoading(true); setError(null); try { setRecords(await hrG2Api.listTeamAttendance()); } catch (err) { setError(err); } finally { setLoading(false); } }, []);
+  useEffect(() => { if (state !== "AUTHENTICATED") return; const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [state, load]);
 
-  useEffect(() => {
-    if (state !== "AUTHENTICATED") return;
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
-  }, [state, load]);
-
-  if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state)) {
-    return <AuthLoadingState phase="session" />;
-  }
-
-  if (!canView) {
-    return (
-      <HrWorkspace capabilities={capabilities} activeHref="/hr/team-attendance" translate={t}>
-        <p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p>
-      </HrWorkspace>
-    );
-  }
+  if (["INITIALIZING", "CHECKING_SESSION", "REFRESHING"].includes(state)) return <AuthLoadingState phase="session" />;
+  if (!canView) return <HrWorkspace capabilities={capabilities} activeHref="/hr/team-attendance" translate={t}><p role="alert" className={styles.kpiHint}>{t("hrm.recruitment.dashboard.permissionHint")}</p></HrWorkspace>;
 
   const columns: HrColumn<AttendanceRecord>[] = [
     { key: "recordDate", header: t("hrm.teamAttendance.date"), render: (r) => formatLocalizedDate(r.recordDate, locale) },
     { key: "clockIn", header: t("hrm.teamAttendance.clockIn"), render: (r) => formatTime(r.clockIn, locale) },
     { key: "clockOut", header: t("hrm.teamAttendance.clockOut"), render: (r) => formatTime(r.clockOut, locale) },
     { key: "workedMinutes", header: t("hrm.teamAttendance.worked"), align: "end", render: (r) => formatWorked(r.workedMinutes, locale) },
-    { key: "state", header: t("hrm.teamAttendance.state"), render: (r) => (
-      <HrStateBadge label={t("hrm.attendance.state." + r.state)} code={r.state} tone={toneForState(r.state)} />
-    ) },
+    { key: "state", header: t("hrm.teamAttendance.state"), render: (r) => <HrStateBadge label={t("hrm.attendance.state." + r.state)} code={r.state} tone={toneForState(r.state)} /> },
   ];
+  const openCount = records.filter((r) => r.state === "OPEN").length;
+  const closedCount = records.filter((r) => r.clockOut != null).length;
+  const worked = records.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
 
   return (
     <HrWorkspace capabilities={capabilities} activeHref="/hr/team-attendance" translate={t}>
-      <header>
-        <h1>{t("hrm.teamAttendance.title")}</h1>
-        <p className={styles.kpiHint}>{t("hrm.teamAttendance.subtitle")}</p>
-      </header>
-      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
-        <div data-testid="team-attendance-ready">
-          <HrDataTable<AttendanceRecord>
-            caption={t("hrm.teamAttendance.caption")}
-            columns={columns}
-            rows={records}
-            rowKey={(r) => r.id}
-            emptyTitle={t("hrm.teamAttendance.empty")}
-          />
-        </div>
-      )}
+      <HrG2ProductSurface eyebrow={t("hrm.g2.landing.myTeam")} title={t("hrm.teamAttendance.title")} subtitle={t("hrm.teamAttendance.subtitle")}
+        metrics={[
+          { label: t("hrm.teamAttendance.state"), value: openCount, hint: t("hrm.attendance.state.OPEN") },
+          { label: t("hrm.teamAttendance.clockOut"), value: closedCount },
+          { label: t("hrm.teamAttendance.worked"), value: formatWorked(worked, locale) },
+        ]}
+      >
+        <section className={visualStyles.productPanel} data-testid="team-attendance-dashboard">
+          {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : (
+            <div data-testid="team-attendance-ready"><HrDataTable<AttendanceRecord> caption={t("hrm.teamAttendance.caption")} columns={columns} rows={records} rowKey={(r) => r.id} emptyTitle={t("hrm.teamAttendance.empty")} /></div>
+          )}
+        </section>
+      </HrG2ProductSurface>
     </HrWorkspace>
   );
 }

@@ -1,51 +1,35 @@
 "use client";
 
-/**
- * HR data table — shared table component (G1-T11 refactor).
- *
- * Design:
- *   - Semantic <table> with <caption> for screen readers (G0 a11y standard).
- *   - Logical CSS only (no physical left/right). Direction is inherited from
- *     the active application locale so the same table is correct in RTL/LTR.
- *   - Column definitions: { key, header, render?, align? }. The render
- *     function receives the row and returns a ReactNode — caller controls
- *     cell content (badge, action buttons, masked value, etc.).
- *   - Empty state: caller passes `emptyTitle` + `emptyAction`; rendered
- *     inside the table caption + tbody cell to keep the table semantics
- *     while being actionable (spec §14: "empty CTA").
- *   - Row actions are keyboard-accessible: each action is a real <button>
- *     with type="button"; no div-as-button anti-pattern.
- *   - No pagination internals here — caller passes already-paged data.
- *     This keeps the component dumb and testable.
- */
+/** Shared semantic HR table with opt-in mobile card rendering for dense G2 data. */
 
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import styles from "../hr.module.css";
+import visualStyles from "./hr-g2-visual.module.css";
 import { HrEmptyState } from "./hr-feedback";
+import { HrG2ProductSurfaceContext } from "./hr-g2-product-surface";
 
 export interface HrColumn<T> {
   key: string;
-  /** Already i18n-resolved header label. */
   header: string;
-  /** Cell renderer. Defaults to `String(row[key])`. */
   render?: (row: T) => ReactNode;
-  /** Logical alignment: "start" | "end" | "center" (CSS handles RTL flip). */
   align?: "start" | "end" | "center";
 }
 
 interface HrDataTableProps<T> {
-  /** Visible title for screen readers (rendered in <caption>). */
   caption: string;
   columns: HrColumn<T>[];
   rows: T[];
-  /** Stable key extractor (typically the entity ID). */
   rowKey: (row: T) => string;
-  /** Empty state — when rows.length === 0. */
   emptyTitle: string;
   emptyDescription?: string;
   emptyAction?: ReactNode;
-  /** Optional caption-side override (default: top). */
   captionSide?: "top" | "bottom";
+  /** Explicit override; otherwise G2 product-surface context controls responsive cards. */
+  mobileCards?: boolean;
+}
+
+function cellValue<T>(row: T, col: HrColumn<T>): ReactNode {
+  return col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "");
 }
 
 export function HrDataTable<T>({
@@ -57,40 +41,65 @@ export function HrDataTable<T>({
   emptyDescription,
   emptyAction,
   captionSide = "top",
+  mobileCards,
 }: HrDataTableProps<T>) {
+  const inG2ProductSurface = useContext(HrG2ProductSurfaceContext);
+  const renderMobileCards = mobileCards ?? inG2ProductSurface;
+
   return (
-    <div className={styles.hrTableWrap}>
-      <table className={styles.hrTable} data-caption-side={captionSide}>
-        <caption>{caption}</caption>
-        <thead>
-          <tr>
-            {columns.map((col) => (
-              <th key={col.key} scope="col" data-align={col.align ?? "start"}>
-                {col.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
+    <>
+      <div className={renderMobileCards ? `${styles.hrTableWrap} ${visualStyles.desktopTable}` : styles.hrTableWrap}>
+        <table className={styles.hrTable} data-caption-side={captionSide}>
+          <caption>{caption}</caption>
+          <thead>
             <tr>
-              <td colSpan={columns.length}>
-                <HrEmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
-              </td>
+              {columns.map((col) => (
+                <th key={col.key} scope="col" data-align={col.align ?? "start"}>
+                  {col.header}
+                </th>
+              ))}
             </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length}>
+                  <HrEmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={rowKey(row)} data-testid="hr-data-row">
+                  {columns.map((col) => (
+                    <td key={col.key} data-align={col.align ?? "start"}>
+                      {cellValue(row, col)}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {renderMobileCards ? (
+        <section className={visualStyles.mobileRecordList} data-testid="hr-mobile-records" aria-label={caption}>
+          {rows.length === 0 ? (
+            <HrEmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
           ) : (
             rows.map((row) => (
-              <tr key={rowKey(row)} data-testid="hr-data-row">
+              <article className={visualStyles.mobileRecord} data-testid="hr-mobile-record" key={rowKey(row)}>
                 {columns.map((col) => (
-                  <td key={col.key} data-align={col.align ?? "start"}>
-                    {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "")}
-                  </td>
+                  <div className={visualStyles.mobileRecordField} key={col.key}>
+                    <span className={visualStyles.mobileRecordLabel}>{col.header}</span>
+                    <div className={visualStyles.mobileRecordValue}>{cellValue(row, col)}</div>
+                  </div>
                 ))}
-              </tr>
+              </article>
             ))
           )}
-        </tbody>
-      </table>
-    </div>
+        </section>
+      ) : null}
+    </>
   );
 }

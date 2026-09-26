@@ -98,6 +98,191 @@
   margin-block-end: 1rem;
 }
 
+.productSurface {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.productHero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 1rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--snad-color-action-primary) 8%, var(--snad-color-surface-primary)),
+    var(--snad-color-surface-primary)
+  );
+}
+
+.productHeroCopy {
+  display: grid;
+  gap: 0.35rem;
+  min-inline-size: 0;
+}
+
+.productEyebrow {
+  color: var(--snad-color-action-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.productTitle {
+  margin: 0;
+  color: var(--snad-color-text-primary);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.2;
+}
+
+.productSubtitle {
+  margin: 0;
+  max-inline-size: 46rem;
+  color: var(--snad-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.productActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-block-size: 2.5rem;
+}
+
+.productActions button,
+.productActions a {
+  min-block-size: 2.5rem;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--snad-color-action-primary);
+  border-radius: 0.65rem;
+  background: var(--snad-color-action-primary);
+  color: var(--snad-color-surface-primary);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.productActions button:focus-visible,
+.productActions a:focus-visible {
+  outline: 2px solid var(--snad-color-action-primary);
+  outline-offset: 3px;
+}
+
+.productActionPlaceholder {
+  display: block;
+  inline-size: 0;
+  block-size: 0;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0.75rem;
+}
+
+.metricCard {
+  display: grid;
+  gap: 0.4rem;
+  min-block-size: 7rem;
+  padding: 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.85rem;
+  background: var(--snad-color-surface-primary);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--snad-color-border-default) 55%, transparent);
+}
+
+.metricLabel {
+  color: var(--snad-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.metricValue {
+  color: var(--snad-color-text-primary);
+  font-size: 1.45rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.metricHint {
+  color: var(--snad-text-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.productToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.75rem;
+  background: var(--snad-color-surface-secondary);
+}
+
+.productContent {
+  display: grid;
+  gap: 1rem;
+}
+
+.productPanel {
+  padding: 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.85rem;
+  background: var(--snad-color-surface-primary);
+}
+
+.productPanel > h2 {
+  margin-block-start: 0;
+  margin-block-end: 0.75rem;
+  color: var(--snad-color-text-primary);
+  font-size: 1rem;
+}
+
+.desktopTable {
+  display: block;
+}
+
+.mobileRecordList {
+  display: none;
+  gap: 0.75rem;
+}
+
+.mobileRecord {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 0.8rem;
+  background: var(--snad-color-surface-primary);
+}
+
+.mobileRecordField {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 0.75fr) minmax(0, 1.25fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.mobileRecordLabel {
+  color: var(--snad-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.mobileRecordValue {
+  min-inline-size: 0;
+  color: var(--snad-color-text-primary);
+  overflow-wrap: anywhere;
+}
+
 .workspaceNavResponsive {
   overflow-x: auto;
   overscroll-behavior-inline: contain;
@@ -117,6 +302,46 @@
   .workspaceNavResponsive > ul {
     min-inline-size: 0;
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  .productHero {
+    display: grid;
+    padding: 1rem;
+  }
+
+  .productActions {
+    justify-content: stretch;
+  }
+
+  .productActions button,
+  .productActions a {
+    inline-size: 100%;
+    text-align: center;
+  }
+
+  .metricGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .desktopTable {
+    display: none;
+  }
+
+  .mobileRecordList {
+    display: grid;
+  }
+
+  .mobileRecordField {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
+
+@media (max-width: 24rem) {
+  .metricGrid {
+    grid-template-columns: 1fr;
   }
 }
 
