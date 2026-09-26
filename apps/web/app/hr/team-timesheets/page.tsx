@@ -43,7 +43,7 @@ export default function TeamTimesheetsPage() {
     <div data-testid="team-timesheets-product-surface">
       <HrProductHeader eyebrow={t("hrm.g2.landing.myTeam")} title={t("hrm.timesheets.team.title")} subtitle={t("hrm.timesheets.team.subtitle")} />
       {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
-      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <>
+      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <div data-testid="team-timesheets-ready">
         <HrKpiGrid label={t("hrm.timesheets.team.title")}>
           <div data-testid="team-timesheets-pending-count"><HrKpiCard label={t("hrm.timesheets.kpi.awaitingApproval")} value={pendingCount} tone={pendingCount > 0 ? "attention" : "neutral"} /></div>
           <HrKpiCard label={t("hrm.timesheets.team.caption")} value={timesheets.length} />
@@ -53,7 +53,7 @@ export default function TeamTimesheetsPage() {
           <HrDataTable<Timesheet> caption={t("hrm.timesheets.team.caption")} columns={columns} rows={timesheets} rowKey={(r) => r.id} emptyTitle={t("hrm.timesheets.team.empty")} />
           <HrMobileRecordList label={t("hrm.timesheets.team.caption")}>{timesheets.map((sheet) => <article key={sheet.id} className={styles.statCard}><strong>{formatLocalizedDate(sheet.periodStart, locale)} — {formatLocalizedDate(sheet.periodEnd, locale)}</strong><HrStateBadge label={t("hrm.timesheets.state." + sheet.state)} code={sheet.state} tone={toneForState(sheet.state)} />{sheet.state === "SUBMITTED" ? <span className={styles.actionRow}><button type="button" data-testid={`team-timesheets-approve-action-mobile-${sheet.id}`} className={styles.linkButton} onClick={() => void approve(sheet.id)} disabled={busy}>{t("hrm.timesheets.team.approve")}</button><button type="button" data-testid={`team-timesheets-reject-action-mobile-${sheet.id}`} className={styles.linkButton} onClick={() => void reject(sheet.id)} disabled={busy}>{t("hrm.timesheets.team.reject")}</button></span> : null}</article>)}</HrMobileRecordList>
         </HrOperationalPanel></div>
-      </>}
+      </div>}
     </div>
   </HrWorkspace>;
 }
