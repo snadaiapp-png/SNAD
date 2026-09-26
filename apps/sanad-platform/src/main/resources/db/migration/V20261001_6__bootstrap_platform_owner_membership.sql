@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260926_5 — Platform IAM: bootstrap canonical Platform Owner
+-- V20261001_6 — Platform IAM: bootstrap canonical Platform Owner
 -- ============================================================
 -- Bootstraps the canonical project owner into the Platform IAM model:
 --   1. Creates exactly one ACTIVE platform_membership

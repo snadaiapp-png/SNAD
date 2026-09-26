@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260926_3 — Platform IAM: seed Platform capability catalog
+-- V20261001_4 — Platform IAM: seed Platform capability catalog
 -- ============================================================
 -- Seeds all PLATFORM.* capability codes defined in the Platform IAM
 -- design spec (docs/superpowers/specs/2026-09-25-platform-iam-design.md).

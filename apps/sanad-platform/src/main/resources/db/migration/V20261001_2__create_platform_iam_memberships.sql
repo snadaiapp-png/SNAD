@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260926_1 — Platform IAM memberships
+-- V20261001_2 — Platform IAM memberships
 -- ============================================================
 -- Formal Platform Membership over an existing Control Plane user identity.
 -- The composite foreign key is the hard database boundary preventing a

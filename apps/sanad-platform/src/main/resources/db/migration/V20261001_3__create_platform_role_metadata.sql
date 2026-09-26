@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260926_2 — Platform IAM role metadata
+-- V20261001_3 — Platform IAM role metadata
 -- ============================================================
 -- Classifies canonical tenant-scoped roles for Platform IAM protection.
 -- This table is metadata only; authorization continues to use the existing

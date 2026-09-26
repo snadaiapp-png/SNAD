@@ -11,9 +11,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PlatformIamSchemaMigrationContractTest {
 
     private static final String MEMBERSHIP_MIGRATION =
-            "db/migration/V20260926_1__create_platform_iam_memberships.sql";
+            "db/migration/V20261001_2__create_platform_iam_memberships.sql";
     private static final String ROLE_METADATA_MIGRATION =
-            "db/migration/V20260926_2__create_platform_role_metadata.sql";
+            "db/migration/V20261001_3__create_platform_role_metadata.sql";
 
     @Test
     void platformMembershipSchemaMustEnforceControlTenantUserIdentity() throws Exception {

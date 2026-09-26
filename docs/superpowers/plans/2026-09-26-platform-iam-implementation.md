@@ -65,11 +65,11 @@
 
 ### Database
 
-- `apps/sanad-platform/src/main/resources/db/migration/V20260926_1__create_platform_iam_memberships.sql`
-- `apps/sanad-platform/src/main/resources/db/migration/V20260926_2__create_platform_role_metadata.sql`
-- `apps/sanad-platform/src/main/resources/db/migration/V20260926_3__seed_platform_iam_capabilities.sql`
-- `apps/sanad-platform/src/main/resources/db/migration/V20260926_4__seed_platform_iam_roles.sql`
-- `apps/sanad-platform/src/main/resources/db/migration/V20260926_5__bootstrap_platform_owner_membership.sql`
+- `apps/sanad-platform/src/main/resources/db/migration/V20261001_2__create_platform_iam_memberships.sql`
+- `apps/sanad-platform/src/main/resources/db/migration/V20261001_3__create_platform_role_metadata.sql`
+- `apps/sanad-platform/src/main/resources/db/migration/V20261001_4__seed_platform_iam_capabilities.sql`
+- `apps/sanad-platform/src/main/resources/db/migration/V20261001_5__seed_platform_iam_roles.sql`
+- `apps/sanad-platform/src/main/resources/db/migration/V20261001_6__bootstrap_platform_owner_membership.sql`
 
 ### Frontend
 
@@ -86,8 +86,8 @@
 ### Task 1: Platform IAM schema and migration contracts
 
 **Files:**
-- Create: `apps/sanad-platform/src/main/resources/db/migration/V20260926_1__create_platform_iam_memberships.sql`
-- Create: `apps/sanad-platform/src/main/resources/db/migration/V20260926_2__create_platform_role_metadata.sql`
+- Create: `apps/sanad-platform/src/main/resources/db/migration/V20261001_2__create_platform_iam_memberships.sql`
+- Create: `apps/sanad-platform/src/main/resources/db/migration/V20261001_3__create_platform_role_metadata.sql`
 - Test: `apps/sanad-platform/src/test/java/com/sanad/platform/platformiam/PlatformIamSchemaMigrationContractTest.java`
 
 **Interfaces:**
@@ -132,8 +132,8 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/sanad-platform/src/main/resources/db/migration/V20260926_1__create_platform_iam_memberships.sql \
-        apps/sanad-platform/src/main/resources/db/migration/V20260926_2__create_platform_role_metadata.sql \
+git add apps/sanad-platform/src/main/resources/db/migration/V20261001_2__create_platform_iam_memberships.sql \
+        apps/sanad-platform/src/main/resources/db/migration/V20261001_3__create_platform_role_metadata.sql \
         apps/sanad-platform/src/test/java/com/sanad/platform/platformiam/PlatformIamSchemaMigrationContractTest.java
 git commit -m "feat(platform-iam): add membership schema"
 ```
@@ -143,9 +143,9 @@ git commit -m "feat(platform-iam): add membership schema"
 ### Task 2: Seed Platform IAM capabilities, protected roles, and owner bootstrap
 
 **Files:**
-- Create: `apps/sanad-platform/src/main/resources/db/migration/V20260926_3__seed_platform_iam_capabilities.sql`
-- Create: `apps/sanad-platform/src/main/resources/db/migration/V20260926_4__seed_platform_iam_roles.sql`
-- Create: `apps/sanad-platform/src/main/resources/db/migration/V20260926_5__bootstrap_platform_owner_membership.sql`
+- Create: `apps/sanad-platform/src/main/resources/db/migration/V20261001_4__seed_platform_iam_capabilities.sql`
+- Create: `apps/sanad-platform/src/main/resources/db/migration/V20261001_5__seed_platform_iam_roles.sql`
+- Create: `apps/sanad-platform/src/main/resources/db/migration/V20261001_6__bootstrap_platform_owner_membership.sql`
 - Test: `apps/sanad-platform/src/test/java/com/sanad/platform/platformiam/PlatformIamSeedMigrationContractTest.java`
 - Test: `apps/sanad-platform/src/test/java/com/sanad/platform/platformiam/PlatformIamBootstrapPostgresAcceptanceTest.java`
 

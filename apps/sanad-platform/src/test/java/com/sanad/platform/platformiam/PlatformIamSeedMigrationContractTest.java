@@ -14,9 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Pins the existence and content of the three Task 2 seed migrations:
  * <ul>
- *   <li>V20260926_3 — Platform IAM capability catalog</li>
- *   <li>V20260926_4 — System roles + role metadata</li>
- *   <li>V20260926_5 — Canonical owner bootstrap</li>
+ *   <li>V20261001_4 — Platform IAM capability catalog</li>
+ *   <li>V20261001_5 — System roles + role metadata</li>
+ *   <li>V20261001_6 — Canonical owner bootstrap</li>
  * </ul>
  *
  * <p>All capability codes are sourced from the Platform IAM design spec
@@ -26,11 +26,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PlatformIamSeedMigrationContractTest {
 
     private static final String CAPABILITIES_MIGRATION =
-            "db/migration/V20260926_3__seed_platform_iam_capabilities.sql";
+            "db/migration/V20261001_4__seed_platform_iam_capabilities.sql";
     private static final String ROLES_MIGRATION =
-            "db/migration/V20260926_4__seed_platform_iam_roles.sql";
+            "db/migration/V20261001_5__seed_platform_iam_roles.sql";
     private static final String BOOTSTRAP_MIGRATION =
-            "db/migration/V20260926_5__bootstrap_platform_owner_membership.sql";
+            "db/migration/V20261001_6__bootstrap_platform_owner_membership.sql";
 
     // ── Capability codes from the Platform IAM design spec ──────────────
     static final Set<String> PLATFORM_CAPABILITY_CODES = Set.of(
@@ -68,19 +68,19 @@ class PlatformIamSeedMigrationContractTest {
     @Test
     void capabilitiesMigrationFileMustExist() throws Exception {
         String sql = migration(CAPABILITIES_MIGRATION);
-        assertNotNull(sql, "V20260926_3 migration file must exist");
+        assertNotNull(sql, "V20261001_4 migration file must exist");
     }
 
     @Test
     void rolesMigrationFileMustExist() throws Exception {
         String sql = migration(ROLES_MIGRATION);
-        assertNotNull(sql, "V20260926_4 migration file must exist");
+        assertNotNull(sql, "V20261001_5 migration file must exist");
     }
 
     @Test
     void bootstrapMigrationFileMustExist() throws Exception {
         String sql = migration(BOOTSTRAP_MIGRATION);
-        assertNotNull(sql, "V20260926_5 migration file must exist");
+        assertNotNull(sql, "V20261001_6 migration file must exist");
     }
 
     // ── Capability catalog contract ─────────────────────────────────────

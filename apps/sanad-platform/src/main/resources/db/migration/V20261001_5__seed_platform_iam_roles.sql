@@ -1,5 +1,5 @@
 -- ============================================================
--- V20260926_4 — Platform IAM: seed system roles + metadata
+-- V20261001_5 — Platform IAM: seed system roles + metadata
 -- ============================================================
 -- Seeds 6 protected system roles in the canonical control-plane tenant
 -- and creates platform_role_metadata entries for each.
@@ -16,7 +16,7 @@
 --   - Is deterministic (uses canonical control tenant UUID).
 --   - Is idempotent (WHERE NOT EXISTS per role).
 --   - Creates role + metadata atomically per role.
---   - Does NOT assign capabilities (that's V20260926_5).
+--   - Does NOT assign capabilities (that's V20261001_6).
 --   - Does NOT create users or memberships.
 -- ============================================================
 
