@@ -45,7 +45,7 @@ export default function TeamAttendancePage() {
   return <HrWorkspace capabilities={capabilities} activeHref="/hr/team-attendance" translate={t}>
     <div data-testid="team-attendance-product-surface">
       <HrProductHeader eyebrow={t("hrm.g2.landing.myTeam")} title={t("hrm.teamAttendance.title")} subtitle={t("hrm.teamAttendance.subtitle")} />
-      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <>
+      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <div data-testid="team-attendance-ready">
         <HrKpiGrid label={t("hrm.teamAttendance.title")}>
           <div data-testid="team-attendance-open-count"><HrKpiCard label={t("hrm.teamAttendance.state")} value={openCount} tone={openCount > 0 ? "attention" : "neutral"} /></div>
           <div data-testid="team-attendance-completed-count"><HrKpiCard label={t("hrm.teamAttendance.caption")} value={completedCount} /></div>
@@ -55,7 +55,7 @@ export default function TeamAttendancePage() {
           <HrDataTable<AttendanceRecord> caption={t("hrm.teamAttendance.caption")} columns={columns} rows={records} rowKey={(r) => r.id} emptyTitle={t("hrm.teamAttendance.empty")} />
           <HrMobileRecordList label={t("hrm.teamAttendance.caption")}>{records.map((record) => <article key={record.id} className={styles.statCard}><strong>{formatLocalizedDate(record.recordDate, locale)}</strong><span>{formatTime(record.clockIn, locale)} — {formatTime(record.clockOut, locale)}</span><span>{formatWorked(record.workedMinutes, locale)}</span><HrStateBadge label={t("hrm.attendance.state." + record.state)} code={record.state} tone={toneForState(record.state)} /></article>)}</HrMobileRecordList>
         </HrOperationalPanel></div>
-      </>}
+      </div>}
     </div>
   </HrWorkspace>;
 }
