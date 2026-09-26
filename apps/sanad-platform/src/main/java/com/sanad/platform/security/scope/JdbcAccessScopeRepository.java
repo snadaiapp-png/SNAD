@@ -35,7 +35,7 @@ public class JdbcAccessScopeRepository {
                         "FROM access_scope_grants g " +
                         "JOIN access_capabilities c ON c.id = g.capability_id " +
                         "WHERE g.tenant_id = ? AND c.code = ? AND c.status = 'ACTIVE' AND g.status = 'ACTIVE' " +
-                        "AND g.effective_from <= ? AND (g.effective_to IS NULL OR g.effective_to >= ?) " +
+                        "AND g.effective_from <= ? AND (g.effective_to IS NULL OR g.effective_to > ?) " +
                         "AND (g.role_id = ? OR g.user_id = ?) " +
                         "ORDER BY g.is_direct_exception DESC, g.created_at ASC, g.id ASC",
                 (rs, rowNum) -> new AccessScopeGrant(
