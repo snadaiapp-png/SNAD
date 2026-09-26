@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FINAL_WF = ROOT / ".github" / "workflows" / "workflow-production-3user-final-gate.yml"
 RECONCILE_WF = ROOT / ".github" / "workflows" / "workflow-production-qa-subscription-bootstrap-once.yml"
 PROD_RELEASE_WF = ROOT / ".github" / "workflows" / "production-release.yml"
+G2_PROVISION_WF = ROOT / ".github" / "workflows" / "g2-production-identity-provisioning.yml"
 JOURNEY = ROOT / "scripts" / "production" / "verify-workflow-production-3user-journey.sh"
 RECONCILE = ROOT / "scripts" / "production" / "bootstrap-workflow-production-qa-subscription.sh"
 VISUAL = ROOT / "scripts" / "production" / "verify-workflow-production-visual.mjs"
@@ -19,6 +20,7 @@ class WorkflowFinalClosureUnifiedContractTest(unittest.TestCase):
         cls.final_wf = FINAL_WF.read_text(encoding="utf-8")
         cls.reconcile_wf = RECONCILE_WF.read_text(encoding="utf-8")
         cls.prod_release_wf = PROD_RELEASE_WF.read_text(encoding="utf-8")
+        cls.g2_provision_wf = G2_PROVISION_WF.read_text(encoding="utf-8")
         cls.journey = JOURNEY.read_text(encoding="utf-8")
         cls.reconcile = RECONCILE.read_text(encoding="utf-8")
         cls.visual = VISUAL.read_text(encoding="utf-8")
@@ -173,6 +175,13 @@ class WorkflowFinalClosureUnifiedContractTest(unittest.TestCase):
         self.assertIn("apps/web/test-results/g2-visual-evidence/", text)
         self.assertIn("apps/web/playwright-g2-visual-report/", text)
         self.assertIn('g2ProductionVisual:"PASS"', text)
+
+    def test_g2_provisioning_logins_are_tenant_scoped(self):
+        text = self.g2_provision_wf
+        self.assertGreaterEqual(text.count('--arg tenant "$G2_TENANT_ID"'), 2)
+        self.assertGreaterEqual(text.count('tenantId: $tenant'), 2)
+        self.assertNotIn("'{email: $email, password: $password}'", text)
+        self.assertNotIn("'{email: $e, password: $p}'", text)
 
 
 if __name__ == "__main__":
