@@ -17,6 +17,7 @@ on:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/workflow/**'
       - 'apps/sanad-platform/src/main/resources/**'
       - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-human-visual-fixtures.sql'
       - 'apps/sanad-platform/pom.xml'
       - '.github/workflows/hrm-human-preview.yml'
   push:
@@ -28,6 +29,7 @@ on:
       - 'apps/web/e2e/g2-visual-helpers.ts'
       - 'apps/web/e2e/g2-visual.spec.ts'
       - 'apps/web/playwright-g2-visual.config.ts'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-human-visual-fixtures.sql'
       - '.github/workflows/hrm-human-preview.yml'
   workflow_dispatch: {}
 
@@ -67,6 +69,7 @@ jobs:
       E2E_EMPLOYEE_EMAIL: g2-employee@g2-acceptance.example
       E2E_MANAGER_EMAIL: g2-manager@g2-acceptance.example
       E2E_HR_EMAIL: g2-hr@g2-acceptance.example
+      G2_VISUAL_REQUIRE_PRODUCT_DATA: "true"
       CI: '1'
 
     steps:
@@ -177,7 +180,7 @@ jobs:
           -Dflyway.validateOnMigrate=true
           -Dflyway.outOfOrder=false
 
-      - name: Seed deterministic Employee Manager HR visual identities
+      - name: Seed deterministic Employee Manager HR visual identities and product data
         shell: bash
         env:
           G2_E2E_PASSWORD: ${{ env.G2_E2E_PASSWORD }}
@@ -188,11 +191,22 @@ jobs:
             -v ON_ERROR_STOP=1 -v g2_e2e_password="$G2_E2E_PASSWORD" \
             -f apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql \
             2>&1 | tee "$RUNNER_TEMP/g2-visual-seed.log"
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -f apps/sanad-platform/src/test/resources/sql/g2-human-visual-fixtures.sql \
+            2>&1 | tee -a "$RUNNER_TEMP/g2-visual-seed.log"
           G2_TENANT_ID='33333333-3333-4333-8333-333333333331'
           COUNT=$(PGPASSWORD="$DATABASE_PASSWORD" PGOPTIONS="-c app.tenant_id=$G2_TENANT_ID" \
             psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
             "SELECT COUNT(*) FROM users WHERE tenant_id='$G2_TENANT_ID'")
           test "$COUNT" = "3"
+          for table in hr_attendance_records hr_timesheets hr_leave_requests hr_work_schedules; do
+            ROWS=$(PGPASSWORD="$DATABASE_PASSWORD" PGOPTIONS="-c app.tenant_id=$G2_TENANT_ID" \
+              psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
+              "SELECT COUNT(*) FROM $table WHERE tenant_id='$G2_TENANT_ID'")
+            test "$ROWS" -gt 0 || { echo "::error::G2 visual fixture table $table is empty"; exit 1; }
+          done
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
