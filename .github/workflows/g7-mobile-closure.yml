@@ -1,0 +1,61 @@
+name: G7 Mobile Closure
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'G7_*.md'
+      - '.github/workflows/g7-mobile-closure.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-verification:
+    name: Mobile Tests and Typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      # Temporary TDD bootstrap: the existing lockfile is stale and npm ci cannot
+      # reach Jest. Full closure restores deterministic npm ci after lock repair.
+      - name: Install dependencies for RED verification
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify pagination regression test
+        run: npm test -- --runInBand src/__tests__/sync-pagination.test.ts
+
+      - name: Typecheck mobile client
+        id: typecheck
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee ../../g7-typecheck.log
+
+      - name: Upload typecheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g7-typecheck
+          path: g7-typecheck.log
+          if-no-files-found: error
+
+      - name: Fail on typecheck errors
+        if: steps.typecheck.outcome == 'failure'
+        run: exit 1
+
+      - name: Run mobile test suite
+        run: npm test -- --runInBand
