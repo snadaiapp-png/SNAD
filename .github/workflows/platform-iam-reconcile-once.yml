@@ -1,0 +1,138 @@
+name: Platform IAM reconciliation once
+
+on:
+  push:
+    branches:
+      - feature/platform-iam
+    paths:
+      - .github/workflows/platform-iam-reconcile-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    if: github.repository == 'snadaiapp-png/SNAD'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          ref: feature/platform-iam
+          fetch-depth: 0
+
+      - name: Forward-renumber Platform IAM and reconcile migration ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+          root="apps/sanad-platform/src/main/resources/db/migration"
+          git mv "$root/V20260926_1__create_platform_iam_memberships.sql" "$root/V20261001_2__create_platform_iam_memberships.sql"
+          git mv "$root/V20260926_2__create_platform_role_metadata.sql" "$root/V20261001_3__create_platform_role_metadata.sql"
+          git mv "$root/V20260926_3__seed_platform_iam_capabilities.sql" "$root/V20261001_4__seed_platform_iam_capabilities.sql"
+          git mv "$root/V20260926_4__seed_platform_iam_roles.sql" "$root/V20261001_5__seed_platform_iam_roles.sql"
+          git mv "$root/V20260926_5__bootstrap_platform_owner_membership.sql" "$root/V20261001_6__bootstrap_platform_owner_membership.sql"
+
+          files=(
+            "$root/V20261001_2__create_platform_iam_memberships.sql"
+            "$root/V20261001_3__create_platform_role_metadata.sql"
+            "$root/V20261001_4__seed_platform_iam_capabilities.sql"
+            "$root/V20261001_5__seed_platform_iam_roles.sql"
+            "$root/V20261001_6__bootstrap_platform_owner_membership.sql"
+            "apps/sanad-platform/src/test/java/com/sanad/platform/platformiam/PlatformIamSchemaMigrationContractTest.java"
+            "apps/sanad-platform/src/test/java/com/sanad/platform/platformiam/PlatformIamSeedMigrationContractTest.java"
+            "apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java"
+            "apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java"
+            "apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java"
+            "apps/sanad-platform/src/test/java/com/sanad/platform/hr/recruitment/db/HrG1MigrationTest.java"
+            "apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G02SchemaPostgresTest.java"
+            "docs/superpowers/plans/2026-09-26-platform-iam-implementation.md"
+          )
+
+          for f in "${files[@]}"; do
+            sed -i \
+              -e 's/V20260926_1/V20261001_2/g' \
+              -e 's/V20260926_2/V20261001_3/g' \
+              -e 's/V20260926_3/V20261001_4/g' \
+              -e 's/V20260926_4/V20261001_5/g' \
+              -e 's/V20260926_5/V20261001_6/g' \
+              -e 's/20260926\.1/20261001.2/g' \
+              -e 's/20260926\.2/20261001.3/g' \
+              -e 's/20260926\.3/20261001.4/g' \
+              -e 's/20260926\.4/20261001.5/g' \
+              -e 's/20260926\.5/20261001.6/g' \
+              "$f"
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          crm = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java')
+          s = crm.read_text()
+          membership = '    private static final String PLATFORM_IAM_MEMBERSHIPS_VERSION = "20261001.2";'
+          uac = '    private static final String UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION = "20261001.1";\n'
+          if uac.strip() not in s:
+              if membership not in s:
+                  raise SystemExit('missing Platform IAM membership constant anchor')
+              s = s.replace(membership, uac + membership, 1)
+          anchor = ('                        MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),\n'
+                    '                        MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),')
+          replacement = ('                        MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),\n'
+                         '                        MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION),\n'
+                         '                        MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),')
+          count = s.count(anchor)
+          if count != 2:
+              raise SystemExit(f'expected 2 CRM upgrade anchors, found {count}')
+          s = s.replace(anchor, replacement)
+          crm.write_text(s)
+
+          history = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java')
+          h = history.read_text()
+          anchor = '            , "20261001.2"   // platform iam memberships'
+          if anchor not in h:
+              raise SystemExit('missing Flyway history Platform IAM anchor')
+          h = h.replace(anchor,
+                        '            , "20261001.1"   // Wave 1 Task 1 UAC override/relationship/authorization-event foundation\n'
+                        + anchor, 1)
+          history.write_text(h)
+
+          crm008b = Path('apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java')
+          c = crm008b.read_text()
+          c = c.replace('    //   V20261001_2..3 = Platform IAM membership and role-metadata schema\n',
+                        '    //   V20260925_1..2 = subscription resource entitlements + operating-unit/branch attribution\n'
+                        '    //   V20261001_1 = UAC override/relationship/authorization-event foundation\n'
+                        '    //   V20261001_2..6 = Platform IAM schema, catalog, roles, and owner bootstrap\n')
+          crm008b.write_text(c)
+
+          r0 = Path('apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G02SchemaPostgresTest.java')
+          r = r0.read_text()
+          r = r.replace('            // V20261001_2..3 add the Platform IAM membership and role-metadata schema.\n',
+                        '            // V20260925_1..2 add the forward-only subscription resource and branch model.\n'
+                        '            // V20261001_1 adds the UAC authorization persistence foundation.\n'
+                        '            // V20261001_2..6 add the forward-only Platform IAM chain.\n')
+          r0.write_text(r)
+          PY
+
+          uac="$root/V20261001_1__uac_overrides_relationships_events.sql"
+          test "$(git hash-object "$uac")" = "583f0ad37b55210789a96923afc5568aed7a2b50"
+
+          ! git grep -n -E 'V20260926_[1-5]|20260926\.[1-5]' -- \
+            apps/sanad-platform/src/main/resources/db/migration \
+            apps/sanad-platform/src/test/java/com/sanad/platform/platformiam \
+            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/Crm008bFoundationAcceptanceTest.java \
+            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java \
+            apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmPostgresMigrationTest.java \
+            apps/sanad-platform/src/test/java/com/sanad/platform/hr/recruitment/db/HrG1MigrationTest.java \
+            apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G02SchemaPostgresTest.java
+          ! git grep -n 'V20261002_' -- apps/sanad-platform/src/main/resources/db/migration/V20261001_[2-6]__*.sql
+          git grep -q '20261001.1' apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java
+          git grep -q '20261001.6' apps/sanad-platform/src/test/java/com/sanad/platform/crm/web/CrmFlywayHistoryAssertionTest.java
+          git diff --check
+
+          git rm .github/workflows/platform-iam-reconcile-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(platform-iam): forward-reconcile Flyway ledger after Wave 1'
+          git push origin HEAD:feature/platform-iam
