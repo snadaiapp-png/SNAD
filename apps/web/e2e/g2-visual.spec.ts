@@ -120,18 +120,18 @@ const LANDING_GROUP = {
 
 for (const role of ["employee", "manager", "hr"] as const) {
   test.describe(`G2 visual ${role}`, () => {
-    test(`${role} role surfaces are visually certifiable`, async ({ page }, testInfo) => {
-      const locale = testInfo.project.use.locale === "en" ? "en" : "ar";
-      await page.addInitScript((selectedLocale) => {
-        localStorage.setItem("snad.locale", selectedLocale);
-        localStorage.setItem("snad.theme", "light");
-      }, locale);
-      initializeVisualDiagnostics(page);
+    for (const surface of SURFACES[role]) {
+      test(`${role} ${surface.route} is visually certifiable`, async ({ page }, testInfo) => {
+        const locale = testInfo.project.use.locale === "en" ? "en" : "ar";
+        await page.addInitScript((selectedLocale) => {
+          localStorage.setItem("snad.locale", selectedLocale);
+          localStorage.setItem("snad.theme", "light");
+        }, locale);
+        initializeVisualDiagnostics(page);
 
-      const login = await loginThroughUi(page, role);
-      expect(login.user.email).toBe(roleEmail(role));
+        const login = await loginThroughUi(page, role);
+        expect(login.user.email).toBe(roleEmail(role));
 
-      for (const surface of SURFACES[role]) {
         await page.goto(`${BASE_URL}${surface.route}`);
         await page.waitForLoadState("domcontentloaded");
         await assertVisualSurface(page, surface);
@@ -156,7 +156,7 @@ for (const role of ["employee", "manager", "hr"] as const) {
         }
 
         await captureVisualEvidence(page, role, surface.route, testInfo.project.name);
-      }
-    });
+      });
+    }
   });
 }
