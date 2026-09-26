@@ -61,6 +61,10 @@ for (const role of ["employee", "manager", "hr"] as const) {
 
         await expect(page.locator("html")).toHaveAttribute("lang", locale);
         await expect(page.locator("html")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+        await expect(
+          page.locator("body"),
+          `${role} ${surface.route} must not expose unresolved HRM translation keys`,
+        ).not.toContainText("hrm.");
 
         if (surface.route === "/hr") {
           await expect(page.getByTestId(LANDING_GROUP[role])).toBeVisible();
