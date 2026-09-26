@@ -478,7 +478,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_WORKFLOW_LINKAGE_VERSION),
                         MigrationVersion.fromVersion(HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION),
                         MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION),
-                        MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION));
+                        MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -679,7 +681,9 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_WORKFLOW_LINKAGE_VERSION),
                         MigrationVersion.fromVersion(HR_G2_IDEMPOTENCY_CONSTRAINT_VERSION),
                         MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION),
-                        MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION));
+                        MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
+                        MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
