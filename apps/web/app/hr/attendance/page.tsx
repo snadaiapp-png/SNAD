@@ -2,7 +2,7 @@
 
 /**
  * Attendance Tracking — G2-T03 SELF surface.
- * Clock in/out + monthly attendance records.
+ * Clock in/out + operational summary + recent attendance history.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -15,6 +15,14 @@ import { HrWorkspace } from "../components/hr-workspace";
 import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
+import {
+  HrActionBar,
+  HrKpiCard,
+  HrKpiGrid,
+  HrMobileRecordList,
+  HrOperationalPanel,
+  HrProductHeader,
+} from "../components/hr-product-surface";
 import { formatLocalizedDate } from "../hr-labels";
 import styles from "../hr.module.css";
 
@@ -116,7 +124,12 @@ export default function AttendancePage() {
     );
   }
 
+  const today = new Date().toISOString().slice(0, 10);
   const openRecord = records.find((record) => record.state === "OPEN" && !record.clockOut);
+  const todayRecord = records.find((record) => record.recordDate === today) ?? openRecord;
+  const currentState = openRecord?.state ?? todayRecord?.state ?? null;
+  const monthWorked = records.reduce((total, record) => total + (record.workedMinutes ?? 0), 0);
+  const recentRecords = [...records].sort((a, b) => b.recordDate.localeCompare(a.recordDate)).slice(0, 5);
 
   const columns: HrColumn<AttendanceRecord>[] = [
     { key: "recordDate", header: t("hrm.attendance.col.date"), render: (r) => formatLocalizedDate(r.recordDate, locale) },
@@ -130,42 +143,76 @@ export default function AttendancePage() {
 
   return (
     <HrWorkspace capabilities={capabilities} activeHref="/hr/attendance" translate={t}>
-      <header>
-        <h1 data-testid="g2-page-title">{t("hrm.attendance.title")}</h1>
-        <p className={styles.kpiHint}>{t("hrm.attendance.subtitle")}</p>
-      </header>
+      <div data-testid="attendance-product-surface">
+        <HrProductHeader
+          eyebrow={t("hrm.g2.landing.myWorkday")}
+          title={t("hrm.attendance.title")}
+          subtitle={t("hrm.attendance.subtitle")}
+          trailing={currentState ? <HrStateBadge label={t("hrm.attendance.state." + currentState)} code={currentState} tone={toneForState(currentState)} /> : null}
+        />
 
-      {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
-      {dialogError ? <p role="alert" className={styles.kpiHint} data-kind="error">{dialogError}</p> : null}
+        {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
+        {dialogError ? <p role="alert" className={styles.kpiHint} data-kind="error">{dialogError}</p> : null}
 
-      {loading ? (
-        <HrLoading />
-      ) : error ? (
-        <HrErrorState error={error} onRetry={load} />
-      ) : (
-        <div data-testid="attendance-ready">
-          {canManage ? (
-            <div className={styles.actionRow}>
-              {openRecord ? (
-                <button type="button" data-testid="attendance-clock-out" className={styles.linkButton} onClick={() => void clockOut(openRecord.id)} disabled={busy}>
-                  {t("hrm.attendance.clockOut")}
-                </button>
-              ) : (
-                <button type="button" data-testid="attendance-clock-in" className={styles.linkButton} onClick={() => void clockIn()} disabled={busy}>
-                  {busy ? t("hrm.attendance.clockingIn") : t("hrm.attendance.clockIn")}
-                </button>
-              )}
+        {loading ? (
+          <HrLoading />
+        ) : error ? (
+          <HrErrorState error={error} onRetry={load} />
+        ) : (
+          <div data-testid="attendance-ready">
+            <HrKpiGrid label={t("hrm.attendance.title")}>
+              <div data-testid="attendance-current-state">
+                <HrKpiCard
+                  label={t("hrm.attendance.col.state")}
+                  value={currentState ? t("hrm.attendance.state." + currentState) : "—"}
+                  hint={todayRecord ? formatLocalizedDate(todayRecord.recordDate, locale) : t("hrm.attendance.empty")}
+                  tone={openRecord ? "attention" : todayRecord ? "positive" : "neutral"}
+                />
+              </div>
+              <div data-testid="attendance-today-worked">
+                <HrKpiCard label={t("hrm.attendance.kpi.todayWorked")} value={formatHours(todayRecord?.workedMinutes ?? null, locale)} />
+              </div>
+              <HrKpiCard label={t("hrm.attendance.kpi.monthWorked")} value={formatHours(monthWorked, locale)} hint={`${records.length}`} />
+            </HrKpiGrid>
+
+            <HrActionBar label={t("hrm.attendance.title")}>
+              {canManage ? (
+                openRecord ? (
+                  <button type="button" data-testid="attendance-clock-out" className={styles.linkButton} onClick={() => void clockOut(openRecord.id)} disabled={busy}>
+                    {busy ? t("hrm.attendance.clockingOut") : t("hrm.attendance.clockOut")}
+                  </button>
+                ) : (
+                  <button type="button" data-testid="attendance-clock-in" className={styles.linkButton} onClick={() => void clockIn()} disabled={busy}>
+                    {busy ? t("hrm.attendance.clockingIn") : t("hrm.attendance.clockIn")}
+                  </button>
+                )
+              ) : <span className={styles.kpiHint}>{t("hrm.attendance.col.state")}</span>}
+            </HrActionBar>
+
+            <div data-testid="attendance-history-panel">
+              <HrOperationalPanel label={t("hrm.attendance.title")} title={t("hrm.attendance.title")} description={t("hrm.attendance.subtitle")}>
+                <HrDataTable<AttendanceRecord>
+                  caption={t("hrm.attendance.title")}
+                  columns={columns}
+                  rows={records}
+                  rowKey={(r) => r.id}
+                  emptyTitle={t("hrm.attendance.empty")}
+                />
+                <HrMobileRecordList label={t("hrm.attendance.title")}>
+                  {recentRecords.map((record) => (
+                    <article key={record.id} className={styles.statCard}>
+                      <strong>{formatLocalizedDate(record.recordDate, locale)}</strong>
+                      <span>{formatTime(record.clockIn, locale)} — {formatTime(record.clockOut, locale)}</span>
+                      <span>{formatHours(record.workedMinutes, locale)}</span>
+                      <HrStateBadge label={t("hrm.attendance.state." + record.state)} code={record.state} tone={toneForState(record.state)} />
+                    </article>
+                  ))}
+                </HrMobileRecordList>
+              </HrOperationalPanel>
             </div>
-          ) : null}
-          <HrDataTable<AttendanceRecord>
-            caption={t("hrm.attendance.title")}
-            columns={columns}
-            rows={records}
-            rowKey={(r) => r.id}
-            emptyTitle={t("hrm.attendance.empty")}
-          />
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </HrWorkspace>
   );
 }
