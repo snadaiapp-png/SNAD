@@ -12,10 +12,8 @@ Restart=always
 RestartSec=10
 StandardOutput=append:/var/log/sanad-backend.log
 StandardError=append:/var/log/sanad-backend.err
+EnvironmentFile=/etc/sanad-platform/sanad-backend.env
 Environment=SPRING_PROFILES_ACTIVE=prod
-Environment=DATABASE_URL=jdbc:postgresql://localhost:5432/sanad
-Environment=DATABASE_USERNAME=sanad_backend
-Environment=DATABASE_PASSWORD=Snad@2026!Backend
 Environment=FLYWAY_ENABLED=true
 Environment=JPA_DDL_AUTO=validate
 Environment=SERVER_PORT=8080
