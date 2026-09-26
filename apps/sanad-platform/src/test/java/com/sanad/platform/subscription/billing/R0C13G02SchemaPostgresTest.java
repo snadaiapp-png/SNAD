@@ -100,7 +100,8 @@ class R0C13G02SchemaPostgresTest {
             // V20260921_1 adds the forward-only canonical project-owner permissions repair.
             // V20260922_1 adds HRM-G1 canonical operator capabilities and ADMIN tenant scopes.
             // V20260925_1..2 add the forward-only subscription resource and branch model.
-            assertThat(rs.getString(1)).isEqualTo("20260925.2");
+            // V20261001_1 adds the forward-only UAC override, relationship, and authorization-event foundation.
+            assertThat(rs.getString(1)).isEqualTo("20261001.1");
         }
     }
 
