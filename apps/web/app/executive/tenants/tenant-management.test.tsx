@@ -312,19 +312,9 @@ describe("Executive tenant management controls", () => {
     const locale = screen.getByLabelText("scp.tenants.form.locale");
     const timezone = screen.getByLabelText("scp.tenants.form.timezone");
 
-    // Invalid country codes are rejected locally and never reach the API.
-    await user.clear(country);
-    await user.type(country, "S1");
-    await user.click(screen.getByRole("button", { name: "form.action.save" }));
-
+    // Governed selectors are <select> elements: free-text entry is impossible,
+    // so an invalid country code can never reach the API through this dialog.
     expect(updateTenantMock).not.toHaveBeenCalled();
-    const countryAlert = screen.getByRole("alert");
-    expect(countryAlert.textContent).toMatch(/scp\.tenants\.validation\.countryInvalid/);
-    expect(countryAlert.textContent).not.toMatch(/[\^$\\[\]{}]/);
-
-    const countryFixed = screen.getByLabelText("scp.tenants.form.countryCode");
-    await user.clear(countryFixed);
-    await user.type(countryFixed, "SA");
     const currency = screen.getByLabelText("scp.tenants.form.currencyCode");
 
     expect(country.tagName).toBe("SELECT");

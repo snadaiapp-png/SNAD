@@ -45,6 +45,7 @@ const baseTenant: TenantRow = {
   currencyCode: "SAR",
   subscriptionCount: 0,
   subscriptionStatus: null,
+  applicationHostname: null,
   effectiveSubscriptionId: null,
   billingState: null,
   accessDecision: "NO_EFFECTIVE_SUBSCRIPTION",

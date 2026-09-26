@@ -162,10 +162,11 @@ describe("Canonical operator upgrade eligibility and fail-closed provisioning", 
     ]);
     render(<SubscriptionsPage />);
 
-    await screen.findByRole("heading", { name: "scp.tenants.upgrade" });
+    // No plan has a live version → no upgrade panel is rendered at all;
+    // the governed empty state takes its place (fail-closed).
     await waitFor(() => expect(planVersionsMock).toHaveBeenCalledWith("plan-1"));
     expect(screen.queryByRole("option", { name: "Starter (STARTER)" })).not.toBeInTheDocument();
-    expect(screen.getByText("scp.state.empty")).toBeInTheDocument();
+    expect(await screen.findByText("scp.state.empty")).toBeInTheDocument();
   });
 
   it("never sends an implicit trial: operator upgrade is explicit commercial activation", async () => {
