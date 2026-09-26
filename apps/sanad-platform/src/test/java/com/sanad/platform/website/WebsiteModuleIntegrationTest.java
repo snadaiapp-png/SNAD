@@ -232,7 +232,7 @@ class WebsiteModuleIntegrationTest {
     void verifyDomain_thenActivate_succeeds() {
         var website = websiteService.create(tenantId, new CreateWebsiteRequest("Test", "verify-test", "ar"), null);
         var domain = domainService.registerCustomDomain(tenantId, website.id(),
-                new CreateDomainRequest("verify.example.com", WebsiteDomain.VerificationMethod.DNS_TXT), null);
+                new CreateDomainRequest("website-module-verify.example.com", WebsiteDomain.VerificationMethod.DNS_TXT), null);
         // Verify with correct token
         var verified = domainService.verifyDomain(tenantId, website.id(), domain.id(),
                 new VerifyDomainRequest(domain.verificationToken()), null);

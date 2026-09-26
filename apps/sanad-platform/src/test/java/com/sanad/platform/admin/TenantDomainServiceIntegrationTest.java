@@ -130,7 +130,7 @@ class TenantDomainServiceIntegrationTest {
 
     @Test
     void verifyDomain_transitionsUnverifiedToVerified() {
-        var created = createDomain("verify.example.com");
+        var created = createDomain("tenant-domain-verify.example.com");
         var req = new VerifyDomainRequest(created.verificationToken());
         var verified = domainService.verifyDomain(tenantId, created.id(), req, null);
 
