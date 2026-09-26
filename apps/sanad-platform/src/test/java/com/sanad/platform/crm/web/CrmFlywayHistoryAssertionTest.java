@@ -277,6 +277,9 @@ class CrmFlywayHistoryAssertionTest {
             , "20260924.6"   // hr g2 fail-closed RLS empty context repair
             , "20260926.1"   // platform iam memberships
             , "20260926.2"   // platform iam role metadata
+            , "20260926.3"   // platform iam capabilities
+            , "20260926.4"   // platform iam roles
+            , "20260926.5"   // platform owner bootstrap
     );
 
 

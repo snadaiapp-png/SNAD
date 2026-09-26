@@ -100,7 +100,7 @@ class R0C13G02SchemaPostgresTest {
             // V20260921_1 adds the forward-only canonical project-owner permissions repair.
             // V20260922_1 adds HRM-G1 canonical operator capabilities and ADMIN tenant scopes.
             // V20260926_1..2 add the Platform IAM membership and role-metadata schema.
-            assertThat(rs.getString(1)).isEqualTo("20260926.2");
+            assertThat(rs.getString(1)).isEqualTo("20260926.5");
         }
     }
 

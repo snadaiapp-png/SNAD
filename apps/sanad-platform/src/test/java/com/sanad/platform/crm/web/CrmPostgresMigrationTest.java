@@ -215,7 +215,10 @@ class CrmPostgresMigrationTest {
     private static final String HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION = "20260924.6";
     private static final String PLATFORM_IAM_MEMBERSHIPS_VERSION = "20260926.1";
     private static final String PLATFORM_IAM_ROLE_METADATA_VERSION = "20260926.2";
-    private static final String LATEST_MIGRATION_VERSION = PLATFORM_IAM_ROLE_METADATA_VERSION;
+    private static final String PLATFORM_IAM_CAPABILITIES_VERSION = "20260926.3";
+    private static final String PLATFORM_IAM_ROLES_VERSION = "20260926.4";
+    private static final String PLATFORM_OWNER_BOOTSTRAP_VERSION = "20260926.5";
+    private static final String LATEST_MIGRATION_VERSION = PLATFORM_OWNER_BOOTSTRAP_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -480,7 +483,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
-                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION));
+                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLES_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_OWNER_BOOTSTRAP_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -683,7 +689,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_LEAVE_STATE_CANONICAL_ALIGNMENT_VERSION),
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
-                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION));
+                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLES_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_OWNER_BOOTSTRAP_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
