@@ -211,8 +211,13 @@ class ExecutiveReadModelsTest {
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).queryForList(sql.capture(), any(Object[].class));
         assertThat(sql.getValue())
+                // Canonical EFFECTIVE predicate: terminal rows are historical
+                // evidence and never represent the current commercial state.
                 .contains("s.status NOT IN ('CANCELLED', 'EXPIRED', 'TERMINATED')")
-                .doesNotContain("ORDER BY s.created_at DESC, s.id DESC LIMIT 1");
+                // Deterministic single-row safety (main): under an anomalous
+                // multi-row non-terminal state the subselect still resolves
+                // exactly one ordered row instead of erroring.
+                .contains("ORDER BY s.created_at DESC, s.id DESC LIMIT 1");
     }
 
     @Test

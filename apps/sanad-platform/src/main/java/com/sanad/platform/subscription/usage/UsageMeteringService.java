@@ -74,6 +74,18 @@ public class UsageMeteringService {
             requireActiveUsageOperatingUnit(tenantId, organizationId);
         }
         UUID eventId = UUID.randomUUID();
+        // Idempotency probe-before-insert: the replay lookup MUST run before
+        // the insert. A query issued after a duplicate-key violation aborts
+        // with PostgreSQL 25P02 ("current transaction is aborted") and can
+        // never execute inside the same transaction. Duplicate replays return
+        // the canonical persisted event id, never a newly generated id.
+        java.util.List<UUID> persistedEvent = jdbc.queryForList("""
+                SELECT id FROM usage_events
+                 WHERE tenant_id = ? AND metric_code = ? AND idempotency_key = ?
+                """, UUID.class, tenantId, metricCode, idempotencyKey);
+        if (!persistedEvent.isEmpty()) {
+            return new IngestResult(persistedEvent.get(0), true);
+        }
         try {
             jdbc.update("""
                             INSERT INTO usage_events (
@@ -84,16 +96,9 @@ public class UsageMeteringService {
                     eventId, tenantId, organizationId, metricCode, quantity, source, idempotencyKey,
                     Timestamp.from(occurredAt));
         } catch (DuplicateKeyException e) {
-            // Idempotent replay must return the canonical persisted event id,
-            // never a newly generated id that does not exist in the database.
-            UUID existingEventId = jdbc.queryForObject("""
-                    SELECT id FROM usage_events
-                     WHERE tenant_id = ? AND metric_code = ? AND idempotency_key = ?
-                    """, UUID.class, tenantId, metricCode, idempotencyKey);
-            if (existingEventId == null) {
-                throw e;
-            }
-            return new IngestResult(existingEventId, true);
+            // Concurrent duplicate insert race: this transaction is now aborted
+            // (25P02) and cannot be probed — fail closed on the real constraint.
+            throw e;
         }
         upsertMonthlyAggregate(tenantId, metricCode, quantity, occurredAt);
         if (organizationId != null) {
