@@ -57,10 +57,10 @@ export default function MonthlyReportPage() {
         <HrKpiCard label={t("hrm.attendanceReport.workedMinutes")} value={workedMinutes} />
       </HrKpiGrid>
       <div data-testid="attendance-report-filter-bar"><HrActionBar label={t("hrm.attendanceReport.title")}><label htmlFor="year" className={styles.kpiLabel}>{t("hrm.attendanceReport.year")}</label><input id="year" type="number" className={styles.filterSelect} value={year} onChange={(e) => setYear(Number(e.target.value))} /><label htmlFor="month" className={styles.kpiLabel}>{t("hrm.attendanceReport.month")}</label><select id="month" className={styles.filterSelect} value={month} onChange={(e) => setMonth(Number(e.target.value))}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}</select></HrActionBar></div>
-      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <div data-testid="attendance-report-results-panel"><HrOperationalPanel label={t("hrm.attendanceReport.title")} title={`${t("hrm.attendanceReport.title")} — ${year}/${month}`} description={t("hrm.attendanceReport.subtitle")}>
+      {loading ? <HrLoading /> : error ? <HrErrorState error={error} onRetry={load} /> : <div data-testid="attendance-report-ready"><div data-testid="attendance-report-results-panel"><HrOperationalPanel label={t("hrm.attendanceReport.title")} title={`${t("hrm.attendanceReport.title")} — ${year}/${month}`} description={t("hrm.attendanceReport.subtitle")}>
         <HrDataTable<ReportRow> caption={`${t("hrm.attendanceReport.title")} — ${year}/${month}`} columns={columns} rows={rows} rowKey={(r) => r.employmentId} emptyTitle={t("hrm.attendanceReport.empty")} />
         <HrMobileRecordList label={t("hrm.attendanceReport.title")}>{rows.map((row) => <article key={row.employmentId} className={styles.statCard}><strong>{row.employmentId}</strong><span>{t("hrm.attendanceReport.workedMinutes")}: {row.workedMinutes}</span><span>{t("hrm.attendanceReport.absent")}: {row.absentDays}</span><span>{t("hrm.attendanceReport.late")}: {row.lateOccurrences}</span></article>)}</HrMobileRecordList>
-      </HrOperationalPanel></div>}
+      </HrOperationalPanel></div></div>}
     </div>
   </HrWorkspace>;
 }
