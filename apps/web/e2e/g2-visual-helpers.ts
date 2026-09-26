@@ -7,6 +7,9 @@ export type G2Role = "employee" | "manager" | "hr";
 export interface VisualSurface {
   route: string;
   readyTestId: string;
+  productSurfaceTestId: string;
+  requiredProductTestIds: readonly string[];
+  forbiddenTestIds?: readonly string[];
 }
 
 interface VisualDiagnostics {
@@ -32,7 +35,25 @@ export function initializeVisualDiagnostics(page: Page): void {
 export async function assertVisualSurface(page: Page, surface: VisualSurface): Promise<void> {
   const state = diagnostics.get(page);
   expect(state, "initializeVisualDiagnostics(page) must run before route navigation").toBeDefined();
+
+  expect(new URL(page.url()).pathname, `${surface.route} must not redirect to a shell, login, or unauthorized route`).toBe(
+    surface.route,
+  );
   await expect(page.getByTestId(surface.readyTestId)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId(surface.productSurfaceTestId)).toBeVisible({ timeout: 20_000 });
+  for (const testId of surface.requiredProductTestIds) {
+    await expect(
+      page.getByTestId(testId),
+      `${surface.route} must expose product marker ${testId}`,
+    ).toBeVisible({ timeout: 20_000 });
+  }
+  for (const testId of surface.forbiddenTestIds ?? []) {
+    await expect(
+      page.getByTestId(testId),
+      `${surface.route} must not expose forbidden role control ${testId}`,
+    ).toHaveCount(0);
+  }
+
   await expect(page.locator("main").first()).toBeVisible();
   expect(state!.pageErrors, `page errors on ${surface.route}: ${state!.pageErrors.join(" | ")}`).toEqual([]);
   expect(state!.failedHrResponses, `failed HR API responses on ${surface.route}: ${state!.failedHrResponses.join(" | ")}`).toEqual([]);

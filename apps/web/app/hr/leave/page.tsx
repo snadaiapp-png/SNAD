@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Leave Management — G2-T04 SELF surface.
+ * Leave Management — G2-T04 SELF product surface.
  * Employees request leave and view only their own requests/balances.
  * Manager/HR decisions live on the scoped /hr/leave/approvals surface.
  */
@@ -15,6 +15,14 @@ import { HrWorkspace } from "../components/hr-workspace";
 import { HrErrorState, HrLoading, hrmErrorMessage } from "../components/hr-feedback";
 import { HrDataTable, type HrColumn } from "../components/hr-data-table";
 import { HrStateBadge, toneForState } from "../components/hr-state-badge";
+import {
+  HrActionBar,
+  HrKpiCard,
+  HrKpiGrid,
+  HrMobileRecordList,
+  HrOperationalPanel,
+  HrProductHeader,
+} from "../components/hr-product-surface";
 import { formatLocalizedDate } from "../hr-labels";
 import styles from "../hr.module.css";
 
@@ -124,6 +132,12 @@ export default function LeavePage() {
     return locale === "ar" ? type.nameAr : type.nameEn;
   };
 
+  const pendingStates = new Set(["DRAFT", "SUBMITTED", "PENDING", "PENDING_MANAGER", "PENDING_HR"]);
+  const remainingDays = balances.reduce((total, balance) => total + Number(balance.entitledDays) - Number(balance.usedDays) - Number(balance.pendingDays), 0);
+  const pendingRequests = requests.filter((request) => pendingStates.has(request.state));
+  const approvedRequests = requests.filter((request) => request.state === "APPROVED" || request.state === "COMPLETED");
+  const orderedRequests = [...requests].sort((a, b) => b.startDate.localeCompare(a.startDate));
+
   const reqColumns: HrColumn<LeaveRequest>[] = [
     { key: "leaveTypeId", header: t("hrm.leave.col.type"), render: (r) => typeName(r.leaveTypeId) },
     { key: "startDate", header: t("hrm.leave.col.startDate"), render: (r) => formatLocalizedDate(r.startDate, locale) },
@@ -145,85 +159,110 @@ export default function LeavePage() {
 
   return (
     <HrWorkspace capabilities={capabilities} activeHref="/hr/leave" translate={t}>
-      <header>
-        <h1 data-testid="g2-page-title">{t("hrm.leave.title")}</h1>
-        <p className={styles.kpiHint}>{t("hrm.leave.subtitle")}</p>
-      </header>
+      <div data-testid="leave-product-surface">
+        <HrProductHeader eyebrow={t("hrm.g2.landing.myWorkday")} title={t("hrm.leave.title")} subtitle={t("hrm.leave.subtitle")} />
 
-      {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
+        {notice ? <p role="status" className={styles.kpiHint}>{notice}</p> : null}
 
-      {canRequest ? (
-        <button type="button" className={styles.linkButton} onClick={() => setShowForm(!showForm)} data-testid="request-leave-toggle">
-          {t("hrm.leave.action.request")}
-        </button>
-      ) : null}
+        {loading ? (
+          <HrLoading />
+        ) : error ? (
+          <HrErrorState error={error} onRetry={load} />
+        ) : (
+          <div data-testid="leave-ready">
+            <HrKpiGrid label={t("hrm.leave.title")}>
+              <div data-testid="leave-balance-summary">
+                <HrKpiCard label={t("hrm.leave.balances.col.remaining")} value={remainingDays.toFixed(1)} hint={t("hrm.leave.balances.title")} tone="positive" />
+              </div>
+              <div data-testid="leave-pending-summary">
+                <HrKpiCard label={t("hrm.leave.balances.col.pending")} value={pendingRequests.length} hint={t("hrm.leave.col.state")} tone={pendingRequests.length > 0 ? "attention" : "neutral"} />
+              </div>
+              <div data-testid="leave-approved-summary">
+                <HrKpiCard label={t("hrm.leave.state.APPROVED")} value={approvedRequests.length} hint={t("hrm.leave.title")} tone="positive" />
+              </div>
+            </HrKpiGrid>
 
-      {showForm ? (
-        <form onSubmit={(e) => { e.preventDefault(); void submitLeaveRequest(); }} aria-label={t("hrm.leave.action.request")} data-testid="leave-request-form">
-          <p>
-            <label htmlFor="leave-type" className={styles.kpiLabel}>{t("hrm.leave.form.type")}</label>
-            <select id="leave-type" className={styles.filterSelect} value={formLeaveType}
-              onChange={(e) => setFormLeaveType(e.target.value)} required aria-required="true" data-testid="leave-type">
-              <option value="">—</option>
-              {leaveTypes.map((item) => <option key={item.id} value={item.id}>{locale === "ar" ? item.nameAr : item.nameEn}</option>)}
-            </select>
-          </p>
-          <p>
-            <label htmlFor="leave-start" className={styles.kpiLabel}>{t("hrm.leave.form.startDate")}</label>
-            <input id="leave-start" type="date" className={styles.filterSelect} value={formStartDate}
-              onChange={(e) => setFormStartDate(e.target.value)} required aria-required="true" data-testid="leave-start" />
-          </p>
-          <p>
-            <label htmlFor="leave-end" className={styles.kpiLabel}>{t("hrm.leave.form.endDate")}</label>
-            <input id="leave-end" type="date" className={styles.filterSelect} value={formEndDate}
-              onChange={(e) => setFormEndDate(e.target.value)} required aria-required="true" data-testid="leave-end" />
-          </p>
-          <p>
-            <label htmlFor="leave-reason" className={styles.kpiLabel}>{t("hrm.leave.form.reason")}</label>
-            <textarea id="leave-reason" className={styles.reasonTextarea} value={formReason}
-              onChange={(e) => setFormReason(e.target.value)} placeholder={t("hrm.leave.form.reasonPlaceholder")} data-testid="leave-reason" />
-          </p>
-          {formError ? <p role="alert" className={styles.kpiHint} data-kind="error">{formError}</p> : null}
-          <div className={styles.actionRow}>
-            <button type="submit" className={styles.linkButton} disabled={busy} data-testid="leave-submit">
-              {busy ? t("hrm.leave.form.submitting") : t("hrm.leave.form.submit")}
-            </button>
-            <button type="button" className={styles.linkButton} onClick={() => setShowForm(false)} data-testid="leave-cancel">
-              {t("hrm.leave.reasonDialog.cancel")}
-            </button>
+            <HrActionBar label={t("hrm.leave.action.request")}>
+              {canRequest ? (
+                <button type="button" className={styles.linkButton} onClick={() => setShowForm(!showForm)} data-testid="request-leave-toggle">
+                  {t("hrm.leave.action.request")}
+                </button>
+              ) : <span className={styles.kpiHint}>{t("hrm.leave.title")}</span>}
+            </HrActionBar>
+
+            {showForm ? (
+              <HrOperationalPanel label={t("hrm.leave.action.request")} title={t("hrm.leave.action.request")} description={t("hrm.leave.subtitle")}>
+                <form onSubmit={(e) => { e.preventDefault(); void submitLeaveRequest(); }} aria-label={t("hrm.leave.action.request")} data-testid="leave-request-form">
+                  <p>
+                    <label htmlFor="leave-type" className={styles.kpiLabel}>{t("hrm.leave.form.type")}</label>
+                    <select id="leave-type" className={styles.filterSelect} value={formLeaveType}
+                      onChange={(e) => setFormLeaveType(e.target.value)} required aria-required="true" data-testid="leave-type">
+                      <option value="">—</option>
+                      {leaveTypes.map((item) => <option key={item.id} value={item.id}>{locale === "ar" ? item.nameAr : item.nameEn}</option>)}
+                    </select>
+                  </p>
+                  <p>
+                    <label htmlFor="leave-start" className={styles.kpiLabel}>{t("hrm.leave.form.startDate")}</label>
+                    <input id="leave-start" type="date" className={styles.filterSelect} value={formStartDate}
+                      onChange={(e) => setFormStartDate(e.target.value)} required aria-required="true" data-testid="leave-start" />
+                  </p>
+                  <p>
+                    <label htmlFor="leave-end" className={styles.kpiLabel}>{t("hrm.leave.form.endDate")}</label>
+                    <input id="leave-end" type="date" className={styles.filterSelect} value={formEndDate}
+                      onChange={(e) => setFormEndDate(e.target.value)} required aria-required="true" data-testid="leave-end" />
+                  </p>
+                  <p>
+                    <label htmlFor="leave-reason" className={styles.kpiLabel}>{t("hrm.leave.form.reason")}</label>
+                    <textarea id="leave-reason" className={styles.reasonTextarea} value={formReason}
+                      onChange={(e) => setFormReason(e.target.value)} placeholder={t("hrm.leave.form.reasonPlaceholder")} data-testid="leave-reason" />
+                  </p>
+                  {formError ? <p role="alert" className={styles.kpiHint} data-kind="error">{formError}</p> : null}
+                  <div className={styles.actionRow}>
+                    <button type="submit" className={styles.linkButton} disabled={busy} data-testid="leave-submit">
+                      {busy ? t("hrm.leave.form.submitting") : t("hrm.leave.form.submit")}
+                    </button>
+                    <button type="button" className={styles.linkButton} onClick={() => setShowForm(false)} data-testid="leave-cancel">
+                      {t("hrm.leave.reasonDialog.cancel")}
+                    </button>
+                  </div>
+                </form>
+              </HrOperationalPanel>
+            ) : null}
+
+            <HrOperationalPanel label={t("hrm.leave.balances.title")} title={t("hrm.leave.balances.title")}>
+              <HrDataTable<LeaveBalance>
+                caption={t("hrm.leave.balances.title")}
+                columns={balColumns}
+                rows={balances}
+                rowKey={(b) => b.id}
+                emptyTitle={t("hrm.leave.balances.empty")}
+              />
+            </HrOperationalPanel>
+
+            <div data-testid="leave-requests-panel">
+              <HrOperationalPanel label={t("hrm.leave.title")} title={t("hrm.leave.title")} description={t("hrm.leave.subtitle")}>
+                <HrDataTable<LeaveRequest>
+                  caption={t("hrm.leave.title")}
+                  columns={reqColumns}
+                  rows={orderedRequests}
+                  rowKey={(r) => r.id}
+                  emptyTitle={t("hrm.leave.empty")}
+                />
+                <HrMobileRecordList label={t("hrm.leave.title")}>
+                  {orderedRequests.slice(0, 5).map((request) => (
+                    <article key={request.id} className={styles.statCard}>
+                      <strong>{typeName(request.leaveTypeId)}</strong>
+                      <span>{formatLocalizedDate(request.startDate, locale)} — {formatLocalizedDate(request.endDate, locale)}</span>
+                      <span>{request.daysCount} · {t("hrm.leave.col.days")}</span>
+                      <HrStateBadge label={t("hrm.leave.state." + request.state)} code={request.state} tone={toneForState(request.state)} />
+                    </article>
+                  ))}
+                </HrMobileRecordList>
+              </HrOperationalPanel>
+            </div>
           </div>
-        </form>
-      ) : null}
-
-      {loading ? (
-        <HrLoading />
-      ) : error ? (
-        <HrErrorState error={error} onRetry={load} />
-      ) : (
-        <div data-testid="leave-ready">
-          <section aria-label={t("hrm.leave.balances.title")}>
-            <h2>{t("hrm.leave.balances.title")}</h2>
-            <HrDataTable<LeaveBalance>
-              caption={t("hrm.leave.balances.title")}
-              columns={balColumns}
-              rows={balances}
-              rowKey={(b) => b.id}
-              emptyTitle={t("hrm.leave.balances.empty")}
-            />
-          </section>
-
-          <section aria-label={t("hrm.leave.title")}>
-            <h2>{t("hrm.leave.title")}</h2>
-            <HrDataTable<LeaveRequest>
-              caption={t("hrm.leave.title")}
-              columns={reqColumns}
-              rows={requests}
-              rowKey={(r) => r.id}
-              emptyTitle={t("hrm.leave.empty")}
-            />
-          </section>
-        </div>
-      )}
+        )}
+      </div>
     </HrWorkspace>
   );
 }
