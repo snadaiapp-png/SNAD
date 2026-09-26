@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const WEB_ROOT = resolve(__dirname, "../../..");
+const WEB_ROOT = resolve(__dirname, "../..");
 const visualSpec = readFileSync(resolve(WEB_ROOT, "e2e/g2-visual.spec.ts"), "utf8");
 const visualHelpers = readFileSync(resolve(WEB_ROOT, "e2e/g2-visual-helpers.ts"), "utf8");
 
