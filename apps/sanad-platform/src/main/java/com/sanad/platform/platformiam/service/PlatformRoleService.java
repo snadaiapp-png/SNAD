@@ -29,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -51,6 +50,7 @@ public class PlatformRoleService {
     private final PlatformAuditService audit;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public PlatformRoleService(
             ControlPlaneAccessGuard controlPlaneAccessGuard,
             RoleService roles,
@@ -153,7 +153,7 @@ public class PlatformRoleService {
             ReplaceRoleCapabilitiesRequest request) {
         Objects.requireNonNull(request, "request");
         UUID tenantId = controlTenant(actor);
-        PlatformRoleMetadata item = requireMutableCustomRole(tenantId, roleId);
+        requireMutableCustomRole(tenantId, roleId);
         List<RoleAccessResponse> current = roleCapabilities.list(tenantId, roleId);
         Set<UUID> desired = new HashSet<>(request.capabilityIds());
         Set<UUID> existing = new HashSet<>();
