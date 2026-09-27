@@ -40,12 +40,12 @@ class PlatformOwnerSafetyServiceTest {
     @ValueSource(strings = {"SUSPENDED", "LOCKED", "DISABLED"})
     void lastOwnerMembershipDeactivationIsRejected(String requestedState) {
         Fixture fixture = fixture(List.of(membership(OWNER_ONE)));
+        assertThat(requestedState).isIn("SUSPENDED", "LOCKED", "DISABLED");
 
         assertThatThrownBy(() -> fixture.service.assertMayDeactivateMembership(CONTROL_TENANT, OWNER_ONE))
                 .isInstanceOf(LastPlatformOwnerException.class)
                 .satisfies(error -> assertThat(((LastPlatformOwnerException) error).reasonCode())
-                        .isEqualTo("LAST_PLATFORM_OWNER"))
-                .hasMessageContaining(requestedState.substring(0, 0));
+                        .isEqualTo("LAST_PLATFORM_OWNER"));
     }
 
     @Test
