@@ -1,0 +1,27 @@
+name: G2 Provisioning One-Time Dispatcher
+
+on:
+  push:
+    branches:
+      - chore/g2-provisioning-once-20260927
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch canonical G2 production identity provisioning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch canonical workflow on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/g2-production-identity-provisioning.yml/dispatches" \
+            -f ref=main
+          echo "G2_PROVISIONING_DISPATCH=REQUESTED"
