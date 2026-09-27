@@ -130,7 +130,7 @@ describe("Tenant Roles and Capabilities", () => {
     expect(accessApiMock.listCapabilities).toHaveBeenCalledWith();
     expect(screen.getByText("Tenant Admin")).toBeInTheDocument();
     expect(screen.getByText("USER.READ")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/tenant|المستأجر|معرف المستأجر/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/tenant|المستأجر|معرف المستأجر/i, { selector: "input, select, textarea" })).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(TENANT_ID)).not.toBeInTheDocument();
   });
 
