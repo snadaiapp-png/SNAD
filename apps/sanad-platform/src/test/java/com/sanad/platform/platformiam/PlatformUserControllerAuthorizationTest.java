@@ -30,25 +30,25 @@ class PlatformUserControllerAuthorizationTest {
         assertThat(mapping).isNotNull();
         assertThat(mapping.value()).containsExactly("/api/v1/executive/users");
 
-        assertCapability("list", "PLATFORM.USER.READ", Authentication.class);
-        assertCapability("get", "PLATFORM.USER.READ", Authentication.class, UUID.class);
-        assertCapability("create", "PLATFORM.USER.CREATE", Authentication.class, CreatePlatformUserRequest.class);
-        assertCapability("update", "PLATFORM.USER.UPDATE", Authentication.class, UUID.class,
+        assertCapability("listPlatformUsers", "PLATFORM.USER.READ", Authentication.class);
+        assertCapability("getPlatformUser", "PLATFORM.USER.READ", Authentication.class, UUID.class);
+        assertCapability("createPlatformUser", "PLATFORM.USER.CREATE", Authentication.class, CreatePlatformUserRequest.class);
+        assertCapability("updatePlatformUser", "PLATFORM.USER.UPDATE", Authentication.class, UUID.class,
                 com.sanad.platform.platformiam.dto.UpdatePlatformUserRequest.class);
-        assertCapability("activate", "PLATFORM.USER.UPDATE", Authentication.class, UUID.class,
+        assertCapability("activatePlatformUser", "PLATFORM.USER.UPDATE", Authentication.class, UUID.class,
                 com.sanad.platform.platformiam.dto.PlatformLifecycleRequest.class);
-        assertCapability("suspend", "PLATFORM.USER.SUSPEND", Authentication.class, UUID.class,
+        assertCapability("suspendPlatformUser", "PLATFORM.USER.SUSPEND", Authentication.class, UUID.class,
                 com.sanad.platform.platformiam.dto.PlatformLifecycleRequest.class);
-        assertCapability("lock", "PLATFORM.SECURITY.MANAGE", Authentication.class, UUID.class,
+        assertCapability("lockPlatformUser", "PLATFORM.SECURITY.MANAGE", Authentication.class, UUID.class,
                 com.sanad.platform.platformiam.dto.PlatformLifecycleRequest.class);
-        assertCapability("disable", "PLATFORM.USER.DISABLE", Authentication.class, UUID.class,
+        assertCapability("disablePlatformUser", "PLATFORM.USER.DISABLE", Authentication.class, UUID.class,
                 com.sanad.platform.platformiam.dto.PlatformLifecycleRequest.class);
-        assertCapability("roles", "PLATFORM.ROLE.READ", Authentication.class, UUID.class);
-        assertCapability("replaceRoles", "PLATFORM.ROLE.ASSIGN", Authentication.class, UUID.class,
+        assertCapability("listPlatformUserRoles", "PLATFORM.ROLE.READ", Authentication.class, UUID.class);
+        assertCapability("replacePlatformUserRoles", "PLATFORM.ROLE.ASSIGN", Authentication.class, UUID.class,
                 com.sanad.platform.platformiam.dto.ReplacePlatformRolesRequest.class);
-        assertCapability("permissions", "PLATFORM.PERMISSION.READ", Authentication.class, UUID.class);
-        assertCapability("sessions", "PLATFORM.SESSION.READ", Authentication.class, UUID.class);
-        assertCapability("revokeSessions", "PLATFORM.SESSION.REVOKE", Authentication.class, UUID.class,
+        assertCapability("listPlatformUserPermissions", "PLATFORM.PERMISSION.READ", Authentication.class, UUID.class);
+        assertCapability("getPlatformUserSessions", "PLATFORM.SESSION.READ", Authentication.class, UUID.class);
+        assertCapability("revokePlatformUserSessions", "PLATFORM.SESSION.REVOKE", Authentication.class, UUID.class,
                 com.sanad.platform.platformiam.dto.PlatformLifecycleRequest.class);
     }
 
@@ -60,7 +60,7 @@ class PlatformUserControllerAuthorizationTest {
         PlatformUserController controller = new PlatformUserController(users, roles, guard);
         Authentication actor = actor();
 
-        controller.list(actor);
+        controller.listPlatformUsers(actor);
 
         verify(guard).requireActive(actor);
         verify(users).list(actor);
