@@ -121,6 +121,34 @@ public class JdbcPlatformMembershipRepository implements PlatformMembershipRepos
             throw new IllegalArgumentException("roleCode must not be blank");
         }
 
+        String normalizedRoleCode = roleCode.trim();
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("controlTenantId", controlTenantId)
+                .addValue("roleCode", normalizedRoleCode);
+
+        // Serialize every owner-sensitive mutation on the stable role-metadata row.
+        // This lock is held until the caller's transaction completes, so a second
+        // concurrent mutation must observe the first mutation before re-counting.
+        List<UUID> lockedRoleIds = jdbc.query("""
+                SELECT prm.role_id
+                FROM platform_role_metadata prm
+                JOIN roles r
+                  ON r.tenant_id = prm.control_tenant_id
+                 AND r.id = prm.role_id
+                WHERE prm.control_tenant_id = :controlTenantId
+                  AND prm.owner_role = TRUE
+                  AND r.code = :roleCode
+                  AND r.status = 'ACTIVE'
+                FOR UPDATE OF prm
+                """,
+                parameters,
+                (rs, rowNum) -> rs.getObject("role_id", UUID.class));
+
+        if (lockedRoleIds.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected exactly one active protected owner role for control tenant");
+        }
+
         return jdbc.query("""
                 SELECT %s
                 FROM platform_memberships pm
@@ -141,9 +169,7 @@ public class JdbcPlatformMembershipRepository implements PlatformMembershipRepos
                 ORDER BY pm.user_id, pm.id
                 FOR UPDATE OF pm
                 """.formatted(PM_COLUMNS),
-                new MapSqlParameterSource()
-                        .addValue("controlTenantId", controlTenantId)
-                        .addValue("roleCode", roleCode.trim()),
+                parameters,
                 ROW_MAPPER);
     }
 
