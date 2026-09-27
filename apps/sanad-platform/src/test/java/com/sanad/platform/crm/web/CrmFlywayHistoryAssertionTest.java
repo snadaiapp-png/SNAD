@@ -275,10 +275,14 @@ class CrmFlywayHistoryAssertionTest {
             , "20260924.4"   // hr g2 idempotency constraint
             , "20260924.5"   // hr g2 leave state canonical alignment
             , "20260924.6"   // hr g2 fail-closed RLS empty context repair
-            // subscription convergence — renumbered forward-only above the HRM-G2 chain (out-of-order=false)
-            , "20260925.1"   // subscription website/store resource entitlement limits
-            , "20260925.2"   // subscription operating-unit / branch attribution
+            , "20260925.1"   // subscription resource entitlements
+            , "20260925.2"   // subscription operating units
             , "20261001.1"   // Wave 1 Task 1 UAC override/relationship/authorization-event foundation
+            , "20261001.2"   // platform iam memberships
+            , "20261001.3"   // platform iam role metadata
+            , "20261001.4"   // platform iam capabilities
+            , "20261001.5"   // platform iam roles
+            , "20261001.6"   // platform owner bootstrap
     );
 
 

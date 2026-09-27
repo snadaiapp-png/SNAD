@@ -216,7 +216,12 @@ class CrmPostgresMigrationTest {
     private static final String SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION = "20260925.1";
     private static final String SUBSCRIPTION_OPERATING_UNITS_VERSION = "20260925.2";
     private static final String UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION = "20261001.1";
-    private static final String LATEST_MIGRATION_VERSION = UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION;
+    private static final String PLATFORM_IAM_MEMBERSHIPS_VERSION = "20261001.2";
+    private static final String PLATFORM_IAM_ROLE_METADATA_VERSION = "20261001.3";
+    private static final String PLATFORM_IAM_CAPABILITIES_VERSION = "20261001.4";
+    private static final String PLATFORM_IAM_ROLES_VERSION = "20261001.5";
+    private static final String PLATFORM_OWNER_BOOTSTRAP_VERSION = "20261001.6";
+    private static final String LATEST_MIGRATION_VERSION = PLATFORM_OWNER_BOOTSTRAP_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -482,7 +487,12 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),
-                        MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION));
+                        MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLES_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_OWNER_BOOTSTRAP_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -686,7 +696,12 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),
-                        MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION));
+                        MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_IAM_ROLES_VERSION),
+                        MigrationVersion.fromVersion(PLATFORM_OWNER_BOOTSTRAP_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
