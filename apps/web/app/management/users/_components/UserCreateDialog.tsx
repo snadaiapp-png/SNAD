@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { Button, Input, Modal } from "@/components/sds";
-import type { UsersMessages } from "../users-i18n";
+import type { UsersMessages } from "@/lib/i18n/users-l10n";
 
 interface UserCreateDialogProps {
   open: boolean;
@@ -12,13 +12,7 @@ interface UserCreateDialogProps {
   onSubmit: (input: { email: string; displayName?: string | null }) => Promise<void>;
 }
 
-export function UserCreateDialog({
-  open,
-  busy,
-  messages,
-  onClose,
-  onSubmit,
-}: UserCreateDialogProps) {
+export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: UserCreateDialogProps) {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
 
@@ -37,29 +31,15 @@ export function UserCreateDialog({
       closeButtonLabel={messages.close}
       footer={
         <div style={{ display: "flex", gap: "var(--snad-space-2, 8px)", justifyContent: "flex-end" }}>
-          <Button variant="secondary" disabled={busy} onClick={onClose}>
-            {messages.cancel}
-          </Button>
-          <Button type="submit" form="tenant-user-create-form" loading={busy}>
-            {messages.submitCreate}
-          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>{messages.cancel}</Button>
+          <Button type="submit" form="tenant-user-create-form" loading={busy}>{messages.submitCreate}</Button>
         </div>
       }
     >
       <form id="tenant-user-create-form" onSubmit={submit}>
         <div style={{ display: "grid", gap: "var(--snad-space-4, 16px)" }}>
-          <Input
-            type="email"
-            label={messages.email}
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-          <Input
-            label={messages.displayName}
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
+          <Input type="email" label={messages.email} required value={email} onChange={(event) => setEmail(event.target.value)} />
+          <Input label={messages.displayName} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
         </div>
       </form>
     </Modal>
