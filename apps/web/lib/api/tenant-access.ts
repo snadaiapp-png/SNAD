@@ -62,20 +62,6 @@ export interface UserRoleLinkResponse {
 export type RoleLifecycleAction = "activate" | "deactivate" | "archive";
 export type CapabilityLifecycleAction = "activate" | "deactivate";
 
-function requireRoleAction(action: string): RoleLifecycleAction {
-  if (action !== "activate" && action !== "deactivate" && action !== "archive") {
-    throw new Error(`Invalid role lifecycle action: ${action}`);
-  }
-  return action;
-}
-
-function requireCapabilityAction(action: string): CapabilityLifecycleAction {
-  if (action !== "activate" && action !== "deactivate") {
-    throw new Error(`Invalid capability lifecycle action: ${action}`);
-  }
-  return action;
-}
-
 export function createTenantAccessApi(client: ApiClient = apiClient) {
   return {
     async listUserMemberships(userId: string) {
@@ -98,51 +84,8 @@ export function createTenantAccessApi(client: ApiClient = apiClient) {
       );
     },
 
-    async createRole(tenantId: string, input: CreateRoleRequest) {
-      return client.post<RoleResponse, CreateRoleRequest>("/api/v1/access/roles", input, {
-        query: { tenantId: requireValidUuid(tenantId, "tenantId") },
-      });
-    },
-
-    async updateRole(tenantId: string, roleId: string, input: UpdateRoleRequest) {
-      return client.put<RoleResponse, UpdateRoleRequest>(
-        `/api/v1/access/roles/${requireValidUuid(roleId, "roleId")}`,
-        input,
-        { query: { tenantId: requireValidUuid(tenantId, "tenantId") } },
-      );
-    },
-
-    async transitionRole(tenantId: string, roleId: string, action: RoleLifecycleAction) {
-      const validAction = requireRoleAction(action);
-      return client.patch<RoleResponse>(
-        `/api/v1/access/roles/${requireValidUuid(roleId, "roleId")}/${validAction}`,
-        undefined,
-        { query: { tenantId: requireValidUuid(tenantId, "tenantId") } },
-      );
-    },
-
     async listCapabilities() {
       return client.get<CapabilityResponse[]>("/api/v1/access/capabilities", undefined);
-    },
-
-    async createCapability(input: { code: string; name: string; description?: string | null }) {
-      return client.post<CapabilityResponse>("/api/v1/access/capabilities", input);
-    },
-
-    async updateCapability(
-      capabilityId: string,
-      input: { name: string; description?: string | null },
-    ) {
-      return client.put<CapabilityResponse>(
-        `/api/v1/access/capabilities/${requireValidUuid(capabilityId, "capabilityId")}`,
-        input,
-      );
-    },
-
-    async transitionCapability(capabilityId: string, action: CapabilityLifecycleAction) {
-      return client.patch<CapabilityResponse>(
-        `/api/v1/access/capabilities/${requireValidUuid(capabilityId, "capabilityId")}/${requireCapabilityAction(action)}`,
-      );
     },
 
     async listRoleCapabilities(tenantId: string, roleId: string) {
