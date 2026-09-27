@@ -65,12 +65,95 @@ describe("tenantAccessApi — roles and capabilities", () => {
     await expect(tenantAccessApi.getRole(TENANT_ID, "bad")).rejects.toThrow(ApiConfigurationError);
   });
 
+  it("creates and updates a tenant role through the canonical roles API", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({} as never);
+    vi.mocked(apiClient.put).mockResolvedValue({} as never);
+
+    const createBody = { code: "SUPPORT_OPERATOR", name: "Support operator", description: "Support role" };
+    await tenantAccessApi.createRole(TENANT_ID, createBody);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/api/v1/access/roles",
+      createBody,
+      { query: { tenantId: TENANT_ID } },
+    );
+
+    const updateBody = { name: "Support operator v2", description: null };
+    await tenantAccessApi.updateRole(TENANT_ID, ROLE_ID, updateBody);
+    expect(apiClient.put).toHaveBeenCalledWith(
+      `/api/v1/access/roles/${ROLE_ID}`,
+      updateBody,
+      { query: { tenantId: TENANT_ID } },
+    );
+  });
+
+  it.each(["activate", "deactivate", "archive"] as const)(
+    "transitions a role with PATCH /api/v1/access/roles/{roleId}/%s",
+    async (action) => {
+      vi.mocked(apiClient.patch).mockResolvedValue({} as never);
+
+      await tenantAccessApi.transitionRole(TENANT_ID, ROLE_ID, action);
+
+      expect(apiClient.patch).toHaveBeenCalledWith(
+        `/api/v1/access/roles/${ROLE_ID}/${action}`,
+        undefined,
+        { query: { tenantId: TENANT_ID } },
+      );
+    },
+  );
+
+  it("rejects an unsupported role lifecycle action before transport", async () => {
+    await expect(
+      tenantAccessApi.transitionRole(TENANT_ID, ROLE_ID, "delete" as never),
+    ).rejects.toThrow();
+    expect(apiClient.patch).not.toHaveBeenCalled();
+  });
+
   it("lists the global capability registry without a tenant query parameter", async () => {
     vi.mocked(apiClient.get).mockResolvedValue([] as never);
 
     await tenantAccessApi.listCapabilities();
 
     expect(apiClient.get).toHaveBeenCalledWith("/api/v1/access/capabilities", undefined);
+  });
+
+  it("creates and updates capabilities without inventing tenant scope", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({} as never);
+    vi.mocked(apiClient.put).mockResolvedValue({} as never);
+
+    const createBody = { code: "USER.EXPORT", name: "Export users", description: "Export tenant users" };
+    await tenantAccessApi.createCapability(createBody);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/api/v1/access/capabilities",
+      createBody,
+    );
+
+    const updateBody = { name: "Export tenant users", description: null };
+    await tenantAccessApi.updateCapability(CAPABILITY_ID, updateBody);
+    expect(apiClient.put).toHaveBeenCalledWith(
+      `/api/v1/access/capabilities/${CAPABILITY_ID}`,
+      updateBody,
+    );
+  });
+
+  it.each(["activate", "deactivate"] as const)(
+    "transitions a capability with PATCH /api/v1/access/capabilities/{capabilityId}/%s",
+    async (action) => {
+      vi.mocked(apiClient.patch).mockResolvedValue({} as never);
+
+      await tenantAccessApi.transitionCapability(CAPABILITY_ID, action);
+
+      expect(apiClient.patch).toHaveBeenCalledWith(
+        `/api/v1/access/capabilities/${CAPABILITY_ID}/${action}`,
+        undefined,
+      );
+    },
+  );
+
+  it("rejects an unsupported capability lifecycle action before transport", async () => {
+    await expect(
+      tenantAccessApi.transitionCapability(CAPABILITY_ID, "archive" as never),
+    ).rejects.toThrow();
+    expect(apiClient.patch).not.toHaveBeenCalled();
   });
 
   it("lists and mutates role capability links through the canonical access API", async () => {
