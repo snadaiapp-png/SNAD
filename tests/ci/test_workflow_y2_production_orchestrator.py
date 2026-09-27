@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Workflow Y2 production release orchestrator contract tests."""
+"""Production workflow contract tests for Workflow Y2 orchestration."""
 
 import os
 import unittest
@@ -14,7 +14,7 @@ ORCHESTRATOR = os.path.join(
 
 
 class TestWorkflowY2ProductionOrchestrator(unittest.TestCase):
-    def workflow_text(self):
+    def read_workflow(self):
         self.assertTrue(
             os.path.exists(ORCHESTRATOR),
             "Production orchestrator must exist before Workflow Y2 can auto-release after image publication",
@@ -23,7 +23,7 @@ class TestWorkflowY2ProductionOrchestrator(unittest.TestCase):
             return handle.read()
 
     def test_orchestrator_is_fail_closed_and_dispatches_canonical_release(self):
-        workflow = self.workflow_text()
+        workflow = self.read_workflow()
 
         required_fragments = (
             "workflow_run:",
@@ -63,6 +63,18 @@ class TestWorkflowY2ProductionOrchestrator(unittest.TestCase):
                 workflow,
                 f"Orchestrator must not bypass canonical production-release workflow: {fragment}",
             )
+
+    def test_unauthorized_main_is_a_clean_noop_and_cannot_dispatch_release(self):
+        workflow = self.read_workflow()
+
+        self.assertIn("PRODUCTION_RELEASE_AUTHORIZED=false", workflow)
+        self.assertIn("PRODUCTION_RELEASE_AUTHORIZED=true", workflow)
+        self.assertIn("if: env.PRODUCTION_RELEASE_AUTHORIZED == 'true'", workflow)
+        self.assertIn("No production release authorization present; leaving main unchanged", workflow)
+        self.assertNotIn(
+            'echo "::error::Exact main commit is not explicitly authorized for production release"',
+            workflow,
+        )
 
 
 if __name__ == "__main__":

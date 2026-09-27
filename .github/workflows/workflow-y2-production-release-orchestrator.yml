@@ -28,10 +28,11 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      - name: Verify exact current main and immutable production authorization
+      - name: Verify exact current main and classify production authorization
         shell: bash
         run: |
           set -euo pipefail
+          echo "PRODUCTION_RELEASE_AUTHORIZED=false" >> "$GITHUB_ENV"
 
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             echo "::error::Image publication head SHA is not a canonical commit SHA"
@@ -54,10 +55,12 @@ jobs:
           commit_json="$(gh api --method GET "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}")"
           commit_message="$(jq -r '.commit.message // empty' <<<"$commit_json")"
           case "$commit_message" in
-            *PRODUCTION-RELEASE-AUTHORIZED*) ;;
+            *PRODUCTION-RELEASE-AUTHORIZED*)
+              echo "PRODUCTION_RELEASE_AUTHORIZED=true" >> "$GITHUB_ENV"
+              ;;
             *)
-              echo "::error::Exact main commit is not explicitly authorized for production release"
-              exit 1
+              echo "No production release authorization present; leaving main unchanged"
+              exit 0
               ;;
           esac
 
@@ -78,6 +81,7 @@ jobs:
           echo "Authoritative merged PR: #$PR_NUMBER"
 
       - name: Dispatch canonical SANAD Production Release
+        if: env.PRODUCTION_RELEASE_AUTHORIZED == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -92,6 +96,7 @@ jobs:
             -f "rollback_on_failure=true"
 
       - name: Resolve canonical production release run
+        if: env.PRODUCTION_RELEASE_AUTHORIZED == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -112,13 +117,14 @@ jobs:
           echo "Canonical production release run: $RELEASE_RUN_ID"
 
       - name: Watch canonical production release fail closed
+        if: env.PRODUCTION_RELEASE_AUTHORIZED == 'true'
         shell: bash
         run: |
           set -euo pipefail
           gh run watch "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
 
       - name: Record orchestrated release evidence
-        if: success()
+        if: success() && env.PRODUCTION_RELEASE_AUTHORIZED == 'true'
         run: |
           {
             echo "## Workflow Y2 Production Release Orchestration"
@@ -128,4 +134,15 @@ jobs:
             echo "- Canonical production release run: $RELEASE_RUN_ID"
             echo "- Rollback on failure: enabled"
             echo "- Result: PASS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record clean non-release evidence
+        if: env.PRODUCTION_RELEASE_AUTHORIZED == 'false'
+        run: |
+          {
+            echo "## Workflow Y2 Production Release Orchestration"
+            echo "- Exact main SHA: $HEAD_SHA"
+            echo "- Production authorization: absent"
+            echo "- Release dispatched: NO"
+            echo "- Result: PASS (clean no-op)"
           } >> "$GITHUB_STEP_SUMMARY"
