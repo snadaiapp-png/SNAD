@@ -5,20 +5,22 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const TENANT_ID = "11111111-1111-1111-1111-111111111111";
-
-const { usersApiMock, authMock } = vi.hoisted(() => ({
-  usersApiMock: {
-    list: vi.fn(),
-    create: vi.fn(),
-    transition: vi.fn(),
-  },
-  authMock: {
-    state: "AUTHENTICATED",
-    user: { id: "actor-1", tenantId: TENANT_ID, email: "admin@example.com", displayName: "Admin", status: "ACTIVE" },
-    capabilities: ["USER.READ", "USER.CREATE", "USER.WRITE", "USER.DELETE"] as string[],
-  },
-}));
+const { TENANT_ID, usersApiMock, authMock } = vi.hoisted(() => {
+  const TENANT_ID = "11111111-1111-1111-1111-111111111111";
+  return {
+    TENANT_ID,
+    usersApiMock: {
+      list: vi.fn(),
+      create: vi.fn(),
+      transition: vi.fn(),
+    },
+    authMock: {
+      state: "AUTHENTICATED",
+      user: { id: "actor-1", tenantId: TENANT_ID, email: "admin@example.com", displayName: "Admin", status: "ACTIVE" },
+      capabilities: ["USER.READ", "USER.CREATE", "USER.WRITE", "USER.DELETE"] as string[],
+    },
+  };
+});
 
 vi.mock("@/lib/api/users", () => ({ usersApi: usersApiMock }));
 vi.mock("@/lib/auth/auth-provider", () => ({
