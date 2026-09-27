@@ -9,9 +9,9 @@ import { useAuth } from "@/lib/auth/auth-provider";
 import { usersApi, type UserLifecycleAction, type UserResponse, type UserStatus } from "@/lib/api/users";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { usersMessages } from "@/lib/i18n/users-l10n";
 import { UserCreateDialog } from "./_components/UserCreateDialog";
 import { UserDirectory } from "./_components/UserDirectory";
-import { usersMessages } from "./users-i18n";
 import styles from "./users.module.css";
 
 const TRANSIENT_AUTH_STATES = new Set([
@@ -25,8 +25,8 @@ const TRANSIENT_AUTH_STATES = new Set([
 export default function TenantUsersPage() {
   const { state, user, me } = useAuth();
   const router = useRouter();
-  const { locale } = useI18n();
-  const messages = useMemo(() => usersMessages(locale), [locale]);
+  const { t } = useI18n();
+  const messages = useMemo(() => usersMessages(t), [t]);
   const capabilities = me?.capabilities ?? [];
   const canRead = capabilities.includes("USER.READ");
   const canCreate = capabilities.includes("USER.CREATE");
@@ -70,13 +70,8 @@ export default function TenantUsersPage() {
     void loadUsers();
   }, [loadUsers, state]);
 
-  if (TRANSIENT_AUTH_STATES.has(state)) {
-    return <AuthLoadingState phase="session" />;
-  }
-
-  if (state !== "AUTHENTICATED" || !tenantId) {
-    return <AuthLoadingState phase="workspace" />;
-  }
+  if (TRANSIENT_AUTH_STATES.has(state)) return <AuthLoadingState phase="session" />;
+  if (state !== "AUTHENTICATED" || !tenantId) return <AuthLoadingState phase="workspace" />;
 
   const createUser = async (input: { email: string; displayName?: string | null }) => {
     setCreating(true);
@@ -113,9 +108,7 @@ export default function TenantUsersPage() {
             <h1 className={styles.title}>{messages.title}</h1>
             <p className={styles.subtitle}>{messages.subtitle}</p>
           </div>
-          {canCreate ? (
-            <Button onClick={() => setCreateOpen(true)}>{messages.create}</Button>
-          ) : null}
+          {canCreate ? <Button onClick={() => setCreateOpen(true)}>{messages.create}</Button> : null}
         </header>
 
         {!canRead ? (
