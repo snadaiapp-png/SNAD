@@ -1,0 +1,27 @@
+name: Auth Smoke Provisioning Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/provision-auth-smoke-tenants.yml'
+      - '.github/workflows/auth-smoke-provisioning-contract.yml'
+      - 'tests/ci/test_provision_auth_smoke_tenants.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-smoke-provisioning-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Auth Smoke Provisioning Contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run provisioning contract
+        run: python3 tests/ci/test_provision_auth_smoke_tenants.py
