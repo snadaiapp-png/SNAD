@@ -1,0 +1,1 @@
+G2 full-closure recertification trigger. No runtime behavior.
