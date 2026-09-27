@@ -46,21 +46,21 @@ public class PlatformUserController {
 
     @GetMapping
     @RequireCapability("PLATFORM.USER.READ")
-    public List<PlatformUserResponse> list(Authentication authentication) {
+    public List<PlatformUserResponse> listPlatformUsers(Authentication authentication) {
         membershipGuard.requireActive(authentication);
         return users.list(authentication);
     }
 
     @GetMapping("/{userId}")
     @RequireCapability("PLATFORM.USER.READ")
-    public PlatformUserResponse get(Authentication authentication, @PathVariable UUID userId) {
+    public PlatformUserResponse getPlatformUser(Authentication authentication, @PathVariable UUID userId) {
         membershipGuard.requireActive(authentication);
         return users.get(authentication, userId);
     }
 
     @PostMapping
     @RequireCapability("PLATFORM.USER.CREATE")
-    public ResponseEntity<PlatformUserResponse> create(
+    public ResponseEntity<PlatformUserResponse> createPlatformUser(
             Authentication authentication,
             @Valid @RequestBody CreatePlatformUserRequest request) {
         membershipGuard.requireActive(authentication);
@@ -70,7 +70,7 @@ public class PlatformUserController {
 
     @PatchMapping("/{userId}")
     @RequireCapability("PLATFORM.USER.UPDATE")
-    public PlatformUserResponse update(
+    public PlatformUserResponse updatePlatformUser(
             Authentication authentication,
             @PathVariable UUID userId,
             @Valid @RequestBody UpdatePlatformUserRequest request) {
@@ -80,7 +80,7 @@ public class PlatformUserController {
 
     @PostMapping("/{userId}/activate")
     @RequireCapability("PLATFORM.USER.UPDATE")
-    public PlatformUserResponse activate(
+    public PlatformUserResponse activatePlatformUser(
             Authentication authentication,
             @PathVariable UUID userId,
             @Valid @RequestBody PlatformLifecycleRequest request) {
@@ -90,7 +90,7 @@ public class PlatformUserController {
 
     @PostMapping("/{userId}/suspend")
     @RequireCapability("PLATFORM.USER.SUSPEND")
-    public PlatformUserResponse suspend(
+    public PlatformUserResponse suspendPlatformUser(
             Authentication authentication,
             @PathVariable UUID userId,
             @Valid @RequestBody PlatformLifecycleRequest request) {
@@ -100,7 +100,7 @@ public class PlatformUserController {
 
     @PostMapping("/{userId}/lock")
     @RequireCapability("PLATFORM.SECURITY.MANAGE")
-    public PlatformUserResponse lock(
+    public PlatformUserResponse lockPlatformUser(
             Authentication authentication,
             @PathVariable UUID userId,
             @Valid @RequestBody PlatformLifecycleRequest request) {
@@ -110,7 +110,7 @@ public class PlatformUserController {
 
     @PostMapping("/{userId}/disable")
     @RequireCapability("PLATFORM.USER.DISABLE")
-    public PlatformUserResponse disable(
+    public PlatformUserResponse disablePlatformUser(
             Authentication authentication,
             @PathVariable UUID userId,
             @Valid @RequestBody PlatformLifecycleRequest request) {
@@ -120,14 +120,14 @@ public class PlatformUserController {
 
     @GetMapping("/{userId}/roles")
     @RequireCapability("PLATFORM.ROLE.READ")
-    public List<UserAccessResponse> roles(Authentication authentication, @PathVariable UUID userId) {
+    public List<UserAccessResponse> listPlatformUserRoles(Authentication authentication, @PathVariable UUID userId) {
         membershipGuard.requireActive(authentication);
         return roles.listUserRoles(authentication, userId);
     }
 
     @PutMapping("/{userId}/roles")
     @RequireCapability("PLATFORM.ROLE.ASSIGN")
-    public List<UserAccessResponse> replaceRoles(
+    public List<UserAccessResponse> replacePlatformUserRoles(
             Authentication authentication,
             @PathVariable UUID userId,
             @Valid @RequestBody ReplacePlatformRolesRequest request) {
@@ -137,21 +137,21 @@ public class PlatformUserController {
 
     @GetMapping("/{userId}/permissions")
     @RequireCapability("PLATFORM.PERMISSION.READ")
-    public List<String> permissions(Authentication authentication, @PathVariable UUID userId) {
+    public List<String> listPlatformUserPermissions(Authentication authentication, @PathVariable UUID userId) {
         membershipGuard.requireActive(authentication);
         return roles.effectivePermissions(authentication, userId);
     }
 
     @GetMapping("/{userId}/sessions")
     @RequireCapability("PLATFORM.SESSION.READ")
-    public PlatformSessionSummaryResponse sessions(Authentication authentication, @PathVariable UUID userId) {
+    public PlatformSessionSummaryResponse getPlatformUserSessions(Authentication authentication, @PathVariable UUID userId) {
         membershipGuard.requireActive(authentication);
         return users.sessions(authentication, userId);
     }
 
     @PostMapping("/{userId}/sessions/revoke")
     @RequireCapability("PLATFORM.SESSION.REVOKE")
-    public PlatformSessionSummaryResponse revokeSessions(
+    public PlatformSessionSummaryResponse revokePlatformUserSessions(
             Authentication authentication,
             @PathVariable UUID userId,
             @Valid @RequestBody PlatformLifecycleRequest request) {
