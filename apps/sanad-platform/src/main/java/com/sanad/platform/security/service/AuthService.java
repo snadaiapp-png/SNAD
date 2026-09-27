@@ -375,6 +375,57 @@ public class AuthService {
                 revoked, userId, tenantId);
     }
 
+    /**
+     * Initializes a credential for an ACTIVE tenant-scoped user that has never
+     * had a credential. Existing credentials are never overwritten.
+     *
+     * The initialized credential is temporary: the resulting login is marked
+     * credentialRotationRequired and may only use rotation-safe endpoints until
+     * /api/v1/auth/change-credential completes.
+     */
+    @Transactional
+    public void initializeCredential(
+            UUID tenantId,
+            UUID userId,
+            String initialCredential,
+            UUID actorUserId
+    ) {
+        if (initialCredential == null
+                || initialCredential.isBlank()
+                || initialCredential.length() < 8
+                || initialCredential.length() > 256) {
+            throw new IllegalArgumentException("Initial credential must be between 8 and 256 characters");
+        }
+
+        User user = userRepository.findByTenantIdAndId(tenantId, userId)
+                .orElseThrow(() -> new InvalidCredentialsException("???????? ??? ?????"));
+
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new AccountInactiveException("???? ???????? ??? ???");
+        }
+
+        if (user.getPasswordHash() != null && !user.getPasswordHash().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Credential is already initialized; refusing administrative overwrite");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(initialCredential));
+        user.setPasswordSetAt(Instant.now());
+        user.setPasswordSetBy(actorUserId == null
+                ? "admin-initialize"
+                : "admin-initialize:" + actorUserId);
+        user.setMustChangePassword(true);
+        user.incrementSessionVersion();
+
+        userRepository.save(user);
+        refreshTokenRepository.revokeAllActive(tenantId, userId);
+        sessionVersionCache.invalidate(tenantId, userId);
+
+        log.info(
+                "Credential initialized for userId={} tenantId={} actorUserId={}; rotation required",
+                userId, tenantId, actorUserId);
+    }
+
     /** Rotates the authenticated account credential and terminates existing refresh sessions. */
     @Transactional
     public void changeCredential(UUID tenantId, UUID userId, ChangeCredentialRequest request) {

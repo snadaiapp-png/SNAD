@@ -10,6 +10,7 @@ import com.sanad.platform.organization.membership.domain.OrganizationMembership;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.security.dto.AdminInitializeCredentialRequest;
 import com.sanad.platform.security.dto.AdminResetPasswordRequest;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
@@ -191,6 +192,32 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(Map.of("message", "تم إعادة تعيين كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة."));
+    }
+
+    @RequireCapability("USER.WRITE")
+    @PostMapping("/admin-initialize-credential/{userId}")
+    @Operation(summary = "Initialize a credential for a passwordless tenant user")
+    public ResponseEntity<Void> adminInitializeCredential(
+            Authentication authentication,
+            @PathVariable UUID userId,
+            @Valid @RequestBody AdminInitializeCredentialRequest request
+    ) {
+        PrincipalIds principal = principal(authentication);
+        if (principal == null) {
+            return ResponseEntity.status(401)
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .build();
+        }
+
+        authService.initializeCredential(
+                principal.tenantId(),
+                userId,
+                request.getInitialCredential(),
+                principal.userId());
+
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .build();
     }
 
     @RequireCapability("USER.WRITE")
