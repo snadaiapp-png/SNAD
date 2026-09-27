@@ -95,11 +95,12 @@ jobs:
               A) TID="$TENANT_A_ID"; EMAIL="$TENANT_A_EMAIL"; HASH="$HASH_A";;
               B) TID="$TENANT_B_ID"; EMAIL="$TENANT_B_EMAIL"; HASH="$HASH_B";;
             esac
+            SUBDOMAIN="auth-smoke-${label,,}-${TID//-/}"
             echo ""
             echo "=== Provisioning Tenant $label (tenant_id=$TID, email=$EMAIL) ==="
 
             # 1. Tenant upsert
-            psql -v ON_ERROR_STOP=1 -c "INSERT INTO tenants (id, name, status, created_at, updated_at) VALUES ('$TID'::uuid, 'Auth Smoke $label', 'ACTIVE', NOW(), NOW()) ON CONFLICT (id) DO UPDATE SET status = 'ACTIVE', updated_at = NOW() RETURNING id, name, status;"
+            psql -v ON_ERROR_STOP=1 -c "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES ('$TID'::uuid, 'Auth Smoke $label', '$SUBDOMAIN', 'ACTIVE', NOW(), NOW()) ON CONFLICT (id) DO UPDATE SET status = 'ACTIVE', updated_at = NOW() RETURNING id, name, status;"
 
             # 2. Organization upsert
             psql -v ON_ERROR_STOP=1 -c "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) SELECT gen_random_uuid(), '$TID'::uuid, 'Auth Smoke Org $label', 'ACTIVE', NOW(), NOW() WHERE NOT EXISTS (SELECT 1 FROM organizations WHERE tenant_id = '$TID'::uuid AND name = 'Auth Smoke Org $label');"
