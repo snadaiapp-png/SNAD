@@ -85,7 +85,7 @@ class PlatformAuthorizationPostgresAcceptanceTest {
         insertDirectGrant(userId, from, expiry, "incident support");
 
         List<AccessScopeGrant> beforeExpiry = inTenant(() -> scopeRepository.findEffectiveGrants(
-                CONTROL_TENANT_ID, userId, null, CAPABILITY, expiry.minusNanos(1)));
+                CONTROL_TENANT_ID, userId, null, CAPABILITY, expiry.minusNanos(1_000)));
         List<AccessScopeGrant> atExpiry = inTenant(() -> scopeRepository.findEffectiveGrants(
                 CONTROL_TENANT_ID, userId, null, CAPABILITY, expiry));
 
