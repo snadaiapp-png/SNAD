@@ -39,6 +39,7 @@ public class PlatformUserService {
     private final PlatformAuditService audit;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public PlatformUserService(
             ControlPlaneAccessGuard controlPlaneAccessGuard,
             UserRepository users,
