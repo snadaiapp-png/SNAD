@@ -116,7 +116,7 @@ describe("Tenant User Detail", () => {
     tenantAccessApiMock.revokeUserRole.mockResolvedValue({ id: GRANT_ID, status: "REVOKED" });
 
     render(<TenantUserDetailPage />);
-    await screen.findByText("TENANT_ADMIN");
+    await screen.findByRole("button", { name: "سحب الدور" });
 
     await user.selectOptions(screen.getByLabelText("الدور"), ROLE_ID);
     await user.click(screen.getByRole("button", { name: "إسناد الدور" }));
