@@ -19,18 +19,18 @@ class TestProvisionAuthSmokeTenants(unittest.TestCase):
         with open(PROVISIONER, "r", encoding="utf-8") as handle:
             return handle.read()
 
-    def test_membership_upsert_supplies_required_email_and_stays_idempotent(self):
+    def test_membership_upsert_is_schema_compatible_and_admin_consistent(self):
         workflow = self.read_workflow()
 
         self.assertIn(
-            "organization_memberships (id, tenant_id, organization_id, user_id, email, status, created_at, updated_at)",
+            "organization_memberships (id, tenant_id, organization_id, user_id, email, display_name, role_code, status, created_at, updated_at)",
             workflow,
-            "Production schema requires organization_memberships.email",
+            "Membership provisioning must populate identity and role metadata explicitly",
         )
         self.assertIn(
-            "SELECT gen_random_uuid(), '$TID'::uuid, o.id, u.id, '$EMAIL', 'ACTIVE', NOW(), NOW()",
+            "SELECT gen_random_uuid(), '$TID'::uuid, o.id, u.id, u.email, u.display_name, 'ADMIN', 'ACTIVE', NOW(), NOW()",
             workflow,
-            "Membership email must come from the same secret-backed tenant user email",
+            "Membership identity must come from the provisioned user and role_code must match the ADMIN assignment",
         )
         self.assertIn(
             "NOT EXISTS (SELECT 1 FROM organization_memberships m",
