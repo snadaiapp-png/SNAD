@@ -10,25 +10,10 @@
  * `total_initial_js` and `login_route_js` over the performance budget.
  *
  * Solution: route-scoped dictionary augmentation. This component:
- *   1. Statically imports HRM_G1_I18N_AR/EN (bundled with the HR route chunk
- *      only — Next.js code-splits per route)
+ *   1. Statically imports HRM dictionaries (bundled with the HR route chunk only)
  *   2. Reads the parent I18nContext (provided by the root I18nProvider)
- *   3. Computes an augmented `t` function via useMemo (synchronous — no
- *      flash-of-keys-as-fallback on first render)
+ *   3. Computes an augmented `t` function via useMemo (synchronous)
  *   4. Overrides the I18nContext for children with the augmented `t`
- *
- * The augmented `t` checks the HRM namespace first, then falls back to the
- * global dictionary. This preserves:
- *   - Arabic + English (both locales covered)
- *   - i18n parity (CI check-i18n-keys.py still enforces ar↔en parity for the
- *     global dictionary; HRM namespace has its own parity via HRM_G1_I18N_AR
- *     and HRM_G1_I18N_EN which are checked together)
- *   - SSR correctness (the augmenter renders synchronously — no async load)
- *   - RTL (direction is inherited from the parent context)
- *   - Type safety (TranslationDictionary type is preserved)
- *
- * A regression test (hr-i18n-namespace-bundle.test.ts) prevents the spread
- * from being re-introduced into ar.ts/en.ts.
  */
 
 import { useMemo, type ReactNode } from "react";
@@ -36,29 +21,34 @@ import { I18nContext, interpolate, useI18n, type I18nContextValue } from "@/lib/
 import { HRM_G1_I18N_AR, HRM_G1_I18N_EN } from "@/lib/i18n/locales/hrm-g1-i18n";
 import { HRM_G2_I18N_AR, HRM_G2_I18N_EN } from "@/lib/i18n/locales/hrm-g2-i18n";
 import { HRM_G2_LIFECYCLE_I18N_AR, HRM_G2_LIFECYCLE_I18N_EN } from "@/lib/i18n/locales/hrm-g2-lifecycle-i18n";
+import { HRM_G2_PRODUCT_I18N_AR, HRM_G2_PRODUCT_I18N_EN } from "@/lib/i18n/locales/hrm-g2-product-i18n";
 import { translations } from "@/lib/i18n";
 
 export function HrI18nAugmenter({ children }: { children: ReactNode }) {
   const parent = useI18n();
 
   const augmentedT = useMemo(() => {
-    const extraAr = { ...HRM_G1_I18N_AR, ...HRM_G2_I18N_AR, ...HRM_G2_LIFECYCLE_I18N_AR };
-    const extraEn = { ...HRM_G1_I18N_EN, ...HRM_G2_I18N_EN, ...HRM_G2_LIFECYCLE_I18N_EN };
+    const extraAr = {
+      ...HRM_G1_I18N_AR,
+      ...HRM_G2_I18N_AR,
+      ...HRM_G2_LIFECYCLE_I18N_AR,
+      ...HRM_G2_PRODUCT_I18N_AR,
+    };
+    const extraEn = {
+      ...HRM_G1_I18N_EN,
+      ...HRM_G2_I18N_EN,
+      ...HRM_G2_LIFECYCLE_I18N_EN,
+      ...HRM_G2_PRODUCT_I18N_EN,
+    };
     const extra = parent.locale === "ar" ? extraAr : extraEn;
     return (key: string, params?: Record<string, string | number>) => {
-      // Check HRM namespace first (HRM keys take precedence over global keys
-      // for the same name — but in practice HRM keys are namespaced under
-      // hrm.* so there is no collision with global keys).
       const nsTemplate = extra[key];
       if (nsTemplate !== undefined) {
         return interpolate(nsTemplate, params);
       }
-      // Fall back to global dictionary.
       const baseDict = translations[parent.locale];
       const baseTemplate = baseDict[key];
       if (baseTemplate === undefined) {
-        // Return the key itself so missing translations are visible during
-        // development. The CI check-i18n-keys.py script catches these.
         return key;
       }
       return interpolate(baseTemplate, params);

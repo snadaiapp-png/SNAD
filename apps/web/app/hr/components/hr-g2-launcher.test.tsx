@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
@@ -23,6 +23,10 @@ vi.mock("@/lib/i18n/I18nProvider", () => ({
       "hrm.g2.landing.myWorkday": "يومي العملي",
       "hrm.g2.landing.myTeam": "فريقي",
       "hrm.g2.landing.hrOperations": "عمليات الموارد البشرية",
+      "hrm.g2.landing.selfSummary": "ابدأ يومك من حالة الحضور والوقت والإجازات الشخصية.",
+      "hrm.g2.landing.teamSummary": "راجع حالة الفريق والطلبات التي تحتاج قرارك.",
+      "hrm.g2.landing.hrSummary": "راقب التشغيل والسياسات والاستثناءات الإدارية من مكان واحد.",
+      "hrm.g2.landing.openArea": "فتح مساحة العمل",
       "hrm.g2.landing.attendance": "الحضور والانصراف",
       "hrm.g2.landing.timesheets": "سجلات وقتي",
       "hrm.g2.landing.leave": "إجازاتي",
@@ -98,5 +102,26 @@ describe("HrG2Launcher capability visibility", () => {
     expect(screen.getByRole("link", { name: /اعتمادات الإجازات/ })).toHaveAttribute("href", "/hr/leave/approvals");
     expect(screen.getByRole("link", { name: /تقرير الحضور/ })).toHaveAttribute("href", "/hr/reports/attendance");
     expect(screen.queryByRole("link", { name: /حضور الفريق/ })).not.toBeInTheDocument();
+  });
+
+  it("renders each visible role group as a coherent product area with intent copy, not a bare card grid", () => {
+    render(<HrG2Launcher capabilities={[
+      HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW,
+      HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW,
+      HRM_CAPABILITIES.ATTENDANCE_ADMIN,
+      HRM_CAPABILITIES.LEAVE_POLICY_ADMIN,
+    ]} />);
+
+    const self = screen.getByTestId("g2-launcher-self");
+    const team = screen.getByTestId("g2-launcher-team");
+    const hr = screen.getByTestId("g2-launcher-hr");
+    for (const area of [self, team, hr]) {
+      expect(area).toHaveAttribute("data-g2-product-area", "true");
+      expect(within(area).getByTestId(/g2-launcher-.*-summary/)).toBeVisible();
+      expect(within(area).getByRole("list")).toBeVisible();
+    }
+    expect(within(self).getByText("ابدأ يومك من حالة الحضور والوقت والإجازات الشخصية.")).toBeVisible();
+    expect(within(team).getByText("راجع حالة الفريق والطلبات التي تحتاج قرارك.")).toBeVisible();
+    expect(within(hr).getByText("راقب التشغيل والسياسات والاستثناءات الإدارية من مكان واحد.")).toBeVisible();
   });
 });

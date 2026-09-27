@@ -7,6 +7,7 @@ on:
     paths:
       - 'apps/web/app/hr/**'
       - 'apps/web/lib/i18n/locales/hrm-g2-i18n.ts'
+      - 'apps/web/lib/i18n/locales/hrm-g2-product-i18n.ts'
       - 'apps/web/e2e/g2-auth-session.ts'
       - 'apps/web/e2e/g2-visual-helpers.ts'
       - 'apps/web/e2e/g2-visual.spec.ts'
@@ -25,6 +26,7 @@ on:
     paths:
       - 'apps/web/app/hr/**'
       - 'apps/web/lib/i18n/locales/hrm-g2-i18n.ts'
+      - 'apps/web/lib/i18n/locales/hrm-g2-product-i18n.ts'
       - 'apps/web/e2e/g2-auth-session.ts'
       - 'apps/web/e2e/g2-visual-helpers.ts'
       - 'apps/web/e2e/g2-visual.spec.ts'
@@ -232,11 +234,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          EXPECTED=$(python3 - <<'PY'
+          routes = {
+              "employee": ["/hr", "/hr/attendance", "/hr/timesheets", "/hr/leave"],
+              "manager": ["/hr", "/hr/team-attendance", "/hr/team-timesheets", "/hr/leave/approvals", "/hr/reports/attendance"],
+              "hr": ["/hr", "/hr/schedules", "/hr/attendance/admin", "/hr/leave/policies", "/hr/leave/approvals", "/hr/reports/attendance"],
+          }
+          projects = [
+              "g2-visual-ar-desktop",
+              "g2-visual-ar-mobile",
+              "g2-visual-en-desktop",
+              "g2-visual-en-mobile",
+          ]
+          print(sum(len(role_routes) for role_routes in routes.values()) * len(projects))
+          PY
+          )
           GENERIC=$(npx playwright test --config=playwright.standard.config.ts --list 2>&1 | grep -c 'g2-visual.spec.ts' || true)
           VISUAL=$(npx playwright test --config=playwright-g2-visual.config.ts --list 2>&1 | grep -c 'g2-visual.spec.ts' || true)
           test "$GENERIC" = "0"
-          test "$VISUAL" = "12"
-          echo "visual routing generic=$GENERIC dedicated=$VISUAL"
+          test "$VISUAL" = "$EXPECTED" || { echo "::error::visual suite cases=$VISUAL expected=$EXPECTED"; exit 1; }
+          echo "G2_VISUAL_EXPECTED_CASES=$EXPECTED" >> "$GITHUB_ENV"
+          echo "visual routing generic=$GENERIC dedicated=$VISUAL expected=$EXPECTED"
 
       - name: Start Spring Boot backend
         working-directory: apps/sanad-platform
@@ -284,19 +302,62 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MANIFEST='test-results/g2-visual-evidence/manifest.ndjson'
-          test -s "$MANIFEST"
-          EXPECTED=60
-          ACTUAL=$(wc -l < "$MANIFEST" | tr -d ' ')
-          test "$ACTUAL" = "$EXPECTED" || { echo "::error::visual evidence rows=$ACTUAL expected=$EXPECTED"; exit 1; }
-          if grep -v "\"sha\":\"$GITHUB_HEAD_SHA\"" "$MANIFEST"; then
-            echo "::error::visual evidence contains non-exact-head SHA"
-            exit 1
-          fi
-          for role in employee manager hr; do grep -q "\"role\":\"$role\"" "$MANIFEST"; done
-          for project in g2-visual-ar-desktop g2-visual-ar-mobile g2-visual-en-desktop g2-visual-en-mobile; do
-            grep -q "\"viewport\":\"$project\"" "$MANIFEST"
-          done
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          routes = {
+              "employee": ["/hr", "/hr/attendance", "/hr/timesheets", "/hr/leave"],
+              "manager": ["/hr", "/hr/team-attendance", "/hr/team-timesheets", "/hr/leave/approvals", "/hr/reports/attendance"],
+              "hr": ["/hr", "/hr/schedules", "/hr/attendance/admin", "/hr/leave/policies", "/hr/leave/approvals", "/hr/reports/attendance"],
+          }
+          projects = [
+              "g2-visual-ar-desktop",
+              "g2-visual-ar-mobile",
+              "g2-visual-en-desktop",
+              "g2-visual-en-mobile",
+          ]
+          expected_cases = {
+              (role, project, route)
+              for role, role_routes in routes.items()
+              for project in projects
+              for route in role_routes
+          }
+          expected_count = int(os.environ["G2_VISUAL_EXPECTED_CASES"])
+          if len(expected_cases) != expected_count:
+              raise SystemExit(
+                  f"expected matrix cardinality drift: matrix={len(expected_cases)} routing={expected_count}"
+              )
+
+          manifest = Path("test-results/g2-visual-evidence/manifest.ndjson")
+          if not manifest.is_file() or manifest.stat().st_size == 0:
+              raise SystemExit("visual evidence manifest is missing or empty")
+
+          rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
+          head_sha = os.environ["GITHUB_HEAD_SHA"]
+          actual_cases = []
+          for row in rows:
+              if row["sha"] != head_sha:
+                  raise SystemExit(f"non-exact-head visual evidence: {row}")
+              if row["result"] != "PASS":
+                  raise SystemExit(f"non-PASS visual evidence: {row}")
+              if not Path(row["screenshot"]).is_file():
+                  raise SystemExit(f"missing screenshot for visual evidence: {row}")
+              actual_cases.append((row["role"], row["viewport"], row["route"]))
+
+          if len(actual_cases) != len(set(actual_cases)):
+              raise SystemExit("duplicate visual evidence cases detected")
+          if set(actual_cases) != expected_cases:
+              missing = sorted(expected_cases - set(actual_cases))
+              extra = sorted(set(actual_cases) - expected_cases)
+              raise SystemExit(f"visual matrix mismatch missing={missing} extra={extra}")
+          if len(actual_cases) != expected_count:
+              raise SystemExit(
+                  f"visual evidence row count={len(actual_cases)} expected={expected_count}"
+              )
+          print(f"G2 visual matrix PASS cases={len(actual_cases)}/{expected_count} sha={head_sha}")
+          PY
 
       - name: Upload exact-head G2 visual screenshots and manifest
         if: always()
