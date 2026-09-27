@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ExecutiveShell } from "@/components/shell";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
@@ -15,39 +15,6 @@ import type { OrganizationMembershipResponse } from "@/lib/api/memberships";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
-const COPY = {
-  ar: {
-    title: "تفاصيل المستخدم",
-    email: "البريد الإلكتروني",
-    displayName: "الاسم المعروض",
-    save: "حفظ التعديلات",
-    memberships: "عضويات المؤسسات",
-    roles: "الأدوار المسندة",
-    role: "الدور",
-    grant: "إسناد الدور",
-    revoke: "سحب الدور",
-    noMemberships: "لا توجد عضويات",
-    noRoles: "لا توجد أدوار مسندة",
-    loading: "جارٍ تحميل بيانات المستخدم",
-    error: "تعذر تحميل بيانات المستخدم",
-  },
-  en: {
-    title: "User details",
-    email: "Email",
-    displayName: "Display name",
-    save: "Save changes",
-    memberships: "Organization memberships",
-    roles: "Assigned roles",
-    role: "Role",
-    grant: "Assign role",
-    revoke: "Revoke role",
-    noMemberships: "No memberships",
-    noRoles: "No assigned roles",
-    loading: "Loading user details",
-    error: "Unable to load user details",
-  },
-} as const;
-
 const TRANSIENT_AUTH_STATES = new Set([
   "INITIALIZING",
   "CHECKING_SESSION",
@@ -60,8 +27,7 @@ export default function TenantUserDetailPage() {
   const params = useParams<{ userId: string }>();
   const router = useRouter();
   const { state, user: actor, me } = useAuth();
-  const { locale } = useI18n();
-  const copy = COPY[locale === "en" ? "en" : "ar"];
+  const { t } = useI18n();
   const tenantId = actor?.tenantId ?? null;
   const userId = params.userId;
   const capabilities = me?.capabilities ?? [];
@@ -111,11 +77,11 @@ export default function TenantUserDetailPage() {
       setRoles(roleResult);
       if (roleResult.length > 0) setSelectedRoleId(roleResult[0].id);
     } catch (caught) {
-      setError(toUserFacingMessage(caught) || copy.error);
+      setError(toUserFacingMessage(caught) || t("management.users.detail.error"));
     } finally {
       setLoading(false);
     }
-  }, [canRead, canReadMemberships, canReadRoles, copy.error, tenantId, userId]);
+  }, [canRead, canReadMemberships, canReadRoles, t, tenantId, userId]);
 
   useEffect(() => {
     if (state === "AUTHENTICATED") void load();
@@ -130,10 +96,7 @@ export default function TenantUserDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await usersApi.update(tenantId, userId, {
-        email,
-        displayName: displayName.trim() || null,
-      });
+      await usersApi.update(tenantId, userId, { email, displayName: displayName.trim() || null });
       await load();
     } catch (caught) {
       setError(toUserFacingMessage(caught));
@@ -171,65 +134,48 @@ export default function TenantUserDetailPage() {
   return (
     <ExecutiveShell>
       <section data-testid="management-user-detail-ready">
-        <h1>{copy.title}</h1>
+        <h1>{t("management.users.detail.title")}</h1>
         {error ? <div role="alert">{error}</div> : null}
-        {loading ? <div role="status">{copy.loading}</div> : null}
+        {loading ? <div role="status">{t("management.users.detail.loading")}</div> : null}
         {!loading && target ? (
           <>
             <h2>{target.displayName || target.email}</h2>
             <form onSubmit={saveIdentity}>
               <label>
-                {copy.email}
-                <input
-                  aria-label={copy.email}
-                  type="email"
-                  value={email}
-                  disabled={!canWrite || busy}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
+                {t("users.email")}
+                <input aria-label={t("users.email")} type="email" value={email} disabled={!canWrite || busy} onChange={(event) => setEmail(event.target.value)} />
               </label>
               <label>
-                {copy.displayName}
-                <input
-                  aria-label={copy.displayName}
-                  value={displayName}
-                  disabled={!canWrite || busy}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                />
+                {t("users.displayName")}
+                <input aria-label={t("users.displayName")} value={displayName} disabled={!canWrite || busy} onChange={(event) => setDisplayName(event.target.value)} />
               </label>
-              {canWrite ? <button type="submit" disabled={busy}>{copy.save}</button> : null}
+              {canWrite ? <button type="submit" disabled={busy}>{t("management.users.detail.save")}</button> : null}
             </form>
 
             <section aria-labelledby="user-memberships-heading">
-              <h2 id="user-memberships-heading">{copy.memberships}</h2>
-              {memberships.length === 0 ? <p>{copy.noMemberships}</p> : (
-                <ul>{memberships.map((membership) => (
-                  <li key={membership.id}>{membership.displayName || membership.email} — {membership.status}</li>
-                ))}</ul>
-              )}
+              <h2 id="user-memberships-heading">{t("management.users.detail.memberships")}</h2>
+              {memberships.length === 0 ? <p>{t("management.users.detail.noMemberships")}</p> : <ul>{memberships.map((membership) => <li key={membership.id}>{membership.displayName || membership.email} — {membership.status}</li>)}</ul>}
             </section>
 
             <section aria-labelledby="user-roles-heading">
-              <h2 id="user-roles-heading">{copy.roles}</h2>
-              {roleLinks.length === 0 ? <p>{copy.noRoles}</p> : (
+              <h2 id="user-roles-heading">{t("management.users.detail.roles")}</h2>
+              {roleLinks.length === 0 ? <p>{t("management.users.detail.noRoles")}</p> : (
                 <ul>{roleLinks.map((link) => (
                   <li key={link.id}>
                     <span>{link.roleCode}</span>
-                    {canRevokeRole ? (
-                      <button type="button" disabled={busy} onClick={() => void revokeRole(link.id)}>{copy.revoke}</button>
-                    ) : null}
+                    {canRevokeRole ? <button type="button" disabled={busy} onClick={() => void revokeRole(link.id)}>{t("management.users.detail.revoke")}</button> : null}
                   </li>
                 ))}</ul>
               )}
               {canGrantRole ? (
                 <div>
                   <label>
-                    {copy.role}
-                    <select aria-label={copy.role} value={selectedRoleId} onChange={(event) => setSelectedRoleId(event.target.value)}>
+                    {t("management.users.detail.role")}
+                    <select aria-label={t("management.users.detail.role")} value={selectedRoleId} onChange={(event) => setSelectedRoleId(event.target.value)}>
                       {roles.map((role) => <option key={role.id} value={role.id}>{role.code}</option>)}
                     </select>
                   </label>
-                  <button type="button" disabled={busy || !selectedRoleId} onClick={() => void grantRole()}>{copy.grant}</button>
+                  <button type="button" disabled={busy || !selectedRoleId} onClick={() => void grantRole()}>{t("management.users.detail.grant")}</button>
                 </div>
               ) : null}
             </section>
