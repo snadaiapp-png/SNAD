@@ -64,6 +64,25 @@ class TestWorkflowY2ProductionOrchestrator(unittest.TestCase):
                 f"Orchestrator must not bypass canonical production-release workflow: {fragment}",
             )
 
+    def test_unauthorized_main_is_a_clean_noop_and_cannot_dispatch_release(self):
+        workflow = self.workflow_text()
+
+        self.assertIn("PRODUCTION_RELEASE_AUTHORIZED=false", workflow)
+        self.assertIn("PRODUCTION_RELEASE_AUTHORIZED=true", workflow)
+        self.assertIn(
+            "No production release authorization marker; leaving workflow as a successful no-op",
+            workflow,
+        )
+        self.assertNotIn(
+            "::error::Exact main commit is not explicitly authorized for production release",
+            workflow,
+        )
+        self.assertGreaterEqual(
+            workflow.count("if: env.PRODUCTION_RELEASE_AUTHORIZED == 'true'"),
+            4,
+            "Every release-dispatch/watch/evidence step must remain gated by explicit authorization",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
