@@ -191,7 +191,7 @@ public class PlatformUserService {
         requireMembership(tenantId, userId);
         requireUser(tenantId, userId);
         String safeReason = requireReason(reason);
-        authService.revokeAllSessions(tenantId, userId);
+        authService.logout(tenantId, userId);
         PlatformSessionSummaryResponse result = sessions(actor, userId);
         audit.success(actor, tenantId, "PLATFORM_SESSION_REVOKED", "PLATFORM_USER",
                 userId.toString(), safeReason, null, result);
@@ -219,7 +219,7 @@ public class PlatformUserService {
 
         ownerSafety.assertMayDeactivateMembership(tenantId, userId);
         PlatformMembership saved = saveTransition(current, target, reason, actorUserId(actor));
-        authService.revokeAllSessions(tenantId, userId);
+        authService.logout(tenantId, userId);
         PlatformUserResponse result = response(user, saved);
         audit.success(actor, tenantId, action, "PLATFORM_USER", userId.toString(),
                 reason, current, saved);

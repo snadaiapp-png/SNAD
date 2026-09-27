@@ -56,15 +56,16 @@ class PlatformUserServiceTest {
                 .thenReturn(Optional.empty());
         when(f.memberships.save(any(PlatformMembership.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        Authentication actor = actor();
 
         PlatformUserResponse response = f.service.createPlatformUser(
-                actor(), new CreatePlatformUserRequest(" Operator@Example.com ", "Operator"));
+                actor, new CreatePlatformUserRequest(" Operator@Example.com ", "Operator"));
 
         assertThat(response.userId()).isEqualTo(USER_ID);
         assertThat(response.membershipStatus()).isEqualTo(PlatformMembershipStatus.INVITED);
         verify(f.users, never()).save(any(User.class));
         verify(f.memberships).save(any(PlatformMembership.class));
-        verify(f.audit).success(actor(), CONTROL_TENANT, "PLATFORM_USER_CREATED",
+        verify(f.audit).success(actor, CONTROL_TENANT, "PLATFORM_USER_CREATED",
                 "PLATFORM_USER", USER_ID.toString(), null, null, response);
     }
 
@@ -124,7 +125,7 @@ class PlatformUserServiceTest {
 
         assertThat(response.membershipStatus()).isEqualTo(target);
         verify(f.ownerSafety).assertMayDeactivateMembership(CONTROL_TENANT, USER_ID);
-        verify(f.authService).revokeAllSessions(CONTROL_TENANT, USER_ID);
+        verify(f.authService).logout(CONTROL_TENANT, USER_ID);
         verify(f.memberships).save(any(PlatformMembership.class));
     }
 
