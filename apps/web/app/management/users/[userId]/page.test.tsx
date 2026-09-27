@@ -5,13 +5,29 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { TENANT_ID, USER_ID, ROLE_ID, GRANT_ID, usersApiMock, tenantAccessApiMock, authMock } = vi.hoisted(() => {
+const { TENANT_ID, USER_ID, ROLE_ID, GRANT_ID, usersApiMock, tenantAccessApiMock, authMock, translate } = vi.hoisted(() => {
   const TENANT_ID = "11111111-1111-1111-1111-111111111111";
   const USER_ID = "22222222-2222-2222-2222-222222222222";
   const ROLE_ID = "33333333-3333-3333-3333-333333333333";
   const GRANT_ID = "44444444-4444-4444-4444-444444444444";
+  const messages: Record<string, string> = {
+    "users.email": "البريد الإلكتروني",
+    "users.displayName": "الاسم المعروض",
+    "management.users.detail.title": "تفاصيل المستخدم",
+    "management.users.detail.save": "حفظ التعديلات",
+    "management.users.detail.memberships": "عضويات المؤسسات",
+    "management.users.detail.roles": "الأدوار المسندة",
+    "management.users.detail.role": "الدور",
+    "management.users.detail.grant": "إسناد الدور",
+    "management.users.detail.revoke": "سحب الدور",
+    "management.users.detail.noMemberships": "لا توجد عضويات",
+    "management.users.detail.noRoles": "لا توجد أدوار مسندة",
+    "management.users.detail.loading": "جارٍ تحميل بيانات المستخدم",
+    "management.users.detail.error": "تعذر تحميل بيانات المستخدم",
+  };
   return {
     TENANT_ID, USER_ID, ROLE_ID, GRANT_ID,
+    translate: (key: string) => messages[key] ?? key,
     usersApiMock: { get: vi.fn(), update: vi.fn(), transition: vi.fn() },
     tenantAccessApiMock: { listUserMemberships: vi.fn(), listUserRoleLinks: vi.fn(), listRoles: vi.fn(), grantUserRole: vi.fn(), revokeUserRole: vi.fn() },
     authMock: {
@@ -27,25 +43,7 @@ vi.mock("@/lib/api/tenant-access", () => ({ tenantAccessApi: tenantAccessApiMock
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuth: () => ({ state: authMock.state, user: authMock.user, me: { capabilities: authMock.capabilities } }) }));
 vi.mock("@/components/shell", () => ({ ExecutiveShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("next/navigation", () => ({ useParams: () => ({ userId: USER_ID }), useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
-vi.mock("@/lib/i18n/I18nProvider", () => ({
-  useI18n: () => ({
-    t: (key: string) => ({
-      "users.email": "البريد الإلكتروني",
-      "users.displayName": "الاسم المعروض",
-      "management.users.detail.title": "تفاصيل المستخدم",
-      "management.users.detail.save": "حفظ التعديلات",
-      "management.users.detail.memberships": "عضويات المؤسسات",
-      "management.users.detail.roles": "الأدوار المسندة",
-      "management.users.detail.role": "الدور",
-      "management.users.detail.grant": "إسناد الدور",
-      "management.users.detail.revoke": "سحب الدور",
-      "management.users.detail.noMemberships": "لا توجد عضويات",
-      "management.users.detail.noRoles": "لا توجد أدوار مسندة",
-      "management.users.detail.loading": "جارٍ تحميل بيانات المستخدم",
-      "management.users.detail.error": "تعذر تحميل بيانات المستخدم",
-    } as Record<string, string>)[key] ?? key,
-  }),
-}));
+vi.mock("@/lib/i18n/I18nProvider", () => ({ useI18n: () => ({ t: translate }) }));
 vi.mock("@/lib/api/user-facing-errors", () => ({ toUserFacingMessage: () => "تعذر تحميل بيانات المستخدم" }));
 
 import TenantUserDetailPage from "./page";
