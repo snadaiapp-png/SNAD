@@ -61,6 +61,19 @@ class TestProvisionAuthSmokeTenants(unittest.TestCase):
             "Connectivity must be proven before any tenant mutation",
         )
 
+    def test_tenant_insert_supplies_deterministic_unique_subdomain(self):
+        workflow = self.read_workflow()
+
+        self.assertIn('SUBDOMAIN="auth-smoke-${label,,}-${TID//-/}"', workflow)
+        self.assertIn(
+            "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)",
+            workflow,
+        )
+        self.assertIn(
+            "VALUES ('$TID'::uuid, 'Auth Smoke $label', '$SUBDOMAIN', 'ACTIVE', NOW(), NOW())",
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
