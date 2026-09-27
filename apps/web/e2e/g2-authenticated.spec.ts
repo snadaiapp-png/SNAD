@@ -212,13 +212,13 @@ test.describe("G2 HR Nav @desktop", () => {
   test("HR: login → schedules → attendance admin → leave policies → monthly report", async ({ page }) => {
     await loginThroughUi(page, "hr");
     await page.goto(`${BASE_URL}/hr/schedules`);
-    await expect(page.getByRole("heading", { name: "Work Schedules", exact: true })).toBeVisible();
+    await expect(page.getByTestId("g2-page-title")).toHaveText("Work Schedules");
     await page.goto(`${BASE_URL}/hr/attendance/admin`);
-    await expect(page.getByRole("heading", { name: "Attendance Administration", exact: true })).toBeVisible();
+    await expect(page.getByTestId("g2-page-title")).toHaveText("Attendance Administration");
     await page.goto(`${BASE_URL}/hr/leave/policies`);
-    await expect(page.getByRole("heading", { name: "Leave Policies", exact: true })).toBeVisible();
+    await expect(page.getByTestId("g2-page-title")).toHaveText("Leave Policies");
     await page.goto(`${BASE_URL}/hr/reports/attendance`);
-    await expect(page.getByRole("heading", { name: "Monthly Attendance Report", exact: true })).toBeVisible();
+    await expect(page.getByTestId("g2-page-title")).toHaveText("Monthly Attendance Report");
   });
 });
 
