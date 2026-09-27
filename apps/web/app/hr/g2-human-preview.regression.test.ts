@@ -45,3 +45,5 @@ describe("generalized HRM Human Preview governance", () => {
     expect(source).toContain("set(actual_cases) != expected_cases");
   });
 });
+
+// G2 final recertification marker: intentionally no behavioral change.
