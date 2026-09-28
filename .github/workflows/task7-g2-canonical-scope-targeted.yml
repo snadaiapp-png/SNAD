@@ -11,9 +11,10 @@ on:
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrG2ScopedReadServiceTest.java'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/organization/legalentity/**'
       - 'scripts/production/bootstrap-g2-canonical-hr.sh'
+      - 'scripts/production/bootstrap-g2-release-hr.sh'
       - 'tests/ci/test_g2_identity_provisioning_contract.py'
-      - '.github/workflows/g2-production-canonical-hr-bootstrap.yml'
       - '.github/workflows/g2-production-identity-provisioning.yml'
+      - '.github/workflows/production-release.yml'
       - '.github/workflows/task7-g2-canonical-scope-targeted.yml'
   workflow_dispatch:
 
@@ -46,4 +47,5 @@ jobs:
         run: |
           cd ../..
           bash -n scripts/production/bootstrap-g2-canonical-hr.sh
+          bash -n scripts/production/bootstrap-g2-release-hr.sh
           python3 tests/ci/test_g2_identity_provisioning_contract.py
