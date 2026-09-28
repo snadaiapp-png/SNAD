@@ -14,6 +14,7 @@ import com.sanad.platform.access.role.RoleCapabilityService;
 import com.sanad.platform.access.role.RoleService;
 import com.sanad.platform.access.role.RoleStatus;
 import com.sanad.platform.organization.repository.OrganizationRepository;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,11 @@ import java.util.UUID;
 @Service
 public class CapabilityEvaluationService {
 
+    /** Committed default: legacy facade behavior bit-for-bit (owner order §6). */
+    private static final String PIPELINE_ENABLED_PROPERTY = "sanad.uac.pipeline-enabled";
+    /** Committed default: SANAD_UAC_MODE=legacy — authoritative requires explicit owner opt-in. */
+    private static final String MODE_PROPERTY = "sanad.uac.mode";
+
     private final UserRoleGrantService grantService;
     private final RoleService roleService;
     private final RoleCapabilityService roleCapabilityService;
@@ -33,6 +39,7 @@ public class CapabilityEvaluationService {
     private final OrganizationRepository organizationRepository;
     private final UserPermissionOverrideRepository overrideRepository;
     private final RelationshipResolver relationshipResolver;
+    private final Environment environment;
 
     public CapabilityEvaluationService(
             UserRoleGrantService grantService,
@@ -41,7 +48,8 @@ public class CapabilityEvaluationService {
             AccessCapabilityService capabilityService,
             OrganizationRepository organizationRepository,
             UserPermissionOverrideRepository overrideRepository,
-            RelationshipResolver relationshipResolver) {
+            RelationshipResolver relationshipResolver,
+            Environment environment) {
         this.grantService = grantService;
         this.roleService = roleService;
         this.roleCapabilityService = roleCapabilityService;
@@ -49,10 +57,40 @@ public class CapabilityEvaluationService {
         this.organizationRepository = organizationRepository;
         this.overrideRepository = overrideRepository;
         this.relationshipResolver = relationshipResolver;
+        this.environment = environment;
     }
 
     @Transactional(readOnly = true)
     public AccessDecisionResponse evaluate(
+            UUID tenantId, UUID userId, String capabilityCode, UUID organizationId) {
+        if (pipelineEnabled()) {
+            // Authoritative mode (explicit owner opt-in): the legacy facade
+            // delegates to the five-stage pipeline; reason strings and the
+            // response shape stay binary-compatible.
+            AuthorizationDecision decision =
+                    evaluateDetailed(tenantId, userId, capabilityCode, organizationId);
+            return new AccessDecisionResponse(tenantId, userId, organizationId,
+                    decision.capability(), "ALLOW".equals(decision.decision()),
+                    mapReason(decision.reason()), decision.matchedRoleId(),
+                    decision.matchedRoleCode());
+        }
+        return evaluateLegacy(tenantId, userId, capabilityCode, organizationId);
+    }
+
+    private boolean pipelineEnabled() {
+        boolean enabled = "true".equalsIgnoreCase(
+                environment.getProperty(PIPELINE_ENABLED_PROPERTY, "false"));
+        boolean authoritative = "authoritative".equalsIgnoreCase(
+                environment.getProperty(MODE_PROPERTY, "legacy"));
+        return enabled && authoritative;
+    }
+
+    /** Baseline reason strings already flow through the pipeline unchanged. */
+    private static String mapReason(String reason) {
+        return reason;
+    }
+
+    private AccessDecisionResponse evaluateLegacy(
             UUID tenantId, UUID userId, String capabilityCode, UUID organizationId) {
         validateOrganization(tenantId, organizationId);
 

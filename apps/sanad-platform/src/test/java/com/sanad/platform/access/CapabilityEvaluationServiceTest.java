@@ -45,7 +45,7 @@ class CapabilityEvaluationServiceTest {
     void setUp() {
         service = new CapabilityEvaluationService(
                 grants, roles, mappings, capabilities, organizations,
-                overrides, relationships);
+                overrides, relationships, new org.springframework.mock.env.MockEnvironment());
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         roleId = UUID.randomUUID();

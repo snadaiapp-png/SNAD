@@ -72,7 +72,8 @@ class UnifiedDecisionPipelineTest {
                 Optional.of(mock(com.sanad.platform.organization.domain.Organization.class));
         when(organizationRepository.findByTenantIdAndId(tenantId, organizationId)).thenReturn(existingOrg);
         service = new CapabilityEvaluationService(grantService, roleService, roleCapabilityService,
-                capabilityService, organizationRepository, overrideRepository, relationshipResolver);
+                capabilityService, organizationRepository, overrideRepository, relationshipResolver,
+                legacyEnvironment());
     }
 
     // ---- Stage A: hard guards ----
@@ -262,6 +263,14 @@ class UnifiedDecisionPipelineTest {
     }
 
     // ---- fixtures (built before stubbing) ----
+
+    private org.springframework.mock.env.MockEnvironment legacyEnvironment() {
+        org.springframework.mock.env.MockEnvironment environment =
+                new org.springframework.mock.env.MockEnvironment();
+        environment.setProperty("sanad.uac.pipeline-enabled", "false");
+        environment.setProperty("sanad.uac.mode", "legacy");
+        return environment;
+    }
 
     private AccessCapability capability(CapabilityStatus status) {
         AccessCapability capability = mock(AccessCapability.class);

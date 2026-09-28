@@ -87,6 +87,12 @@ springdoc:
   default-produces-media-type: application/json
 
 sanad:
+  # Wave 1 unified authorization core (UAC) feature flags — committed defaults.
+  # The legacy CapabilityEvaluationService facade stays bit-for-bit until the
+  # owner explicitly opts in to the authoritative five-stage pipeline.
+  uac:
+    pipeline-enabled: ${SANAD_UAC_PIPELINE_ENABLED:false}
+    mode: ${SANAD_UAC_MODE:legacy}
   cors:
     allowed-origins: ${SANAD_CORS_ALLOWED_ORIGINS:https://snad-app.vercel.app}
   crm:
