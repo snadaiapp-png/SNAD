@@ -40,6 +40,11 @@ class G2CredentialRecoveryContractTest(unittest.TestCase):
             self.reconcile.index("Dispatch final exact-SHA production release"),
         )
 
+    def test_authorized_release_always_closes_recovery_surface(self):
+        self.assertNotIn("if: github.event.workflow_run.conclusion == 'failure'", self.reconcile)
+        self.assertIn("github.event.workflow_run.conclusion == 'failure'", self.reconcile)
+        self.assertIn("if: always() && steps.authorization.outputs.authorized == 'true'", self.reconcile)
+
     def test_mutation_stays_on_application_api(self):
         self.assertIn("admin-reconcile-credential", self.runner)
         self.assertNotIn("psql", self.runner)
