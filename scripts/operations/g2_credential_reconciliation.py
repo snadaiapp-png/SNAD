@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -42,6 +43,11 @@ def login(auth_api, tenant_id, email, password):
     })
 
 
+def user_lookup_url(api: str, tenant_id: str, email: str) -> str:
+    query = urllib.parse.urlencode({"tenantId": tenant_id, "email": email})
+    return f"{api}/users?{query}"
+
+
 def main() -> int:
     base_url = required("BASE_URL").rstrip("/")
     tenant_id = required("G2_TENANT_ID")
@@ -68,7 +74,7 @@ def main() -> int:
 
     resolved = []
     for label, email, password in identities:
-        status, users = request("GET", f"{api}/users?tenantId={tenant_id}&email={email}", token=access_token)
+        status, users = request("GET", user_lookup_url(api, tenant_id, email), token=access_token)
         if status != 200 or not isinstance(users, list):
             raise RuntimeError(f"{label} user lookup failed: HTTP {status}")
         matches = [u for u in users if u.get("email") == email and u.get("status") == "ACTIVE"]
