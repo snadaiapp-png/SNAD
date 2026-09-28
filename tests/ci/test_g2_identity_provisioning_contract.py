@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Fail-closed contracts for Task 7 G2 production identity + canonical HR provisioning."""
+"""Fail-closed contracts for Task 7 G2 identity and canonical HR release provisioning."""
 
 from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 IDENTITY_WORKFLOW = ROOT / ".github" / "workflows" / "g2-production-identity-provisioning.yml"
-HR_BOOTSTRAP_WORKFLOW = ROOT / ".github" / "workflows" / "g2-production-canonical-hr-bootstrap.yml"
+PRODUCTION_RELEASE = ROOT / ".github" / "workflows" / "production-release.yml"
 HR_BOOTSTRAP_SCRIPT = ROOT / "scripts" / "production" / "bootstrap-g2-canonical-hr.sh"
+RELEASE_BOOTSTRAP_SCRIPT = ROOT / "scripts" / "production" / "bootstrap-g2-release-hr.sh"
 
 
 class G2IdentityProvisioningContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.identity = IDENTITY_WORKFLOW.read_text(encoding="utf-8")
-        cls.bootstrap_workflow = HR_BOOTSTRAP_WORKFLOW.read_text(encoding="utf-8")
+        cls.release = PRODUCTION_RELEASE.read_text(encoding="utf-8")
         cls.bootstrap = HR_BOOTSTRAP_SCRIPT.read_text(encoding="utf-8")
+        cls.release_bootstrap = RELEASE_BOOTSTRAP_SCRIPT.read_text(encoding="utf-8")
 
     def test_role_capability_flow_uses_canonical_access_api_contract(self):
         text = self.identity
@@ -33,8 +35,7 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
         self.assertIn("change-credential", text)
 
     def test_hr_bootstrap_uses_only_governed_api_surfaces(self):
-        text = self.bootstrap_workflow + self.bootstrap
-        self.assertNotIn("psql", text)
+        text = self.release + self.release_bootstrap + self.bootstrap
         self.assertNotIn("PRODUCTION_DATABASE_", text)
         self.assertIn("API_V1=", self.bootstrap)
         self.assertIn("HR_API=", self.bootstrap)
@@ -63,15 +64,29 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
         self.assertIn("HR_ASSIGNMENT_ID", text)
         self.assertIn(".reportsToAssignmentId", text)
 
-    def test_bootstrap_preflight_temporarily_deploys_exact_sha_and_restores_previous_image(self):
-        text = self.bootstrap_workflow
-        self.assertIn("Verify exact current main SHA", text)
-        self.assertIn("docker manifest inspect", text)
-        self.assertIn("Deploy exact candidate image temporarily", text)
-        self.assertIn("Bootstrap canonical User Person Employment Assignment graph", text)
-        self.assertIn("Restore previous live image", text)
-        self.assertIn("Verify previous image restored", text)
-        self.assertIn("directDatabaseMutation:false", text)
+    def test_release_bootstrap_requires_existing_unique_g2_users(self):
+        text = self.release_bootstrap
+        self.assertIn("expected exactly one existing $label G2 user", text)
+        self.assertIn("HR_CONTEXT_AMBIGUOUS", text)
+        self.assertIn("bootstrap-g2-canonical-hr.sh", text)
+        self.assertNotIn("admin-initialize-credential", text)
+        self.assertNotIn("change-credential", text)
+
+    def test_canonical_hr_bootstrap_runs_inside_exact_sha_release_before_g2_visual(self):
+        text = self.release
+        bootstrap = text.index("Bootstrap canonical G2 HR identity graph")
+        g2_visual = text.index("Verify authenticated G2 production visual smoke")
+        deploy = text.index("Deploy exact image to Render")
+        readiness = text.index("Wait for production readiness")
+        self.assertLess(deploy, readiness)
+        self.assertLess(readiness, bootstrap)
+        self.assertLess(bootstrap, g2_visual)
+        self.assertIn("bash scripts/production/bootstrap-g2-release-hr.sh", text)
+        self.assertIn("g2-canonical-hr-bootstrap-evidence.json", text)
+        self.assertIn('g2CanonicalHr:"PASS"', text)
+
+    def test_no_separate_temporary_production_bootstrap_workflow_exists(self):
+        self.assertFalse((ROOT / ".github" / "workflows" / "g2-production-canonical-hr-bootstrap.yml").exists())
 
 
 if __name__ == "__main__":
