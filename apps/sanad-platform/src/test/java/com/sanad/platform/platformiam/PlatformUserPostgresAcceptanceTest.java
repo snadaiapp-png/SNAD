@@ -13,6 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -30,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("pg-acceptance")
 @Import(PgAcceptanceWiringConfig.class)
 @EnabledIfEnvironmentVariable(named = "SPRING_PROFILES_ACTIVE", matches = "pg-acceptance")
+@Transactional
 class PlatformUserPostgresAcceptanceTest {
 
     static final String CONTROL_TENANT_ID = "00000000-0000-0000-0000-000000000001";
@@ -85,7 +87,6 @@ class PlatformUserPostgresAcceptanceTest {
     }
 
     @Test
-    @org.springframework.transaction.annotation.Transactional
     void temporaryGrantUsesCanonicalStoreAndRevocationRemovesAuthorization() {
         var user = platformUsers.createPlatformUser(actor(),
                 new CreatePlatformUserRequest("temporary+" + UUID.randomUUID() + "@example.test", "Temporary"));
@@ -95,7 +96,6 @@ class PlatformUserPostgresAcceptanceTest {
                 "SELECT id FROM access_capabilities WHERE code = 'PLATFORM.USER.READ'", UUID.class);
         var target = new UsernamePasswordAuthenticationToken("target", "unused", List.of());
         target.setDetails(Map.of("tenant_id", CONTROL_TENANT_ID, "user_id", user.userId().toString()));
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, CONTROL_TENANT_ID);
         assertThat(authorization.evaluate(target, "PLATFORM.USER.READ").allowed()).isFalse();
 
         var grant = temporaryAccess.grant(actor(), user.userId(),
