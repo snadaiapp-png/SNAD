@@ -156,6 +156,7 @@ class PlatformUserServiceTest {
 
     private static Fixture fixture() {
         ControlPlaneAccessGuard guard = mock(ControlPlaneAccessGuard.class);
+        when(guard.isControlPlaneTenant(CONTROL_TENANT)).thenReturn(true);
         UserRepository users = mock(UserRepository.class);
         PlatformMembershipRepository memberships = mock(PlatformMembershipRepository.class);
         PlatformOwnerSafetyService ownerSafety = mock(PlatformOwnerSafetyService.class);
