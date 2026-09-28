@@ -21,8 +21,8 @@ const SECTIONS: NavSection[] = [
       { href: "/executive/tenants", labelKey: "scp.nav.tenants", capability: "subscription.read" },
       { href: "/executive/subscriptions", labelKey: "scp.nav.subscriptions", capability: "subscription.read" },
       { href: "/executive/plans", labelKey: "scp.nav.plans", capability: "plan.read" },
-      { href: "/executive/users", labelKey: "scp.nav.users", capability: "PLATFORM.USER.READ" },
-      { href: "/executive/access", labelKey: "scp.nav.access", capability: "PLATFORM.ROLE.READ" },
+      { href: "/executive/users", labelKey: "controlPlane.users", capability: "PLATFORM.USER.READ" },
+      { href: "/executive/access", labelKey: "controlPlane.roles", capability: "PLATFORM.ROLE.READ" },
     ],
   },
   {
@@ -37,26 +37,15 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
-const PLATFORM_NAV_LABELS = {
-  ar: { "scp.nav.users": "المستخدمون", "scp.nav.access": "الوصول والصلاحيات" },
-  en: { "scp.nav.users": "Users", "scp.nav.access": "Access" },
-} as const;
-
 export function ScpNav() {
   const pathname = usePathname();
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { phase, capabilities, refresh } = useScpAccess();
 
   const visible = (capability: string): boolean => {
     if (phase === "checking") return true;
     if (phase !== "authorized") return false;
     return capabilities[capability] === true;
-  };
-
-  const label = (key: string): string => {
-    const labels = PLATFORM_NAV_LABELS[locale === "en" ? "en" : "ar"];
-    const platformLabel = labels[key as keyof typeof labels];
-    return platformLabel ?? t(key);
   };
 
   if (phase === "degraded") {
@@ -108,7 +97,7 @@ export function ScpNav() {
                 data-active={pathname === link.href}
                 aria-current={pathname === link.href ? "page" : undefined}
               >
-                {label(link.labelKey)}
+                {t(link.labelKey)}
               </Link>
             ))}
           </div>
