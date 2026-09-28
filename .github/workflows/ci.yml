@@ -92,6 +92,21 @@ on:
 permissions:
   contents: read
 
+# v20260929.1 (HR-G2 FINAL CLOSURE — CI execution recovery):
+#   Concurrency guard added as a permanent fix after root cause analysis
+#   of CI queue saturation (HR-G2-FINAL-CLOSURE-001). On 2026-09-28 the
+#   canonical PR #1196 head SHA sat in `queued` for 13+ hours because 156
+#   queued + 16 in_progress runs (many from superseded SHAs of the same
+#   PR branches) saturated GitHub-hosted runner capacity. The
+#   `cancel-in-progress: true` policy ensures that when a new commit is
+#   pushed to a branch, any in-flight CI run for the same branch ref is
+#   cancelled so the new head can be verified immediately. This does NOT
+#   change any job name, required status check context, timeout, or the
+#   PostgreSQL Direct (no Docker, no Testcontainers) architecture.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Maven Test Suite
