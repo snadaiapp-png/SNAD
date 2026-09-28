@@ -41,6 +41,7 @@ import {
 } from "./types";
 import { translations } from "./index";
 import { executiveCommercialDictionary } from "./executive-commercial-l10n";
+import { executivePlatformIamDictionary } from "./executive-platform-iam-l10n";
 
 export interface I18nContextValue {
   locale: Locale;
@@ -122,7 +123,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     (key: string, params?: Record<string, string | number>) => {
       const base: TranslationDictionary = translations[locale];
       const commercial = executiveCommercialDictionary(locale);
-      const template = commercial[key] ?? base[key];
+      const platformIam = executivePlatformIamDictionary(locale);
+      const template = platformIam[key] ?? commercial[key] ?? base[key];
       if (template === undefined) return key;
       return interpolate(template, params);
     },
