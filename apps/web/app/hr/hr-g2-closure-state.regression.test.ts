@@ -105,7 +105,7 @@ describe("HR-G2 final engineering closure reconciliation", () => {
       expect(evidence).toMatch(/G2_FINAL_GATE\s*=\s*PASS/);
       expect(evidence).toMatch(/G2_FULLY_CLOSED\s*=\s*PASS/);
       expect(evidence).toContain("24d7a52b3696b66bca2380433b51045a35c74d66");
-      expect(evidence).toContain("#1173");
+      expect(evidence).toContain("#" + "1173");
       expect(evidence).toContain("36344192747");
       expect(evidence).toContain("36344192703");
       expect(evidence).toContain("36344192701");
