@@ -61,18 +61,35 @@ public class HrEmploymentScopeResolver {
                 """
                 SELECT COUNT(*)
                   FROM hr_employees target
-                  JOIN hr_employees manager
-                    ON manager.id = target.manager_id
-                   AND manager.tenant_id = target.tenant_id
+                  JOIN hr_employee_assignments target_assignment
+                    ON target_assignment.employment_id = target.id
+                   AND target_assignment.tenant_id = target.tenant_id
+                  JOIN hr_employee_assignments manager_assignment
+                    ON manager_assignment.id = target_assignment.reports_to_assignment_id
+                   AND manager_assignment.tenant_id = target_assignment.tenant_id
+                  JOIN hr_employees manager_employment
+                    ON manager_employment.id = manager_assignment.employment_id
+                   AND manager_employment.tenant_id = manager_assignment.tenant_id
+                  JOIN hr_people manager_person
+                    ON manager_person.id = manager_employment.person_id
+                   AND manager_person.tenant_id = manager_employment.tenant_id
                   JOIN users manager_user
-                    ON manager_user.id = manager.user_id
-                   AND manager_user.tenant_id = manager.tenant_id
+                    ON manager_user.id = manager_person.user_id
+                   AND manager_user.tenant_id = manager_person.tenant_id
                  WHERE target.tenant_id = ?
-                   AND manager.user_id = ?
+                   AND manager_person.user_id = ?
                    AND target.id = ?
                    AND target.status = 'ACTIVE'
-                   AND manager.status = 'ACTIVE'
+                   AND manager_employment.status = 'ACTIVE'
                    AND manager_user.status = 'ACTIVE'
+                   AND target_assignment.assignment_type = 'PRIMARY'
+                   AND target_assignment.status = 'ACTIVE'
+                   AND target_assignment.effective_from <= CURRENT_DATE
+                   AND (target_assignment.effective_to IS NULL OR target_assignment.effective_to >= CURRENT_DATE)
+                   AND manager_assignment.assignment_type = 'PRIMARY'
+                   AND manager_assignment.status = 'ACTIVE'
+                   AND manager_assignment.effective_from <= CURRENT_DATE
+                   AND (manager_assignment.effective_to IS NULL OR manager_assignment.effective_to >= CURRENT_DATE)
                 """,
                 Integer.class,
                 tenantId,
