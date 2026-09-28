@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -31,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("pg-acceptance")
 @Import(PgAcceptanceWiringConfig.class)
 @EnabledIfEnvironmentVariable(named = "SPRING_PROFILES_ACTIVE", matches = "pg-acceptance")
+@Transactional
 class PlatformSessionInvalidationPostgresAcceptanceTest {
 
     static final String CONTROL_TENANT_ID = "00000000-0000-0000-0000-000000000001";
@@ -113,11 +115,14 @@ class PlatformSessionInvalidationPostgresAcceptanceTest {
                 "Task 6 Session " + key,
                 Timestamp.from(now), Timestamp.from(now));
 
+        // The fixture itself writes the FORCE-RLS table, so bind the already
+        // trusted control tenant inside the surrounding test transaction.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, CONTROL_TENANT_ID);
         jdbc.update("""
                 INSERT INTO platform_memberships (
                     id, control_tenant_id, user_id, status,
                     invited_at, activated_at, suspended_at, locked_at, disabled_at,
-                    created_by, updated_by, reason, created_at, updated_at
+                    created_by, updated_by, status_reason, created_at, updated_at
                 ) VALUES (?, ?, ?, 'ACTIVE', ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?)
                 """,
                 UUID.randomUUID(), CONTROL_TENANT, userId,
