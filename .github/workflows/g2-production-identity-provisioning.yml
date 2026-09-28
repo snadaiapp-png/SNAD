@@ -227,18 +227,18 @@ jobs:
             local code="$1" name="$2" desc="$3"
             local existing=$(curl --silent \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
-              "$API/roles?tenantId=$G2_TENANT_ID" | \
+              "$API/access/roles?tenantId=$G2_TENANT_ID" | \
               jq -r --arg code "$code" '.[] | select(.code == $code) | .id' | head -1)
             if [ -n "$existing" ]; then
               echo "$existing"
               return 0
             fi
             local resp=$(curl --silent --show-error \
-              -X POST "$API/roles?tenantId=$G2_TENANT_ID" \
+              -X POST "$API/access/roles?tenantId=$G2_TENANT_ID" \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg c "$code" --arg n "$name" --arg d "$desc" \
-                    '{code: $c, name: $n, description: $d, status: "ACTIVE"}')")
+                    '{code: $c, name: $n, description: $d}')")
             local id=$(echo "$resp" | jq -r '.id // empty')
             if [ -z "$id" ]; then
               echo "::error::Failed to create role $code"
@@ -254,8 +254,8 @@ jobs:
             # Check if already assigned
             local existing=$(curl --silent \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
-              "$API/roles/$role_id/capabilities?tenantId=$G2_TENANT_ID" | \
-              jq -r --arg cap "$cap_code" '.[] | select(.code == $cap) | .id' | head -1)
+              "$API/access/roles/$role_id/access-items?tenantId=$G2_TENANT_ID" | \
+              jq -r --arg cap "$cap_code" '.[] | select(.capabilityCode == $cap) | .capabilityId' | head -1)
             if [ -n "$existing" ]; then return 0; fi
             # Find capability ID by code
             local cap_id=$(curl --silent \
@@ -268,7 +268,7 @@ jobs:
             fi
             # Assign (fail-closed — no || true)
             curl --silent --show-error -X POST \
-              "$API/roles/$role_id/capabilities/$cap_id?tenantId=$G2_TENANT_ID" \
+              "$API/access/roles/$role_id/access-items/$cap_id?tenantId=$G2_TENANT_ID" \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" -d '{}'
           }
@@ -334,29 +334,117 @@ jobs:
             -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}'
           echo "Assigned G2_HR_QA role to HR user"
 
-      - name: Set passwords via admin-reset-password API
+      - name: Initialize missing credentials and rotate to governed G2 secrets
         shell: bash
         run: |
           set -euo pipefail
-          API="${BASE_URL%/}/api/v1/auth"
-          echo "::add-mask::$G2_EMPLOYEE_PASSWORD"
-          echo "::add-mask::$G2_MANAGER_PASSWORD"
-          echo "::add-mask::$G2_HR_PASSWORD"
+          AUTH_API="${BASE_URL%/}/api/v1/auth"
 
-          curl --silent --show-error -X POST "$API/admin-reset-password/$EMP_USER_ID" \
-            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
-            -d "$(jq -n --arg p "$G2_EMPLOYEE_PASSWORD" '{newPassword: $p}')"
-          echo "Employee password set"
+          initialize_if_needed() {
+            local user_id="$1"
+            local email="$2"
+            local final_password="$3"
+            local label="$4"
 
-          curl --silent --show-error -X POST "$API/admin-reset-password/$MGR_USER_ID" \
-            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
-            -d "$(jq -n --arg p "$G2_MANAGER_PASSWORD" '{newPassword: $p}')"
-          echo "Manager password set"
+            echo "::add-mask::$final_password"
 
-          curl --silent --show-error -X POST "$API/admin-reset-password/$HR_USER_ID" \
-            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
-            -d "$(jq -n --arg p "$G2_HR_PASSWORD" '{newPassword: $p}')"
-          echo "HR password set"
+            # Idempotency: if the governed final credential already works,
+            # never rotate or overwrite it.
+            local existing_response
+            existing_response=$(curl --silent --show-error \
+              -X POST "$AUTH_API/login" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n \
+                    --arg e "$email" \
+                    --arg p "$final_password" \
+                    --arg tenant "$G2_TENANT_ID" \
+                    '{email:$e,password:$p,tenantId:$tenant}')")
+
+            local existing_token
+            existing_token=$(echo "$existing_response" | jq -r '.accessToken // empty')
+
+            if [ -n "$existing_token" ]; then
+              echo "$label credential already valid (REUSED)"
+              return 0
+            fi
+
+            # Initialization is allowed only for passwordless users.
+            # Existing-but-different credentials fail closed at the API.
+            local temporary
+            temporary="$(openssl rand -hex 24)"
+            echo "::add-mask::$temporary"
+
+            local init_body="/tmp/g2-${label,,}-credential-init.json"
+            local init_status
+            init_status=$(curl --silent --show-error \
+              -o "$init_body" \
+              -w '%{http_code}' \
+              -X POST "$AUTH_API/admin-initialize-credential/$user_id" \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg c "$temporary" '{initialCredential:$c}')")
+
+            if [ "$init_status" != "204" ]; then
+              echo "::error::$label credential initialization failed (HTTP $init_status)"
+              cat "$init_body" 2>/dev/null | jq . 2>/dev/null || cat "$init_body" 2>/dev/null || true
+              exit 1
+            fi
+
+            # Temporary login must succeed and be tenant-bound.
+            local bootstrap_response
+            bootstrap_response=$(curl --silent --show-error \
+              -X POST "$AUTH_API/login" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n \
+                    --arg e "$email" \
+                    --arg p "$temporary" \
+                    --arg tenant "$G2_TENANT_ID" \
+                    '{email:$e,password:$p,tenantId:$tenant}')")
+
+            local bootstrap_token
+            bootstrap_token=$(echo "$bootstrap_response" | jq -r '.accessToken // empty')
+
+            local bootstrap_tenant
+            bootstrap_tenant=$(echo "$bootstrap_response" | jq -r '.user.tenantId // empty')
+
+            if [ -z "$bootstrap_token" ] || [ "$bootstrap_tenant" != "$G2_TENANT_ID" ]; then
+              echo "::error::$label temporary credential login/binding failed"
+              exit 1
+            fi
+
+            echo "::add-mask::$bootstrap_token"
+
+            # Rotate through the authenticated self-service contract.
+            local rotate_body="/tmp/g2-${label,,}-credential-rotate.json"
+            local rotate_status
+            rotate_status=$(curl --silent --show-error \
+              -o "$rotate_body" \
+              -w '%{http_code}' \
+              -X POST "$AUTH_API/change-credential" \
+              -H "Authorization: Bearer $bootstrap_token" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n \
+                    --arg current "$temporary" \
+                    --arg next "$final_password" \
+                    '{currentCredential:$current,newCredential:$next}')")
+
+            if [ "$rotate_status" != "204" ]; then
+              echo "::error::$label governed credential rotation failed (HTTP $rotate_status)"
+              cat "$rotate_body" 2>/dev/null | jq . 2>/dev/null || cat "$rotate_body" 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "$label credential initialized and rotated successfully"
+          }
+
+          initialize_if_needed \
+            "$EMP_USER_ID" "$G2_EMPLOYEE_EMAIL" "$G2_EMPLOYEE_PASSWORD" "EMPLOYEE"
+
+          initialize_if_needed \
+            "$MGR_USER_ID" "$G2_MANAGER_EMAIL" "$G2_MANAGER_PASSWORD" "MANAGER"
+
+          initialize_if_needed \
+            "$HR_USER_ID" "$G2_HR_EMAIL" "$G2_HR_PASSWORD" "HR"
 
       - name: Verify authentication + tenant binding + RBAC
         shell: bash

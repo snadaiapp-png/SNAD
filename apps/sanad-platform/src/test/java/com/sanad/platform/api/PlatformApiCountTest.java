@@ -82,8 +82,10 @@ class PlatformApiCountTest {
      *  (read units/apps/billing/resources + bind/deactivate/app/profile/resource commands;
      *  /api/v1/executive group 82 → 93) = 936.
      *  + 1 executive commercial query read endpoint (billing convergence) = 937.
-     *  + 2 Store-domain lifecycle operations (disable + set-primary) = 939. */
-    private static final long EXPECTED_TOTAL_OPS = 939;
+     *  + 2 Store-domain lifecycle operations (disable + set-primary) = 939.
+     *  + 1 G2 initialization-only admin credential endpoint
+     *  (POST /api/v1/auth/admin-initialize-credential/{userId}, USER.WRITE-gated) = 940. */
+    private static final long EXPECTED_TOTAL_OPS = 940;
     private static final long EXPECTED_HRM_V2_OPS = 127;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -110,6 +112,7 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/management/finance/overview", "get")).isTrue();
         assertThat(has(paths, "/api/v1/management/modules/status", "get")).isTrue();
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/auth/admin-initialize-credential/{userId}", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/tenants/{tenantId}/login-link-events", "post")).isTrue();
