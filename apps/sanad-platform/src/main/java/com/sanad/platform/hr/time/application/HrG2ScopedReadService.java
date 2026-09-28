@@ -46,13 +46,30 @@ public class HrG2ScopedReadService {
                   JOIN hr_employees employee
                     ON employee.id = ar.employment_id
                    AND employee.tenant_id = ar.tenant_id
+                  JOIN hr_employee_assignments employee_assignment
+                    ON employee_assignment.employment_id = employee.id
+                   AND employee_assignment.tenant_id = employee.tenant_id
+                  JOIN hr_employee_assignments manager_assignment
+                    ON manager_assignment.id = employee_assignment.reports_to_assignment_id
+                   AND manager_assignment.tenant_id = employee_assignment.tenant_id
                   JOIN hr_employees manager
-                    ON manager.id = employee.manager_id
-                   AND manager.tenant_id = employee.tenant_id
+                    ON manager.id = manager_assignment.employment_id
+                   AND manager.tenant_id = manager_assignment.tenant_id
+                  JOIN hr_people manager_person
+                    ON manager_person.id = manager.person_id
+                   AND manager_person.tenant_id = manager.tenant_id
                  WHERE ar.tenant_id = ?
-                   AND manager.user_id = ?
+                   AND manager_person.user_id = ?
                    AND employee.status = 'ACTIVE'
                    AND manager.status = 'ACTIVE'
+                   AND employee_assignment.assignment_type = 'PRIMARY'
+                   AND employee_assignment.status = 'ACTIVE'
+                   AND employee_assignment.effective_from <= CURRENT_DATE
+                   AND (employee_assignment.effective_to IS NULL OR employee_assignment.effective_to >= CURRENT_DATE)
+                   AND manager_assignment.assignment_type = 'PRIMARY'
+                   AND manager_assignment.status = 'ACTIVE'
+                   AND manager_assignment.effective_from <= CURRENT_DATE
+                   AND (manager_assignment.effective_to IS NULL OR manager_assignment.effective_to >= CURRENT_DATE)
                 """);
         List<Object> params = new ArrayList<>();
         params.add(tenantId);
@@ -102,13 +119,30 @@ public class HrG2ScopedReadService {
                   JOIN hr_employees employee
                     ON employee.id = ts.employment_id
                    AND employee.tenant_id = ts.tenant_id
+                  JOIN hr_employee_assignments employee_assignment
+                    ON employee_assignment.employment_id = employee.id
+                   AND employee_assignment.tenant_id = employee.tenant_id
+                  JOIN hr_employee_assignments manager_assignment
+                    ON manager_assignment.id = employee_assignment.reports_to_assignment_id
+                   AND manager_assignment.tenant_id = employee_assignment.tenant_id
                   JOIN hr_employees manager
-                    ON manager.id = employee.manager_id
-                   AND manager.tenant_id = employee.tenant_id
+                    ON manager.id = manager_assignment.employment_id
+                   AND manager.tenant_id = manager_assignment.tenant_id
+                  JOIN hr_people manager_person
+                    ON manager_person.id = manager.person_id
+                   AND manager_person.tenant_id = manager.tenant_id
                  WHERE ts.tenant_id = ?
-                   AND manager.user_id = ?
+                   AND manager_person.user_id = ?
                    AND employee.status = 'ACTIVE'
                    AND manager.status = 'ACTIVE'
+                   AND employee_assignment.assignment_type = 'PRIMARY'
+                   AND employee_assignment.status = 'ACTIVE'
+                   AND employee_assignment.effective_from <= CURRENT_DATE
+                   AND (employee_assignment.effective_to IS NULL OR employee_assignment.effective_to >= CURRENT_DATE)
+                   AND manager_assignment.assignment_type = 'PRIMARY'
+                   AND manager_assignment.status = 'ACTIVE'
+                   AND manager_assignment.effective_from <= CURRENT_DATE
+                   AND (manager_assignment.effective_to IS NULL OR manager_assignment.effective_to >= CURRENT_DATE)
                 """);
         List<Object> params = new ArrayList<>();
         params.add(tenantId);
@@ -144,13 +178,30 @@ public class HrG2ScopedReadService {
                   JOIN hr_employees employee
                     ON employee.id = lr.employment_id
                    AND employee.tenant_id = lr.tenant_id
+                  JOIN hr_employee_assignments employee_assignment
+                    ON employee_assignment.employment_id = employee.id
+                   AND employee_assignment.tenant_id = employee.tenant_id
+                  JOIN hr_employee_assignments manager_assignment
+                    ON manager_assignment.id = employee_assignment.reports_to_assignment_id
+                   AND manager_assignment.tenant_id = employee_assignment.tenant_id
                   JOIN hr_employees manager
-                    ON manager.id = employee.manager_id
-                   AND manager.tenant_id = employee.tenant_id
+                    ON manager.id = manager_assignment.employment_id
+                   AND manager.tenant_id = manager_assignment.tenant_id
+                  JOIN hr_people manager_person
+                    ON manager_person.id = manager.person_id
+                   AND manager_person.tenant_id = manager.tenant_id
                  WHERE lr.tenant_id = ?
-                   AND manager.user_id = ?
+                   AND manager_person.user_id = ?
                    AND employee.status = 'ACTIVE'
                    AND manager.status = 'ACTIVE'
+                   AND employee_assignment.assignment_type = 'PRIMARY'
+                   AND employee_assignment.status = 'ACTIVE'
+                   AND employee_assignment.effective_from <= CURRENT_DATE
+                   AND (employee_assignment.effective_to IS NULL OR employee_assignment.effective_to >= CURRENT_DATE)
+                   AND manager_assignment.assignment_type = 'PRIMARY'
+                   AND manager_assignment.status = 'ACTIVE'
+                   AND manager_assignment.effective_from <= CURRENT_DATE
+                   AND (manager_assignment.effective_to IS NULL OR manager_assignment.effective_to >= CURRENT_DATE)
                 """);
         List<Object> params = new ArrayList<>();
         params.add(tenantId);
@@ -198,14 +249,31 @@ public class HrG2ScopedReadService {
         List<UUID> directReports = jdbc.query(
                 """
                 SELECT employee.id
-                  FROM hr_employees employee
+                  FROM hr_people manager_person
                   JOIN hr_employees manager
-                    ON manager.id = employee.manager_id
-                   AND manager.tenant_id = employee.tenant_id
-                 WHERE employee.tenant_id = ?
-                   AND manager.user_id = ?
+                    ON manager.person_id = manager_person.id
+                   AND manager.tenant_id = manager_person.tenant_id
+                  JOIN hr_employee_assignments manager_assignment
+                    ON manager_assignment.employment_id = manager.id
+                   AND manager_assignment.tenant_id = manager.tenant_id
+                  JOIN hr_employee_assignments employee_assignment
+                    ON employee_assignment.tenant_id = manager_assignment.tenant_id
+                   AND employee_assignment.reports_to_assignment_id = manager_assignment.id
+                  JOIN hr_employees employee
+                    ON employee.id = employee_assignment.employment_id
+                   AND employee.tenant_id = employee_assignment.tenant_id
+                 WHERE manager_person.tenant_id = ?
+                   AND manager_person.user_id = ?
                    AND employee.status = 'ACTIVE'
                    AND manager.status = 'ACTIVE'
+                   AND employee_assignment.assignment_type = 'PRIMARY'
+                   AND employee_assignment.status = 'ACTIVE'
+                   AND employee_assignment.effective_from <= CURRENT_DATE
+                   AND (employee_assignment.effective_to IS NULL OR employee_assignment.effective_to >= CURRENT_DATE)
+                   AND manager_assignment.assignment_type = 'PRIMARY'
+                   AND manager_assignment.status = 'ACTIVE'
+                   AND manager_assignment.effective_from <= CURRENT_DATE
+                   AND (manager_assignment.effective_to IS NULL OR manager_assignment.effective_to >= CURRENT_DATE)
                  ORDER BY employee.id
                 """,
                 (rs, rowNum) -> UUID.fromString(rs.getString("id")),
