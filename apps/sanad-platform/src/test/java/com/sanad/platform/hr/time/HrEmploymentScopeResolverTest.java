@@ -3,6 +3,7 @@ package com.sanad.platform.hr.time;
 import com.sanad.platform.hr.time.application.HrEmploymentScopeResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -14,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class HrEmploymentScopeResolverTest {
@@ -28,7 +30,7 @@ class HrEmploymentScopeResolverTest {
     }
 
     @Test
-    void selfEmploymentComesFromAuthenticatedTenantAndUser() {
+    void selfEmploymentComesFromAuthenticatedTenantAndCanonicalPersonLink() {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID employmentId = UUID.randomUUID();
@@ -37,6 +39,14 @@ class HrEmploymentScopeResolverTest {
                 .thenReturn(employmentId);
 
         assertThat(resolver.requireSelfEmployment(tenantId, userId)).isEqualTo(employmentId);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForObject(sql.capture(), eq(UUID.class), eq(tenantId), eq(userId));
+        assertThat(sql.getValue())
+                .contains("JOIN hr_people")
+                .contains("employee.person_id")
+                .contains("person.user_id = ?")
+                .doesNotContain("employee.user_id = ?");
     }
 
     @Test
@@ -63,6 +73,18 @@ class HrEmploymentScopeResolverTest {
                 .thenReturn(1);
 
         resolver.requireManagedEmployment(tenantId, managerUserId, targetEmploymentId);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForObject(sql.capture(), eq(Integer.class),
+                eq(tenantId), eq(managerUserId), eq(targetEmploymentId));
+        assertThat(sql.getValue())
+                .contains("JOIN hr_people manager_person")
+                .contains("JOIN hr_employee_assignments manager_assignment")
+                .contains("JOIN hr_employee_assignments target_assignment")
+                .contains("target_assignment.reports_to_assignment_id = manager_assignment.id")
+                .contains("manager_person.user_id = ?")
+                .doesNotContain("manager.user_id = ?")
+                .doesNotContain("manager.id = target.manager_id");
     }
 
     @Test

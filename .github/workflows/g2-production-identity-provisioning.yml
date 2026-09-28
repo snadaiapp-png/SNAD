@@ -13,7 +13,8 @@
 #   - No GitHub secret setting (secrets already 6/6 SET)
 #   - Idempotent: lookup by email + tenant, reuse if exists
 #   - Fail-closed RBAC: no || true, error if capability missing
-#   - Production User/Admin API only (no direct DB access)
+#   - Canonical HR graph is provisioned through Production APIs only
+#   - No direct DB access from this workflow
 # ============================================================
 name: G2 Production Identity Provisioning
 
@@ -30,14 +31,10 @@ jobs:
     environment: production
     timeout-minutes: 15
     env:
-      # G2 governed tenant (Tenant B) — NOT Control Plane
       G2_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
-      # Tenant B admin credentials for provisioning
       G2_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       G2_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
-      # Production app URL
       BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-      # G2 identity credentials (READ-ONLY — already set, do NOT modify)
       G2_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}
       G2_EMPLOYEE_PASSWORD: ${{ secrets.G2_PROD_EMPLOYEE_PASSWORD }}
       G2_MANAGER_EMAIL: ${{ secrets.G2_PROD_MANAGER_EMAIL }}
@@ -63,6 +60,11 @@ jobs:
           echo "G2_TENANT_ID=${G2_TENANT_ID:0:8}... (masked)"
           echo "CONTROL_PLANE_TENANT_USED=NO"
 
+      - name: Checkout governed provisioning scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Authenticate as Tenant B admin
         shell: bash
         run: |
@@ -86,7 +88,6 @@ jobs:
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> "$GITHUB_ENV"
           echo "Tenant B admin authenticated."
 
-          # Verify tenant binding — must match G2_TENANT_ID (NOT Control Plane)
           RESPONSE_TENANT=$(echo "$RESPONSE" | jq -r '.user.tenantId // empty')
           if [ "$RESPONSE_TENANT" != "$G2_TENANT_ID" ]; then
             echo "::error::Tenant mismatch: response tenant ($RESPONSE_TENANT) != G2 target ($G2_TENANT_ID)"
@@ -101,7 +102,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Check if admin can create users by listing capabilities
           CAPS_RESPONSE=$(curl --silent --show-error \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             "${BASE_URL%/}/api/v1/auth/me")
@@ -122,8 +122,6 @@ jobs:
           set -euo pipefail
           echo "::add-mask::$G2_EMPLOYEE_PASSWORD"
           API="${BASE_URL%/}/api/v1"
-
-          # Idempotent: lookup by email + tenant
           EXISTING=$(curl --silent \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             "$API/users?tenantId=$G2_TENANT_ID&email=$G2_EMPLOYEE_EMAIL" | \
@@ -156,7 +154,6 @@ jobs:
           set -euo pipefail
           echo "::add-mask::$G2_MANAGER_PASSWORD"
           API="${BASE_URL%/}/api/v1"
-
           EXISTING=$(curl --silent \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             "$API/users?tenantId=$G2_TENANT_ID&email=$G2_MANAGER_EMAIL" | \
@@ -189,7 +186,6 @@ jobs:
           set -euo pipefail
           echo "::add-mask::$G2_HR_PASSWORD"
           API="${BASE_URL%/}/api/v1"
-
           EXISTING=$(curl --silent \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             "$API/users?tenantId=$G2_TENANT_ID&email=$G2_HR_EMAIL" | \
@@ -222,7 +218,6 @@ jobs:
           set -euo pipefail
           API="${BASE_URL%/}/api/v1"
 
-          # Helper: find or create a role by code (idempotent)
           get_or_create_role() {
             local code="$1" name="$2" desc="$3"
             local existing=$(curl --silent \
@@ -248,16 +243,13 @@ jobs:
             echo "$id"
           }
 
-          # Helper: assign capability by code — FAIL-CLOSED (no || true)
           assign_cap() {
             local role_id="$1" cap_code="$2"
-            # Check if already assigned
             local existing=$(curl --silent \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               "$API/access/roles/$role_id/access-items?tenantId=$G2_TENANT_ID" | \
               jq -r --arg cap "$cap_code" '.[] | select(.capabilityCode == $cap) | .capabilityId' | head -1)
             if [ -n "$existing" ]; then return 0; fi
-            # Find capability ID by code
             local cap_id=$(curl --silent \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               "$API/access/capabilities?tenantId=$G2_TENANT_ID" | \
@@ -266,28 +258,19 @@ jobs:
               echo "::error::Capability $cap_code NOT FOUND — cannot assign"
               exit 1
             fi
-            # Assign (fail-closed — no || true)
             curl --silent --show-error -X POST \
               "$API/access/roles/$role_id/access-items/$cap_id?tenantId=$G2_TENANT_ID" \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" -d '{}'
           }
 
-          # Create G2_EMPLOYEE_QA role
           EMP_ROLE_ID=$(get_or_create_role "G2_EMPLOYEE_QA" "G2 Employee QA" "G2 Employee self-service QA role")
           echo "EMP_ROLE_ID=$EMP_ROLE_ID" >> "$GITHUB_ENV"
-
-          # Create G2_MANAGER_QA role
           MGR_ROLE_ID=$(get_or_create_role "G2_MANAGER_QA" "G2 Manager QA" "G2 Manager team approval QA role")
           echo "MGR_ROLE_ID=$MGR_ROLE_ID" >> "$GITHUB_ENV"
-
-          # Create G2_HR_QA role
           HR_ROLE_ID=$(get_or_create_role "G2_HR_QA" "G2 HR QA" "G2 HR admin QA role")
           echo "HR_ROLE_ID=$HR_ROLE_ID" >> "$GITHUB_ENV"
 
-          # Assign canonical capabilities (verified from V20260923_3 migration)
-
-          # Employee: self-service only
           assign_cap "$EMP_ROLE_ID" "HRM.ATTENDANCE.SELF_RECORD"
           assign_cap "$EMP_ROLE_ID" "HRM.ATTENDANCE.SELF_VIEW"
           assign_cap "$EMP_ROLE_ID" "HRM.LEAVE.SELF_REQUEST"
@@ -295,12 +278,10 @@ jobs:
           assign_cap "$EMP_ROLE_ID" "HRM.TIMESHEET.SELF_VIEW"
           assign_cap "$EMP_ROLE_ID" "HRM.TIMESHEET.SELF_SUBMIT"
 
-          # Manager: team approval (NOT HR admin)
           assign_cap "$MGR_ROLE_ID" "HRM.ATTENDANCE.TEAM_VIEW"
           assign_cap "$MGR_ROLE_ID" "HRM.LEAVE.TEAM_APPROVE"
           assign_cap "$MGR_ROLE_ID" "HRM.TIMESHEET.TEAM_APPROVE"
 
-          # HR: admin capabilities (NOT platform/control-plane admin)
           assign_cap "$HR_ROLE_ID" "HRM.LEAVE.HR_APPROVE"
           assign_cap "$HR_ROLE_ID" "HRM.LEAVE.POLICY_ADMIN"
           assign_cap "$HR_ROLE_ID" "HRM.ATTENDANCE.ADMIN"
@@ -316,23 +297,24 @@ jobs:
           set -euo pipefail
           API="${BASE_URL%/}/api/v1/access/users"
 
-          # Employee role
           curl --silent --show-error -X POST \
             "$API/$EMP_USER_ID/role-links/$EMP_ROLE_ID?tenantId=$G2_TENANT_ID" \
             -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}'
           echo "Assigned G2_EMPLOYEE_QA role to Employee user"
 
-          # Manager role
           curl --silent --show-error -X POST \
             "$API/$MGR_USER_ID/role-links/$MGR_ROLE_ID?tenantId=$G2_TENANT_ID" \
             -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}'
           echo "Assigned G2_MANAGER_QA role to Manager user"
 
-          # HR role
           curl --silent --show-error -X POST \
             "$API/$HR_USER_ID/role-links/$HR_ROLE_ID?tenantId=$G2_TENANT_ID" \
             -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}'
           echo "Assigned G2_HR_QA role to HR user"
+
+      - name: Provision canonical HR Person, Employment, Assignment and reporting graph
+        shell: bash
+        run: bash scripts/g2/provision-canonical-hr.sh
 
       - name: Initialize missing credentials and rotate to governed G2 secrets
         shell: bash
@@ -348,8 +330,6 @@ jobs:
 
             echo "::add-mask::$final_password"
 
-            # Idempotency: if the governed final credential already works,
-            # never rotate or overwrite it.
             local existing_response
             existing_response=$(curl --silent --show-error \
               -X POST "$AUTH_API/login" \
@@ -368,8 +348,6 @@ jobs:
               return 0
             fi
 
-            # Initialization is allowed only for passwordless users.
-            # Existing-but-different credentials fail closed at the API.
             local temporary
             temporary="$(openssl rand -hex 24)"
             echo "::add-mask::$temporary"
@@ -390,7 +368,6 @@ jobs:
               exit 1
             fi
 
-            # Temporary login must succeed and be tenant-bound.
             local bootstrap_response
             bootstrap_response=$(curl --silent --show-error \
               -X POST "$AUTH_API/login" \
@@ -403,7 +380,6 @@ jobs:
 
             local bootstrap_token
             bootstrap_token=$(echo "$bootstrap_response" | jq -r '.accessToken // empty')
-
             local bootstrap_tenant
             bootstrap_tenant=$(echo "$bootstrap_response" | jq -r '.user.tenantId // empty')
 
@@ -414,7 +390,6 @@ jobs:
 
             echo "::add-mask::$bootstrap_token"
 
-            # Rotate through the authenticated self-service contract.
             local rotate_body="/tmp/g2-${label,,}-credential-rotate.json"
             local rotate_status
             rotate_status=$(curl --silent --show-error \
@@ -439,10 +414,8 @@ jobs:
 
           initialize_if_needed \
             "$EMP_USER_ID" "$G2_EMPLOYEE_EMAIL" "$G2_EMPLOYEE_PASSWORD" "EMPLOYEE"
-
           initialize_if_needed \
             "$MGR_USER_ID" "$G2_MANAGER_EMAIL" "$G2_MANAGER_PASSWORD" "MANAGER"
-
           initialize_if_needed \
             "$HR_USER_ID" "$G2_HR_EMAIL" "$G2_HR_PASSWORD" "HR"
 
@@ -455,7 +428,6 @@ jobs:
             local email="$1" pass="$2" label="$3" expected_route="$4" forbidden_route="$5"
             echo "::add-mask::$pass"
 
-            # Login
             local resp=$(curl --silent --show-error \
               -X POST "${BASE_URL%/}/api/v1/auth/login" \
               -H "Content-Type: application/json" \
@@ -480,7 +452,6 @@ jobs:
             fi
             echo "$label: AUTH=PASS, TENANT_BINDING=PASS, STATUS=ACTIVE"
 
-            # Positive RBAC test: access allowed route
             local positive=$(curl --silent -o /dev/null -w '%{http_code}' \
               -H "Authorization: Bearer $token" \
               "${BASE_URL%/}$expected_route")
@@ -490,7 +461,6 @@ jobs:
             fi
             echo "$label: RBAC_POSITIVE=PASS ($expected_route → $positive)"
 
-            # Negative RBAC test: forbidden route
             local negative=$(curl --silent -o /dev/null -w '%{http_code}' \
               -H "Authorization: Bearer $token" \
               "${BASE_URL%/}$forbidden_route")
@@ -501,15 +471,10 @@ jobs:
             echo "$label: RBAC_NEGATIVE=PASS ($forbidden_route → $negative)"
           }
 
-          # Employee: can access /api/v2/hr/leave/requests, cannot access /api/v2/hr/time/schedules
           verify_identity "$G2_EMPLOYEE_EMAIL" "$G2_EMPLOYEE_PASSWORD" "EMPLOYEE" \
             "/api/v2/hr/leave/requests" "/api/v2/hr/time/schedules"
-
-          # Manager: can access /api/v2/hr/leave/requests/team, cannot access /api/v2/hr/time/schedules
           verify_identity "$G2_MANAGER_EMAIL" "$G2_MANAGER_PASSWORD" "MANAGER" \
             "/api/v2/hr/leave/requests/team" "/api/v2/hr/time/schedules"
-
-          # HR: can access /api/v2/hr/time/schedules, cannot access /api/v1/users (platform admin)
           verify_identity "$G2_HR_EMAIL" "$G2_HR_PASSWORD" "HR" \
             "/api/v2/hr/time/schedules" "/api/v1/users?tenantId=$G2_TENANT_ID"
 
@@ -541,5 +506,14 @@ jobs:
           echo "EMPLOYEE_USER=${EMP_USER_ID:-NOT_CREATED} (email: ${G2_EMPLOYEE_EMAIL:-N/A})"
           echo "MANAGER_USER=${MGR_USER_ID:-NOT_CREATED} (email: ${G2_MANAGER_EMAIL:-N/A})"
           echo "HR_USER=${HR_USER_ID:-NOT_CREATED} (email: ${G2_HR_EMAIL:-N/A})"
+          echo "EMPLOYEE_PERSON=${EMP_PERSON_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_PERSON=${MGR_PERSON_ID:-NOT_PROVISIONED}"
+          echo "HR_PERSON=${HR_PERSON_ID:-NOT_PROVISIONED}"
+          echo "EMPLOYEE_EMPLOYMENT=${EMP_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_EMPLOYMENT=${MGR_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "HR_EMPLOYMENT=${HR_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "EMPLOYEE_ASSIGNMENT=${EMP_ASSIGNMENT_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_ASSIGNMENT=${MGR_ASSIGNMENT_ID:-NOT_PROVISIONED}"
+          echo "HR_ASSIGNMENT=${HR_ASSIGNMENT_ID:-NOT_PROVISIONED}"
           echo ""
           echo "G2_PROD_SECRETS=6/6 SET (read-only — not modified)"

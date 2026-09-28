@@ -5,6 +5,11 @@ name: Provision Auth Smoke Tenants
 # Once provisioned, the auth-tenant-production-acceptance workflow
 # can login with the same credentials and exercise authenticated
 # session/tenant-isolation/refresh-replay flows.
+#
+# G2 canonical HR identities also require an authoritative employer context.
+# This bootstrap therefore owns one deterministic Legal Entity + one active
+# Organization eligibility per auth-smoke tenant. The G2 identity workflow
+# remains API-only and never writes HR identity rows directly to PostgreSQL.
 
 on:
   workflow_dispatch:
@@ -104,6 +109,30 @@ jobs:
 
             # 2. Organization upsert
             psql -v ON_ERROR_STOP=1 -c "INSERT INTO organizations (id, tenant_id, name, status, created_at, updated_at) SELECT gen_random_uuid(), '$TID'::uuid, 'Auth Smoke Org $label', 'ACTIVE', NOW(), NOW() WHERE NOT EXISTS (SELECT 1 FROM organizations WHERE tenant_id = '$TID'::uuid AND name = 'Auth Smoke Org $label');"
+
+            # 2a. Canonical employer prerequisites for G2 / HRM.
+            # Deterministic UUIDv5 values let the API-only G2 workflow derive the
+            # same Legal Entity id without a DB lookup or a new secret.
+            LE_ID=$(TID="$TID" python3 -c 'import os,uuid; print(uuid.uuid5(uuid.UUID(os.environ["TID"]), "auth-smoke-legal-entity"))')
+            OLE_ID=$(TID="$TID" python3 -c 'import os,uuid; print(uuid.uuid5(uuid.UUID(os.environ["TID"]), "auth-smoke-org-legal-eligibility"))')
+            ORG_ID=$(PGOPTIONS="-c app.tenant_id=$TID" psql -v ON_ERROR_STOP=1 -Atc "SELECT id FROM organizations WHERE tenant_id = '$TID'::uuid AND name = 'Auth Smoke Org $label' AND status = 'ACTIVE';")
+            if [ -z "$ORG_ID" ] || [ "$(printf '%s\n' "$ORG_ID" | wc -l | tr -d ' ')" != "1" ]; then
+              echo "::error::Tenant $label must have exactly one active Auth Smoke organization"
+              exit 1
+            fi
+
+            # legal_entities + organization_legal_entities are FORCE-RLS.
+            # Supply app.tenant_id explicitly; never use BYPASSRLS.
+            PGOPTIONS="-c app.tenant_id=$TID" psql -v ON_ERROR_STOP=1 -c "INSERT INTO legal_entities (id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at) VALUES ('$LE_ID'::uuid, '$TID'::uuid, 'AUTH-SMOKE-LE-$label', 'Auth Smoke Legal Entity $label', 'SA', 'SA', 'ACTIVE', NOW(), NOW()) ON CONFLICT (id) DO UPDATE SET status = 'ACTIVE', updated_at = NOW() WHERE legal_entities.tenant_id = EXCLUDED.tenant_id RETURNING id, code, status;"
+            PGOPTIONS="-c app.tenant_id=$TID" psql -v ON_ERROR_STOP=1 -c "INSERT INTO organization_legal_entities (id, tenant_id, organization_id, legal_entity_id, effective_from, effective_to, status, created_at) VALUES ('$OLE_ID'::uuid, '$TID'::uuid, '$ORG_ID'::uuid, '$LE_ID'::uuid, DATE '2026-01-01', NULL, 'ACTIVE', NOW()) ON CONFLICT (id) DO UPDATE SET organization_id = EXCLUDED.organization_id, legal_entity_id = EXCLUDED.legal_entity_id, effective_from = EXCLUDED.effective_from, effective_to = NULL, status = 'ACTIVE' WHERE organization_legal_entities.tenant_id = EXCLUDED.tenant_id RETURNING id, organization_id, legal_entity_id, status;"
+
+            # Fail closed if deterministic employer context cannot be proven.
+            EMPLOYER_COUNT=$(PGOPTIONS="-c app.tenant_id=$TID" psql -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM organization_legal_entities ole JOIN legal_entities le ON le.id = ole.legal_entity_id AND le.tenant_id = ole.tenant_id WHERE ole.tenant_id = '$TID'::uuid AND ole.organization_id = '$ORG_ID'::uuid AND ole.legal_entity_id = '$LE_ID'::uuid AND ole.status = 'ACTIVE' AND le.status = 'ACTIVE' AND ole.effective_from <= DATE '2026-01-02' AND (ole.effective_to IS NULL OR ole.effective_to >= DATE '2026-01-02');")
+            if [ "$EMPLOYER_COUNT" != "1" ]; then
+              echo "::error::Tenant $label canonical employer context is not exactly one active eligibility"
+              exit 1
+            fi
+            echo "Tenant $label canonical employer context provisioned (RLS-bound)"
 
             # 3. ADMIN role upsert + grant all capabilities
             psql -v ON_ERROR_STOP=1 -c "INSERT INTO roles (id, tenant_id, code, name, description, status, created_at, updated_at) SELECT gen_random_uuid(), '$TID'::uuid, 'ADMIN', 'Auth Smoke Admin $label', 'Auth smoke admin', 'ACTIVE', NOW(), NOW() WHERE NOT EXISTS (SELECT 1 FROM roles WHERE tenant_id = '$TID'::uuid AND code = 'ADMIN');"
