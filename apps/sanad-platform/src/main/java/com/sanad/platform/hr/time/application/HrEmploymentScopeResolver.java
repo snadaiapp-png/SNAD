@@ -32,11 +32,14 @@ public class HrEmploymentScopeResolver {
                     """
                     SELECT employee.id
                       FROM hr_employees employee
+                      JOIN hr_people person
+                        ON person.id = employee.person_id
+                       AND person.tenant_id = employee.tenant_id
                       JOIN users u
-                        ON u.id = employee.user_id
-                       AND u.tenant_id = employee.tenant_id
+                        ON u.id = person.user_id
+                       AND u.tenant_id = person.tenant_id
                      WHERE employee.tenant_id = ?
-                       AND employee.user_id = ?
+                       AND person.user_id = ?
                        AND employee.status = 'ACTIVE'
                        AND u.status = 'ACTIVE'
                     """,
