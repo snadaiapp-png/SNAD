@@ -65,7 +65,7 @@ class PlatformUserServiceTest {
         assertThat(response.userId()).isEqualTo(USER_ID);
         assertThat(response.membershipStatus()).isEqualTo(PlatformMembershipStatus.INVITED);
         verify(f.rls).applyForCurrentTransaction(CONTROL_TENANT);
-        verify(f.users, never()).save(any(User.class));
+        verify(f.users, never()).saveAndFlush(any(User.class));
         verify(f.memberships).save(any(PlatformMembership.class));
         verify(f.audit).success(actor, CONTROL_TENANT, "PLATFORM_USER_CREATED",
                 "PLATFORM_USER", USER_ID.toString(), null, null, response);
@@ -77,7 +77,7 @@ class PlatformUserServiceTest {
         User saved = user(USER_ID, CONTROL_TENANT, "operator@example.com", UserStatus.ACTIVE);
         when(f.users.findByTenantIdAndEmail(CONTROL_TENANT, "operator@example.com"))
                 .thenReturn(Optional.empty());
-        when(f.users.save(any(User.class))).thenReturn(saved);
+        when(f.users.saveAndFlush(any(User.class))).thenReturn(saved);
         when(f.memberships.findByControlTenantIdAndUserId(CONTROL_TENANT, USER_ID))
                 .thenReturn(Optional.empty());
         when(f.memberships.save(any(PlatformMembership.class)))
@@ -89,7 +89,7 @@ class PlatformUserServiceTest {
         assertThat(response.userId()).isEqualTo(USER_ID);
         verify(f.rls).applyForCurrentTransaction(CONTROL_TENANT);
         verify(f.users, never()).findAllByEmail("operator@example.com");
-        verify(f.users).save(any(User.class));
+        verify(f.users).saveAndFlush(any(User.class));
     }
 
     @Test
