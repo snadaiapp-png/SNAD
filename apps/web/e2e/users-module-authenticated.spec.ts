@@ -52,8 +52,8 @@ test("tenant users/access renders real data and stays fail-closed", async ({ pag
   await expect(page.getByTestId("management-access-ready")).toBeVisible();
   await expect(page.locator("#tenant-roles-heading")).toBeVisible();
   await expect(page.locator("#capability-registry-heading")).toBeVisible();
-  await expect(page.locator("#tenant-roles-heading").locator("xpath=following::table[1] tbody tr").first()).toBeVisible();
-  await expect(page.locator("#capability-registry-heading").locator("xpath=following::ul[1] li").first()).toBeVisible();
+  await expect(page.locator('section[aria-labelledby="tenant-roles-heading"] tbody tr').first()).toBeVisible();
+  await expect(page.locator('section[aria-labelledby="capability-registry-heading"] li').first()).toBeVisible();
 
   const forbiddenMutation = await page.request.post(
     `/api/platform/api/v1/access/roles?tenantId=${encodeURIComponent(TENANT_ID)}`,
