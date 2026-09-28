@@ -19,9 +19,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Validate canonical provisioning shell
+      - name: Validate canonical provisioning contracts
         run: |
+          set -euo pipefail
           bash -n scripts/g2/provision-canonical-hr.sh
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0])' .github/workflows/g2-production-identity-provisioning.yml
+          ruby -e 'require "yaml"; YAML.load_file(ARGV[0])' .github/workflows/provision-auth-smoke-tenants.yml
+          grep -Fq 'bash scripts/g2/provision-canonical-hr.sh' .github/workflows/g2-production-identity-provisioning.yml
+          grep -Fq 'auth-smoke-legal-entity' .github/workflows/provision-auth-smoke-tenants.yml
           grep -Fq 'hr_people person' apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrEmploymentScopeResolver.java
           grep -Fq 'reports_to_assignment_id = manager_assignment.id' apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrG2ScopedReadService.java
       - name: Set up JDK 21
