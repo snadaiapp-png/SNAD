@@ -65,7 +65,7 @@ public class HrEmploymentScopeResolver {
                     ON target_assignment.employment_id = target.id
                    AND target_assignment.tenant_id = target.tenant_id
                   JOIN hr_employee_assignments manager_assignment
-                    ON manager_assignment.id = target_assignment.reports_to_assignment_id
+                    ON target_assignment.reports_to_assignment_id = manager_assignment.id
                    AND manager_assignment.tenant_id = target_assignment.tenant_id
                   JOIN hr_employees manager_employment
                     ON manager_employment.id = manager_assignment.employment_id
