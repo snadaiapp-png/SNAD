@@ -20,34 +20,35 @@ test("capture authenticated users module evidence", async ({ page }, testInfo) =
   requireEnv("USERS_CONTROL_EMAIL", CONTROL_EMAIL);
   requireEnv("USERS_CONTROL_PASSWORD", CONTROL_PASSWORD);
 
-  await loginThroughUi(page, TENANT_EMAIL, TENANT_PASSWORD);
+  const tenantSession = await loginThroughUi(page, TENANT_EMAIL, TENANT_PASSWORD);
 
   await page.goto("/management/users");
-  await captureUsersEvidence(page, testInfo, "management-users", '[data-testid="management-users-ready"]', TENANT_ID);
+  await captureUsersEvidence(page, testInfo, "management-users", '[data-testid="management-users-ready"]', TENANT_ID, tenantSession.accessToken);
   const tenantRows = page.locator('[data-testid^="tenant-user-"]');
   await expect(tenantRows.first()).toBeVisible();
   const tenantDetailHref = await tenantRows.first().locator('a[href^="/management/users/"]').getAttribute("href");
   expect(tenantDetailHref).toBeTruthy();
 
   await page.goto(tenantDetailHref!);
-  await captureUsersEvidence(page, testInfo, "management-user-detail", '[data-testid="management-user-detail-ready"]', TENANT_ID);
+  await captureUsersEvidence(page, testInfo, "management-user-detail", '[data-testid="management-user-detail-ready"]', TENANT_ID, tenantSession.accessToken);
 
   await page.goto("/management/access");
-  await captureUsersEvidence(page, testInfo, "management-access", '[data-testid="management-access-ready"]', TENANT_ID);
+  await captureUsersEvidence(page, testInfo, "management-access", '[data-testid="management-access-ready"]', TENANT_ID, tenantSession.accessToken);
 
+  await page.context().clearCookies();
   await page.goto("/");
-  await loginThroughUi(page, CONTROL_EMAIL, CONTROL_PASSWORD);
+  const controlSession = await loginThroughUi(page, CONTROL_EMAIL, CONTROL_PASSWORD);
 
   await page.goto("/executive/users");
-  await captureUsersEvidence(page, testInfo, "executive-users", '[data-testid="executive-users-ready"]', CONTROL_TENANT_ID);
+  await captureUsersEvidence(page, testInfo, "executive-users", '[data-testid="executive-users-ready"]', CONTROL_TENANT_ID, controlSession.accessToken);
   const ownerCard = page.getByText(CONTROL_EMAIL, { exact: true }).locator("xpath=ancestor::article[1]");
   const ownerDetailHref = await ownerCard.locator('a[href^="/executive/users/"]').getAttribute("href");
   expect(ownerDetailHref).toBeTruthy();
 
   await page.goto(ownerDetailHref!);
-  await captureUsersEvidence(page, testInfo, "executive-user-detail", '[data-testid="executive-user-detail-ready"]', CONTROL_TENANT_ID);
+  await captureUsersEvidence(page, testInfo, "executive-user-detail", '[data-testid="executive-user-detail-ready"]', CONTROL_TENANT_ID, controlSession.accessToken);
 
   await page.goto("/executive/access");
   await expect(page.getByText("PLATFORM_OWNER", { exact: true })).toBeVisible();
-  await captureUsersEvidence(page, testInfo, "executive-access", 'text="PLATFORM_OWNER"', CONTROL_TENANT_ID);
+  await captureUsersEvidence(page, testInfo, "executive-access", 'text="PLATFORM_OWNER"', CONTROL_TENANT_ID, controlSession.accessToken);
 });
