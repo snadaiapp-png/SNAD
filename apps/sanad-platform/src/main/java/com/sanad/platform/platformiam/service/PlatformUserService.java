@@ -11,6 +11,7 @@ import com.sanad.platform.platformiam.dto.PlatformUserResponse;
 import com.sanad.platform.platformiam.dto.UpdatePlatformUserRequest;
 import com.sanad.platform.platformiam.repository.PlatformMembershipRepository;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.service.AuthService;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
@@ -37,6 +38,7 @@ public class PlatformUserService {
     private final PlatformOwnerSafetyService ownerSafety;
     private final AuthService authService;
     private final PlatformAuditService audit;
+    private final TenantRlsTransactionContext rlsContext;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -46,8 +48,10 @@ public class PlatformUserService {
             PlatformMembershipRepository memberships,
             PlatformOwnerSafetyService ownerSafety,
             AuthService authService,
-            PlatformAuditService audit) {
-        this(controlPlaneAccessGuard, users, memberships, ownerSafety, authService, audit, Clock.systemUTC());
+            PlatformAuditService audit,
+            TenantRlsTransactionContext rlsContext) {
+        this(controlPlaneAccessGuard, users, memberships, ownerSafety, authService, audit,
+                rlsContext, Clock.systemUTC());
     }
 
     public PlatformUserService(
@@ -57,6 +61,7 @@ public class PlatformUserService {
             PlatformOwnerSafetyService ownerSafety,
             AuthService authService,
             PlatformAuditService audit,
+            TenantRlsTransactionContext rlsContext,
             Clock clock) {
         this.controlPlaneAccessGuard = Objects.requireNonNull(controlPlaneAccessGuard, "controlPlaneAccessGuard");
         this.users = Objects.requireNonNull(users, "users");
@@ -64,6 +69,7 @@ public class PlatformUserService {
         this.ownerSafety = Objects.requireNonNull(ownerSafety, "ownerSafety");
         this.authService = Objects.requireNonNull(authService, "authService");
         this.audit = Objects.requireNonNull(audit, "audit");
+        this.rlsContext = Objects.requireNonNull(rlsContext, "rlsContext");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -259,6 +265,9 @@ public class PlatformUserService {
         if (!controlPlaneAccessGuard.isControlPlaneTenant(tenantId)) {
             throw new AccessDeniedException("Control-plane tenant required");
         }
+        // platform_memberships is FORCE RLS. Bind only the already-validated
+        // control-plane tenant, on the same transaction/connection used below.
+        rlsContext.applyForCurrentTransaction(tenantId);
         return tenantId;
     }
 
