@@ -54,7 +54,8 @@ export function ScpNav() {
   };
 
   const label = (key: string): string => {
-    const platformLabel = PLATFORM_NAV_LABELS[locale][key as keyof typeof PLATFORM_NAV_LABELS.ar];
+    const labels = PLATFORM_NAV_LABELS[locale === "en" ? "en" : "ar"];
+    const platformLabel = labels[key as keyof typeof labels];
     return platformLabel ?? t(key);
   };
 
