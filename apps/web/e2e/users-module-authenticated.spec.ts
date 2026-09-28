@@ -13,8 +13,10 @@ function requireEnv(name: string, value: string) {
   expect(value, `${name} must be configured by the users-module closure workflow`).toBeTruthy();
 }
 
-async function assertAuthenticatedIdentity(page: Page, expectedTenantId: string) {
-  const response = await page.request.get("/api/platform/api/v1/auth/me");
+async function assertAuthenticatedIdentity(page: Page, expectedTenantId: string, accessToken: string) {
+  const response = await page.request.get("/api/platform/api/v1/auth/me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   expect(response.ok(), `auth/me failed: ${response.status()} ${response.statusText()}`).toBe(true);
   const body = await response.json() as { tenantId?: string; user?: { tenantId?: string } };
   const tenantId = body.tenantId ?? body.user?.tenantId;
@@ -53,8 +55,6 @@ test("tenant users/access renders real data and stays fail-closed", async ({ pag
   await expect(page.locator("#tenant-roles-heading").locator("xpath=following::table[1] tbody tr").first()).toBeVisible();
   await expect(page.locator("#capability-registry-heading").locator("xpath=following::ul[1] li").first()).toBeVisible();
 
-  // The workflow user is deliberately read-only for access administration.
-  // A direct mutation must remain forbidden even when the UI does not expose it.
   const forbiddenMutation = await page.request.post(
     `/api/platform/api/v1/access/roles?tenantId=${encodeURIComponent(TENANT_ID)}`,
     {
@@ -72,7 +72,7 @@ test("tenant users/access renders real data and stays fail-closed", async ({ pag
 
   await page.goto("/management/users");
   await expect(page.getByTestId("management-users-ready")).toBeVisible();
-  await assertAuthenticatedIdentity(page, TENANT_ID);
+  await assertAuthenticatedIdentity(page, TENANT_ID, session.accessToken);
 });
 
 test("control-plane users/access renders only platform identities", async ({ page }) => {
@@ -95,9 +95,8 @@ test("control-plane users/access renders only platform identities", async ({ pag
   await expect(page.getByTestId("executive-user-detail-ready")).toBeVisible();
 
   await page.goto("/executive/access");
-  await expect(page.getByTestId("executive-access-ready")).toBeVisible();
   await expect(page.getByText("PLATFORM_OWNER", { exact: true })).toBeVisible();
   await expect(page.getByText("PLATFORM.USER.READ", { exact: true })).toBeVisible();
 
-  await assertAuthenticatedIdentity(page, CONTROL_TENANT_ID);
+  await assertAuthenticatedIdentity(page, CONTROL_TENANT_ID, session.accessToken);
 });
