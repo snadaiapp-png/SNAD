@@ -69,8 +69,10 @@ class ControlPlaneProvisioningIntegrationTest {
         // Tenant provisioning creates 1 administrator role + 9 canonical SNAD
         // role templates (CRM_SALES, HR_MANAGER, ERP_PURCHASER, ERP_APPROVER,
         // FINANCE_USER, FINANCE_APPROVER, STORE_MANAGER, WORKFLOW_APPROVER,
-        // EXECUTIVE_VIEWER) via RoleTemplateProvisioner — 10 roles total.
-        assertThat(count("roles", tenant.id())).isEqualTo(10);
+        // EXECUTIVE_VIEWER) plus the canonical protected TENANT_ADMIN template
+        // (V20261001_9 lifecycle-gap closure) via RoleTemplateProvisioner —
+        // 11 roles total.
+        assertThat(count("roles", tenant.id())).isEqualTo(11);
         assertThat(count("organization_memberships", tenant.id())).isEqualTo(1);
         assertThat(count("user_role_assignments", tenant.id())).isEqualTo(1);
 
