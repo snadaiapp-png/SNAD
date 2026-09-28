@@ -283,6 +283,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261001.4"   // platform iam capabilities
             , "20261001.5"   // platform iam roles
             , "20261001.6"   // platform owner bootstrap
+            , "20261001.7"   // canonical platform owner executive-admin reconciliation
     );
 
 

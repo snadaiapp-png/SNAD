@@ -119,6 +119,11 @@ class ControlPlaneBootstrapServiceTest {
         // that can immediately call protected /api/** routes.
         verify(user).setMustChangePassword(false);
 
+        // The canonical control-plane bootstrap identity is a platform operator,
+        // not a tenant ADMIN. It must carry the explicit platform_admin marker so
+        // login is not incorrectly subjected to customer-subscription eligibility.
+        verify(user).setPlatformAdmin(true);
+
         // Verify forceReset=true is passed so the password is rotated and grant re-activated.
         verify(credentialBootstrapService).bootstrap(
                 eq(true), eq(true), eq(tenantId),
