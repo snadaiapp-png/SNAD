@@ -55,7 +55,7 @@ class HrEmploymentScopeResolverTest {
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).queryForObject(sql.capture(), eq(UUID.class), eq(tenantId), eq(userId));
         assertThat(sql.getValue())
-                .contains("JOIN hr_people")
+                .contains("FROM hr_people person")
                 .contains("employee.person_id = person.id")
                 .contains("person.user_id = ?")
                 .doesNotContain("employee.user_id = ?");
@@ -103,7 +103,7 @@ class HrEmploymentScopeResolverTest {
         verify(jdbc).queryForObject(sql.capture(), eq(Integer.class),
                 eq(tenantId), eq(managerUserId), eq(targetEmploymentId));
         assertThat(sql.getValue())
-                .contains("JOIN hr_people manager_person")
+                .contains("FROM hr_people manager_person")
                 .contains("JOIN hr_employee_assignments manager_assignment")
                 .contains("JOIN hr_employee_assignments target_assignment")
                 .contains("target_assignment.reports_to_assignment_id = manager_assignment.id")
