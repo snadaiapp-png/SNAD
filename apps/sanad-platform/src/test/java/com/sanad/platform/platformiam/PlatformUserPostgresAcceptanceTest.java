@@ -2,6 +2,8 @@ package com.sanad.platform.platformiam;
 
 import com.sanad.platform.commerce.PgAcceptanceWiringConfig;
 import com.sanad.platform.platformiam.dto.CreatePlatformUserRequest;
+import com.sanad.platform.platformiam.service.PlatformAuthorizationService;
+import com.sanad.platform.platformiam.service.PlatformTemporaryAccessService;
 import com.sanad.platform.platformiam.service.PlatformUserService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -13,7 +15,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -21,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,7 +35,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("pg-acceptance")
 @Import(PgAcceptanceWiringConfig.class)
 @EnabledIfEnvironmentVariable(named = "SPRING_PROFILES_ACTIVE", matches = "pg-acceptance")
-@Transactional
 class PlatformUserPostgresAcceptanceTest {
 
     static final String CONTROL_TENANT_ID = "00000000-0000-0000-0000-000000000001";
@@ -40,18 +43,26 @@ class PlatformUserPostgresAcceptanceTest {
 
     @Autowired private PlatformUserService platformUsers;
     @Autowired private JdbcTemplate jdbc;
-    @Autowired private com.sanad.platform.platformiam.service.PlatformTemporaryAccessService temporaryAccess;
-    @Autowired private com.sanad.platform.platformiam.service.PlatformAuthorizationService authorization;
+    @Autowired private PlatformTemporaryAccessService temporaryAccess;
+    @Autowired private PlatformAuthorizationService authorization;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private final List<UUID> createdUsers = new ArrayList<>();
     private final List<UUID> createdTenants = new ArrayList<>();
 
     @AfterEach
     void cleanup() {
-        for (UUID userId : createdUsers) {
-            jdbc.update("DELETE FROM platform_memberships WHERE user_id = ?", userId);
-            jdbc.update("DELETE FROM refresh_tokens WHERE user_id = ?", userId);
-            jdbc.update("DELETE FROM users WHERE id = ?", userId);
+        if (!createdUsers.isEmpty()) {
+            inControlTenantTransaction(() -> {
+                for (UUID userId : createdUsers) {
+                    jdbc.update("DELETE FROM access_scope_grants WHERE user_id = ?", userId);
+                    jdbc.update("DELETE FROM refresh_tokens WHERE user_id = ?", userId);
+                    jdbc.update("DELETE FROM user_role_assignments WHERE user_id = ?", userId);
+                    jdbc.update("DELETE FROM platform_memberships WHERE user_id = ?", userId);
+                    jdbc.update("DELETE FROM users WHERE id = ?", userId);
+                }
+                return null;
+            });
         }
         for (UUID tenantId : createdTenants) {
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
@@ -75,12 +86,12 @@ class PlatformUserPostgresAcceptanceTest {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE id=? AND tenant_id=?",
                 Integer.class, created.userId(), CONTROL_TENANT)).isEqualTo(1);
-        assertThat(jdbc.queryForObject(
+        assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM platform_memberships WHERE control_tenant_id=? AND user_id=?",
-                Integer.class, CONTROL_TENANT, created.userId())).isEqualTo(1);
-        assertThat(jdbc.queryForObject(
+                Integer.class, CONTROL_TENANT, created.userId()))).isEqualTo(1);
+        assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM platform_memberships WHERE control_tenant_id=? AND user_id=?",
-                Integer.class, CONTROL_TENANT, foreignUserId)).isZero();
+                Integer.class, CONTROL_TENANT, foreignUserId))).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE id=? AND tenant_id=? AND email=?",
                 Integer.class, foreignUserId, tenantB, email)).isEqualTo(1);
@@ -96,17 +107,27 @@ class PlatformUserPostgresAcceptanceTest {
                 "SELECT id FROM access_capabilities WHERE code = 'PLATFORM.USER.READ'", UUID.class);
         var target = new UsernamePasswordAuthenticationToken("target", "unused", List.of());
         target.setDetails(Map.of("tenant_id", CONTROL_TENANT_ID, "user_id", user.userId().toString()));
-        assertThat(authorization.evaluate(target, "PLATFORM.USER.READ").allowed()).isFalse();
+
+        assertThat(inControlTenantTransaction(() ->
+                authorization.evaluate(target, "PLATFORM.USER.READ").allowed())).isFalse();
 
         var grant = temporaryAccess.grant(actor(), user.userId(),
                 new com.sanad.platform.platformiam.dto.CreatePlatformTemporaryAccessRequest(
                         capabilityId, Instant.now().plusSeconds(300), "acceptance coverage"));
         assertThat(grant.grantedBy()).isEqualTo(OWNER_USER_ID);
-        assertThat(temporaryAccess.list(actor(), user.userId())).extracting(item -> item.id()).contains(grant.id());
-        assertThat(authorization.evaluate(target, "PLATFORM.USER.READ").allowed()).isTrue();
+        assertThat(temporaryAccess.list(actor(), user.userId()))
+                .extracting(item -> item.id())
+                .contains(grant.id());
+        assertThat(inControlTenantTransaction(() ->
+                authorization.evaluate(target, "PLATFORM.USER.READ").allowed())).isTrue();
+
         temporaryAccess.revoke(actor(), user.userId(), grant.id(), "acceptance completed");
-        assertThat(authorization.evaluate(target, "PLATFORM.USER.READ").allowed()).isFalse();
-        assertThat(temporaryAccess.list(actor(), user.userId())).extracting(item -> item.status()).contains("REVOKED");
+
+        assertThat(inControlTenantTransaction(() ->
+                authorization.evaluate(target, "PLATFORM.USER.READ").allowed())).isFalse();
+        assertThat(temporaryAccess.list(actor(), user.userId()))
+                .extracting(item -> item.status())
+                .contains("REVOKED");
     }
 
     private UUID seedTenant(String key) {
@@ -131,6 +152,16 @@ class PlatformUserPostgresAcceptanceTest {
                 """, id, tenantId, email, displayName, Timestamp.from(now), Timestamp.from(now));
         createdUsers.add(id);
         return id;
+    }
+
+    private <T> T inControlTenantTransaction(Supplier<T> work) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class,
+                    CONTROL_TENANT_ID);
+            return work.get();
+        });
     }
 
     private static Authentication actor() {
