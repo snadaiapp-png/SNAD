@@ -93,6 +93,10 @@ class PlatformRoleServiceTest {
                 .thenReturn(Optional.of(new PlatformRoleMetadata(
                         CONTROL_TENANT, ROLE_ID, PlatformRoleMetadata.RoleType.SYSTEM,
                         true, true, NOW, NOW)));
+        when(f.metadata.findByControlTenantIdAndRoleId(CONTROL_TENANT, OTHER_ROLE_ID))
+                .thenReturn(Optional.of(new PlatformRoleMetadata(
+                        CONTROL_TENANT, OTHER_ROLE_ID, PlatformRoleMetadata.RoleType.SYSTEM,
+                        false, false, NOW, NOW)));
 
         f.service.replaceUserRoles(actor(), USER_ID,
                 new ReplacePlatformRolesRequest(List.of(OTHER_ROLE_ID), "rotation"));
