@@ -16,6 +16,7 @@ import type {
 } from "../../lib/execution";
 import { calculateGroupProgress, calculateProgramProgress } from "../../lib/execution";
 import { HR_GROUP_DATA, HR_TASKS, HR_G0_CLOSURE, type HrTask } from "./hr-execution-data";
+import { reconcileG2ExecutionGroup } from "./hr-g2-closure";
 
 /**
  * FOLLOW-UP DEFECT (HRM-G0 reconciliation — persistence gap):
@@ -195,7 +196,9 @@ export class HrExecutionProvider {
   }
 
   private buildProgram(): ExecutionProgram {
-    const groups = HR_GROUP_DATA.map((groupData) => this.buildGroup(groupData));
+    const groups = HR_GROUP_DATA
+      .map((groupData) => this.buildGroup(groupData))
+      .map((group) => reconcileG2ExecutionGroup(group));
     const allTasks = groups.flatMap((g) => g.tasks);
     const completedTasks = allTasks.filter((t) => t.status === "DONE" || t.status === "APPROVED");
     const overallPercentage = allTasks.length > 0
