@@ -4,6 +4,38 @@ import path from "node:path";
 
 const ROOT = path.resolve("test-results/users-module-visual-evidence");
 
+export const EXECUTIVE_USERS_TERMINAL_TEST_IDS = [
+  "access-check-failed",
+  "access-denied",
+  "users-load-failed",
+  "executive-users-ready",
+] as const;
+
+export async function expectExecutiveUsersReady(page: Page) {
+  const terminal = page.locator(
+    EXECUTIVE_USERS_TERMINAL_TEST_IDS.map((testId) => `[data-testid=\"${testId}\"]`).join(", "),
+  );
+
+  await expect(
+    terminal.first(),
+    `executive users must reach one deterministic terminal state: ${EXECUTIVE_USERS_TERMINAL_TEST_IDS.join(", ")}`,
+  ).toBeVisible();
+
+  const visibleState = await terminal.evaluateAll((elements) => {
+    const visible = elements.find((element) => {
+      const html = element as HTMLElement;
+      const style = window.getComputedStyle(html);
+      return style.visibility !== "hidden" && style.display !== "none" && html.getClientRects().length > 0;
+    });
+    return visible?.getAttribute("data-testid") ?? null;
+  });
+
+  expect(
+    visibleState,
+    `executive users terminal runtime state was ${visibleState ?? "unknown"}`,
+  ).toBe("executive-users-ready");
+}
+
 export async function captureUsersEvidence(
   page: Page,
   testInfo: TestInfo,
@@ -12,7 +44,11 @@ export async function captureUsersEvidence(
   expectedTenantId: string,
   accessToken: string,
 ) {
-  await expect(page.locator(readySelector).first()).toBeVisible();
+  if (name === "executive-users") {
+    await expectExecutiveUsersReady(page);
+  } else {
+    await expect(page.locator(readySelector).first()).toBeVisible();
+  }
 
   const auth = await page.request.get("/api/platform/api/v1/auth/me", {
     headers: { Authorization: `Bearer ${accessToken}` },
