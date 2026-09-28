@@ -2,6 +2,7 @@ package com.sanad.platform.security.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.config.SecurityProperties;
 import com.sanad.platform.security.domain.PasswordResetToken;
 import com.sanad.platform.security.domain.PasswordResetTokenRepository;
@@ -71,6 +72,7 @@ public class AuthService {
     private final SessionVersionCache sessionVersionCache;
     private final TenantRepository tenantRepository;
     private final SubscriptionResolutionService subscriptionResolution;
+    private final ControlPlaneAccessGuard controlPlaneAccessGuard;
 
     @Autowired
     public AuthService(
@@ -83,7 +85,8 @@ public class AuthService {
             LoginRateLimiter loginRateLimiter,
             SessionVersionCache sessionVersionCache,
             TenantRepository tenantRepository,
-            SubscriptionResolutionService subscriptionResolution
+            SubscriptionResolutionService subscriptionResolution,
+            ControlPlaneAccessGuard controlPlaneAccessGuard
     ) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -95,6 +98,7 @@ public class AuthService {
         this.sessionVersionCache = sessionVersionCache;
         this.tenantRepository = tenantRepository;
         this.subscriptionResolution = subscriptionResolution;
+        this.controlPlaneAccessGuard = controlPlaneAccessGuard;
 
         SecurityProperties.LoginRateLimit rateLimit = securityProperties.getLoginRateLimit();
         // Legacy in-process cache retained as a secondary defense-in-depth counter
@@ -125,7 +129,7 @@ public class AuthService {
     ) {
         this(userRepository, refreshTokenRepository, passwordResetTokenRepository,
                 jwtTokenProvider, passwordEncoder, securityProperties,
-                loginRateLimiter, sessionVersionCache, null, null);
+                loginRateLimiter, sessionVersionCache, null, null, null);
     }
 
     @Transactional
@@ -231,10 +235,16 @@ public class AuthService {
     }
 
     private void requireLoginEligibleSubscription(User user) {
-        if (user == null || user.isPlatformAdmin() || subscriptionResolution == null) {
-            // Platform operators are governed by the control-plane tenant and
-            // must remain able to recover customer subscription incidents.
-            // The null case exists only for legacy direct-instantiation tests.
+        if (user == null
+                || user.isPlatformAdmin()
+                || (controlPlaneAccessGuard != null
+                    && controlPlaneAccessGuard.isControlPlaneTenant(user.getTenantId()))
+                || subscriptionResolution == null) {
+            // Control-plane identities are outside the customer commercial
+            // subscription lifecycle. Platform authority remains enforced by
+            // ControlPlaneAccessGuard plus Platform IAM/RBAC on protected APIs.
+            // The legacy platform_admin bypass is retained for compatibility;
+            // null dependencies exist only for legacy direct-instantiation tests.
             return;
         }
         SubscriptionResolutionService.EffectiveSubscription subscription =

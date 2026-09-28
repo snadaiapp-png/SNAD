@@ -118,6 +118,14 @@ public class ControlPlaneBootstrapService {
             throw new IllegalStateException("Bootstrap returned no user; refusing to report success.");
         }
 
+        // ADMIN is intentionally tenant-scoped and must never imply cross-tenant
+        // authority. This endpoint is the canonical, protected Control Plane
+        // bootstrap path, so this one identity must carry the explicit platform
+        // operator marker. AuthService uses this marker to exempt the operator
+        // from customer-subscription eligibility while preserving subscription
+        // enforcement for ordinary tenant administrators.
+        adminUser.setPlatformAdmin(true);
+
         // The control-plane credential is a protected server-side secret that is
         // rotated out-of-band via the environment; it is NOT a human-issued
         // temporary password. CredentialBootstrapService.forceReset arms forced

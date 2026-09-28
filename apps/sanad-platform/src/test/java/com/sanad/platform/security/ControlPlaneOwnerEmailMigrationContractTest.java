@@ -1,13 +1,31 @@
 package com.sanad.platform.security;
 
+import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
+import com.sanad.platform.security.config.SecurityProperties;
+import com.sanad.platform.security.exception.AccountInactiveException;
+import com.sanad.platform.security.service.AuthService;
+import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
+import com.sanad.platform.user.domain.User;
+import com.sanad.platform.user.domain.UserStatus;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class ControlPlaneOwnerEmailMigrationContractTest {
 
@@ -31,5 +49,56 @@ class ControlPlaneOwnerEmailMigrationContractTest {
             assertFalse(sql.contains("SET email = 'admin@snad.ai'"),
                     "The forward migration must never restore the legacy owner email");
         }
+    }
+
+    @Test
+    void controlPlaneIdentityDoesNotRequireCustomerSubscriptionToAuthenticate() throws Exception {
+        UUID controlTenant = UUID.fromString(CONTROL_PLANE_TENANT_ID);
+        SubscriptionResolutionService subscriptions = mock(SubscriptionResolutionService.class);
+        ControlPlaneAccessGuard guard = new ControlPlaneAccessGuard(CONTROL_PLANE_TENANT_ID);
+        AuthService authService = authService(subscriptions, guard);
+        User controlPlaneUser = new User(controlTenant, "scp-smoke@snad.invalid", "SCP Smoke", UserStatus.ACTIVE);
+
+        Method gate = AuthService.class.getDeclaredMethod("requireLoginEligibleSubscription", User.class);
+        gate.setAccessible(true);
+
+        assertDoesNotThrow(() -> gate.invoke(authService, controlPlaneUser));
+        verifyNoInteractions(subscriptions);
+    }
+
+    @Test
+    void customerTenantWithoutEffectiveSubscriptionStillFailsClosed() throws Exception {
+        UUID customerTenant = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        SubscriptionResolutionService subscriptions = mock(SubscriptionResolutionService.class);
+        when(subscriptions.findEffectiveSubscription(customerTenant)).thenReturn(Optional.empty());
+        ControlPlaneAccessGuard guard = new ControlPlaneAccessGuard(CONTROL_PLANE_TENANT_ID);
+        AuthService authService = authService(subscriptions, guard);
+        User customerUser = new User(customerTenant, "customer@snad.invalid", "Customer", UserStatus.ACTIVE);
+
+        Method gate = AuthService.class.getDeclaredMethod("requireLoginEligibleSubscription", User.class);
+        gate.setAccessible(true);
+
+        InvocationTargetException thrown = assertThrows(
+                InvocationTargetException.class,
+                () -> gate.invoke(authService, customerUser));
+        assertInstanceOf(AccountInactiveException.class, thrown.getCause());
+        verify(subscriptions).findEffectiveSubscription(customerTenant);
+    }
+
+    private static AuthService authService(
+            SubscriptionResolutionService subscriptions,
+            ControlPlaneAccessGuard guard) {
+        return new AuthService(
+                null,
+                null,
+                null,
+                null,
+                null,
+                new SecurityProperties(),
+                null,
+                null,
+                null,
+                subscriptions,
+                guard);
     }
 }

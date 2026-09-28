@@ -142,6 +142,50 @@ export const HR_G1_CLOSURE = {
     "production gates remain separate and unclaimed.",
 } as const;
 
+// ── G2 Closure Reconciliation (authoritative, documented-state-bound) ────
+
+/**
+ * HR-G2 engineering closure reconciliation.
+ *
+ * G2 was already closed through protected exact-SHA certification and
+ * post-merge verification. This block synchronizes the static execution
+ * dashboard with that existing closure; it does not reopen or recertify G2.
+ * Legal, Saudi-country, and production authorities remain independent.
+ */
+export const HR_G2_CLOSURE = {
+  implementation: "DONE" as GroupStatus,
+  certificatePath: "docs/hrm/g2/evidence/HRM-G2-ENGINEERING-CLOSURE.md",
+  manifestPath: "docs/hrm/g2/evidence/G2-FINAL-EVIDENCE-MANIFEST.md",
+  referencePrNumber: 1173 as const,
+  preMergeClosureHeadSha: "8553e4d170b6ef856e5df4771cee3c6bccbee6e7",
+  closureEvidenceMainSha: "24d7a52b3696b66bca2380433b51045a35c74d66",
+  postMergeRuns: {
+    authenticatedAcceptance: 36344192747 as const,
+    humanPreview: 36344192703 as const,
+    postMergeVerification: 36344192701 as const,
+    playwrightVisualRegression: 36344192757 as const,
+  } as const,
+  implementationPerCanonicalTask: {
+    T1: "DONE" as const,
+    T2: "DONE" as const,
+    T3: "DONE" as const,
+    T4: "DONE" as const,
+    T5: "DONE" as const,
+  } as const,
+  engineeringFinalGate: "PASS" as const,
+  engineeringCertification: "APPROVED" as const,
+  visualEvidence: {
+    total: 60 as const,
+    arDesktop: 15 as const,
+    arMobile: 15 as const,
+    enDesktop: 15 as const,
+    enMobile: 15 as const,
+  } as const,
+  legalCertification: "BLOCKED" as const,
+  saCountryPack: "DRAFT" as const,
+  productionAuthorization: "NO" as const,
+} as const;
+
 // ── HR-Specific Task Type ────────────────────────────────────────────────
 
 /**
@@ -205,10 +249,8 @@ export const HR_GROUP_DATA = [
     titleEn: "Time & Attendance: Timesheets & Leave",
     purposeAr: "إدارة حضور الموظفين وأوقات العمل وإجازاتهم.",
     purposeEn: "Manage employee attendance, work hours, and leave requests.",
-    // G2 implementation IN PROGRESS — step-instance approval binding
-    // remediation pushed (commit 560df3be); fresh exact-head CI pending
-    // per directive §16. NOT DONE — do not merge.
-    status: "IN_PROGRESS" as GroupStatus,
+    // Reconciled via HR_G2_CLOSURE — exact main 24d7a52b, PR 1173, all T1..T5 DONE.
+    status: "DONE" as GroupStatus,
     dependencies: ["G0"],
     canParallelizeWith: ["G1"],
     stageReport: null,
@@ -500,7 +542,8 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Comprehensive monthly attendance, absence, and work hours report per employee",
     type: "Report",
     priority: "Medium",
-    status: "NOT_STARTED",
+    // Reconciled by the certified G2 exact-SHA closure; see HR_G2_CLOSURE.
+    status: "DONE",
     dependencies: ["G2-T03"],
     acceptanceCriteriaAr: "التقرير يعرض إحصائيات حضور شاملة لكل موظف",
     implementationNotesAr: "تصدير PDF و Excel",
