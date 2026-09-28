@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: g2-canonical-identity-tdd
+  cancel-in-progress: true
+
 jobs:
   targeted:
     name: G2 Canonical Identity Targeted Test
