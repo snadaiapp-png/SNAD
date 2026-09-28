@@ -94,7 +94,7 @@ public class PlatformTemporaryAccessService {
                 """, id, tenantId, userId, request.capabilityId(), reason, actorId,
                 Timestamp.from(now), Timestamp.from(request.effectiveTo()));
         var result = new PlatformTemporaryAccessResponse(id, userId, request.capabilityId(),
-                codes.getFirst(), now, request.effectiveTo(), reason, actorId, "ACTIVE");
+                codes.get(0), now, request.effectiveTo(), reason, actorId, "ACTIVE");
         audit.success(actor, tenantId, "PLATFORM_TEMPORARY_ACCESS_GRANTED", "PLATFORM_USER",
                 userId.toString(), reason, null, result);
         return result;
