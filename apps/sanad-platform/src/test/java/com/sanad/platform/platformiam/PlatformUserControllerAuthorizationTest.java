@@ -6,6 +6,7 @@ import com.sanad.platform.platformiam.service.PlatformRoleService;
 import com.sanad.platform.platformiam.service.PlatformUserService;
 import com.sanad.platform.security.authorization.PlatformMembershipGuard;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.subscription.rbac.ControlPlaneAccessService;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -50,6 +51,23 @@ class PlatformUserControllerAuthorizationTest {
         assertCapability("getPlatformUserSessions", "PLATFORM.SESSION.READ", Authentication.class, UUID.class);
         assertCapability("revokePlatformUserSessions", "PLATFORM.SESSION.REVOKE", Authentication.class, UUID.class,
                 com.sanad.platform.platformiam.dto.PlatformLifecycleRequest.class);
+    }
+
+    @Test
+    void platformUserAuthoritiesAreExposedByExecutiveAccessCheck() {
+        assertThat(ControlPlaneAccessService.CONTROL_PLANE_CAPABILITIES)
+                .contains(
+                        "PLATFORM.USER.READ",
+                        "PLATFORM.USER.CREATE",
+                        "PLATFORM.USER.UPDATE",
+                        "PLATFORM.USER.SUSPEND",
+                        "PLATFORM.USER.DISABLE",
+                        "PLATFORM.ROLE.READ",
+                        "PLATFORM.ROLE.ASSIGN",
+                        "PLATFORM.PERMISSION.READ",
+                        "PLATFORM.SESSION.READ",
+                        "PLATFORM.SESSION.REVOKE",
+                        "PLATFORM.SECURITY.MANAGE");
     }
 
     @Test
