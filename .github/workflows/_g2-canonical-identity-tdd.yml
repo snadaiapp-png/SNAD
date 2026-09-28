@@ -3,12 +3,6 @@ name: G2 Canonical Identity TDD
 on:
   push:
     branches: [fix/g2-canonical-hr-identity]
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/**'
-      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/**'
-      - '.github/workflows/_g2-canonical-identity-tdd.yml'
 
 permissions:
   contents: read
@@ -31,4 +25,4 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Run canonical identity resolver tests
-        run: mvn -B -ntp -Dtest=HrEmploymentScopeResolverTest test
+        run: mvn -B -ntp -Dtest=HrEmploymentScopeResolverTest,HrG2ScopedReadServiceTest test
