@@ -37,15 +37,25 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
+const PLATFORM_NAV_LABELS = {
+  ar: { "scp.nav.users": "المستخدمون", "scp.nav.access": "الوصول والصلاحيات" },
+  en: { "scp.nav.users": "Users", "scp.nav.access": "Access" },
+} as const;
+
 export function ScpNav() {
   const pathname = usePathname();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { phase, capabilities, refresh } = useScpAccess();
 
   const visible = (capability: string): boolean => {
     if (phase === "checking") return true;
     if (phase !== "authorized") return false;
     return capabilities[capability] === true;
+  };
+
+  const label = (key: string): string => {
+    const platformLabel = PLATFORM_NAV_LABELS[locale][key as keyof typeof PLATFORM_NAV_LABELS.ar];
+    return platformLabel ?? t(key);
   };
 
   if (phase === "degraded") {
@@ -97,7 +107,7 @@ export function ScpNav() {
                 data-active={pathname === link.href}
                 aria-current={pathname === link.href ? "page" : undefined}
               >
-                {t(link.labelKey)}
+                {label(link.labelKey)}
               </Link>
             ))}
           </div>
