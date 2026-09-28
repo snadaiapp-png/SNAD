@@ -1,0 +1,47 @@
+name: G2 Recovery Release Dispatch
+
+on:
+  workflow_run:
+    workflows:
+      - Publish Render Backend Image
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-recovery-release:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify explicit recovery authorization marker
+        id: authorization
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          message="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA" --jq '.commit.message')"
+          if grep -q 'PRODUCTION-RECOVERY-G2-AUTHORIZED' <<<"$message"; then
+            echo 'authorized=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'authorized=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch exact-SHA recovery release without rollback
+        if: steps.authorization.outputs.authorized == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$TARGET_SHA"
+          gh workflow run production-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f commit_sha="$TARGET_SHA" \
+            -f pull_request_number='1196' \
+            -f rollback_on_failure='false'
