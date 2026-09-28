@@ -42,7 +42,7 @@ class HrG2ScopedReadServiceTest {
                 .contains("JOIN hr_people manager_person")
                 .contains("JOIN hr_employee_assignments manager_assignment")
                 .contains("JOIN hr_employee_assignments employee_assignment")
-                .contains("employee_assignment.reports_to_assignment_id = manager_assignment.id")
+                .contains("manager_assignment.id = employee_assignment.reports_to_assignment_id")
                 .contains("manager_person.user_id = ?")
                 .doesNotContain("employee.manager_id")
                 .doesNotContain("manager.user_id");
