@@ -94,49 +94,51 @@ export default function PlatformUserDetailPage() {
 
   return (
     <ScpPage title={t("scp.userDetail.title")} subtitle={user?.email}>
-      {error ? <ScpError message={error} onRetry={load} /> : null}
-      {user ? (
-        <>
-          <section className={styles.panel}>
-            <h2>{t("scp.userDetail.membership")}</h2>
-            <p>{user.displayName || user.email}</p>
-            <div className={styles.filters}><ScpStatusPill value={user.accountStatus} /><ScpStatusPill value={user.membershipStatus} /></div>
-            <div className={styles.filters}>
-              {has("PLATFORM.USER.UPDATE") && ["INVITED", "SUSPENDED", "LOCKED"].includes(user.membershipStatus) ? <Button size="sm" variant="primary" disabled={busy} onClick={() => void lifecycle("activate")}>{t("scp.userDetail.activate")}</Button> : null}
-              {has("PLATFORM.USER.SUSPEND") && user.membershipStatus === "ACTIVE" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void lifecycle("suspend")}>{t("scp.userDetail.suspend")}</Button> : null}
-              {has("PLATFORM.SECURITY.MANAGE") && user.membershipStatus === "ACTIVE" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void lifecycle("lock")}>{t("scp.userDetail.lock")}</Button> : null}
-              {has("PLATFORM.USER.DISABLE") && user.membershipStatus !== "DISABLED" ? <Button size="sm" variant="danger" disabled={busy} onClick={() => void lifecycle("disable")}>{t("scp.userDetail.disable")}</Button> : null}
-            </div>
-          </section>
-          <section className={styles.panel}>
-            <h2>{t("scp.userDetail.roles")}</h2>
-            {roleCodes.length ? roleCodes.map((code) => <p key={code}>{code}</p>) : <ScpEmpty message={t("scp.userDetail.noRoles")} />}
-            {canAssignRoles && availableRoles.length ? (
-              <>
-                {availableRoles.map((role) => (
-                  <label key={role.id} className={styles.appCardMeta}>
-                    <input type="checkbox" checked={selectedRoles.includes(role.id)} onChange={(event) => setSelectedRoles((current) => event.target.checked ? [...current, role.id] : current.filter((id) => id !== role.id))} /> {role.code}
-                  </label>
-                ))}
-                <Button size="sm" variant="primary" disabled={busy} onClick={() => void replaceRoles()}>{t("scp.userDetail.replaceRoles")}</Button>
-              </>
-            ) : null}
-          </section>
-          <section className={styles.panel}>
-            <h2>{t("scp.userDetail.permissions")}</h2>
-            {permissions.length ? permissions.map((permission) => <p key={permission}>{permission}</p>) : <ScpEmpty message={t("scp.userDetail.noPermissions")} />}
-          </section>
-          <TemporaryAccessCard key={userId} userId={userId} />
-          {canReadSessions && sessions ? (
+      <div data-testid="executive-user-detail-ready">
+        {error ? <ScpError message={error} onRetry={load} /> : null}
+        {user ? (
+          <>
             <section className={styles.panel}>
-              <h2>{t("scp.userDetail.sessions")}</h2>
-              <p>{t("scp.userDetail.sessionVersion")}: {sessions.sessionVersion}</p>
-              <p>{t("scp.userDetail.lastLogin")}: {sessions.lastLoginAt ?? "—"}</p>
-              {canRevokeSessions ? <Button size="sm" variant="danger" disabled={busy} onClick={() => void revokeSessions()}>{t("scp.userDetail.revokeSessions")}</Button> : null}
+              <h2>{t("scp.userDetail.membership")}</h2>
+              <p>{user.displayName || user.email}</p>
+              <div className={styles.filters}><ScpStatusPill value={user.accountStatus} /><ScpStatusPill value={user.membershipStatus} /></div>
+              <div className={styles.filters}>
+                {has("PLATFORM.USER.UPDATE") && ["INVITED", "SUSPENDED", "LOCKED"].includes(user.membershipStatus) ? <Button size="sm" variant="primary" disabled={busy} onClick={() => void lifecycle("activate")}>{t("scp.userDetail.activate")}</Button> : null}
+                {has("PLATFORM.USER.SUSPEND") && user.membershipStatus === "ACTIVE" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void lifecycle("suspend")}>{t("scp.userDetail.suspend")}</Button> : null}
+                {has("PLATFORM.SECURITY.MANAGE") && user.membershipStatus === "ACTIVE" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void lifecycle("lock")}>{t("scp.userDetail.lock")}</Button> : null}
+                {has("PLATFORM.USER.DISABLE") && user.membershipStatus !== "DISABLED" ? <Button size="sm" variant="danger" disabled={busy} onClick={() => void lifecycle("disable")}>{t("scp.userDetail.disable")}</Button> : null}
+              </div>
             </section>
-          ) : null}
-        </>
-      ) : null}
+            <section className={styles.panel}>
+              <h2>{t("scp.userDetail.roles")}</h2>
+              {roleCodes.length ? roleCodes.map((code) => <p key={code}>{code}</p>) : <ScpEmpty message={t("scp.userDetail.noRoles")} />}
+              {canAssignRoles && availableRoles.length ? (
+                <>
+                  {availableRoles.map((role) => (
+                    <label key={role.id} className={styles.appCardMeta}>
+                      <input type="checkbox" checked={selectedRoles.includes(role.id)} onChange={(event) => setSelectedRoles((current) => event.target.checked ? [...current, role.id] : current.filter((id) => id !== role.id))} /> {role.code}
+                    </label>
+                  ))}
+                  <Button size="sm" variant="primary" disabled={busy} onClick={() => void replaceRoles()}>{t("scp.userDetail.replaceRoles")}</Button>
+                </>
+              ) : null}
+            </section>
+            <section className={styles.panel}>
+              <h2>{t("scp.userDetail.permissions")}</h2>
+              {permissions.length ? permissions.map((permission) => <p key={permission}>{permission}</p>) : <ScpEmpty message={t("scp.userDetail.noPermissions")} />}
+            </section>
+            <TemporaryAccessCard key={userId} userId={userId} />
+            {canReadSessions && sessions ? (
+              <section className={styles.panel}>
+                <h2>{t("scp.userDetail.sessions")}</h2>
+                <p>{t("scp.userDetail.sessionVersion")}: {sessions.sessionVersion}</p>
+                <p>{t("scp.userDetail.lastLogin")}: {sessions.lastLoginAt ?? "—"}</p>
+                {canRevokeSessions ? <Button size="sm" variant="danger" disabled={busy} onClick={() => void revokeSessions()}>{t("scp.userDetail.revokeSessions")}</Button> : null}
+              </section>
+            ) : null}
+          </>
+        ) : null}
+      </div>
     </ScpPage>
   );
 }
