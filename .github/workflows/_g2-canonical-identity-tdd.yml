@@ -1,6 +1,8 @@
 name: G2 Canonical Identity TDD
 
 on:
+  push:
+    branches: [fix/g2-canonical-hr-identity]
   pull_request:
     branches: [main]
     paths:
