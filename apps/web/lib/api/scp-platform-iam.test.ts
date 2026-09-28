@@ -14,7 +14,7 @@ vi.mock("./client", () => ({
   },
 }));
 
-import { scpApi } from "./scp-api";
+import { scpApi } from "./scp-platform-iam-api";
 
 describe("scpApi — Platform IAM", () => {
   beforeEach(() => {

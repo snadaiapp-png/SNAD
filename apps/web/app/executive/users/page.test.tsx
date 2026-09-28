@@ -8,7 +8,7 @@ const { api, access } = vi.hoisted(() => ({
   access: { has: vi.fn((cap: string): boolean => cap === "PLATFORM.USER.READ") },
 }));
 
-vi.mock("@/lib/api/scp-api", () => ({ scpApi: api }));
+vi.mock("@/lib/api/scp-platform-iam-api", () => ({ scpApi: api }));
 vi.mock("../_components/ScpAccess", () => ({ useScpAccess: () => access }));
 vi.mock("@/lib/i18n/I18nProvider", () => ({
   useI18n: () => ({ t: (key: string) => ({

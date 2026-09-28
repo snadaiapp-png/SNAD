@@ -6,7 +6,7 @@ import {
   scpApi,
   type PlatformCapability,
   type PlatformRole,
-} from "@/lib/api/scp-api";
+} from "@/lib/api/scp-platform-iam-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useScpAccess } from "../_components/ScpAccess";
 import { ScpError, ScpNotice, ScpPage, ScpSkeleton, ScpStatusPill } from "../_components/ScpStates";

@@ -93,6 +93,9 @@ export interface TenantQuery extends PageQuery {
 }
 
 // ── Applications catalog ─────────────────────────────────────────────
+// Governed catalog lifecycle — mirrors backend ALLOWED_STATUSES and the
+// ck_applications_status CHECK after V20260914_1 (additive widening: the
+// legacy ACTIVE/INACTIVE/DEPRECATED trio is preserved, DRAFT/ARCHIVED added).
 export type ApplicationStatus = "ACTIVE" | "INACTIVE" | "DEPRECATED" | "DRAFT" | "ARCHIVED";
 
 export interface ScpApplication {
@@ -205,8 +208,11 @@ export interface SubscriptionRow {
   planCode: string | null;
   planVersion: string | null;
   currencyCode: string | null;
+  /** Actual recurring charge for the subscription billing cycle. */
   recurringAmountMinor: number | null;
+  /** Explicit analytical monthly equivalent; never use as the invoice charge. */
   monthlyEquivalentMinor: number | null;
+  /** @deprecated Compatibility alias of monthlyEquivalentMinor. */
   monthlyPriceMinor?: number | null;
   itemCount: number;
   trial: boolean;
@@ -244,6 +250,7 @@ export interface SubscriptionDetail {
   id: string;
   overview: Record<string, unknown>;
   items: Array<Record<string, unknown>>;
+  /** R0C-12 G5-R2: plan-derived ∪ item-derived entitlement rows */
   entitlements: Array<Record<string, unknown>>;
   invoices: Array<Record<string, unknown>>;
   changes: Array<Record<string, unknown>>;
@@ -270,11 +277,17 @@ export interface ChangePreview {
   deltaMonthlyMinor: number | null;
   currentCurrencyCode: string | null;
   targetCurrencyCode: string | null;
+  /** Present only when current and target currencies are identical. */
   currencyCode: string | null;
   warnings: string[];
 }
 
-export type LifecycleCommand = "PAUSE" | "RESUME" | "SUSPEND" | "CANCEL" | "TERMINATE";
+export type LifecycleCommand =
+  | "PAUSE"
+  | "RESUME"
+  | "SUSPEND"
+  | "CANCEL"
+  | "TERMINATE";
 
 export interface CommandResult {
   subscriptionId: string;
@@ -296,8 +309,10 @@ export interface UsageSnapshot {
   limit: number | null;
   percent: number | null;
   limitKind: string;
+  /** R0C-12 G6-R6: MONTHLY period of the aggregate */
   periodStart: string | null;
   warning: boolean;
+  /** R0C-12 G4-R1: 90% critical threshold */
   critical: boolean;
 }
 
@@ -320,6 +335,11 @@ export interface ProvisioningJobOutcome {
   skippedSteps: string[];
 }
 
+/**
+ * R0C-12 Blocker B: full typed audit contract — mirrors the backend
+ * AuditEntryResponse record exactly (camelCase JSON keys; nullable columns
+ * map to null, never to absent keys or snake_case names).
+ */
 export interface AuditEntry {
   id: string;
   actorTenantId: string | null;
@@ -334,94 +354,12 @@ export interface AuditEntry {
   createdAt: string;
 }
 
-// ── Platform IAM ─────────────────────────────────────────────────────
-export type PlatformMembershipStatus = "INVITED" | "ACTIVE" | "SUSPENDED" | "LOCKED" | "DISABLED";
-export type PlatformUserLifecycle = "activate" | "suspend" | "lock" | "disable";
-
-export interface PlatformUser {
-  userId: string;
-  email: string;
-  displayName: string | null;
-  accountStatus: string;
-  membershipStatus: PlatformMembershipStatus;
-  lastLoginAt: string | null;
-  joinedAt: string;
-}
-
-export interface CreatePlatformUserInput {
-  email: string;
-  displayName?: string;
-}
-
-export interface UpdatePlatformUserInput {
-  email?: string;
-  displayName?: string;
-}
-
-export interface PlatformUserRoleGrant {
-  id: string;
-  tenantId: string;
-  userId: string;
-  roleId: string;
-  roleCode: string;
-  organizationId: string | null;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PlatformSessionSummary {
-  userId: string;
-  sessionVersion: number;
-  lastLoginAt: string | null;
-}
-
-export interface PlatformRole {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  status: string;
-  roleType: "SYSTEM" | "CUSTOM";
-  protectedRole: boolean;
-  ownerRole: boolean;
-}
-
-export interface PlatformCapability {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PlatformRoleCapability {
-  id: string;
-  tenantId: string;
-  roleId: string;
-  capabilityId: string;
-  capabilityCode: string;
-  createdAt: string;
-}
-
-export interface CreatePlatformRoleInput {
-  code: string;
-  name: string;
-  description?: string;
-}
-
-export interface UpdatePlatformRoleInput {
-  name: string;
-  description?: string;
-}
-
 export interface AccessCheckV2 {
   authenticated: boolean;
   capabilities: Record<string, boolean>;
 }
 
+// ── Query serialization ──────────────────────────────────────────────
 function qs(params: object): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -431,6 +369,7 @@ function qs(params: object): string {
   return text ? `?${text}` : "";
 }
 
+// ── API surface ──────────────────────────────────────────────────────
 export const scpApi = {
   overview: () => apiClient.get<ScpOverview>(`${root}/overview`),
 
@@ -467,7 +406,9 @@ export const scpApi = {
   countryCurrencies: () => apiClient.get<CountryCurrency[]>(`${root}/country-currencies`),
 
   subscriptionItems: (subscriptionId: string, activeOnly = false) =>
-    apiClient.get<SubscriptionItem[]>(`${root}/subscriptions/${subscriptionId}/items${qs({ activeOnly })}`),
+    apiClient.get<SubscriptionItem[]>(
+      `${root}/subscriptions/${subscriptionId}/items${qs({ activeOnly })}`,
+    ),
 
   subscriptions: (query: SubscriptionQuery = {}) =>
     apiClient.get<PageResponse<SubscriptionRow>>(`${root}/subscriptions/v2${qs(query)}`),
@@ -487,11 +428,18 @@ export const scpApi = {
       { targetPlanVersionId },
     ),
 
-  executeChange: (subscriptionId: string, targetPlanVersionId: string, reason: string) =>
-    apiClient.post<ChangeResult, { targetPlanVersionId: string; reason: string }>(
-      `${root}/subscriptions/${subscriptionId}/changes`,
-      { targetPlanVersionId, reason },
-    ),
+  executeChange: (
+    subscriptionId: string,
+    targetPlanVersionId: string,
+    reason: string,
+  ) =>
+    apiClient.post<
+      ChangeResult,
+      { targetPlanVersionId: string; reason: string }
+    >(`${root}/subscriptions/${subscriptionId}/changes`, {
+      targetPlanVersionId,
+      reason,
+    }),
 
   provision: (subscriptionId: string) =>
     apiClient.post<ProvisioningJobOutcome, Record<string, never>>(
@@ -508,7 +456,8 @@ export const scpApi = {
       {},
     ),
 
-  usage: (tenantId: string) => apiClient.get<UsageSnapshot[]>(`${root}/usage${qs({ tenantId })}`),
+  usage: (tenantId: string) =>
+    apiClient.get<UsageSnapshot[]>(`${root}/usage${qs({ tenantId })}`),
 
   audit: (query: {
     tenantId?: string;
@@ -519,43 +468,6 @@ export const scpApi = {
     sort?: string;
     direction?: "ASC" | "DESC";
   } = {}) => apiClient.get<PageResponse<AuditEntry>>(`${root}/audit/v2${qs(query)}`),
-
-  platformUsers: () => apiClient.get<PlatformUser[]>(`${root}/users`),
-  platformUser: (userId: string) => apiClient.get<PlatformUser>(`${root}/users/${userId}`),
-  createPlatformUser: (body: CreatePlatformUserInput) =>
-    apiClient.post<PlatformUser, CreatePlatformUserInput>(`${root}/users`, body),
-  updatePlatformUser: (userId: string, body: UpdatePlatformUserInput) =>
-    apiClient.patch<PlatformUser, UpdatePlatformUserInput>(`${root}/users/${userId}`, body),
-  transitionPlatformUser: (userId: string, transition: PlatformUserLifecycle, reason?: string) =>
-    apiClient.post<PlatformUser, { reason?: string }>(`${root}/users/${userId}/${transition}`, { reason }),
-  platformUserRoles: (userId: string) =>
-    apiClient.get<PlatformUserRoleGrant[]>(`${root}/users/${userId}/roles`),
-  replacePlatformUserRoles: (userId: string, roleIds: string[], reason: string) =>
-    apiClient.put<PlatformUserRoleGrant[], { roleIds: string[]; reason: string }>(
-      `${root}/users/${userId}/roles`, { roleIds, reason },
-    ),
-  platformUserPermissions: (userId: string) =>
-    apiClient.get<string[]>(`${root}/users/${userId}/permissions`),
-  platformUserSessions: (userId: string) =>
-    apiClient.get<PlatformSessionSummary>(`${root}/users/${userId}/sessions`),
-  revokePlatformUserSessions: (userId: string, reason: string) =>
-    apiClient.post<PlatformSessionSummary, { reason: string }>(
-      `${root}/users/${userId}/sessions/revoke`, { reason },
-    ),
-
-  platformRoles: () => apiClient.get<PlatformRole[]>(`${root}/roles`),
-  platformRole: (roleId: string) => apiClient.get<PlatformRole>(`${root}/roles/${roleId}`),
-  createPlatformRole: (body: CreatePlatformRoleInput) =>
-    apiClient.post<PlatformRole, CreatePlatformRoleInput>(`${root}/roles`, body),
-  updatePlatformRole: (roleId: string, body: UpdatePlatformRoleInput) =>
-    apiClient.patch<PlatformRole, UpdatePlatformRoleInput>(`${root}/roles/${roleId}`, body),
-  platformCapabilities: () => apiClient.get<PlatformCapability[]>(`${root}/capabilities`),
-  platformRoleCapabilities: (roleId: string) =>
-    apiClient.get<PlatformRoleCapability[]>(`${root}/roles/${roleId}/capabilities`),
-  replacePlatformRoleCapabilities: (roleId: string, capabilityIds: string[]) =>
-    apiClient.put<PlatformRoleCapability[], { capabilityIds: string[] }>(
-      `${root}/roles/${roleId}/capabilities`, { capabilityIds },
-    ),
 
   accessCheckV2: () => apiClient.get<AccessCheckV2>(`${root}/access-check/v2`),
 };

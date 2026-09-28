@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Input } from "@/components/sds";
-import { scpApi, type PlatformUser } from "@/lib/api/scp-api";
+import { scpApi, type PlatformUser } from "@/lib/api/scp-platform-iam-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useScpAccess } from "../_components/ScpAccess";
 import { ScpEmpty, ScpError, ScpPage, ScpSkeleton, ScpStatusPill } from "../_components/ScpStates";
