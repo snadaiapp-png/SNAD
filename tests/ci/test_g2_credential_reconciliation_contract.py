@@ -20,12 +20,25 @@ class G2CredentialRecoveryContractTest(unittest.TestCase):
         self.assertIn("PRODUCTION-RECOVERY-G2-AUTHORIZED", self.dispatch)
         self.assertIn("rollback_on_failure='false'", self.dispatch)
 
+    def test_recovery_dispatch_enables_reconciliation_only_for_recovery_release(self):
+        self.assertIn("environment: production", self.dispatch)
+        self.assertIn("RENDER_API_KEY", self.dispatch)
+        self.assertIn("RENDER_SERVICE_ID", self.dispatch)
+        self.assertIn("SNAD_SECURITY_G2_RECONCILIATION_ENABLED", self.dispatch)
+        self.assertIn("{\"value\":\"true\"}", self.dispatch)
+
     def test_reconciliation_is_production_scoped_and_closes_recovery_surface(self):
         self.assertIn("SANAD Production Release", self.reconcile)
         self.assertIn("environment: production", self.reconcile)
         self.assertIn("AUTH_SMOKE_TENANT_B_ID", self.reconcile)
+        self.assertIn("SNAD_SECURITY_G2_RECONCILIATION_ENABLED", self.reconcile)
+        self.assertIn("{\"value\":\"false\"}", self.reconcile)
         self.assertIn("Recovery endpoint is not proven disabled", self.reconcile)
         self.assertIn("rollback_on_failure='true'", self.reconcile)
+        self.assertLess(
+            self.reconcile.index("{\"value\":\"false\"}"),
+            self.reconcile.index("Dispatch final exact-SHA production release"),
+        )
 
     def test_mutation_stays_on_application_api(self):
         self.assertIn("admin-reconcile-credential", self.runner)
