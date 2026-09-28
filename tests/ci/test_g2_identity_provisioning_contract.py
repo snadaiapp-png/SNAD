@@ -28,6 +28,34 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
         self.assertIn("admin-initialize-credential", text)
         self.assertIn("change-credential", text)
 
+    def test_hr_bootstrap_uses_only_governed_api_surfaces(self):
+        text = self.text
+        self.assertNotIn("psql", text)
+        self.assertNotIn("PRODUCTION_DATABASE_", text)
+        self.assertIn("/api/v1/organizations?tenantId=$G2_TENANT_ID", text)
+        self.assertIn("/legal-entities/eligible?tenantId=$G2_TENANT_ID&effectiveDate=$G2_EFFECTIVE_DATE", text)
+        self.assertIn("/api/v2/hr/people", text)
+        self.assertIn("/user-link", text)
+        self.assertIn("/api/v2/hr/employments", text)
+        self.assertIn("/api/v2/hr/assignments", text)
+        self.assertIn("Idempotency-Key", text)
+
+    def test_hr_bootstrap_fails_closed_on_ambiguous_employer_context(self):
+        text = self.text
+        self.assertIn("ACTIVE_ORG_COUNT", text)
+        self.assertIn('if [ "$ACTIVE_ORG_COUNT" != "1" ]', text)
+        self.assertIn("ELIGIBLE_LE_COUNT", text)
+        self.assertIn('if [ "$ELIGIBLE_LE_COUNT" != "1" ]', text)
+        self.assertIn("HR_CONTEXT_AMBIGUOUS", text)
+
+    def test_hr_bootstrap_builds_canonical_manager_relationship(self):
+        text = self.text
+        self.assertIn("MGR_ASSIGNMENT_ID", text)
+        self.assertIn("reportsToAssignmentId", text)
+        self.assertIn("$MGR_ASSIGNMENT_ID", text)
+        self.assertIn("EMP_ASSIGNMENT_ID", text)
+        self.assertIn("HR_ASSIGNMENT_ID", text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
