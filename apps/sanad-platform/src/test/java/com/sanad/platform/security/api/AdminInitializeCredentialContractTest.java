@@ -22,4 +22,17 @@ class AdminInitializeCredentialContractTest {
                 .as("AuthController must expose an initialization-only admin credential endpoint")
                 .isTrue();
     }
+
+    @Test
+    void exposesRecoveryOnlyCredentialReconciliationEndpoint() {
+        boolean present = Arrays.stream(AuthController.class.getDeclaredMethods())
+                .map(method -> method.getAnnotation(PostMapping.class))
+                .filter(Objects::nonNull)
+                .flatMap(mapping -> Arrays.stream(mapping.value()))
+                .anyMatch("/admin-reconcile-credential/{userId}"::equals);
+
+        assertThat(present)
+                .as("AuthController must expose the governed production-recovery credential reconciliation endpoint")
+                .isTrue();
+    }
 }
