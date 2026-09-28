@@ -6,8 +6,10 @@ on:
     paths:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrEmploymentScopeResolver.java'
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrG2ScopedReadService.java'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/organization/legalentity/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrEmploymentScopeResolverTest.java'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrG2ScopedReadServiceTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/organization/legalentity/**'
       - '.github/workflows/task7-g2-canonical-scope-targeted.yml'
   workflow_dispatch:
 
@@ -34,4 +36,4 @@ jobs:
           cache: maven
 
       - name: Run canonical scope unit tests
-        run: mvn -B -ntp -Dtest=HrEmploymentScopeResolverTest,HrG2ScopedReadServiceTest test
+        run: mvn -B -ntp -Dtest=HrEmploymentScopeResolverTest,HrG2ScopedReadServiceTest,LegalEntityEligibilityApiContractTest test
