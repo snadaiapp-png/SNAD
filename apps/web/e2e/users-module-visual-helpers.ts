@@ -10,10 +10,13 @@ export async function captureUsersEvidence(
   name: string,
   readySelector: string,
   expectedTenantId: string,
+  accessToken: string,
 ) {
   await expect(page.locator(readySelector).first()).toBeVisible();
 
-  const auth = await page.request.get("/api/platform/api/v1/auth/me");
+  const auth = await page.request.get("/api/platform/api/v1/auth/me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   expect(auth.ok(), `auth/me failed before ${name} evidence capture`).toBe(true);
   const authBody = await auth.json() as { tenantId?: string; user?: { tenantId?: string; email?: string }; email?: string };
   const tenantId = authBody.tenantId ?? authBody.user?.tenantId;
