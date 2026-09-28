@@ -60,37 +60,39 @@ export default function PlatformUsersPage() {
 
   return (
     <ScpPage title={t("scp.users.title")} subtitle={t("scp.users.subtitle")}>
-      {error ? <ScpError message={error} onRetry={load} /> : null}
-      {canCreate ? (
-        <div className={styles.filters}>
-          <Button variant="primary" size="sm" onClick={() => setCreating((value) => !value)}>
-            {t("scp.users.create")}
-          </Button>
-        </div>
-      ) : null}
-      {creating ? (
-        <form className={styles.panel} onSubmit={(event) => void create(event)}>
-          <label><span>{t("scp.users.email")}</span><Input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-          <label><span>{t("scp.users.displayName")}</span><Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
-          <Button type="submit" variant="primary" size="sm" loading={busy}>{t("scp.users.submit")}</Button>
-        </form>
-      ) : null}
-      {users?.length === 0 ? <ScpEmpty message={t("scp.users.empty")} /> : null}
-      {users && users.length > 0 ? (
-        <div className={styles.cards}>
-          {users.map((user) => (
-            <article key={user.userId} className={styles.appCard}>
-              <h2 className={styles.appCardTitle}>{user.displayName || user.email}</h2>
-              <span className={styles.appCardMeta}>{user.email}</span>
-              <div className={styles.filters}>
-                <ScpStatusPill value={user.accountStatus} />
-                <ScpStatusPill value={user.membershipStatus} />
-              </div>
-              <Link href={`/executive/users/${user.userId}`} className={styles.navLink}>{t("scp.users.open")}</Link>
-            </article>
-          ))}
-        </div>
-      ) : null}
+      <div data-testid="executive-users-ready">
+        {error ? <ScpError message={error} onRetry={load} /> : null}
+        {canCreate ? (
+          <div className={styles.filters}>
+            <Button variant="primary" size="sm" onClick={() => setCreating((value) => !value)}>
+              {t("scp.users.create")}
+            </Button>
+          </div>
+        ) : null}
+        {creating ? (
+          <form className={styles.panel} onSubmit={(event) => void create(event)}>
+            <label><span>{t("scp.users.email")}</span><Input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+            <label><span>{t("scp.users.displayName")}</span><Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
+            <Button type="submit" variant="primary" size="sm" loading={busy}>{t("scp.users.submit")}</Button>
+          </form>
+        ) : null}
+        {users?.length === 0 ? <ScpEmpty message={t("scp.users.empty")} /> : null}
+        {users && users.length > 0 ? (
+          <div className={styles.cards}>
+            {users.map((user) => (
+              <article key={user.userId} className={styles.appCard} data-testid={`executive-user-${user.userId}`}>
+                <h2 className={styles.appCardTitle}>{user.displayName || user.email}</h2>
+                <span className={styles.appCardMeta}>{user.email}</span>
+                <div className={styles.filters}>
+                  <ScpStatusPill value={user.accountStatus} />
+                  <ScpStatusPill value={user.membershipStatus} />
+                </div>
+                <Link href={`/executive/users/${user.userId}`} className={styles.navLink}>{t("scp.users.open")}</Link>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </ScpPage>
   );
 }
