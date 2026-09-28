@@ -9,30 +9,30 @@ import styles from "../scp.module.css";
 
 interface NavSection {
   headingKey: string;
-  links: Array<{ href: string; labelKey: string; capability: string }>;
+  links: Array<[href: string, labelKey: string, capability: string]>;
 }
 
 const SECTIONS: NavSection[] = [
   {
     headingKey: "scp.nav.section.controlPlane",
     links: [
-      { href: "/executive", labelKey: "scp.nav.overview", capability: "subscription.read" },
-      { href: "/executive/applications", labelKey: "scp.nav.applications", capability: "catalog.read" },
-      { href: "/executive/tenants", labelKey: "scp.nav.tenants", capability: "subscription.read" },
-      { href: "/executive/subscriptions", labelKey: "scp.nav.subscriptions", capability: "subscription.read" },
-      { href: "/executive/plans", labelKey: "scp.nav.plans", capability: "plan.read" },
-      { href: "/executive/users", labelKey: "controlPlane.users", capability: "PLATFORM.USER.READ" },
-      { href: "/executive/access", labelKey: "controlPlane.roles", capability: "PLATFORM.ROLE.READ" },
+      ["/executive", "scp.nav.overview", "subscription.read"],
+      ["/executive/applications", "scp.nav.applications", "catalog.read"],
+      ["/executive/tenants", "scp.nav.tenants", "subscription.read"],
+      ["/executive/subscriptions", "scp.nav.subscriptions", "subscription.read"],
+      ["/executive/plans", "scp.nav.plans", "plan.read"],
+      ["/executive/users", "controlPlane.users", "PLATFORM.USER.READ"],
+      ["/executive/access", "controlPlane.roles", "PLATFORM.ROLE.READ"],
     ],
   },
   {
     headingKey: "scp.nav.section.operations",
     links: [
-      { href: "/executive/entitlements", labelKey: "scp.nav.entitlements", capability: "entitlement.read" },
-      { href: "/executive/usage", labelKey: "scp.nav.usage", capability: "usage.read" },
-      { href: "/executive/billing", labelKey: "scp.nav.billing", capability: "billing.read" },
-      { href: "/executive/provisioning", labelKey: "scp.nav.provisioning", capability: "provisioning.read" },
-      { href: "/executive/audit", labelKey: "scp.nav.audit", capability: "audit.read" },
+      ["/executive/entitlements", "scp.nav.entitlements", "entitlement.read"],
+      ["/executive/usage", "scp.nav.usage", "usage.read"],
+      ["/executive/billing", "scp.nav.billing", "billing.read"],
+      ["/executive/provisioning", "scp.nav.provisioning", "provisioning.read"],
+      ["/executive/audit", "scp.nav.audit", "audit.read"],
     ],
   },
 ];
@@ -66,7 +66,7 @@ export function ScpNav() {
 
   if (phase === "authorized") {
     const anyVisible = SECTIONS.some((section) =>
-      section.links.some((link) => capabilities[link.capability] === true),
+      section.links.some(([, , capability]) => capabilities[capability] === true),
     );
     if (!anyVisible) {
       return (
@@ -84,20 +84,20 @@ export function ScpNav() {
       aria-busy={phase === "checking" ? "true" : undefined}
     >
       {SECTIONS.map((section) => {
-        const links = section.links.filter((link) => visible(link.capability));
+        const links = section.links.filter(([, , capability]) => visible(capability));
         if (links.length === 0) return null;
         return (
           <div key={section.headingKey}>
             <h2 className={styles.navHeading}>{t(section.headingKey)}</h2>
-            {links.map((link) => (
+            {links.map(([href, labelKey]) => (
               <Link
-                key={link.href}
-                href={link.href}
+                key={href}
+                href={href}
                 className={styles.navLink}
-                data-active={pathname === link.href}
-                aria-current={pathname === link.href ? "page" : undefined}
+                data-active={pathname === href}
+                aria-current={pathname === href ? "page" : undefined}
               >
-                {t(link.labelKey)}
+                {t(labelKey)}
               </Link>
             ))}
           </div>
