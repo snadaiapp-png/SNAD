@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { HR_G2_CLOSURE, HR_GROUP_DATA, HR_TASKS } from "./hr-execution-data";
+import { HR_G2_CLOSURE } from "./hr-g2-closure";
+import { HrExecutionProvider } from "./hr-execution-provider";
 
 describe("HR-G2 final engineering closure", () => {
   it("binds G2 to the exact governed main closure evidence", () => {
@@ -14,14 +15,25 @@ describe("HR-G2 final engineering closure", () => {
     expect(HR_G2_CLOSURE.visualEvidencePasses).toBe(60);
   });
 
-  it("marks the execution dashboard G2 group complete", () => {
-    expect(HR_GROUP_DATA.find((group) => group.code === "G2")?.status).toBe("DONE");
+  it("marks the execution dashboard G2 group complete", async () => {
+    const provider = new HrExecutionProvider();
+    const g2 = await provider.getGroup("HR-PROGRAM", "G2");
+    expect(g2?.status).toBe("DONE");
   });
 
-  it("marks all G2 roadmap tasks complete including the monthly report", () => {
-    const g2Tasks = HR_TASKS.filter((task) => task.groupCode === "G2");
+  it("marks all G2 roadmap tasks complete including the monthly report", async () => {
+    const provider = new HrExecutionProvider();
+    const g2Tasks = await provider.getTasks("HR-PROGRAM", "G2");
     expect(g2Tasks).toHaveLength(5);
     expect(g2Tasks.every((task) => task.status === "DONE")).toBe(true);
     expect(g2Tasks.find((task) => task.id === "G2-T05")?.status).toBe("DONE");
+  });
+
+  it("raises governed HR execution progress to 60 percent", async () => {
+    const provider = new HrExecutionProvider();
+    const progress = await provider.getProgramProgress("HR-PROGRAM");
+    expect(progress.total).toBe(25);
+    expect(progress.done + progress.approved).toBe(15);
+    expect(progress.percentage).toBe(60);
   });
 });
