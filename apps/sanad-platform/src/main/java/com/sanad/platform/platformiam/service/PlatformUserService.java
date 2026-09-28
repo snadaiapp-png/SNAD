@@ -101,7 +101,7 @@ public class PlatformUserService {
         }
 
         User user = users.findByTenantIdAndEmail(tenantId, email).orElseGet(() ->
-                users.save(new User(tenantId, email, blankToNull(request.displayName()), UserStatus.INVITED)));
+                users.saveAndFlush(new User(tenantId, email, blankToNull(request.displayName()), UserStatus.INVITED)));
 
         if (memberships.findByControlTenantIdAndUserId(tenantId, user.getId()).isPresent()) {
             throw new AccessConflictException("Platform membership already exists");
