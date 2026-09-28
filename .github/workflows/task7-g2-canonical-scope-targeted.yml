@@ -1,0 +1,36 @@
+name: Task 7 G2 Canonical Scope Targeted
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrEmploymentScopeResolver.java'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrG2ScopedReadService.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrEmploymentScopeResolverTest.java'
+      - '.github/workflows/task7-g2-canonical-scope-targeted.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-scope-unit:
+    name: Task 7 G2 Canonical Scope Unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run canonical scope unit test
+        run: mvn -B -ntp -Dtest=HrEmploymentScopeResolverTest test
