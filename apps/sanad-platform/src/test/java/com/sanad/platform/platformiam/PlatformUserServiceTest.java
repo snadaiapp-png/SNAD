@@ -10,6 +10,7 @@ import com.sanad.platform.platformiam.repository.PlatformMembershipRepository;
 import com.sanad.platform.platformiam.service.PlatformOwnerSafetyService;
 import com.sanad.platform.platformiam.service.PlatformUserService;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.service.AuthService;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
@@ -63,6 +64,7 @@ class PlatformUserServiceTest {
 
         assertThat(response.userId()).isEqualTo(USER_ID);
         assertThat(response.membershipStatus()).isEqualTo(PlatformMembershipStatus.INVITED);
+        verify(f.rls).applyForCurrentTransaction(CONTROL_TENANT);
         verify(f.users, never()).save(any(User.class));
         verify(f.memberships).save(any(PlatformMembership.class));
         verify(f.audit).success(actor, CONTROL_TENANT, "PLATFORM_USER_CREATED",
@@ -85,6 +87,7 @@ class PlatformUserServiceTest {
                 actor(), new CreatePlatformUserRequest("operator@example.com", "Operator"));
 
         assertThat(response.userId()).isEqualTo(USER_ID);
+        verify(f.rls).applyForCurrentTransaction(CONTROL_TENANT);
         verify(f.users, never()).findAllByEmail("operator@example.com");
         verify(f.users).save(any(User.class));
     }
@@ -102,6 +105,7 @@ class PlatformUserServiceTest {
                 actor(), new CreatePlatformUserRequest("operator@example.com", "Operator")))
                 .isInstanceOf(AccessConflictException.class);
 
+        verify(f.rls).applyForCurrentTransaction(CONTROL_TENANT);
         verify(f.memberships, never()).save(any());
     }
 
@@ -124,6 +128,7 @@ class PlatformUserServiceTest {
         };
 
         assertThat(response.membershipStatus()).isEqualTo(target);
+        verify(f.rls).applyForCurrentTransaction(CONTROL_TENANT);
         verify(f.ownerSafety).assertMayDeactivateMembership(CONTROL_TENANT, USER_ID);
         verify(f.authService).logout(CONTROL_TENANT, USER_ID);
         verify(f.memberships).save(any(PlatformMembership.class));
@@ -139,6 +144,8 @@ class PlatformUserServiceTest {
 
         assertThatThrownBy(() -> f.service.activate(actor(), USER_ID, "recovery"))
                 .isInstanceOf(AccessConflictException.class);
+
+        verify(f.rls).applyForCurrentTransaction(CONTROL_TENANT);
     }
 
     @Test
@@ -151,6 +158,7 @@ class PlatformUserServiceTest {
                 actor(), new CreatePlatformUserRequest("operator@example.com", "Operator")))
                 .isInstanceOf(AccessDeniedException.class);
 
+        verify(f.rls, never()).applyForCurrentTransaction(any());
         verify(f.users, never()).findByTenantIdAndEmail(any(), any());
     }
 
@@ -162,8 +170,9 @@ class PlatformUserServiceTest {
         PlatformOwnerSafetyService ownerSafety = mock(PlatformOwnerSafetyService.class);
         AuthService authService = mock(AuthService.class);
         PlatformAuditService audit = mock(PlatformAuditService.class);
-        return new Fixture(guard, users, memberships, ownerSafety, authService, audit,
-                new PlatformUserService(guard, users, memberships, ownerSafety, authService, audit, CLOCK));
+        TenantRlsTransactionContext rls = mock(TenantRlsTransactionContext.class);
+        return new Fixture(guard, users, memberships, ownerSafety, authService, audit, rls,
+                new PlatformUserService(guard, users, memberships, ownerSafety, authService, audit, rls, CLOCK));
     }
 
     private static Authentication actor() {
@@ -202,6 +211,7 @@ class PlatformUserServiceTest {
             PlatformOwnerSafetyService ownerSafety,
             AuthService authService,
             PlatformAuditService audit,
+            TenantRlsTransactionContext rls,
             PlatformUserService service) {
     }
 }
