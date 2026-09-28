@@ -8,6 +8,7 @@ import {
   type PlatformRole,
   type PlatformSessionSummary,
   type PlatformUser,
+  type PlatformUserLifecycle,
   type PlatformUserRoleGrant,
 } from "@/lib/api/scp-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -66,6 +67,15 @@ export default function PlatformUserDetailPage() {
   if (!canRead) return <ScpPage title={t("scp.userDetail.title")}><ScpError message={t("scp.userDetail.forbidden")} /></ScpPage>;
   if (!user && !error) return <ScpPage title={t("scp.userDetail.title")}><ScpSkeleton lines={6} /></ScpPage>;
 
+  async function lifecycle(transition: PlatformUserLifecycle) {
+    setBusy(true);
+    setError("");
+    try {
+      await scpApi.transitionPlatformUser(userId, transition, transition === "activate" ? undefined : "Executive lifecycle action");
+      await load();
+    } catch (reason) { setError(scpErrorMessage(reason)); } finally { setBusy(false); }
+  }
+
   async function revokeSessions() {
     setBusy(true);
     try {
@@ -90,6 +100,12 @@ export default function PlatformUserDetailPage() {
             <h2>{t("scp.userDetail.membership")}</h2>
             <p>{user.displayName || user.email}</p>
             <div className={styles.filters}><ScpStatusPill value={user.accountStatus} /><ScpStatusPill value={user.membershipStatus} /></div>
+            <div className={styles.filters}>
+              {has("PLATFORM.USER.UPDATE") && ["INVITED", "SUSPENDED", "LOCKED"].includes(user.membershipStatus) ? <Button size="sm" variant="primary" disabled={busy} onClick={() => void lifecycle("activate")}>{t("scp.userDetail.activate")}</Button> : null}
+              {has("PLATFORM.USER.SUSPEND") && user.membershipStatus === "ACTIVE" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void lifecycle("suspend")}>{t("scp.userDetail.suspend")}</Button> : null}
+              {has("PLATFORM.SECURITY.MANAGE") && user.membershipStatus === "ACTIVE" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void lifecycle("lock")}>{t("scp.userDetail.lock")}</Button> : null}
+              {has("PLATFORM.USER.DISABLE") && user.membershipStatus !== "DISABLED" ? <Button size="sm" variant="danger" disabled={busy} onClick={() => void lifecycle("disable")}>{t("scp.userDetail.disable")}</Button> : null}
+            </div>
           </section>
           <section className={styles.panel}>
             <h2>{t("scp.userDetail.roles")}</h2>
