@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { api, access } = vi.hoisted(() => ({
   api: { platformUsers: vi.fn() },
-  access: { has: vi.fn((cap: string) => cap === "PLATFORM.USER.READ") },
+  access: { has: vi.fn((cap: string): boolean => cap === "PLATFORM.USER.READ") },
 }));
 
 vi.mock("@/lib/api/scp-api", () => ({ scpApi: api }));
@@ -26,7 +26,7 @@ beforeEach(() => {
   api.platformUsers.mockReset().mockResolvedValue([
     { userId: "u1", email: "owner@example.com", displayName: "Owner", accountStatus: "ACTIVE", membershipStatus: "ACTIVE", lastLoginAt: null, joinedAt: "2026-09-28T00:00:00Z" },
   ]);
-  access.has = vi.fn((cap: string) => cap === "PLATFORM.USER.READ");
+  access.has = vi.fn((cap: string): boolean => cap === "PLATFORM.USER.READ");
 });
 afterEach(() => cleanup());
 
@@ -40,7 +40,7 @@ describe("Executive Platform Users", () => {
   });
 
   it("fails closed without PLATFORM.USER.READ", async () => {
-    access.has = vi.fn(() => false);
+    access.has = vi.fn((_cap: string): boolean => false);
     render(<PlatformUsersPage />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Platform user read access required");
     expect(api.platformUsers).not.toHaveBeenCalled();
