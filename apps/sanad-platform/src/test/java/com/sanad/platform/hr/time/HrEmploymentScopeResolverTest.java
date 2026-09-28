@@ -73,6 +73,18 @@ class HrEmploymentScopeResolverTest {
                 .thenReturn(1);
 
         resolver.requireManagedEmployment(tenantId, managerUserId, targetEmploymentId);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForObject(sql.capture(), eq(Integer.class),
+                eq(tenantId), eq(managerUserId), eq(targetEmploymentId));
+        assertThat(sql.getValue())
+                .contains("JOIN hr_people manager_person")
+                .contains("JOIN hr_employee_assignments manager_assignment")
+                .contains("JOIN hr_employee_assignments target_assignment")
+                .contains("target_assignment.reports_to_assignment_id = manager_assignment.id")
+                .contains("manager_person.user_id = ?")
+                .doesNotContain("manager.user_id = ?")
+                .doesNotContain("manager.id = target.manager_id");
     }
 
     @Test
