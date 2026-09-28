@@ -3,7 +3,8 @@ package com.sanad.platform.organization.legalentity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,17 +21,7 @@ public class JdbcLegalEntityRepository implements LegalEntityRepository {
     public Optional<LegalEntity> findByTenantIdAndId(UUID tenantId, UUID id) {
         return jdbc.query(
                 "SELECT id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at FROM legal_entities WHERE tenant_id = ? AND id = ?",
-                (rs, rowNum) -> new LegalEntity(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("tenant_id", UUID.class),
-                        rs.getString("code"),
-                        rs.getString("name"),
-                        rs.getString("registered_country_code"),
-                        rs.getString("statutory_country_code"),
-                        LegalEntityStatus.valueOf(rs.getString("status")),
-                        rs.getTimestamp("created_at").toInstant(),
-                        rs.getTimestamp("updated_at").toInstant()
-                ),
+                (rs, rowNum) -> mapLegalEntity(rs),
                 tenantId, id
         ).stream().findFirst();
     }
@@ -39,19 +30,33 @@ public class JdbcLegalEntityRepository implements LegalEntityRepository {
     public Optional<LegalEntity> findByTenantIdAndCode(UUID tenantId, String code) {
         return jdbc.query(
                 "SELECT id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at FROM legal_entities WHERE tenant_id = ? AND code = ?",
-                (rs, rowNum) -> new LegalEntity(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("tenant_id", UUID.class),
-                        rs.getString("code"),
-                        rs.getString("name"),
-                        rs.getString("registered_country_code"),
-                        rs.getString("statutory_country_code"),
-                        LegalEntityStatus.valueOf(rs.getString("status")),
-                        rs.getTimestamp("created_at").toInstant(),
-                        rs.getTimestamp("updated_at").toInstant()
-                ),
+                (rs, rowNum) -> mapLegalEntity(rs),
                 tenantId, code
         ).stream().findFirst();
+    }
+
+    @Override
+    public List<LegalEntity> findActiveEligibleForOrganization(
+            UUID tenantId,
+            UUID organizationId,
+            LocalDate effectiveDate) {
+        return jdbc.query("""
+                SELECT DISTINCT le.id, le.tenant_id, le.code, le.name,
+                       le.registered_country_code, le.statutory_country_code,
+                       le.status, le.created_at, le.updated_at
+                FROM legal_entities le
+                JOIN organization_legal_entities ole
+                  ON ole.tenant_id = le.tenant_id
+                 AND ole.legal_entity_id = le.id
+                WHERE le.tenant_id = ?
+                  AND ole.organization_id = ?
+                  AND le.status = 'ACTIVE'
+                  AND ole.effective_from <= ?
+                  AND (ole.effective_to IS NULL OR ole.effective_to >= ?)
+                ORDER BY le.code, le.id
+                """,
+                (rs, rowNum) -> mapLegalEntity(rs),
+                tenantId, organizationId, effectiveDate, effectiveDate);
     }
 
     @Override
@@ -74,5 +79,19 @@ public class JdbcLegalEntityRepository implements LegalEntityRepository {
                     entity.status().name(), entity.tenantId(), entity.id());
             return findByTenantIdAndId(entity.tenantId(), entity.id()).orElseThrow();
         }
+    }
+
+    private LegalEntity mapLegalEntity(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new LegalEntity(
+                rs.getObject("id", UUID.class),
+                rs.getObject("tenant_id", UUID.class),
+                rs.getString("code"),
+                rs.getString("name"),
+                rs.getString("registered_country_code"),
+                rs.getString("statutory_country_code"),
+                LegalEntityStatus.valueOf(rs.getString("status")),
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("updated_at").toInstant()
+        );
     }
 }
