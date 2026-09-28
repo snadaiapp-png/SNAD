@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { loginThroughUi } from "./crm-auth-session";
+import { expectExecutiveUsersReady } from "./users-module-visual-helpers";
 
 const TENANT_EMAIL = process.env.USERS_TENANT_EMAIL ?? "";
 const TENANT_PASSWORD = process.env.USERS_TENANT_PASSWORD ?? "";
@@ -84,7 +85,7 @@ test("control-plane users/access renders only platform identities", async ({ pag
   expect(session.user.tenantId).toBe(CONTROL_TENANT_ID);
 
   await page.goto("/executive/users");
-  await expect(page.getByTestId("executive-users-ready")).toBeVisible();
+  await expectExecutiveUsersReady(page);
   await expect(page.getByText(CONTROL_EMAIL, { exact: true })).toBeVisible();
   await expect(page.getByText(TENANT_EMAIL, { exact: true })).toHaveCount(0);
 
