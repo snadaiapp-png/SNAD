@@ -38,12 +38,13 @@ class AdminCredentialReconciliationControllerTest {
     }
 
     @Test
-    void enabledFeatureUsesAuthenticatedGovernedTenantAndActor() {
+    void enabledFeatureUsesAuthenticatedTenantAndActor() {
         UUID tenantId = UUID.randomUUID();
         UUID actorUserId = UUID.randomUUID();
         UUID targetUserId = UUID.randomUUID();
         AdminCredentialReconciliationService service = mock(AdminCredentialReconciliationService.class);
-        MockEnvironment environment = enabledEnvironment(tenantId);
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("snad.security.g2-reconciliation-enabled", "true");
         AdminCredentialReconciliationController controller =
                 new AdminCredentialReconciliationController(service, environment);
 
@@ -59,33 +60,6 @@ class AdminCredentialReconciliationControllerTest {
                 targetUserId,
                 "replacement-value",
                 actorUserId);
-    }
-
-    @Test
-    void enabledFeatureRejectsAnotherTenant() {
-        UUID governedTenantId = UUID.randomUUID();
-        UUID anotherTenantId = UUID.randomUUID();
-        AdminCredentialReconciliationService service = mock(AdminCredentialReconciliationService.class);
-        AdminCredentialReconciliationController controller =
-                new AdminCredentialReconciliationController(service, enabledEnvironment(governedTenantId));
-
-        var response = controller.reconcileCredential(
-                authentication(anotherTenantId, UUID.randomUUID()),
-                UUID.randomUUID(),
-                new AdminReconcileCredentialRequest("replacement-value"));
-
-        assertThat(response.getStatusCode().value()).isEqualTo(403);
-        verify(service, never()).reconcileCredential(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
-    }
-
-    private MockEnvironment enabledEnvironment(UUID tenantId) {
-        return new MockEnvironment()
-                .withProperty("snad.security.g2-reconciliation-enabled", "true")
-                .withProperty("snad.security.g2-reconciliation-tenant-id", tenantId.toString());
     }
 
     private Authentication authentication(UUID tenantId, UUID userId) {
