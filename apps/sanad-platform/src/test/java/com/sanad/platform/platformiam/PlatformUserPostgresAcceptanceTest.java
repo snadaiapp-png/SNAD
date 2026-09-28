@@ -38,6 +38,8 @@ class PlatformUserPostgresAcceptanceTest {
 
     @Autowired private PlatformUserService platformUsers;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private com.sanad.platform.platformiam.service.PlatformTemporaryAccessService temporaryAccess;
+    @Autowired private com.sanad.platform.platformiam.service.PlatformAuthorizationService authorization;
 
     private final List<UUID> createdUsers = new ArrayList<>();
     private final List<UUID> createdTenants = new ArrayList<>();
@@ -80,6 +82,31 @@ class PlatformUserPostgresAcceptanceTest {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE id=? AND tenant_id=? AND email=?",
                 Integer.class, foreignUserId, tenantB, email)).isEqualTo(1);
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void temporaryGrantUsesCanonicalStoreAndRevocationRemovesAuthorization() {
+        var user = platformUsers.createPlatformUser(actor(),
+                new CreatePlatformUserRequest("temporary+" + UUID.randomUUID() + "@example.test", "Temporary"));
+        createdUsers.add(user.userId());
+        platformUsers.activate(actor(), user.userId(), "acceptance fixture");
+        UUID capabilityId = jdbc.queryForObject(
+                "SELECT id FROM access_capabilities WHERE code = 'PLATFORM.USER.READ'", UUID.class);
+        var target = new UsernamePasswordAuthenticationToken("target", "unused", List.of());
+        target.setDetails(Map.of("tenant_id", CONTROL_TENANT_ID, "user_id", user.userId().toString()));
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, CONTROL_TENANT_ID);
+        assertThat(authorization.evaluate(target, "PLATFORM.USER.READ").allowed()).isFalse();
+
+        var grant = temporaryAccess.grant(actor(), user.userId(),
+                new com.sanad.platform.platformiam.dto.CreatePlatformTemporaryAccessRequest(
+                        capabilityId, Instant.now().plusSeconds(300), "acceptance coverage"));
+        assertThat(grant.grantedBy()).isEqualTo(OWNER_USER_ID);
+        assertThat(temporaryAccess.list(actor(), user.userId())).extracting(item -> item.id()).contains(grant.id());
+        assertThat(authorization.evaluate(target, "PLATFORM.USER.READ").allowed()).isTrue();
+        temporaryAccess.revoke(actor(), user.userId(), grant.id(), "acceptance completed");
+        assertThat(authorization.evaluate(target, "PLATFORM.USER.READ").allowed()).isFalse();
+        assertThat(temporaryAccess.list(actor(), user.userId())).extracting(item -> item.status()).contains("REVOKED");
     }
 
     private UUID seedTenant(String key) {

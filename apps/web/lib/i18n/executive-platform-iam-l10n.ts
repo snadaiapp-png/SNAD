@@ -1,6 +1,21 @@
 import type { TranslationDictionary } from "./types";
 
 export const EXECUTIVE_PLATFORM_IAM_I18N_AR = {
+  "scp.temporary.title": "الوصول المؤقت",
+  "scp.temporary.forbidden": "تحتاج صلاحية قراءة أذونات المنصة",
+  "scp.temporary.empty": "لا توجد منح وصول مؤقتة",
+  "scp.temporary.expiry": "تاريخ الانتهاء",
+  "scp.temporary.reason": "سبب المنح",
+  "scp.temporary.actor": "منح بواسطة",
+  "scp.temporary.revoke": "إلغاء المنحة",
+  "scp.temporary.capability": "الصلاحية",
+  "scp.temporary.choose": "اختر",
+  "scp.temporary.grant": "منح وصول مؤقت",
+  "scp.temporary.invalid": "اختر صلاحية وأدخل سببًا وتاريخ انتهاء في المستقبل",
+  "scp.temporary.revokeReason": "سبب الإلغاء",
+  "scp.temporary.confirmRevoke": "تأكيد إلغاء المنحة",
+  "scp.temporary.cancel": "إلغاء",
+  "scp.temporary.user": "مستخدم المنصة",
   "scp.nav.users": "المستخدمون",
   "scp.nav.access": "الوصول والصلاحيات",
   "scp.users.title": "مستخدمو المنصة",
@@ -41,10 +56,24 @@ export const EXECUTIVE_PLATFORM_IAM_I18N_AR = {
   "scp.access.owner": "مالك",
   "scp.access.custom": "مخصص",
   "scp.access.saveCapabilities": "حفظ القدرات",
-  "scp.access.temporaryUnavailable": "الوصول المؤقت غير متاح في واجهة Executive الحالية لأن الـBackend لا يعرض عقدًا تنفيذيًا له بعد.",
 } satisfies TranslationDictionary;
 
 export const EXECUTIVE_PLATFORM_IAM_I18N_EN = {
+  "scp.temporary.title": "Temporary access",
+  "scp.temporary.forbidden": "Platform permission read access required",
+  "scp.temporary.empty": "No temporary access grants",
+  "scp.temporary.expiry": "Expires at",
+  "scp.temporary.reason": "Grant reason",
+  "scp.temporary.actor": "Granted by",
+  "scp.temporary.revoke": "Revoke grant",
+  "scp.temporary.capability": "Capability",
+  "scp.temporary.choose": "Select",
+  "scp.temporary.grant": "Grant temporary access",
+  "scp.temporary.invalid": "Select a capability, enter a reason and choose a future expiry",
+  "scp.temporary.revokeReason": "Revocation reason",
+  "scp.temporary.confirmRevoke": "Confirm revocation",
+  "scp.temporary.cancel": "Cancel",
+  "scp.temporary.user": "Platform user",
   "scp.nav.users": "Users",
   "scp.nav.access": "Access",
   "scp.users.title": "Platform Users",
@@ -85,7 +114,6 @@ export const EXECUTIVE_PLATFORM_IAM_I18N_EN = {
   "scp.access.owner": "Owner",
   "scp.access.custom": "Custom",
   "scp.access.saveCapabilities": "Save capabilities",
-  "scp.access.temporaryUnavailable": "Temporary access is not exposed by the current Executive backend contract yet.",
 } satisfies TranslationDictionary;
 
 export function executivePlatformIamDictionary(locale: "ar" | "en"): TranslationDictionary {

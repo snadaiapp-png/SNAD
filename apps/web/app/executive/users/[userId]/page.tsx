@@ -16,6 +16,7 @@ import { useScpAccess } from "../../_components/ScpAccess";
 import { ScpEmpty, ScpError, ScpPage, ScpSkeleton, ScpStatusPill } from "../../_components/ScpStates";
 import { scpErrorMessage } from "../../_components/scp-errors";
 import styles from "../../scp.module.css";
+import { TemporaryAccessCard } from "../_components/TemporaryAccessCard";
 
 export default function PlatformUserDetailPage() {
   const params = useParams<{ userId: string }>();
@@ -125,6 +126,7 @@ export default function PlatformUserDetailPage() {
             <h2>{t("scp.userDetail.permissions")}</h2>
             {permissions.length ? permissions.map((permission) => <p key={permission}>{permission}</p>) : <ScpEmpty message={t("scp.userDetail.noPermissions")} />}
           </section>
+          <TemporaryAccessCard key={userId} userId={userId} />
           {canReadSessions && sessions ? (
             <section className={styles.panel}>
               <h2>{t("scp.userDetail.sessions")}</h2>

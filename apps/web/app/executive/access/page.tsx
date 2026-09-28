@@ -6,12 +6,14 @@ import {
   scpApi,
   type PlatformCapability,
   type PlatformRole,
+  type PlatformUser,
 } from "@/lib/api/scp-platform-iam-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useScpAccess } from "../_components/ScpAccess";
-import { ScpError, ScpNotice, ScpPage, ScpSkeleton, ScpStatusPill } from "../_components/ScpStates";
+import { ScpError, ScpPage, ScpSkeleton, ScpStatusPill } from "../_components/ScpStates";
 import { scpErrorMessage } from "../_components/scp-errors";
 import styles from "../scp.module.css";
+import { TemporaryAccessCard } from "../users/_components/TemporaryAccessCard";
 
 export default function PlatformAccessPage() {
   const { t } = useI18n();
@@ -19,6 +21,9 @@ export default function PlatformAccessPage() {
   const canReadRoles = has("PLATFORM.ROLE.READ");
   const canReadCapabilities = has("PLATFORM.PERMISSION.READ");
   const canManageCapabilities = has("PLATFORM.PERMISSION.MANAGE");
+  const canReadUsers = has("PLATFORM.USER.READ");
+  const [users, setUsers] = useState<PlatformUser[]>([]);
+  const [temporaryUserId, setTemporaryUserId] = useState("");
   const [roles, setRoles] = useState<PlatformRole[] | null>(null);
   const [capabilities, setCapabilities] = useState<PlatformCapability[] | null>(null);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
@@ -31,16 +36,18 @@ export default function PlatformAccessPage() {
     if (!allowed) return;
     setError("");
     try {
-      const [nextRoles, nextCapabilities] = await Promise.all([
+      const [nextRoles, nextCapabilities, nextUsers] = await Promise.all([
         canReadRoles ? scpApi.platformRoles() : Promise.resolve([]),
         canReadCapabilities ? scpApi.platformCapabilities() : Promise.resolve([]),
+        canReadUsers ? scpApi.platformUsers() : Promise.resolve([]),
       ]);
+      setUsers(nextUsers);
       setRoles(nextRoles);
       setCapabilities(nextCapabilities);
     } catch (reason) {
       setError(scpErrorMessage(reason));
     }
-  }, [allowed, canReadCapabilities, canReadRoles]);
+  }, [allowed, canReadCapabilities, canReadRoles, canReadUsers]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -104,7 +111,17 @@ export default function PlatformAccessPage() {
           {canManageCapabilities && selectedRole ? <Button size="sm" variant="primary" loading={busy} onClick={() => void saveCapabilities()}>{t("scp.access.saveCapabilities")}</Button> : null}
         </section>
       ) : null}
-      <ScpNotice>{t("scp.access.temporaryUnavailable")}</ScpNotice>
+      {canReadUsers && canReadCapabilities ? (
+        <section className={styles.panel}>
+          <label>{t("scp.temporary.user")}
+            <select value={temporaryUserId} onChange={(event) => setTemporaryUserId(event.target.value)}>
+              <option value="">{t("scp.temporary.choose")}</option>
+              {users.map((user) => <option key={user.userId} value={user.userId}>{user.email}</option>)}
+            </select>
+          </label>
+          {temporaryUserId ? <TemporaryAccessCard key={temporaryUserId} userId={temporaryUserId} /> : null}
+        </section>
+      ) : null}
     </ScpPage>
   );
 }

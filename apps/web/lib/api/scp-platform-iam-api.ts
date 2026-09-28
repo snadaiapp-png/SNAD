@@ -84,7 +84,35 @@ export interface UpdatePlatformRoleInput {
   description?: string;
 }
 
+export interface PlatformTemporaryAccess {
+  id: string;
+  userId: string;
+  capabilityId: string;
+  capabilityCode: string;
+  effectiveFrom: string;
+  effectiveTo: string;
+  reason: string;
+  grantedBy: string;
+  status: "ACTIVE" | "REVOKED" | "EXPIRED";
+}
+
+export interface CreatePlatformTemporaryAccessInput {
+  capabilityId: string;
+  effectiveTo: string;
+  reason: string;
+}
+
 export const scpApi = {
+  platformUserTemporaryAccess: (userId: string) =>
+    apiClient.get<PlatformTemporaryAccess[]>(`${root}/users/${userId}/temporary-access`),
+  grantPlatformUserTemporaryAccess: (userId: string, body: CreatePlatformTemporaryAccessInput) =>
+    apiClient.post<PlatformTemporaryAccess, CreatePlatformTemporaryAccessInput>(
+      `${root}/users/${userId}/temporary-access`, body,
+    ),
+  revokePlatformUserTemporaryAccess: (userId: string, grantId: string, reason: string) =>
+    apiClient.post<void, { reason: string }>(
+      `${root}/users/${userId}/temporary-access/${grantId}/revoke`, { reason },
+    ),
   platformUsers: () => apiClient.get<PlatformUser[]>(`${root}/users`),
   platformUser: (userId: string) => apiClient.get<PlatformUser>(`${root}/users/${userId}`),
   createPlatformUser: (body: CreatePlatformUserInput) =>
