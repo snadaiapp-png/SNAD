@@ -116,6 +116,7 @@ class PlatformRoleServiceTest {
 
     private static Fixture fixture() {
         ControlPlaneAccessGuard guard = mock(ControlPlaneAccessGuard.class);
+        when(guard.isControlPlaneTenant(CONTROL_TENANT)).thenReturn(true);
         RoleService roles = mock(RoleService.class);
         RoleCapabilityService roleCapabilities = mock(RoleCapabilityService.class);
         AccessCapabilityService capabilities = mock(AccessCapabilityService.class);
