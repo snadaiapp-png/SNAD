@@ -20,7 +20,8 @@ import java.util.UUID;
 
 /**
  * Hidden, fail-closed production-recovery surface. The route is unavailable
- * unless explicitly enabled and bound to one configured governed tenant.
+ * unless explicitly enabled. Tenant isolation is inherited from the authenticated
+ * principal and the tenant-scoped user lookup in the reconciliation service.
  */
 @Hidden
 @RestController
@@ -28,7 +29,6 @@ import java.util.UUID;
 public class AdminCredentialReconciliationController {
 
     private static final String ENABLED_PROPERTY = "snad.security.g2-reconciliation-enabled";
-    private static final String TENANT_PROPERTY = "snad.security.g2-reconciliation-tenant-id";
 
     private final AdminCredentialReconciliationService reconciliationService;
     private final Environment environment;
@@ -48,8 +48,7 @@ public class AdminCredentialReconciliationController {
             @PathVariable UUID userId,
             @Valid @RequestBody AdminReconcileCredentialRequest request
     ) {
-        UUID allowedTenantId = allowedTenantId();
-        if (allowedTenantId == null) {
+        if (!environment.getProperty(ENABLED_PROPERTY, Boolean.class, false)) {
             return ResponseEntity.notFound()
                     .header(HttpHeaders.CACHE_CONTROL, "no-store")
                     .build();
@@ -58,11 +57,6 @@ public class AdminCredentialReconciliationController {
         PrincipalIds principal = principal(authentication);
         if (principal == null) {
             return ResponseEntity.status(401)
-                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                    .build();
-        }
-        if (!allowedTenantId.equals(principal.tenantId())) {
-            return ResponseEntity.status(403)
                     .header(HttpHeaders.CACHE_CONTROL, "no-store")
                     .build();
         }
@@ -76,21 +70,6 @@ public class AdminCredentialReconciliationController {
         return ResponseEntity.noContent()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .build();
-    }
-
-    private UUID allowedTenantId() {
-        if (!environment.getProperty(ENABLED_PROPERTY, Boolean.class, false)) {
-            return null;
-        }
-        String configuredTenant = environment.getProperty(TENANT_PROPERTY);
-        if (configuredTenant == null || configuredTenant.isBlank()) {
-            return null;
-        }
-        try {
-            return UUID.fromString(configuredTenant);
-        } catch (IllegalArgumentException invalidTenantId) {
-            return null;
-        }
     }
 
     @SuppressWarnings("unchecked")
