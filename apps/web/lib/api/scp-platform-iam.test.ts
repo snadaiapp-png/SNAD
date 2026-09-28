@@ -70,3 +70,23 @@ describe("scpApi — Platform IAM", () => {
     });
   });
 });
+
+describe("temporary platform access contract", () => {
+  it("lists, grants and revokes through user-scoped Executive routes", async () => {
+    expect(scpApi).toHaveProperty("platformUserTemporaryAccess");
+    expect(scpApi).toHaveProperty("grantPlatformUserTemporaryAccess");
+    expect(scpApi).toHaveProperty("revokePlatformUserTemporaryAccess");
+    const temporaryApi = scpApi as unknown as {
+      platformUserTemporaryAccess: (id: string) => Promise<unknown>;
+      grantPlatformUserTemporaryAccess: (id: string, body: { capabilityId: string; effectiveTo: string; reason: string }) => Promise<unknown>;
+      revokePlatformUserTemporaryAccess: (id: string, grant: string, reason: string) => Promise<unknown>;
+    };
+    const request = { capabilityId: "cap-1", effectiveTo: "2026-10-01T12:00:00Z", reason: "Incident coverage" };
+    await temporaryApi.platformUserTemporaryAccess("user-1");
+    await temporaryApi.grantPlatformUserTemporaryAccess("user-1", request);
+    await temporaryApi.revokePlatformUserTemporaryAccess("user-1", "grant-1", "Coverage ended");
+    expect(getMock).toHaveBeenCalledWith("/api/v1/executive/users/user-1/temporary-access");
+    expect(postMock).toHaveBeenCalledWith("/api/v1/executive/users/user-1/temporary-access", request);
+    expect(postMock).toHaveBeenCalledWith("/api/v1/executive/users/user-1/temporary-access/grant-1/revoke", { reason: "Coverage ended" });
+  });
+});

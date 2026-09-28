@@ -10,6 +10,8 @@ const { api, access } = vi.hoisted(() => ({
     platformUserPermissions: vi.fn(),
     platformUserSessions: vi.fn(),
     platformRoles: vi.fn(),
+    platformUserTemporaryAccess: vi.fn(),
+    platformCapabilities: vi.fn(),
   },
   access: { has: vi.fn(() => true) },
 }));
@@ -39,6 +41,8 @@ beforeEach(() => {
   api.platformUserPermissions.mockReset().mockResolvedValue(["PLATFORM.USER.READ"]);
   api.platformUserSessions.mockReset().mockResolvedValue({ userId: "u1", sessionVersion: 2, lastLoginAt: null });
   api.platformRoles.mockReset().mockResolvedValue([]);
+  api.platformUserTemporaryAccess.mockReset().mockResolvedValue([]);
+  api.platformCapabilities.mockReset().mockResolvedValue([]);
   access.has = vi.fn(() => true);
 });
 afterEach(() => cleanup());
@@ -52,4 +56,9 @@ describe("Executive Platform User detail", () => {
     expect(screen.getByText("PLATFORM.USER.READ")).toBeInTheDocument();
     expect(screen.getByText(/2/)).toBeInTheDocument();
   });
+});
+
+it("provides the temporary access section on the platform user detail", async () => {
+  render(<PlatformUserDetailPage />);
+  expect(await screen.findByRole("heading", { name: "scp.temporary.title" })).toBeInTheDocument();
 });
