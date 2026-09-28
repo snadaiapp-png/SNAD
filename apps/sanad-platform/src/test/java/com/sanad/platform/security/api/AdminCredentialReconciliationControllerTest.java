@@ -27,7 +27,7 @@ class AdminCredentialReconciliationControllerTest {
         var response = controller.reconcileCredential(
                 authentication,
                 UUID.randomUUID(),
-                new AdminReconcileCredentialRequest("governed-secret-123"));
+                new AdminReconcileCredentialRequest("replacement-value"));
 
         assertThat(response.getStatusCode().value()).isEqualTo(404);
         verify(service, never()).reconcileCredential(
@@ -38,28 +38,54 @@ class AdminCredentialReconciliationControllerTest {
     }
 
     @Test
-    void enabledFeatureUsesAuthenticatedTenantAndActor() {
+    void enabledFeatureUsesAuthenticatedGovernedTenantAndActor() {
         UUID tenantId = UUID.randomUUID();
         UUID actorUserId = UUID.randomUUID();
         UUID targetUserId = UUID.randomUUID();
         AdminCredentialReconciliationService service = mock(AdminCredentialReconciliationService.class);
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("snad.security.g2-reconciliation-enabled", "true");
+        MockEnvironment environment = enabledEnvironment(tenantId);
         AdminCredentialReconciliationController controller =
                 new AdminCredentialReconciliationController(service, environment);
 
         var response = controller.reconcileCredential(
                 authentication(tenantId, actorUserId),
                 targetUserId,
-                new AdminReconcileCredentialRequest("governed-secret-123"));
+                new AdminReconcileCredentialRequest("replacement-value"));
 
         assertThat(response.getStatusCode().value()).isEqualTo(204);
         assertThat(response.getHeaders().getCacheControl()).isEqualTo("no-store");
         verify(service).reconcileCredential(
                 tenantId,
                 targetUserId,
-                "governed-secret-123",
+                "replacement-value",
                 actorUserId);
+    }
+
+    @Test
+    void enabledFeatureRejectsAnotherTenant() {
+        UUID governedTenantId = UUID.randomUUID();
+        UUID anotherTenantId = UUID.randomUUID();
+        AdminCredentialReconciliationService service = mock(AdminCredentialReconciliationService.class);
+        AdminCredentialReconciliationController controller =
+                new AdminCredentialReconciliationController(service, enabledEnvironment(governedTenantId));
+
+        var response = controller.reconcileCredential(
+                authentication(anotherTenantId, UUID.randomUUID()),
+                UUID.randomUUID(),
+                new AdminReconcileCredentialRequest("replacement-value"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
+        verify(service, never()).reconcileCredential(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    private MockEnvironment enabledEnvironment(UUID tenantId) {
+        return new MockEnvironment()
+                .withProperty("snad.security.g2-reconciliation-enabled", "true")
+                .withProperty("snad.security.g2-reconciliation-tenant-id", tenantId.toString());
     }
 
     private Authentication authentication(UUID tenantId, UUID userId) {
