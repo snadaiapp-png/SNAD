@@ -51,22 +51,12 @@ describe("HR-G0 closure state reconciliation", () => {
     }
   });
 
-  it("keeps unrelated HR phases isolated while allowing active G2 execution", () => {
-    // G1 is independently reconciled via the HR_G1_CLOSURE block — see
-    // hr-g1-closure-state.regression.test.ts for the binding regression.
-    // G2 is now independently IN_PROGRESS because its own HRM G2
-    // implementation is actively underway (Time & Attendance + Timesheets +
-    // Leave workflow step-instance approval binding remediation). G3..G5
-    // have not started and remain NOT_STARTED.
-    //
-    // G0's historical certificate remains responsible only for G0 state —
-    // it must not pin G2..G5 to NOT_STARTED because those phases have their
-    // own implementation lifecycles independent of G0 closure.
+  it("keeps unrelated HR phases isolated while accepting independently closed G2", () => {
     const g1 = HR_GROUP_DATA.find((g) => g.code === "G1");
     expect(g1?.status).toBe(HR_G1_CLOSURE.implementation);
 
     const g2 = HR_GROUP_DATA.find((g) => g.code === "G2");
-    expect(g2?.status).toBe("IN_PROGRESS");
+    expect(g2?.status).toBe("DONE");
 
     const untouched = HR_GROUP_DATA.filter((g) =>
       ["G3", "G4", "G5"].includes(g.code)
@@ -78,11 +68,7 @@ describe("HR-G0 closure state reconciliation", () => {
 
   it("binds the dashboard state to the committed closure certificate", () => {
     const certificate = readCertificate();
-
-    // The certificate must record implementation completion...
     expect(certificate).toMatch(/HRM_G0_IMPLEMENTATION\s*=\s*COMPLETE/);
-
-    // ...and the exact merge SHA the dashboard block claims.
     const shaLine = certificate.match(/G0_MERGE_SHA\s*=\s*([0-9a-f]{40})/);
     expect(shaLine, "certificate must record G0_MERGE_SHA").toBeTruthy();
     expect(shaLine![1]).toBe(HR_G0_CLOSURE.mergeSha);
@@ -90,15 +76,10 @@ describe("HR-G0 closure state reconciliation", () => {
 
   it("keeps engineering completion strictly separated from legal and production gates", () => {
     const certificate = readCertificate();
-
-    // Engineering certification is NOT self-approved by code.
     expect(HR_G0_CLOSURE.engineeringCertification).toBe("PENDING");
-    // Legal gate is independent and blocked pending human review.
     expect(HR_G0_CLOSURE.legalCertification).toBe("BLOCKED");
     expect(certificate).toMatch(/LEGAL_REVIEW\s*=\s*BLOCKED_OR_PENDING_HUMAN/);
-    // Saudi pack stays DRAFT absent independent human evidence.
     expect(HR_G0_CLOSURE.saCountryPack).toBe("DRAFT");
-    // No production authorization exists.
     expect(HR_G0_CLOSURE.productionAuthorization).toBe("NO");
     expect(certificate).toMatch(/PRODUCTION_AUTHORIZATION\s*=\s*NO/);
   });
@@ -107,10 +88,8 @@ describe("HR-G0 closure state reconciliation", () => {
     const provider = new HrExecutionProvider();
     const certification = await provider.getCertification("HR-PROGRAM", "G0");
     expect(certification).not.toBeNull();
-    // The documented certification is stable and Map-independent.
     expect(certification!.id).toBe("CERT-G0-DOCUMENTED");
     expect(certification!.status).toBe("PENDING_REVIEW");
-    // Notes must carry the claim-discipline semantics.
     expect(certification!.notes).toContain("legal certification: BLOCKED");
   });
 
