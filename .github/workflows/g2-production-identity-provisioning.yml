@@ -350,8 +350,9 @@ jobs:
               echo "::error::Role-link lookup failed for $label (HTTP $list_status)"
               exit 1
             fi
-            if jq -e --arg role "$role_id" '.[] | select(.roleId == $role)' "$list_body" >/dev/null; then
-              echo "ROLE_GRANT_RESULT=PASS ($label already linked)"
+            if jq -e --arg role "$role_id" '.[] | select(.roleId == $role and .status == "ACTIVE")' "$list_body" >/dev/null; then
+              echo "ROLE_GRANT_RESULT=PASS ($label already linked and ACTIVE)"
+              echo "ROLE_GRANT_STATUS=ACTIVE ($label)"
               echo "POST_ROLE_GRANT_VERIFY=PASS ($label)"
               return 0
             fi
@@ -379,10 +380,11 @@ jobs:
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               "$API/$user_id/role-links?tenantId=$G2_TENANT_ID") || exit 1
             if [ "$list_status" != "200" ] || \
-               ! jq -e --arg role "$role_id" '.[] | select(.roleId == $role)' "$list_body" >/dev/null; then
+               ! jq -e --arg role "$role_id" '.[] | select(.roleId == $role and .status == "ACTIVE")' "$list_body" >/dev/null; then
               echo "::error::POST_ROLE_GRANT_VERIFY=FAIL ($label)"
               exit 1
             fi
+            echo "ROLE_GRANT_STATUS=ACTIVE ($label)"
             echo "POST_ROLE_GRANT_VERIFY=PASS ($label)"
           }
 
