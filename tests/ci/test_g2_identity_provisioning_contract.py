@@ -26,6 +26,7 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
         for capability in (
             "USER.READ",
             "USER.CREATE",
+            "USER.WRITE",
             "ROLE.READ",
             "ROLE.WRITE",
             "CAPABILITY.READ",
