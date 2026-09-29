@@ -4,7 +4,7 @@ import path from "node:path";
 
 const ROOT = path.resolve("test-results/users-module-visual-evidence");
 const DIAGNOSTICS_ROOT = path.resolve("test-results/users-module-runtime-diagnostics");
-const ACCESS_CHECK_PATH = "/api/platform/api/v1/control-plane/access-check/v2";
+const ACCESS_CHECK_PATH = "/api/platform/api/v1/executive/access-check/v2";
 
 export const EXECUTIVE_USERS_TERMINAL_TEST_IDS = [
   "access-check-failed",
