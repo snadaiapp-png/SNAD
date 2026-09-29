@@ -4,6 +4,7 @@ import com.sanad.platform.access.audit.AccessMutationAuditSupport;
 import com.sanad.platform.access.capability.AccessCapability;
 import com.sanad.platform.access.capability.AccessCapabilityService;
 import com.sanad.platform.access.capability.CapabilityStatus;
+import com.sanad.platform.security.authorization.AuthorizationMutationCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,12 +20,14 @@ public class RoleCapabilityService {
     private final RoleService roleService;
     private final AccessCapabilityService capabilityService;
     private AccessMutationAuditSupport audit;
+    private AuthorizationMutationCoordinator authChanges;
 
     public RoleCapabilityService(RoleCapabilityRepository mappingRepository, RoleService roleService,
                                  AccessCapabilityService capabilityService) {
         this.mappingRepository = mappingRepository; this.roleService = roleService; this.capabilityService = capabilityService;
     }
     @Autowired(required = false) void setAudit(AccessMutationAuditSupport audit) { this.audit = audit; }
+    @Autowired(required = false) void setAuthChanges(AuthorizationMutationCoordinator authChanges) { this.authChanges = authChanges; }
 
     @Transactional
     public RoleAccessResponse attach(UUID tenantId, UUID roleId, UUID capabilityId) {
@@ -32,10 +35,11 @@ public class RoleCapabilityService {
         AccessCapability capability = capabilityService.load(capabilityId);
         if (role.getStatus() != RoleStatus.ACTIVE) throw new IllegalStateException("Only active roles can receive capabilities");
         if (capability.getStatus() != CapabilityStatus.ACTIVE) throw new IllegalStateException("Only active capabilities can be attached");
-        RoleCapability mapping = mappingRepository.findByTenantIdAndRoleIdAndCapabilityId(tenantId, roleId, capabilityId)
-                .orElseGet(() -> mappingRepository.save(new RoleCapability(tenantId, roleId, capabilityId)));
+        java.util.Optional<RoleCapability> existing = mappingRepository.findByTenantIdAndRoleIdAndCapabilityId(tenantId, roleId, capabilityId);
+        RoleCapability mapping = existing.orElseGet(() -> mappingRepository.save(new RoleCapability(tenantId, roleId, capabilityId)));
         audit(tenantId, "ROLE_CAPABILITY_ATTACH", mapping.getId(), null,
                 Map.of("roleId", roleId, "capabilityId", capabilityId));
+        if (existing.isEmpty() && authChanges != null) authChanges.roleChanged(tenantId, roleId, "ROLE_CAPABILITY_CHANGED");
         return response(mapping, capability.getCode());
     }
 
@@ -47,6 +51,7 @@ public class RoleCapabilityService {
             mappingRepository.delete(mapping);
             audit(tenantId, "ROLE_CAPABILITY_DETACH", mapping.getId(),
                     Map.of("roleId", roleId, "capabilityId", capabilityId), null);
+            if (authChanges != null) authChanges.roleChanged(tenantId, roleId, "ROLE_CAPABILITY_CHANGED");
         }
     }
 
@@ -56,7 +61,6 @@ public class RoleCapabilityService {
         return mappingRepository.findByTenantIdAndRoleId(tenantId, roleId).stream()
                 .map(mapping -> response(mapping, capabilityService.load(mapping.getCapabilityId()).getCode())).toList();
     }
-
     public boolean roleHasCapability(UUID tenantId, UUID roleId, UUID capabilityId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
         return mappingRepository.existsByTenantIdAndRoleIdAndCapabilityId(tenantId, roleId, capabilityId);
@@ -65,6 +69,7 @@ public class RoleCapabilityService {
         if (audit != null) audit.success(tenantId, action, "ROLE_CAPABILITY", id == null ? null : id.toString(), before, after);
     }
     private static RoleAccessResponse response(RoleCapability mapping, String code) {
-        return new RoleAccessResponse(mapping.getId(), mapping.getTenantId(), mapping.getRoleId(), mapping.getCapabilityId(), code, mapping.getCreatedAt());
+        return new RoleAccessResponse(mapping.getId(), mapping.getTenantId(), mapping.getRoleId(),
+                mapping.getCapabilityId(), code, mapping.getCreatedAt());
     }
 }
