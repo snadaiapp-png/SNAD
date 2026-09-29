@@ -1,0 +1,46 @@
+name: HR G2 Employment Binding Focused
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/**'
+      - '.github/workflows/hr-g2-employment-binding-focused.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: HR G2 canonical employment binding
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run focused resolver contract
+        run: mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true -Dtest=HrEmploymentScopeResolverTest
+
+      - name: Upload focused reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hr-g2-employment-binding-focused-reports-${{ github.event.pull_request.head.sha || github.sha }}
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 14
