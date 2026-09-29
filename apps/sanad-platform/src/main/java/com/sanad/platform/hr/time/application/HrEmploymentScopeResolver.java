@@ -1,6 +1,6 @@
 package com.sanad.platform.hr.time.application;
 
-import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -46,7 +46,7 @@ public class HrEmploymentScopeResolver {
                     UUID.class,
                     tenantId,
                     userId);
-        } catch (EmptyResultDataAccessException ex) {
+        } catch (IncorrectResultSizeDataAccessException ex) {
             throw new AccessDeniedException(
                     "Authenticated principal has no active HR employment in this tenant", ex);
         }
