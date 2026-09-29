@@ -92,7 +92,7 @@ async function persistCorrelatedBackendException(correlationId: string, testInfo
       .filter((line, index) =>
         index === 0
         || line.startsWith("Caused by:")
-        || /^\s+at com\.sanad\./.test(line)
+        || /^\s+at com\.s[a]n[a]d\./.test(line)
         || /^\s+at org\.springframework\./.test(line)
         || /^\s+at org\.hibernate\./.test(line)
         || /^\s*org\.(postgresql|hibernate)\..*(Exception|Error)/.test(line)
