@@ -41,9 +41,6 @@ export function ScpNav() {
   const { t } = useI18n();
   const { phase, capabilities, refresh } = useScpAccess();
 
-  const visible = (capability: string): boolean =>
-    phase === "checking" || (phase === "authorized" && capabilities[capability] === true);
-
   if (phase === "degraded") return <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}><ScpError message={t("scp.nav.degraded")} onRetry={() => refresh()} /></nav>;
   if (phase === "unauthorized") return <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}><ScpNotice>{t("scp.nav.unauthorized")}</ScpNotice></nav>;
 
@@ -55,7 +52,7 @@ export function ScpNav() {
   return (
     <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")} aria-busy={phase === "checking" ? "true" : undefined}>
       {SECTIONS.map((section) => {
-        const links = section.links.filter((link) => visible(link.capability));
+        const links = section.links.filter((link) => phase === "checking" || (phase === "authorized" && capabilities[link.capability] === true));
         if (links.length === 0) return null;
         return <div key={section.headingKey}>
           <h2 className={styles.navHeading}>{t(section.headingKey)}</h2>
