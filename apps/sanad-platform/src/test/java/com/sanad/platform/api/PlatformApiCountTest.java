@@ -84,8 +84,14 @@ class PlatformApiCountTest {
      *  + 1 executive commercial query read endpoint (billing convergence) = 937.
      *  + 2 Store-domain lifecycle operations (disable + set-primary) = 939.
      *  + 1 G2 initialization-only admin credential endpoint
-     *  (POST /api/v1/auth/admin-initialize-credential/{userId}, USER.WRITE-gated) = 940. */
-    private static final long EXPECTED_TOTAL_OPS = 940;
+     *  (POST /api/v1/auth/admin-initialize-credential/{userId}, USER.WRITE-gated) = 940.
+     *  + 8 UAC Wave 1 governed authorization administration endpoints
+     *  (commit 8b82e13e "wave1(api): add governed authorization administration
+     *  controllers"): effective-permissions (GET list, POST /resync),
+     *  relationships (POST create, GET list, PATCH /{relationshipId}/revoke),
+     *  overrides (POST create, GET list, PATCH /{overrideId}/revoke) —
+     *  /api/v1/access group 20 → 28, total 940 → 948. */
+    private static final long EXPECTED_TOTAL_OPS = 948;
     private static final long EXPECTED_HRM_V2_OPS = 127;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -101,7 +107,7 @@ class PlatformApiCountTest {
         String body = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
-        assertThat(count(paths, "/api/v1/access")).isEqualTo(20);
+        assertThat(count(paths, "/api/v1/access")).isEqualTo(28);
         assertThat(count(paths, "/api/v1/executive")).isEqualTo(94);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
@@ -114,6 +120,12 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/auth/admin-initialize-credential/{userId}", "post")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/access/effective-permissions", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/access/effective-permissions/resync", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/access/relationships", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/access/relationships/{relationshipId}/revoke", "patch")).isTrue();
+        assertThat(has(paths, "/api/v1/access/overrides", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/access/overrides/{overrideId}/revoke", "patch")).isTrue();
         assertThat(has(paths, "/api/v1/executive/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/tenants/{tenantId}/login-link-events", "post")).isTrue();
         assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
