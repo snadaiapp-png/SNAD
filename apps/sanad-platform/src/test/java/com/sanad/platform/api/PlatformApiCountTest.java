@@ -86,12 +86,16 @@ class PlatformApiCountTest {
      *  + 1 G2 initialization-only admin credential endpoint
      *  (POST /api/v1/auth/admin-initialize-credential/{userId}, USER.WRITE-gated) = 940.
      *  + 8 UAC Wave 1 governed authorization administration endpoints
-     *  (commit 8b82e13e "wave1(api): add governed authorization administration
-     *  controllers"): effective-permissions (GET list, POST /resync),
-     *  relationships (POST create, GET list, PATCH /{relationshipId}/revoke),
-     *  overrides (POST create, GET list, PATCH /{overrideId}/revoke) —
-     *  /api/v1/access group 20 → 28, total 940 → 948. */
-    private static final long EXPECTED_TOTAL_OPS = 948;
+     *    (commit 8b82e13e "wave1(api): add governed authorization administration
+     *    controllers"): effective-permissions (GET list, POST /resync),
+     *    relationships (POST create, GET list, PATCH /{relationshipId}/revoke),
+     *    overrides (POST create, GET list, PATCH /{overrideId}/revoke) —
+     *    /api/v1/access group 20 -> 28, total 940 -> 948.
+     *  + 20 Platform IAM executive operations (Users 13 + Access/Roles 7) = 960.
+     *  + Task 7: list/create/revoke temporary platform access (+3) = 963.
+     *  Merge union: 940 + 8 (UAC W1) + 20 (Platform IAM) + 3 (temporary access)
+     *    = 971 total operations. */
+    private static final long EXPECTED_TOTAL_OPS = 971;
     private static final long EXPECTED_HRM_V2_OPS = 127;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -108,7 +112,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(28);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(94);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(117);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
@@ -128,6 +132,9 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/access/overrides/{overrideId}/revoke", "patch")).isTrue();
         assertThat(has(paths, "/api/v1/executive/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/tenants/{tenantId}/login-link-events", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access/{grantId}/revoke", "post")).isTrue();
         assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();
         assertThat(has(paths, "/api/v1/workflows/catalog/modules", "get")).isTrue();

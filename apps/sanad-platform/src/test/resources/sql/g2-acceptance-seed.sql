@@ -10,9 +10,9 @@
 --      (HRM.LEAVE.TEAM_APPROVE, HRM.LEAVE.HR_APPROVE, etc.)
 --   2. This file (g2-acceptance-seed.sql) — G2 test tenant, plan,
 --      subscription (with WORKFLOW module entitlement), 3 users
---      (Employee, Manager, HR), HR employees with Employee→Manager
---      reporting line, RBAC roles with G2 capabilities, and
---      role assignments.
+--      (Employee, Manager, HR), canonical Person -> Employment ->
+--      PRIMARY Assignment identity graph, RBAC roles with G2 capabilities,
+--      and role assignments.
 --
 -- Tenant created:
 --   • G2 Tenant — "G2 Acceptance Tenant" — subdomain g2-acceptance
@@ -23,8 +23,9 @@
 --   • g2-manager@g2-acceptance.example  — Manager (team leave approval)
 --   • g2-hr@g2-acceptance.example       — HR (final HR leave approval + admin)
 --
--- Reporting line:
---   Employee.manager_id  →  Manager.employee_id
+-- Canonical reporting line:
+--   Employee Person -> ACTIVE Employment -> PRIMARY Assignment
+--   Employee PRIMARY Assignment.reports_to_assignment_id -> Manager PRIMARY Assignment
 --
 -- Capabilities per role:
 --   G2_EMPLOYEE: HRM.ATTENDANCE.SELF_RECORD, HRM.ATTENDANCE.SELF_VIEW,
@@ -52,7 +53,7 @@
 --   - Uses crypt() + gen_salt('bf', 10) for bcrypt hashing (pgcrypto).
 --   - Tenant context is set via set_config('app.tenant_id', ...) for
 --     RLS-protected INSERTs and verification queries (FORCE RLS is live
---     on hr_employees, hr_leave_types, hr_leave_balances, hr_leave_requests).
+--     on canonical HR identity, assignment, leave, and attendance tables).
 --   - Tenant context is cleared only AFTER all RLS-protected verification.
 --   - No BYPASSRLS, no superuser.
 --   - No committed password literals — the bcrypt hash is computed at
@@ -281,19 +282,85 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
--- 6. HR employees (with Employee.reporting_to = Manager)
+-- 6. Canonical HR identity graph for G2 scope resolution
 -- ----------------------------------------------------------------------------
--- Set tenant context for RLS-protected INSERTs on hr_employees.
+-- HrEmploymentScopeResolver intentionally does not fall back to legacy
+-- hr_employees.user_id / manager_id. Seed the same canonical graph used by
+-- production provisioning: User -> Person -> ACTIVE Employment -> PRIMARY
+-- Assignment, with Employee reporting to Manager through assignment identity.
+-- Set tenant context before all FORCE-RLS canonical HR writes.
 SELECT set_config('app.tenant_id', '33333333-3333-4333-8333-333333333331', false);
 
--- Manager employee (no manager_id; top of reporting line for this test)
+-- Deterministic employer context for the three G2 employments.
+INSERT INTO legal_entities (
+    id, tenant_id, code, name, registered_country_code,
+    statutory_country_code, status, created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333336',
+    '33333333-3333-4333-8333-333333333331',
+    'G2-ACCEPTANCE-LE',
+    'G2 Acceptance Legal Entity',
+    'SA',
+    'SA',
+    'ACTIVE',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO organization_legal_entities (
+    id, tenant_id, organization_id, legal_entity_id,
+    effective_from, effective_to, status, created_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333337',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333335',
+    '33333333-3333-4333-8333-333333333336',
+    CURRENT_DATE - 1,
+    NULL,
+    'ACTIVE',
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Canonical People linked 1:1 to the governed G2 users.
+INSERT INTO hr_people (
+    id, tenant_id, user_id, first_name, middle_name, last_name,
+    display_name, version, created_at, updated_at
+) VALUES
+    (
+        '33333333-3333-4333-8333-333333333364',
+        '33333333-3333-4333-8333-333333333331',
+        '33333333-3333-4333-8333-333333333341',
+        'G2', NULL, 'Employee', 'G2 Employee', 0, NOW(), NOW()
+    ),
+    (
+        '33333333-3333-4333-8333-333333333365',
+        '33333333-3333-4333-8333-333333333331',
+        '33333333-3333-4333-8333-333333333342',
+        'G2', NULL, 'Manager', 'G2 Manager', 0, NOW(), NOW()
+    ),
+    (
+        '33333333-3333-4333-8333-333333333366',
+        '33333333-3333-4333-8333-333333333331',
+        '33333333-3333-4333-8333-333333333343',
+        'G2', NULL, 'HR', 'G2 HR', 0, NOW(), NOW()
+    )
+ON CONFLICT (id) DO NOTHING;
+
+-- Manager Employment. Legacy user/display columns remain populated because
+-- compatibility projections still consume them; canonical scope uses person_id.
 INSERT INTO hr_employees (
-    id, tenant_id, user_id, employee_number, first_name, last_name, display_name,
+    id, tenant_id, user_id, person_id, legal_entity_id, worker_classification_code,
+    employee_number, first_name, last_name, display_name,
     email, employment_type, status, hire_date, created_at, updated_at
 ) VALUES (
     '33333333-3333-4333-8333-333333333362',
     '33333333-3333-4333-8333-333333333331',
     '33333333-3333-4333-8333-333333333342',
+    '33333333-3333-4333-8333-333333333365',
+    '33333333-3333-4333-8333-333333333336',
+    'FULL_TIME',
     'G2-MGR-001',
     'G2',
     'Manager',
@@ -307,14 +374,19 @@ INSERT INTO hr_employees (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- Employee (manager_id points to Manager)
+-- Employee Employment. manager_id is retained only for legacy projection
+-- compatibility; TEAM scope is represented canonically by assignment reporting.
 INSERT INTO hr_employees (
-    id, tenant_id, user_id, employee_number, first_name, last_name, display_name,
+    id, tenant_id, user_id, person_id, legal_entity_id, worker_classification_code,
+    employee_number, first_name, last_name, display_name,
     email, manager_id, employment_type, status, hire_date, created_at, updated_at
 ) VALUES (
     '33333333-3333-4333-8333-333333333361',
     '33333333-3333-4333-8333-333333333331',
     '33333333-3333-4333-8333-333333333341',
+    '33333333-3333-4333-8333-333333333364',
+    '33333333-3333-4333-8333-333333333336',
+    'FULL_TIME',
     'G2-EMP-001',
     'G2',
     'Employee',
@@ -329,14 +401,18 @@ INSERT INTO hr_employees (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- HR employee (no manager_id for this test; HR is admin-level)
+-- HR Employment.
 INSERT INTO hr_employees (
-    id, tenant_id, user_id, employee_number, first_name, last_name, display_name,
+    id, tenant_id, user_id, person_id, legal_entity_id, worker_classification_code,
+    employee_number, first_name, last_name, display_name,
     email, employment_type, status, hire_date, created_at, updated_at
 ) VALUES (
     '33333333-3333-4333-8333-333333333363',
     '33333333-3333-4333-8333-333333333331',
     '33333333-3333-4333-8333-333333333343',
+    '33333333-3333-4333-8333-333333333366',
+    '33333333-3333-4333-8333-333333333336',
+    'FULL_TIME',
     'G2-HR-001',
     'G2',
     'HR',
@@ -345,6 +421,92 @@ INSERT INTO hr_employees (
     'FULL_TIME',
     'ACTIVE',
     CURRENT_DATE,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Canonical PRIMARY assignments. Manager and HR are roots; Employee reports
+-- to Manager through reports_to_assignment_id.
+INSERT INTO hr_employee_assignments (
+    id, tenant_id, employment_id, organization_id,
+    org_unit_id, position_id, reports_to_assignment_id,
+    work_location_id, cost_center_id, assignment_type, occupancy_mode,
+    allocation_percent, effective_from, effective_to, status, version,
+    created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333367',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333362',
+    '33333333-3333-4333-8333-333333333335',
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    'PRIMARY',
+    'NON_OCCUPYING',
+    100.00,
+    CURRENT_DATE,
+    NULL,
+    'ACTIVE',
+    0,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO hr_employee_assignments (
+    id, tenant_id, employment_id, organization_id,
+    org_unit_id, position_id, reports_to_assignment_id,
+    work_location_id, cost_center_id, assignment_type, occupancy_mode,
+    allocation_percent, effective_from, effective_to, status, version,
+    created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333368',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333361',
+    '33333333-3333-4333-8333-333333333335',
+    NULL,
+    NULL,
+    '33333333-3333-4333-8333-333333333367',
+    NULL,
+    NULL,
+    'PRIMARY',
+    'NON_OCCUPYING',
+    100.00,
+    CURRENT_DATE,
+    NULL,
+    'ACTIVE',
+    0,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO hr_employee_assignments (
+    id, tenant_id, employment_id, organization_id,
+    org_unit_id, position_id, reports_to_assignment_id,
+    work_location_id, cost_center_id, assignment_type, occupancy_mode,
+    allocation_percent, effective_from, effective_to, status, version,
+    created_at, updated_at
+) VALUES (
+    '33333333-3333-4333-8333-333333333369',
+    '33333333-3333-4333-8333-333333333331',
+    '33333333-3333-4333-8333-333333333363',
+    '33333333-3333-4333-8333-333333333335',
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    'PRIMARY',
+    'NON_OCCUPYING',
+    100.00,
+    CURRENT_DATE,
+    NULL,
+    'ACTIVE',
+    0,
     NOW(),
     NOW()
 )
@@ -548,11 +710,15 @@ WHERE lt.tenant_id = '33333333-3333-4333-8333-333333333331'
 -- ----------------------------------------------------------------------------
 -- Final verification queries (CI logs the row existence proof).
 -- IMPORTANT: keep tenant context active through these reads because
--- hr_employees and G2 leave tables use FORCE RLS and fail closed.
+-- canonical HR and G2 leave tables use FORCE RLS and fail closed.
 -- ----------------------------------------------------------------------------
 SELECT 'g2-acceptance-seed: tenant=' || id || ' status=' || status FROM tenants WHERE id = '33333333-3333-4333-8333-333333333331';
 SELECT 'g2-acceptance-seed: users=' || COUNT(*) FROM users WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
 SELECT 'g2-acceptance-seed: employees=' || COUNT(*) FROM hr_employees WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
+SELECT 'g2-acceptance-seed: canonical_people=' || COUNT(*) FROM hr_people WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND user_id IS NOT NULL;
+SELECT 'g2-acceptance-seed: canonical_employments=' || COUNT(*) FROM hr_employees WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND person_id IS NOT NULL AND legal_entity_id IS NOT NULL AND status = 'ACTIVE';
+SELECT 'g2-acceptance-seed: primary_assignments=' || COUNT(*) FROM hr_employee_assignments WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND assignment_type = 'PRIMARY' AND status = 'ACTIVE' AND effective_to IS NULL;
+SELECT 'g2-acceptance-seed: canonical_reporting_links=' || COUNT(*) FROM hr_employee_assignments WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND id = '33333333-3333-4333-8333-333333333368' AND reports_to_assignment_id = '33333333-3333-4333-8333-333333333367';
 SELECT 'g2-acceptance-seed: roles=' || COUNT(*) FROM roles WHERE tenant_id = '33333333-3333-4333-8333-333333333331';
 SELECT 'g2-acceptance-seed: subscriptions=' || COUNT(*) FROM tenant_subscriptions WHERE tenant_id = '33333333-3333-4333-8333-333333333331' AND status = 'ACTIVE';
 SELECT 'g2-acceptance-seed: workflow_entitlement=' || COUNT(*) FROM plan_module_entitlements pme JOIN modules m ON m.id = pme.module_id WHERE pme.plan_id = '33333333-3333-4333-8333-333333333332' AND m.code = 'WORKFLOW' AND pme.module_enabled = true;

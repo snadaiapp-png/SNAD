@@ -9,6 +9,7 @@ import com.sanad.platform.platformiam.service.PlatformAuthorizationService;
 import com.sanad.platform.platformiam.service.PlatformMembershipService;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.authorization.PlatformMembershipGuard;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.scope.AccessScopeGrant;
 import com.sanad.platform.security.scope.AccessScopeType;
 import com.sanad.platform.security.scope.JdbcAccessScopeRepository;
@@ -221,11 +222,12 @@ class PlatformAuthorizationServiceTest {
 
     private static Fixture fixture() {
         PlatformMembershipRepository memberships = mock(PlatformMembershipRepository.class);
+        TenantRlsTransactionContext rlsContext = mock(TenantRlsTransactionContext.class);
         UserRepository users = mock(UserRepository.class);
         JdbcAccessScopeRepository scopeRepository = mock(JdbcAccessScopeRepository.class);
         CapabilityEvaluationService capabilityEvaluation = mock(CapabilityEvaluationService.class);
         ControlPlaneAccessGuard controlPlane = new ControlPlaneAccessGuard(CONTROL_TENANT.toString());
-        PlatformMembershipService membershipService = new PlatformMembershipService(memberships);
+        PlatformMembershipService membershipService = new PlatformMembershipService(memberships, rlsContext);
         PlatformMembershipGuard guard = new PlatformMembershipGuard(controlPlane, membershipService);
         PlatformAuthorizationService authorization = new PlatformAuthorizationService(
                 controlPlane,

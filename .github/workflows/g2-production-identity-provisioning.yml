@@ -1,19 +1,9 @@
 # ============================================================
 # SANAD Platform — G2 Production Identity Provisioning
 # ------------------------------------------------------------
-# Creates or reuses 3 production role identities (Employee/Manager/HR)
-# in the G2 governed tenant (Tenant B — NOT the Control Plane tenant).
-#
-# Reads G2_PROD_* secrets from the production environment (does NOT
-# generate or modify them). Uses the Tenant B admin for provisioning.
-#
-# Governance:
-#   - No Control Plane tenant for G2 identities
-#   - No password generation (reads existing G2_PROD_* secrets)
-#   - No GitHub secret setting (secrets already 6/6 SET)
-#   - Idempotent: lookup by email + tenant, reuse if exists
-#   - Fail-closed RBAC: no || true, error if capability missing
-#   - Production User/Admin API only (no direct DB access)
+# Governed, tenant-scoped production provisioning for the three
+# G2 acceptance identities. No direct DB access. No secret mutation.
+# RBAC writes and canonical HR graph writes are fail-closed and verified.
 # ============================================================
 name: G2 Production Identity Provisioning
 
@@ -30,20 +20,17 @@ jobs:
     environment: production
     timeout-minutes: 15
     env:
-      # G2 governed tenant (Tenant B) — NOT Control Plane
       G2_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
-      # Tenant B admin credentials for provisioning
       G2_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       G2_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
-      # Production app URL
       BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-      # G2 identity credentials (READ-ONLY — already set, do NOT modify)
       G2_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}
       G2_EMPLOYEE_PASSWORD: ${{ secrets.G2_PROD_EMPLOYEE_PASSWORD }}
       G2_MANAGER_EMAIL: ${{ secrets.G2_PROD_MANAGER_EMAIL }}
       G2_MANAGER_PASSWORD: ${{ secrets.G2_PROD_MANAGER_PASSWORD }}
       G2_HR_EMAIL: ${{ secrets.G2_PROD_HR_EMAIL }}
       G2_HR_PASSWORD: ${{ secrets.G2_PROD_HR_PASSWORD }}
+
     steps:
       - name: Validate required inputs
         shell: bash
@@ -59,9 +46,13 @@ jobs:
               exit 1
             fi
           done
-          echo "All required inputs present."
-          echo "G2_TENANT_ID=${G2_TENANT_ID:0:8}... (masked)"
+          echo "G2_TARGET_TENANT_ID=${G2_TENANT_ID:0:8}... (masked)"
           echo "CONTROL_PLANE_TENANT_USED=NO"
+
+      - name: Checkout governed provisioning scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Authenticate as Tenant B admin
         shell: bash
@@ -70,224 +61,271 @@ jobs:
           echo "::add-mask::$G2_ADMIN_EMAIL"
           echo "::add-mask::$G2_ADMIN_PASSWORD"
 
-          RESPONSE=$(curl --silent --show-error \
+          body=/tmp/g2-admin-login.json
+          status=$(curl --silent --show-error --fail-with-body \
+            -o "$body" -w '%{http_code}' \
             -X POST "${BASE_URL%/}/api/v1/auth/login" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg email "$G2_ADMIN_EMAIL" --arg password "$G2_ADMIN_PASSWORD" --arg tenant "$G2_TENANT_ID" \
-                  '{email: $email, password: $password, tenantId: $tenant}')")
+                  '{email: $email, password: $password, tenantId: $tenant}')") || {
+            rc=$?
+            echo "::error::Tenant B admin login transport/HTTP failure (curl=$rc)"
+            cat "$body" 2>/dev/null | jq . 2>/dev/null || true
+            exit 1
+          }
+          if [ "$status" != "200" ]; then
+            echo "::error::Tenant B admin login failed (HTTP $status)"
+            exit 1
+          fi
 
-          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.accessToken // empty')
+          ACCESS_TOKEN=$(jq -r '.accessToken // empty' "$body")
+          RESPONSE_TENANT=$(jq -r '.user.tenantId // empty' "$body")
           if [ -z "$ACCESS_TOKEN" ]; then
-            echo "::error::Failed to authenticate as Tenant B admin"
-            echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+            echo "::error::Tenant B admin login returned no access token"
+            exit 1
+          fi
+          if [ "$RESPONSE_TENANT" != "$G2_TENANT_ID" ]; then
+            echo "::error::Tenant mismatch: response tenant != governed G2 tenant"
             exit 1
           fi
           echo "::add-mask::$ACCESS_TOKEN"
           echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> "$GITHUB_ENV"
-          echo "Tenant B admin authenticated."
+          echo "TENANT_BINDING=PASS"
 
-          # Verify tenant binding — must match G2_TENANT_ID (NOT Control Plane)
-          RESPONSE_TENANT=$(echo "$RESPONSE" | jq -r '.user.tenantId // empty')
-          if [ "$RESPONSE_TENANT" != "$G2_TENANT_ID" ]; then
-            echo "::error::Tenant mismatch: response tenant ($RESPONSE_TENANT) != G2 target ($G2_TENANT_ID)"
-            echo "AUTHORIZATION_BLOCKER: Tenant B admin is not in the G2 governed tenant"
-            exit 1
-          fi
-          echo "G2_TARGET_TENANT_ID=$G2_TENANT_ID"
-          echo "TENANT_SOURCE=AUTH_SMOKE_TENANT_B_ID (GitHub production environment secret)"
-          echo "Tenant binding verified: admin is in the G2 governed tenant."
-
-      - name: Verify admin has USER.CREATE capability
+      - name: Verify admin has all provisioning capabilities
         shell: bash
         run: |
           set -euo pipefail
-          # Check if admin can create users by listing capabilities
-          CAPS_RESPONSE=$(curl --silent --show-error \
+          body=/tmp/g2-admin-me.json
+          status=$(curl --silent --show-error --fail-with-body \
+            -o "$body" -w '%{http_code}' \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "${BASE_URL%/}/api/v1/auth/me")
-
-          CAPABILITIES=$(echo "$CAPS_RESPONSE" | jq -r '.capabilities[]? // empty')
-          if echo "$CAPABILITIES" | grep -q "USER.CREATE"; then
-            echo "Admin has USER.CREATE capability."
-          else
-            echo "::error::Admin does NOT have USER.CREATE capability"
-            echo "AUTHORIZATION_BLOCKER: Tenant B admin cannot manage users"
-            echo "Available capabilities: $CAPABILITIES"
+            "${BASE_URL%/}/api/v1/auth/me") || {
+            rc=$?
+            echo "::error::Admin capability preflight failed (curl=$rc)"
+            cat "$body" 2>/dev/null | jq . 2>/dev/null || true
+            exit 1
+          }
+          if [ "$status" != "200" ]; then
+            echo "::error::Admin capability preflight returned HTTP $status"
             exit 1
           fi
 
-      - name: Lookup or create G2 Employee identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "::add-mask::$G2_EMPLOYEE_PASSWORD"
-          API="${BASE_URL%/}/api/v1"
-
-          # Idempotent: lookup by email + tenant
-          EXISTING=$(curl --silent \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "$API/users?tenantId=$G2_TENANT_ID&email=$G2_EMPLOYEE_EMAIL" | \
-            jq -r '.[] | select(.email == "'"$G2_EMPLOYEE_EMAIL"'") | .id' | head -1)
-
-          if [ -n "$EXISTING" ]; then
-            echo "EMP_USER_ID=$EXISTING" >> "$GITHUB_ENV"
-            echo "Employee user exists: $EXISTING (REUSED)"
-          else
-            echo "Creating Employee user: $G2_EMPLOYEE_EMAIL"
-            RESPONSE=$(curl --silent --show-error \
-              -X POST "$API/users?tenantId=$G2_TENANT_ID" \
-              -H "Authorization: Bearer $ACCESS_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "$(jq -n --arg email "$G2_EMPLOYEE_EMAIL" \
-                    '{email: $email, displayName: "G2 Employee QA", status: "ACTIVE"}')")
-            EMP_USER_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
-            if [ -z "$EMP_USER_ID" ]; then
-              echo "::error::Failed to create Employee user"
-              echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+          CAPABILITIES=$(jq -r '.capabilities[]? // empty' "$body")
+          for capability in \
+            USER.READ \
+            USER.CREATE \
+            USER.WRITE \
+            ROLE.READ \
+            ROLE.WRITE \
+            CAPABILITY.READ \
+            USER.GRANT_ROLE \
+            ORGANIZATION.READ \
+            HRM.EMPLOYEE.VIEW \
+            HRM.EMPLOYEE.CREATE \
+            HRM.EMPLOYEE.UPDATE \
+            HRM.USER_LINK.MANAGE \
+            HRM.ASSIGNMENT.VIEW \
+            HRM.ASSIGNMENT.MANAGE; do
+            if printf '%s\n' "$CAPABILITIES" | grep -Fxq "$capability"; then
+              echo "Admin has $capability capability."
+            else
+              echo "::error::AUTHORIZATION_BLOCKER: Tenant B admin lacks $capability"
+              echo "ADMIN_CAPABILITY_PREFLIGHT=FAIL"
               exit 1
             fi
-            echo "EMP_USER_ID=$EMP_USER_ID" >> "$GITHUB_ENV"
-            echo "Employee user created: $EMP_USER_ID"
-          fi
+          done
+          echo "ADMIN_CAPABILITY_PREFLIGHT=PASS"
 
-      - name: Lookup or create G2 Manager identity
+      - name: Lookup or create G2 identities
         shell: bash
         run: |
           set -euo pipefail
-          echo "::add-mask::$G2_MANAGER_PASSWORD"
           API="${BASE_URL%/}/api/v1"
 
-          EXISTING=$(curl --silent \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "$API/users?tenantId=$G2_TENANT_ID&email=$G2_MANAGER_EMAIL" | \
-            jq -r '.[] | select(.email == "'"$G2_MANAGER_EMAIL"'") | .id' | head -1)
-
-          if [ -n "$EXISTING" ]; then
-            echo "MGR_USER_ID=$EXISTING" >> "$GITHUB_ENV"
-            echo "Manager user exists: $EXISTING (REUSED)"
-          else
-            echo "Creating Manager user: $G2_MANAGER_EMAIL"
-            RESPONSE=$(curl --silent --show-error \
-              -X POST "$API/users?tenantId=$G2_TENANT_ID" \
+          lookup_or_create_user() {
+            local email="$1" display="$2" outvar="$3"
+            local list_body="/tmp/g2-user-list-${outvar}.json"
+            local list_status
+            list_status=$(curl --silent --show-error --fail-with-body \
+              -o "$list_body" -w '%{http_code}' \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "$(jq -n --arg email "$G2_MANAGER_EMAIL" \
-                    '{email: $email, displayName: "G2 Manager QA", status: "ACTIVE"}')")
-            MGR_USER_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
-            if [ -z "$MGR_USER_ID" ]; then
-              echo "::error::Failed to create Manager user"
-              echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+              "$API/users?tenantId=$G2_TENANT_ID&email=$email") || {
+              rc=$?
+              echo "::error::User lookup failed for $display (curl=$rc)"
+              cat "$list_body" 2>/dev/null | jq . 2>/dev/null || true
+              exit 1
+            }
+            if [ "$list_status" != "200" ]; then
+              echo "::error::User lookup failed for $display (HTTP $list_status)"
               exit 1
             fi
-            echo "MGR_USER_ID=$MGR_USER_ID" >> "$GITHUB_ENV"
-            echo "Manager user created: $MGR_USER_ID"
-          fi
 
-      - name: Lookup or create G2 HR identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "::add-mask::$G2_HR_PASSWORD"
-          API="${BASE_URL%/}/api/v1"
-
-          EXISTING=$(curl --silent \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "$API/users?tenantId=$G2_TENANT_ID&email=$G2_HR_EMAIL" | \
-            jq -r '.[] | select(.email == "'"$G2_HR_EMAIL"'") | .id' | head -1)
-
-          if [ -n "$EXISTING" ]; then
-            echo "HR_USER_ID=$EXISTING" >> "$GITHUB_ENV"
-            echo "HR user exists: $EXISTING (REUSED)"
-          else
-            echo "Creating HR user: $G2_HR_EMAIL"
-            RESPONSE=$(curl --silent --show-error \
-              -X POST "$API/users?tenantId=$G2_TENANT_ID" \
-              -H "Authorization: Bearer $ACCESS_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "$(jq -n --arg email "$G2_HR_EMAIL" \
-                    '{email: $email, displayName: "G2 HR QA", status: "ACTIVE"}')")
-            HR_USER_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
-            if [ -z "$HR_USER_ID" ]; then
-              echo "::error::Failed to create HR user"
-              echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+            local id
+            id=$(jq -r --arg email "$email" '.[] | select(.email == $email) | .id' "$list_body" | head -1)
+            if [ -z "$id" ]; then
+              local create_body="/tmp/g2-user-create-${outvar}.json"
+              local create_status
+              create_status=$(curl --silent --show-error --fail-with-body \
+                -o "$create_body" -w '%{http_code}' \
+                -X POST "$API/users?tenantId=$G2_TENANT_ID" \
+                -H "Authorization: Bearer $ACCESS_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$(jq -n --arg email "$email" --arg display "$display" \
+                      '{email: $email, displayName: $display, status: "ACTIVE"}')") || {
+                rc=$?
+                echo "::error::User creation failed for $display (curl=$rc)"
+                cat "$create_body" 2>/dev/null | jq . 2>/dev/null || true
+                exit 1
+              }
+              if [ "$create_status" != "201" ]; then
+                echo "::error::User creation failed for $display (HTTP $create_status)"
+                exit 1
+              fi
+              id=$(jq -r '.id // empty' "$create_body")
+            fi
+            if [ -z "$id" ]; then
+              echo "::error::Could not resolve user id for $display"
               exit 1
             fi
-            echo "HR_USER_ID=$HR_USER_ID" >> "$GITHUB_ENV"
-            echo "HR user created: $HR_USER_ID"
-          fi
+            echo "$outvar=$id" >> "$GITHUB_ENV"
+            echo "$display identity resolved: $id"
+          }
 
-      - name: Create G2 roles with fail-closed capability assignment
+          lookup_or_create_user "$G2_EMPLOYEE_EMAIL" "G2 Employee QA" EMP_USER_ID
+          lookup_or_create_user "$G2_MANAGER_EMAIL" "G2 Manager QA" MGR_USER_ID
+          lookup_or_create_user "$G2_HR_EMAIL" "G2 HR QA" HR_USER_ID
+
+      - name: Create G2 roles and assign canonical capabilities fail-closed
         shell: bash
         run: |
           set -euo pipefail
           API="${BASE_URL%/}/api/v1"
 
-          # Helper: find or create a role by code (idempotent)
           get_or_create_role() {
             local code="$1" name="$2" desc="$3"
-            local existing=$(curl --silent \
+            local list_body="/tmp/g2-role-list-${code}.json"
+            local list_status
+            list_status=$(curl --silent --show-error --fail-with-body \
+              -o "$list_body" -w '%{http_code}' \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
-              "$API/access/roles?tenantId=$G2_TENANT_ID" | \
-              jq -r --arg code "$code" '.[] | select(.code == $code) | .id' | head -1)
+              "$API/access/roles?tenantId=$G2_TENANT_ID") || {
+              rc=$?
+              echo "::error::Role lookup failed for $code (curl=$rc)"
+              exit 1
+            }
+            if [ "$list_status" != "200" ]; then
+              echo "::error::Role lookup failed for $code (HTTP $list_status)"
+              exit 1
+            fi
+            local existing
+            existing=$(jq -r --arg code "$code" '.[] | select(.code == $code) | .id' "$list_body" | head -1)
             if [ -n "$existing" ]; then
-              echo "$existing"
+              printf '%s' "$existing"
               return 0
             fi
-            local resp=$(curl --silent --show-error \
+
+            local create_body="/tmp/g2-role-create-${code}.json"
+            local create_status
+            create_status=$(curl --silent --show-error --fail-with-body \
+              -o "$create_body" -w '%{http_code}' \
               -X POST "$API/access/roles?tenantId=$G2_TENANT_ID" \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg c "$code" --arg n "$name" --arg d "$desc" \
-                    '{code: $c, name: $n, description: $d}')")
-            local id=$(echo "$resp" | jq -r '.id // empty')
-            if [ -z "$id" ]; then
-              echo "::error::Failed to create role $code"
-              echo "$resp" | jq . 2>/dev/null || echo "$resp"
+                    '{code: $c, name: $n, description: $d}')") || {
+              rc=$?
+              echo "::error::Role creation failed for $code (curl=$rc)"
+              cat "$create_body" 2>/dev/null | jq . 2>/dev/null || true
+              exit 1
+            }
+            if [ "$create_status" != "201" ]; then
+              echo "::error::Role creation failed for $code (HTTP $create_status)"
               exit 1
             fi
-            echo "$id"
+            jq -r '.id // empty' "$create_body"
           }
 
-          # Helper: assign capability by code — FAIL-CLOSED (no || true)
           assign_cap() {
             local role_id="$1" cap_code="$2"
-            # Check if already assigned
-            local existing=$(curl --silent \
+            local list_body="/tmp/g2-role-cap-list-${role_id}.json"
+            local list_status
+            list_status=$(curl --silent --show-error --fail-with-body \
+              -o "$list_body" -w '%{http_code}' \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
-              "$API/access/roles/$role_id/access-items?tenantId=$G2_TENANT_ID" | \
-              jq -r --arg cap "$cap_code" '.[] | select(.capabilityCode == $cap) | .capabilityId' | head -1)
-            if [ -n "$existing" ]; then return 0; fi
-            # Find capability ID by code
-            local cap_id=$(curl --silent \
-              -H "Authorization: Bearer $ACCESS_TOKEN" \
-              "$API/access/capabilities?tenantId=$G2_TENANT_ID" | \
-              jq -r --arg code "$cap_code" '.[] | select(.code == $code) | .id' | head -1)
-            if [ -z "$cap_id" ]; then
-              echo "::error::Capability $cap_code NOT FOUND — cannot assign"
+              "$API/access/roles/$role_id/access-items?tenantId=$G2_TENANT_ID") || {
+              rc=$?
+              echo "::error::Role capability lookup failed for $cap_code (curl=$rc)"
+              exit 1
+            }
+            if [ "$list_status" != "200" ]; then
+              echo "::error::Role capability lookup failed for $cap_code (HTTP $list_status)"
               exit 1
             fi
-            # Assign (fail-closed — no || true)
-            curl --silent --show-error -X POST \
-              "$API/access/roles/$role_id/access-items/$cap_id?tenantId=$G2_TENANT_ID" \
+            if jq -e --arg cap "$cap_code" '.[] | select(.capabilityCode == $cap)' "$list_body" >/dev/null; then
+              echo "ASSIGN_CAP_RESULT=PASS ($cap_code already assigned)"
+              echo "POST_ASSIGN_VERIFY=PASS ($cap_code)"
+              return 0
+            fi
+
+            local catalog=/tmp/g2-capabilities.json
+            local catalog_status
+            catalog_status=$(curl --silent --show-error --fail-with-body \
+              -o "$catalog" -w '%{http_code}' \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
-              -H "Content-Type: application/json" -d '{}'
+              "$API/access/capabilities?tenantId=$G2_TENANT_ID") || {
+              rc=$?
+              echo "::error::Capability catalog lookup failed for $cap_code (curl=$rc)"
+              exit 1
+            }
+            if [ "$catalog_status" != "200" ]; then
+              echo "::error::Capability catalog lookup failed for $cap_code (HTTP $catalog_status)"
+              exit 1
+            fi
+            local cap_id
+            cap_id=$(jq -r --arg code "$cap_code" '.[] | select(.code == $code) | .id' "$catalog" | head -1)
+            if [ -z "$cap_id" ]; then
+              echo "::error::Capability $cap_code NOT FOUND"
+              exit 1
+            fi
+
+            local assign_body="/tmp/g2-assign-cap.json"
+            local assign_status rc=0
+            set +e
+            assign_status=$(curl --silent --show-error --fail-with-body \
+              -o "$assign_body" -w '%{http_code}' \
+              -X POST "$API/access/roles/$role_id/access-items/$cap_id?tenantId=$G2_TENANT_ID" \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "Content-Type: application/json" -d '{}')
+            rc=$?
+            set -e
+            echo "ASSIGN_CAP_HTTP_STATUS=$assign_status ($cap_code)"
+            if [ "$rc" -ne 0 ] || [ "$assign_status" != "201" ]; then
+              echo "::error::Capability assignment failed for $cap_code (HTTP $assign_status, curl=$rc)"
+              cat "$assign_body" 2>/dev/null | jq . 2>/dev/null || true
+              exit 1
+            fi
+            echo "ASSIGN_CAP_RESULT=PASS ($cap_code)"
+
+            list_status=$(curl --silent --show-error --fail-with-body \
+              -o "$list_body" -w '%{http_code}' \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              "$API/access/roles/$role_id/access-items?tenantId=$G2_TENANT_ID") || exit 1
+            if [ "$list_status" != "200" ] || \
+               ! jq -e --arg cap "$cap_code" '.[] | select(.capabilityCode == $cap)' "$list_body" >/dev/null; then
+              echo "::error::POST_ASSIGN_VERIFY=FAIL ($cap_code)"
+              exit 1
+            fi
+            echo "POST_ASSIGN_VERIFY=PASS ($cap_code)"
           }
 
-          # Create G2_EMPLOYEE_QA role
           EMP_ROLE_ID=$(get_or_create_role "G2_EMPLOYEE_QA" "G2 Employee QA" "G2 Employee self-service QA role")
-          echo "EMP_ROLE_ID=$EMP_ROLE_ID" >> "$GITHUB_ENV"
-
-          # Create G2_MANAGER_QA role
           MGR_ROLE_ID=$(get_or_create_role "G2_MANAGER_QA" "G2 Manager QA" "G2 Manager team approval QA role")
-          echo "MGR_ROLE_ID=$MGR_ROLE_ID" >> "$GITHUB_ENV"
-
-          # Create G2_HR_QA role
           HR_ROLE_ID=$(get_or_create_role "G2_HR_QA" "G2 HR QA" "G2 HR admin QA role")
+          echo "EMP_ROLE_ID=$EMP_ROLE_ID" >> "$GITHUB_ENV"
+          echo "MGR_ROLE_ID=$MGR_ROLE_ID" >> "$GITHUB_ENV"
           echo "HR_ROLE_ID=$HR_ROLE_ID" >> "$GITHUB_ENV"
 
-          # Assign canonical capabilities (verified from V20260923_3 migration)
-
-          # Employee: self-service only
           assign_cap "$EMP_ROLE_ID" "HRM.ATTENDANCE.SELF_RECORD"
           assign_cap "$EMP_ROLE_ID" "HRM.ATTENDANCE.SELF_VIEW"
           assign_cap "$EMP_ROLE_ID" "HRM.LEAVE.SELF_REQUEST"
@@ -295,12 +333,10 @@ jobs:
           assign_cap "$EMP_ROLE_ID" "HRM.TIMESHEET.SELF_VIEW"
           assign_cap "$EMP_ROLE_ID" "HRM.TIMESHEET.SELF_SUBMIT"
 
-          # Manager: team approval (NOT HR admin)
           assign_cap "$MGR_ROLE_ID" "HRM.ATTENDANCE.TEAM_VIEW"
           assign_cap "$MGR_ROLE_ID" "HRM.LEAVE.TEAM_APPROVE"
           assign_cap "$MGR_ROLE_ID" "HRM.TIMESHEET.TEAM_APPROVE"
 
-          # HR: admin capabilities (NOT platform/control-plane admin)
           assign_cap "$HR_ROLE_ID" "HRM.LEAVE.HR_APPROVE"
           assign_cap "$HR_ROLE_ID" "HRM.LEAVE.POLICY_ADMIN"
           assign_cap "$HR_ROLE_ID" "HRM.ATTENDANCE.ADMIN"
@@ -308,31 +344,69 @@ jobs:
           assign_cap "$HR_ROLE_ID" "HRM.LEAVE.TEAM_APPROVE"
           assign_cap "$HR_ROLE_ID" "HRM.ATTENDANCE.TEAM_VIEW"
 
-          echo "G2 roles created + capabilities assigned (fail-closed)."
-
-      - name: Assign roles to users
+      - name: Assign roles to users fail-closed
         shell: bash
         run: |
           set -euo pipefail
           API="${BASE_URL%/}/api/v1/access/users"
 
-          # Employee role
-          curl --silent --show-error -X POST \
-            "$API/$EMP_USER_ID/role-links/$EMP_ROLE_ID?tenantId=$G2_TENANT_ID" \
-            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}'
-          echo "Assigned G2_EMPLOYEE_QA role to Employee user"
+          grant_role() {
+            local user_id="$1" role_id="$2" label="$3"
+            local list_body="/tmp/g2-role-links-${label}.json"
+            local list_status
+            list_status=$(curl --silent --show-error --fail-with-body \
+              -o "$list_body" -w '%{http_code}' \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              "$API/$user_id/role-links?tenantId=$G2_TENANT_ID") || exit 1
+            if [ "$list_status" != "200" ]; then
+              echo "::error::Role-link lookup failed for $label (HTTP $list_status)"
+              exit 1
+            fi
+            if jq -e --arg role "$role_id" '.[] | select(.roleId == $role and .status == "ACTIVE")' "$list_body" >/dev/null; then
+              echo "ROLE_GRANT_RESULT=PASS ($label already linked and ACTIVE)"
+              echo "ROLE_GRANT_STATUS=ACTIVE ($label)"
+              echo "POST_ROLE_GRANT_VERIFY=PASS ($label)"
+              return 0
+            fi
 
-          # Manager role
-          curl --silent --show-error -X POST \
-            "$API/$MGR_USER_ID/role-links/$MGR_ROLE_ID?tenantId=$G2_TENANT_ID" \
-            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}'
-          echo "Assigned G2_MANAGER_QA role to Manager user"
+            local grant_body="/tmp/g2-role-grant-${label}.json"
+            local grant_status rc=0
+            set +e
+            grant_status=$(curl --silent --show-error --fail-with-body \
+              -o "$grant_body" -w '%{http_code}' \
+              -X POST "$API/$user_id/role-links/$role_id?tenantId=$G2_TENANT_ID" \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "Content-Type: application/json" -d '{}')
+            rc=$?
+            set -e
+            echo "ROLE_GRANT_HTTP_STATUS=$grant_status ($label)"
+            if [ "$rc" -ne 0 ] || [ "$grant_status" != "201" ]; then
+              echo "::error::Role grant failed for $label (HTTP $grant_status, curl=$rc)"
+              cat "$grant_body" 2>/dev/null | jq . 2>/dev/null || true
+              exit 1
+            fi
+            echo "ROLE_GRANT_RESULT=PASS ($label)"
 
-          # HR role
-          curl --silent --show-error -X POST \
-            "$API/$HR_USER_ID/role-links/$HR_ROLE_ID?tenantId=$G2_TENANT_ID" \
-            -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" -d '{}'
-          echo "Assigned G2_HR_QA role to HR user"
+            list_status=$(curl --silent --show-error --fail-with-body \
+              -o "$list_body" -w '%{http_code}' \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              "$API/$user_id/role-links?tenantId=$G2_TENANT_ID") || exit 1
+            if [ "$list_status" != "200" ] || \
+               ! jq -e --arg role "$role_id" '.[] | select(.roleId == $role and .status == "ACTIVE")' "$list_body" >/dev/null; then
+              echo "::error::POST_ROLE_GRANT_VERIFY=FAIL ($label)"
+              exit 1
+            fi
+            echo "ROLE_GRANT_STATUS=ACTIVE ($label)"
+            echo "POST_ROLE_GRANT_VERIFY=PASS ($label)"
+          }
+
+          grant_role "$EMP_USER_ID" "$EMP_ROLE_ID" EMPLOYEE
+          grant_role "$MGR_USER_ID" "$MGR_ROLE_ID" MANAGER
+          grant_role "$HR_USER_ID" "$HR_ROLE_ID" HR
+
+      - name: Provision canonical HR Person Employment Assignment and reporting graph
+        shell: bash
+        run: bash scripts/g2/provision-canonical-hr.sh
 
       - name: Initialize missing credentials and rotate to governed G2 secrets
         shell: bash
@@ -341,112 +415,86 @@ jobs:
           AUTH_API="${BASE_URL%/}/api/v1/auth"
 
           initialize_if_needed() {
-            local user_id="$1"
-            local email="$2"
-            local final_password="$3"
-            local label="$4"
-
+            local user_id="$1" email="$2" final_password="$3" label="$4"
             echo "::add-mask::$final_password"
 
-            # Idempotency: if the governed final credential already works,
-            # never rotate or overwrite it.
-            local existing_response
-            existing_response=$(curl --silent --show-error \
+            local login_body="/tmp/g2-${label,,}-final-login.json"
+            local login_status
+            set +e
+            login_status=$(curl --silent --show-error \
+              -o "$login_body" -w '%{http_code}' \
               -X POST "$AUTH_API/login" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n \
-                    --arg e "$email" \
-                    --arg p "$final_password" \
-                    --arg tenant "$G2_TENANT_ID" \
-                    '{email:$e,password:$p,tenantId:$tenant}')")
-
-            local existing_token
-            existing_token=$(echo "$existing_response" | jq -r '.accessToken // empty')
-
-            if [ -n "$existing_token" ]; then
+              -d "$(jq -n --arg e "$email" --arg p "$final_password" --arg tenant "$G2_TENANT_ID" \
+                    '{email: $e, password: $p, tenantId: $tenant}')")
+            set -e
+            if [ "$login_status" = "200" ] && [ -n "$(jq -r '.accessToken // empty' "$login_body")" ]; then
               echo "$label credential already valid (REUSED)"
               return 0
             fi
 
-            # Initialization is allowed only for passwordless users.
-            # Existing-but-different credentials fail closed at the API.
             local temporary
-            temporary="$(openssl rand -hex 24)"
+            temporary=$(openssl rand -hex 24)
             echo "::add-mask::$temporary"
-
             local init_body="/tmp/g2-${label,,}-credential-init.json"
             local init_status
-            init_status=$(curl --silent --show-error \
-              -o "$init_body" \
-              -w '%{http_code}' \
+            init_status=$(curl --silent --show-error --fail-with-body \
+              -o "$init_body" -w '%{http_code}' \
               -X POST "$AUTH_API/admin-initialize-credential/$user_id" \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n --arg c "$temporary" '{initialCredential:$c}')")
-
+              -d "$(jq -n --arg c "$temporary" '{initialCredential: $c}')") || {
+              rc=$?
+              echo "::error::$label credential initialization failed (curl=$rc)"
+              cat "$init_body" 2>/dev/null | jq . 2>/dev/null || true
+              exit 1
+            }
             if [ "$init_status" != "204" ]; then
               echo "::error::$label credential initialization failed (HTTP $init_status)"
-              cat "$init_body" 2>/dev/null | jq . 2>/dev/null || cat "$init_body" 2>/dev/null || true
               exit 1
             fi
 
-            # Temporary login must succeed and be tenant-bound.
-            local bootstrap_response
-            bootstrap_response=$(curl --silent --show-error \
+            local bootstrap_body="/tmp/g2-${label,,}-bootstrap-login.json"
+            local bootstrap_status
+            bootstrap_status=$(curl --silent --show-error --fail-with-body \
+              -o "$bootstrap_body" -w '%{http_code}' \
               -X POST "$AUTH_API/login" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n \
-                    --arg e "$email" \
-                    --arg p "$temporary" \
-                    --arg tenant "$G2_TENANT_ID" \
-                    '{email:$e,password:$p,tenantId:$tenant}')")
-
-            local bootstrap_token
-            bootstrap_token=$(echo "$bootstrap_response" | jq -r '.accessToken // empty')
-
-            local bootstrap_tenant
-            bootstrap_tenant=$(echo "$bootstrap_response" | jq -r '.user.tenantId // empty')
-
-            if [ -z "$bootstrap_token" ] || [ "$bootstrap_tenant" != "$G2_TENANT_ID" ]; then
-              echo "::error::$label temporary credential login/binding failed"
+              -d "$(jq -n --arg e "$email" --arg p "$temporary" --arg tenant "$G2_TENANT_ID" \
+                    '{email: $e, password: $p, tenantId: $tenant}')") || exit 1
+            if [ "$bootstrap_status" != "200" ]; then
+              echo "::error::$label temporary credential login failed"
               exit 1
             fi
-
+            local bootstrap_token bootstrap_tenant
+            bootstrap_token=$(jq -r '.accessToken // empty' "$bootstrap_body")
+            bootstrap_tenant=$(jq -r '.user.tenantId // empty' "$bootstrap_body")
+            if [ -z "$bootstrap_token" ] || [ "$bootstrap_tenant" != "$G2_TENANT_ID" ]; then
+              echo "::error::$label temporary credential tenant binding failed"
+              exit 1
+            fi
             echo "::add-mask::$bootstrap_token"
 
-            # Rotate through the authenticated self-service contract.
             local rotate_body="/tmp/g2-${label,,}-credential-rotate.json"
             local rotate_status
-            rotate_status=$(curl --silent --show-error \
-              -o "$rotate_body" \
-              -w '%{http_code}' \
+            rotate_status=$(curl --silent --show-error --fail-with-body \
+              -o "$rotate_body" -w '%{http_code}' \
               -X POST "$AUTH_API/change-credential" \
               -H "Authorization: Bearer $bootstrap_token" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n \
-                    --arg current "$temporary" \
-                    --arg next "$final_password" \
-                    '{currentCredential:$current,newCredential:$next}')")
-
+              -d "$(jq -n --arg current "$temporary" --arg next "$final_password" \
+                    '{currentCredential: $current, newCredential: $next}')") || exit 1
             if [ "$rotate_status" != "204" ]; then
               echo "::error::$label governed credential rotation failed (HTTP $rotate_status)"
-              cat "$rotate_body" 2>/dev/null | jq . 2>/dev/null || cat "$rotate_body" 2>/dev/null || true
               exit 1
             fi
-
-            echo "$label credential initialized and rotated successfully"
           }
 
-          initialize_if_needed \
-            "$EMP_USER_ID" "$G2_EMPLOYEE_EMAIL" "$G2_EMPLOYEE_PASSWORD" "EMPLOYEE"
+          initialize_if_needed "$EMP_USER_ID" "$G2_EMPLOYEE_EMAIL" "$G2_EMPLOYEE_PASSWORD" EMPLOYEE
+          initialize_if_needed "$MGR_USER_ID" "$G2_MANAGER_EMAIL" "$G2_MANAGER_PASSWORD" MANAGER
+          initialize_if_needed "$HR_USER_ID" "$G2_HR_EMAIL" "$G2_HR_PASSWORD" HR
 
-          initialize_if_needed \
-            "$MGR_USER_ID" "$G2_MANAGER_EMAIL" "$G2_MANAGER_PASSWORD" "MANAGER"
-
-          initialize_if_needed \
-            "$HR_USER_ID" "$G2_HR_EMAIL" "$G2_HR_PASSWORD" "HR"
-
-      - name: Verify authentication + tenant binding + RBAC
+      - name: Verify authentication tenant binding and RBAC
         shell: bash
         run: |
           set -euo pipefail
@@ -454,67 +502,53 @@ jobs:
           verify_identity() {
             local email="$1" pass="$2" label="$3" expected_route="$4" forbidden_route="$5"
             echo "::add-mask::$pass"
-
-            # Login
-            local resp=$(curl --silent --show-error \
+            local body="/tmp/g2-${label,,}-verify-login.json"
+            local status
+            status=$(curl --silent --show-error --fail-with-body \
+              -o "$body" -w '%{http_code}' \
               -X POST "${BASE_URL%/}/api/v1/auth/login" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg e "$email" --arg p "$pass" --arg tenant "$G2_TENANT_ID" \
-                    '{email: $e, password: $p, tenantId: $tenant}')")
-            local token=$(echo "$resp" | jq -r '.accessToken // empty')
-            local tenant=$(echo "$resp" | jq -r '.user.tenantId // empty')
-            local status=$(echo "$resp" | jq -r '.user.status // empty')
+                    '{email: $e, password: $p, tenantId: $tenant}')") || exit 1
+            if [ "$status" != "200" ]; then
+              echo "::error::$label AUTH=FAIL HTTP=$status"
+              exit 1
+            fi
+            local token tenant user_status
+            token=$(jq -r '.accessToken // empty' "$body")
+            tenant=$(jq -r '.user.tenantId // empty' "$body")
+            user_status=$(jq -r '.user.status // empty' "$body")
+            if [ -z "$token" ] || [ "$tenant" != "$G2_TENANT_ID" ] || [ "$user_status" != "ACTIVE" ]; then
+              echo "::error::$label identity state invalid"
+              exit 1
+            fi
+            echo "::add-mask::$token"
 
-            if [ -z "$token" ]; then
-              echo "::error::$label AUTH=FAIL (no access token)"
-              echo "$resp" | jq . 2>/dev/null || echo "$resp"
-              exit 1
-            fi
-            if [ "$tenant" != "$G2_TENANT_ID" ]; then
-              echo "::error::$label TENANT_BINDING=FAIL (tenant=$tenant != $G2_TENANT_ID)"
-              exit 1
-            fi
-            if [ "$status" != "ACTIVE" ]; then
-              echo "::error::$label account not ACTIVE (status=$status)"
-              exit 1
-            fi
-            echo "$label: AUTH=PASS, TENANT_BINDING=PASS, STATUS=ACTIVE"
-
-            # Positive RBAC test: access allowed route
-            local positive=$(curl --silent -o /dev/null -w '%{http_code}' \
+            local positive negative
+            positive=$(curl --silent -o /dev/null -w '%{http_code}' \
               -H "Authorization: Bearer $token" \
               "${BASE_URL%/}$expected_route")
             if [ "$positive" -ge 400 ]; then
-              echo "::error::$label RBAC=FAIL (positive route $expected_route returned $positive)"
+              echo "::error::$label RBAC_POSITIVE=FAIL route=$expected_route HTTP=$positive"
               exit 1
             fi
-            echo "$label: RBAC_POSITIVE=PASS ($expected_route → $positive)"
-
-            # Negative RBAC test: forbidden route
-            local negative=$(curl --silent -o /dev/null -w '%{http_code}' \
+            negative=$(curl --silent -o /dev/null -w '%{http_code}' \
               -H "Authorization: Bearer $token" \
               "${BASE_URL%/}$forbidden_route")
             if [ "$negative" -lt 400 ]; then
-              echo "::error::$label RBAC=FAIL (forbidden route $forbidden_route returned $negative — should be 403/401)"
+              echo "::error::$label RBAC_NEGATIVE=FAIL route=$forbidden_route HTTP=$negative"
               exit 1
             fi
-            echo "$label: RBAC_NEGATIVE=PASS ($forbidden_route → $negative)"
+            echo "$label: AUTH=PASS TENANT_BINDING=PASS STATUS=ACTIVE RBAC_POSITIVE=PASS RBAC_NEGATIVE=PASS"
           }
 
-          # Employee: can access /api/v2/hr/leave/requests, cannot access /api/v2/hr/time/schedules
-          verify_identity "$G2_EMPLOYEE_EMAIL" "$G2_EMPLOYEE_PASSWORD" "EMPLOYEE" \
+          verify_identity "$G2_EMPLOYEE_EMAIL" "$G2_EMPLOYEE_PASSWORD" EMPLOYEE \
             "/api/v2/hr/leave/requests" "/api/v2/hr/time/schedules"
-
-          # Manager: can access /api/v2/hr/leave/requests/team, cannot access /api/v2/hr/time/schedules
-          verify_identity "$G2_MANAGER_EMAIL" "$G2_MANAGER_PASSWORD" "MANAGER" \
+          verify_identity "$G2_MANAGER_EMAIL" "$G2_MANAGER_PASSWORD" MANAGER \
             "/api/v2/hr/leave/requests/team" "/api/v2/hr/time/schedules"
-
-          # HR: can access /api/v2/hr/time/schedules, cannot access /api/v1/users (platform admin)
-          verify_identity "$G2_HR_EMAIL" "$G2_HR_PASSWORD" "HR" \
+          verify_identity "$G2_HR_EMAIL" "$G2_HR_PASSWORD" HR \
             "/api/v2/hr/time/schedules" "/api/v1/users?tenantId=$G2_TENANT_ID"
 
-          echo ""
-          echo "=== ALL IDENTITIES VERIFIED ==="
           echo "EMPLOYEE_AUTH=PASS"
           echo "EMPLOYEE_TENANT_BINDING=PASS"
           echo "EMPLOYEE_RBAC=PASS"
@@ -524,10 +558,8 @@ jobs:
           echo "HR_AUTH=PASS"
           echo "HR_TENANT_BINDING=PASS"
           echo "HR_RBAC=PASS"
-          echo "TENANT_ISOLATION=PASS (all identities in G2 tenant, cross-tenant denied)"
-          echo "RLS=PASS (production RLS unchanged — no BYPASSRLS used)"
+          echo "TENANT_ISOLATION=PASS"
           echo "CONTROL_PLANE_TENANT_USED=NO"
-          echo "G2_PROD_SECRETS=6/6 SET (unchanged)"
 
       - name: Provisioning summary
         if: always()
@@ -537,9 +569,16 @@ jobs:
           echo "G2_TARGET_TENANT_ID=${G2_TENANT_ID:0:8}... (masked)"
           echo "TENANT_SOURCE=AUTH_SMOKE_TENANT_B_ID"
           echo "CONTROL_PLANE_TENANT_USED=NO"
-          echo ""
-          echo "EMPLOYEE_USER=${EMP_USER_ID:-NOT_CREATED} (email: ${G2_EMPLOYEE_EMAIL:-N/A})"
-          echo "MANAGER_USER=${MGR_USER_ID:-NOT_CREATED} (email: ${G2_MANAGER_EMAIL:-N/A})"
-          echo "HR_USER=${HR_USER_ID:-NOT_CREATED} (email: ${G2_HR_EMAIL:-N/A})"
-          echo ""
-          echo "G2_PROD_SECRETS=6/6 SET (read-only — not modified)"
+          echo "EMPLOYEE_USER=${EMP_USER_ID:-NOT_RESOLVED}"
+          echo "MANAGER_USER=${MGR_USER_ID:-NOT_RESOLVED}"
+          echo "HR_USER=${HR_USER_ID:-NOT_RESOLVED}"
+          echo "EMPLOYEE_PERSON=${EMP_PERSON_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_PERSON=${MGR_PERSON_ID:-NOT_PROVISIONED}"
+          echo "HR_PERSON=${HR_PERSON_ID:-NOT_PROVISIONED}"
+          echo "EMPLOYEE_EMPLOYMENT=${EMP_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_EMPLOYMENT=${MGR_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "HR_EMPLOYMENT=${HR_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "EMPLOYEE_ASSIGNMENT=${EMP_ASSIGNMENT_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_ASSIGNMENT=${MGR_ASSIGNMENT_ID:-NOT_PROVISIONED}"
+          echo "HR_ASSIGNMENT=${HR_ASSIGNMENT_ID:-NOT_PROVISIONED}"
+          echo "G2_PROD_SECRETS=6/6 READ_ONLY"

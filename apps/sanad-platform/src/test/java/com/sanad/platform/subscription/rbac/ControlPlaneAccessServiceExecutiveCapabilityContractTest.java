@@ -22,4 +22,26 @@ class ControlPlaneAccessServiceExecutiveCapabilityContractTest {
                 "AUTHORIZATION.RECOVER",
                 "AUTHORIZATION.PLATFORM.MANAGE");
     }
+
+    @Test
+        void accessCheckV2MustExposePlatformIamAuthoritiesUsedByUsersModule() {
+        assertThat(ControlPlaneAccessService.CONTROL_PLANE_CAPABILITIES)
+                .contains(
+                        "PLATFORM.USER.READ",
+                        "PLATFORM.USER.CREATE",
+                        "PLATFORM.USER.UPDATE",
+                        "PLATFORM.USER.SUSPEND",
+                        "PLATFORM.USER.DISABLE",
+                        "PLATFORM.ROLE.READ",
+                        "PLATFORM.ROLE.CREATE",
+                        "PLATFORM.ROLE.UPDATE",
+                        "PLATFORM.ROLE.ASSIGN",
+                        "PLATFORM.ROLE.DELETE",
+                        "PLATFORM.PERMISSION.READ",
+                        "PLATFORM.PERMISSION.MANAGE",
+                        "PLATFORM.SESSION.READ",
+                        "PLATFORM.SESSION.REVOKE",
+                        "PLATFORM.AUDIT.READ",
+                        "PLATFORM.SECURITY.READ",
+                        "PLATFORM.SECURITY.MANAGE");    }
 }

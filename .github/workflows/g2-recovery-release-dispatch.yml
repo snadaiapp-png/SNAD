@@ -1,0 +1,84 @@
+name: G2 Recovery Release Dispatch
+
+on:
+  workflow_run:
+    workflows:
+      - Publish Render Backend Image
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-recovery-release:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+    steps:
+      - name: Verify explicit recovery authorization marker
+        id: authorization
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          message="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA" --jq '.commit.message')"
+          if grep -q 'PRODUCTION-RECOVERY-G2-AUTHORIZED' <<<"$message"; then
+            echo 'authorized=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'authorized=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable fail-closed recovery surface for authorized release only
+        id: enable
+        if: steps.authorization.outputs.authorized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RENDER_API_KEY:-}" || { echo '::error::RENDER_API_KEY is required'; exit 1; }
+          test -n "${RENDER_SERVICE_ID:-}" || { echo '::error::RENDER_SERVICE_ID is required'; exit 1; }
+          curl --fail-with-body --silent --show-error \
+            -X PUT \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data '{"value":"true"}' \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars/SNAD_SECURITY_G2_RECONCILIATION_ENABLED" \
+            >/dev/null
+          echo 'RECOVERY_SURFACE_CONFIGURED=true'
+
+      - name: Dispatch exact-SHA recovery release without rollback
+        id: dispatch
+        if: steps.authorization.outputs.authorized == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$TARGET_SHA"
+          gh workflow run production-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f commit_sha="$TARGET_SHA" \
+            -f pull_request_number='1196' \
+            -f rollback_on_failure='false'
+
+      - name: Fail-closed cleanup when recovery dispatch itself fails
+        if: failure() && steps.authorization.outputs.authorized == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -X PUT \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data '{"value":"false"}' \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars/SNAD_SECURITY_G2_RECONCILIATION_ENABLED" \
+            >/dev/null

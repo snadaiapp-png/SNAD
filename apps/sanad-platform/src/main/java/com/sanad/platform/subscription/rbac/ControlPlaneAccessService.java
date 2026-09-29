@@ -38,8 +38,16 @@ public class ControlPlaneAccessService {
             "AUTHORIZATION.RESYNC",
             "AUTHORIZATION.BREAK_GLASS",
             "AUTHORIZATION.RECOVER",
-            "AUTHORIZATION.PLATFORM.MANAGE");
-
+            "AUTHORIZATION.PLATFORM.MANAGE",
+            // Platform IAM (users-module closure)
+            "PLATFORM.USER.READ", "PLATFORM.USER.CREATE", "PLATFORM.USER.UPDATE",
+            "PLATFORM.USER.SUSPEND", "PLATFORM.USER.DISABLE",
+            "PLATFORM.ROLE.READ", "PLATFORM.ROLE.CREATE", "PLATFORM.ROLE.UPDATE",
+            "PLATFORM.ROLE.ASSIGN", "PLATFORM.ROLE.DELETE",
+            "PLATFORM.PERMISSION.READ", "PLATFORM.PERMISSION.MANAGE",
+            "PLATFORM.SESSION.READ", "PLATFORM.SESSION.REVOKE",
+            "PLATFORM.AUDIT.READ",
+            "PLATFORM.SECURITY.READ", "PLATFORM.SECURITY.MANAGE");
     private final CapabilityEvaluationService evaluationService;
     private final JdbcTemplate jdbc;
 
