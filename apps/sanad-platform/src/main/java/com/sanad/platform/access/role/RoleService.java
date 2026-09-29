@@ -2,12 +2,15 @@ package com.sanad.platform.access.role;
 
 import com.sanad.platform.access.AccessConflictException;
 import com.sanad.platform.access.AccessResourceNotFoundException;
+import com.sanad.platform.access.audit.AccessMutationAuditSupport;
 import com.sanad.platform.tenant.repository.TenantRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -16,11 +19,15 @@ public class RoleService {
 
     private final RoleRepository roleRepository;
     private final TenantRepository tenantRepository;
+    private AccessMutationAuditSupport audit;
 
     public RoleService(RoleRepository roleRepository, TenantRepository tenantRepository) {
         this.roleRepository = roleRepository;
         this.tenantRepository = tenantRepository;
     }
+
+    @Autowired(required = false)
+    void setAudit(AccessMutationAuditSupport audit) { this.audit = audit; }
 
     @Transactional
     public RoleResponse create(UUID tenantId, CreateRoleRequest request) {
@@ -29,8 +36,10 @@ public class RoleService {
         if (roleRepository.existsByTenantIdAndCode(tenantId, code)) {
             throw new AccessConflictException("Role code already exists in tenant: " + code);
         }
-        Role role = new Role(tenantId, code, request.name(), request.description());
-        return RoleResponse.from(roleRepository.save(role));
+        Role saved = roleRepository.save(new Role(tenantId, code, request.name(), request.description()));
+        audit(tenantId, "ROLE_CREATE", saved.getId(), null,
+                Map.of("code", saved.getCode(), "status", saved.getStatus().name()));
+        return RoleResponse.from(saved);
     }
 
     @Transactional(readOnly = true)
@@ -41,23 +50,27 @@ public class RoleService {
     }
 
     @Transactional(readOnly = true)
-    public RoleResponse get(UUID tenantId, UUID roleId) {
-        return RoleResponse.from(load(tenantId, roleId));
-    }
+    public RoleResponse get(UUID tenantId, UUID roleId) { return RoleResponse.from(load(tenantId, roleId)); }
 
     @Transactional
     public RoleResponse update(UUID tenantId, UUID roleId, UpdateRoleRequest request) {
         Role role = load(tenantId, roleId);
-        role.setName(request.name());
-        role.setDescription(request.description());
-        return RoleResponse.from(roleRepository.save(role));
+        Map<String,Object> before = Map.of("name", safe(role.getName()), "description", safe(role.getDescription()));
+        role.setName(request.name()); role.setDescription(request.description());
+        Role saved = roleRepository.save(role);
+        audit(tenantId, "ROLE_UPDATE", roleId, before,
+                Map.of("name", safe(saved.getName()), "description", safe(saved.getDescription())));
+        return RoleResponse.from(saved);
     }
 
     @Transactional
     public RoleResponse changeStatus(UUID tenantId, UUID roleId, RoleStatus status) {
         Role role = load(tenantId, roleId);
+        String before = role.getStatus().name();
         role.setStatus(Objects.requireNonNull(status, "status must not be null"));
-        return RoleResponse.from(roleRepository.save(role));
+        Role saved = roleRepository.save(role);
+        audit(tenantId, "ROLE_STATUS_CHANGE", roleId, Map.of("status", before), Map.of("status", saved.getStatus().name()));
+        return RoleResponse.from(saved);
     }
 
     public Role load(UUID tenantId, UUID roleId) {
@@ -67,13 +80,14 @@ public class RoleService {
                 .orElseThrow(() -> new AccessResourceNotFoundException("Role not found"));
     }
 
+    private void audit(UUID tenantId, String action, UUID id, Object before, Object after) {
+        if (audit != null) audit.success(tenantId, action, "ROLE", id == null ? null : id.toString(), before, after);
+    }
+    private static String safe(String v) { return v == null ? "" : v; }
     private void requireTenant(UUID tenantId) {
         Objects.requireNonNull(tenantId, "tenantId must not be null");
-        if (!tenantRepository.existsById(tenantId)) {
-            throw new AccessResourceNotFoundException("Tenant not found");
-        }
+        if (!tenantRepository.existsById(tenantId)) throw new AccessResourceNotFoundException("Tenant not found");
     }
-
     private static String normalizeCode(String code) {
         return code == null ? null : code.trim().toUpperCase(Locale.ROOT);
     }
