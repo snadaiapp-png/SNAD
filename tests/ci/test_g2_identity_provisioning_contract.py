@@ -48,6 +48,12 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
         self.assertIn("ROLE_GRANT_RESULT=PASS", text)
         self.assertIn("POST_ROLE_GRANT_VERIFY=PASS", text)
 
+    def test_user_role_grant_must_be_active_before_it_counts_as_linked(self):
+        text = self.text
+        active_selector = '.[] | select(.roleId == $role and .status == "ACTIVE")'
+        self.assertGreaterEqual(text.count(active_selector), 2)
+        self.assertIn("ROLE_GRANT_STATUS=ACTIVE", text)
+
     def test_direct_admin_password_payload_is_not_used(self):
         text = self.text
         self.assertNotIn("admin-reset-password", text)
