@@ -1,0 +1,31 @@
+.nav {
+  width: min(1180px, calc(100% - 32px));
+  margin: 16px auto 0;
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-lg, 12px);
+  background: var(--snad-color-surface-primary);
+}
+
+.link {
+  min-height: 40px;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--snad-radius-md, 8px);
+  color: var(--snad-color-text-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.link:hover {
+  background: var(--snad-color-surface-secondary);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--snad-color-focus-ring);
+  outline-offset: 2px;
+}

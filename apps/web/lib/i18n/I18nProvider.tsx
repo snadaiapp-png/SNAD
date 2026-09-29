@@ -100,22 +100,14 @@ function applyHtmlAttributes(locale: Locale): void {
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  // Initial state MUST match server render (DEFAULT_LOCALE) to avoid hydration
-  // mismatch. The actual stored locale is applied in a useEffect below.
   const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
 
-  // Apply stored locale after hydration. This runs once on mount.
-  // The setState-in-effect pattern is intentional and necessary here:
-  // we cannot read localStorage in useState's initializer because it
-  // would run during SSR (where localStorage does not exist). The
-  // cascading-render cost is paid exactly once on mount.
   useEffect(() => {
     const stored = readStoredLocale();
     if (stored !== locale) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocaleState(stored);
     }
-    // Always sync <html lang dir> even if locale unchanged (covers SSR case).
     applyHtmlAttributes(stored);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -131,12 +123,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       const base: TranslationDictionary = translations[locale];
       const commercial = executiveCommercialDictionary(locale);
       const template = commercial[key] ?? base[key];
-      if (template === undefined) {
-        // Return the key itself so missing translations are visible during
-        // development. Locale-specific add-on namespaces are parity-tested
-        // independently and then composed here at runtime.
-        return key;
-      }
+      if (template === undefined) return key;
       return interpolate(template, params);
     },
     [locale],

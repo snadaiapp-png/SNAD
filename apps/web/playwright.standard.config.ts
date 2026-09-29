@@ -37,6 +37,9 @@ export default defineConfig({
     "**/g2-authenticated.spec.ts",
     // Read-oriented authenticated G2 visual proof owns a separate role/device stack.
     "**/g2-visual.spec.ts",
+    // Users Module closure owns a dedicated authenticated PostgreSQL Direct stack.
+    "**/users-module-authenticated.spec.ts",
+    "**/users-module-visual.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

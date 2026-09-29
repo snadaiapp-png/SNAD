@@ -80,6 +80,22 @@ export type {
   MembershipLifecycleAction,
 } from "./memberships";
 
+// Tenant IAM access API (Users Module closure)
+export { tenantAccessApi, createTenantAccessApi } from "./tenant-access";
+export type {
+  RoleStatus,
+  CapabilityStatus,
+  UserRoleGrantStatus,
+  RoleResponse,
+  CreateRoleRequest,
+  UpdateRoleRequest,
+  CapabilityResponse,
+  RoleAccessResponse,
+  UserRoleLinkResponse,
+  RoleLifecycleAction,
+  CapabilityLifecycleAction,
+} from "./tenant-access";
+
 // User-facing error mapper (EXEC-PROMPT-031)
 export { toUserFacingError, toUserFacingMessage, toUserFacingTitle } from "./user-facing-errors";
 export type { UserFacingError } from "./user-facing-errors";
