@@ -14,7 +14,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,17 +44,31 @@ class EffectivePermissionProjectionPostgresTest {
             try(PreparedStatement p=connection.prepareStatement("UPDATE users SET authorization_version=7 WHERE tenant_id=? AND id=?")){p.setObject(1,f.tenantId());p.setObject(2,f.userId());p.executeUpdate();}
 
             JdbcTemplate jdbc=new JdbcTemplate(new SingleConnectionDataSource(connection,true));
+            Integer roleCapabilityCount=jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM role_capabilities WHERE tenant_id=? AND role_id=?",
+                    Integer.class,f.tenantId(),f.roleId());
+            assertThat(roleCapabilityCount).isNotNull().isPositive();
+            int expectedProjectionCount=roleCapabilityCount+1;
+
             EffectivePermissionProjectionService service=new EffectivePermissionProjectionService(jdbc,new AuthorizationVersionService(jdbc));
             List<EffectivePermissionProjectionService.EffectivePermissionRow> first=service.rebuild(f.tenantId(),f.userId());
             List<EffectivePermissionProjectionService.EffectivePermissionRow> second=service.rebuild(f.tenantId(),f.userId());
 
-            assertThat(first).hasSize(2);
-            assertThat(first).extracting(EffectivePermissionProjectionService.EffectivePermissionRow::source)
-                    .containsExactlyInAnyOrder("ROLE","OVERRIDE");
+            assertThat(first).hasSize(expectedProjectionCount);
+            assertThat(first.stream().filter(row->"ROLE".equals(row.source())).count()).isEqualTo(roleCapabilityCount.longValue());
+            assertThat(first.stream().filter(row->"OVERRIDE".equals(row.source())).count()).isEqualTo(1L);
             assertThat(first).allMatch(row->row.authorizationVersion()==7L);
-            assertThat(second).hasSize(2);
-            assertThat(second).extracting(EffectivePermissionProjectionService.EffectivePermissionRow::source)
-                    .containsExactlyInAnyOrder("ROLE","OVERRIDE");
+
+            assertThat(second).hasSize(expectedProjectionCount);
+            assertThat(second.stream().filter(row->"ROLE".equals(row.source())).count()).isEqualTo(roleCapabilityCount.longValue());
+            assertThat(second.stream().filter(row->"OVERRIDE".equals(row.source())).count()).isEqualTo(1L);
+            assertThat(second).allMatch(row->row.authorizationVersion()==7L);
+
+            Integer persistedCount=jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM effective_permission_projection WHERE tenant_id=? AND user_id=?",
+                    Integer.class,f.tenantId(),f.userId());
+            assertThat(persistedCount).isEqualTo(expectedProjectionCount);
+
             Integer denyCount=jdbc.queryForObject("SELECT COUNT(*) FROM effective_permission_projection WHERE tenant_id=? AND user_id=? AND effect='DENY'",Integer.class,f.tenantId(),f.userId());
             assertThat(denyCount).isZero();
         }
