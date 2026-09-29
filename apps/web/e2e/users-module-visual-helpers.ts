@@ -4,6 +4,7 @@ import path from "node:path";
 
 const ROOT = path.resolve("test-results/users-module-visual-evidence");
 const DIAGNOSTICS_ROOT = path.resolve("test-results/users-module-runtime-diagnostics");
+const ACCESS_CHECK_PATH = "/api/platform/api/v1/control-plane/access-check/v2";
 
 export const EXECUTIVE_USERS_TERMINAL_TEST_IDS = [
   "access-check-failed",
@@ -14,23 +15,92 @@ export const EXECUTIVE_USERS_TERMINAL_TEST_IDS = [
 
 type ExecutiveUsersTerminalState = (typeof EXECUTIVE_USERS_TERMINAL_TEST_IDS)[number] | "terminal-timeout";
 
+type SafeAccessCheckBody = {
+  error?: string;
+  code?: string;
+  message?: string;
+};
+
+async function appendDiagnostic(fileName: string, record: Record<string, unknown>) {
+  await mkdir(DIAGNOSTICS_ROOT, { recursive: true });
+  await appendFile(
+    path.join(DIAGNOSTICS_ROOT, fileName),
+    `${JSON.stringify(record)}\n`,
+    "utf8",
+  );
+}
+
 async function persistExecutiveUsersDiagnostic(
   page: Page,
   state: ExecutiveUsersTerminalState,
   testInfo?: TestInfo,
 ) {
-  await mkdir(DIAGNOSTICS_ROOT, { recursive: true });
-  const record = {
+  await appendDiagnostic("terminal-state.ndjson", {
     sha: process.env.USERS_CANDIDATE_SHA ?? process.env.GITHUB_SHA ?? "local",
     project: testInfo?.project.name ?? "unknown-project",
     route: new URL(page.url()).pathname,
     state,
+  });
+}
+
+function safeText(value: unknown) {
+  return typeof value === "string" ? value.slice(0, 500) : undefined;
+}
+
+function sanitizeAccessCheckBody(value: unknown): SafeAccessCheckBody | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  const safe: SafeAccessCheckBody = {
+    error: safeText(body.error),
+    code: safeText(body.code),
+    message: safeText(body.message),
   };
-  await appendFile(
-    path.join(DIAGNOSTICS_ROOT, "terminal-state.ndjson"),
-    `${JSON.stringify(record)}\n`,
-    "utf8",
-  );
+  return Object.values(safe).some(Boolean) ? safe : null;
+}
+
+export async function probeAccessCheckV2(page: Page, accessToken: string, testInfo?: TestInfo) {
+  const base = {
+    sha: process.env.USERS_CANDIDATE_SHA ?? process.env.GITHUB_SHA ?? "local",
+    project: testInfo?.project.name ?? "unknown-project",
+    path: ACCESS_CHECK_PATH,
+  };
+
+  try {
+    const response = await page.request.get(ACCESS_CHECK_PATH, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+    });
+
+    const contentType = response.headers()["content-type"] ?? null;
+    let safeBody: SafeAccessCheckBody | null = null;
+    if (contentType?.includes("application/json")) {
+      try {
+        safeBody = sanitizeAccessCheckBody(await response.json());
+      } catch {
+        safeBody = null;
+      }
+    }
+
+    await appendDiagnostic("access-check-v2.ndjson", {
+      ...base,
+      phase: "direct-authenticated-probe",
+      status: response.status(),
+      statusText: response.statusText(),
+      contentType,
+      body: safeBody,
+    });
+
+    return response.status();
+  } catch (reason) {
+    await appendDiagnostic("access-check-v2.ndjson", {
+      ...base,
+      phase: "direct-authenticated-probe",
+      requestError: safeText(reason instanceof Error ? reason.message : String(reason)),
+    });
+    throw reason;
+  }
 }
 
 export async function expectExecutiveUsersReady(page: Page, testInfo?: TestInfo) {
