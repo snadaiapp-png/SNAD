@@ -21,6 +21,15 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
         self.assertIn("/access/roles/$role_id/access-items?tenantId=$G2_TENANT_ID", text)
         self.assertIn("capabilityCode", text)
 
+    def test_role_capability_mutation_is_fail_closed(self):
+        text = self.text
+        self.assertIn('ROLE.WRITE', text)
+        self.assertIn('Admin has ROLE.WRITE capability.', text)
+        self.assertIn('ASSIGN_CAP_HTTP_STATUS=', text)
+        self.assertIn('ASSIGN_CAP_RESULT=PASS', text)
+        self.assertIn('POST_ASSIGN_VERIFY=PASS', text)
+        self.assertIn("--fail-with-body", text)
+
     def test_direct_admin_password_payload_is_not_used(self):
         text = self.text
         self.assertNotIn("admin-reset-password", text)
