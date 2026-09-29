@@ -1,5 +1,5 @@
 import { expect, type Page, type TestInfo } from "@playwright/test";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const ROOT = path.resolve("test-results/users-module-visual-evidence");
@@ -20,6 +20,7 @@ type SafeDiagnosticBody = {
   error?: string;
   code?: string;
   message?: string;
+  correlationId?: string;
 };
 
 async function appendDiagnostic(fileName: string, record: Record<string, unknown>) {
@@ -55,8 +56,66 @@ function sanitizeDiagnosticBody(value: unknown): SafeDiagnosticBody | null {
     error: safeText(body.error),
     code: safeText(body.code),
     message: safeText(body.message),
+    correlationId: safeText(body.correlationId),
   };
   return Object.values(safe).some(Boolean) ? safe : null;
+}
+
+function redactDiagnosticLine(line: string) {
+  return line
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+    .replace(/(authorization|password|token|secret)(\s*[=:]\s*)\S+/gi, "$1$2[redacted]")
+    .slice(0, 2000);
+}
+
+async function persistCorrelatedBackendException(correlationId: string, testInfo?: TestInfo) {
+  const runnerTemp = process.env.RUNNER_TEMP;
+  if (!runnerTemp) return;
+
+  const backendLog = path.join(runnerTemp, "users-module-backend.log");
+  try {
+    const text = await readFile(backendLog, "utf8");
+    const lines = text.split(/\r?\n/);
+    const start = lines.findIndex((line) => line.includes(`correlationId=${correlationId}`));
+    if (start < 0) {
+      await appendDiagnostic("backend-5xx.ndjson", {
+        sha: process.env.USERS_CANDIDATE_SHA ?? process.env.GITHUB_SHA ?? "local",
+        project: testInfo?.project.name ?? "unknown-project",
+        correlationId,
+        matched: false,
+      });
+      return;
+    }
+
+    const excerpt = lines
+      .slice(start, Math.min(lines.length, start + 80))
+      .filter((line, index) =>
+        index === 0
+        || line.startsWith("Caused by:")
+        || /^\s+at com\.sanad\./.test(line)
+        || /^\s+at org\.springframework\./.test(line)
+        || /^\s+at org\.hibernate\./.test(line)
+        || /^\s*org\.(postgresql|hibernate)\..*(Exception|Error)/.test(line)
+        || /^\s*(java|jakarta)\..*(Exception|Error)/.test(line))
+      .slice(0, 40)
+      .map(redactDiagnosticLine);
+
+    await appendDiagnostic("backend-5xx.ndjson", {
+      sha: process.env.USERS_CANDIDATE_SHA ?? process.env.GITHUB_SHA ?? "local",
+      project: testInfo?.project.name ?? "unknown-project",
+      correlationId,
+      matched: true,
+      excerpt,
+    });
+  } catch (reason) {
+    await appendDiagnostic("backend-5xx.ndjson", {
+      sha: process.env.USERS_CANDIDATE_SHA ?? process.env.GITHUB_SHA ?? "local",
+      project: testInfo?.project.name ?? "unknown-project",
+      correlationId,
+      matched: false,
+      diagnosticReadError: safeText(reason instanceof Error ? reason.message : String(reason)),
+    });
+  }
 }
 
 async function probeAuthenticatedEndpoint(
@@ -98,6 +157,10 @@ async function probeAuthenticatedEndpoint(
       contentType,
       body: safeBody,
     });
+
+    if (response.status() >= 500 && safeBody?.correlationId) {
+      await persistCorrelatedBackendException(safeBody.correlationId, testInfo);
+    }
 
     return response.status();
   } catch (reason) {
