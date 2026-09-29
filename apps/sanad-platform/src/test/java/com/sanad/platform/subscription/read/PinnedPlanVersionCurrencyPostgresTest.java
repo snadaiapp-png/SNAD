@@ -1,6 +1,10 @@
 package com.sanad.platform.subscription.read;
 
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
+import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,25 +18,54 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Regression: read models must render the currency of the subscription's
  * pinned plan version, not the mutable legacy saas_plans compatibility row.
+ *
+ * <p>Migration-isolation contract: this harness calls {@code flyway.clean()}.
+ * Per {@link MigrationTestSchemaSupport}, clean() is only permitted against the
+ * disposable {@code test_migration} database — NEVER against the shared
+ * {@code sanad} database, whose schema backs every {@code @SpringBootTest}
+ * context in the suite (see commit 57a74c97-era forensic finding: cleaning the
+ * shared database mid-suite destroyed all fixture tenants and dropped canonical
+ * identity tables, violating the W1 test-isolation invariant).</p>
  */
 class PinnedPlanVersionCurrencyPostgresTest {
 
+    private static String baseUrl;
     private JdbcTemplate jdbc;
     private SubscriptionGridQueryService gridService;
     private SubscriptionDetailService detailService;
 
-    @BeforeEach
-    void migrate() {
-        String baseUrl = System.getenv().getOrDefault("PG_ACCEPTANCE_JDBC_URL",
+    @BeforeAll
+    static void requirePostgreSql() {
+        boolean available;
+        try {
+            available = Crm009TestEnvironment.requirePostgreSqlDirectOrSkip(
+                    "PinnedPlanVersionCurrencyPostgresTest");
+        } catch (Throwable ignored) {
+            available = false;
+        }
+        Assumptions.assumeTrue(available,
+                "PostgreSQL Direct is not available — skipping PinnedPlanVersionCurrencyPostgresTest.");
+        baseUrl = System.getenv().getOrDefault("PG_ACCEPTANCE_JDBC_URL",
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL",
                         "jdbc:postgresql://127.0.0.1:5432/sanad"));
+        MigrationTestSchemaSupport.ensureDatabase(
+                baseUrl,
+                System.getenv().getOrDefault("PG_ACCEPTANCE_USERNAME",
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad")),
+                System.getenv().getOrDefault("PG_ACCEPTANCE_PASSWORD",
+                        System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "")));
+    }
+
+    @BeforeEach
+    void migrate() {
+        String url = MigrationTestSchemaSupport.getIsolatedJdbcUrl(baseUrl);
         String user = System.getenv().getOrDefault("PG_ACCEPTANCE_USERNAME",
                 System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"));
         String password = System.getenv().getOrDefault("PG_ACCEPTANCE_PASSWORD",
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
 
         Flyway flyway = Flyway.configure()
-                .dataSource(baseUrl, user, password)
+                .dataSource(url, user, password)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .cleanDisabled(false)
                 .validateOnMigrate(true)
@@ -41,7 +74,7 @@ class PinnedPlanVersionCurrencyPostgresTest {
         flyway.migrate();
         flyway.validate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource(baseUrl, user, password);
+        DriverManagerDataSource ds = new DriverManagerDataSource(url, user, password);
         ds.setDriverClassName("org.postgresql.Driver");
         jdbc = new JdbcTemplate(ds);
         gridService = new SubscriptionGridQueryService(jdbc);
