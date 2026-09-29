@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 
 WORKFLOW = Path('.github/workflows/users-module-closure.yml')
+CONTROL_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
 
 def require(condition: bool, message: str) -> None:
@@ -25,6 +26,11 @@ def main() -> None:
     require('testcontainers' not in lower, 'Testcontainers path is forbidden')
     require('docker ' not in lower and 'docker:' not in lower, 'Docker path is forbidden')
     require('systemctl start postgresql' in text, 'host-native PostgreSQL must be started directly')
+
+    require(f'SANAD_CONTROL_PLANE_TENANT_ID: {CONTROL_TENANT_ID}' in text,
+            'workflow must configure the backend control-plane tenant guard')
+    require(f'USERS_CONTROL_TENANT_ID: {CONTROL_TENANT_ID}' in text,
+            'browser fixture and backend guard must target the same control-plane tenant')
 
     require('playwright.users-module.config.ts' in text,
             'dedicated users-module Playwright config must be authoritative')
