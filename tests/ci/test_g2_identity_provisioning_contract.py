@@ -35,6 +35,25 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
             self.assertIn(capability, text)
             self.assertIn(f"Admin has {capability} capability.", text)
 
+    def test_canonical_hr_graph_is_provisioned_before_scope_verification(self):
+        text = self.text
+        self.assertIn("uses: actions/checkout@v4", text)
+        self.assertIn("bash scripts/g2/provision-canonical-hr.sh", text)
+        for capability in (
+            "ORGANIZATION.READ",
+            "HRM.EMPLOYEE.VIEW",
+            "HRM.EMPLOYEE.CREATE",
+            "HRM.EMPLOYEE.UPDATE",
+            "HRM.USER_LINK.MANAGE",
+            "HRM.ASSIGNMENT.VIEW",
+            "HRM.ASSIGNMENT.MANAGE",
+        ):
+            self.assertIn(capability, text)
+        self.assertLess(
+            text.index("bash scripts/g2/provision-canonical-hr.sh"),
+            text.index("Verify authentication tenant binding and RBAC"),
+        )
+
     def test_role_capability_mutation_is_fail_closed(self):
         text = self.text
         self.assertIn("ASSIGN_CAP_HTTP_STATUS=", text)
