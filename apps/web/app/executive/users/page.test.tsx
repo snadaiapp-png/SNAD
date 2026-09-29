@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { api, access } = vi.hoisted(() => ({
   api: { platformUsers: vi.fn() },
-  access: { has: vi.fn((cap: string): boolean => cap === "PLATFORM.USER.READ") },
+  access: {
+    phase: "authorized" as const,
+    has: vi.fn((cap: string): boolean => cap === "PLATFORM.USER.READ"),
+  },
 }));
 
 vi.mock("@/lib/api/scp-platform-iam-api", () => ({ scpApi: api }));
