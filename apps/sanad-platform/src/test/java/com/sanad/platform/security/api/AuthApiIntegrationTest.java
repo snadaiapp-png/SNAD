@@ -200,10 +200,16 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — user without password returns 401")
     void login_userWithoutPassword_returns401() throws Exception {
-        User nopassUser = new User(tenantId, "nopass@example.com", "No Pass User", UserStatus.ACTIVE);
+        // Unique-per-run identity: the shared local database persists fixture
+        // rows across suite executions, and this email-only login resolves the
+        // user across ALL tenants — a residue user from a previous run would
+        // trigger AmbiguousTenantException (409) before the password check.
+        // Mirrors the testuser-<uuid> pattern used by setUp().
+        String nopassEmail = "nopass-" + UUID.randomUUID() + "@example.com";
+        User nopassUser = new User(tenantId, nopassEmail, "No Pass User", UserStatus.ACTIVE);
         userRepository.save(nopassUser);
 
-        LoginRequest request = new LoginRequest("nopass@example.com", "anyPassword");
+        LoginRequest request = new LoginRequest(nopassEmail, "anyPassword");
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

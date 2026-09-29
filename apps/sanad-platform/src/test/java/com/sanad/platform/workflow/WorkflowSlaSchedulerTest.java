@@ -92,6 +92,17 @@ class WorkflowSlaSchedulerTest {
                     tid, "Tenant " + tid.toString().substring(0, 8),
                     "sch-" + tid.toString().substring(0, 8), now, now);
         }
+        // Scan-window determinism: runSlaCheckInternal() processes
+        // "SELECT id FROM tenants WHERE status='ACTIVE' ORDER BY created_at ASC
+        // LIMIT 200" — the OLDEST 200 active tenants. In a full-suite run the
+        // shared database accumulates hundreds of ACTIVE fixture tenants from
+        // earlier classes, pushing freshly-created fixtures OUT of the scanned
+        // window (observed in Run 6: scheduler processed only residue tenants,
+        // breach counts were 0). Pinning THIS test's own fixtures to the epoch
+        // timestamp guarantees they are always inside the scanned window,
+        // independent of class execution order. Scoped to own rows only.
+        jdbc.update("UPDATE tenants SET created_at = TIMESTAMP '1970-01-01 00:00:00' "
+                + "WHERE id IN (?, ?)", tenantA, tenantB);
         for (var uid : List.of(userA, approverA)) {
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                     + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",

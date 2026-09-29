@@ -63,7 +63,12 @@ class WorkflowY2CapabilityMigrationTest {
     @Test
     void adminCompatibilityMappingCoversEveryY2Capability() {
         // Platform invariant "ADMIN gets all active capabilities": the Y2 seed
-        // must bind each new capability to every tenant's ADMIN role.
+        // must bind each new capability to every ADMIN role that existed when
+        // the compatibility mapping migration ran. The mapping's contract is
+        // bounded by its execution time — fixture tenants created later by
+        // other test classes (raw SQL inserts that bypass role-template
+        // provisioning) are outside the migration's reach by construction and
+        // would otherwise make this global assertion order-dependent.
         String placeholders = String.join(", ", java.util.Collections.nCopies(Y2_CAPABILITY_CODES.size(), "?"));
         String sql = """
                 SELECT t.id AS tenant_id, ac.code AS capability_code
@@ -74,7 +79,11 @@ class WorkflowY2CapabilityMigrationTest {
                 + placeholders
                 + """
                 )
-                WHERE NOT EXISTS (
+                WHERE t.created_at <= COALESCE((
+                        SELECT installed_on FROM flyway_schema_history
+                        WHERE version = '20260902.1' AND success = TRUE
+                        ORDER BY installed_rank DESC LIMIT 1), t.created_at)
+                AND NOT EXISTS (
                     SELECT 1 FROM role_capabilities rc
                     WHERE rc.tenant_id = t.id
                       AND rc.role_id = r.id
