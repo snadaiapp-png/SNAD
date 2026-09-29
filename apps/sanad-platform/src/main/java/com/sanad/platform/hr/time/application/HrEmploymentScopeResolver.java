@@ -31,12 +31,15 @@ public class HrEmploymentScopeResolver {
             return jdbc.queryForObject(
                     """
                     SELECT employee.id
-                      FROM hr_employees employee
+                      FROM hr_people person
+                      JOIN hr_employees employee
+                        ON employee.person_id = person.id
+                       AND employee.tenant_id = person.tenant_id
                       JOIN users u
-                        ON u.id = employee.user_id
-                       AND u.tenant_id = employee.tenant_id
-                     WHERE employee.tenant_id = ?
-                       AND employee.user_id = ?
+                        ON u.id = person.user_id
+                       AND u.tenant_id = person.tenant_id
+                     WHERE person.tenant_id = ?
+                       AND person.user_id = ?
                        AND employee.status = 'ACTIVE'
                        AND u.status = 'ACTIVE'
                     """,
@@ -57,19 +60,36 @@ public class HrEmploymentScopeResolver {
         Integer count = jdbc.queryForObject(
                 """
                 SELECT COUNT(*)
-                  FROM hr_employees target
+                  FROM hr_people manager_person
                   JOIN hr_employees manager
-                    ON manager.id = target.manager_id
-                   AND manager.tenant_id = target.tenant_id
+                    ON manager.person_id = manager_person.id
+                   AND manager.tenant_id = manager_person.tenant_id
+                  JOIN hr_employee_assignments manager_assignment
+                    ON manager_assignment.employment_id = manager.id
+                   AND manager_assignment.tenant_id = manager.tenant_id
+                  JOIN hr_employee_assignments target_assignment
+                    ON target_assignment.tenant_id = manager_assignment.tenant_id
+                   AND target_assignment.reports_to_assignment_id = manager_assignment.id
+                  JOIN hr_employees target
+                    ON target.id = target_assignment.employment_id
+                   AND target.tenant_id = target_assignment.tenant_id
                   JOIN users manager_user
-                    ON manager_user.id = manager.user_id
-                   AND manager_user.tenant_id = manager.tenant_id
-                 WHERE target.tenant_id = ?
-                   AND manager.user_id = ?
+                    ON manager_user.id = manager_person.user_id
+                   AND manager_user.tenant_id = manager_person.tenant_id
+                 WHERE manager_person.tenant_id = ?
+                   AND manager_person.user_id = ?
                    AND target.id = ?
                    AND target.status = 'ACTIVE'
                    AND manager.status = 'ACTIVE'
                    AND manager_user.status = 'ACTIVE'
+                   AND manager_assignment.assignment_type = 'PRIMARY'
+                   AND manager_assignment.status = 'ACTIVE'
+                   AND manager_assignment.effective_from <= CURRENT_DATE
+                   AND (manager_assignment.effective_to IS NULL OR manager_assignment.effective_to >= CURRENT_DATE)
+                   AND target_assignment.assignment_type = 'PRIMARY'
+                   AND target_assignment.status = 'ACTIVE'
+                   AND target_assignment.effective_from <= CURRENT_DATE
+                   AND (target_assignment.effective_to IS NULL OR target_assignment.effective_to >= CURRENT_DATE)
                 """,
                 Integer.class,
                 tenantId,

@@ -1,0 +1,51 @@
+name: Task 7 G2 Canonical Scope Targeted
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrEmploymentScopeResolver.java'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrG2ScopedReadService.java'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/organization/legalentity/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrEmploymentScopeResolverTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrG2ScopedReadServiceTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/organization/legalentity/**'
+      - 'scripts/production/bootstrap-g2-canonical-hr.sh'
+      - 'scripts/production/bootstrap-g2-release-hr.sh'
+      - 'tests/ci/test_g2_identity_provisioning_contract.py'
+      - '.github/workflows/g2-production-identity-provisioning.yml'
+      - '.github/workflows/production-release.yml'
+      - '.github/workflows/task7-g2-canonical-scope-targeted.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-scope-unit:
+    name: Task 7 G2 Canonical Scope Unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run canonical scope unit tests
+        run: mvn -B -ntp -Dtest=HrEmploymentScopeResolverTest,HrG2ScopedReadServiceTest,LegalEntityEligibilityApiContractTest test
+
+      - name: Validate governed G2 bootstrap contract
+        run: |
+          cd ../..
+          bash -n scripts/production/bootstrap-g2-canonical-hr.sh
+          bash -n scripts/production/bootstrap-g2-release-hr.sh
+          python3 tests/ci/test_g2_identity_provisioning_contract.py

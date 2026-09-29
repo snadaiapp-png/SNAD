@@ -40,6 +40,9 @@ jobs:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      G2_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      G2_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      G2_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
       # Dedicated production-only G2 identities. These are role-scoped QA
       # principals; never substitute Control Plane or Tenant B admin credentials.
       E2E_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}
@@ -54,6 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL WEB_PRODUCTION_BASE_URL \
+            G2_TENANT_ID G2_ADMIN_EMAIL G2_ADMIN_PASSWORD \
             E2E_EMPLOYEE_EMAIL E2E_EMPLOYEE_PASSWORD \
             E2E_MANAGER_EMAIL E2E_MANAGER_PASSWORD \
             E2E_HR_EMAIL E2E_HR_PASSWORD; do
@@ -93,12 +97,7 @@ jobs:
           set -euo pipefail
           IMAGE_REF="${REGISTRY}/${IMAGE_NAME}:${{ steps.target.outputs.sha }}"
           echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
-
-          # Authenticate to GHCR to check the image manifest
           echo "$GITHUB_TOKEN" | docker login "$REGISTRY" -u "$GITHUB_ACTOR" --password-stdin 2>/dev/null
-
-          # Verify the exact SHA-tagged image exists in GHCR
-          # Use Docker manifest inspection (does not pull layers)
           if docker manifest inspect "$IMAGE_REF" >/dev/null 2>&1; then
             echo "EXACT_IMAGE_AVAILABLE=YES" >> "$GITHUB_ENV"
             echo "Exact image verified: $IMAGE_REF"
@@ -132,9 +131,6 @@ jobs:
           test "$(jq -r '.[] | select(.key == "BOOTSTRAP_ENABLED") | .value' /tmp/render-env-normalized.json)" = "false"
           control_tenant_id=$(jq -r '.[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value' /tmp/render-env-normalized.json)
           database_username=$(jq -r '.[] | select(.key == "DATABASE_USERNAME") | .value' /tmp/render-env-normalized.json)
-          # Canonical UUID shape (8-4-4-4-12): accepts the deterministic
-          # control-plane sentinel tenant and every RFC version, while still
-          # rejecting structurally invalid ids.
           [[ "$control_tenant_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
           echo "::add-mask::$control_tenant_id"
           echo "::add-mask::$database_username"
@@ -153,7 +149,6 @@ jobs:
             -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Accept: application/json" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=20" > /tmp/render-deploys.json
-          # Extract the previous live IMAGE reference (not commit ID)
           previous_image=$(jq -r '[.[]? | (.deploy // .) | select((.status // "") == "live")] | .[0].image.ref // empty' /tmp/render-deploys.json)
           echo "image_ref=$previous_image" >> "$GITHUB_OUTPUT"
           echo "Previous live image: ${previous_image:-none}"
@@ -164,7 +159,6 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE_REF="${{ steps.image.outputs.image_ref }}"
-          # Image-backed deployment: use imageUrl (NOT commitId)
           jq -n --arg image "$IMAGE_REF" '{imageUrl:$image,clearCache:"do_not_clear"}' > render-request.json
           curl --fail-with-body --silent --show-error \
             -X POST \
@@ -191,7 +185,6 @@ jobs:
             echo "Render status: $status"
             case "$status" in
               live)
-                # Verify deployed image matches the exact requested image
                 deployed_image=$(jq -r '(.deploy // .).image.ref // empty' render-deployment-state.json)
                 test -n "$deployed_image" || {
                   echo "::error::Render live deployment returned no image reference"
@@ -234,12 +227,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Y2 incident regression guard (2026-09-04): the release pipeline used
-          # to trust the render.yaml blueprint while the LIVE service env had
-          # runtime Flyway effectively disabled, and migrations were expected
-          # to arrive only through the canonical dispatch workflow. The normal
-          # release path must now prove the runtime invariants explicitly:
-          # migrations are enabled and strictly ordered on the live service.
           echo "Fetching live env vars from the Render service..."
           curl --silent --show-error \
             -H "Authorization: Bearer $RENDER_API_KEY" \
@@ -278,6 +265,15 @@ jobs:
           SCP_SMOKE_EVIDENCE_FILE: scp-contract-smoke.json
         run: bash scripts/production/verify-scp-contract-smoke.sh
 
+      - name: Bootstrap canonical G2 HR identity graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/production/bootstrap-g2-release-hr.sh
+          jq -n --arg commit "${{ steps.target.outputs.sha }}" \
+            '{result:"G2_CANONICAL_HR_BOOTSTRAP_PASS",commit:$commit,directDatabaseMutation:false,identityGraph:"USER_PERSON_EMPLOYMENT_ASSIGNMENT",managerRelationship:"REPORTS_TO_ASSIGNMENT"}' \
+            > g2-canonical-hr-bootstrap-evidence.json
+
       - name: Verify Vercel Control Plane and BFF
         shell: bash
         run: |
@@ -311,8 +307,6 @@ jobs:
           CI: '1'
         run: |
           set -euo pipefail
-
-          # Bind frontend evidence to the exact release SHA before authenticating.
           release_status=$(curl --silent --show-error --location \
             --output "$RUNNER_TEMP/g2-production-release.json" \
             --write-out '%{http_code}' --max-time 60 \
@@ -321,11 +315,8 @@ jobs:
           jq -e --arg sha "$GITHUB_HEAD_SHA" \
             '.commitSha==$sha and (.environment=="production" or .environment=="prod")' \
             "$RUNNER_TEMP/g2-production-release.json" >/dev/null
-
-          # Never allow stale local evidence to satisfy the production gate.
           rm -rf test-results/g2-visual-evidence playwright-g2-visual-report
           npx playwright test --config=playwright-g2-visual.config.ts
-
           MANIFEST='test-results/g2-visual-evidence/manifest.ndjson'
           test -s "$MANIFEST"
           EXPECTED=60
@@ -357,7 +348,7 @@ jobs:
             --arg previousImage "${{ steps.previous.outputs.image_ref }}" \
             --arg backendUrl "$PRODUCTION_BASE_URL" \
             --arg webUrl "$WEB_PRODUCTION_BASE_URL" \
-            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,imageRef:$imageRef,deploymentId:$deployment,previousImageRef:$previousImage,backendUrl:$backendUrl,webUrl:$webUrl,health:"UP",readiness:"UP",flyway:"PASS",securityBoundary:"PASS",vercelControlPlane:"UP",vercelBff:"CONNECTED",g2ProductionVisual:"PASS"}' \
+            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,imageRef:$imageRef,deploymentId:$deployment,previousImageRef:$previousImage,backendUrl:$backendUrl,webUrl:$webUrl,health:"UP",readiness:"UP",flyway:"PASS",securityBoundary:"PASS",g2CanonicalHr:"PASS",vercelControlPlane:"UP",vercelBff:"CONNECTED",g2ProductionVisual:"PASS"}' \
             > production-release-evidence.json
 
       - name: Upload release evidence
@@ -371,6 +362,7 @@ jobs:
             production-release-evidence.json
             render-rollback.json
             scp-contract-smoke.json
+            g2-canonical-hr-bootstrap-evidence.json
             apps/web/test-results/g2-visual-evidence/
             apps/web/playwright-g2-visual-report/
           if-no-files-found: warn
@@ -382,13 +374,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production deployment passed for exact image \`${{ steps.image.outputs.image_ref }}\` (commit \`${{ steps.target.outputs.sha }}\`), deployment \`${{ steps.deploy.outputs.id }}\`. Readiness, Control Plane tenant, Flyway, security boundary, Vercel Control Plane/BFF and authenticated G2 Employee/Manager/HR desktop+mobile visual smoke passed."
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production deployment passed for exact image \`${{ steps.image.outputs.image_ref }}\` (commit \`${{ steps.target.outputs.sha }}\`), deployment \`${{ steps.deploy.outputs.id }}\`. Readiness, Control Plane tenant, Flyway, security boundary, canonical G2 HR identity graph, Vercel Control Plane/BFF and authenticated G2 Employee/Manager/HR desktop+mobile visual smoke passed."
 
       - name: Roll back failed release
         if: failure() && inputs.rollback_on_failure && steps.previous.outputs.image_ref != ''
         shell: bash
         run: |
-          # Image-based rollback: deploy the previous live image reference
           jq -n --arg image '${{ steps.previous.outputs.image_ref }}' '{imageUrl:$image,clearCache:"do_not_clear"}' > rollback-request.json
           curl --fail-with-body --silent --show-error \
             -X POST \

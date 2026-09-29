@@ -3,6 +3,7 @@ package com.sanad.platform.organization.legalentity;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -46,5 +47,19 @@ public class LegalEntityService {
 
     public boolean isOrganizationEligible(UUID tenantId, UUID legalEntityId, UUID organizationId, LocalDate effectiveDate) {
         return eligibilityRepository.isEligibleOn(tenantId, legalEntityId, organizationId, effectiveDate);
+    }
+
+    /**
+     * Lists ACTIVE legal entities that are explicitly eligible for an Organization
+     * on the caller-supplied effective date. The repository applies tenant scope to
+     * both sides of the relationship; callers must still enforce authenticated
+     * tenant identity before invoking this method.
+     */
+    public List<LegalEntity> listActiveEligible(
+            UUID tenantId,
+            UUID organizationId,
+            LocalDate effectiveDate) {
+        return legalEntityRepository.findActiveEligibleForOrganization(
+                tenantId, organizationId, effectiveDate);
     }
 }
