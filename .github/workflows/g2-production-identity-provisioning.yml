@@ -3,7 +3,7 @@
 # ------------------------------------------------------------
 # Governed, tenant-scoped production provisioning for the three
 # G2 acceptance identities. No direct DB access. No secret mutation.
-# RBAC writes are fail-closed and verified after mutation.
+# RBAC writes and canonical HR graph writes are fail-closed and verified.
 # ============================================================
 name: G2 Production Identity Provisioning
 
@@ -48,6 +48,11 @@ jobs:
           done
           echo "G2_TARGET_TENANT_ID=${G2_TENANT_ID:0:8}... (masked)"
           echo "CONTROL_PLANE_TENANT_USED=NO"
+
+      - name: Checkout governed provisioning scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Authenticate as Tenant B admin
         shell: bash
@@ -114,7 +119,14 @@ jobs:
             ROLE.READ \
             ROLE.WRITE \
             CAPABILITY.READ \
-            USER.GRANT_ROLE; do
+            USER.GRANT_ROLE \
+            ORGANIZATION.READ \
+            HRM.EMPLOYEE.VIEW \
+            HRM.EMPLOYEE.CREATE \
+            HRM.EMPLOYEE.UPDATE \
+            HRM.USER_LINK.MANAGE \
+            HRM.ASSIGNMENT.VIEW \
+            HRM.ASSIGNMENT.MANAGE; do
             if printf '%s\n' "$CAPABILITIES" | grep -Fxq "$capability"; then
               echo "Admin has $capability capability."
             else
@@ -392,6 +404,10 @@ jobs:
           grant_role "$MGR_USER_ID" "$MGR_ROLE_ID" MANAGER
           grant_role "$HR_USER_ID" "$HR_ROLE_ID" HR
 
+      - name: Provision canonical HR Person Employment Assignment and reporting graph
+        shell: bash
+        run: bash scripts/g2/provision-canonical-hr.sh
+
       - name: Initialize missing credentials and rotate to governed G2 secrets
         shell: bash
         run: |
@@ -556,4 +572,13 @@ jobs:
           echo "EMPLOYEE_USER=${EMP_USER_ID:-NOT_RESOLVED}"
           echo "MANAGER_USER=${MGR_USER_ID:-NOT_RESOLVED}"
           echo "HR_USER=${HR_USER_ID:-NOT_RESOLVED}"
+          echo "EMPLOYEE_PERSON=${EMP_PERSON_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_PERSON=${MGR_PERSON_ID:-NOT_PROVISIONED}"
+          echo "HR_PERSON=${HR_PERSON_ID:-NOT_PROVISIONED}"
+          echo "EMPLOYEE_EMPLOYMENT=${EMP_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_EMPLOYMENT=${MGR_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "HR_EMPLOYMENT=${HR_EMPLOYMENT_ID:-NOT_PROVISIONED}"
+          echo "EMPLOYEE_ASSIGNMENT=${EMP_ASSIGNMENT_ID:-NOT_PROVISIONED}"
+          echo "MANAGER_ASSIGNMENT=${MGR_ASSIGNMENT_ID:-NOT_PROVISIONED}"
+          echo "HR_ASSIGNMENT=${HR_ASSIGNMENT_ID:-NOT_PROVISIONED}"
           echo "G2_PROD_SECRETS=6/6 READ_ONLY"
