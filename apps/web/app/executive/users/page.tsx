@@ -12,7 +12,7 @@ import styles from "../scp.module.css";
 
 export default function PlatformUsersPage() {
   const { t } = useI18n();
-  const { has } = useScpAccess();
+  const { has, phase } = useScpAccess();
   const canRead = has("PLATFORM.USER.READ");
   const canCreate = has("PLATFORM.USER.CREATE");
   const [users, setUsers] = useState<PlatformUser[] | null>(null);
@@ -23,21 +23,42 @@ export default function PlatformUsersPage() {
   const [displayName, setDisplayName] = useState("");
 
   const load = useCallback(async () => {
-    if (!canRead) return;
+    if (phase !== "authorized" || !canRead) return;
     setError("");
     try {
       setUsers(await scpApi.platformUsers());
     } catch (reason) {
       setError(scpErrorMessage(reason));
     }
-  }, [canRead]);
+  }, [phase, canRead]);
 
   useEffect(() => { void load(); }, [load]);
 
-  if (!canRead) {
-    return <ScpPage title={t("scp.users.title")}><ScpError message={t("scp.users.forbidden")} /></ScpPage>;
+  if (phase === "checking") {
+    return <ScpPage title={t("scp.users.title")}><ScpSkeleton lines={5} /></ScpPage>;
   }
-  if (users === null && !error) {
+  if (phase === "degraded") {
+    return (
+      <ScpPage title={t("scp.users.title")}>
+        <div data-testid="access-check-failed"><ScpError message={t("scp.state.errorGeneric")} /></div>
+      </ScpPage>
+    );
+  }
+  if (phase === "unauthorized" || !canRead) {
+    return (
+      <ScpPage title={t("scp.users.title")}>
+        <div data-testid="access-denied"><ScpError message={t("scp.users.forbidden")} /></div>
+      </ScpPage>
+    );
+  }
+  if (error) {
+    return (
+      <ScpPage title={t("scp.users.title")}>
+        <div data-testid="users-load-failed"><ScpError message={error} onRetry={load} /></div>
+      </ScpPage>
+    );
+  }
+  if (users === null) {
     return <ScpPage title={t("scp.users.title")}><ScpSkeleton lines={5} /></ScpPage>;
   }
 
@@ -61,7 +82,6 @@ export default function PlatformUsersPage() {
   return (
     <ScpPage title={t("scp.users.title")} subtitle={t("scp.users.subtitle")}>
       <div data-testid="executive-users-ready">
-        {error ? <ScpError message={error} onRetry={load} /> : null}
         {canCreate ? (
           <div className={styles.filters}>
             <Button variant="primary" size="sm" onClick={() => setCreating((value) => !value)}>
@@ -76,8 +96,8 @@ export default function PlatformUsersPage() {
             <Button type="submit" variant="primary" size="sm" loading={busy}>{t("scp.users.submit")}</Button>
           </form>
         ) : null}
-        {users?.length === 0 ? <ScpEmpty message={t("scp.users.empty")} /> : null}
-        {users && users.length > 0 ? (
+        {users.length === 0 ? <ScpEmpty message={t("scp.users.empty")} /> : null}
+        {users.length > 0 ? (
           <div className={styles.cards}>
             {users.map((user) => (
               <article key={user.userId} className={styles.appCard} data-testid={`executive-user-${user.userId}`}>
