@@ -25,7 +25,7 @@ public class PlatformTemporaryAccessController {
 
     @GetMapping
     @RequireCapability("PLATFORM.PERMISSION.READ")
-    public List<PlatformTemporaryAccessResponse> list(Authentication actor, @PathVariable UUID userId) {
+    public List<PlatformTemporaryAccessResponse> listTemporaryAccess(Authentication actor, @PathVariable UUID userId) {
         return access.list(actor, userId);
     }
 
