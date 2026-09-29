@@ -66,15 +66,19 @@ class WorkflowSlaSchedulerTest {
                 + "issues, risks, "
                 + "strategic_initiatives, kpi_measurements, kpi_targets "
                 + "RESTART IDENTITY CASCADE");
-        // Also clean stale tenants/users/roles from prior tests so the
-        // scheduler only sees this test's tenants.
-        jdbc.execute("TRUNCATE TABLE crm_tag_assignments, crm_communication_methods, "
-                + "crm_party_addresses, crm_opportunity_stage_history, crm_opportunities, "
-                + "crm_pipeline_stages, crm_pipelines, crm_tasks, crm_notes, crm_tags, "
-                + "crm_activities, crm_contacts, crm_leads, crm_accounts, "
-                + "user_role_assignments, role_capabilities, roles, users, tenants, "
-                + "refresh_tokens "
-                + "RESTART IDENTITY CASCADE");
+        // Identity/CRM tables are NOT wiped here. The previous global
+        // "TRUNCATE ... user_role_assignments, role_capabilities, roles,
+        // users, tenants, refresh_tokens ... CASCADE" destroyed the canonical
+        // migrated control-plane tenant (V20260813_1, tenant
+        // 00000000-0000-0000-0000-000000000001) and every tenant's rows in
+        // ~200 FK-cascaded tables — canonical state that later acceptance
+        // tests (G1-G forensic RBAC, permission projection, governance
+        // assertions) depend on. It is also unnecessary for isolation:
+        // the TRUNCATE above already removes ALL workflow/management rows
+        // globally, so every non-test tenant (canonical or residue) has zero
+        // workflow data, contributes zero breaches, and checkTenant() runs
+        // per-tenant with failure isolation. This test's own tenants use
+        // random UUID identities, so fixture residue cannot collide.
 
         tenantA = UUID.randomUUID();
         tenantB = UUID.randomUUID();

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.crm.query.domain.Customer360QueryPort;
 import com.sanad.platform.crm.test.RlsTestSupport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -18,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +63,9 @@ class ContactRelationshipHttpIntegrationTest {
     @Autowired ObjectMapper mapper;
     @Autowired Customer360QueryPort customer360;
     @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
+
+    /** Tenants created by the current test method's fixtures (owned-cleanup scope). */
+    private final List<UUID> createdTenantIds = new ArrayList<>();
 
     /**
      * Run a verification query under a tenant-scoped transaction so that
@@ -313,6 +318,7 @@ class ContactRelationshipHttpIntegrationTest {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
+        createdTenantIds.add(tenantId);
         Instant now = Instant.now();
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
@@ -418,41 +424,76 @@ class ContactRelationshipHttpIntegrationTest {
 
     private record Fixture(UUID tenantId, UUID userId) {}
 
-    @org.junit.jupiter.api.AfterEach
+    @AfterEach
     void cleanupTestData() {
-        // Test isolation: clear CRM test data between @Test methods.
-        // Without @Transactional class-level, each test method commits its data.
-        // TRUNCATE ... CASCADE is PostgreSQL's canonical way to clear an FK graph
-        // in the correct dependency order. H2 also supports TRUNCATE.
-        // We exclude access_capabilities (catalog), modules, module_capabilities
-        // (migration-seeded catalog), and flyway_schema_history (Flyway tracking).
-        jdbc.getJdbcTemplate().execute("""
-                TRUNCATE TABLE
-                    crm_contact_relationship_roles,
-                    crm_contact_relationship_history,
-                    crm_contact_account_relationships,
-                    crm_communication_methods,
-                    crm_party_addresses,
-                    crm_timeline_events,
-                    crm_audit_logs,
-                    crm_opportunity_stage_history,
-                    crm_opportunities,
-                    crm_pipeline_stages,
-                    crm_pipelines,
-                    crm_tasks,
-                    crm_notes,
-                    crm_tags,
-                    crm_tag_assignments,
-                    crm_activities,
-                    crm_contacts,
-                    crm_leads,
-                    crm_accounts,
-                    user_role_assignments,
-                    role_capabilities,
-                    roles,
-                    users,
-                    tenants
-                RESTART IDENTITY CASCADE
-                """);
+        // Test isolation: remove exactly the CRM + identity fixtures the current
+        // test method created, scoped to the fixture tenants registered by
+        // fixture(). Fixtures use random UUID identities, so this owned cleanup
+        // is fully residue-tolerant (nothing to collide with, nothing to leak
+        // between methods).
+        //
+        // The previous implementation TRUNCATEd the shared CRM + identity graph
+        // (…, user_role_assignments, role_capabilities, roles, users, tenants)
+        // with RESTART IDENTITY CASCADE. That destroyed the canonical migrated
+        // control-plane tenant (V20260813_1, tenant
+        // 00000000-0000-0000-0000-000000000001) and, through CASCADE, every
+        // tenant's rows in ~200 FK-child tables — canonical state that later
+        // acceptance tests (G1-G forensic RBAC, permission projection,
+        // governance assertions) depend on. Global wipes of shared identity
+        // data are not an acceptable cleanup mechanism.
+        //
+        // Deletion order is FK-safe (children before parents). CRM deletes run
+        // inside a tenant-scoped transaction so the FORCE-RLS tables
+        // (crm_contacts, crm_timeline_events, crm_event_outbox) delete their
+        // owned rows under their normal policies — identical to the seeding
+        // path's contract (see tenantQuery / RlsTestSupport).
+        final List<String> CRM_CHILD_TABLES = List.of(
+                // relationship graph (deepest children first)
+                "crm_contact_relationship_history",
+                "crm_contact_account_relationships",
+                "crm_contact_relationship_roles",
+                "crm_contact_lookup_index",
+                "crm_contact_ownership_history",
+                "crm_phone_numbers",
+                "crm_communication_methods",
+                "crm_party_addresses",
+                "crm_opportunity_stage_history",
+                "crm_leads",
+                "crm_opportunities",
+                "crm_pipeline_stages",
+                "crm_pipelines",
+                "crm_tasks",
+                "crm_notes",
+                "crm_tag_assignments",
+                "crm_tags",
+                "crm_activities",
+                "crm_timeline_events",
+                "crm_audit_logs",
+                "crm_event_outbox",
+                "crm_custom_field_values",
+                // parents last
+                "crm_contacts",
+                "crm_accounts");
+        for (UUID tenantId : createdTenantIds) {
+            org.springframework.transaction.support.TransactionTemplate tx =
+                    new org.springframework.transaction.support.TransactionTemplate(txManager);
+            tx.executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                        p().addValue("t", tenantId.toString()), String.class);
+                for (String table : CRM_CHILD_TABLES) {
+                    jdbc.update("DELETE FROM " + table + " WHERE tenant_id = :t",
+                            p().addValue("t", tenantId));
+                }
+            });
+            // Identity tables are not RLS-protected; plain scoped deletes.
+            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t",
+                    p().addValue("t", tenantId));
+            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t",
+                    p().addValue("t", tenantId));
+            jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p().addValue("t", tenantId));
+            jdbc.update("DELETE FROM users WHERE tenant_id = :t", p().addValue("t", tenantId));
+            jdbc.update("DELETE FROM tenants WHERE id = :t", p().addValue("t", tenantId));
+        }
+        createdTenantIds.clear();
     }
 }
