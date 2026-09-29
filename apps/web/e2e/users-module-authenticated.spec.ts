@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { loginThroughUi } from "./crm-auth-session";
-import { expectExecutiveUsersReady } from "./users-module-visual-helpers";
+import { expectExecutiveUsersReady, probeAccessCheckV2 } from "./users-module-visual-helpers";
 
 const TENANT_EMAIL = process.env.USERS_TENANT_EMAIL ?? "";
 const TENANT_PASSWORD = process.env.USERS_TENANT_PASSWORD ?? "";
@@ -76,7 +76,7 @@ test("tenant users/access renders real data and stays fail-closed", async ({ pag
   await assertAuthenticatedIdentity(page, TENANT_ID, session.accessToken);
 });
 
-test("control-plane users/access renders only platform identities", async ({ page }) => {
+test("control-plane users/access renders only platform identities", async ({ page }, testInfo) => {
   requireEnv("USERS_CONTROL_EMAIL", CONTROL_EMAIL);
   requireEnv("USERS_CONTROL_PASSWORD", CONTROL_PASSWORD);
   requireEnv("USERS_TENANT_EMAIL", TENANT_EMAIL);
@@ -84,8 +84,9 @@ test("control-plane users/access renders only platform identities", async ({ pag
   const session = await loginThroughUi(page, CONTROL_EMAIL, CONTROL_PASSWORD);
   expect(session.user.tenantId).toBe(CONTROL_TENANT_ID);
 
+  await probeAccessCheckV2(page, session.accessToken, testInfo);
   await page.goto("/executive/users");
-  await expectExecutiveUsersReady(page);
+  await expectExecutiveUsersReady(page, testInfo);
   await expect(page.getByText(CONTROL_EMAIL, { exact: true })).toBeVisible();
   await expect(page.getByText(TENANT_EMAIL, { exact: true })).toHaveCount(0);
 
