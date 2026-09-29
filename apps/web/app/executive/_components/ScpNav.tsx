@@ -41,11 +41,8 @@ export function ScpNav() {
   const { t } = useI18n();
   const { phase, capabilities, refresh } = useScpAccess();
 
-  const visible = (capability: string): boolean => {
-    if (phase === "checking") return true;
-    if (phase !== "authorized") return false;
-    return capabilities[capability] === true;
-  };
+  const visible = (capability: string): boolean =>
+    phase === "checking" || (phase === "authorized" && capabilities[capability] === true);
 
   if (phase === "degraded") return <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}><ScpError message={t("scp.nav.degraded")} onRetry={() => refresh()} /></nav>;
   if (phase === "unauthorized") return <nav className={styles.nav} aria-label={t("scp.nav.ariaLabel")}><ScpNotice>{t("scp.nav.unauthorized")}</ScpNotice></nav>;
