@@ -310,9 +310,9 @@ jobs:
           EMP_ROLE_ID=$(get_or_create_role "G2_EMPLOYEE_QA" "G2 Employee QA" "G2 Employee self-service QA role")
           MGR_ROLE_ID=$(get_or_create_role "G2_MANAGER_QA" "G2 Manager QA" "G2 Manager team approval QA role")
           HR_ROLE_ID=$(get_or_create_role "G2_HR_QA" "G2 HR QA" "G2 HR admin QA role")
-          for pair in "EMP_ROLE_ID:$EMP_ROLE_ID" "MGR_ROLE_ID:$MGR_ROLE_ID" "HR_ROLE_ID:$HR_ROLE_ID"; do
-            echo "$pair" >> "$GITHUB_ENV"
-          done
+          echo "EMP_ROLE_ID=$EMP_ROLE_ID" >> "$GITHUB_ENV"
+          echo "MGR_ROLE_ID=$MGR_ROLE_ID" >> "$GITHUB_ENV"
+          echo "HR_ROLE_ID=$HR_ROLE_ID" >> "$GITHUB_ENV"
 
           assign_cap "$EMP_ROLE_ID" "HRM.ATTENDANCE.SELF_RECORD"
           assign_cap "$EMP_ROLE_ID" "HRM.ATTENDANCE.SELF_VIEW"
