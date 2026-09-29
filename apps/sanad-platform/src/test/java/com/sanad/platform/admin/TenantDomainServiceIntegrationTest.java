@@ -12,6 +12,7 @@ import com.sanad.platform.admin.api.TenantDomainDtos.VerifyDomainRequest;
 import com.sanad.platform.admin.service.TenantDomainService;
 import com.sanad.platform.tenancy.routing.DomainOwnershipVerifier;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,16 +54,33 @@ class TenantDomainServiceIntegrationTest {
     @MockBean private DomainOwnershipVerifier ownershipVerifier;
 
     private UUID tenantId;
+    // Owned-fixture registry: every tenant this class creates (its own fixture
+    // tenant and any cross-tenant test tenants) is swept in @AfterEach. The
+    // hostname authority is global and fail-closed, and this test claims fixed
+    // hostnames — without the sweep a second suite execution against a
+    // persistent database collides with the residue claims (409 CONFLICT,
+    // observed in Run 7).
+    private final java.util.List<UUID> createdTenants = new java.util.ArrayList<>();
 
     @BeforeEach
     void setUp() {
         tenantId = UUID.randomUUID();
+        createdTenants.add(tenantId);
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "td-" + tenantId.toString().substring(0, 8), now, now);
         when(ownershipVerifier.verify(anyString(), any(DomainOwnershipVerifier.Method.class), anyString()))
                 .thenReturn(true);
+    }
+
+    @AfterEach
+    void sweepTenantDomainFixtures() {
+        for (UUID tid : createdTenants) {
+            jdbc.update("DELETE FROM tenant_domains WHERE tenant_id = ?", tid);
+            jdbc.update("DELETE FROM tenants WHERE id = ?", tid);
+        }
+        createdTenants.clear();
     }
 
     @Test
@@ -105,6 +123,7 @@ class TenantDomainServiceIntegrationTest {
     @Test
     void createDomain_rejectsSameHostnameAcrossTenants() {
         var otherTenant = UUID.randomUUID();
+        createdTenants.add(otherTenant);
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Other', ?, 'ACTIVE', ?, ?)",
