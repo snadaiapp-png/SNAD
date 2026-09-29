@@ -114,14 +114,24 @@ public class WorkflowE2eBootstrapConfig {
                     """, ADMIN_USER_ID, TENANT_A_ID, E2E_ADMIN_EMAIL, passwordHash, now, now);
 
             // 3. Employee linked to the admin user (required by WorkflowActionabilityService)
+            // Conditional insert: hr_trg_enforce_employee_user_identity performs its
+            // own duplicate check and raises before index arbitration, so bare
+            // ON CONFLICT DO NOTHING cannot make this insert idempotent across
+            // repeated context boots. WHERE NOT EXISTS guarantees a second boot
+            // (e.g. a second test class activating this profile in one suite run,
+            // or a second suite run against a persistent database) is a no-op
+            // instead of failing context load.
             jdbc.update("""
                     INSERT INTO hr_employees (id, tenant_id, user_id, employee_number,
                                               first_name, last_name, display_name,
                                               employment_type, status, created_at, updated_at)
-                    VALUES (gen_random_uuid(), ?, ?, 'E2E-001', 'E2E', 'Admin', 'E2E Admin',
-                            'FULL_TIME', 'ACTIVE', ?, ?)
-                    ON CONFLICT DO NOTHING
-                    """, TENANT_A_ID, ADMIN_USER_ID, now, now);
+                    SELECT gen_random_uuid(), ?, ?, 'E2E-001', 'E2E', 'Admin', 'E2E Admin',
+                           'FULL_TIME', 'ACTIVE', ?, ?
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM hr_employees
+                        WHERE tenant_id = ? AND user_id = ?
+                    )
+                    """, TENANT_A_ID, ADMIN_USER_ID, now, now, TENANT_A_ID, ADMIN_USER_ID);
 
             // 4. ADMIN role
             jdbc.update("""
@@ -257,11 +267,14 @@ public class WorkflowE2eBootstrapConfig {
                     INSERT INTO hr_employees (id, tenant_id, user_id, employee_number,
                                               first_name, last_name, display_name,
                                               employment_type, status, created_at, updated_at)
-                    VALUES (gen_random_uuid(), ?, ?, ?, 'E2E', ?, 'E2E ' || ?,
-                            'FULL_TIME', 'ACTIVE', ?, ?)
-                    ON CONFLICT DO NOTHING
+                    SELECT gen_random_uuid(), ?, ?, ?, 'E2E', ?, 'E2E ' || ?,
+                           'FULL_TIME', 'ACTIVE', ?, ?
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM hr_employees
+                        WHERE tenant_id = ? AND user_id = ?
+                    )
                     """, tenantId, userId, actor.emailLocalPart().toUpperCase() + "-E", actor.roleCode(),
-                    actor.roleCode(), now, now);
+                    actor.roleCode(), now, now, tenantId, userId);
 
             jdbc.update("""
                     INSERT INTO roles (id, tenant_id, code, name, status, created_at, updated_at)
