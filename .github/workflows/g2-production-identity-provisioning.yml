@@ -62,7 +62,7 @@ jobs:
             -X POST "${BASE_URL%/}/api/v1/auth/login" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg email "$G2_ADMIN_EMAIL" --arg password "$G2_ADMIN_PASSWORD" --arg tenant "$G2_TENANT_ID" \
-                  '{email:$email,password:$password,tenantId:$tenant}')") || {
+                  '{email: $email, password: $password, tenantId: $tenant}')") || {
             rc=$?
             echo "::error::Tenant B admin login transport/HTTP failure (curl=$rc)"
             cat "$body" 2>/dev/null | jq . 2>/dev/null || true
@@ -160,7 +160,7 @@ jobs:
                 -H "Authorization: Bearer $ACCESS_TOKEN" \
                 -H "Content-Type: application/json" \
                 -d "$(jq -n --arg email "$email" --arg display "$display" \
-                      '{email:$email,displayName:$display,status:"ACTIVE"}')") || {
+                      '{email: $email, displayName: $display, status: "ACTIVE"}')") || {
                 rc=$?
                 echo "::error::User creation failed for $display (curl=$rc)"
                 cat "$create_body" 2>/dev/null | jq . 2>/dev/null || true
@@ -221,7 +221,7 @@ jobs:
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg c "$code" --arg n "$name" --arg d "$desc" \
-                    '{code:$c,name:$n,description:$d}')") || {
+                    '{code: $c, name: $n, description: $d}')") || {
               rc=$?
               echo "::error::Role creation failed for $code (curl=$rc)"
               cat "$create_body" 2>/dev/null | jq . 2>/dev/null || true
@@ -408,7 +408,7 @@ jobs:
               -X POST "$AUTH_API/login" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg e "$email" --arg p "$final_password" --arg tenant "$G2_TENANT_ID" \
-                    '{email:$e,password:$p,tenantId:$tenant}')")
+                    '{email: $e, password: $p, tenantId: $tenant}')")
             set -e
             if [ "$login_status" = "200" ] && [ -n "$(jq -r '.accessToken // empty' "$login_body")" ]; then
               echo "$label credential already valid (REUSED)"
@@ -425,7 +425,7 @@ jobs:
               -X POST "$AUTH_API/admin-initialize-credential/$user_id" \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n --arg c "$temporary" '{initialCredential:$c}')") || {
+              -d "$(jq -n --arg c "$temporary" '{initialCredential: $c}')") || {
               rc=$?
               echo "::error::$label credential initialization failed (curl=$rc)"
               cat "$init_body" 2>/dev/null | jq . 2>/dev/null || true
@@ -443,7 +443,7 @@ jobs:
               -X POST "$AUTH_API/login" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg e "$email" --arg p "$temporary" --arg tenant "$G2_TENANT_ID" \
-                    '{email:$e,password:$p,tenantId:$tenant}')") || exit 1
+                    '{email: $e, password: $p, tenantId: $tenant}')") || exit 1
             if [ "$bootstrap_status" != "200" ]; then
               echo "::error::$label temporary credential login failed"
               exit 1
@@ -465,7 +465,7 @@ jobs:
               -H "Authorization: Bearer $bootstrap_token" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg current "$temporary" --arg next "$final_password" \
-                    '{currentCredential:$current,newCredential:$next}')") || exit 1
+                    '{currentCredential: $current, newCredential: $next}')") || exit 1
             if [ "$rotate_status" != "204" ]; then
               echo "::error::$label governed credential rotation failed (HTTP $rotate_status)"
               exit 1
@@ -491,7 +491,7 @@ jobs:
               -X POST "${BASE_URL%/}/api/v1/auth/login" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg e "$email" --arg p "$pass" --arg tenant "$G2_TENANT_ID" \
-                    '{email:$e,password:$p,tenantId:$tenant}')") || exit 1
+                    '{email: $e, password: $p, tenantId: $tenant}')") || exit 1
             if [ "$status" != "200" ]; then
               echo "::error::$label AUTH=FAIL HTTP=$status"
               exit 1
