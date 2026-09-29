@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -56,6 +57,19 @@ class HrEmploymentScopeResolverTest {
 
         when(jdbc.queryForObject(anyString(), eq(UUID.class), eq(tenantId), eq(userId)))
                 .thenThrow(new EmptyResultDataAccessException(1));
+
+        assertThatThrownBy(() -> resolver.requireSelfEmployment(tenantId, userId))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("active HR employment");
+    }
+
+    @Test
+    void ambiguousCanonicalEmploymentBindingFailsClosed() {
+        UUID tenantId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        when(jdbc.queryForObject(anyString(), eq(UUID.class), eq(tenantId), eq(userId)))
+                .thenThrow(new IncorrectResultSizeDataAccessException(1, 2));
 
         assertThatThrownBy(() -> resolver.requireSelfEmployment(tenantId, userId))
                 .isInstanceOf(AccessDeniedException.class)
