@@ -44,24 +44,74 @@ class EffectivePermissionProjectionPostgresTest {
             try(PreparedStatement p=connection.prepareStatement("UPDATE users SET authorization_version=7 WHERE tenant_id=? AND id=?")){p.setObject(1,f.tenantId());p.setObject(2,f.userId());p.executeUpdate();}
 
             JdbcTemplate jdbc=new JdbcTemplate(new SingleConnectionDataSource(connection,true));
+            // Expected projection size is derived from the same authoritative
+            // sources the projection service reads. The canonical control-plane
+            // owner legitimately holds multiple ACTIVE roles after the Platform
+            // IAM bootstrap/reconciliation chain, so the expectation must cover
+            // every active assigned role, not only the fixture role.
             Integer roleCapabilityCount=jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM role_capabilities WHERE tenant_id=? AND role_id=?",
-                    Integer.class,f.tenantId(),f.roleId());
+                    "SELECT COUNT(*) FROM ("
+                    + "SELECT DISTINCT ON (rc.capability_id, "
+                    + "  CASE WHEN ura.organization_id IS NULL THEN 'TENANT_ALL' ELSE 'ORGANIZATION' END, ura.organization_id) "
+                    + "rc.capability_id, "
+                    + "CASE WHEN ura.organization_id IS NULL THEN 'TENANT_ALL' ELSE 'ORGANIZATION' END AS scope_type, "
+                    + "ura.organization_id AS scope_reference, ura.role_id "
+                    + "FROM user_role_assignments ura "
+                    + "JOIN roles r ON r.tenant_id = ura.tenant_id AND r.id = ura.role_id "
+                    + "JOIN role_capabilities rc ON rc.tenant_id = ura.tenant_id AND rc.role_id = ura.role_id "
+                    + "JOIN access_capabilities ac ON ac.id = rc.capability_id "
+                    + "WHERE ura.tenant_id = ? AND ura.user_id = ? "
+                    + "AND ura.status = 'ACTIVE' AND r.status = 'ACTIVE' AND ac.status = 'ACTIVE' "
+                    + "ORDER BY rc.capability_id, "
+                    + "CASE WHEN ura.organization_id IS NULL THEN 'TENANT_ALL' ELSE 'ORGANIZATION' END, "
+                    + "ura.organization_id, ura.role_id) q",
+                    Integer.class,f.tenantId(),f.userId());
             assertThat(roleCapabilityCount).isNotNull().isPositive();
-            int expectedProjectionCount=roleCapabilityCount+1;
+            Integer overrideCount=jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM user_permission_overrides "
+                    + "WHERE tenant_id=? AND user_id=? AND effect='ALLOW' "
+                    + "AND valid_from <= CURRENT_TIMESTAMP "
+                    + "AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP)",
+                    Integer.class,f.tenantId(),f.userId());
+            assertThat(overrideCount).isNotNull().isPositive();
+            // An ALLOW override whose (capability, scope) collides with a role
+            // row replaces it via upsert, so the total is role rows + override
+            // rows minus those collisions.
+            Integer collisionCount=jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM user_permission_overrides o "
+                    + "WHERE o.tenant_id=? AND o.user_id=? AND o.effect='ALLOW' "
+                    + "AND o.valid_from <= CURRENT_TIMESTAMP "
+                    + "AND (o.valid_until IS NULL OR o.valid_until > CURRENT_TIMESTAMP) "
+                    + "AND EXISTS (SELECT 1 FROM ("
+                    + "SELECT DISTINCT rc.capability_id, "
+                    + "CASE WHEN ura.organization_id IS NULL THEN 'TENANT_ALL' ELSE 'ORGANIZATION' END AS scope_type, "
+                    + "ura.organization_id AS scope_reference "
+                    + "FROM user_role_assignments ura "
+                    + "JOIN roles r ON r.tenant_id = ura.tenant_id AND r.id = ura.role_id "
+                    + "JOIN role_capabilities rc ON rc.tenant_id = ura.tenant_id AND rc.role_id = ura.role_id "
+                    + "JOIN access_capabilities ac ON ac.id = rc.capability_id "
+                    + "WHERE ura.tenant_id = o.tenant_id AND ura.user_id = o.user_id "
+                    + "AND ura.status = 'ACTIVE' AND r.status = 'ACTIVE' AND ac.status = 'ACTIVE') q "
+                    + "WHERE q.capability_id = o.capability_id "
+                    + "AND q.scope_type = COALESCE(o.scope_type, 'TENANT_ALL') "
+                    + "AND q.scope_reference IS NOT DISTINCT FROM o.scope_reference)",
+                    Integer.class,f.tenantId(),f.userId());
+            int expectedProjectionCount=roleCapabilityCount+overrideCount-collisionCount;
+            int expectedRoleRowCount=roleCapabilityCount-collisionCount;
+            int expectedOverrideRowCount=overrideCount;
 
             EffectivePermissionProjectionService service=new EffectivePermissionProjectionService(jdbc,new AuthorizationVersionService(jdbc));
             List<EffectivePermissionProjectionService.EffectivePermissionRow> first=service.rebuild(f.tenantId(),f.userId());
             List<EffectivePermissionProjectionService.EffectivePermissionRow> second=service.rebuild(f.tenantId(),f.userId());
 
             assertThat(first).hasSize(expectedProjectionCount);
-            assertThat(first.stream().filter(row->"ROLE".equals(row.source())).count()).isEqualTo(roleCapabilityCount.longValue());
-            assertThat(first.stream().filter(row->"OVERRIDE".equals(row.source())).count()).isEqualTo(1L);
+            assertThat(first.stream().filter(row->"ROLE".equals(row.source())).count()).isEqualTo((long)expectedRoleRowCount);
+            assertThat(first.stream().filter(row->"OVERRIDE".equals(row.source())).count()).isEqualTo((long)expectedOverrideRowCount);
             assertThat(first).allMatch(row->row.authorizationVersion()==7L);
 
             assertThat(second).hasSize(expectedProjectionCount);
-            assertThat(second.stream().filter(row->"ROLE".equals(row.source())).count()).isEqualTo(roleCapabilityCount.longValue());
-            assertThat(second.stream().filter(row->"OVERRIDE".equals(row.source())).count()).isEqualTo(1L);
+            assertThat(second.stream().filter(row->"ROLE".equals(row.source())).count()).isEqualTo((long)expectedRoleRowCount);
+            assertThat(second.stream().filter(row->"OVERRIDE".equals(row.source())).count()).isEqualTo((long)expectedOverrideRowCount);
             assertThat(second).allMatch(row->row.authorizationVersion()==7L);
 
             Integer persistedCount=jdbc.queryForObject(
