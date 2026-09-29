@@ -3,7 +3,9 @@ package com.sanad.platform.access.role;
 import com.sanad.platform.access.AccessConflictException;
 import com.sanad.platform.access.AccessResourceNotFoundException;
 import com.sanad.platform.access.audit.AccessMutationAuditSupport;
+import com.sanad.platform.access.service.LastAdminGuard;
 import com.sanad.platform.security.authorization.AuthorizationMutationCoordinator;
+import com.sanad.platform.security.authorization.ProtectedRoleGuard;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,8 @@ public class RoleService {
     private final TenantRepository tenantRepository;
     private AccessMutationAuditSupport audit;
     private AuthorizationMutationCoordinator authChanges;
+    private ProtectedRoleGuard protectedRoleGuard;
+    private LastAdminGuard lastAdminGuard;
 
     public RoleService(RoleRepository roleRepository, TenantRepository tenantRepository) {
         this.roleRepository = roleRepository;
@@ -28,6 +32,8 @@ public class RoleService {
     }
     @Autowired(required=false) void setAudit(AccessMutationAuditSupport audit){this.audit=audit;}
     @Autowired(required=false) void setAuthChanges(AuthorizationMutationCoordinator authChanges){this.authChanges=authChanges;}
+    @Autowired(required=false) void setProtectedRoleGuard(ProtectedRoleGuard guard){this.protectedRoleGuard=guard;}
+    @Autowired(required=false) void setLastAdminGuard(LastAdminGuard guard){this.lastAdminGuard=guard;}
 
     @Transactional
     public RoleResponse create(UUID tenantId, CreateRoleRequest request) {
@@ -53,8 +59,14 @@ public class RoleService {
 
     @Transactional
     public RoleResponse changeStatus(UUID tenantId,UUID roleId,RoleStatus status){
-        Role role=load(tenantId,roleId); String before=role.getStatus().name();
-        role.setStatus(Objects.requireNonNull(status,"status must not be null"));
+        Role role=load(tenantId,roleId);
+        RoleStatus requested=Objects.requireNonNull(status,"status must not be null");
+        if (requested != RoleStatus.ACTIVE && role.getStatus() != requested) {
+            if (protectedRoleGuard != null) protectedRoleGuard.assertMayArchiveRole(tenantId, roleId);
+            if (lastAdminGuard != null) lastAdminGuard.assertMayDeactivateRole(tenantId, roleId);
+        }
+        String before=role.getStatus().name();
+        role.setStatus(requested);
         Role saved=roleRepository.save(role);
         audit(tenantId,"ROLE_STATUS_CHANGE",roleId,Map.of("status",before),Map.of("status",saved.getStatus().name()));
         if(!before.equals(saved.getStatus().name())&&authChanges!=null) authChanges.roleChanged(tenantId,roleId,"ROLE_STATUS_CHANGED");

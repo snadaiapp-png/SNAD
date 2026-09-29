@@ -6,6 +6,7 @@ import com.sanad.platform.access.audit.AccessMutationAuditSupport;
 import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleService;
 import com.sanad.platform.access.role.RoleStatus;
+import com.sanad.platform.access.service.LastAdminGuard;
 import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.authorization.AuthorizationMutationCoordinator;
 import com.sanad.platform.user.repository.UserRepository;
@@ -26,6 +27,7 @@ public class UserRoleGrantService {
     private final RoleService roleService;
     private AccessMutationAuditSupport audit;
     private AuthorizationMutationCoordinator authChanges;
+    private LastAdminGuard lastAdminGuard;
 
     public UserRoleGrantService(UserRoleGrantRepository grantRepository, UserRepository userRepository,
             OrganizationRepository organizationRepository, RoleService roleService) {
@@ -34,6 +36,7 @@ public class UserRoleGrantService {
     }
     @Autowired(required=false) void setAudit(AccessMutationAuditSupport audit){this.audit=audit;}
     @Autowired(required=false) void setAuthChanges(AuthorizationMutationCoordinator authChanges){this.authChanges=authChanges;}
+    @Autowired(required=false) void setLastAdminGuard(LastAdminGuard guard){this.lastAdminGuard=guard;}
 
     @Transactional
     public UserAccessResponse grant(UUID tenantId, UUID userId, UUID roleId, UUID organizationId) {
@@ -60,6 +63,9 @@ public class UserRoleGrantService {
         UserRoleGrant grant=grantRepository.findByTenantIdAndId(tenantId,grantId)
                 .orElseThrow(()->new AccessResourceNotFoundException("User role grant not found"));
         UserGrantStatus before=grant.getStatus();
+        if (before != UserGrantStatus.REVOKED && lastAdminGuard != null) {
+            lastAdminGuard.assertMayRevokeGrant(tenantId, grantId);
+        }
         grant.setStatus(UserGrantStatus.REVOKED); grant=grantRepository.save(grant);
         Role role=roleService.load(tenantId,grant.getRoleId());
         audit(tenantId,"USER_ROLE_REVOKE",grantId,

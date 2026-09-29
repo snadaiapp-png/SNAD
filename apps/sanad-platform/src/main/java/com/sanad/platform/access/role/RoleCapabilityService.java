@@ -5,6 +5,7 @@ import com.sanad.platform.access.capability.AccessCapability;
 import com.sanad.platform.access.capability.AccessCapabilityService;
 import com.sanad.platform.access.capability.CapabilityStatus;
 import com.sanad.platform.security.authorization.AuthorizationMutationCoordinator;
+import com.sanad.platform.security.authorization.ProtectedRoleGuard;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +22,7 @@ public class RoleCapabilityService {
     private final AccessCapabilityService capabilityService;
     private AccessMutationAuditSupport audit;
     private AuthorizationMutationCoordinator authChanges;
+    private ProtectedRoleGuard protectedRoleGuard;
 
     public RoleCapabilityService(RoleCapabilityRepository mappingRepository, RoleService roleService,
                                  AccessCapabilityService capabilityService) {
@@ -28,6 +30,7 @@ public class RoleCapabilityService {
     }
     @Autowired(required = false) void setAudit(AccessMutationAuditSupport audit) { this.audit = audit; }
     @Autowired(required = false) void setAuthChanges(AuthorizationMutationCoordinator authChanges) { this.authChanges = authChanges; }
+    @Autowired(required = false) void setProtectedRoleGuard(ProtectedRoleGuard guard) { this.protectedRoleGuard = guard; }
 
     @Transactional
     public RoleAccessResponse attach(UUID tenantId, UUID roleId, UUID capabilityId) {
@@ -46,6 +49,7 @@ public class RoleCapabilityService {
     @Transactional
     public void detach(UUID tenantId, UUID roleId, UUID capabilityId) {
         roleService.load(tenantId, roleId);
+        if (protectedRoleGuard != null) protectedRoleGuard.assertMayDetachCapability(tenantId, roleId);
         RoleCapability mapping = mappingRepository.findByTenantIdAndRoleIdAndCapabilityId(tenantId, roleId, capabilityId).orElse(null);
         if (mapping != null) {
             mappingRepository.delete(mapping);
