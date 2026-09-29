@@ -3,6 +3,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 const ROOT = path.resolve("test-results/users-module-visual-evidence");
+const DIAGNOSTICS_ROOT = path.resolve("test-results/users-module-runtime-diagnostics");
 
 export const EXECUTIVE_USERS_TERMINAL_TEST_IDS = [
   "access-check-failed",
@@ -11,15 +12,41 @@ export const EXECUTIVE_USERS_TERMINAL_TEST_IDS = [
   "executive-users-ready",
 ] as const;
 
-export async function expectExecutiveUsersReady(page: Page) {
+type ExecutiveUsersTerminalState = (typeof EXECUTIVE_USERS_TERMINAL_TEST_IDS)[number] | "terminal-timeout";
+
+async function persistExecutiveUsersDiagnostic(
+  page: Page,
+  state: ExecutiveUsersTerminalState,
+  testInfo?: TestInfo,
+) {
+  await mkdir(DIAGNOSTICS_ROOT, { recursive: true });
+  const record = {
+    sha: process.env.USERS_CANDIDATE_SHA ?? process.env.GITHUB_SHA ?? "local",
+    project: testInfo?.project.name ?? "unknown-project",
+    route: new URL(page.url()).pathname,
+    state,
+  };
+  await appendFile(
+    path.join(DIAGNOSTICS_ROOT, "terminal-state.ndjson"),
+    `${JSON.stringify(record)}\n`,
+    "utf8",
+  );
+}
+
+export async function expectExecutiveUsersReady(page: Page, testInfo?: TestInfo) {
   const terminal = page.locator(
     EXECUTIVE_USERS_TERMINAL_TEST_IDS.map((testId) => `[data-testid=\"${testId}\"]`).join(", "),
   );
 
-  await expect(
-    terminal.first(),
-    `executive users must reach one deterministic terminal state: ${EXECUTIVE_USERS_TERMINAL_TEST_IDS.join(", ")}`,
-  ).toBeVisible();
+  try {
+    await expect(
+      terminal.first(),
+      `executive users must reach one deterministic terminal state: ${EXECUTIVE_USERS_TERMINAL_TEST_IDS.join(", ")}`,
+    ).toBeVisible();
+  } catch (reason) {
+    await persistExecutiveUsersDiagnostic(page, "terminal-timeout", testInfo);
+    throw reason;
+  }
 
   const visibleState = await terminal.evaluateAll((elements) => {
     const visible = elements.find((element) => {
@@ -29,6 +56,14 @@ export async function expectExecutiveUsersReady(page: Page) {
     });
     return visible?.getAttribute("data-testid") ?? null;
   });
+
+  if (visibleState && EXECUTIVE_USERS_TERMINAL_TEST_IDS.includes(visibleState as (typeof EXECUTIVE_USERS_TERMINAL_TEST_IDS)[number])) {
+    await persistExecutiveUsersDiagnostic(
+      page,
+      visibleState as (typeof EXECUTIVE_USERS_TERMINAL_TEST_IDS)[number],
+      testInfo,
+    );
+  }
 
   expect(
     visibleState,
@@ -45,7 +80,7 @@ export async function captureUsersEvidence(
   accessToken: string,
 ) {
   if (name === "executive-users") {
-    await expectExecutiveUsersReady(page);
+    await expectExecutiveUsersReady(page, testInfo);
   } else {
     await expect(page.locator(readySelector).first()).toBeVisible();
   }
