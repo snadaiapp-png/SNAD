@@ -13,7 +13,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -37,6 +36,13 @@ public class PerformanceReviewRepository {
             "id, tenant_id, person_id, employment_id, reviewer_person_id, reviewer_employment_id, "
             + "source, status, cycle, period_start, period_end, rating, comments, "
             + "version, created_at, created_by, updated_at, updated_by";
+
+    /** Join-safe projection of {@link #COLUMNS} for queries against aliased reviews. */
+    private static final String REVIEW_COLUMNS =
+            "r.id, r.tenant_id, r.person_id, r.employment_id, "
+            + "r.reviewer_person_id, r.reviewer_employment_id, "
+            + "r.source, r.status, r.cycle, r.period_start, r.period_end, r.rating, r.comments, "
+            + "r.version, r.created_at, r.created_by, r.updated_at, r.updated_by";
 
     private final DataSource dataSource;
 
@@ -184,7 +190,7 @@ public class PerformanceReviewRepository {
                 setTenantLocal(connection, tenantId);
                 List<PerformanceReview> reviews = new ArrayList<>();
                 try (PreparedStatement ps = connection.prepareStatement(
-                        "SELECT " + COLUMNS + " "
+                        "SELECT " + REVIEW_COLUMNS + " "
                         + "FROM hr_performance_reviews r "
                         + "JOIN hr_employee_assignments target_assignment "
                         + "  ON target_assignment.employment_id = r.employment_id "

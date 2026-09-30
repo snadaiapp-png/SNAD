@@ -82,6 +82,7 @@ class HrG3ReviewServiceTest {
     @Test
     void selfReviewLifecycleAdvancesWithAuditMetadata() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID employeeUserId = seedCanonicalEmployeeGraph(tenantId, "Lifecycle", "Employee");
         actAs(tenantId);
 
@@ -113,6 +114,7 @@ class HrG3ReviewServiceTest {
     @Test
     void draftWithoutRatingCannotBeSubmitted() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID employeeUserId = seedCanonicalEmployeeGraph(tenantId, "NoRating", "Employee");
         actAs(tenantId);
 
@@ -131,6 +133,7 @@ class HrG3ReviewServiceTest {
     @Test
     void invalidLifecycleTransitionsAreDenied() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID employeeUserId = seedCanonicalEmployeeGraph(tenantId, "Transition", "Employee");
         actAs(tenantId);
 
@@ -170,6 +173,7 @@ class HrG3ReviewServiceTest {
     @Test
     void duplicateManagerReviewForSamePeriodIsRejected() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID managerUserId = UUID.randomUUID();
         UUID employeeUserId = UUID.randomUUID();
         seedManagerReportingGraph(tenantId, managerUserId, employeeUserId, "Dup", null);
@@ -191,6 +195,7 @@ class HrG3ReviewServiceTest {
     @Test
     void invalidRatingIsRejectedBeforePersistence() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID employeeUserId = seedCanonicalEmployeeGraph(tenantId, "BadRating", "Employee");
         actAs(tenantId);
 
@@ -205,6 +210,7 @@ class HrG3ReviewServiceTest {
     @Test
     void peerReviewCannotTargetTheReviewerItself() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID employeeUserId = seedCanonicalEmployeeGraph(tenantId, "Peer", "Employee");
         actAs(tenantId);
         UUID selfEmployment = scopeResolver.requireSelfEmployment(tenantId, employeeUserId);
@@ -221,6 +227,7 @@ class HrG3ReviewServiceTest {
     @Test
     void managerCannotReviewAnUnrelatedEmployment() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID managerUserId = UUID.randomUUID();
         seedManagerReportingGraph(tenantId, managerUserId, UUID.randomUUID(), "Mgr", null);
         UUID unrelatedUserId = seedCanonicalEmployeeGraph(tenantId, "Unrelated", "Employee");
@@ -237,6 +244,7 @@ class HrG3ReviewServiceTest {
     @Test
     void expiredAssignmentDoesNotAuthorizeManagerReview() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID managerUserId = UUID.randomUUID();
         UUID employeeUserId = UUID.randomUUID();
         // Reporting assignment already ended yesterday.
@@ -258,9 +266,11 @@ class HrG3ReviewServiceTest {
     void foreignTenantSubjectIsNeverReachable() {
         UUID tenantA = UUID.randomUUID();
         UUID managerUserId = UUID.randomUUID();
+        seedTenantOnce(tenantA);
         seedManagerReportingGraph(tenantA, managerUserId, UUID.randomUUID(), "Foreign", null);
 
         UUID tenantB = UUID.randomUUID();
+        seedTenantOnce(tenantB);
         UUID foreignUserId = seedCanonicalEmployeeGraph(tenantB, "Foreign", "Target");
 
         actAs(tenantA);
@@ -277,6 +287,16 @@ class HrG3ReviewServiceTest {
 
     private void actAs(UUID tenantId) {
         CURRENT_TENANT.set(tenantId);
+    }
+
+    /** Seeds the tenant row exactly once per test; graph helpers never seed tenants. */
+    private void seedTenantOnce(UUID tenantId) {
+        try (Connection conn = dataSource.getConnection()) {
+            CURRENT_TENANT.remove();
+            seedTenant(conn, tenantId);
+        } catch (SQLException e) {
+            throw new IllegalStateException("fixture failed: " + e.getMessage(), e);
+        }
     }
 
     private PerformanceReviewInput input(String cycle, Integer rating, String comments) {
@@ -313,7 +333,6 @@ class HrG3ReviewServiceTest {
     private UUID seedCanonicalEmployeeGraph(UUID tenantId, UUID userId, String first, String last) {
         try (Connection conn = dataSource.getConnection()) {
             CURRENT_TENANT.remove(); // fixture connections set context explicitly
-            seedTenant(conn, tenantId);
             setTenant(conn, tenantId);
             UUID seededUserId = seedUser(conn, tenantId, userId);
             UUID personId = seedPerson(conn, tenantId, seededUserId, first, last);
@@ -338,7 +357,6 @@ class HrG3ReviewServiceTest {
             LocalDate managerAssignmentEffectiveTo) {
         try (Connection conn = dataSource.getConnection()) {
             CURRENT_TENANT.remove(); // fixture connections set context explicitly
-            seedTenant(conn, tenantId);
             setTenant(conn, tenantId);
 
             UUID orgId = seedOrganization(conn, tenantId);

@@ -85,6 +85,7 @@ class HrG3AuthorizationScopeTest {
     @Test
     void userWithoutActiveEmploymentFailsClosed() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         UUID userOnlyId = seedTenantUserWithoutEmployment(tenantId);
         actAs(tenantId);
 
@@ -101,6 +102,7 @@ class HrG3AuthorizationScopeTest {
     @Test
     void selfScopeCannotReadAnotherEmployeesReview() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         Scenario scenario = seedReportingScenario(tenantId, null);
         UUID unrelatedUserId = seedCanonicalEmployeeGraph(tenantId, "Unrelated", "Peer");
         actAs(tenantId);
@@ -133,6 +135,7 @@ class HrG3AuthorizationScopeTest {
     @Test
     void managerTeamScopeSeesActiveDirectReportReviews() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         Scenario scenario = seedReportingScenario(tenantId, null);
         actAs(tenantId);
 
@@ -170,6 +173,7 @@ class HrG3AuthorizationScopeTest {
     @Test
     void unrelatedManagerCannotSeeAnotherManagersReports() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         Scenario scenario = seedReportingScenario(tenantId, null);
         Scenario otherScenario = seedReportingScenario(tenantId, null);
         actAs(tenantId);
@@ -188,6 +192,7 @@ class HrG3AuthorizationScopeTest {
     @Test
     void expiredAssignmentDoesNotGrantTeamAccess() {
         UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
         // Reporting assignment ended yesterday: the manager employment stays
         // ACTIVE but the reporting relationship is no longer effective.
         Scenario expired = seedReportingScenario(tenantId, LocalDate.now().minusDays(1));
@@ -210,6 +215,8 @@ class HrG3AuthorizationScopeTest {
     void foreignTenantNeverGrantsAnyAccess() {
         UUID tenantA = UUID.randomUUID();
         UUID foreignTenant = UUID.randomUUID();
+        seedTenantOnce(tenantA);
+        seedTenantOnce(foreignTenant);
         Scenario scenarioA = seedReportingScenario(tenantA, null);
         Scenario foreignScenario = seedReportingScenario(foreignTenant, null);
 
@@ -244,6 +251,16 @@ class HrG3AuthorizationScopeTest {
         CURRENT_TENANT.set(tenantId);
     }
 
+    /** Seeds the tenant row exactly once; graph helpers never seed tenants. */
+    private void seedTenantOnce(UUID tenantId) {
+        try (Connection conn = dataSource.getConnection()) {
+            CURRENT_TENANT.remove();
+            seedTenant(conn, tenantId);
+        } catch (SQLException e) {
+            throw new IllegalStateException("fixture failed: " + e.getMessage(), e);
+        }
+    }
+
     private PerformanceReviewInput input(String cycle, Integer rating, String comments) {
         return new PerformanceReviewInput(
                 cycle, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 30), rating, comments);
@@ -273,7 +290,6 @@ class HrG3AuthorizationScopeTest {
     private UUID seedTenantUserWithoutEmployment(UUID tenantId) {
         try (Connection conn = dataSource.getConnection()) {
             CURRENT_TENANT.remove();
-            seedTenant(conn, tenantId);
             setTenant(conn, tenantId);
             return seedUser(conn, tenantId, UUID.randomUUID());
         } catch (SQLException e) {
@@ -284,7 +300,6 @@ class HrG3AuthorizationScopeTest {
     private UUID seedCanonicalEmployeeGraph(UUID tenantId, String first, String last) {
         try (Connection conn = dataSource.getConnection()) {
             CURRENT_TENANT.remove();
-            seedTenant(conn, tenantId);
             setTenant(conn, tenantId);
             UUID userId = seedUser(conn, tenantId, UUID.randomUUID());
             UUID personId = seedPerson(conn, tenantId, userId, first, last);
@@ -296,11 +311,10 @@ class HrG3AuthorizationScopeTest {
         }
     }
 
-    /** Tenant + manager/report graph with a PRIMARY reporting assignment. */
+    /** Manager/report graph with a PRIMARY reporting assignment (tenant must already exist). */
     private Scenario seedReportingScenario(UUID tenantId, LocalDate managerAssignmentEffectiveTo) {
         try (Connection conn = dataSource.getConnection()) {
             CURRENT_TENANT.remove();
-            seedTenant(conn, tenantId);
             setTenant(conn, tenantId);
 
             UUID orgId = seedOrganization(conn, tenantId);
