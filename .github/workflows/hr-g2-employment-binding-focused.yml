@@ -6,6 +6,7 @@ on:
     paths:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/**'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
       - '.github/workflows/hr-g2-employment-binding-focused.yml'
   workflow_dispatch:
 
@@ -33,8 +34,8 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Run focused resolver contract
-        run: mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true -Dtest=HrEmploymentScopeResolverTest
+      - name: Run focused resolver and acceptance-seed contracts
+        run: mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true -Dtest=HrEmploymentScopeResolverTest,HrG2AcceptanceSeedRoleScopeTest
 
       - name: Upload focused reports
         if: always()
