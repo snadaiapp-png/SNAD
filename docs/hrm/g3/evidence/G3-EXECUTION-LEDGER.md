@@ -138,3 +138,50 @@ Plan-vs-code deltas recorded before implementation (order §5):
 - External blocker (owner): `next` GHSA-vcvr-r3jv-pc5j critical advisory — Security Baseline cannot be terminal-green on ANY repo head until remediated; unrelated to G3 Task 2.
 - PR #1208: must remain unmerged until explicit authorization and final exact-head gates.
 - Docker/Testcontainers: 0 / not used.
+
+## Main resynchronization / exact-head re-certification
+
+Owner directive after the `next` remediation landed on main: merge current main into the G3 branch (no rebase, no force, no history rewrite), then re-certify all gates on the exact merged head.
+
+### Resynchronization facts
+
+- Old G3 head: `c66c025ed8d8cc14c70f1ebdd94ac9e8d5baf078` (unchanged on origin before push; drift check passed)
+- Merged main: `a014202550b72fe6e8a4eb817448a55ffe8f2c90` (includes owner-merged `next` 16.3.3 → 16.3.6 security fix and users governance closure)
+- Merge commit: `0e2f60486d298c5e90742c42d74b62c5457c97ab` (parents `c66c025e` + `a0142025`; verified `git cat-file -t` = commit)
+- Conflicts: 0 (`git merge origin/main` clean)
+- Migration collision: NO (main latest `20261001_12`; G3 `V20260930_1` goals + `V20261002_1` reviews; merged inventory 192 SQL files, 0 duplicate versions)
+- Next.js security fix preserved: manifest `^16.3.6`, lockfile root spec `^16.3.6`, resolved `next` = `16.3.6`, `@next/env` = `16.3.6` (no 16.3.3 regression)
+- Local pre-push verification: `npm ci` exit 0; `npm audit --omit=dev` critical=0 high=0 moderate=0 low=0
+- Push: fast-forward `c66c025e..0e2f6048` onto `feat/hrm-g3-performance-reviews-goals`, no force; remote head after push verified = `0e2f60486d298c5e90742c42d74b62c5457c97ab`
+
+### First recertification (exact head `0e2f60486d298c5e90742c42d74b62c5457c97ab`)
+
+- CI run: `36782484944` (workflow `ci.yml`)
+  - Maven job: `110115873539` SUCCESS
+  - PostgreSQL Acceptance job: `110115873862` SUCCESS
+  - CRM Integration job: `110115873906` SUCCESS
+  - `R0C-12 Canonical Gate G` skipped (duplicate gate, non-required, unchanged from prior heads)
+- Web CI: run `36782484804` — `Build Next.js Web` job `110115873880` SUCCESS
+- Security Baseline: run `36782484809` — `Frontend Production Dependency Audit` job `110115873289` SUCCESS (`npm audit --omit=dev --audit-level=high` exit 0 → critical=0, high=0); all six SB jobs SUCCESS
+- Cross-module gates on the same head, all SUCCESS: Platform IAM Focused `36782484900`; Users Module Closure `36782484999`; HR G2 Employment Binding Focused `36782484763`; G2 Authenticated Acceptance `36782485032`; CRM Deployment Readiness `36782484779`; Stage 07 Artifact Provenance `36782484940`; Compile Diagnostics `36782484834`; Pre-Merge Operational Smoke `36782484744`
+- Full battery: 24/24 workflow runs SUCCESS (single `skipped` = `ERP Human Preview`, human-preview gate, unchanged from prior heads)
+
+### Surefire evidence (first recertification)
+
+- Surefire artifact: `11131086755` (main Maven suite, 175571891 bytes); PostgreSQL Acceptance artifact `11127978704`; CRM artifact `11127638966`
+- Digest (main artifact zip): `sha256:88e7b39b20424c92295374f96f2cea7f92f9bbbc80b1c015cb7014ad1703102b`
+- Digest (pg artifact zip): `sha256:69b608b3ee553e62e09c00d92db654faee08a50c65c6bbd1d8bceb508ae1929f`
+- Digest (crm artifact zip): `sha256:1a24a219b9483724f50fe4a1bead2e2a49024cd9de657cb5ac6ca02565e94bc8`
+- XML-verified suites (tests/failures/errors/skipped):
+  - `HrG3PostgresIntegrationTest` 2/0/0/0
+  - `HrG3PerformanceReviewsPostgresIntegrationTest` 10/0/0/0
+  - `HrG3ReviewServiceTest` 9/0/0/0
+  - `HrG3AuthorizationScopeTest` 6/0/0/0
+  - `HrRlsFailClosedIntegrationTest` 251/0/0/0
+  - `CrmFlywayHistoryAssertionTest` 5/0/0/0
+  - `CrmPostgresMigrationTest` 4/0/0/0
+- 7-suite aggregate: 287 tests / 0 failures / 0 errors / 0 skipped
+- Aggregate Maven: 578 suites / 4153 tests / 0 failures / 0 errors / 36 skipped — all 36 skips are the same pre-existing environment-conditional acceptance suites (Commerce concurrency 6, ModuleRegistry UAT 10, PlatformIAM session 3, PlatformIAM user 2, RBAC access 15) that executed with skipped=0 in the dedicated PostgreSQL Acceptance artifact (36/36 pass there); zero skips in any G3/RLS/Flyway/security suite
+- Docker/Testcontainers: 0 / not used
+
+Final exact-head re-certification on the ledger evidence commit follows this section.
