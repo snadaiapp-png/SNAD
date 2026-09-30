@@ -45,7 +45,7 @@ jobs:
           set -e
           cat /tmp/users-contract-red1.txt
           test "$rc" -ne 0 || { echo "::error::RED 1 invalid: canonical trigger contract unexpectedly passed"; exit 1; }
-          grep -Fq 'missing apps/sanad-platform/.release/users-production-certification-image-trigger.md' /tmp/users-contract-red1.txt || {
+          grep -Fq 'missing inert exact-main image trigger apps/sanad-platform/.release/users-production-certification-image-trigger.md' /tmp/users-contract-red1.txt || {
             echo "::error::RED 1 did not fail for the canonical image-trigger path"
             exit 1
           }
