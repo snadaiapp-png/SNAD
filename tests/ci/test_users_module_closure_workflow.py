@@ -5,6 +5,7 @@ import re
 WORKFLOW = Path('.github/workflows/users-module-closure.yml')
 PRODUCTION_WORKFLOW = Path('.github/workflows/users-production-release.yml')
 CERTIFICATION_WORKFLOW = Path('.github/workflows/users-production-certification.yml')
+IMAGE_TRIGGER = Path('apps/sanad-platform/.release/users-production-certification-trigger.md')
 CONTROL_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
 
@@ -145,6 +146,7 @@ def verify_users_production_release() -> None:
 
 def verify_users_production_certification() -> None:
     require(CERTIFICATION_WORKFLOW.exists(), f'missing {CERTIFICATION_WORKFLOW}')
+    require(IMAGE_TRIGGER.exists(), f'missing inert exact-main image trigger {IMAGE_TRIGGER}')
     text = CERTIFICATION_WORKFLOW.read_text(encoding='utf-8')
     lower = text.lower()
 
@@ -156,6 +158,14 @@ def verify_users_production_certification() -> None:
             'production certification must use the protected production environment')
     require('expected_production_sha:' in text,
             'certification must bind evidence to the expected immutable production SHA')
+    require('git ls-remote' in text and 'refs/heads/main' in text,
+            'certification must fail closed on current-main drift')
+    require('api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=20' in text,
+            'certification must prove the exact live Render image')
+    require('BACKEND_PRODUCTION_SHA_MATCH=PASS' in text,
+            'certification must emit exact backend SHA-match evidence')
+    require('/api/system/release' in text and 'WEB_PRODUCTION_LINEAGE=PASS' in text,
+            'certification must reconcile web production lineage without runtime drift')
 
     for secret in (
         'AUTH_SMOKE_TENANT_A_ID', 'AUTH_SMOKE_TENANT_A_EMAIL', 'AUTH_SMOKE_TENANT_A_PASSWORD',
@@ -182,6 +192,8 @@ def verify_users_production_certification() -> None:
             'RBAC allow/deny result must be explicit evidence')
     require('SESSION_REVOCATION=PASS' in text,
             'session revocation result must be explicit evidence')
+    require('OPEN_USERS_BLOCKERS=0' in text,
+            'successful certification must explicitly close Users blockers')
     require('PRODUCTION_USERS_CERTIFIED=TRUE' in text,
             'successful evidence must carry the final Users production certification marker')
     require('actions/upload-artifact@v4' in text and 'users-production-certification-' in text,

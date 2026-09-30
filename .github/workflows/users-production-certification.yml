@@ -1,0 +1,395 @@
+name: Users Production Certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_production_sha:
+        description: Exact immutable backend image SHA expected to be live on Render
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: users-production-certification
+  cancel-in-progress: false
+
+env:
+  PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+  PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
+  CANONICAL_OWNER_EMAIL: snad.ai.app@gmail.com
+
+jobs:
+  certify-users-production:
+    name: Certify Users on live production
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      AUTH_SMOKE_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+      AUTH_SMOKE_TENANT_A_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_A_EMAIL }}
+      AUTH_SMOKE_TENANT_A_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_A_PASSWORD }}
+      AUTH_SMOKE_TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      AUTH_SMOKE_TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      AUTH_SMOKE_TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+      CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+      CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Validate protected Users certification inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_PRODUCTION_SHA='${{ inputs.expected_production_sha }}'
+          [[ "$EXPECTED_PRODUCTION_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::expected_production_sha must be a full lowercase SHA"
+            exit 1
+          }
+          for name in \
+            RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL PRODUCTION_WEB_BASE_URL \
+            AUTH_SMOKE_TENANT_A_ID AUTH_SMOKE_TENANT_A_EMAIL AUTH_SMOKE_TENANT_A_PASSWORD \
+            AUTH_SMOKE_TENANT_B_ID AUTH_SMOKE_TENANT_B_EMAIL AUTH_SMOKE_TENANT_B_PASSWORD \
+            CONTROL_PLANE_ADMIN_EMAIL CONTROL_PLANE_ADMIN_PASSWORD; do
+            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
+          done
+          [[ "$PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::PRODUCTION_BASE_URL must use HTTPS"; exit 1; }
+          [[ "$PRODUCTION_WEB_BASE_URL" == https://* ]] || { echo "::error::PRODUCTION_WEB_BASE_URL must use HTTPS"; exit 1; }
+          [[ "$AUTH_SMOKE_TENANT_A_ID" =~ ^[0-9a-fA-F-]{36}$ ]]
+          [[ "$AUTH_SMOKE_TENANT_B_ID" =~ ^[0-9a-fA-F-]{36}$ ]]
+          test "$AUTH_SMOKE_TENANT_A_ID" != "$AUTH_SMOKE_TENANT_B_ID" || {
+            echo "::error::Tenant A and Tenant B must be distinct"
+            exit 1
+          }
+          for value in \
+            "$AUTH_SMOKE_TENANT_A_ID" "$AUTH_SMOKE_TENANT_A_EMAIL" "$AUTH_SMOKE_TENANT_A_PASSWORD" \
+            "$AUTH_SMOKE_TENANT_B_ID" "$AUTH_SMOKE_TENANT_B_EMAIL" "$AUTH_SMOKE_TENANT_B_PASSWORD" \
+            "$CONTROL_PLANE_ADMIN_EMAIL" "$CONTROL_PLANE_ADMIN_PASSWORD"; do
+            echo "::add-mask::$value"
+          done
+
+      - name: Checkout exact certification governance SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify certification is running on exact current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          checkout_sha="$(git rev-parse HEAD)"
+          test "$checkout_sha" = "$GITHUB_SHA"
+          remote_main=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')
+          test "$remote_main" = "$GITHUB_SHA" || {
+            echo "::error::Certification dispatch is not bound to exact current main"
+            echo "dispatch_sha=$GITHUB_SHA"
+            echo "current_main=$remote_main"
+            exit 1
+          }
+
+      - name: Verify exact backend image is live on Render
+        id: live
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_PRODUCTION_SHA='${{ inputs.expected_production_sha }}'
+          expected_image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/snad-backend:${EXPECTED_PRODUCTION_SHA}"
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=20" \
+            > /tmp/users-cert-render-deploys.json
+          live_image=$(jq -r '[.[]? | (.deploy // .) | select((.status // "") == "live")] | .[0].image.ref // empty' /tmp/users-cert-render-deploys.json)
+          test -n "$live_image" || { echo "::error::No live Render image was found"; exit 1; }
+          test "$live_image" = "$expected_image" || {
+            echo "::error::Production backend image mismatch"
+            echo "expected=$expected_image"
+            echo "observed=$live_image"
+            exit 1
+          }
+          echo "image_ref=$live_image" >> "$GITHUB_OUTPUT"
+          echo "BACKEND_PRODUCTION_SHA_MATCH=PASS"
+
+      - name: Verify production readiness and auth boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          readiness_status=$(curl --silent --show-error --output /tmp/users-cert-readiness.json --write-out '%{http_code}' --max-time 30 "${PRODUCTION_BASE_URL%/}/actuator/health/readiness" || true)
+          test "$readiness_status" = "200"
+          jq -e '.status == "UP"' /tmp/users-cert-readiness.json >/dev/null
+          bash scripts/production/verify-auth-contract.sh
+
+      - name: Verify web production lineage without runtime drift
+        id: web
+        shell: bash
+        run: |
+          set -euo pipefail
+          web_base="${PRODUCTION_WEB_BASE_URL%/}"
+          for attempt in $(seq 1 36); do
+            status=$(curl --silent --show-error --location \
+              --output /tmp/users-cert-web-release.json \
+              --write-out '%{http_code}' --max-time 30 \
+              "$web_base/api/system/release" || true)
+            if [ "$status" = "200" ] && jq -e '.commitSha | type == "string"' /tmp/users-cert-web-release.json >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          test "${status:-}" = "200" || { echo "::error::Web production release marker is unavailable"; exit 1; }
+          web_sha=$(jq -r '.commitSha // empty' /tmp/users-cert-web-release.json)
+          web_env=$(jq -r '.environment // empty' /tmp/users-cert-web-release.json)
+          [[ "$web_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Web production release SHA is invalid"; exit 1; }
+          case "$web_env" in production|prod) ;; *) echo "::error::Web release marker is not production"; exit 1 ;; esac
+          git cat-file -e "$web_sha^{commit}"
+          git merge-base --is-ancestor "$web_sha" "$GITHUB_SHA" || {
+            echo "::error::Web production SHA is not an ancestor of current Users governance"
+            exit 1
+          }
+          changed_paths="$(git diff --name-only "$web_sha..$GITHUB_SHA")"
+          if [ -n "$changed_paths" ]; then
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/users-module-closure.yml|\
+                .github/workflows/users-production-release.yml|\
+                .github/workflows/users-production-certification.yml|\
+                tests/ci/test_users_module_closure_workflow.py|\
+                apps/sanad-platform/.release/users-production-certification-trigger.md)
+                  ;;
+                *)
+                  echo "::error::Web production is stale across a runtime-affecting path: $path"
+                  exit 1
+                  ;;
+              esac
+            done <<< "$changed_paths"
+          fi
+          echo "sha=$web_sha" >> "$GITHUB_OUTPUT"
+          echo "WEB_PRODUCTION_LINEAGE=PASS"
+
+      - name: Resolve canonical Control Plane tenant from live Render configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars?limit=100" \
+            > /tmp/users-cert-render-env.json
+          test "$(jq 'length' /tmp/users-cert-render-env.json)" -lt 100 || {
+            echo "::error::Cannot prove complete Render environment pagination"
+            exit 1
+          }
+          control_tenant_id=$(jq -r '[.[]? | (.envVar // .)] | .[] | select(.key == "SANAD_CONTROL_PLANE_TENANT_ID") | .value // empty' /tmp/users-cert-render-env.json)
+          [[ "$control_tenant_id" =~ ^[0-9a-fA-F-]{36}$ ]] || {
+            echo "::error::SANAD_CONTROL_PLANE_TENANT_ID is absent or invalid"
+            exit 1
+          }
+          echo "::add-mask::$control_tenant_id"
+          echo "CONTROL_PLANE_TENANT_ID=$control_tenant_id" >> "$GITHUB_ENV"
+
+      - name: Set up Python for governed session synthetic
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Tenant A authenticated session smoke
+        shell: bash
+        env:
+          AUTH_SMOKE_TENANT_ID: ${{ env.AUTH_SMOKE_TENANT_A_ID }}
+          AUTH_SMOKE_EMAIL: ${{ env.AUTH_SMOKE_TENANT_A_EMAIL }}
+          AUTH_SMOKE_PASSWORD: ${{ env.AUTH_SMOKE_TENANT_A_PASSWORD }}
+          AUTH_SYNTHETIC_ITERATIONS: '1'
+          AUTH_SYNTHETIC_EVIDENCE_PATH: ${{ runner.temp }}/tenant-a-session-evidence.json
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/bff_auth_session_synthetic.py
+          jq -e '.status == "passed" and any(.steps[]; .name == "logout" and .status == 204) and any(.steps[]; .name == "post-logout-refresh" and .status == 401)' "$AUTH_SYNTHETIC_EVIDENCE_PATH" >/dev/null
+          cp "$AUTH_SYNTHETIC_EVIDENCE_PATH" tenant-a-session-evidence.json
+          echo "TENANT_A_SMOKE=PASS"
+
+      - name: Tenant B authenticated session smoke
+        shell: bash
+        env:
+          AUTH_SMOKE_TENANT_ID: ${{ env.AUTH_SMOKE_TENANT_B_ID }}
+          AUTH_SMOKE_EMAIL: ${{ env.AUTH_SMOKE_TENANT_B_EMAIL }}
+          AUTH_SMOKE_PASSWORD: ${{ env.AUTH_SMOKE_TENANT_B_PASSWORD }}
+          AUTH_SYNTHETIC_ITERATIONS: '1'
+          AUTH_SYNTHETIC_EVIDENCE_PATH: ${{ runner.temp }}/tenant-b-session-evidence.json
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/bff_auth_session_synthetic.py
+          jq -e '.status == "passed" and any(.steps[]; .name == "logout" and .status == 204) and any(.steps[]; .name == "post-logout-refresh" and .status == 401)' "$AUTH_SYNTHETIC_EVIDENCE_PATH" >/dev/null
+          cp "$AUTH_SYNTHETIC_EVIDENCE_PATH" tenant-b-session-evidence.json
+          echo "TENANT_B_SMOKE=PASS"
+
+      - name: Verify tenant isolation, Control Plane owner, RBAC and access-token invalidation
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${PRODUCTION_BASE_URL%/}"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+
+          login_tenant() {
+            local label="$1" tenant="$2" email="$3" password="$4" output="$5"
+            local payload status
+            payload=$(jq -n --arg email "$email" --arg password "$password" --arg tenant "$tenant" '{email:$email,password:$password,tenantId:$tenant}')
+            status=$(curl --silent --show-error --location --request POST \
+              --header 'Content-Type: application/json' --data "$payload" \
+              --output "$output" --write-out '%{http_code}' \
+              "$base/api/v1/auth/login")
+            test "$status" = "200" || { echo "::error::$label login returned HTTP $status"; exit 1; }
+            jq -e --arg tenant "$tenant" '(.user.tenantId // .tenantId) == $tenant and (.accessToken | type == "string" and length > 0)' "$output" >/dev/null || {
+              echo "::error::$label login tenant binding is invalid"
+              exit 1
+            }
+          }
+
+          login_tenant A "$AUTH_SMOKE_TENANT_A_ID" "$AUTH_SMOKE_TENANT_A_EMAIL" "$AUTH_SMOKE_TENANT_A_PASSWORD" "$work/a-login.json"
+          login_tenant B "$AUTH_SMOKE_TENANT_B_ID" "$AUTH_SMOKE_TENANT_B_EMAIL" "$AUTH_SMOKE_TENANT_B_PASSWORD" "$work/b-login.json"
+          token_a=$(jq -r '.accessToken' "$work/a-login.json")
+          token_b=$(jq -r '.accessToken' "$work/b-login.json")
+          echo "::add-mask::$token_a"
+          echo "::add-mask::$token_b"
+
+          assert_me() {
+            local label="$1" tenant="$2" token="$3" output="$4"
+            local status
+            status=$(curl --silent --show-error --location \
+              --header "Authorization: Bearer $token" \
+              --header 'Accept: application/json' \
+              --output "$output" --write-out '%{http_code}' \
+              "$base/api/v1/auth/me")
+            test "$status" = "200" || { echo "::error::$label /me returned HTTP $status"; exit 1; }
+            jq -e --arg tenant "$tenant" '(.tenantId // .user.tenantId) == $tenant' "$output" >/dev/null || {
+              echo "::error::$label /me tenant binding mismatch"
+              exit 1
+            }
+          }
+          assert_me A "$AUTH_SMOKE_TENANT_A_ID" "$token_a" "$work/a-me.json"
+          assert_me B "$AUTH_SMOKE_TENANT_B_ID" "$token_b" "$work/b-me.json"
+
+          own_a=$(curl --silent --show-error --location \
+            --header "Authorization: Bearer $token_a" --header 'Accept: application/json' \
+            --output "$work/a-users.json" --write-out '%{http_code}' \
+            "$base/api/v1/users?tenantId=$AUTH_SMOKE_TENANT_A_ID")
+          test "$own_a" = "200" && jq -e 'type == "array"' "$work/a-users.json" >/dev/null
+
+          own_b=$(curl --silent --show-error --location \
+            --header "Authorization: Bearer $token_b" --header 'Accept: application/json' \
+            --output "$work/b-users.json" --write-out '%{http_code}' \
+            "$base/api/v1/users?tenantId=$AUTH_SMOKE_TENANT_B_ID")
+          test "$own_b" = "200" && jq -e 'type == "array"' "$work/b-users.json" >/dev/null
+
+          cross_ab=$(curl --silent --show-error --location \
+            --header "Authorization: Bearer $token_a" --header 'Accept: application/json' \
+            --output "$work/cross-ab.json" --write-out '%{http_code}' \
+            "$base/api/v1/users?tenantId=$AUTH_SMOKE_TENANT_B_ID")
+          case "$cross_ab" in 403|404) ;; *) echo "::error::Tenant A cross-tenant read returned HTTP $cross_ab"; exit 1 ;; esac
+
+          cross_ba=$(curl --silent --show-error --location \
+            --header "Authorization: Bearer $token_b" --header 'Accept: application/json' \
+            --output "$work/cross-ba.json" --write-out '%{http_code}' \
+            "$base/api/v1/users?tenantId=$AUTH_SMOKE_TENANT_A_ID")
+          case "$cross_ba" in 403|404) ;; *) echo "::error::Tenant B cross-tenant read returned HTTP $cross_ba"; exit 1 ;; esac
+          echo "CROSS_TENANT_DENIAL=PASS"
+
+          for pair in "A:$token_a" "B:$token_b"; do
+            label="${pair%%:*}"
+            token="${pair#*:}"
+            executive_status=$(curl --silent --show-error --location \
+              --header "Authorization: Bearer $token" --header 'Accept: application/json' \
+              --output "$work/${label,,}-executive.json" --write-out '%{http_code}' \
+              "$base/api/v1/executive/users")
+            case "$executive_status" in 403|404) ;; *) echo "::error::Tenant $label reached platform Users surface with HTTP $executive_status"; exit 1 ;; esac
+          done
+
+          control_payload=$(jq -n \
+            --arg email "$CONTROL_PLANE_ADMIN_EMAIL" \
+            --arg password "$CONTROL_PLANE_ADMIN_PASSWORD" \
+            --arg tenant "$CONTROL_PLANE_TENANT_ID" \
+            '{email:$email,password:$password,tenantId:$tenant}')
+          control_status=$(curl --silent --show-error --location --request POST \
+            --header 'Content-Type: application/json' --data "$control_payload" \
+            --output "$work/control-login.json" --write-out '%{http_code}' \
+            "$base/api/v1/auth/login")
+          test "$control_status" = "200" || { echo "::error::Control Plane login returned HTTP $control_status"; exit 1; }
+          control_token=$(jq -r '.accessToken // empty' "$work/control-login.json")
+          test -n "$control_token"
+          echo "::add-mask::$control_token"
+          control_auth="Authorization: Bearer $control_token"
+
+          read_control() {
+            local path="$1" output="$2" status
+            status=$(curl --silent --show-error --location \
+              --header "$control_auth" --header 'Accept: application/json' \
+              --output "$output" --write-out '%{http_code}' "$base$path")
+            test "$status" = "200" || { echo "::error::GET $path returned HTTP $status"; exit 1; }
+            jq -e . "$output" >/dev/null
+          }
+
+          read_control '/api/v1/executive/users' "$work/control-users.json"
+          owner_id=$(jq -r --arg email "$CANONICAL_OWNER_EMAIL" '[.[] | select((.email | ascii_downcase) == ($email | ascii_downcase) and .accountStatus == "ACTIVE" and .membershipStatus == "ACTIVE")][0].userId // empty' "$work/control-users.json")
+          test -n "$owner_id" || { echo "::error::Canonical owner is absent or inactive"; exit 1; }
+          jq -e --arg a "$AUTH_SMOKE_TENANT_A_EMAIL" --arg b "$AUTH_SMOKE_TENANT_B_EMAIL" 'all(.[]; ((.email | ascii_downcase) != ($a | ascii_downcase)) and ((.email | ascii_downcase) != ($b | ascii_downcase)))' "$work/control-users.json" >/dev/null || {
+            echo "::error::Tenant QA user leaked into platform Users directory"
+            exit 1
+          }
+
+          read_control '/api/v1/executive/roles' "$work/control-roles.json"
+          jq -e 'type == "array" and any(.[]; .code == "PLATFORM_OWNER" and .status == "ACTIVE" and .roleType == "SYSTEM" and .protectedRole == true and .ownerRole == true)' "$work/control-roles.json" >/dev/null
+
+          read_control '/api/v1/executive/capabilities' "$work/control-caps.json"
+          jq -e 'type == "array" and any(.[]; .code == "PLATFORM.USER.READ" and .status == "ACTIVE") and any(.[]; .code == "PLATFORM.ROLE.READ" and .status == "ACTIVE")' "$work/control-caps.json" >/dev/null
+
+          read_control "/api/v1/executive/users/$owner_id/roles" "$work/owner-roles.json"
+          jq -e 'type == "array" and any(.[]; .roleCode == "PLATFORM_OWNER" and .status == "ACTIVE")' "$work/owner-roles.json" >/dev/null
+
+          read_control "/api/v1/executive/users/$owner_id/permissions" "$work/owner-permissions.json"
+          jq -e 'type == "array" and index("PLATFORM.USER.READ") != null and index("PLATFORM.ROLE.READ") != null' "$work/owner-permissions.json" >/dev/null
+          echo "CONTROL_PLANE_OWNER_INVARIANT=PASS"
+          echo "RBAC_ALLOW_DENY=PASS"
+
+          revoke_and_assert() {
+            local label="$1" token="$2" output="$3" logout_status post_status
+            logout_status=$(curl --silent --show-error --location --request POST \
+              --header "Authorization: Bearer $token" \
+              --output /dev/null --write-out '%{http_code}' \
+              "$base/api/v1/auth/logout")
+            test "$logout_status" = "204" || { echo "::error::$label logout returned HTTP $logout_status"; exit 1; }
+            post_status=$(curl --silent --show-error --location \
+              --header "Authorization: Bearer $token" --header 'Accept: application/json' \
+              --output "$output" --write-out '%{http_code}' \
+              "$base/api/v1/auth/me")
+            test "$post_status" = "401" || { echo "::error::$label access token remained valid after logout (HTTP $post_status)"; exit 1; }
+          }
+          revoke_and_assert A "$token_a" "$work/a-post-logout-me.json"
+          revoke_and_assert B "$token_b" "$work/b-post-logout-me.json"
+          echo "SESSION_REVOCATION=PASS"
+
+      - name: Write sanitized Users production certification evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg governanceSha "$GITHUB_SHA" \
+            --arg productionSha '${{ inputs.expected_production_sha }}' \
+            --arg liveImage '${{ steps.live.outputs.image_ref }}' \
+            --arg webSha '${{ steps.web.outputs.sha }}' \
+            '{schema:"sanad.users.production-certification.v1",result:"PASS",governanceSha:$governanceSha,productionSha:$productionSha,liveImage:$liveImage,webProductionSha:$webSha,tenantAAuthenticated:"PASS",tenantBAuthenticated:"PASS",crossTenantDenial:"PASS",controlPlaneOwnerInvariant:"PASS",rbacAllowDeny:"PASS",sessionRevocation:"PASS",openUsersBlockers:0,productionUsersCertified:true,marker:"PRODUCTION_USERS_CERTIFIED=TRUE",blockerMarker:"OPEN_USERS_BLOCKERS=0"}' \
+            > users-production-certification-evidence.json
+          echo "OPEN_USERS_BLOCKERS=0"
+          echo "PRODUCTION_USERS_CERTIFIED=TRUE"
+
+      - name: Upload exact-run Users production certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: users-production-certification-${{ github.run_id }}
+          path: |
+            users-production-certification-evidence.json
+            tenant-a-session-evidence.json
+            tenant-b-session-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
