@@ -155,7 +155,7 @@ jobs:
                 .github/workflows/users-production-release.yml|\
                 .github/workflows/users-production-certification.yml|\
                 tests/ci/test_users_module_closure_workflow.py|\
-                apps/sanad-platform/.release/users-production-certification-trigger.md)
+                apps/sanad-platform/.release/users-production-certification-image-trigger.md)
                   ;;
                 *)
                   echo "::error::Web production is stale across a runtime-affecting path: $path"
@@ -377,9 +377,9 @@ jobs:
             --arg productionSha '${{ inputs.expected_production_sha }}' \
             --arg liveImage '${{ steps.live.outputs.image_ref }}' \
             --arg webSha '${{ steps.web.outputs.sha }}' \
-            '{schema:"sanad.users.production-certification.v1",result:"PASS",governanceSha:$governanceSha,productionSha:$productionSha,liveImage:$liveImage,webProductionSha:$webSha,tenantAAuthenticated:"PASS",tenantBAuthenticated:"PASS",crossTenantDenial:"PASS",controlPlaneOwnerInvariant:"PASS",rbacAllowDeny:"PASS",sessionRevocation:"PASS",openUsersBlockers:0,productionUsersCertified:true,marker:"PRODUCTION_USERS_CERTIFIED=TRUE",blockerMarker:"OPEN_USERS_BLOCKERS=0"}' \
+            '{schema:"sanad.users.production-certification.v1",result:"PASS",governanceSha:$governanceSha,productionSha:$productionSha,liveImage:$liveImage,webProductionSha:$webSha,tenantAAuthenticated:"PASS",tenantBAuthenticated:"PASS",crossTenantDenial:"PASS",controlPlaneOwnerInvariant:"PASS",rbacAllowDeny:"PASS",sessionRevocation:"PASS",openUsersProductionBlockers:0,productionUsersCertified:true,marker:"PRODUCTION_USERS_CERTIFIED=TRUE",blockerMarker:"OPEN_USERS_PRODUCTION_BLOCKERS=0"}' \
             > users-production-certification-evidence.json
-          echo "OPEN_USERS_BLOCKERS=0"
+          echo "OPEN_USERS_PRODUCTION_BLOCKERS=0"
           echo "PRODUCTION_USERS_CERTIFIED=TRUE"
 
       - name: Upload exact-run Users production certification evidence
