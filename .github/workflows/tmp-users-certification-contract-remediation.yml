@@ -1,0 +1,128 @@
+name: Temporary Users Certification Contract Remediation
+
+on:
+  push:
+    branches:
+      - fix/users-production-release-governance
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact remediation branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/users-production-release-governance
+          fetch-depth: 0
+
+      - name: RED 1 — require canonical image-trigger path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tests/ci/test_users_module_closure_workflow.py')
+          s = p.read_text()
+          old_path = "apps/sanad-platform/.release/users-production-certification-trigger.md"
+          new_path = "apps/sanad-platform/.release/users-production-certification-image-trigger.md"
+          old_marker = "OPEN_USERS_BLOCKERS=0"
+          new_marker = "OPEN_USERS_PRODUCTION_BLOCKERS=0"
+          assert s.count(old_path) == 1, s.count(old_path)
+          assert s.count(old_marker) == 1, s.count(old_marker)
+          s = s.replace(old_path, new_path)
+          s = s.replace(old_marker, new_marker)
+          s = s.replace('successful certification must explicitly close Users blockers',
+                        'successful certification must explicitly close Users production blockers')
+          p.write_text(s)
+          PY
+          set +e
+          python3 tests/ci/test_users_module_closure_workflow.py > /tmp/users-contract-red1.txt 2>&1
+          rc=$?
+          set -e
+          cat /tmp/users-contract-red1.txt
+          test "$rc" -ne 0 || { echo "::error::RED 1 invalid: canonical trigger contract unexpectedly passed"; exit 1; }
+          grep -Fq 'missing apps/sanad-platform/.release/users-production-certification-image-trigger.md' /tmp/users-contract-red1.txt || {
+            echo "::error::RED 1 did not fail for the canonical image-trigger path"
+            exit 1
+          }
+          echo "RED_CANONICAL_IMAGE_TRIGGER=PASS"
+
+      - name: Apply canonical image-trigger path
+        shell: bash
+        run: |
+          set -euo pipefail
+          git mv \
+            apps/sanad-platform/.release/users-production-certification-trigger.md \
+            apps/sanad-platform/.release/users-production-certification-image-trigger.md
+
+      - name: RED 2 — require exact production blocker marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          python3 tests/ci/test_users_module_closure_workflow.py > /tmp/users-contract-red2.txt 2>&1
+          rc=$?
+          set -e
+          cat /tmp/users-contract-red2.txt
+          test "$rc" -ne 0 || { echo "::error::RED 2 invalid: production blocker marker unexpectedly passed"; exit 1; }
+          grep -Fq 'successful certification must explicitly close Users production blockers' /tmp/users-contract-red2.txt || {
+            echo "::error::RED 2 did not fail for OPEN_USERS_PRODUCTION_BLOCKERS=0"
+            exit 1
+          }
+          echo "RED_PRODUCTION_BLOCKER_MARKER=PASS"
+
+      - name: Minimal GREEN — align certification evidence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/users-production-certification.yml')
+          s = p.read_text()
+          old_path = "apps/sanad-platform/.release/users-production-certification-trigger.md"
+          new_path = "apps/sanad-platform/.release/users-production-certification-image-trigger.md"
+          assert s.count(old_path) == 1, s.count(old_path)
+          assert s.count('openUsersBlockers:0') == 1, s.count('openUsersBlockers:0')
+          assert s.count('OPEN_USERS_BLOCKERS=0') == 2, s.count('OPEN_USERS_BLOCKERS=0')
+          s = s.replace(old_path, new_path)
+          s = s.replace('openUsersBlockers:0', 'openUsersProductionBlockers:0')
+          s = s.replace('OPEN_USERS_BLOCKERS=0', 'OPEN_USERS_PRODUCTION_BLOCKERS=0')
+          p.write_text(s)
+          PY
+
+      - name: GREEN — full Users closure contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/ci/test_users_module_closure_workflow.py
+          test -f apps/sanad-platform/.release/users-production-certification-image-trigger.md
+          test ! -e apps/sanad-platform/.release/users-production-certification-trigger.md
+          grep -Fq 'OPEN_USERS_PRODUCTION_BLOCKERS=0' .github/workflows/users-production-certification.yml
+          ! grep -Fq 'OPEN_USERS_BLOCKERS=0' .github/workflows/users-production-certification.yml
+          echo "USERS_PRODUCTION_CERTIFICATION_CONTRACT_REMEDIATION=PASS"
+
+      - name: Commit minimal contract remediation and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-users-certification-contract-remediation.yml
+          git add \
+            .github/workflows/users-production-certification.yml \
+            tests/ci/test_users_module_closure_workflow.py \
+            apps/sanad-platform/.release/users-production-certification-image-trigger.md \
+            apps/sanad-platform/.release/users-production-certification-trigger.md
+          unexpected="$(git diff --cached --name-only | grep -Ev '^(\.github/workflows/tmp-users-certification-contract-remediation\.yml|\.github/workflows/users-production-certification\.yml|tests/ci/test_users_module_closure_workflow\.py|apps/sanad-platform/\.release/users-production-certification(-image)?-trigger\.md)$' || true)"
+          test -z "$unexpected" || {
+            echo "::error::Unexpected staged paths"
+            printf '%s\n' "$unexpected"
+            exit 1
+          }
+          git diff --cached --check
+          git commit -m "fix(users): align final production certification contract"
+          git push origin HEAD:fix/users-production-release-governance
