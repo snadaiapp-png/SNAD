@@ -78,3 +78,63 @@ Surefire XML evidence:
 - Reviews / Service / API / UI: BLOCKED until CI is terminal and green on the new exact head produced by this evidence reconciliation.
 - PR #1208: must remain unmerged until explicit authorization and final exact-head gates.
 - Docker/Testcontainers: 0 / not used.
+
+## Task 2 — Performance Reviews (RED → implementation → GREEN)
+
+Plan-vs-code deltas recorded before implementation (order §5):
+
+1. Task 1 delivered a single migration (`V20260930_1__hr_g3_performance_goals_foundation.sql`) covering goals only; the planned `V20260930_2__hr_g3_performance_rls_capabilities.sql` was never created and `hr_performance_reviews` did not exist. Task 2 therefore owns the reviews table + RLS migration.
+2. The plan's `V20260930_2` filename is stale: main/branch carry `V20261001_1..7` (UAC/Platform IAM, merged via PR #1198) and, mid-task, the forward-only UAC Wave 1 overlay `V20261001_8..12`. Flyway `out-of-order=false` ⇒ the reviews migration is `V20261002_1`.
+3. Capability catalog seeding (`HRM.PERFORMANCE.*` codes) and HTTP/OpenAPI work belong to the G3 API slice (plan Task 4); this slice enforces scope at the service layer through `HrEmploymentScopeResolver` (reused without broadening) per plan Task 3.
+4. Audit metadata is persisted via `created_by/updated_by` columns and asserted behaviorally; the G1-style outbox/audit-service integration is not part of this slice (matches Task 1's goals precedent).
+
+### Task 2 baseline
+
+- Branch head at start: `cb4eec3b2f54198ee091027073413bde0a50438b` (== Task 1 closure head, == PR #1208 head)
+- Base main at start: `b49fe6384d9364d844251a9f079db776aacad9b5` (PR #1198 merge, lineage `40102d47` + `8b8c44f8` verified ancestors)
+- Main movement during task (order §43): `d3d0a3a0` (brace-expansion lockfile remediation) and `79ef0d20`/`935a4ccb` (users-module workflow guard) — merged into the branch as merge commit `bd04a36a`; migration-collision check performed (`V20261002_1` stays forward-ordered above `20261001.12`); guard truth sets reconciled by exact union.
+
+### Task 2 RED gate (valid RED, PostgreSQL Direct)
+
+- RED commit: `638ac4948fcd4c4779547f16fb4415a4c717d2b3` (`test(hrm-g3): add performance reviews PostgreSQL contract`)
+- RED CI run: `36735657542`; Maven job `109956538863` (terminal FAILURE as required); PostgreSQL Acceptance job `109956539258` SUCCESS; CRM Integration job `109956539302` SUCCESS
+- Surefire artifact `11111293434`, digest `sha256:52ec7afda47c53ddaacf57a27f0b9c311d8e9a3e655067e2abd816f895c82fa1`
+- `HrG3PerformanceReviewsPostgresIntegrationTest`: `10 tests / 10 failures / 0 errors / 0 skipped`
+- Failure signatures (all from TEST-*.xml): explicit table-existence contract messages — `RED: G3 must create hr_performance_reviews before {review persistence | canonical subject enforcement | tenant isolation | no-context isolation | reviewer isolation | the valid-review contract | review integrity contracts} can be certified`
+- `HrG3PostgresIntegrationTest` on the same head: `2 / 0 / 0 / 0` (Task 1 untouched)
+- Ruling: valid RED — failure layer is the missing reviews persistence contract; PostgreSQL infrastructure healthy; no compilation/environment/skip contamination.
+
+### Task 2 implementation
+
+- Implementation commit: `ec35cc2bf6a0a427b732eb5a36835905fc7c5416` (`feat(hrm-g3): add scoped performance reviews`)
+- Scope: `V20261002_1__hr_g3_performance_reviews_rls.sql` (table, composite tenant-safe subject/reviewer FKs → `hr_employees(tenant_id,id,person_id)`, source/status/period/rating CHECKs incl. SELF↔reviewer rules, uniqueness per subject/reviewer/source/period, indexes, RLS ENABLE + FORCE + fail-closed `tenant_isolation` policy); `PerformanceReview` domain record; `PerformanceReviewRepository` (single-transaction `set_config('app.tenant_id',…,true)` pattern, explicit columns, optimistic `version` transitions); `HrPerformanceReviewService` (SELF/TEAM canonical scope, deterministic lifecycle DRAFT→SUBMITTED→ACKNOWLEDGED / DRAFT→CANCELLED, fail-closed denials); PostgreSQL Direct tests `HrG3ReviewServiceTest` + `HrG3AuthorizationScopeTest`; guard truth sets updated exactly in `CrmFlywayHistoryAssertionTest`, `CrmPostgresMigrationTest`, `Crm008bFoundationAcceptanceTest`, `R0C13G02SchemaPostgresTest`, `HrG1MigrationTest`, and `hr_performance_reviews` registered in `HrRlsFailClosedIntegrationTest` with a real canonical fixture.
+- Main merge: `bd04a36af096cf80bd5d82d3d661e8cdcef937d5` (conflicts resolved by exact union in the two Flyway guards; terminal-version references advanced to `20261002.1`).
+
+### Task 2 failure forensics (diagnosed → proven → classified → minimally fixed)
+
+1. Run `36745320704` (Maven `109989919061` FAILURE): test-compile error — missing `import java.sql.ResultSet` in `HrG3AuthorizationScopeTest`. Classification: test-defect. Fix: `8f4d5bf36e35455bf3feee8bc24bd7ba60758355`.
+2. Run `36746101689` (Maven `109992575926` FAILURE; PG Acceptance + CRM Integration SUCCESS): 5 errors from 2 root causes — (a) SQLSTATE 42702 `column reference "id" is ambiguous` in `listTeamReviewsForManager` projection (bare columns over multi-join); (b) SQLSTATE 23505 `pk_tenants` duplicates from tenant-seeding helpers invoked twice per test. Classification: fixture/SQL defects, no product-logic defect. Fix: `7826687dbf330aab903fcd65f9a78ab14fb6f2a0` (join-safe `REVIEW_COLUMNS`, once-only `seedTenantOnce`).
+
+### Task 2 GREEN verification (exact head `7826687dbf330aab903fcd65f9a78ab14fb6f2a0`)
+
+- CI run: `36753607568` — Maven Test Suite job `110018149873` SUCCESS; PostgreSQL Acceptance job `110018149784` SUCCESS; CRM Integration job `110018149622` SUCCESS
+- Surefire artifact `11118836595`, digest `sha256:6283d94dfabcec2d46d7f20786933717b6083ed3470c4abcbc370eb109cab36d`
+- XML-verified suites (tests/failures/errors/skipped):
+  - `HrG3PerformanceReviewsPostgresIntegrationTest` 10/0/0/0
+  - `HrG3ReviewServiceTest` 9/0/0/0
+  - `HrG3AuthorizationScopeTest` 6/0/0/0
+  - `HrG3PostgresIntegrationTest` (Task 1 regression) 2/0/0/0
+  - `HrRlsFailClosedIntegrationTest` 251/0/0/0 (247 → 251: +4 parameterized executions for `hr_performance_reviews`)
+  - `CrmFlywayHistoryAssertionTest` 5/0/0/0; `CrmPostgresMigrationTest` 4/0/0/0
+  - `Crm008bFoundationAcceptanceTest` 11/0/0/0; `R0C13G02SchemaPostgresTest` 8/0/0/0; `HrG1MigrationTest` 15/0/0/0
+- Aggregate Maven: 4153 tests / 0 failures / 0 errors / 36 skipped (all skips are pre-existing environment-conditional acceptance suites unrelated to G3; zero skips in any G3/RLS/Flyway/security suite)
+- Security/IAM workflows on this head: Security Baseline run `36753607362` → `Frontend Production Dependency Audit` job `110018148576` FAILED: `npm audit --omit=dev` = 1 CRITICAL — `next` GHSA-vcvr-r3jv-pc5j (Next.js RCE in next/og ImageResponse), affected `16.2.0 - 16.3.5`, resolved `16.3.3`, `fixAvailable=true`. Classification: external registry-metadata event — the advisory was published mid-task (the forensic audit on base `b49fe638` earlier the same day reported next clean, and Security Baseline was SUCCESS on RED head `638ac494`); Task 2 changed no `apps/web` file; main `d3d0a3a0/935a4ccb` is equally exposed; no `next/og`/`ImageResponse` usage exists in `apps/web` source (G3 forensic: `NEXT_OG_DIRECT_USAGE_FOUND=NO`), so no exploitable product code path is proven. Out of Task 2's authorized file scope (order §34) — owner remediation required (bump `next` to the fixed release via `package-lock` in a dedicated remediation order).
+
+### Current governance state
+
+- Task 1 technical GREEN: VERIFIED on `9a3a356478c4209c275d19214231e25fbd057792` (unchanged).
+- Task 2 technical GREEN: VERIFIED on `7826687dbf330aab903fcd65f9a78ab14fb6f2a0` (Maven/PostgreSQL Acceptance/CRM Integration all SUCCESS).
+- Evidence reconciliation: IN PROGRESS via evidence-only commits; final exact-head CI re-verification follows on the evidence head (order §36).
+- External blocker (owner): `next` GHSA-vcvr-r3jv-pc5j critical advisory — Security Baseline cannot be terminal-green on ANY repo head until remediated; unrelated to G3 Task 2.
+- PR #1208: must remain unmerged until explicit authorization and final exact-head gates.
+- Docker/Testcontainers: 0 / not used.
