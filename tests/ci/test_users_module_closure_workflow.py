@@ -5,7 +5,7 @@ import re
 WORKFLOW = Path('.github/workflows/users-module-closure.yml')
 PRODUCTION_WORKFLOW = Path('.github/workflows/users-production-release.yml')
 CERTIFICATION_WORKFLOW = Path('.github/workflows/users-production-certification.yml')
-IMAGE_TRIGGER = Path('apps/sanad-platform/.release/users-production-certification-trigger.md')
+IMAGE_TRIGGER = Path('apps/sanad-platform/.release/users-production-certification-image-trigger.md')
 CONTROL_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
 
@@ -192,8 +192,8 @@ def verify_users_production_certification() -> None:
             'RBAC allow/deny result must be explicit evidence')
     require('SESSION_REVOCATION=PASS' in text,
             'session revocation result must be explicit evidence')
-    require('OPEN_USERS_BLOCKERS=0' in text,
-            'successful certification must explicitly close Users blockers')
+    require('OPEN_USERS_PRODUCTION_BLOCKERS=0' in text,
+            'successful certification must explicitly close Users production blockers')
     require('PRODUCTION_USERS_CERTIFIED=TRUE' in text,
             'successful evidence must carry the final Users production certification marker')
     require('actions/upload-artifact@v4' in text and 'users-production-certification-' in text,
