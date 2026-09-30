@@ -14,6 +14,7 @@ on:
       - 'apps/web/e2e/users-module-visual-helpers.ts'
       - 'apps/web/playwright.users-module.config.ts'
       - 'apps/web/playwright.standard.config.ts'
+      - 'apps/web/package-lock.json'
       - 'tests/ci/test_users_module_closure_workflow.py'
       - '.github/workflows/users-module-closure.yml'
   push:
@@ -26,6 +27,7 @@ on:
       - 'apps/web/app/executive/access/**'
       - 'apps/web/e2e/users-module-*.ts'
       - 'apps/web/playwright.users-module.config.ts'
+      - 'apps/web/package-lock.json'
       - '.github/workflows/users-module-closure.yml'
   workflow_dispatch:
 

@@ -4,6 +4,7 @@ import re
 
 WORKFLOW = Path('.github/workflows/users-module-closure.yml')
 PRODUCTION_WORKFLOW = Path('.github/workflows/users-production-release.yml')
+CERTIFICATION_WORKFLOW = Path('.github/workflows/users-production-certification.yml')
 CONTROL_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
 
@@ -22,6 +23,8 @@ def verify_users_module_closure() -> None:
             'workflow must checkout exact candidate SHA')
     require('test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"' in text,
             'workflow must verify checked-out SHA')
+    require("- 'apps/web/package-lock.json'" in text,
+            'workflow must rerun when the web dependency lockfile changes')
 
     require('services:' not in lower, 'service containers are forbidden')
     require('testcontainers' not in lower, 'Testcontainers path is forbidden')
@@ -140,9 +143,59 @@ def verify_users_production_release() -> None:
             'rollback must be conditional on release failure and explicit policy')
 
 
+def verify_users_production_certification() -> None:
+    require(CERTIFICATION_WORKFLOW.exists(), f'missing {CERTIFICATION_WORKFLOW}')
+    text = CERTIFICATION_WORKFLOW.read_text(encoding='utf-8')
+    lower = text.lower()
+
+    require('name: Users Production Certification' in text,
+            'production certification workflow must have the canonical name')
+    require('workflow_dispatch:' in text,
+            'production certification must be explicitly dispatched')
+    require('environment: production' in lower,
+            'production certification must use the protected production environment')
+    require('expected_production_sha:' in text,
+            'certification must bind evidence to the expected immutable production SHA')
+
+    for secret in (
+        'AUTH_SMOKE_TENANT_A_ID', 'AUTH_SMOKE_TENANT_A_EMAIL', 'AUTH_SMOKE_TENANT_A_PASSWORD',
+        'AUTH_SMOKE_TENANT_B_ID', 'AUTH_SMOKE_TENANT_B_EMAIL', 'AUTH_SMOKE_TENANT_B_PASSWORD',
+        'CONTROL_PLANE_ADMIN_EMAIL', 'CONTROL_PLANE_ADMIN_PASSWORD',
+    ):
+        require(secret in text, f'missing protected Users certification input {secret}')
+
+    require('scripts/operations/bff_auth_session_synthetic.py' in text,
+            'Tenant session revocation must reuse the governed auth synthetic')
+    require('tenant-a-session-evidence.json' in text and 'tenant-b-session-evidence.json' in text,
+            'both tenant sessions must produce evidence')
+    require('/api/v1/auth/login' in text and '/api/v1/auth/me' in text,
+            'tenant authentication identity must be asserted')
+    require('/api/v1/users?tenantId=' in text,
+            'tenant Users read and cross-tenant denial must be exercised')
+    require('CROSS_TENANT_DENIAL=PASS' in text,
+            'cross-tenant denial must be explicit evidence')
+    require('/api/v1/executive/users' in text and '/api/v1/executive/roles' in text,
+            'Control Plane Users/RBAC surfaces must be verified')
+    require('snad.ai.app@gmail.com' in text and 'PLATFORM_OWNER' in text,
+            'canonical owner invariant must be verified')
+    require('RBAC_ALLOW_DENY=PASS' in text,
+            'RBAC allow/deny result must be explicit evidence')
+    require('SESSION_REVOCATION=PASS' in text,
+            'session revocation result must be explicit evidence')
+    require('PRODUCTION_USERS_CERTIFIED=TRUE' in text,
+            'successful evidence must carry the final Users production certification marker')
+    require('actions/upload-artifact@v4' in text and 'users-production-certification-' in text,
+            'sanitized exact-run certification evidence must be retained')
+
+    for forbidden in ('playwright-g2', 'g2-visual', 'E2E_HR_', '/hr/', '/crm/'):
+        require(forbidden.lower() not in lower,
+                f'Users production certification must not depend on another module: {forbidden}')
+
+
 def main() -> None:
     verify_users_module_closure()
     verify_users_production_release()
+    verify_users_production_certification()
     print('USERS_MODULE_CLOSURE_WORKFLOW_CONTRACT=PASS')
 
 
