@@ -21,6 +21,7 @@ const SECTIONS: NavSection[] = [
       ["/executive/tenants", "scp.nav.tenants", "subscription.read"],
       ["/executive/subscriptions", "scp.nav.subscriptions", "subscription.read"],
       ["/executive/plans", "scp.nav.plans", "plan.read"],
+      ["/executive/authorization", "scp.nav.authorization", "ROLE.READ"],
       ["/executive/users", "controlPlane.users", "PLATFORM.USER.READ"],
       ["/executive/access", "controlPlane.roles", "PLATFORM.ROLE.READ"],
     ],

@@ -13,7 +13,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Runtime provisioner for the nine canonical SNAD tenant role templates.
+ * Runtime provisioner for the nine canonical SNAD tenant role templates plus
+ * the canonical protected TENANT_ADMIN template (V20261001_9).
  *
  * <p>Migrations establish and validate the canonical matrix for existing
  * tenants. This component closes the lifecycle gap for tenants created after
@@ -25,6 +26,8 @@ import java.util.UUID;
 public class RoleTemplateProvisioner {
 
     private static final String TEMPLATE_VERSION = "V20260820_7";
+    private static final String TENANT_ADMIN_TEMPLATE = "TENANT_ADMIN";
+    private static final String TENANT_ADMIN_TEMPLATE_VERSION = "V20261001_9";
     private static final String PROVISIONED_BY = "RoleTemplateProvisioner";
 
     private final JdbcTemplate jdbc;
@@ -76,36 +79,98 @@ public class RoleTemplateProvisioner {
         for (Map.Entry<String, Set<String>> entry : canonicalCapabilityMatrix().entrySet()) {
             provisionTemplate(tenantId, entry.getKey(), entry.getValue());
         }
+
+        // Canonical protected tenant administrator (V20261001_9). The migration
+        // backfills TENANT_ADMIN for tenants that existed at migration time;
+        // this closes the lifecycle gap for tenants created afterwards using
+        // the same canonical provisioning mechanism (no second provisioner).
+        provisionTenantAdminTemplate(tenantId);
     }
 
     private void provisionTemplate(UUID tenantId, String templateKey, Set<String> expectedCapabilities) {
+        provisionTemplate(tenantId, templateKey, TEMPLATE_VERSION, expectedCapabilities);
+    }
+
+    /**
+     * Canonical template role resolution for one tenant.
+     *
+     * <p>Binding provenance ({@code role_template_bindings}) is authoritative.
+     * An unbound same-code role is adopted ONLY when it is itself canonical
+     * template origin (migration backfills such as V20261001_9 create
+     * TENANT_ADMIN rows without a binding); customer-managed roles with the
+     * same code are never silently taken over and abort provisioning.</p>
+     */
+    private void provisionTemplate(UUID tenantId, String templateKey, String templateVersion,
+                                   Set<String> expectedCapabilities) {
         UUID roleId = findBoundRoleId(tenantId, templateKey);
         if (roleId == null) {
             UUID sameCodeRole = findRoleByCode(tenantId, templateKey);
-            if (sameCodeRole != null) {
+            if (sameCodeRole != null && !isCanonicalTemplateRole(tenantId, sameCodeRole, templateKey)) {
                 throw new IllegalStateException(
                         "Cannot provision SNAD template " + templateKey
                                 + ": tenant already has an unbound customer-managed role with that code");
             }
-            roleId = UUID.randomUUID();
-            TemplateMetadata metadata = metadata(templateKey);
-            jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, "
-                            + "is_system_managed, role_origin, template_key, template_version, created_at, updated_at) "
-                            + "VALUES (?, ?, ?, ?, ?, 'ACTIVE', TRUE, 'SNAD_TEMPLATE', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    roleId, tenantId, templateKey, metadata.name(), metadata.description(),
-                    templateKey, TEMPLATE_VERSION);
-            jdbc.update("INSERT INTO role_template_bindings "
-                            + "(id, tenant_id, role_id, template_key, template_version, provisioned_at, provisioned_by) "
-                            + "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
-                    UUID.randomUUID(), tenantId, roleId, templateKey, TEMPLATE_VERSION, PROVISIONED_BY);
+            if (sameCodeRole != null) {
+                roleId = sameCodeRole;
+                jdbc.update("UPDATE roles SET is_system_managed=TRUE, role_origin='SNAD_TEMPLATE', "
+                                + "template_key=?, template_version=?, status='ACTIVE', updated_at=CURRENT_TIMESTAMP "
+                                + "WHERE tenant_id=? AND id=?",
+                        templateKey, templateVersion, tenantId, roleId);
+                jdbc.update("INSERT INTO role_template_bindings "
+                                + "(id, tenant_id, role_id, template_key, template_version, provisioned_at, provisioned_by) "
+                                + "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
+                        UUID.randomUUID(), tenantId, roleId, templateKey, templateVersion, PROVISIONED_BY);
+            } else {
+                roleId = UUID.randomUUID();
+                TemplateMetadata metadata = metadata(templateKey);
+                jdbc.update("INSERT INTO roles (id, tenant_id, code, name, description, status, "
+                                + "is_system_managed, role_origin, template_key, template_version, created_at, updated_at) "
+                                + "VALUES (?, ?, ?, ?, ?, 'ACTIVE', TRUE, 'SNAD_TEMPLATE', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                        roleId, tenantId, templateKey, metadata.name(), metadata.description(),
+                        templateKey, templateVersion);
+                jdbc.update("INSERT INTO role_template_bindings "
+                                + "(id, tenant_id, role_id, template_key, template_version, provisioned_at, provisioned_by) "
+                                + "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
+                        UUID.randomUUID(), tenantId, roleId, templateKey, templateVersion, PROVISIONED_BY);
+            }
         } else {
             jdbc.update("UPDATE roles SET is_system_managed=TRUE, role_origin='SNAD_TEMPLATE', "
                             + "template_key=?, template_version=?, status='ACTIVE', updated_at=CURRENT_TIMESTAMP "
                             + "WHERE tenant_id=? AND id=?",
-                    templateKey, TEMPLATE_VERSION, tenantId, roleId);
+                    templateKey, templateVersion, tenantId, roleId);
         }
 
         reconcileCapabilities(tenantId, roleId, templateKey, expectedCapabilities);
+    }
+
+    private void provisionTenantAdminTemplate(UUID tenantId) {
+        provisionTemplate(tenantId, TENANT_ADMIN_TEMPLATE, TENANT_ADMIN_TEMPLATE_VERSION,
+                tenantAdminExpectedCapabilities(tenantId));
+    }
+
+    /**
+     * V20261001_9 semantics: the canonical TENANT_ADMIN role derives its
+     * authority from the tenant's ADMIN role capability set (copied when an
+     * ACTIVE ADMIN role is present, mirroring the migration backfill).
+     */
+    private Set<String> tenantAdminExpectedCapabilities(UUID tenantId) {
+        return new LinkedHashSet<>(jdbc.query(
+                "SELECT ac.code FROM role_capabilities rc "
+                        + "JOIN roles r ON r.id = rc.role_id AND r.tenant_id = rc.tenant_id "
+                        + "JOIN access_capabilities ac ON ac.id = rc.capability_id "
+                        + "WHERE rc.tenant_id = ? AND r.code = 'ADMIN' "
+                        + "AND r.status = 'ACTIVE' AND ac.status = 'ACTIVE' "
+                        + "ORDER BY ac.code",
+                (rs, rowNum) -> rs.getString(1),
+                tenantId));
+    }
+
+    private boolean isCanonicalTemplateRole(UUID tenantId, UUID roleId, String templateKey) {
+        Boolean canonical = jdbc.queryForObject(
+                "SELECT is_system_managed AND role_origin = 'SNAD_TEMPLATE' AND template_key = ? "
+                        + "FROM roles WHERE tenant_id=? AND id=?",
+                Boolean.class, templateKey, tenantId, roleId);
+        return Boolean.TRUE.equals(canonical);
     }
 
     private void reconcileCapabilities(UUID tenantId, UUID roleId, String templateKey,
@@ -181,6 +246,7 @@ public class RoleTemplateProvisioner {
             case "STORE_MANAGER" -> new TemplateMetadata("Store Manager", "E-commerce store management and publishing");
             case "WORKFLOW_APPROVER" -> new TemplateMetadata("Workflow Approver", "Workflow approval authority without workflow writes");
             case "EXECUTIVE_VIEWER" -> new TemplateMetadata("Executive Viewer", "Read-only executive management and reporting access");
+            case "TENANT_ADMIN" -> new TemplateMetadata("Tenant Admin", "Canonical protected tenant administrator role");
             default -> throw new IllegalArgumentException("Unknown canonical template: " + key);
         };
     }

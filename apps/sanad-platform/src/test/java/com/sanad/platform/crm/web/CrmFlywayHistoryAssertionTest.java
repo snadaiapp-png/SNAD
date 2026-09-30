@@ -284,6 +284,12 @@ class CrmFlywayHistoryAssertionTest {
             , "20261001.5"   // platform iam roles
             , "20261001.6"   // platform owner bootstrap
             , "20261001.7"   // canonical platform owner executive-admin reconciliation
+            // UAC Wave 1 forward-only execution overlay
+            , "20261001.8"   // uac effective permission projection
+            , "20261001.9"   // uac protected roles registry
+            , "20261001.10"  // uac capability metadata and authz capabilities
+            , "20261001.11"  // uac projection indexes
+            , "20261001.12"  // uac admin audit backfill guard
     );
 
 

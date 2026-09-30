@@ -12,6 +12,7 @@ import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,74 +59,37 @@ class RefreshTokenConcurrencyPostgresTest {
 
     private UUID tenantId;
     private UUID userId;
+    private UUID planId;
     private String email;
     private String credential;
 
     @BeforeEach
     void setUp() {
-        // Do NOT call refreshTokenRepository.deleteAll() before TRUNCATE.
-        // JPA deleteAll issues individual DELETE statements that violate the
-        // self-referencing FK fk_refresh_tokens_replaced_by when prior tests
-        // have left replacement-chain rows. The TRUNCATE ... CASCADE below
-        // is the authoritative PostgreSQL cleanup that handles the FK graph.
-        // PostgreSQL strictly enforces FK constraints. The CRM schema has
-        // dozens of cross-referencing tables (crm_accounts → crm_contacts →
-        // crm_communication_methods → crm_addresses → ...). Manually listing
-        // every child table is fragile and has repeatedly missed tables.
+        // This test used to TRUNCATE the shared identity graph (tenants, users,
+        // roles, role_capabilities, user_role_assignments, refresh_tokens) plus
+        // the whole CRM graph with RESTART IDENTITY CASCADE. That destroyed the
+        // canonical migrated control-plane tenant (V20260813_1, tenant
+        // 00000000-0000-0000-0000-000000000001) and, through CASCADE, every
+        // tenant's rows in ~200 FK-child tables — canonical state that later
+        // acceptance tests (G1-G forensic RBAC, permission projection,
+        // governance assertions) depend on.
         //
-        // TRUNCATE ... CASCADE is PostgreSQL's canonical way to clear data
-        // across an FK graph: PostgreSQL itself walks the dependency graph
-        // and clears in the correct order. This is the correct boundary:
-        //   - H2 (local dev): TRUNCATE works identically
-        //   - PostgreSQL (CI): TRUNCATE handles the FK graph automatically
-        //
-        // The RESTART IDENTITY option resets sequences so test fixtures get
-        // deterministic IDs. We exclude the Flyway tracking table and the
-        // module catalog tables (modules, module_capabilities) which are
-        // seeded by migrations and should persist across tests.
-        //
-        // We also exclude access_capabilities (capabilities catalog) —
-        // only role_capabilities (the per-tenant binding) is truncated.
-        jdbcTemplate.execute("""
-                TRUNCATE TABLE
-                    crm_tag_assignments,
-                    crm_communication_methods,
-                    crm_party_addresses,
-                    crm_opportunity_stage_history,
-                    crm_opportunities,
-                    crm_pipeline_stages,
-                    crm_pipelines,
-                    crm_tasks,
-                    crm_notes,
-                    crm_tags,
-                    crm_activities,
-                    crm_contacts,
-                    crm_leads,
-                    crm_accounts,
-                    user_role_assignments,
-                    role_capabilities,
-                    roles,
-                    users,
-                    tenants,
-                    refresh_tokens
-                RESTART IDENTITY CASCADE
-                """);
-        // Clear refresh_tokens a second time after CASCADE — the first TRUNCATE
-        // may leave self-referencing rows (fk_refresh_tokens_replaced_by) if
-        // a prior test's tokens are still linked. This second TRUNCATE on the
-        // now-orphaned refresh_tokens table ensures no FK violation on commit.
-        jdbcTemplate.execute("TRUNCATE TABLE refresh_tokens RESTART IDENTITY CASCADE");
-        // TRUNCATE cleared all rows; JPA first-level cache may still hold
-        // stale entities, so we clear the persistence context to avoid
-        // accidental re-inserts of detached entities.
-        // No further delete calls needed — TRUNCATE is authoritative.
+        // Root-cause replacement: fixtures are self-cleaning and residue-tolerant.
+        // Every identity this test creates is unique per run (random tenant
+        // subdomain, random user email, random plan code), so stale residue from
+        // prior runs can never collide or be observed by this test's
+        // tenant-scoped assertions, and @AfterEach removes exactly the owned
+        // rows in FK-safe order. No global wipe, no canonical destruction.
 
         Tenant tenant = tenantRepository.save(new Tenant(
                 "Refresh Lock Tenant",
                 "refresh-lock-" + UUID.randomUUID(),
                 TenantStatus.ACTIVE));
         tenantId = tenant.getId();
-        email = "refresh-lock@example.com";
+        // Unique per run: a prior run's user row must never force this run to
+        // wipe shared identity tables just to satisfy the users.email unique
+        // constraint.
+        email = "refresh-lock-" + UUID.randomUUID() + "@example.test";
         credential = UUID.randomUUID().toString();
         User user = new User(tenantId, email, "Refresh Lock User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(credential));
@@ -177,12 +141,38 @@ class RefreshTokenConcurrencyPostgresTest {
     }
 
     /**
+     * Owned-fixture cleanup in FK-safe order, scoped strictly to the rows this
+     * run created: refresh_tokens (self-referencing fk_refresh_tokens_replaced_by
+     * cleared first), the login-eligibility subscription and plan, then user and
+     * tenant. The canonical control-plane tenant and every other tenant's rows
+     * are never touched.
+     */
+    @AfterEach
+    void cleanupOwnedFixtures() {
+        if (tenantId == null) {
+            return;
+        }
+        jdbcTemplate.update(
+                "UPDATE refresh_tokens SET replaced_by_id = NULL WHERE tenant_id = ?",
+                tenantId);
+        jdbcTemplate.update("DELETE FROM refresh_tokens WHERE tenant_id = ?", tenantId);
+        jdbcTemplate.update("DELETE FROM tenant_subscriptions WHERE tenant_id = ?", tenantId);
+        if (planId != null) {
+            jdbcTemplate.update("DELETE FROM saas_plans WHERE id = ?", planId);
+        }
+        if (userId != null) {
+            jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+        }
+        jdbcTemplate.update("DELETE FROM tenants WHERE id = ?", tenantId);
+    }
+
+    /**
      * Canonical login-eligibility fixture: authentication gates require an
      * ACTIVE tenant with exactly one login-eligible effective subscription
      * (fail-closed). Tests seed that subscription alongside the tenant.
      */
     private void seedLoginEligibleSubscription(UUID tenantId) {
-        UUID planId = UUID.randomUUID();
+        planId = UUID.randomUUID();
         jdbc.update("""
                         INSERT INTO saas_plans (id, code, name, status, currency_code,
                                                 monthly_price_minor, annual_price_minor, trial_days,

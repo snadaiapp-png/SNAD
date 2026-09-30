@@ -161,7 +161,7 @@ describe("Executive tenant management controls", () => {
     await screen.findByText("Acme");
 
     await user.click(screen.getByRole("button", { name: "scp.tenants.activate" }));
-    expect(screen.getByRole("dialog", { name: "scp.tenants.activateDialogTitle" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "scp.tenants.activateDialogTitle" })).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("scp.tenants.form.reason"), "Subscription provisioned");
     await user.click(screen.getByRole("button", { name: "form.action.confirm" }));
@@ -238,7 +238,7 @@ describe("Executive tenant management controls", () => {
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
-    const subdomain = screen.getByLabelText("scp.tenants.form.subdomain");
+    const subdomain = await screen.findByLabelText("scp.tenants.form.subdomain");
     await user.click(subdomain);
     await user.type(subdomain, "acme01");
 
@@ -255,7 +255,7 @@ describe("Executive tenant management controls", () => {
     await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
 
     for (const label of ["scp.tenants.form.name", "scp.tenants.form.subdomain", "scp.tenants.form.adminEmail", "scp.tenants.form.adminDisplayName"]) {
-      const labelEl = screen.getByText(label);
+      const labelEl = await screen.findByText(label);
       expect(labelEl).toBeVisible();
       expect(labelEl.tagName).toBe("LABEL");
     }
@@ -268,7 +268,7 @@ describe("Executive tenant management controls", () => {
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
-    await user.type(screen.getByLabelText("scp.tenants.form.name"), "شركة اختبار");
+    await user.type(await screen.findByLabelText("scp.tenants.form.name"), "شركة اختبار");
     await user.type(screen.getByLabelText("scp.tenants.form.subdomain"), "bad_domain");
     await user.type(screen.getByLabelText("scp.tenants.form.adminEmail"), "not-an-email");
     await user.type(screen.getByLabelText("scp.tenants.form.adminDisplayName"), "مدير النظام");
@@ -358,7 +358,7 @@ describe("Executive tenant management controls", () => {
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
-    await user.type(screen.getByLabelText("scp.tenants.form.name"), "شركة اختبار");
+    await user.type(await screen.findByLabelText("scp.tenants.form.name"), "شركة اختبار");
     await user.type(screen.getByLabelText("scp.tenants.form.subdomain"), "acme");
     await user.type(screen.getByLabelText("scp.tenants.form.adminEmail"), "admin@acme.example");
     await user.type(screen.getByLabelText("scp.tenants.form.adminDisplayName"), "مدير النظام");
@@ -390,7 +390,7 @@ describe("Executive tenant management controls", () => {
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "scp.tenants.create" }));
-    expect(screen.getByRole("dialog", { name: "scp.tenants.createDialogTitle" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "scp.tenants.createDialogTitle" })).toBeInTheDocument();
     expect(screen.getByLabelText("scp.tenants.form.name")).toBeInTheDocument();
     expect(screen.getByLabelText("scp.tenants.form.subdomain")).toBeInTheDocument();
     expect(screen.getByLabelText("scp.tenants.form.adminEmail")).toBeInTheDocument();

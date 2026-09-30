@@ -108,7 +108,18 @@ class WorkflowR2AnalyticsTest {
      * reassignment, one timeout), and a completion marker for the work item.
      */
     private Fixture reconciliationFixture(String tag) {
-        UUID tenant = UUID.randomUUID();
+        // Scan-window determinism: WorkflowTimerNotificationWorker.runScan()
+        // processes "SELECT id FROM tenants WHERE status='ACTIVE' ORDER BY id
+        // LIMIT 200". In a full-suite run the shared database accumulates
+        // hundreds of ACTIVE fixture tenants with random UUIDs, so a random
+        // fixture id usually lands OUTSIDE the scanned window and the worker
+        // never sees this fixture's timers (observed in Run 6: 0 notifications).
+        // A low-order UUID (00000000-0000-4000-8000-xxxxxxxxxxxx) sorts before
+        // every random v4 UUID, guaranteeing the fixture is inside the window;
+        // the 48-bit random tail keeps inserts collision-free across runs.
+        UUID tenant = UUID.fromString("00000000-0000-4000-8000-"
+                + String.format("%012x", java.util.concurrent.ThreadLocalRandom.current().nextLong()
+                        & 0xffffffffffffL));
         UUID user = UUID.randomUUID();
         UUID employee = UUID.randomUUID();
         UUID definition = UUID.randomUUID();

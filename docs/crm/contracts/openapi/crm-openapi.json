@@ -1909,7 +1909,7 @@
         "tags": [
           "call-event-controller"
         ],
-        "operationId": "list_3",
+        "operationId": "list_5",
         "parameters": [
           {
             "name": "status",

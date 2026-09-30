@@ -96,7 +96,8 @@ class Crm008bFoundationAcceptanceTest {
     //   V20260923_1..3 + V20260924_1..6 = HRM-G2 canonical migration chain
     //   V20261001_2..6 = Platform IAM membership/role/capability/bootstrap chain
     //   V20261001_7 = canonical Platform Owner executive-admin reconciliation
-    private static final String CRM_LATEST_VERSION = "20261001.7"; // terminal versioned migration
+    //   V20261001_8..12 = forward-only UAC Wave 1 execution overlay
+    private static final String CRM_LATEST_VERSION = "20261001.12"; // terminal versioned migration
     private static final UUID TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID USER_ID_1 = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID USER_ID_2 = UUID.fromString("00000000-0000-0000-0000-000000000011");
