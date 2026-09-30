@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { scpApi, type PageResponse, type TenantRow } from "@/lib/api/scp-api";
 import { executiveApi, type ManagedTenant } from "@/lib/api/executive-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { Button, Input, Modal } from "@/components/sds";
+import { Button, Input } from "@/components/sds";
 import {
   ScpEmpty,
   ScpError,
@@ -18,12 +19,16 @@ import { useScpFormat } from "../_components/format";
 import { useScpAccess } from "../_components/ScpAccess";
 import { scpErrorMessage } from "../_components/scp-errors";
 import styles from "../scp.module.css";
+import type { TenantDialog } from "./tenant-dialog-validation";
+import { validateCreateTenant, validateEditTenant } from "./tenant-dialog-validation";
 
-type TenantDialog =
-  | { kind: "create" }
-  | { kind: "edit"; tenantId: string }
-  | { kind: "status"; tenantId: string; targetStatus: "SUSPENDED" | "ACTIVE" | "ARCHIVED"; sourceStatus: string }
-  | null;
+// Mutation dialogs are non-critical admin panels: the dialog module loads only
+// after an operator opens one, keeping the initial /executive/tenants payload
+// within the fail-closed performance budget. Capability gating, form state and
+// every API call remain owned by this page component, so the authorization
+// surface and fail-closed behavior are unchanged and nothing security-relevant
+// is lazily gated.
+const TenantDialogs = dynamic(() => import("./TenantDialogs"), { ssr: false });
 
 type CommercialAction =
   | "UPGRADE"
@@ -63,85 +68,7 @@ const EMPTY_EDIT = {
   currencyCode: "",
 };
 
-const SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
-const COUNTRY_PATTERN = /^[A-Z]{2}$/;
-const CURRENCY_PATTERN = /^[A-Z]{3}$/;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const COUNTRY_CODES = (
-  "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW"
-).split(" ");
-
-const LOCALES = [
-  "ar-SA", "ar-AE", "ar-EG", "ar-BH", "ar-KW", "ar-OM", "ar-QA", "ar-JO", "ar-MA",
-  "en-US", "en-GB", "en-AU", "fr-FR", "de-DE", "es-ES", "it-IT", "pt-BR",
-  "tr-TR", "id-ID", "ms-MY", "hi-IN", "ur-PK", "zh-CN", "ja-JP", "ko-KR",
-];
-
-const FALLBACK_TIMEZONES = [
-  "UTC", "Asia/Riyadh", "Asia/Dubai", "Asia/Kuwait", "Asia/Qatar", "Asia/Bahrain",
-  "Asia/Muscat", "Asia/Amman", "Asia/Baghdad", "Asia/Beirut", "Africa/Cairo",
-  "Africa/Casablanca", "Europe/London", "Europe/Paris", "Europe/Berlin",
-  "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
-  "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney",
-];
-
-const FALLBACK_CURRENCIES = [
-  "SAR", "AED", "BHD", "KWD", "OMR", "QAR", "USD", "EUR", "GBP", "EGP", "JOD",
-  "MAD", "TRY", "INR", "PKR", "CNY", "JPY", "AUD", "CAD", "SGD",
-];
-
-function supportedIntlValues(kind: "currency" | "timeZone", fallback: string[]): string[] {
-  const intl = Intl as typeof Intl & { supportedValuesOf?: (key: "currency" | "timeZone") => string[] };
-  try {
-    const values = intl.supportedValuesOf?.(kind);
-    return values && values.length > 0 ? values : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-const TIMEZONES = supportedIntlValues("timeZone", FALLBACK_TIMEZONES);
-const CURRENCY_CODES = supportedIntlValues("currency", FALLBACK_CURRENCIES);
-
-function withCurrentOption(options: readonly string[], current: string): string[] {
-  const value = current.trim();
-  return value && !options.includes(value) ? [value, ...options] : [...options];
-}
-
 type Translate = (key: string) => string;
-
-function validateCreateTenant(form: typeof EMPTY_CREATE, t: Translate): string {
-  if (!form.name.trim()) return t("scp.tenants.validation.nameRequired");
-  if (!SUBDOMAIN_PATTERN.test(form.subdomain.trim().toLowerCase())) {
-    return t("scp.tenants.validation.subdomainInvalid");
-  }
-  if (!EMAIL_PATTERN.test(form.adminEmail.trim())) {
-    return t("scp.tenants.validation.adminEmailInvalid");
-  }
-  if (!form.adminDisplayName.trim()) return t("scp.tenants.validation.adminDisplayNameRequired");
-  if (form.countryCode.trim() && !COUNTRY_PATTERN.test(form.countryCode.trim().toUpperCase())) {
-    return t("scp.tenants.validation.countryInvalid");
-  }
-  if (form.currencyCode.trim() && !CURRENCY_PATTERN.test(form.currencyCode.trim().toUpperCase())) {
-    return t("scp.tenants.validation.currencyInvalid");
-  }
-  return "";
-}
-
-function validateEditTenant(form: typeof EMPTY_EDIT, t: Translate): string {
-  if (!form.name.trim()) return t("scp.tenants.validation.nameRequired");
-  if (form.billingEmail.trim() && !EMAIL_PATTERN.test(form.billingEmail.trim())) {
-    return t("scp.tenants.validation.billingEmailInvalid");
-  }
-  if (form.countryCode.trim() && !COUNTRY_PATTERN.test(form.countryCode.trim().toUpperCase())) {
-    return t("scp.tenants.validation.countryInvalid");
-  }
-  if (form.currencyCode.trim() && !CURRENCY_PATTERN.test(form.currencyCode.trim().toUpperCase())) {
-    return t("scp.tenants.validation.currencyInvalid");
-  }
-  return "";
-}
 
 function commercialControl(tenant: CommercialTenantRow, t: Translate) {
   switch (tenant.commercialAction) {
@@ -502,168 +429,24 @@ export default function TenantsPage() {
         </div>
       ) : null}
 
-      <Modal
-        isOpen={dialog?.kind === "create"}
-        onClose={() => !busy && setDialog(null)}
-        title={t("scp.tenants.createDialogTitle")}
-        closeButtonLabel={t("common.close")}
-        footer={<>
-          <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
-          <Button variant="primary" loading={busy} disabled={!createForm.name || !createForm.subdomain || !createForm.adminEmail || !createForm.adminDisplayName} onClick={() => void createTenant()}>{t("form.action.create")}</Button>
-        </>}
-      >
-        <div className={styles.filters}>
-          <Input label={t("scp.tenants.form.name")} aria-label={t("scp.tenants.form.name")} required placeholder={t("scp.tenants.form.namePlaceholder")} value={createForm.name} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, name: e.target.value }); }} />
-          <Input label={t("scp.tenants.form.subdomain")} aria-label={t("scp.tenants.form.subdomain")} required placeholder="acme" hint={t("scp.tenants.form.subdomainHint")} value={createForm.subdomain} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, subdomain: e.target.value.toLowerCase().replace(/\s+/g, "") }); }} />
-          <Input type="email" label={t("scp.tenants.form.adminEmail")} aria-label={t("scp.tenants.form.adminEmail")} required placeholder="admin@example.com" value={createForm.adminEmail} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, adminEmail: e.target.value }); }} />
-          <Input label={t("scp.tenants.form.adminDisplayName")} aria-label={t("scp.tenants.form.adminDisplayName")} required placeholder={t("scp.tenants.form.adminDisplayNamePlaceholder")} value={createForm.adminDisplayName} onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, adminDisplayName: e.target.value }); }} />
-          <label>
-            <span>{t("scp.tenants.form.countryCode")}</span>
-            <select
-              aria-label={t("scp.tenants.form.countryCode")}
-              value={createForm.countryCode}
-              onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, countryCode: e.target.value }); }}
-            >
-              <option value="">—</option>
-              {COUNTRY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
-            </select>
-            <span className={styles.appCardMeta}>{t("scp.tenants.form.countryHint")}</span>
-          </label>
-          <label>
-            <span>{t("scp.tenants.form.locale")}</span>
-            <select
-              aria-label={t("scp.tenants.form.locale")}
-              value={createForm.locale}
-              onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, locale: e.target.value }); }}
-            >
-              <option value="">—</option>
-              {LOCALES.map((locale) => <option key={locale} value={locale}>{locale}</option>)}
-            </select>
-            <span className={styles.appCardMeta}>{t("scp.tenants.form.localeHint")}</span>
-          </label>
-          <label>
-            <span>{t("scp.tenants.form.timezone")}</span>
-            <select
-              aria-label={t("scp.tenants.form.timezone")}
-              value={createForm.timezone}
-              onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, timezone: e.target.value }); }}
-            >
-              <option value="">—</option>
-              {TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
-            </select>
-            <span className={styles.appCardMeta}>{t("scp.tenants.form.timezoneHint")}</span>
-          </label>
-          <label>
-            <span>{t("scp.tenants.form.currencyCode")}</span>
-            <select
-              aria-label={t("scp.tenants.form.currencyCode")}
-              value={createForm.currencyCode}
-              onChange={(e) => { setDialogError(""); setCreateForm({ ...createForm, currencyCode: e.target.value }); }}
-            >
-              <option value="">—</option>
-              {CURRENCY_CODES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-            </select>
-            <span className={styles.appCardMeta}>{t("scp.tenants.form.currencyHint")}</span>
-          </label>
-          {dialogError ? <ScpError message={dialogError} /> : null}
-        </div>
-      </Modal>
-
-      <Modal
-        isOpen={dialog?.kind === "edit"}
-        onClose={() => !busy && setDialog(null)}
-        title={t("scp.tenants.editDialogTitle")}
-        closeButtonLabel={t("common.close")}
-        footer={<>
-          <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
-          <Button variant="primary" loading={busy} disabled={!editForm.name} onClick={() => dialog?.kind === "edit" && void updateTenant(dialog.tenantId)}>{t("form.action.save")}</Button>
-        </>}
-      >
-        <div className={styles.filters}>
-          <Input label={t("scp.tenants.form.name")} aria-label={t("scp.tenants.form.name")} required value={editForm.name} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, name: e.target.value }); }} />
-          <Input label={t("scp.tenants.form.legalName")} aria-label={t("scp.tenants.form.legalName")} value={editForm.legalName} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, legalName: e.target.value }); }} />
-          <Input type="email" label={t("scp.tenants.form.billingEmail")} aria-label={t("scp.tenants.form.billingEmail")} value={editForm.billingEmail} onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, billingEmail: e.target.value }); }} />
-          <label>
-            <span>{t("scp.tenants.form.countryCode")}</span>
-            <select
-              aria-label={t("scp.tenants.form.countryCode")}
-              value={editForm.countryCode}
-              onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, countryCode: e.target.value }); }}
-            >
-              <option value="">—</option>
-              {withCurrentOption(COUNTRY_CODES, editForm.countryCode).map((code) => (
-                <option key={code} value={code}>{code}</option>
-              ))}
-            </select>
-            <span className={styles.appCardMeta}>{t("scp.tenants.form.countryHint")}</span>
-          </label>
-          <label>
-            <span>{t("scp.tenants.form.locale")}</span>
-            <select
-              aria-label={t("scp.tenants.form.locale")}
-              value={editForm.locale}
-              onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, locale: e.target.value }); }}
-            >
-              <option value="">—</option>
-              {withCurrentOption(LOCALES, editForm.locale).map((locale) => (
-                <option key={locale} value={locale}>{locale}</option>
-              ))}
-            </select>
-            <span className={styles.appCardMeta}>{t("scp.tenants.form.localeHint")}</span>
-          </label>
-          <label>
-            <span>{t("scp.tenants.form.timezone")}</span>
-            <select
-              aria-label={t("scp.tenants.form.timezone")}
-              value={editForm.timezone}
-              onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, timezone: e.target.value }); }}
-            >
-              <option value="">—</option>
-              {withCurrentOption(TIMEZONES, editForm.timezone).map((timezone) => (
-                <option key={timezone} value={timezone}>{timezone}</option>
-              ))}
-            </select>
-            <span className={styles.appCardMeta}>{t("scp.tenants.form.timezoneHint")}</span>
-          </label>
-          <label>
-            <span>{t("scp.tenants.form.currencyCode")}</span>
-            <select
-              aria-label={t("scp.tenants.form.currencyCode")}
-              value={editForm.currencyCode}
-              onChange={(e) => { setDialogError(""); setEditForm({ ...editForm, currencyCode: e.target.value }); }}
-            >
-              <option value="">—</option>
-              {withCurrentOption(CURRENCY_CODES, editForm.currencyCode).map((currency) => (
-                <option key={currency} value={currency}>{currency}</option>
-              ))}
-            </select>
-            <span className={styles.appCardMeta}>{t("scp.tenants.form.currencyHint")}</span>
-          </label>
-          <p className={styles.appCardMeta}>{t("scp.tenants.form.subdomainImmutableNote")}</p>
-          {dialogError ? <ScpError message={dialogError} /> : null}
-        </div>
-      </Modal>
-
-      <Modal
-        isOpen={dialog?.kind === "status"}
-        onClose={() => !busy && setDialog(null)}
-        title={dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED"
-          ? t("scp.tenants.archiveDialogTitle")
-          : dialog?.kind === "status" && dialog.targetStatus === "SUSPENDED"
-            ? t("scp.tenants.freezeDialogTitle")
-            : dialog?.kind === "status" && (dialog.sourceStatus === "PENDING" || dialog.sourceStatus === "TRIAL")
-              ? t("scp.tenants.activateDialogTitle")
-              : t("scp.tenants.reactivateDialogTitle")}
-        closeButtonLabel={t("common.close")}
-        footer={<>
-          <Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>{t("form.action.cancel")}</Button>
-          <Button variant={dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED" ? "danger" : "primary"} loading={busy} disabled={!reason.trim()} onClick={() => dialog?.kind === "status" && void applyStatus(dialog.tenantId, dialog.targetStatus)}>{t("form.action.confirm")}</Button>
-        </>}
-      >
-        {dialog?.kind === "status" && dialog.targetStatus === "ARCHIVED" ? <p>{t("scp.tenants.archiveWarning")}</p> : null}
-        <Input label={t("scp.tenants.form.reason")} aria-label={t("scp.tenants.form.reason")} required placeholder={t("scp.tenants.form.reasonPlaceholder")} value={reason} maxLength={500} onChange={(e) => { setDialogError(""); setReason(e.target.value); }} />
-        {dialogError ? <ScpError message={dialogError} /> : null}
-      </Modal>
+      {dialog ? (
+        <TenantDialogs
+          dialog={dialog}
+          busy={busy}
+          dialogError={dialogError}
+          createForm={createForm}
+          editForm={editForm}
+          reason={reason}
+          setDialogError={setDialogError}
+          setCreateForm={setCreateForm}
+          setEditForm={setEditForm}
+          setReason={setReason}
+          closeDialog={() => setDialog(null)}
+          onCreate={() => void createTenant()}
+          onUpdate={(tenantId) => void updateTenant(tenantId)}
+          onApplyStatus={(tenantId, targetStatus) => void applyStatus(tenantId, targetStatus)}
+        />
+      ) : null}
     </ScpPage>
   );
 }

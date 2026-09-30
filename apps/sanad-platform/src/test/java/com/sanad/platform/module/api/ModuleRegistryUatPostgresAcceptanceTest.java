@@ -112,7 +112,16 @@ class ModuleRegistryUatPostgresAcceptanceTest {
                 ON CONFLICT (id) DO NOTHING
                 """, id, "UAT-ACC Control Plane", "uat-acc-control-plane",
                 Timestamp.from(now), Timestamp.from(now));
-        createdTenants.add(id);
+        // The control-plane sentinel tenant is this suite's dedicated identity
+        // (recreated idempotently above), NOT a disposable fixture. It must
+        // never be registered in createdTenants: the cleanup loop deletes every
+        // role/user/role-capability/tenant row for registered tenant ids, which
+        // would tear the sentinel down between test methods while endpoint
+        // flows of later methods (and their audit/subscription rows) still
+        // reference a live control tenant. Rows this test creates inside the
+        // sentinel are reverted precisely via createdUsers / createdRoles /
+        // createdSubscriptions / createdProvisioningJobs / createdAuditRows,
+        // so random fixture cleanup stays intact with zero accumulation.
     }
 
     private UUID seedUser(UUID tenantId, String email) {

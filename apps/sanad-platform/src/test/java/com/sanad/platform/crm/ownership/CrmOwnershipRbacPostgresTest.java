@@ -19,8 +19,15 @@ class CrmOwnershipRbacPostgresTest {
 
 
     private static JdbcTemplate jdbc;
-    private static final UUID TENANT_A = UUID.fromString("10000000-0000-4000-8000-000000000901");
-    private static final UUID TENANT_B = UUID.fromString("20000000-0000-4000-8000-000000000902");
+    // Unique-per-run identity: the shared local database persists fixture rows
+    // across suite executions; fixed tenant ids/subdomains collide with the
+    // previous run's residue on the tenants PK/unique subdomain index
+    // (observed in Run 7). The class migrates ALL tenants, so random ids are
+    // semantically equivalent to the previous fixed constants.
+    private static final UUID TENANT_A = UUID.randomUUID();
+    private static final UUID TENANT_B = UUID.randomUUID();
+    private static final String SUBDOMAIN_A = "rbac-a-" + UUID.randomUUID().toString().substring(0, 8);
+    private static final String SUBDOMAIN_B = "rbac-b-" + UUID.randomUUID().toString().substring(0, 8);
 
     @BeforeAll
     static void setup() {
@@ -49,8 +56,8 @@ class CrmOwnershipRbacPostgresTest {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 System.getenv().getOrDefault("SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "sanad"), System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", ""));
         jdbc = new JdbcTemplate(dataSource);
-        seedTenantAndAdmin(TENANT_A, "rbac-a");
-        seedTenantAndAdmin(TENANT_B, "rbac-b");
+        seedTenantAndAdmin(TENANT_A, SUBDOMAIN_A);
+        seedTenantAndAdmin(TENANT_B, SUBDOMAIN_B);
 
         // Step 2: Now run migrations through V20260807.1 — this grants the
         // additional 22 CRM READ+WRITE caps to SALES_MANAGER (extending the

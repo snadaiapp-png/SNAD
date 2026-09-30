@@ -21,6 +21,7 @@ export const EXECUTIVE_COMMERCIAL_I18N_AR = {
   "scp.subscriptions.resume.submit": "استئناف الاشتراك",
   "scp.subscriptions.resume.success": "تم استئناف الاشتراك بنجاح",
   "scp.subscriptions.resume.unavailable": "لا يوجد اشتراك ملغى واحد مؤهل للاستئناف",
+  "scp.nav.authorization": "التفويض والصلاحيات",
 } satisfies TranslationDictionary;
 
 export const EXECUTIVE_COMMERCIAL_I18N_EN = {
@@ -44,6 +45,7 @@ export const EXECUTIVE_COMMERCIAL_I18N_EN = {
   "scp.subscriptions.resume.submit": "Resume subscription",
   "scp.subscriptions.resume.success": "Subscription resumed successfully",
   "scp.subscriptions.resume.unavailable": "No single cancelled subscription is eligible to resume",
+  "scp.nav.authorization": "Authorization",
 } satisfies TranslationDictionary;
 
 export function executiveCommercialDictionary(locale: "ar" | "en"): TranslationDictionary {

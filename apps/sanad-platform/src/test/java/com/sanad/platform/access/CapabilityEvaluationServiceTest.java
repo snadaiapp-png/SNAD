@@ -28,6 +28,8 @@ class CapabilityEvaluationServiceTest {
     @Mock private RoleCapabilityService mappings;
     @Mock private AccessCapabilityService capabilities;
     @Mock private OrganizationRepository organizations;
+    @Mock private com.sanad.platform.access.override.UserPermissionOverrideRepository overrides;
+    @Mock private com.sanad.platform.access.relationship.RelationshipResolver relationships;
 
     private CapabilityEvaluationService service;
     private UUID tenantId;
@@ -42,7 +44,8 @@ class CapabilityEvaluationServiceTest {
     @BeforeEach
     void setUp() {
         service = new CapabilityEvaluationService(
-                grants, roles, mappings, capabilities, organizations);
+                grants, roles, mappings, capabilities, organizations,
+                overrides, relationships, new org.springframework.mock.env.MockEnvironment());
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         roleId = UUID.randomUUID();

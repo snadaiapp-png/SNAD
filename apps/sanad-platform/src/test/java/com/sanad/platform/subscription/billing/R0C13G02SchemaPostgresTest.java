@@ -99,9 +99,10 @@ class R0C13G02SchemaPostgresTest {
             // T10 adds the forward-only candidate self-service migration.
             // V20260921_1 adds the forward-only canonical project-owner permissions repair.
             // V20260922_1 adds HRM-G1 canonical operator capabilities and ADMIN tenant scopes.
-            // V20261001_2..6 add the Platform IAM membership/role/capability/bootstrap chain.
-            // V20261001_7 reconciles the canonical Platform Owner executive-admin grants.
-            assertThat(rs.getString(1)).isEqualTo("20261001.7");
+            // V20261001_2..7 add and reconcile the Platform IAM chain.
+            // V20261001_8..12 are the forward-only UAC Wave 1 execution overlay.
+            // V20261002_1 adds the HRM-G3 Task 2 performance-reviews schema + RLS.
+            assertThat(rs.getString(1)).isEqualTo("20261002.1");
         }
     }
 

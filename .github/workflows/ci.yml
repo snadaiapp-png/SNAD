@@ -506,11 +506,13 @@ jobs:
 
       - name: Run PostgreSQL acceptance tests
         # Execute the COMPLETE profile-gated acceptance companion on every CI run.
-        # The default Maven suite intentionally skips these 31 tests under the
+        # The default Maven suite intentionally skips these 36 tests under the
         # default profile; this job is their exact PostgreSQL Direct authority:
         #   CommerceOrderPostgresConcurrencyTest = 6
         #   RbacAccessCheckPostgresAcceptanceTest = 15
         #   ModuleRegistryUatPostgresAcceptanceTest = 10
+        #   PlatformSessionInvalidationPostgresAcceptanceTest = 3
+        #   PlatformUserPostgresAcceptanceTest = 2
         # -DfailIfNoTests=true prevents a rename/move from becoming false-green.
         env:
           # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
@@ -520,7 +522,7 @@ jobs:
           mvn test -B -ntp \
             -Dsurefire.useFile=true \
             -DfailIfNoTests=true \
-            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest'
+            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest,PlatformSessionInvalidationPostgresAcceptanceTest,PlatformUserPostgresAcceptanceTest'
 
       - name: Upload acceptance test reports
         if: always()
@@ -543,6 +545,8 @@ jobs:
               "CommerceOrderPostgresConcurrencyTest": 6,
               "RbacAccessCheckPostgresAcceptanceTest": 15,
               "ModuleRegistryUatPostgresAcceptanceTest": 10,
+              "PlatformSessionInvalidationPostgresAcceptanceTest": 3,
+              "PlatformUserPostgresAcceptanceTest": 2,
           }
           actual = {}
           failures = errors = skipped = total = 0
@@ -574,7 +578,7 @@ jobs:
               print(f"{cls}={actual.get(cls, 0)}/{count}")
 
           ok = (
-              total == 31
+              total == 36
               and failures == 0
               and errors == 0
               and skipped == 0
@@ -646,9 +650,10 @@ jobs:
 #     WorkflowY2CapabilityMigrationTest = 3/0F/0E
 #   - PG-ACCEPTANCE COMPANION after the Gate-G freeze only:
 #     pristine pg_acceptance DB, SPRING_PROFILES_ACTIVE=
-#     pg-acceptance, ALL THREE gated classes in one explicit
-#     invocation, EXPECTED_ACCEPTANCE_TESTS=31 (Commerce=6,
-#     RBAC=15, ModuleRegistryHumanUAT=10), 0F/0E/0S
+#     pg-acceptance, ALL FIVE gated classes in one explicit
+#     invocation, EXPECTED_ACCEPTANCE_TESTS=36 (Commerce=6,
+#     RBAC=15, ModuleRegistryHumanUAT=10, SessionInvalidation=3,
+#     PlatformUser=2), 0F/0E/0S
 #   - EVIDENCE MANIFEST + VERDICT files (A6-GATE-G-METADATA.txt,
 #     A6-GATE-G-RECONCILIATION.txt, A6-GATE-G-VERDICT.txt,
 #     A6-PG-ACCEPTANCE-VERDICT.txt, SHA256SUMS.txt) uploaded as a
@@ -1062,7 +1067,7 @@ jobs:
                       if has_skip:
                           cn = (tc.get("classname") or s.get("name") or "").split(".")[-1]
                           skip_classes[cn] = skip_classes.get(cn, 0) + 1
-          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15, "ModuleRegistryUatPostgresAcceptanceTest": 10}
+          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15, "ModuleRegistryUatPostgresAcceptanceTest": 10, "PlatformSessionInvalidationPostgresAcceptanceTest": 3, "PlatformUserPostgresAcceptanceTest": 2}
           unexplained = critical = 0
           detail = []
           for cn, n in sorted(skip_classes.items()):
@@ -1150,7 +1155,7 @@ jobs:
           date -u +%Y-%m-%dT%H:%M:%SZ > "$CANON_ROOT/ACCEPTANCE_START_UTC.txt"
           set +e
           mvn test -B -ntp -Dsurefire.useFile=true -DfailIfNoTests=true \
-            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest' \
+            -Dtest='CommerceOrderPostgresConcurrencyTest,RbacAccessCheckPostgresAcceptanceTest,ModuleRegistryUatPostgresAcceptanceTest,PlatformSessionInvalidationPostgresAcceptanceTest,PlatformUserPostgresAcceptanceTest' \
             2>&1 | tee "$CANON_ROOT/A6-PG-ACCEPTANCE-CONSOLE.log"
           ACC_EXIT="${PIPESTATUS[0]}"
           set -e
@@ -1209,7 +1214,7 @@ jobs:
                 and acc_exit == "0" and parse_errors == 0)
           with open(out_path, "w") as w:
               w.write("ACCEPTANCE_EXIT_CODE=%s\n" % acc_exit)
-              w.write("EXPECTED_ACCEPTANCE_TESTS=31\n")
+              w.write("EXPECTED_ACCEPTANCE_TESTS=36\n")
               w.write("ACTUAL_ACCEPTANCE_TESTS=%d\n" % tests)
               w.write("PG_ACCEPTANCE_TESTS=%d\n" % tests)
               w.write("PG_ACCEPTANCE_FAILURES=%d\n" % failures)
@@ -1270,7 +1275,7 @@ jobs:
               "SUREFIRE_RECONCILIATION==PASS": recon.get("SUREFIRE_RECONCILIATION") == "PASS",
               "CRITICAL_INVARIANTS==PASS": recon.get("CRITICAL_INVARIANTS") == "PASS",
               "FROZEN_EVIDENCE_BINDING==PASS": feb == "PASS",
-              "PG_ACCEPTANCE==31/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "31"
+              "PG_ACCEPTANCE==36/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "36"
                                            and acc.get("PG_ACCEPTANCE_FAILURES") == "0"
                                            and acc.get("PG_ACCEPTANCE_ERRORS") == "0"
                                            and acc.get("PG_ACCEPTANCE_SKIPPED") == "0"),
