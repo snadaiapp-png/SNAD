@@ -31,6 +31,7 @@ jobs:
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
+      G2_SCOPE_FIXTURE_READY: 'true'
     defaults:
       run:
         working-directory: apps/sanad-platform
@@ -164,8 +165,12 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/g2-focused-scope-invariants.log"
           grep -Fq "g2-canonical-scope-invariants: PASS self=3 team=1" "$RUNNER_TEMP/g2-focused-scope-invariants.log"
 
-      - name: Run focused resolver and fixture contracts
-        run: mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true -Dtest=HrEmploymentScopeResolverTest,HrG2AcceptanceSeedRoleScopeTest
+      - name: Run real resolver plus fixture contracts
+        run: >-
+          mvn test -B -ntp
+          -Dsurefire.useFile=false
+          -DfailIfNoTests=true
+          -Dtest=HrEmploymentScopeResolverTest,HrEmploymentScopeResolverPostgresTest,HrG2AcceptanceSeedRoleScopeTest
 
       - name: Upload focused reports and PostgreSQL evidence
         if: always()
