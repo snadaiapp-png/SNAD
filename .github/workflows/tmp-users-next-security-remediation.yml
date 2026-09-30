@@ -1,0 +1,131 @@
+name: Temporary Users Next Security Remediation
+
+on:
+  push:
+    branches:
+      - fix/users-production-release-governance
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact remediation branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: RED — reproduce GHSA-vcvr-r3jv-pc5j
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          set +e
+          npm audit --omit=dev --audit-level=high > /tmp/users-next-red-audit.txt 2>&1
+          rc=$?
+          set -e
+          cat /tmp/users-next-red-audit.txt
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::RED invalid: production dependency audit is already green"
+            exit 1
+          fi
+          grep -q 'GHSA-vcvr-r3jv-pc5j' /tmp/users-next-red-audit.txt || {
+            echo "::error::Expected GHSA-vcvr-r3jv-pc5j was not reproduced"
+            exit 1
+          }
+          grep -q 'Severity: critical' /tmp/users-next-red-audit.txt || {
+            echo "::error::Expected critical Next.js advisory severity was not reproduced"
+            exit 1
+          }
+          echo "RED_NEXT_GHSA_VCVR_R3JV_PC5J=PASS"
+
+      - name: Apply minimal patched Next.js release
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (pkg.dependencies?.next !== '^16.3.3') {
+            throw new Error(`Unexpected Next.js baseline: ${pkg.dependencies?.next}`);
+          }
+          NODE
+          npm install next@16.3.6 --package-lock-only --ignore-scripts --save-prefix='^'
+          node <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          if (pkg.dependencies?.next !== '^16.3.6') {
+            throw new Error(`Unexpected package.json Next.js remediation: ${pkg.dependencies?.next}`);
+          }
+          if (lock.packages?.['node_modules/next']?.version !== '16.3.6') {
+            throw new Error(`Unexpected locked Next.js version: ${lock.packages?.['node_modules/next']?.version}`);
+          }
+          if (lock.packages?.['node_modules/@next/env']?.version !== '16.3.6') {
+            throw new Error(`Unexpected locked @next/env version: ${lock.packages?.['node_modules/@next/env']?.version}`);
+          }
+          NODE
+
+      - name: Verify locked install
+        working-directory: apps/web
+        run: npm ci
+
+      - name: GREEN — production dependency audit is clean
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --audit-level=high
+          locked_next="$(node -p "require('./node_modules/next/package.json').version")"
+          test "$locked_next" = "16.3.6" || {
+            echo "::error::Installed Next.js is $locked_next, expected 16.3.6"
+            exit 1
+          }
+          npm ls next --all
+          echo "FRONTEND_PRODUCTION_DEPENDENCY_AUDIT_REMEDIATION=PASS"
+
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: TypeScript
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        working-directory: apps/web
+        run: npm test
+
+      - name: Production build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Commit remediation and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-users-next-security-remediation.yml
+          git add apps/web/package.json apps/web/package-lock.json
+          unexpected="$(git diff --cached --name-only | grep -Ev '^(\.github/workflows/tmp-users-next-security-remediation\.yml|apps/web/package\.json|apps/web/package-lock\.json)$' || true)"
+          test -z "$unexpected" || {
+            echo "::error::Unexpected staged paths"
+            printf '%s\n' "$unexpected"
+            exit 1
+          }
+          git diff --cached --check
+          git commit -m "fix(web): patch critical Next.js production advisory"
+          git push origin HEAD:fix/users-production-release-governance
