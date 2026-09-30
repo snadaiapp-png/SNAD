@@ -115,8 +115,7 @@ jobs:
           git add \
             .github/workflows/users-production-certification.yml \
             tests/ci/test_users_module_closure_workflow.py \
-            apps/sanad-platform/.release/users-production-certification-image-trigger.md \
-            apps/sanad-platform/.release/users-production-certification-trigger.md
+            apps/sanad-platform/.release/users-production-certification-image-trigger.md
           unexpected="$(git diff --cached --name-only | grep -Ev '^(\.github/workflows/tmp-users-certification-contract-remediation\.yml|\.github/workflows/users-production-certification\.yml|tests/ci/test_users_module_closure_workflow\.py|apps/sanad-platform/\.release/users-production-certification(-image)?-trigger\.md)$' || true)"
           test -z "$unexpected" || {
             echo "::error::Unexpected staged paths"
