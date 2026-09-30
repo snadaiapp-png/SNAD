@@ -56,6 +56,27 @@ class HrG2AcceptanceSeedRoleScopeTest {
                 .contains("'33333333-3333-4333-8333-333333333368',\n    '33333333-3333-4333-8333-333333333331',\n    '33333333-3333-4333-8333-333333333361',\n    '33333333-3333-4333-8333-333333333335',\n    NULL,\n    NULL,\n    '33333333-3333-4333-8333-333333333367'");
     }
 
+    @Test
+    void g2AcceptanceSeedFailsClosedWhenCanonicalScopeGraphIsIncomplete() throws IOException {
+        String sql = seedSql();
+
+        assertThat(sql)
+                .as("the fixture must execute SELF-scope invariants, not merely print canonical row counts")
+                .contains("G2_CANONICAL_SELF_SCOPE_INVARIANT_FAILED")
+                .contains("RAISE EXCEPTION")
+                .contains("JOIN hr_people person")
+                .contains("employee.person_id = person.id")
+                .contains("person.user_id");
+
+        assertThat(sql)
+                .as("the fixture must execute TEAM-scope invariants equivalent to HrEmploymentScopeResolver")
+                .contains("G2_CANONICAL_TEAM_SCOPE_INVARIANT_FAILED")
+                .contains("JOIN hr_employee_assignments target_assignment")
+                .contains("JOIN hr_employee_assignments manager_assignment")
+                .contains("target_assignment.reports_to_assignment_id = manager_assignment.id")
+                .contains("manager_person.user_id");
+    }
+
     private String seedSql() throws IOException {
         try (var stream = getClass().getResourceAsStream(SEED)) {
             assertThat(stream).as("G2 acceptance seed must exist").isNotNull();
