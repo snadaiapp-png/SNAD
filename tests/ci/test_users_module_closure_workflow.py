@@ -21,6 +21,8 @@ def main() -> None:
             'workflow must checkout exact candidate SHA')
     require('test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"' in text,
             'workflow must verify checked-out SHA')
+    require("- 'apps/web/package-lock.json'" in text,
+            'workflow must rerun when the web dependency lockfile changes')
 
     require('services:' not in lower, 'service containers are forbidden')
     require('testcontainers' not in lower, 'Testcontainers path is forbidden')
