@@ -215,6 +215,7 @@ class CrmPostgresMigrationTest {
     private static final String HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION = "20260924.6";
     private static final String SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION = "20260925.1";
     private static final String SUBSCRIPTION_OPERATING_UNITS_VERSION = "20260925.2";
+    private static final String HR_G3_PERFORMANCE_GOALS_VERSION = "20260930.1";
     private static final String UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION = "20261001.1";
     private static final String PLATFORM_IAM_MEMBERSHIPS_VERSION = "20261001.2";
     private static final String PLATFORM_IAM_ROLE_METADATA_VERSION = "20261001.3";
@@ -488,6 +489,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),
+                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_GOALS_VERSION),
                         MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
@@ -698,6 +700,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),
+                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_GOALS_VERSION),
                         MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),

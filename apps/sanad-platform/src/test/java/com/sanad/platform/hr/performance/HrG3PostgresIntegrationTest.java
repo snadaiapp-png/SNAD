@@ -10,18 +10,19 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * HRM-G3 PostgreSQL Direct RED contract.
+ * HRM-G3 PostgreSQL Direct contract.
  *
- * <p>This test intentionally lands before the G3 migrations. The first run
- * must fail because the performance tables/constraints do not exist yet.
- * It runs only against host-native PostgreSQL; Docker/Testcontainers are not
- * part of this contract.
+ * <p>Runs against host-native PostgreSQL only. The fixture is self-contained:
+ * every test creates its own tenant + canonical Person/Employment graph, so a
+ * missing external seed can never turn a security assertion into SKIPPED.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class HrG3PostgresIntegrationTest {
@@ -32,9 +33,6 @@ class HrG3PostgresIntegrationTest {
             "SPRING_DATASOURCE_USERNAME", "sanad");
     private static final String DB_PASSWORD = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_PASSWORD", "");
-
-    private static final UUID TENANT_A = UUID.fromString("33333333-3333-4333-8333-333333333331");
-    private static final UUID TENANT_B = UUID.fromString("44444444-4444-4444-8444-444444444441");
 
     @BeforeAll
     void requirePostgres() {
@@ -50,37 +48,23 @@ class HrG3PostgresIntegrationTest {
         DataSource ds = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
         try (Connection conn = ds.getConnection()) {
             assertThat(tableExists(conn, "hr_performance_goals"))
-                    .as("RED: G3 must create hr_performance_goals before tenant isolation can be certified")
+                    .as("G3 must create hr_performance_goals before tenant isolation can be certified")
                     .isTrue();
 
-            UUID personId = firstUuid(conn, "SELECT id FROM hr_people WHERE tenant_id = ? ORDER BY id LIMIT 1", TENANT_A);
-            UUID employmentId = firstUuid(conn, "SELECT id FROM hr_employees WHERE tenant_id = ? ORDER BY id LIMIT 1", TENANT_A);
-            Assumptions.assumeTrue(personId != null && employmentId != null,
-                    "Canonical HR seed must provide tenant A person/employment");
+            UUID tenantA = UUID.randomUUID();
+            UUID tenantB = UUID.randomUUID();
+            seedTenant(conn, tenantA);
+            seedTenant(conn, tenantB);
+
+            setTenant(conn, tenantA);
+            UUID personId = seedPerson(conn, tenantA, "Tenant", "A");
+            UUID legalEntityId = seedLegalEntity(conn, tenantA);
+            UUID employmentId = seedEmployment(conn, tenantA, personId, legalEntityId);
 
             UUID goalId = UUID.randomUUID();
-            try (Statement stmt = conn.createStatement()) {
-                stmt.execute("SELECT set_config('app.tenant_id', '" + TENANT_A + "', false)");
-            }
-            try (PreparedStatement insert = conn.prepareStatement(
-                    "INSERT INTO hr_performance_goals " +
-                    "(id, tenant_id, person_id, employment_id, title, metric, target_value, progress, status, starts_on, ends_on) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, CURRENT_DATE + 30)")) {
-                insert.setObject(1, goalId);
-                insert.setObject(2, TENANT_A);
-                insert.setObject(3, personId);
-                insert.setObject(4, employmentId);
-                insert.setString(5, "G3 tenant isolation RED goal");
-                insert.setString(6, "percent");
-                insert.setString(7, "100");
-                insert.setInt(8, 10);
-                insert.setString(9, "ACTIVE");
-                insert.executeUpdate();
-            }
+            insertGoal(conn, goalId, tenantA, personId, employmentId);
 
-            try (Statement stmt = conn.createStatement()) {
-                stmt.execute("SELECT set_config('app.tenant_id', '" + TENANT_B + "', false)");
-            }
+            setTenant(conn, tenantB);
             try (PreparedStatement query = conn.prepareStatement(
                     "SELECT COUNT(*) FROM hr_performance_goals WHERE id = ?")) {
                 query.setObject(1, goalId);
@@ -99,19 +83,116 @@ class HrG3PostgresIntegrationTest {
         DataSource ds = new DriverManagerDataSource(DB_URL, DB_USER, DB_PASSWORD);
         try (Connection conn = ds.getConnection()) {
             assertThat(tableExists(conn, "hr_performance_goals"))
-                    .as("RED: G3 goal persistence must exist before canonical-employment enforcement can be certified")
+                    .as("G3 goal persistence must exist before canonical-employment enforcement can be certified")
                     .isTrue();
 
-            String fkDefinition = constraintDefinitionContaining(
-                    conn,
-                    "hr_performance_goals",
-                    "employment_id"
-            );
-            assertThat(fkDefinition)
-                    .as("Performance goals must have a database constraint bound to canonical employment_id")
-                    .isNotBlank()
-                    .containsIgnoringCase("FOREIGN KEY")
-                    .containsIgnoringCase("employment_id");
+            UUID tenantId = UUID.randomUUID();
+            seedTenant(conn, tenantId);
+            setTenant(conn, tenantId);
+
+            UUID employmentOwner = seedPerson(conn, tenantId, "Employment", "Owner");
+            UUID differentPerson = seedPerson(conn, tenantId, "Different", "Person");
+            UUID legalEntityId = seedLegalEntity(conn, tenantId);
+            UUID employmentId = seedEmployment(conn, tenantId, employmentOwner, legalEntityId);
+
+            assertThatThrownBy(() -> insertGoal(
+                    conn, UUID.randomUUID(), tenantId, differentPerson, employmentId))
+                    .as("A goal must not bind an Employment to a different canonical Person")
+                    .isInstanceOf(SQLException.class)
+                    .extracting(t -> ((SQLException) t).getSQLState())
+                    .isEqualTo("23503");
+        }
+    }
+
+    private void seedTenant(Connection conn, UUID tenantId) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) " +
+                "VALUES (?, 'G3 Test', ?, 'ACTIVE', NOW(), NOW())")) {
+            ps.setObject(1, tenantId);
+            ps.setString(2, "g3-" + tenantId.toString().substring(0, 8));
+            ps.executeUpdate();
+        }
+    }
+
+    private UUID seedPerson(Connection conn, UUID tenantId, String firstName, String lastName) throws Exception {
+        UUID personId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_people " +
+                "(id, tenant_id, user_id, first_name, last_name, display_name, version, created_at, updated_at) " +
+                "VALUES (?, ?, NULL, ?, ?, ?, 0, NOW(), NOW())")) {
+            ps.setObject(1, personId);
+            ps.setObject(2, tenantId);
+            ps.setString(3, firstName);
+            ps.setString(4, lastName);
+            ps.setString(5, firstName + " " + lastName);
+            ps.executeUpdate();
+        }
+        return personId;
+    }
+
+    private UUID seedLegalEntity(Connection conn, UUID tenantId) throws Exception {
+        UUID legalEntityId = UUID.randomUUID();
+        String code = "G3-" + legalEntityId.toString().substring(0, 8);
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO legal_entities " +
+                "(id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, 'SA', 'SA', 'ACTIVE', NOW(), NOW())")) {
+            ps.setObject(1, legalEntityId);
+            ps.setObject(2, tenantId);
+            ps.setString(3, code);
+            ps.setString(4, "G3 Legal Entity " + code);
+            ps.executeUpdate();
+        }
+        return legalEntityId;
+    }
+
+    private UUID seedEmployment(
+            Connection conn,
+            UUID tenantId,
+            UUID personId,
+            UUID legalEntityId) throws Exception {
+        UUID employmentId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employees " +
+                "(id, tenant_id, person_id, legal_entity_id, employee_number, first_name, last_name, display_name, " +
+                "employment_type, status, hire_date, version, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, 'G3', 'Employee', 'G3 Employee', 'FULL_TIME', 'ACTIVE', DATE '2026-01-01', 0, NOW(), NOW())")) {
+            ps.setObject(1, employmentId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, personId);
+            ps.setObject(4, legalEntityId);
+            ps.setString(5, "G3-EMP-" + employmentId.toString().substring(0, 8));
+            ps.executeUpdate();
+        }
+        return employmentId;
+    }
+
+    private void insertGoal(
+            Connection conn,
+            UUID goalId,
+            UUID tenantId,
+            UUID personId,
+            UUID employmentId) throws Exception {
+        try (PreparedStatement insert = conn.prepareStatement(
+                "INSERT INTO hr_performance_goals " +
+                "(id, tenant_id, person_id, employment_id, title, metric, target_value, progress, status, starts_on, ends_on) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, CURRENT_DATE + 30)")) {
+            insert.setObject(1, goalId);
+            insert.setObject(2, tenantId);
+            insert.setObject(3, personId);
+            insert.setObject(4, employmentId);
+            insert.setString(5, "G3 canonical goal");
+            insert.setString(6, "percent");
+            insert.setString(7, "100");
+            insert.setInt(8, 10);
+            insert.setString(9, "ACTIVE");
+            insert.executeUpdate();
+        }
+    }
+
+    private void setTenant(Connection conn, UUID tenantId) throws Exception {
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
         }
     }
 
@@ -123,30 +204,6 @@ class HrG3PostgresIntegrationTest {
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 return rs.getBoolean(1);
-            }
-        }
-    }
-
-    private UUID firstUuid(Connection conn, String sql, UUID tenantId) throws Exception {
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setObject(1, tenantId);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getObject(1, UUID.class) : null;
-            }
-        }
-    }
-
-    private String constraintDefinitionContaining(Connection conn, String tableName, String token) throws Exception {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT pg_get_constraintdef(con.oid) " +
-                "FROM pg_constraint con " +
-                "JOIN pg_class rel ON rel.oid = con.conrelid " +
-                "WHERE rel.relname = ? AND pg_get_constraintdef(con.oid) ILIKE ? " +
-                "ORDER BY con.conname LIMIT 1")) {
-            ps.setString(1, tableName);
-            ps.setString(2, "%" + token + "%");
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getString(1) : "";
             }
         }
     }
