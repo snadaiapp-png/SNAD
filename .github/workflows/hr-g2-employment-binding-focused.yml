@@ -87,13 +87,15 @@ jobs:
 
       - name: Provision least-privilege focused role and database
         shell: bash
-        env:
-          DB_CRED: ${{ env.DATABASE_PASSWORD }}
         run: |
           set -euo pipefail
+          test -n "${DATABASE_PASSWORD:-}" || {
+            echo "::error::runtime DATABASE_PASSWORD was not propagated"
+            exit 1
+          }
           sudo -u postgres psql \
             -v ON_ERROR_STOP=1 \
-            -v db_credential="$DB_CRED" <<'SQL'
+            -v db_credential="$DATABASE_PASSWORD" <<'SQL'
           SELECT format('CREATE ROLE sanad_g2_focus WITH LOGIN PASSWORD %L', :'db_credential')
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g2_focus')
           \gexec
@@ -114,7 +116,7 @@ jobs:
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_g2_focus;
           SQL
 
-          PGPASSWORD="$DB_CRED" psql \
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
             -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
             -v ON_ERROR_STOP=1 -Atc "SELECT current_database() || '|' || current_user"
 
