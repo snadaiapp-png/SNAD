@@ -99,6 +99,10 @@ def verify_users_production_release() -> None:
 
     require('ghcr.io/token' in text and '/manifests/$DEPLOYMENT_IMAGE_SHA' in text,
             'workflow must verify the immutable GHCR manifest without Docker')
+    require('application/vnd.oci.image.index.v1+json' in text,
+            'GHCR verification must accept OCI image index media type emitted by Buildx')
+    require('application/vnd.docker.distribution.manifest.list.v2+json' in text,
+            'GHCR verification must accept Docker manifest-list media type')
     require('docker ' not in lower and 'docker:' not in lower,
             'Docker is forbidden in the Users production release path')
     require('testcontainers' not in lower and 'services:' not in lower,
