@@ -64,3 +64,10 @@ jobs:
         run: |
           mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true \
             -Dtest='HrApiV2AuthorizationTest,HrG3OpenApiContractTest'
+      - name: Generate runtime HR OpenAPI artifact
+        run: |
+          mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true \
+            -Dtest='HrOpenApiContractTest' -Dhrm.openapi.generate=true
+          echo '---HRM_OPENAPI_ARTIFACT_BEGIN---'
+          cat ../../docs/hrm/contracts/openapi/hrm-openapi.json
+          echo '---HRM_OPENAPI_ARTIFACT_END---'
