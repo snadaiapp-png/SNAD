@@ -109,6 +109,45 @@ public class HrPerformanceReviewService {
         }
     }
 
+    /**
+     * Task 4 SELF API read: visibility is restricted to the actor's canonical
+     * employment only and deliberately does not inherit generic TEAM visibility.
+     */
+    public PerformanceReview getSelfReviewForApi(UUID tenantId, UUID actorUserId, UUID reviewId) {
+        PerformanceReview review = repository.findById(tenantId, reviewId)
+                .orElseThrow(() -> new AccessDeniedException(
+                        "Performance review is not visible to the authenticated principal"));
+        UUID selfEmployment = scopeResolver.requireSelfEmployment(tenantId, actorUserId);
+        if (review.subjectEmploymentId().equals(selfEmployment)
+                || review.reviewerEmploymentId().equals(selfEmployment)) {
+            return review;
+        }
+        throw new AccessDeniedException(
+                "Performance review is outside the authenticated SELF scope");
+    }
+
+    /**
+     * Task 4 TEAM API read: the subject must be an effective canonical direct
+     * report resolved through PRIMARY assignment reporting.
+     */
+    public PerformanceReview getTeamReviewForApi(UUID tenantId, UUID managerUserId, UUID reviewId) {
+        PerformanceReview review = repository.findById(tenantId, reviewId)
+                .orElseThrow(() -> new AccessDeniedException(
+                        "Performance review is not visible to the authenticated principal"));
+        scopeResolver.requireManagedEmployment(tenantId, managerUserId, review.subjectEmploymentId());
+        return review;
+    }
+
+    /**
+     * Task 4 TEAM cancel: TEAM relationship is required in addition to the
+     * existing canonical-reviewer lifecycle rule.
+     */
+    public PerformanceReview cancelTeamReviewForApi(UUID tenantId, UUID managerUserId, UUID reviewId) {
+        PerformanceReview current = getTeamReviewForApi(tenantId, managerUserId, reviewId);
+        requireReviewer(current, scopeResolver.requireSelfEmployment(tenantId, managerUserId));
+        return transition(tenantId, managerUserId, reviewId, current, ReviewStatus.CANCELLED);
+    }
+
     /** Reviews where the actor's employment is the subject or the reviewer. */
     public List<PerformanceReview> listReviewsForActor(UUID tenantId, UUID actorUserId) {
         UUID selfEmployment = scopeResolver.requireSelfEmployment(tenantId, actorUserId);

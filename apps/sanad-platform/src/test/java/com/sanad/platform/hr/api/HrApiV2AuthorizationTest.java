@@ -55,7 +55,22 @@ class HrApiV2AuthorizationTest {
             "HRM.LEAVE.SELF_REQUEST", "HRM.LEAVE.SELF_VIEW",
             "HRM.LEAVE.TEAM_APPROVE", "HRM.LEAVE.HR_APPROVE", "HRM.LEAVE.POLICY_ADMIN",
             "HRM.TIMESHEET.SELF_VIEW", "HRM.TIMESHEET.SELF_SUBMIT", "HRM.TIMESHEET.TEAM_APPROVE",
+            // G3 performance capabilities. These are seeded by the Task 4 API slice only;
+            // HR_MANAGER must remain unchanged and receives no implicit HRM.* grant.
+            "HRM.PERFORMANCE.GOAL.SELF_VIEW", "HRM.PERFORMANCE.GOAL.SELF_UPDATE",
+            "HRM.PERFORMANCE.GOAL.TEAM_MANAGE",
+            "HRM.PERFORMANCE.REVIEW.SELF_VIEW", "HRM.PERFORMANCE.REVIEW.SELF_SUBMIT",
+            "HRM.PERFORMANCE.REVIEW.TEAM_MANAGE", "HRM.PERFORMANCE.ADMIN",
             "HRM.ADMIN");
+
+    private static final List<String> G3_PERFORMANCE_CAPABILITIES = List.of(
+            "HRM.PERFORMANCE.GOAL.SELF_VIEW",
+            "HRM.PERFORMANCE.GOAL.SELF_UPDATE",
+            "HRM.PERFORMANCE.GOAL.TEAM_MANAGE",
+            "HRM.PERFORMANCE.REVIEW.SELF_VIEW",
+            "HRM.PERFORMANCE.REVIEW.SELF_SUBMIT",
+            "HRM.PERFORMANCE.REVIEW.TEAM_MANAGE",
+            "HRM.PERFORMANCE.ADMIN");
 
     private static final String DB_URL = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_URL", "jdbc:postgresql://localhost:5432/sanad");
@@ -126,6 +141,76 @@ class HrApiV2AuthorizationTest {
         assertThat(caps.stream().filter(c -> c.startsWith("HRM.")).count())
                 .as("no HRM.* capability may be bound to HR_MANAGER")
                 .isZero();
+    }
+
+    @Test
+    void g3CapabilityMigrationBackfillsExistingAdminWithTenantScopesOnly() throws Exception {
+        DriverManagerDataSource ds = new DriverManagerDataSource(isolatedUrl, DB_USER, DB_PASSWORD);
+
+        if (connection != null) {
+            connection.close();
+        }
+
+        Flyway beforeTask4 = Flyway.configure()
+                .dataSource(ds)
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .baselineOnMigrate(true)
+                .cleanDisabled(false)
+                .validateOnMigrate(false)
+                .target("20261002.3")
+                .load();
+        beforeTask4.clean();
+        beforeTask4.migrate();
+
+        connection = ds.getConnection();
+        connection.setAutoCommit(true);
+
+        UUID tenantId = UUID.randomUUID();
+        insertTenant(tenantId);
+        setTenant(tenantId);
+        UUID adminRoleId = insertRole(tenantId, "ADMIN");
+        UUID hrManagerRoleId = insertRole(tenantId, "HR_MANAGER");
+        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.READ");
+        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.WRITE");
+        grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.ARCHIVE");
+
+        Flyway task4 = Flyway.configure()
+                .dataSource(ds)
+                .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
+                .baselineOnMigrate(true)
+                .validateOnMigrate(false)
+                .load();
+        task4.migrate();
+
+        assertThat(roleCapabilities(tenantId, adminRoleId))
+                .as("Task 4 migration must backfill canonical G3 capabilities to existing ADMIN")
+                .containsAll(G3_PERFORMANCE_CAPABILITIES);
+        assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
+                + "JOIN access_capabilities c ON c.id = g.capability_id "
+                + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
+                + "AND g.scope_type = 'TENANT' AND g.status = 'ACTIVE' "
+                + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
+                .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
+
+        task4.migrate();
+        assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
+                + "JOIN access_capabilities c ON c.id = rc.capability_id "
+                + "WHERE rc.tenant_id = '" + tenantId + "' AND rc.role_id = '" + adminRoleId + "' "
+                + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
+                .as("Task 4 ADMIN role grant backfill must be idempotent")
+                .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
+        assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
+                + "JOIN access_capabilities c ON c.id = g.capability_id "
+                + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
+                + "AND g.scope_type = 'TENANT' AND g.status = 'ACTIVE' "
+                + "AND c.code LIKE 'HRM.PERFORMANCE.%'"))
+                .as("Task 4 TENANT scope backfill must be idempotent")
+                .isEqualTo(Integer.toString(G3_PERFORMANCE_CAPABILITIES.size()));
+
+        List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
+        assertThat(hrManagerCaps).containsExactlyInAnyOrder(
+                "HR.EMPLOYEE.READ", "HR.EMPLOYEE.WRITE", "HR.EMPLOYEE.ARCHIVE");
+        assertThat(hrManagerCaps).noneMatch(code -> code.startsWith("HRM."));
     }
 
     @Test

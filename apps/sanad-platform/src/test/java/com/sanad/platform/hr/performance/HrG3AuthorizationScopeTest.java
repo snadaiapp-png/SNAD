@@ -1,10 +1,12 @@
 package com.sanad.platform.hr.performance;
 
+import com.sanad.platform.hr.api.v2.performance.HrPerformanceReviewV2Controller;
 import com.sanad.platform.hr.performance.application.HrPerformanceReviewService;
 import com.sanad.platform.hr.performance.application.PerformanceReviewInput;
 import com.sanad.platform.hr.performance.domain.PerformanceReview;
 import com.sanad.platform.hr.performance.infrastructure.PerformanceReviewRepository;
 import com.sanad.platform.hr.time.application.HrEmploymentScopeResolver;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -22,10 +25,13 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * HRM-G3 Task 2 — PostgreSQL Direct behavioral authorization-scope contract.
@@ -128,6 +134,37 @@ class HrG3AuthorizationScopeTest {
         assertThat(service.getReviewForActor(
                 scenario.tenantId(), scenario.employeeUserId(), selfReview.id()).id())
                 .isEqualTo(selfReview.id());
+    }
+
+    @Test
+    void task4ReviewControllersKeepSelfAndTeamReadScopesDisjoint() {
+        UUID tenantId = UUID.randomUUID();
+        seedTenantOnce(tenantId);
+        Scenario scenario = seedReportingScenario(tenantId, null);
+        actAs(tenantId);
+
+        PerformanceReview selfReview = service.createSelfReview(
+                scenario.tenantId(), scenario.employeeUserId(),
+                input("CYCLE-2026-H1", 4, "scope boundary"));
+
+        TenantRlsTransactionContext rls = mock(TenantRlsTransactionContext.class);
+        HrPerformanceReviewV2Controller controller =
+                new HrPerformanceReviewV2Controller(service, rls);
+
+        Authentication manager = authentication(scenario.tenantId(), scenario.managerUserId());
+        Authentication employee = authentication(scenario.tenantId(), scenario.employeeUserId());
+
+        assertThatThrownBy(() -> controller.getReview(manager, selfReview.id()))
+                .as("SELF_VIEW route must not inherit generic TEAM visibility")
+                .isInstanceOf(AccessDeniedException.class);
+
+        assertThatThrownBy(() -> controller.getTeamReview(employee, selfReview.id()))
+                .as("TEAM_MANAGE route must require a canonical managed employment")
+                .isInstanceOf(AccessDeniedException.class);
+
+        assertThatThrownBy(() -> controller.cancelTeamReview(employee, selfReview.id()))
+                .as("TEAM_MANAGE cancel must not accept SELF/reviewer visibility as TEAM scope")
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     // ==================== TEAM scope ====================
@@ -249,6 +286,14 @@ class HrG3AuthorizationScopeTest {
 
     private void actAs(UUID tenantId) {
         CURRENT_TENANT.set(tenantId);
+    }
+
+    private static Authentication authentication(UUID tenantId, UUID userId) {
+        Authentication authentication = mock(Authentication.class);
+        when(authentication.getDetails()).thenReturn(Map.of(
+                "tenant_id", tenantId,
+                "user_id", userId));
+        return authentication;
     }
 
     /** Seeds the tenant row exactly once; graph helpers never seed tenants. */
