@@ -101,7 +101,8 @@ class R0C13G02SchemaPostgresTest {
             // V20260922_1 adds HRM-G1 canonical operator capabilities and ADMIN tenant scopes.
             // V20261001_2..7 add and reconcile the Platform IAM chain.
             // V20261001_8..12 are the forward-only UAC Wave 1 execution overlay.
-            assertThat(rs.getString(1)).isEqualTo("20261001.12");
+            // V20261002_1 adds the HRM-G3 Task 2 performance-reviews schema + RLS.
+            assertThat(rs.getString(1)).isEqualTo("20261002.1");
         }
     }
 

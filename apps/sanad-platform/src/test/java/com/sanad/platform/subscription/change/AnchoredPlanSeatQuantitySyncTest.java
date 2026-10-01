@@ -75,8 +75,16 @@ class AnchoredPlanSeatQuantitySyncTest {
     private static final UUID ANCHOR_VERSION_ID = UUID.fromString("d1000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_VERSION_ID = UUID.fromString("d1000000-0000-0000-0000-000000000009");
     private static final long UNIT_PRICE = 30000L;
-    private static final Instant PERIOD_START = Instant.parse("2026-09-01T00:00:00Z");
-    private static final Instant PERIOD_END = Instant.parse("2026-10-01T00:00:00Z");
+    // Clock-independent active period: anchored to the UTC day the class
+    // loads — starts 7 days in the past and ends 23 days ahead (30-day total
+    // preserved) so the proration fraction stays strictly positive for every
+    // CI run regardless of wall-clock date. The previous hardcoded September
+    // window expired on 2026-10-01T00:00:00Z, clamping prorate() to 0 and
+    // dropping the third jdbc.update (invoice) invocation deterministically.
+    private static final Instant PERIOD_ANCHOR =
+            Instant.now().truncatedTo(java.time.temporal.ChronoUnit.DAYS);
+    private static final Instant PERIOD_START = PERIOD_ANCHOR.minus(java.time.Duration.ofDays(7));
+    private static final Instant PERIOD_END = PERIOD_ANCHOR.plus(java.time.Duration.ofDays(23));
 
     @BeforeEach
     void setUp() {

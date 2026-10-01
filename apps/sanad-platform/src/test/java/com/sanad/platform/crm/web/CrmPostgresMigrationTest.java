@@ -215,6 +215,7 @@ class CrmPostgresMigrationTest {
     private static final String HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION = "20260924.6";
     private static final String SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION = "20260925.1";
     private static final String SUBSCRIPTION_OPERATING_UNITS_VERSION = "20260925.2";
+    private static final String HR_G3_PERFORMANCE_GOALS_VERSION = "20260930.1";
     private static final String UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION = "20261001.1";
     private static final String PLATFORM_IAM_MEMBERSHIPS_VERSION = "20261001.2";
     private static final String PLATFORM_IAM_ROLE_METADATA_VERSION = "20261001.3";
@@ -224,13 +225,14 @@ class CrmPostgresMigrationTest {
     private static final String PLATFORM_OWNER_EXECUTIVE_ADMIN_VERSION = "20261001.7";
     // UAC Wave 1 forward-only overlay (20261001.8..20261001.12). PLATFORM_OWNER_EXECUTIVE_ADMIN_VERSION
     // remains a target-migration reference for the 20261001.7 reconciliation; the repository ledger
-    // head is the last forward-only UAC Wave 1 migration.
+    // head is the last forward-only G3 Task 2 performance-reviews migration.
     private static final String UAC_EFFECTIVE_PERMISSION_PROJECTION_VERSION = "20261001.8";
     private static final String UAC_PROTECTED_ROLES_REGISTRY_VERSION = "20261001.9";
     private static final String UAC_CAPABILITY_METADATA_AUTHZ_VERSION = "20261001.10";
     private static final String UAC_PROJECTION_INDEXES_VERSION = "20261001.11";
     private static final String UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION = "20261001.12";
-    private static final String LATEST_MIGRATION_VERSION = UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION;
+    private static final String HR_G3_PERFORMANCE_REVIEWS_VERSION = "20261002.1";
+    private static final String LATEST_MIGRATION_VERSION = HR_G3_PERFORMANCE_REVIEWS_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -496,6 +498,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),
+                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_GOALS_VERSION),
                         MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
@@ -507,7 +510,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(UAC_PROTECTED_ROLES_REGISTRY_VERSION),
                         MigrationVersion.fromVersion(UAC_CAPABILITY_METADATA_AUTHZ_VERSION),
                         MigrationVersion.fromVersion(UAC_PROJECTION_INDEXES_VERSION),
-                        MigrationVersion.fromVersion(UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION));
+                        MigrationVersion.fromVersion(UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION),
+                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -711,6 +715,7 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G2_FAIL_CLOSED_RLS_REPAIR_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_RESOURCE_ENTITLEMENTS_VERSION),
                         MigrationVersion.fromVersion(SUBSCRIPTION_OPERATING_UNITS_VERSION),
+                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_GOALS_VERSION),
                         MigrationVersion.fromVersion(UAC_OVERRIDES_RELATIONSHIPS_EVENTS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_MEMBERSHIPS_VERSION),
                         MigrationVersion.fromVersion(PLATFORM_IAM_ROLE_METADATA_VERSION),
@@ -722,7 +727,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(UAC_PROTECTED_ROLES_REGISTRY_VERSION),
                         MigrationVersion.fromVersion(UAC_CAPABILITY_METADATA_AUTHZ_VERSION),
                         MigrationVersion.fromVersion(UAC_PROJECTION_INDEXES_VERSION),
-                        MigrationVersion.fromVersion(UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION));
+                        MigrationVersion.fromVersion(UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION),
+                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

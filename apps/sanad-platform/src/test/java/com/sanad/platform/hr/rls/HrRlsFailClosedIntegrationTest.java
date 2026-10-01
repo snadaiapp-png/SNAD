@@ -123,6 +123,11 @@ class HrRlsFailClosedIntegrationTest {
                 "hr_org_unit_versions",
                 "hr_org_units",
                 "hr_people",
+                // G3 performance goals — tenant-scoped and canonical Employment-bound.
+                "hr_performance_goals",
+                // G3 Task 2 performance reviews — tenant-scoped with canonical
+                // subject AND reviewer Employment bindings.
+                "hr_performance_reviews",
                 "hr_person_identifiers",
                 "hr_person_private",
                 "hr_position_versions",
@@ -1217,6 +1222,83 @@ class HrRlsFailClosedIntegrationTest {
         }
     }
 
+    // --- G3 performance-goal seed helper ---
+
+    private void insertG3PerformanceGoal(UUID tenantId) throws Exception {
+        UUID personId = insertHrPerson(tenantId, "G3", "RLS");
+        UUID legalEntityId = seedLegalEntity(tenantId, "LE-G3-" + UUID.randomUUID().toString().substring(0, 6));
+        UUID employmentId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employees " +
+                "(id, tenant_id, person_id, legal_entity_id, employee_number, first_name, last_name, display_name, " +
+                "employment_type, status, hire_date, version, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, 'G3', 'RLS', 'G3 RLS', 'FULL_TIME', 'ACTIVE', DATE '2026-01-01', 0, NOW(), NOW())")) {
+            ps.setObject(1, employmentId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, personId);
+            ps.setObject(4, legalEntityId);
+            ps.setString(5, "G3-RLS-" + employmentId.toString().substring(0, 8));
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_performance_goals " +
+                "(id, tenant_id, person_id, employment_id, title, metric, target_value, progress, status, starts_on, ends_on) " +
+                "VALUES (?, ?, ?, ?, 'G3 RLS Goal', 'percent', '100', 10, 'ACTIVE', CURRENT_DATE, CURRENT_DATE + 30)")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, personId);
+            ps.setObject(4, employmentId);
+            ps.executeUpdate();
+        }
+    }
+
+    // --- G3 Task 2 performance-review seed helper ---
+
+    private void insertG3PerformanceReview(UUID tenantId) throws Exception {
+        UUID legalEntityId = seedLegalEntity(tenantId, "LE-G3R-" + UUID.randomUUID().toString().substring(0, 6));
+        UUID subjectPersonId = insertHrPerson(tenantId, "G3", "Subject");
+        UUID subjectEmploymentId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employees " +
+                "(id, tenant_id, person_id, legal_entity_id, employee_number, first_name, last_name, display_name, " +
+                "employment_type, status, hire_date, version, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, 'G3', 'Subject', 'G3 RLS Subject', 'FULL_TIME', 'ACTIVE', DATE '2026-01-01', 0, NOW(), NOW())")) {
+            ps.setObject(1, subjectEmploymentId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, subjectPersonId);
+            ps.setObject(4, legalEntityId);
+            ps.setString(5, "G3R-SUB-" + subjectEmploymentId.toString().substring(0, 8));
+            ps.executeUpdate();
+        }
+        UUID reviewerPersonId = insertHrPerson(tenantId, "G3", "Reviewer");
+        UUID reviewerEmploymentId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employees " +
+                "(id, tenant_id, person_id, legal_entity_id, employee_number, first_name, last_name, display_name, " +
+                "employment_type, status, hire_date, version, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, 'G3', 'Reviewer', 'G3 RLS Reviewer', 'FULL_TIME', 'ACTIVE', DATE '2026-01-01', 0, NOW(), NOW())")) {
+            ps.setObject(1, reviewerEmploymentId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, reviewerPersonId);
+            ps.setObject(4, legalEntityId);
+            ps.setString(5, "G3R-REV-" + reviewerEmploymentId.toString().substring(0, 8));
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_performance_reviews " +
+                "(id, tenant_id, person_id, employment_id, reviewer_person_id, reviewer_employment_id, " +
+                "source, status, cycle, period_start, period_end, rating, comments) " +
+                "VALUES (?, ?, ?, ?, ?, ?, 'MANAGER', 'SUBMITTED', 'CYCLE-RLS', CURRENT_DATE - 30, CURRENT_DATE, 4, 'G3 RLS Review')")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, subjectPersonId);
+            ps.setObject(4, subjectEmploymentId);
+            ps.setObject(5, reviewerPersonId);
+            ps.setObject(6, reviewerEmploymentId);
+            ps.executeUpdate();
+        }
+    }
+
     // --- Generic seed dispatch ---
 
     private void seedRow(String table, UUID tenantId) throws Exception {
@@ -1225,6 +1307,8 @@ class HrRlsFailClosedIntegrationTest {
             case "hr_departments" -> insertHrDepartment(tenantId);
             case "hr_positions" -> insertHrPosition(tenantId);
             case "hr_people" -> insertHrPerson(tenantId, "RLS", "Test");
+            case "hr_performance_goals" -> insertG3PerformanceGoal(tenantId);
+            case "hr_performance_reviews" -> insertG3PerformanceReview(tenantId);
             case "hr_person_private" -> {
                 UUID personId = insertHrPerson(tenantId, "PII", "Private");
                 insertHrPersonPrivate(personId, tenantId);
