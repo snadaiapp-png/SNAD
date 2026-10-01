@@ -38,12 +38,29 @@ class HrOpenApiContractTest {
     private static final Set<String> METHODS =
             Set.of("get", "post", "put", "patch", "delete", "head", "options", "trace");
 
+    private static final Map<String, Map<String, String>> REQUIRED_G3_OPERATIONS = Map.of(
+            "/api/v2/hr/performance/goals", Map.of(
+                    "get", "hrPerformanceGoalsList",
+                    "post", "hrPerformanceGoalCreate"),
+            "/api/v2/hr/performance/reviews", Map.of(
+                    "get", "hrPerformanceReviewsList",
+                    "post", "hrPerformanceReviewCreate"));
+
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
 
     @Test
     void hrmV2SurfaceMatchesCommittedOpenApiArtifact() throws Exception {
         Map<String, Map<String, String>> runtime = extractRuntimeContract();
+
+        assertThat(runtime)
+                .as("G3 Task 4 runtime contract must expose the performance route families")
+                .containsKeys(REQUIRED_G3_OPERATIONS.keySet().toArray(String[]::new));
+        REQUIRED_G3_OPERATIONS.forEach((path, operations) ->
+                assertThat(runtime.get(path))
+                        .as("G3 Task 4 operations for %s", path)
+                        .containsAllEntriesOf(operations));
+
         Path artifact = Path.of(System.getProperty("user.dir"))
                 .getParent().getParent().resolve("docs/hrm/contracts/openapi/hrm-openapi.json");
 
