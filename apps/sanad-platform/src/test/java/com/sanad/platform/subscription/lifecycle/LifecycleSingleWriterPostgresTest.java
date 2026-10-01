@@ -579,7 +579,12 @@ class LifecycleSingleWriterPostgresTest {
         // behavior: cancelled-then-resumed subscriptions restart billing).
         assertThat(resumedStart).isAfter(Instant.now().minusSeconds(300));
         assertThat(resumedEnd).isAfter(resumedStart);
-        assertThat(java.time.Duration.between(resumedStart, resumedEnd).toDays()).isEqualTo(30);
+        // Legacy contract: a fresh full MONTHLY period is one CALENDAR month
+        // from the resumption instant; its exact length varies 28-31 days
+        // depending on the month, so a hardcoded day count is wrong.
+        assertThat(resumedEnd).isCloseTo(
+                resumedStart.atZone(java.time.ZoneOffset.UTC).plusMonths(1).toInstant(),
+                org.assertj.core.api.Assertions.within(60, java.time.temporal.ChronoUnit.SECONDS));
 
         // A billing dunning transition never touches the period columns.
         insertOverdueInvoice(sub, Instant.now().minus(5, ChronoUnit.DAYS));
