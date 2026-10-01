@@ -219,3 +219,11 @@ Final exact-head re-certification on this second ledger evidence commit follows.
 - Read-only inspection of production `flyway_schema_history` confirmed `20260930.1` is absent and the highest applied successful version is `20261001.12` (installed rank 220). No persistent Supabase branches exist.
 - Repository migration inventory also contains `V20261002_1__hr_g3_performance_reviews_rls.sql`; therefore the goals migration is re-versioned forward-only from `V20260930_1__hr_g3_performance_goals_foundation.sql` to `V20261002_2__hr_g3_performance_goals_foundation.sql` without changing its SQL body.
 - `outOfOrder=true`, Flyway repair, direct production DDL, and manual `flyway_schema_history` mutation remain prohibited. The failed image `e926d810eebc7028987a393decdd1cf09d6749c4` must not be re-released.
+
+
+### Dependency correction discovered by PostgreSQL Direct CI
+
+- PR #1220 first re-versioned performance goals to `20261002.2` while reviews remained `20261002.1`.
+- PostgreSQL Direct CI proved that ordering invalid on a clean database: `V20261002_1__hr_g3_performance_reviews_rls.sql` failed with SQLSTATE `42830` because its composite FKs reference `hr_employees(tenant_id,id,person_id)`, whose required unique key is created by the goals migration.
+- Read-only production history confirmed `20261002.1`, `20261002.2`, and `20261002.3` are all absent from production.
+- Final forward-only ordering is therefore `20261002.2` = goals foundation, then `20261002.3` = reviews + RLS. Both SQL bodies remain unchanged; only versioned filenames and strict ledger guards move.
