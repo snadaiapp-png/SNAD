@@ -277,7 +277,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20260924.6"   // hr g2 fail-closed RLS empty context repair
             , "20260925.1"   // subscription resource entitlements
             , "20260925.2"   // subscription operating units
-            , "20260930.1"   // HRM G3 performance goals foundation
+            , "20261002.2"   // HRM G3 performance goals foundation
             , "20261001.1"   // Wave 1 Task 1 UAC override/relationship/authorization-event foundation
             , "20261001.2"   // platform iam memberships
             , "20261001.3"   // platform iam role metadata
