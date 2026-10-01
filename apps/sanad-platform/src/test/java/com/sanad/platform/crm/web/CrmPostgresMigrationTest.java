@@ -513,7 +513,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(UAC_PROJECTION_INDEXES_VERSION),
                         MigrationVersion.fromVersion(UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION),
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_GOALS_VERSION),
-                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION));
+                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION),
+                        MigrationVersion.fromVersion(PARTNER_PRINCIPAL_FOUNDATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -730,7 +731,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(UAC_PROJECTION_INDEXES_VERSION),
                         MigrationVersion.fromVersion(UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION),
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_GOALS_VERSION),
-                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION));
+                        MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION),
+                        MigrationVersion.fromVersion(PARTNER_PRINCIPAL_FOUNDATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
