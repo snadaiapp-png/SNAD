@@ -71,7 +71,7 @@ public class HrPerformanceReviewV2Controller {
             Authentication authentication,
             @PathVariable UUID reviewId) {
         Actor actor = bind(authentication);
-        return reviewService.getReviewForActor(actor.tenantId(), actor.userId(), reviewId);
+        return reviewService.getSelfReviewForApi(actor.tenantId(), actor.userId(), reviewId);
     }
 
     @PostMapping
@@ -125,7 +125,7 @@ public class HrPerformanceReviewV2Controller {
             Authentication authentication,
             @PathVariable UUID reviewId) {
         Actor actor = bind(authentication);
-        return reviewService.getReviewForActor(actor.tenantId(), actor.userId(), reviewId);
+        return reviewService.getTeamReviewForApi(actor.tenantId(), actor.userId(), reviewId);
     }
 
     @PostMapping("/team/{employmentId}")
@@ -150,7 +150,7 @@ public class HrPerformanceReviewV2Controller {
             Authentication authentication,
             @PathVariable UUID reviewId) {
         Actor actor = bind(authentication);
-        return reviewService.cancelReview(actor.tenantId(), actor.userId(), reviewId);
+        return reviewService.cancelTeamReviewForApi(actor.tenantId(), actor.userId(), reviewId);
     }
 
     private Actor bind(Authentication authentication) {
