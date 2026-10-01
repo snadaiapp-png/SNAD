@@ -135,4 +135,10 @@ export const HRM_CAPABILITIES = {
   TIMESHEET_SELF_VIEW: "HRM.TIMESHEET.SELF_VIEW",
   TIMESHEET_SELF_SUBMIT: "HRM.TIMESHEET.SELF_SUBMIT",
   TIMESHEET_TEAM_APPROVE: "HRM.TIMESHEET.TEAM_APPROVE",
+
+  // === G3 Performance Reviews & Goals (Task 5 SELF surface) ===
+  // Backend authority: HrPerformanceGoalV2Controller @RequireCapability.
+  // These constants are UX gating only and never imply role shortcuts.
+  GOAL_SELF_VIEW: "HRM.PERFORMANCE.GOAL.SELF_VIEW",
+  GOAL_SELF_UPDATE: "HRM.PERFORMANCE.GOAL.SELF_UPDATE",
 } as const;

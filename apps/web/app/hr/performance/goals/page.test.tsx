@@ -56,6 +56,7 @@ const { hrG3ApiMock, authMock, i18nState, AR_MESSAGES, EN_MESSAGES } = vi.hoiste
     "hrm.g3.goals.empty.description": "لم تُسند إليك أهداف أداء حتى الآن.",
     "hrm.g3.goals.action.updateProgress": "تحديث التقدم",
     "hrm.g3.goals.action.saving": "جارٍ الحفظ…",
+    "hrm.g3.goals.form.selectGoal": "اختر الهدف",
     "hrm.g3.goals.progress.label": "نسبة التقدم (0-100)",
     "hrm.g3.goals.notice.progressUpdated": "تم تحديث التقدم بنجاح.",
     "hrm.g3.goals.validation.progressRange": "التقدم يجب أن يكون بين 0 و100.",
@@ -94,6 +95,7 @@ const { hrG3ApiMock, authMock, i18nState, AR_MESSAGES, EN_MESSAGES } = vi.hoiste
     "hrm.g3.goals.empty.description": "No performance goals have been assigned to you yet.",
     "hrm.g3.goals.action.updateProgress": "Update progress",
     "hrm.g3.goals.action.saving": "Saving…",
+    "hrm.g3.goals.form.selectGoal": "Select goal",
     "hrm.g3.goals.progress.label": "Progress percentage (0-100)",
     "hrm.g3.goals.notice.progressUpdated": "Progress updated successfully.",
     "hrm.g3.goals.validation.progressRange": "Progress must be between 0 and 100.",
@@ -240,8 +242,10 @@ describe("/hr/performance/goals — Task 5 goals tracking surface", () => {
     const { container } = await renderGoalsPage();
     await waitFor(() => expect(screen.getByTestId("goals-ready")).toBeInTheDocument());
 
-    expect(screen.getByText("تقليل زمن التهيئة")).toBeInTheDocument();
-    expect(screen.getByText("متوسط أيام التهيئة")).toBeInTheDocument();
+    // The goal title renders in the table, the mobile record list, and the
+    // update editor selector — assert presence across the surface.
+    expect(screen.getAllByText("تقليل زمن التهيئة").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("متوسط أيام التهيئة").length).toBeGreaterThan(0);
     expect(screen.getByText("10")).toBeInTheDocument();
     expect(screen.getByText("40%")).toBeInTheDocument();
     expect(container.querySelector('[data-status="DRAFT"]')).toBeInTheDocument();
@@ -283,9 +287,10 @@ describe("/hr/performance/goals — Task 5 goals tracking surface", () => {
     await renderGoalsPage();
     await waitFor(() => expect(screen.getByTestId("goals-ready")).toBeInTheDocument());
 
-    expect(screen.getByText("تقليل زمن التهيئة")).toBeInTheDocument();
+    expect(screen.getAllByText("تقليل زمن التهيئة").length).toBeGreaterThan(0);
     expect(screen.queryByTestId("progress-input-g-1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("progress-save-g-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("goals-progress-form")).not.toBeInTheDocument();
   });
 
   it("8. rejects out-of-range progress locally and never sends it to the backend", async () => {
@@ -337,8 +342,8 @@ describe("/hr/performance/goals — Task 5 goals tracking surface", () => {
     await renderGoalsPage();
     await waitFor(() => expect(screen.getByTestId("goals-ready")).toBeInTheDocument());
 
-    expect(screen.getByText(AR_MESSAGES["hrm.g3.goals.title"])).toBeInTheDocument();
-    expect(screen.getByText(AR_MESSAGES["hrm.g3.goals.subtitle"])).toBeInTheDocument();
+    expect(screen.getAllByText(AR_MESSAGES["hrm.g3.goals.title"]).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(AR_MESSAGES["hrm.g3.goals.subtitle"]).length).toBeGreaterThan(0);
     expect(screen.getByRole("table")).toHaveTextContent(AR_MESSAGES["hrm.g3.goals.col.metric"]);
     expect(screen.getByRole("table")).toHaveTextContent(AR_MESSAGES["hrm.g3.goals.col.target"]);
     expect(screen.getByRole("table")).toHaveTextContent(AR_MESSAGES["hrm.g3.goals.col.status"]);
@@ -350,8 +355,8 @@ describe("/hr/performance/goals — Task 5 goals tracking surface", () => {
     await renderGoalsPage();
     await waitFor(() => expect(screen.getByTestId("goals-ready")).toBeInTheDocument());
 
-    expect(screen.getByText(EN_MESSAGES["hrm.g3.goals.title"])).toBeInTheDocument();
-    expect(screen.getByText(EN_MESSAGES["hrm.g3.goals.subtitle"])).toBeInTheDocument();
+    expect(screen.getAllByText(EN_MESSAGES["hrm.g3.goals.title"]).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(EN_MESSAGES["hrm.g3.goals.subtitle"]).length).toBeGreaterThan(0);
     expect(screen.getByRole("table")).toHaveTextContent(EN_MESSAGES["hrm.g3.goals.col.metric"]);
     expect(screen.getByRole("table")).toHaveTextContent(EN_MESSAGES["hrm.g3.goals.col.target"]);
     expect(screen.getByRole("table")).toHaveTextContent(EN_MESSAGES["hrm.g3.goals.col.status"]);
@@ -407,9 +412,12 @@ describe("/hr/performance/goals — Task 5 goals tracking surface", () => {
     const { container } = await renderGoalsPage();
     await waitFor(() => expect(screen.getByTestId("goals-ready")).toBeInTheDocument());
 
-    expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
+    // Page header h1 (the workspace shell renders its own h1 landmark).
+    expect(screen.getAllByRole("heading", { level: 1 }).length).toBeGreaterThan(0);
+    // Single labelled progress editor control (goal selection + progress input).
     const progressInputs = screen.getAllByLabelText(AR_MESSAGES["hrm.g3.goals.progress.label"]);
-    expect(progressInputs.length).toBe(2);
+    expect(progressInputs.length).toBe(1);
+    expect(screen.getByLabelText(AR_MESSAGES["hrm.g3.goals.form.selectGoal"])).toBeInTheDocument();
     for (const button of container.querySelectorAll("button")) {
       expect(button.tagName).toBe("BUTTON");
     }

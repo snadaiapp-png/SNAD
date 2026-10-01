@@ -33,6 +33,7 @@ const G2_LABELS: Record<string, string> = {
   "hrm.g2.landing.attendanceAdmin": "إدارة الحضور",
   "hrm.g2.landing.leavePolicies": "سياسات الإجازات",
   "hrm.g2.landing.attendanceReport": "تقرير الحضور",
+  "hrm.g3.workspace.nav.goals": "أهداف الأداء",
 };
 
 vi.mock("@/lib/i18n/I18nProvider", () => ({
@@ -68,6 +69,7 @@ describe("HrWorkspace navigation", () => {
       ["/hr/attendance", "حضوري"],
       ["/hr/timesheets", "سجلات وقتي"],
       ["/hr/leave", "إجازاتي"],
+      ["/hr/performance/goals", "أهداف الأداء"],
       ["/hr/team-attendance", "حضور الفريق"],
       ["/hr/team-timesheets", "سجلات وقت الفريق"],
       ["/hr/leave/approvals", "اعتمادات الإجازات"],
@@ -170,6 +172,35 @@ describe("HrWorkspace navigation", () => {
     expect(screen.queryByRole("link", { name: "الموظفون" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "الالتزام" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "حضوري" })).not.toBeInTheDocument();
+  });
+
+  it("shows the G3 goals link for GOAL SELF_VIEW users", () => {
+    render(
+      <HrWorkspace capabilities={[HRM_CAPABILITIES.GOAL_SELF_VIEW]} activeHref="/hr/performance/goals">
+        <p>المحتوى</p>
+      </HrWorkspace>,
+    );
+
+    const goalsLink = screen.getByRole("link", { name: "أهداف الأداء" });
+    expect(goalsLink).toHaveAttribute("href", "/hr/performance/goals");
+    expect(goalsLink).toHaveAttribute("aria-current", "page");
+  });
+
+  it("hides the G3 goals link without GOAL SELF_VIEW and keeps G0/G1/G2 links unchanged", () => {
+    render(
+      <HrWorkspace capabilities={[
+        HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW,
+        HRM_CAPABILITIES.TIMESHEET_SELF_VIEW,
+        HRM_CAPABILITIES.LEAVE_SELF_VIEW,
+      ]} activeHref="/hr/attendance">
+        <p>المحتوى</p>
+      </HrWorkspace>,
+    );
+
+    expect(screen.queryByRole("link", { name: "أهداف الأداء" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "حضوري" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "سجلات وقتي" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "إجازاتي" })).toBeInTheDocument();
   });
 
   it("exposes navigation as a labelled landmark and renders children in main", () => {
