@@ -213,7 +213,7 @@ public class HrPerformanceGoalV2Controller {
         if (rows.size() != 1) {
             throw new AccessDeniedException("Performance goal is not visible to the authenticated principal");
         }
-        return rows.getFirst();
+        return rows.get(0);
     }
 
     private GoalResponse createForEmployment(UUID tenantId, UUID employmentId, GoalWriteRequest request) {
@@ -279,7 +279,7 @@ public class HrPerformanceGoalV2Controller {
         if (personIds.size() != 1) {
             throw new AccessDeniedException("Target employment is not an active canonical employment");
         }
-        return personIds.getFirst();
+        return personIds.get(0);
     }
 
     private void requireSingleMutation(int updated) {
