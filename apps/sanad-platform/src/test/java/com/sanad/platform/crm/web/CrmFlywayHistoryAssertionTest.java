@@ -292,6 +292,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261001.12"  // uac admin audit backfill guard
             , "20261002.2"   // HRM G3 performance goals foundation
             , "20261002.3"   // hrm g3 performance reviews rls
+            , "20261003.1"   // hrm g3 task 4 performance capabilities
     );
 
 
