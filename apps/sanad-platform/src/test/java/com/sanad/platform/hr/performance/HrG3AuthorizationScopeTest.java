@@ -161,6 +161,10 @@ class HrG3AuthorizationScopeTest {
         assertThatThrownBy(() -> controller.getTeamReview(employee, selfReview.id()))
                 .as("TEAM_MANAGE route must require a canonical managed employment")
                 .isInstanceOf(AccessDeniedException.class);
+
+        assertThatThrownBy(() -> controller.cancelTeamReview(employee, selfReview.id()))
+                .as("TEAM_MANAGE cancel must not accept SELF/reviewer visibility as TEAM scope")
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     // ==================== TEAM scope ====================
