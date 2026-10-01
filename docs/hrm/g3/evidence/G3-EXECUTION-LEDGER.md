@@ -211,3 +211,11 @@ Final exact-head re-certification on the ledger evidence commit follows this sec
 - Docker/Testcontainers: 0 / not used
 
 Final exact-head re-certification on this second ledger evidence commit follows.
+
+
+## 2026-10-01 — Forward-only Flyway production remediation
+
+- Production release run `36854229508` reached Render with image `e926d810eebc7028987a393decdd1cf09d6749c4` and failed during startup with Flyway validation: resolved migration `20260930.1` was not applied while production schema history had already advanced through `20261001.12`.
+- Read-only inspection of production `flyway_schema_history` confirmed `20260930.1` is absent and the highest applied successful version is `20261001.12` (installed rank 220). No persistent Supabase branches exist.
+- Repository migration inventory also contains `V20261002_1__hr_g3_performance_reviews_rls.sql`; therefore the goals migration is re-versioned forward-only from `V20260930_1__hr_g3_performance_goals_foundation.sql` to `V20261002_2__hr_g3_performance_goals_foundation.sql` without changing its SQL body.
+- `outOfOrder=true`, Flyway repair, direct production DDL, and manual `flyway_schema_history` mutation remain prohibited. The failed image `e926d810eebc7028987a393decdd1cf09d6749c4` must not be re-released.
