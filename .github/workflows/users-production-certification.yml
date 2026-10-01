@@ -18,6 +18,7 @@ env:
   PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
   PRODUCTION_WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_BASE_URL || 'https://snad-app.vercel.app' }}
   CANONICAL_OWNER_EMAIL: snad.ai.app@gmail.com
+  CANONICAL_OWNER_ID: 00000000-0000-0000-0000-000000000010
 
 jobs:
   certify-users-production:
@@ -34,8 +35,7 @@ jobs:
       AUTH_SMOKE_TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
       AUTH_SMOKE_TENANT_B_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       AUTH_SMOKE_TENANT_B_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
-      CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
-      CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+      CANONICAL_OWNER_PASSWORD: ${{ secrets.CANONICAL_OWNER_PASSWORD }}
 
     steps:
       - name: Validate protected Users certification inputs
@@ -51,7 +51,7 @@ jobs:
             RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL PRODUCTION_WEB_BASE_URL \
             AUTH_SMOKE_TENANT_A_ID AUTH_SMOKE_TENANT_A_EMAIL AUTH_SMOKE_TENANT_A_PASSWORD \
             AUTH_SMOKE_TENANT_B_ID AUTH_SMOKE_TENANT_B_EMAIL AUTH_SMOKE_TENANT_B_PASSWORD \
-            CONTROL_PLANE_ADMIN_EMAIL CONTROL_PLANE_ADMIN_PASSWORD; do
+            CANONICAL_OWNER_PASSWORD; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           [[ "$PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::PRODUCTION_BASE_URL must use HTTPS"; exit 1; }
@@ -65,7 +65,7 @@ jobs:
           for value in \
             "$AUTH_SMOKE_TENANT_A_ID" "$AUTH_SMOKE_TENANT_A_EMAIL" "$AUTH_SMOKE_TENANT_A_PASSWORD" \
             "$AUTH_SMOKE_TENANT_B_ID" "$AUTH_SMOKE_TENANT_B_EMAIL" "$AUTH_SMOKE_TENANT_B_PASSWORD" \
-            "$CONTROL_PLANE_ADMIN_EMAIL" "$CONTROL_PLANE_ADMIN_PASSWORD"; do
+            "$CANONICAL_OWNER_PASSWORD"; do
             echo "::add-mask::$value"
           done
 
@@ -306,15 +306,23 @@ jobs:
           done
 
           control_payload=$(jq -n \
-            --arg email "$CONTROL_PLANE_ADMIN_EMAIL" \
-            --arg password "$CONTROL_PLANE_ADMIN_PASSWORD" \
+            --arg email "$CANONICAL_OWNER_EMAIL" \
+            --arg password "$CANONICAL_OWNER_PASSWORD" \
             --arg tenant "$CONTROL_PLANE_TENANT_ID" \
             '{email:$email,password:$password,tenantId:$tenant}')
           control_status=$(curl --silent --show-error --location --request POST \
             --header 'Content-Type: application/json' --data "$control_payload" \
             --output "$work/control-login.json" --write-out '%{http_code}' \
             "$base/api/v1/auth/login")
-          test "$control_status" = "200" || { echo "::error::Control Plane login returned HTTP $control_status"; exit 1; }
+          test "$control_status" = "200" || { echo "::error::Canonical owner login returned HTTP $control_status"; exit 1; }
+          jq -e --arg owner "$CANONICAL_OWNER_ID" --arg tenant "$CONTROL_PLANE_TENANT_ID" '
+            (.user.id // .user.userId // .userId) == $owner
+            and (.user.tenantId // .tenantId) == $tenant
+            and (.accessToken | type == "string" and length > 0)
+          ' "$work/control-login.json" >/dev/null || {
+            echo "::error::Canonical owner login identity/tenant binding is invalid"
+            exit 1
+          }
           control_token=$(jq -r '.accessToken // empty' "$work/control-login.json")
           test -n "$control_token"
           echo "::add-mask::$control_token"
@@ -332,6 +340,10 @@ jobs:
           read_control '/api/v1/executive/users' "$work/control-users.json"
           owner_id=$(jq -r --arg email "$CANONICAL_OWNER_EMAIL" '[.[] | select((.email | ascii_downcase) == ($email | ascii_downcase) and .accountStatus == "ACTIVE" and .membershipStatus == "ACTIVE")][0].userId // empty' "$work/control-users.json")
           test -n "$owner_id" || { echo "::error::Canonical owner is absent or inactive"; exit 1; }
+          test "$owner_id" = "$CANONICAL_OWNER_ID" || {
+            echo "::error::Executive Users canonical owner ID does not match governed owner ID"
+            exit 1
+          }
           jq -e --arg a "$AUTH_SMOKE_TENANT_A_EMAIL" --arg b "$AUTH_SMOKE_TENANT_B_EMAIL" 'all(.[]; ((.email | ascii_downcase) != ($a | ascii_downcase)) and ((.email | ascii_downcase) != ($b | ascii_downcase)))' "$work/control-users.json" >/dev/null || {
             echo "::error::Tenant QA user leaked into platform Users directory"
             exit 1
