@@ -6,6 +6,9 @@ on:
     paths:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/**'
       - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/**'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-canonical-scope-invariants.sql'
+      - 'apps/sanad-platform/src/main/resources/**'
       - '.github/workflows/hr-g2-employment-binding-focused.yml'
   workflow_dispatch:
 
@@ -16,7 +19,19 @@ jobs:
   focused:
     name: HR G2 canonical employment binding
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g2_focus
+      DATABASE_USERNAME: sanad_g2_focus
+      DATABASE_NAME: sanad_g2_focus
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g2_focus
+      SPRING_DATASOURCE_USERNAME: sanad_g2_focus
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+      G2_SCOPE_FIXTURE_READY: 'true'
     defaults:
       run:
         working-directory: apps/sanad-platform
@@ -25,6 +40,86 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify checkout identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          echo "candidate_sha=$CANDIDATE_SHA"
+
+      - name: Generate ephemeral focused credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_CRED="$(openssl rand -hex 24)"
+          E2E_CRED="$(openssl rand -hex 24)"
+          echo "::add-mask::$DB_CRED"
+          echo "::add-mask::$E2E_CRED"
+          echo "DATABASE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "SPRING_DATASOURCE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "PGPASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "G2_E2E_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+
+      - name: Start host-native PostgreSQL (no containers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (psql not found)"
+            exit 1
+          }
+          command -v pg_isready >/dev/null 2>&1 || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (pg_isready not found)"
+            exit 1
+          }
+          psql --version
+          sudo systemctl start postgresql || {
+            echo "::error::ENVIRONMENT_BLOCKER=HOST_NATIVE_POSTGRESQL_UNAVAILABLE (cluster failed to start)"
+            exit 1
+          }
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege focused role and database
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DATABASE_PASSWORD:-}" || {
+            echo "::error::runtime DATABASE_PASSWORD was not propagated"
+            exit 1
+          }
+          sudo -u postgres psql \
+            -v ON_ERROR_STOP=1 \
+            -v db_credential="$DATABASE_PASSWORD" <<'SQL'
+          SELECT format('CREATE ROLE sanad_g2_focus WITH LOGIN PASSWORD %L', :'db_credential')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g2_focus')
+          \gexec
+
+          SELECT format('ALTER ROLE sanad_g2_focus WITH LOGIN PASSWORD %L', :'db_credential')
+          WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g2_focus')
+          \gexec
+
+          ALTER ROLE sanad_g2_focus NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          SELECT 'CREATE DATABASE sanad_g2_focus OWNER sanad_g2_focus'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_g2_focus')
+          \gexec
+
+          ALTER DATABASE sanad_g2_focus OWNER TO sanad_g2_focus;
+          GRANT CONNECT ON DATABASE postgres TO sanad_g2_focus;
+          \c sanad_g2_focus
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_g2_focus;
+          SQL
+
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 -Atc "SELECT current_database() || '|' || current_user"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -33,14 +128,58 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Run focused resolver contract
-        run: mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true -Dtest=HrEmploymentScopeResolverTest
+      - name: Build backend resources (skip tests)
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -Dmaven.test.skip=true clean package
 
-      - name: Upload focused reports
+      - name: Apply all Flyway migrations to PostgreSQL Direct
+        run: >-
+          mvn --batch-mode --no-transfer-progress flyway:migrate
+          -Dflyway.url="$DATABASE_URL"
+          -Dflyway.user="$DATABASE_USERNAME"
+          -Dflyway.password="$DATABASE_PASSWORD"
+          -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql
+          -Dflyway.baselineOnMigrate=true
+          -Dflyway.validateOnMigrate=false
+          -Dflyway.outOfOrder=true
+          -Dflyway.baselineVersion=0
+
+      - name: Provision exact G2 acceptance fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -v g2_e2e_password="$G2_E2E_PASSWORD" \
+            -f src/test/resources/sql/g2-acceptance-seed.sql \
+            2>&1 | tee "$RUNNER_TEMP/g2-focused-seed.log"
+
+      - name: Execute canonical SELF and TEAM scope invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -f src/test/resources/sql/g2-canonical-scope-invariants.sql \
+            2>&1 | tee "$RUNNER_TEMP/g2-focused-scope-invariants.log"
+          grep -Fq "g2-canonical-scope-invariants: PASS self=3 team=1" "$RUNNER_TEMP/g2-focused-scope-invariants.log"
+
+      - name: Run real resolver plus fixture contracts
+        run: >-
+          mvn test -B -ntp
+          -Dsurefire.useFile=false
+          -DfailIfNoTests=true
+          -Dtest=HrEmploymentScopeResolverTest,HrEmploymentScopeResolverPostgresTest,HrG2AcceptanceSeedRoleScopeTest
+
+      - name: Upload focused reports and PostgreSQL evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hr-g2-employment-binding-focused-reports-${{ github.event.pull_request.head.sha || github.sha }}
-          path: apps/sanad-platform/target/surefire-reports/
+          path: |
+            apps/sanad-platform/target/surefire-reports/
+            ${{ runner.temp }}/g2-focused-seed.log
+            ${{ runner.temp }}/g2-focused-scope-invariants.log
           if-no-files-found: error
           retention-days: 14

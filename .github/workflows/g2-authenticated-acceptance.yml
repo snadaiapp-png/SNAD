@@ -36,7 +36,10 @@ on:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/workflow/**'
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/module/**'
       - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrEmploymentScopeResolverPostgresTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrG2AcceptanceSeedRoleScopeTest.java'
       - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-canonical-scope-invariants.sql'
       - 'apps/sanad-platform/pom.xml'
       - 'apps/web/app/hr/**'
       - 'apps/web/components/auth/**'
@@ -51,7 +54,10 @@ on:
     paths:
       - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/**'
       - 'apps/sanad-platform/src/main/resources/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrEmploymentScopeResolverPostgresTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrG2AcceptanceSeedRoleScopeTest.java'
       - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-canonical-scope-invariants.sql'
       - 'apps/web/app/hr/**'
       - 'apps/web/e2e/g2-authenticated.spec.ts'
       - '.github/workflows/g2-authenticated-acceptance.yml'
@@ -75,12 +81,15 @@ jobs:
       DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g2
       DATABASE_USERNAME: sanad_g2
       DATABASE_NAME: sanad_g2
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g2
+      SPRING_DATASOURCE_USERNAME: sanad_g2
       SPRING_PROFILES_ACTIVE: local
       SPRING_FLYWAY_OUT_OF_ORDER: 'true'
       FLYWAY_ENABLED: 'true'
       FLYWAY_BASELINE_ON_MIGRATE: 'true'
       FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       JPA_DDL_AUTO: validate
+      G2_SCOPE_FIXTURE_READY: 'true'
       SERVER_PORT: '8080'
       JWT_ISSUER: sanad-platform-ci
       JWT_ACCESS_TOKEN_TTL: 60m
@@ -163,13 +172,15 @@ jobs:
 
       - name: Provision G2 role and database (runtime credential via psql variable interpolation)
         shell: bash
-        env:
-          DB_CRED: ${{ env.DATABASE_PASSWORD }}
         run: |
           set -euo pipefail
+          test -n "${DATABASE_PASSWORD:-}" || {
+            echo "::error::runtime DATABASE_PASSWORD was not propagated"
+            exit 1
+          }
           sudo -u postgres psql \
             -v ON_ERROR_STOP=1 \
-            -v db_credential="$DB_CRED" <<'SQL'
+            -v db_credential="$DATABASE_PASSWORD" <<'SQL'
           SELECT format(
             'CREATE ROLE sanad_g2 WITH LOGIN PASSWORD %L',
             :'db_credential'
@@ -207,7 +218,7 @@ jobs:
           GRANT USAGE, CREATE ON SCHEMA public TO sanad_g2;
           SQL
 
-          PGPASSWORD="$DB_CRED" psql \
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
             -h 127.0.0.1 \
             -U sanad_g2 \
             -d sanad_g2 \
@@ -240,8 +251,6 @@ jobs:
 
       - name: Provision G2 acceptance seed (runtime password via psql variable binding)
         shell: bash
-        env:
-          G2_E2E_PASSWORD: ${{ env.G2_E2E_PASSWORD }}
         run: |
           set -euo pipefail
           PGPASSWORD="$DATABASE_PASSWORD" psql \
@@ -281,6 +290,27 @@ jobs:
           LB_COLS=$(g2_psql "SELECT entitled_days || '|' || used_days || '|' || pending_days || '|' || carried_over_days FROM hr_leave_balances WHERE tenant_id = '$G2_TENANT_ID' AND employment_id = '33333333-3333-4333-8333-333333333361' LIMIT 1")
           echo "G2 leave balance row: $LB_COLS"
           echo "G2 seed verified: tenant=1 users=3 employees=3 subscriptions=1 workflow_entitlements=$WF_ENT leave_balance_rows=$LB_ROW"
+
+      - name: Execute canonical SELF and TEAM scope preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 \
+            -U "$DATABASE_USERNAME" \
+            -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -f apps/sanad-platform/src/test/resources/sql/g2-canonical-scope-invariants.sql \
+            2>&1 | tee "$RUNNER_TEMP/g2-scope-invariants.log"
+          grep -Fq "g2-canonical-scope-invariants: PASS self=3 team=1" "$RUNNER_TEMP/g2-scope-invariants.log"
+
+      - name: Exercise real HR employment scope resolver on seeded PostgreSQL
+        working-directory: apps/sanad-platform
+        run: >-
+          mvn test -B -ntp
+          -Dsurefire.useFile=false
+          -DfailIfNoTests=true
+          -Dtest=HrEmploymentScopeResolverPostgresTest,HrG2AcceptanceSeedRoleScopeTest
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
@@ -400,6 +430,8 @@ jobs:
             ${{ runner.temp }}/backend.log
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/g2-seed.log
+            ${{ runner.temp }}/g2-scope-invariants.log
+            apps/sanad-platform/target/surefire-reports/
           if-no-files-found: warn
           retention-days: 14
 
