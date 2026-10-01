@@ -277,7 +277,6 @@ class CrmFlywayHistoryAssertionTest {
             , "20260924.6"   // hr g2 fail-closed RLS empty context repair
             , "20260925.1"   // subscription resource entitlements
             , "20260925.2"   // subscription operating units
-            , "20261002.2"   // HRM G3 performance goals foundation
             , "20261001.1"   // Wave 1 Task 1 UAC override/relationship/authorization-event foundation
             , "20261001.2"   // platform iam memberships
             , "20261001.3"   // platform iam role metadata
@@ -291,7 +290,8 @@ class CrmFlywayHistoryAssertionTest {
             , "20261001.10"  // uac capability metadata and authz capabilities
             , "20261001.11"  // uac projection indexes
             , "20261001.12"  // uac admin audit backfill guard
-            , "20261002.1"   // hrm g3 performance reviews rls
+            , "20261002.2"   // HRM G3 performance goals foundation
+            , "20261002.3"   // hrm g3 performance reviews rls
     );
 
 
