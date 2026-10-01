@@ -94,9 +94,11 @@ class PlatformApiCountTest {
      *  + 20 Platform IAM executive operations (Users 13 + Access/Roles 7) = 960.
      *  + Task 7: list/create/revoke temporary platform access (+3) = 963.
      *  Merge union: 940 + 8 (UAC W1) + 20 (Platform IAM) + 3 (temporary access)
-     *    = 971 total operations. */
-    private static final long EXPECTED_TOTAL_OPS = 971;
-    private static final long EXPECTED_HRM_V2_OPS = 127;
+     *    = 971 total operations.
+     *  + 18 HRM-G3 Task 4 capability-scoped performance operations
+     *  under /api/v2/hr/performance/goals and /reviews = 989. */
+    private static final long EXPECTED_TOTAL_OPS = 989;
+    private static final long EXPECTED_HRM_V2_OPS = 145;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;
