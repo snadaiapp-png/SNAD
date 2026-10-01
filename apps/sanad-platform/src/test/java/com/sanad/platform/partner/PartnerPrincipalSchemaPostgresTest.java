@@ -112,9 +112,24 @@ class PartnerPrincipalSchemaPostgresTest {
             connection.setAutoCommit(false);
             UUID created = UUID.randomUUID();
             for (String status : new String[]{"ACTIVE", "INACTIVE", "SUSPENDED", "TERMINATED"}) {
-                try (PreparedStatement ps = connection.prepareStatement(
-                        "INSERT INTO partners (id, partner_type, status, created_by) " +
-                        "VALUES (?, 'PARTNER', ?, ?)")) {
+                // Valid construction: SUSPENDED/TERMINATED rows must carry the
+                // lifecycle timestamp + reason required by the migration's CHECK
+                // constraints (ck_partners_suspended_when_suspended_status and
+                // ck_partners_terminated_when_terminated_status).
+                String sql;
+                if ("SUSPENDED".equals(status)) {
+                    sql = "INSERT INTO partners (id, partner_type, status, created_by, " +
+                          "suspended_at, suspended_reason) " +
+                          "VALUES (?, 'PARTNER', ?, ?, NOW(), 'valid suspended state')";
+                } else if ("TERMINATED".equals(status)) {
+                    sql = "INSERT INTO partners (id, partner_type, status, created_by, " +
+                          "terminated_at, terminated_reason) " +
+                          "VALUES (?, 'PARTNER', ?, ?, NOW(), 'valid terminated state')";
+                } else {
+                    sql = "INSERT INTO partners (id, partner_type, status, created_by) " +
+                          "VALUES (?, 'PARTNER', ?, ?)";
+                }
+                try (PreparedStatement ps = connection.prepareStatement(sql)) {
                     ps.setObject(1, UUID.randomUUID());
                     ps.setString(2, status);
                     ps.setObject(3, created);
@@ -279,6 +294,16 @@ class PartnerPrincipalSchemaPostgresTest {
         migrate();
         try (Connection connection = DriverManager.getConnection(isolatedUrl(), USER, PASSWORD)) {
             connection.setAutoCommit(false);
+            // Platform-level audit context: the W1 RLS policy on
+            // authorization_change_events (V20261001_1) admits tenant_id IS NULL
+            // rows only when app.tenant_id is the platform sentinel and
+            // app.partner_id is unset. The partner audit trigger inserts
+            // NULL-tenant platform events, so the session must carry the
+            // platform context before triggering the audit write.
+            try (Statement guc = connection.createStatement()) {
+                guc.execute("SELECT set_config('app.tenant_id', " +
+                            "'00000000-0000-0000-0000-000000000001', false)");
+            }
             UUID partnerId = UUID.randomUUID();
             UUID actorId = UUID.randomUUID();
             // Create partner (ACTIVE)
