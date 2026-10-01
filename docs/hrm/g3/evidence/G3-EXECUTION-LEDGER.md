@@ -185,3 +185,29 @@ Owner directive after the `next` remediation landed on main: merge current main 
 - Docker/Testcontainers: 0 / not used
 
 Final exact-head re-certification on the ledger evidence commit follows this section.
+
+### Final evidence head — failure forensics, classification, minimal fix (head `e1ca5367346470d7e48403147a0d28a21ef67879`)
+
+- The ledger evidence commit ran the full battery (CI run `36790655694`): PostgreSQL Acceptance job `110142508832` SUCCESS; CRM Integration job `110142508876` SUCCESS; Maven job `110142508614` FAILED (2 failures / 0 errors / 4151 passed); every other workflow SUCCESS.
+- Failure signature, XML-verified from the failed run's Surefire artifact `11133198787` (`sha256:917825e0b4e31501d0d399ff650e4367fa833c396322734dc350984b8ae55819`; 578 suites / 4153 tests / 2 failures / 0 errors / 36 skipped):
+  - `AnchoredPlanSeatQuantitySyncTest.unit08_billingMathUnchanged` — Mockito `TooFewActualInvocations` (wanted 3 `jdbc.update`, was 2). The fixture `PERIOD_END` was the hardcoded constant `2026-10-01T00:00:00Z`; the run started `2026-09-30T23:21:32Z` and crossed UTC midnight, so at execution time the fixed September window had expired and production `SaasAdministrationService.prorate()` clamped `remainingSeconds` to 0, `adjustment` became 0 and the proration invoice write (third `jdbc.update`) was correctly skipped. Product behavior is correct for an expired period; the fixture window was stale.
+  - `LifecycleSingleWriterPostgresTest.pg20_periodDatesUnchanged` — `expected: 30L but was: 31L`. The assertion hardcoded a 30-day resume period, but the legacy resume contract is `nextPeriod()` = calendar `plusMonths(1)`: 30 days only when the period starts in a 30-day month. The test executed after midnight, so the resumed period began `2026-10-01` and spans 31 days. Product behavior is calendar-correct; the assertion assumed a 30-day month.
+- Classification: two clock-conditional test-fixture defects in the subscription module. Zero relation to G3: the delta between the all-green first-recertification head `0e2f6048` and this head is a single docs-only ledger file, and the G3 diff vs main touches 22 HR files only. These fixtures would fail on any branch after `2026-10-01T00:00:00Z` (permanent, not transient flake).
+- Per failure-handling protocol: no blind re-run; logs + XML read first; root cause classified; only the proven layer fixed — commit `24cfe5bc9eff974058fd91bf265efdb822152af6` (test-only, 2 files, +16/−3: clock-independent period anchor in `AnchoredPlanSeatQuantitySyncTest`; calendar-month assertion in `LifecycleSingleWriterPostgresTest`). No production code touched; no G3/HRM file touched.
+
+### Second recertification (exact head `24cfe5bc9eff974058fd91bf265efdb822152af6`)
+
+- CI run: `36797435240` (workflow `ci.yml`)
+  - Maven job: `110163993762` SUCCESS
+  - PostgreSQL Acceptance job: `110163993397` SUCCESS
+  - CRM Integration job: `110163993721` SUCCESS
+- Web CI: run `36797435140` SUCCESS; Security Baseline: run `36797435141` SUCCESS; cross-module gates all SUCCESS — full battery 24/24 (single `skipped` = `ERP Human Preview`, unchanged)
+- Surefire artifacts: `11135428139` (main, 175354362 bytes), `11134561180` (pg-acceptance), `11134620940` (crm)
+- Digest (main artifact zip): `sha256:1e7281dc7b9595b9245a5e7678677859bd96cdc4e3c9580884c001cf1e00e37d`
+- Digest (pg artifact zip): `sha256:d3c946e85028da2afc364b6192ff0bb5c1a83104db37b526b2cfc4e15fbe8dcd`
+- Digest (crm artifact zip): `sha256:8f034c4b691767b90b5965e6f9d32d4c0b384afb77eb7cb53af273ffaa6209cd`
+- XML-verified: the 7 G3/RLS/Flyway target suites unchanged at 287 tests / 0 failures / 0 errors / 0 skipped; the two repaired suites now `AnchoredPlanSeatQuantitySyncTest` 9/0/0/0 and `LifecycleSingleWriterPostgresTest` 19/0/0/0
+- Aggregate Maven: 578 suites / 4153 tests / 0 failures / 0 errors / 36 skipped (same five pre-existing environment-conditional acceptance suites; all 36 executed with skipped=0 in the dedicated PostgreSQL Acceptance artifact, 36/0/0/0)
+- Docker/Testcontainers: 0 / not used
+
+Final exact-head re-certification on this second ledger evidence commit follows.
