@@ -55,6 +55,12 @@ class HrApiV2AuthorizationTest {
             "HRM.LEAVE.SELF_REQUEST", "HRM.LEAVE.SELF_VIEW",
             "HRM.LEAVE.TEAM_APPROVE", "HRM.LEAVE.HR_APPROVE", "HRM.LEAVE.POLICY_ADMIN",
             "HRM.TIMESHEET.SELF_VIEW", "HRM.TIMESHEET.SELF_SUBMIT", "HRM.TIMESHEET.TEAM_APPROVE",
+            // G3 performance capabilities. These are seeded by the Task 4 API slice only;
+            // HR_MANAGER must remain unchanged and receives no implicit HRM.* grant.
+            "HRM.PERFORMANCE.GOAL.SELF_VIEW", "HRM.PERFORMANCE.GOAL.SELF_UPDATE",
+            "HRM.PERFORMANCE.GOAL.TEAM_MANAGE",
+            "HRM.PERFORMANCE.REVIEW.SELF_VIEW", "HRM.PERFORMANCE.REVIEW.SELF_SUBMIT",
+            "HRM.PERFORMANCE.REVIEW.TEAM_MANAGE", "HRM.PERFORMANCE.ADMIN",
             "HRM.ADMIN");
 
     private static final String DB_URL = System.getenv().getOrDefault(
