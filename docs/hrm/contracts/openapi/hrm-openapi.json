@@ -1,6 +1,6 @@
 {
   "generatedFrom": "runtime platform contract export",
-  "hrmV2Operations": 127,
+  "hrmV2Operations": 145,
   "paths": {
     "/api/v2/hr/assignments": {
       "get": "hrAssignmentsList",
@@ -192,6 +192,52 @@
       "delete": "hrPeopleUnlinkUser",
       "post": "hrPeopleLinkUser"
     },
+    "/api/v2/hr/performance/goals": {
+      "get": "hrPerformanceGoalsList",
+      "post": "hrPerformanceGoalCreate"
+    },
+    "/api/v2/hr/performance/goals/team/{employmentId}": {
+      "get": "hrPerformanceTeamGoalsList",
+      "post": "hrPerformanceTeamGoalCreate"
+    },
+    "/api/v2/hr/performance/goals/team/{employmentId}/{goalId}": {
+      "put": "hrPerformanceTeamGoalUpdate"
+    },
+    "/api/v2/hr/performance/goals/team/{employmentId}/{goalId}/progress": {
+      "patch": "hrPerformanceTeamGoalProgressUpdate"
+    },
+    "/api/v2/hr/performance/goals/{goalId}": {
+      "get": "hrPerformanceGoalGet",
+      "put": "hrPerformanceGoalUpdate"
+    },
+    "/api/v2/hr/performance/goals/{goalId}/progress": {
+      "patch": "hrPerformanceGoalProgressUpdate"
+    },
+    "/api/v2/hr/performance/reviews": {
+      "get": "hrPerformanceReviewsList",
+      "post": "hrPerformanceReviewCreate"
+    },
+    "/api/v2/hr/performance/reviews/team": {
+      "get": "hrPerformanceTeamReviewsList"
+    },
+    "/api/v2/hr/performance/reviews/team/reviews/{reviewId}/cancel": {
+      "post": "hrPerformanceTeamReviewCancel"
+    },
+    "/api/v2/hr/performance/reviews/team/{employmentId}": {
+      "post": "hrPerformanceTeamReviewCreate"
+    },
+    "/api/v2/hr/performance/reviews/team/{reviewId}": {
+      "get": "hrPerformanceTeamReviewGet"
+    },
+    "/api/v2/hr/performance/reviews/{reviewId}": {
+      "get": "hrPerformanceReviewGet"
+    },
+    "/api/v2/hr/performance/reviews/{reviewId}/acknowledge": {
+      "post": "hrPerformanceReviewAcknowledge"
+    },
+    "/api/v2/hr/performance/reviews/{reviewId}/submit": {
+      "post": "hrPerformanceReviewSubmit"
+    },
     "/api/v2/hr/positions": {
       "get": "hrStructureListPositions",
       "post": "hrStructureCreatePosition"
@@ -209,8 +255,8 @@
       "post": "hrStructureRevisePosition"
     },
     "/api/v2/hr/recruitment/applications": {
-      "post": "hrRecruitmentApplicationCreate",
-      "get": "hrRecruitmentApplicationList"
+      "get": "hrRecruitmentApplicationList",
+      "post": "hrRecruitmentApplicationCreate"
     },
     "/api/v2/hr/recruitment/applications/{id}": {
       "get": "hrRecruitmentApplicationGet"
@@ -234,8 +280,8 @@
       "post": "hrRecruitmentApplicationWithdraw"
     },
     "/api/v2/hr/recruitment/candidates": {
-      "post": "hrRecruitmentCandidateCreate",
-      "get": "hrRecruitmentCandidateList"
+      "get": "hrRecruitmentCandidateList",
+      "post": "hrRecruitmentCandidateCreate"
     },
     "/api/v2/hr/recruitment/candidates/{id}": {
       "get": "hrRecruitmentCandidateGet"
@@ -247,8 +293,8 @@
       "get": "hrRecruitmentInterviewGet"
     },
     "/api/v2/hr/recruitment/interviews/{id}/feedback": {
-      "put": "hrRecruitmentInterviewFeedbackPut",
-      "get": "hrRecruitmentInterviewFeedbackGet"
+      "get": "hrRecruitmentInterviewFeedbackGet",
+      "put": "hrRecruitmentInterviewFeedbackPut"
     },
     "/api/v2/hr/recruitment/interviews/{id}/outcome": {
       "post": "hrRecruitmentInterviewOutcome"
@@ -269,8 +315,8 @@
       "post": "hrRecruitmentOfferWithdraw"
     },
     "/api/v2/hr/recruitment/openings": {
-      "post": "hrRecruitmentOpeningCreate",
-      "get": "hrRecruitmentOpeningList"
+      "get": "hrRecruitmentOpeningList",
+      "post": "hrRecruitmentOpeningCreate"
     },
     "/api/v2/hr/recruitment/openings/{id}": {
       "get": "hrRecruitmentOpeningGet"
@@ -342,6 +388,216 @@
     },
     "/api/v2/hr/time/timesheets/{timesheetId}/submit": {
       "post": "hrTimesheetSubmit"
+    }
+  },
+  "g3TypedOperations": {
+    "/api/v2/hr/performance/goals/{goalId}": {
+      "get": {
+        "operationId": "hrPerformanceGoalGet",
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/GoalResponse"
+          }
+        }
+      },
+      "put": {
+        "operationId": "hrPerformanceGoalUpdate",
+        "requestSchema": {
+          "$ref": "#/components/schemas/GoalWriteRequest"
+        },
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/GoalResponse"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/goals/team/{employmentId}/{goalId}": {
+      "put": {
+        "operationId": "hrPerformanceTeamGoalUpdate",
+        "requestSchema": {
+          "$ref": "#/components/schemas/GoalWriteRequest"
+        },
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/GoalResponse"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/reviews": {
+      "get": {
+        "operationId": "hrPerformanceReviewsList",
+        "successResponses": {
+          "200": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PerformanceReview"
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "hrPerformanceReviewCreate",
+        "requestSchema": {
+          "$ref": "#/components/schemas/ReviewWriteRequest"
+        },
+        "successResponses": {
+          "201": {
+            "$ref": "#/components/schemas/PerformanceReview"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/reviews/{reviewId}/submit": {
+      "post": {
+        "operationId": "hrPerformanceReviewSubmit",
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/PerformanceReview"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/reviews/{reviewId}/acknowledge": {
+      "post": {
+        "operationId": "hrPerformanceReviewAcknowledge",
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/PerformanceReview"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/reviews/team/{employmentId}": {
+      "post": {
+        "operationId": "hrPerformanceTeamReviewCreate",
+        "requestSchema": {
+          "$ref": "#/components/schemas/ReviewWriteRequest"
+        },
+        "successResponses": {
+          "201": {
+            "$ref": "#/components/schemas/PerformanceReview"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/reviews/team/reviews/{reviewId}/cancel": {
+      "post": {
+        "operationId": "hrPerformanceTeamReviewCancel",
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/PerformanceReview"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/goals": {
+      "get": {
+        "operationId": "hrPerformanceGoalsList",
+        "successResponses": {
+          "200": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoalResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "hrPerformanceGoalCreate",
+        "requestSchema": {
+          "$ref": "#/components/schemas/GoalWriteRequest"
+        },
+        "successResponses": {
+          "201": {
+            "$ref": "#/components/schemas/GoalResponse"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/goals/team/{employmentId}": {
+      "get": {
+        "operationId": "hrPerformanceTeamGoalsList",
+        "successResponses": {
+          "200": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoalResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "hrPerformanceTeamGoalCreate",
+        "requestSchema": {
+          "$ref": "#/components/schemas/GoalWriteRequest"
+        },
+        "successResponses": {
+          "201": {
+            "$ref": "#/components/schemas/GoalResponse"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/goals/{goalId}/progress": {
+      "patch": {
+        "operationId": "hrPerformanceGoalProgressUpdate",
+        "requestSchema": {
+          "$ref": "#/components/schemas/GoalProgressRequest"
+        },
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/GoalResponse"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/goals/team/{employmentId}/{goalId}/progress": {
+      "patch": {
+        "operationId": "hrPerformanceTeamGoalProgressUpdate",
+        "requestSchema": {
+          "$ref": "#/components/schemas/GoalProgressRequest"
+        },
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/GoalResponse"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/reviews/{reviewId}": {
+      "get": {
+        "operationId": "hrPerformanceReviewGet",
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/PerformanceReview"
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/reviews/team": {
+      "get": {
+        "operationId": "hrPerformanceTeamReviewsList",
+        "successResponses": {
+          "200": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PerformanceReview"
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/hr/performance/reviews/team/{reviewId}": {
+      "get": {
+        "operationId": "hrPerformanceTeamReviewGet",
+        "successResponses": {
+          "200": {
+            "$ref": "#/components/schemas/PerformanceReview"
+          }
+        }
+      }
     }
   }
 }
