@@ -1,6 +1,8 @@
--- HRM G3 Task 4 — capability catalog only.
--- Forward-only and schema-neutral. No role-template mutation and no implicit
--- HR_MANAGER grant. Runtime/API authorization remains @RequireCapability based.
+-- HRM G3 Task 4 — capability catalog and canonical role reconciliation.
+-- Forward-only and schema-neutral. The seven Task 4 capabilities are granted only
+-- to tenant ADMIN roles and the canonical PLATFORM_OWNER role in the control tenant.
+-- HR_MANAGER is intentionally never referenced or broadened. Runtime/API
+-- authorization remains @RequireCapability based.
 
 INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
 SELECT gen_random_uuid(), c.code, c.name, c.description, 'ACTIVE', NOW(), NOW()
@@ -32,9 +34,11 @@ WHERE NOT EXISTS (
 );
 
 
--- Backfill only the seven G3 performance capabilities to existing ACTIVE
--- tenant ADMIN roles, matching the canonical HRM capability migration pattern.
--- HR_MANAGER is intentionally never referenced or broadened.
+-- Backfill only the seven G3 performance capabilities to:
+--   * existing ACTIVE tenant ADMIN roles; and
+--   * the canonical ACTIVE PLATFORM_OWNER role in the control tenant.
+-- This preserves the platform-owner invariant that the owner role carries every
+-- active capability, without introducing any HR_MANAGER grant or legacy fallback.
 DO $$
 DECLARE
     t RECORD;
@@ -44,8 +48,18 @@ BEGIN
     FOR t IN SELECT id FROM tenants WHERE status = 'ACTIVE' LOOP
         PERFORM set_config('app.tenant_id', t.id::text, false);
 
-        FOR r IN SELECT id, tenant_id FROM roles
-                 WHERE tenant_id = t.id AND code = 'ADMIN' AND status = 'ACTIVE'
+        FOR r IN
+            SELECT id, tenant_id, code
+              FROM roles
+             WHERE tenant_id = t.id
+               AND status = 'ACTIVE'
+               AND (
+                    code = 'ADMIN'
+                    OR (
+                        code = 'PLATFORM_OWNER'
+                        AND t.id = '00000000-0000-0000-0000-000000000001'::uuid
+                    )
+               )
         LOOP
             FOR cap IN
                 SELECT id, code
@@ -75,7 +89,12 @@ BEGIN
                     (id, tenant_id, role_id, capability_id, scope_type,
                      is_direct_exception, reason, status, created_at)
                 SELECT gen_random_uuid(), r.tenant_id, r.id, cap.id, 'TENANT',
-                       FALSE, 'HRM-G3 Task 4 canonical ADMIN tenant grant',
+                       FALSE,
+                       CASE
+                           WHEN r.code = 'PLATFORM_OWNER'
+                               THEN 'HRM-G3 Task 4 canonical PLATFORM_OWNER tenant grant'
+                           ELSE 'HRM-G3 Task 4 canonical ADMIN tenant grant'
+                       END,
                        'ACTIVE', NOW()
                 WHERE NOT EXISTS (
                     SELECT 1 FROM access_scope_grants g
