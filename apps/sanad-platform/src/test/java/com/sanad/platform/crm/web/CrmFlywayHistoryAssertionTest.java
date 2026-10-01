@@ -293,6 +293,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261002.2"   // HRM G3 performance goals foundation
             , "20261002.3"   // hrm g3 performance reviews rls
             , "20261003.1"   // hrm g3 performance capability catalog
+            , "20261003.2"   // w2-t1 partner principal foundation
     );
 
 
