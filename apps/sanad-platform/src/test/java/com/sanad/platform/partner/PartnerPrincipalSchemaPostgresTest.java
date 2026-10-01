@@ -63,7 +63,7 @@ class PartnerPrincipalSchemaPostgresTest {
     }
 
     private String isolatedUrl() {
-        return SOURCE_URL + "?currentSchema=public";
+        return MigrationTestSchemaSupport.getIsolatedJdbcUrl(SOURCE_URL);
     }
 
     // ========================================================================
