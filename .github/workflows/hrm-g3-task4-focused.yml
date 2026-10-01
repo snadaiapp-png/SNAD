@@ -63,7 +63,7 @@ jobs:
       - name: Run Task 4 RED/GREEN contract
         run: |
           mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true \
-            -Dtest='HrApiV2AuthorizationTest,HrG3OpenApiContractTest'
+            -Dtest='HrApiV2AuthorizationTest,HrG3OpenApiContractTest,HrG3PerformanceControllerTest'
       - name: Generate runtime HR OpenAPI evidence and verify committed contract
         run: |
           set -euo pipefail
