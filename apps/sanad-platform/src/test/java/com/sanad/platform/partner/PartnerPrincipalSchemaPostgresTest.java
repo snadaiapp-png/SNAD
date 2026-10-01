@@ -54,7 +54,7 @@ class PartnerPrincipalSchemaPostgresTest {
 
     private void migrate() {
         Flyway.configure()
-                .dataSource(SOURCE_URL, USER, PASSWORD)
+                .dataSource(isolatedUrl(), USER, PASSWORD)
                 .locations("classpath:db/migration", "classpath:db/vendor/postgresql")
                 .baselineOnMigrate(true)
                 .outOfOrder(true)
