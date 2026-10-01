@@ -102,7 +102,8 @@ class R0C13G02SchemaPostgresTest {
             // V20261001_2..7 add and reconcile the Platform IAM chain.
             // V20261001_8..12 are the forward-only UAC Wave 1 execution overlay.
             // V20261002_2 adds HRM-G3 performance goals; V20261002_3 adds performance reviews + RLS.
-            assertThat(rs.getString(1)).isEqualTo("20261002.3");
+            // V20261002_4 adds the W2-T1 partner principal foundation (forward-only ledger head).
+            assertThat(rs.getString(1)).isEqualTo("20261002.4");
         }
     }
 

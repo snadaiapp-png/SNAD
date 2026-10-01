@@ -224,7 +224,7 @@ class CrmPostgresMigrationTest {
     private static final String PLATFORM_OWNER_EXECUTIVE_ADMIN_VERSION = "20261001.7";
     // UAC Wave 1 forward-only overlay (20261001.8..20261001.12). PLATFORM_OWNER_EXECUTIVE_ADMIN_VERSION
     // remains a target-migration reference for the 20261001.7 reconciliation; the repository ledger
-    // head is the last forward-only G3 Task 2 performance-reviews migration.
+    // head is the W2-T1 partner principal foundation migration (forward-only after the G3 chain).
     private static final String UAC_EFFECTIVE_PERMISSION_PROJECTION_VERSION = "20261001.8";
     private static final String UAC_PROTECTED_ROLES_REGISTRY_VERSION = "20261001.9";
     private static final String UAC_CAPABILITY_METADATA_AUTHZ_VERSION = "20261001.10";
@@ -232,7 +232,9 @@ class CrmPostgresMigrationTest {
     private static final String UAC_ADMIN_AUDIT_BACKFILL_GUARD_VERSION = "20261001.12";
     private static final String HR_G3_PERFORMANCE_GOALS_VERSION = "20261002.2";
     private static final String HR_G3_PERFORMANCE_REVIEWS_VERSION = "20261002.3";
-    private static final String LATEST_MIGRATION_VERSION = HR_G3_PERFORMANCE_REVIEWS_VERSION;
+    // W2-T1 partner principal foundation — forward-only ledger extension after HR G3.
+    private static final String PARTNER_PRINCIPAL_FOUNDATION_VERSION = "20261002.4";
+    private static final String LATEST_MIGRATION_VERSION = PARTNER_PRINCIPAL_FOUNDATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
