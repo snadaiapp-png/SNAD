@@ -64,10 +64,15 @@ jobs:
         run: |
           mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true \
             -Dtest='HrApiV2AuthorizationTest,HrG3OpenApiContractTest'
-      - name: Generate runtime HR OpenAPI artifact
+      - name: Generate runtime HR OpenAPI evidence and verify committed contract
         run: |
+          set -euo pipefail
           mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true \
             -Dtest='HrOpenApiContractTest' -Dhrm.openapi.generate=true
+          cp ../../docs/hrm/contracts/openapi/hrm-openapi.json /tmp/hrm-openapi-runtime.json
           echo '---HRM_OPENAPI_ARTIFACT_BEGIN---'
-          cat ../../docs/hrm/contracts/openapi/hrm-openapi.json
+          cat /tmp/hrm-openapi-runtime.json
           echo '---HRM_OPENAPI_ARTIFACT_END---'
+          git restore ../../docs/hrm/contracts/openapi/hrm-openapi.json
+          mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true \
+            -Dtest='HrOpenApiContractTest'
