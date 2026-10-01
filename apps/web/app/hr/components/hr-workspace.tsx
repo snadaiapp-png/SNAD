@@ -29,6 +29,7 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
   { href: "/hr/attendance", label: "حضوري", labelMessageId: "hrm.g2.landing.attendance", capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW, HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD] },
   { href: "/hr/timesheets", label: "سجلات وقتي", labelMessageId: "hrm.g2.landing.timesheets", capabilitiesAny: [HRM_CAPABILITIES.TIMESHEET_SELF_VIEW, HRM_CAPABILITIES.TIMESHEET_SELF_SUBMIT] },
   { href: "/hr/leave", label: "إجازاتي", labelMessageId: "hrm.g2.landing.leave", capabilitiesAny: [HRM_CAPABILITIES.LEAVE_SELF_VIEW, HRM_CAPABILITIES.LEAVE_SELF_REQUEST] },
+  { href: "/hr/performance/goals", label: "أهداف الأداء", labelMessageId: "hrm.g3.workspace.nav.goals", capability: HRM_CAPABILITIES.GOAL_SELF_VIEW },
   { href: "/hr/team-attendance", label: "حضور الفريق", labelMessageId: "hrm.g2.landing.teamAttendance", capability: HRM_CAPABILITIES.ATTENDANCE_TEAM_VIEW },
   { href: "/hr/team-timesheets", label: "سجلات وقت الفريق", labelMessageId: "hrm.g2.landing.teamTimesheets", capability: HRM_CAPABILITIES.TIMESHEET_TEAM_APPROVE },
   { href: "/hr/leave/approvals", label: "اعتمادات الإجازات", labelMessageId: "hrm.g2.landing.leaveApprovals", capabilitiesAny: [HRM_CAPABILITIES.LEAVE_TEAM_APPROVE, HRM_CAPABILITIES.LEAVE_HR_APPROVE] },
