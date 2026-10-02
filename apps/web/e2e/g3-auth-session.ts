@@ -1,23 +1,22 @@
 import { expect, type Page } from "@playwright/test";
 
 /**
- * G3 authenticated acceptance — login helper.
+ * G3 authenticated acceptance — login/session helper.
  *
- * Authenticates through the real SNAD login form so AuthProvider owns
- * the in-memory access token and the BFF refresh cookie is stored in this
- * exact browser context. Direct API login alone cannot authenticate the SPA
- * because access tokens are intentionally never persisted in browser storage.
+ * Authenticates through the real SNAD login form and waits for the canonical
+ * authenticated workspace before returning. This prevents a race where the
+ * login HTTP 200 is observed before AuthProvider/session hydration finishes.
  *
- * Mirrors the canonical G3 `g2-auth-session.ts` pattern.
- *
- * FAIL-CLOSED contract: throws when E2E_<ROLE>_EMAIL / E2E_<ROLE>_PASSWORD
- * env vars are missing. NO test.skip, NO Assumptions, NO soft-success
- * fallback. The dedicated G3 CI workflow MUST provision these env vars;
- * missing credentials fail the G3 job (not skip).
+ * FAIL-CLOSED: missing E2E_<ROLE>_EMAIL/PASSWORD throws. No test.skip,
+ * no storage injection, no raw-login shortcut, no soft-success fallback.
  */
 
 export interface G3LoginResponse {
   accessToken: string;
+  expiresAt?: string;
+  credentialRotationRequired?: boolean;
+  defaultDestination?: string;
+  availableDestinations?: string[];
   user: {
     id: string;
     tenantId: string;
@@ -26,6 +25,8 @@ export interface G3LoginResponse {
     status: string;
   };
 }
+
+const NORMAL_LOGIN_DESTINATION = "/workspace";
 
 function requireCredentials(role: "employee" | "manager" | "unauthorized"): {
   email: string;
@@ -69,19 +70,44 @@ export async function loginThroughUi(
   );
 
   await page.locator('form button[type="submit"]').click();
+
   const response = await responsePromise;
-  expect(response.ok(), `Login failed for ${email}: ${response.status()} ${response.statusText()}`).toBe(true);
+  expect(
+    response.ok(),
+    `Login failed for ${email}: ${response.status()} ${response.statusText()}`
+  ).toBe(true);
 
   const body = (await response.json()) as G3LoginResponse;
   expect(body.accessToken, `Login response for ${email} is missing accessToken`).toBeTruthy();
-  expect(body.user.tenantId, `Login response for ${email} is missing tenantId`).toBeTruthy();
+  expect(body.user?.tenantId, `Login response for ${email} is missing tenantId`).toBeTruthy();
+  expect(
+    body.credentialRotationRequired,
+    `Login for ${email} unexpectedly requires credential rotation`
+  ).not.toBe(true);
   expect(body.user.status, `Login response for ${email} has status ${body.user.status}, expected ACTIVE`).toBe("ACTIVE");
+
+  await page.waitForURL(
+    (url) =>
+      url.pathname === NORMAL_LOGIN_DESTINATION ||
+      url.pathname.startsWith(`${NORMAL_LOGIN_DESTINATION}/`),
+    { timeout: 30_000 }
+  );
+
+  const expectedIdentity = body.user.displayName || body.user.email;
+  await expect(page.getByTestId("workspace-identity")).toContainText(expectedIdentity, {
+    timeout: 10_000,
+  });
 
   return body;
 }
 
 export async function logoutThroughUi(page: Page): Promise<void> {
-  await page.goto("/");
-  await page.locator("#login-email").fill("");
-  await page.locator("#login-password").fill("");
+  await page.goto(`${process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001"}/workspace`);
+  const logoutBtn = page.getByTestId("logout");
+  await expect(logoutBtn).toBeVisible({ timeout: 5_000 });
+  await logoutBtn.click();
+  await page.waitForURL(
+    (url) => url.pathname === "/" || url.pathname.startsWith("/auth"),
+    { timeout: 10_000 }
+  );
 }
