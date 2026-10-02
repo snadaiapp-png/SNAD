@@ -340,17 +340,17 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Generic config should show 0 G3 specs ==="
-          GENERIC_COUNT=$(npx playwright test --config=playwright.standard.config.ts --list 2>/dev/null | grep -c "g3-authenticated" || echo "0")
+          GENERIC_COUNT=$(npx playwright test --config=playwright.standard.config.ts --list 2>/dev/null | grep -c "g3-authenticated" || true)
           echo "GENERIC_G3_SPEC_COUNT=$GENERIC_COUNT"
           if [ "$GENERIC_COUNT" != "0" ]; then
             echo "::error::G3 spec found in generic config — must be excluded"
             exit 1
           fi
-          echo "=== Dedicated config should show >=1 G3 spec ==="
-          DEDICATED_COUNT=$(npx playwright test --config=playwright-g3.config.ts --list 2>/dev/null | grep -c "g3-authenticated" || echo "0")
+          echo "=== Dedicated config should show exactly 4 G3 journeys ==="
+          DEDICATED_COUNT=$(npx playwright test --config=playwright-g3.config.ts --list 2>/dev/null | grep -c "g3-authenticated" || true)
           echo "DEDICATED_G3_SPEC_COUNT=$DEDICATED_COUNT"
-          if [ "$DEDICATED_COUNT" = "0" ]; then
-            echo "::error::G3 spec not found in dedicated config"
+          if [ "$DEDICATED_COUNT" != "4" ]; then
+            echo "::error::Dedicated G3 config must expose exactly 4 journeys; found $DEDICATED_COUNT"
             exit 1
           fi
 
