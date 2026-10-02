@@ -14,7 +14,11 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("@/lib/i18n/I18nProvider", () => ({
+vi.mock("@/lib/i18n/I18nProvider", async () => {
+  const { createContext } = await import("react");
+  const I18nContext = createContext(null);
+  return {
+    I18nContext,
   useI18n: () => ({
     locale: "ar",
     direction: "rtl",
@@ -49,7 +53,8 @@ vi.mock("@/lib/i18n/I18nProvider", () => ({
       "hrm.attendanceReport.subtitle": "ملخص الحضور والغياب والتأخر ضمن النطاق المصرح",
     } as Record<string, string>)[key] ?? key,
   }),
-}));
+  };
+});
 
 afterEach(() => cleanup());
 

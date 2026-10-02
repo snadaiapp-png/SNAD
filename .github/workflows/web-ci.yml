@@ -55,6 +55,15 @@ jobs:
           echo "Running SNAD Design System compliance check..."
           python3 scripts/ci/check-design-system-compliance.py
 
+      - name: Module Visual Compliance Check
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          echo "Enforcing the SNAD Module Visual Contract (CRM/HR shared shell unification)..."
+          python3 scripts/ci/check-module-visual-compliance.py --self-test
+          python3 scripts/ci/check-module-visual-compliance.py apps/web
+
       - name: Logo Governance Check
         shell: bash
         working-directory: ${{ github.workspace }}

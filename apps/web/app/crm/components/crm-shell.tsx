@@ -1,14 +1,31 @@
 "use client";
 
 import { useEffect, useMemo, type ComponentType, type ReactNode } from "react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { hasAnyCapability, hasCapability } from "@/lib/auth/capabilities";
 import type { MeResponse } from "@/lib/api/auth";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import styles from "../crm-shared-styles.module.css";
+import {
+  SnadModuleShell,
+  AccountsIcon,
+  ActivitiesIcon,
+  CasesIcon,
+  ContactsIcon,
+  CustomFieldsIcon,
+  ExecutionIcon,
+  ImportsIcon,
+  IntelligenceIcon,
+  LeadsIcon,
+  NotesIcon,
+  OpportunitiesIcon,
+  OverviewIcon,
+  PipelinesIcon,
+  ReportsIcon,
+  SearchIcon,
+  TagsIcon,
+  TasksIcon,
+} from "@/components/sds/module";
 
 interface NavItem {
   href: string;
@@ -23,194 +40,6 @@ interface NavItem {
    * legitimate CRM operational reader (e.g. Execution Board).
    */
   capabilities?: string[];
-}
-
-/* ============================================================================
- *  Inline SVG icons (16x16, stroke="currentColor")
- * ============================================================================ */
-
-function OverviewIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="2" width="5" height="5" rx="1" />
-      <rect x="9" y="2" width="5" height="3" rx="1" />
-      <rect x="9" y="7" width="5" height="7" rx="1" />
-      <rect x="2" y="9" width="5" height="5" rx="1" />
-    </svg>
-  );
-}
-
-function AccountsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 13.5c0-2.2 1.8-4 4-4s4 1.8 4 4" />
-      <circle cx="7" cy="5" r="2.5" />
-      <path d="M11 5v3M9.5 6.5h3" />
-    </svg>
-  );
-}
-
-function ContactsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="2" width="11" height="12" rx="1.5" />
-      <circle cx="7.5" cy="6" r="1.8" />
-      <path d="M4 11.5c0-1.9 1.6-3 3.5-3s3.5 1.1 3.5 3" />
-      <line x1="13" y1="4.5" x2="14.5" y2="4.5" />
-      <line x1="13" y1="7.5" x2="14.5" y2="7.5" />
-    </svg>
-  );
-}
-
-function LeadsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2 2l1.5 11 4.5-2 4.5 2L14 2z" />
-      <path d="M5 5h6M5 8h4" />
-    </svg>
-  );
-}
-
-function PipelinesIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="3" width="3.5" height="10" rx="0.5" />
-      <rect x="6.5" y="3" width="3" height="7" rx="0.5" />
-      <rect x="10.5" y="3" width="3.5" height="12" rx="0.5" />
-    </svg>
-  );
-}
-
-function OpportunitiesIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" />
-      <circle cx="8" cy="8" r="3.5" />
-      <circle cx="8" cy="8" r="1" fill="currentColor" />
-    </svg>
-  );
-}
-
-function ActivitiesIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="2" width="12" height="12" rx="1.5" />
-      <path d="M5 8l2 2 4-4" />
-    </svg>
-  );
-}
-
-function TagsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2 8l5-5h6v6l-5 5z" />
-      <circle cx="10" cy="5" r="1" fill="currentColor" />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="7" cy="7" r="4" />
-      <path d="M10 10l3 3" />
-    </svg>
-  );
-}
-
-function ReportsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="9" width="3" height="5" />
-      <rect x="6.5" y="5" width="3" height="9" />
-      <rect x="11" y="2" width="3" height="12" />
-    </svg>
-  );
-}
-
-function NotesIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 2h8l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" />
-      <path d="M11 2v3h3" />
-      <path d="M5 8h6M5 11h4" />
-    </svg>
-  );
-}
-
-function TasksIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 4h10M3 8h10M3 12h6" />
-      <rect x="0.5" y="2.5" width="2" height="2" rx="0.3" />
-      <rect x="0.5" y="6.5" width="2" height="2" rx="0.3" />
-      <rect x="0.5" y="10.5" width="2" height="2" rx="0.3" />
-    </svg>
-  );
-}
-
-function CasesIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="1" width="12" height="14" rx="2" />
-      <path d="M5 5h6M5 8h6M5 11h3" />
-    </svg>
-  );
-}
-
-function IntelligenceIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.5" />
-      <circle cx="8" cy="8" r="2" />
-      <path d="M8 2.5V5M8 11v2.5M2.5 8H5M11 8h2.5" />
-    </svg>
-  );
-}
-
-function ImportsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5" />
-      <path d="M2 12v1.5A.5.5 0 0 0 2.5 14h11a.5.5 0 0 0 .5-.5V12" />
-    </svg>
-  );
-}
-
-function CustomFieldsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="3" width="12" height="10" rx="1.5" />
-      <path d="M2 6h12M5 9h2M5 11h4" />
-    </svg>
-  );
-}
-
-function ExecutionIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" />
-      <path d="M8 4v4l3 2" />
-    </svg>
-  );
-}
-
-function LangIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.5" />
-      <path d="M2.5 8h11M8 2.5c1.5 1.6 2.2 3.6 2.2 5.5S9.5 12 8 13.5M8 2.5C6.5 4 5.8 6 5.8 7.5S6.5 12 8 13.5" />
-    </svg>
-  );
-}
-
-function BackIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 4l-4 4 4 4" />
-      <line x1="6" y1="8" x2="14" y2="8" />
-    </svg>
-  );
 }
 
 const MAIN_NAV: NavItem[] = [
@@ -267,15 +96,19 @@ interface CrmShellProps {
 }
 
 /**
- * CrmShell — Persistent CRM layout with header + sidebar + content slot.
+ * CrmShell — Persistent CRM layout rendered through the SHARED SNAD module
+ * shell primitive (components/sds/module). CRM is the visual reference the
+ * shared contract was extracted from; it consumes the same primitives as
+ * every other module so no third identity can emerge.
  *
  * Auth gating:
  *   - Reads useAuth() and redirects to "/" if the session is gone.
- *   - Shows AuthLoadingState while INITIALIZING / REFRESHING / LOGGING_OUT.
+ *   - Shows the shared auth loading surface while
+ *     INITIALIZING / REFRESHING / LOGGING_OUT / AUTHENTICATING.
  *
  * Routing:
- *   - Uses usePathname() to highlight the active sidebar link.
- *   - Sidebar links use Next.js <Link> for client-side navigation.
+ *   - usePathname() feeds the shared shell's active-link resolution, so
+ *     /crm/accounts/[accountId] keeps highlighting "Accounts".
  *
  * i18n:
  *   - Uses useI18n() from @/lib/i18n/I18nProvider for all labels.
@@ -310,27 +143,6 @@ export function CrmShell({ children }: CrmShellProps) {
     }
   }, [router, state]);
 
-  if (
-    state === "INITIALIZING" ||
-    state === "REFRESHING" ||
-    state === "LOGGING_OUT" ||
-    state === "AUTHENTICATING"
-  ) {
-    return <AuthLoadingState subtitle={t("crm.shell.loading")} />;
-  }
-
-  if (state !== "AUTHENTICATED") {
-    return <AuthLoadingState subtitle={t("crm.shell.loading")} />;
-  }
-
-  function isActive(href: string): boolean {
-    if (!pathname) return false;
-    // /crm/accounts/[accountId] should still highlight "Accounts".
-    if (href === "/crm/accounts" && pathname.startsWith("/crm/accounts")) return true;
-    if (href === "/crm/settings/custom-fields" && pathname.startsWith("/crm/settings/custom-fields")) return true;
-    return pathname === href || pathname.startsWith(`${href}/`);
-  }
-
   function toggleLocale() {
     setLocale(locale === "ar" ? "en" : "ar");
   }
@@ -340,96 +152,47 @@ export function CrmShell({ children }: CrmShellProps) {
     router.replace("/");
   }
 
+  const authLoading =
+    state === "INITIALIZING" ||
+    state === "REFRESHING" ||
+    state === "LOGGING_OUT" ||
+    state === "AUTHENTICATING" ||
+    state !== "AUTHENTICATED";
+
   const displayName = me?.displayName ?? me?.email ?? t("crm.shell.user");
 
+  const navSections = [
+    { label: t("crm.shell.sidebar.main"), items: filteredMainNav.map((item) => ({ href: item.href, label: t(item.labelKey), Icon: item.Icon })) },
+    { label: t("crm.shell.sidebar.admin"), items: filteredAdminNav.map((item) => ({ href: item.href, label: t(item.labelKey), Icon: item.Icon })) },
+    { label: t("crm.shell.sidebar.execution"), items: filteredExecutionNav.map((item) => ({ href: item.href, label: t(item.labelKey), Icon: item.Icon })) },
+  ];
+
   return (
-    <div className={styles.shell} dir={direction}>
-      <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <Link href="/crm/overview" className={styles.brandMark} aria-label={t("crm.shell.title")}>
-            {t("crm.shell.brandMark")}
-            <span className={styles.brandMarkGold} />
-          </Link>
-          <div className={styles.headerTitles}>
-            <h1 className={styles.headerTitle}>{t("crm.shell.title")}</h1>
-            <p className={styles.headerSubtitle}>{t("crm.shell.subtitle")}</p>
-          </div>
-        </div>
-
-        <div className={styles.headerRight}>
-          <span className={styles.headerSubtitle} aria-label={t("crm.shell.user")}>
-            {displayName}
-          </span>
-          <button
-            type="button"
-            className={styles.langBtn}
-            onClick={toggleLocale}
-            aria-label={t("crm.shell.languageToggle")}
-          >
-            <LangIcon />
-            <span>{t("crm.shell.languageToggle")}</span>
-          </button>
-          <button
-            type="button"
-            className={styles.headerBtn}
-            onClick={() => router.push("/workspace")}
-          >
-            <BackIcon />
-            <span>{t("crm.shell.workspace")}</span>
-          </button>
-          <button
-            type="button"
-            className={styles.headerBtn}
-            onClick={() => void handleLogout()}
-          >
-            <span>{t("crm.shell.logout")}</span>
-          </button>
-        </div>
-      </header>
-
-      <div className={styles.body}>
-        <aside className={styles.sidebar} aria-label={t("crm.shell.sidebar")}>
-          <nav className={styles.sidebarNav}>
-            <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.main")}</span>
-            {filteredMainNav.map((item) => (
-              <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
-            ))}
-
-            {filteredAdminNav.length > 0 && (
-              <>
-                <div className={styles.sidebarDivider} />
-                <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.admin")}</span>
-                {filteredAdminNav.map((item) => (
-                  <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
-                ))}
-              </>
-            )}
-
-            {filteredExecutionNav.length > 0 && (
-              <>
-                <div className={styles.sidebarDivider} />
-                <span className={styles.sidebarSectionLabel}>{t("crm.shell.sidebar.execution")}</span>
-                {filteredExecutionNav.map((item) => (
-                  <SidebarLink key={item.href} item={item} active={isActive(item.href)} label={t(item.labelKey)} />
-                ))}
-              </>
-            )}
-
-          </nav>
-        </aside>
-
-        <main className={styles.content} id="crm-operational-content">
-          {children}
-        </main>
-      </div>
-    </div>
+    <SnadModuleShell
+      brandMark={t("crm.shell.brandMark")}
+      brandHref="/crm/overview"
+      brandAriaLabel={t("crm.shell.title")}
+      title={t("crm.shell.title")}
+      subtitle={t("crm.shell.subtitle")}
+      navLabel={t("crm.shell.sidebar")}
+      navSections={navSections}
+      activeHref={pathname ?? "/crm/overview"}
+      contentId="crm-operational-content"
+      dir={direction}
+      user={displayName}
+      userAriaLabel={t("crm.shell.user")}
+      languageLabel={t("crm.shell.languageToggle")}
+      onToggleLanguage={toggleLocale}
+      backLabel={t("crm.shell.workspace")}
+      onBack={() => router.push("/workspace")}
+      logoutLabel={t("crm.shell.logout")}
+      onLogout={() => void handleLogout()}
+      authLoading={authLoading}
+      authLoadingSubtitle={t("crm.shell.loading")}
+    >
+      {children}
+    </SnadModuleShell>
   );
-}
-
-interface SidebarLinkProps {
-  item: NavItem;
-  active: boolean;
-  label: string;
 }
 
 /**
@@ -452,20 +215,4 @@ function navItemVisible(me: MeResponse | null, item: NavItem): boolean {
     return hasCapability(me, item.capability);
   }
   return true;
-}
-
-function SidebarLink({ item, active, label }: SidebarLinkProps) {
-  const { Icon } = item;
-  return (
-    <Link
-      href={item.href}
-      aria-current={active ? "page" : undefined}
-      className={`${styles.sidebarItem} ${active ? styles.sidebarItemActive : ""}`}
-    >
-      <span className={styles.sidebarItemIcon}>
-        <Icon />
-      </span>
-      <span className={styles.sidebarItemLabel}>{label}</span>
-    </Link>
-  );
 }

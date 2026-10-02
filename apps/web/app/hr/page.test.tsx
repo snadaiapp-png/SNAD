@@ -27,7 +27,11 @@ vi.mock("@/lib/auth/auth-provider", () => ({
   useAuth: () => ({ state: authMock.state, me: { capabilities: authMock.capabilities } }),
 }));
 
-vi.mock("@/lib/i18n/I18nProvider", () => ({
+vi.mock("@/lib/i18n/I18nProvider", async () => {
+  const { createContext } = await import("react");
+  const I18nContext = createContext(null);
+  return {
+    I18nContext,
   useI18n: () => {
     const messages: Record<string, string> = {
       "hrm.g2.landing.summary": "ملخص الموارد البشرية",
@@ -61,7 +65,8 @@ vi.mock("@/lib/i18n/I18nProvider", () => ({
       t: (key: string) => messages[key] ?? key,
     };
   },
-}));
+  };
+});
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (

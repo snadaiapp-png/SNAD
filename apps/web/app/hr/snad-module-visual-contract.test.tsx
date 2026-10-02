@@ -49,6 +49,30 @@ vi.mock("@/lib/auth/auth-provider", () => ({
   useAuth: () => authMock,
 }));
 
+const i18nMock = vi.hoisted(() => ({
+  direction: "rtl" as "rtl" | "ltr",
+  locale: "ar" as "ar" | "en",
+}));
+
+vi.mock("@/lib/i18n/I18nProvider", async () => {
+  const { createContext } = await import("react");
+  const I18nContext = createContext({
+    locale: i18nMock.locale,
+    direction: i18nMock.direction,
+    setLocale: () => undefined,
+    t: (key: string) => key,
+  });
+  return {
+    I18nContext,
+  useI18n: () => ({
+    locale: i18nMock.locale,
+    direction: i18nMock.direction,
+    setLocale: vi.fn(),
+    t: (key: string) => key,
+  }),
+  };
+});
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => "/hr",
@@ -73,9 +97,6 @@ describe("SNAD shared module visual contract — primitives", () => {
     const index = readFileSync(MODULE_INDEX, "utf8");
     for (const primitive of [
       "SnadModuleShell",
-      "SnadModuleHeader",
-      "SnadModuleSidebar",
-      "SnadModuleNav",
       "SnadPageHeader",
       "SnadKpiGrid",
       "SnadKpiCard",
@@ -85,7 +106,10 @@ describe("SNAD shared module visual contract — primitives", () => {
       "SnadLoadingState",
       "SnadEmptyState",
       "SnadErrorState",
+      "SnadForbiddenState",
+      "SnadSuccessNotice",
       "SnadMobileRecordList",
+      "SnadMobileRecordCard",
     ]) {
       expect(index).toContain(primitive);
     }
@@ -146,7 +170,7 @@ describe("SNAD shared module visual contract — HR unification", () => {
         <p>المحتوى</p>
       </HrWorkspace>,
     );
-    const shell = screen.getByRole("main").parentElement;
+    const shell = screen.getByRole("main").closest("[dir]");
     expect(shell?.getAttribute("dir")).toBe("rtl");
   });
 });

@@ -10,12 +10,7 @@ Every SNAD web module (CRM, HR, future modules) MUST render its product shell th
 
 | Primitive | Purpose | Key contract |
 |-----------|---------|--------------|
-| SnadModuleShell | 100vh flex-column module root on ivory canvas, 15px base type | props: brandMark, title, subtitle, nav (sections), activeHref, headerActions, user, dir, children |
-| SnadModuleHeader | sticky top header: brand tile + gold dot + titles + action slot | sticky, z-20, white surface, border + shadow-sm |
-| SnadModuleSidebar | 264px sticky sidebar, white, inline-end border | <aside aria-label> + <nav> |
-| SnadModuleNav | sectioned nav: label + items + dividers | items = {href,label,Icon,capability-driven visibility resolved by caller} |
-| SnadModuleNavItem | 16×16 currentColor icon + label link | aria-current="page" + active class = brand fill + gold icon |
-| SnadModuleContent | content region + 1180px inner max | <main id> |
+| SnadModuleShell | 100vh flex-column module root on ivory canvas: sticky HEADER (brand tile + gold dot + titles + user + actions), 264px SIDEBAR (sectioned NAV with 16×16 icons, active = brand fill + gold icon, aria-current), CONTENT region + 1180px inner max | props: brandMark, brandHref, title, subtitle, navSections (visibility resolved by caller), activeHref (longest-prefix wins), navLabel, contentId, dir, user, language/back/logout handlers, authLoading |
 | SnadPageHeader | page title 1.5rem/800 + description + eyebrow + trailing | module-neutral |
 | SnadKpiGrid / SnadKpiCard | KPI grid + white card w/ 4px gold inline-start bar, numeric font | tone support |
 | SnadOperationalPanel | white section card + brand-bar section title | header slot + body |

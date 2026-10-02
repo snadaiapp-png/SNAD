@@ -58,7 +58,12 @@ describe("G2 HR landing and workspace i18n contract", () => {
 
     expect(workspaceSource).not.toContain("labelEn");
     expect(workspaceSource).not.toContain("workspaceLocale");
-    expect(workspaceSource).not.toContain('locale === "ar"');
+    // The ONLY permitted locale comparison is the canonical language-toggle
+    // flip (runtime behavior, not content branching); no content branch may
+    // select Arabic or English strings by locale.
+    const toggleLine = 'setLocale(locale === "ar" ? "en" : "ar")';
+    expect(workspaceSource).toContain(toggleLine);
+    expect(workspaceSource.split('locale === "ar"').length - 1).toBe(1);
     for (const key of WORKSPACE_KEYS) {
       expect(workspaceSource).toContain(`"${key}"`);
     }
