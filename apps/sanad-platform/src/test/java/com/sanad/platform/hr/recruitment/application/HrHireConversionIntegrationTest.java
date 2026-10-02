@@ -384,10 +384,12 @@ class HrHireConversionIntegrationTest {
                         + "VALUES (?, ?, ?, 'LE', 'SA', 'SA', 'ACTIVE', NOW(), NOW())",
                 legalEntityId, tenantId, "LE-" + legalEntityId.toString().substring(0, 8));
         jdbc.update("INSERT INTO organization_legal_entities (tenant_id, organization_id, legal_entity_id, "
-                + "effective_from, status) VALUES (?, ?, ?, ?, 'ACTIVE')",\n                tenantId, organizationId, legalEntityId, java.sql.Date.valueOf(HIRE_DATE));
+                + "effective_from, status) VALUES (?, ?, ?, ?, 'ACTIVE')",
+                tenantId, organizationId, legalEntityId, java.sql.Date.valueOf(HIRE_DATE));
         jdbc.update("INSERT INTO hr_country_packs (country_code, pack_code, pack_version, status, "
                 + "effective_from, legal_reviewed_at, legal_reviewed_by, certification_reference) "
-                + "VALUES ('SA', 'PACK-SA', 'v1', 'CERTIFIED', ?, NOW(), 'legal', 'CERT-1')",\n                java.sql.Date.valueOf(HIRE_DATE));
+                + "VALUES ('SA', 'PACK-SA', 'v1', 'CERTIFIED', ?, NOW(), 'legal', 'CERT-1')",
+                java.sql.Date.valueOf(HIRE_DATE));
         orgUnitId = UUID.randomUUID();
         jdbc.update("INSERT INTO hr_org_units (id, tenant_id, organization_id, stable_code, created_at) "
                 + "VALUES (?, ?, ?, 'OU-T8', NOW())", orgUnitId, tenantId, organizationId);
@@ -1257,7 +1259,9 @@ class HrHireConversionIntegrationTest {
                 + "VALUES (?, ?, 'T8 Position', 'ACTIVE')", positionId, tenantId);
         jdbc.update("INSERT INTO hr_position_versions (id, tenant_id, position_id, organization_id, "
                         + "org_unit_id, title, effective_from, status) "
-                        + "VALUES (?, ?, ?, ?, ?, 'T8 Position v1', ?, 'ACTIVE')",\n                UUID.randomUUID(), tenantId, positionId, organizationId, orgUnitId,\n                java.sql.Date.valueOf(HIRE_DATE.minusDays(1)));
+                        + "VALUES (?, ?, ?, ?, ?, 'T8 Position v1', ?, 'ACTIVE')",
+                UUID.randomUUID(), tenantId, positionId, organizationId, orgUnitId,
+                java.sql.Date.valueOf(HIRE_DATE.minusDays(1)));
         jdbc.update("UPDATE hr_job_openings SET position_id = ? WHERE id = ? AND tenant_id = ?",
                 positionId, openingId, tenantId);
         // occupy the position with an unrelated ACTIVE employment + OCCUPYING assignment
@@ -1271,11 +1275,15 @@ class HrHireConversionIntegrationTest {
                         + "first_name, last_name, display_name, employment_type, worker_classification_code, "
                         + "status, hire_date, version, created_at, updated_at) "
                         + "VALUES (?, ?, ?, ?, 'EMP-OTHER-1', 'Other', 'Holder', 'Other Holder', "
-                        + "'FULL_TIME', 'FULL_TIME', 'ACTIVE', ?, 0, NOW(), NOW())",\n                otherEmployment, tenantId, otherPerson, legalEntityId, java.sql.Date.valueOf(HIRE_DATE));
+                        + "'FULL_TIME', 'FULL_TIME', 'ACTIVE', ?, 0, NOW(), NOW())",
+                otherEmployment, tenantId, otherPerson, legalEntityId, java.sql.Date.valueOf(HIRE_DATE));
         jdbc.update("INSERT INTO hr_employee_assignments (id, tenant_id, employment_id, organization_id, "
                         + "org_unit_id, position_id, assignment_type, occupancy_mode, allocation_percent, "
                         + "effective_from, status, version, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, 'PRIMARY', 'OCCUPYING', 100, ?, "\n                        + "'ACTIVE', 0, NOW(), NOW())",\n                UUID.randomUUID(), tenantId, otherEmployment, organizationId, orgUnitId, positionId,\n                java.sql.Date.valueOf(HIRE_DATE.minusDays(1)));
+                        + "VALUES (?, ?, ?, ?, ?, ?, 'PRIMARY', 'OCCUPYING', 100, ?, "
+                        + "'ACTIVE', 0, NOW(), NOW())",
+                UUID.randomUUID(), tenantId, otherEmployment, organizationId, orgUnitId, positionId,
+                java.sql.Date.valueOf(HIRE_DATE.minusDays(1)));
         return positionId;
     }
 
