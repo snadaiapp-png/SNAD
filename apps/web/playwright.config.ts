@@ -26,6 +26,7 @@ export default defineConfig({
   //   - workflow-y2-release.spec.ts: Workflow Y2 Playwright Release Gate
   testIgnore: [
     "**/g2-authenticated.spec.ts",
+    "**/g3-authenticated.spec.ts",
     "**/crm-007-production-closure.spec.ts",
     // CRM-EXEC acceptance requires CRM_TENANT_A_EMAIL/PASSWORD credentials
     // which are only available in the CRM Authenticated E2E workflow

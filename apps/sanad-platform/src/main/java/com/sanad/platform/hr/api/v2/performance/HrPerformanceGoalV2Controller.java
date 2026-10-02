@@ -307,8 +307,8 @@ public class HrPerformanceGoalV2Controller {
                 rs.getString("status"),
                 rs.getObject("starts_on", LocalDate.class),
                 rs.getObject("ends_on", LocalDate.class),
-                rs.getObject("created_at", Instant.class),
-                rs.getObject("updated_at", Instant.class));
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("updated_at").toInstant());
     }
 
     private record Actor(UUID tenantId, UUID userId) {}
