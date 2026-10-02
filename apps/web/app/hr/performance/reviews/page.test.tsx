@@ -172,14 +172,19 @@ vi.mock("@/lib/auth/auth-provider", () => ({
   useAuth: () => ({ state: authMock.state, me: { capabilities: authMock.capabilities } }),
 }));
 
-vi.mock("@/lib/i18n/I18nProvider", () => ({
+vi.mock("@/lib/i18n/I18nProvider", async () => {
+  const { createContext } = await import("react");
+  const I18nContext = createContext(null);
+  return {
+    I18nContext,
   useI18n: () => ({
     locale: i18nState.locale,
     direction: i18nState.locale === "ar" ? "rtl" : "ltr",
     setLocale: vi.fn(),
     t: (key: string) => i18nState.messages[key] ?? key,
   }),
-}));
+  };
+});
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -245,13 +250,25 @@ const PEER_SUBMITTED = {
 
 const CANCELLED_TEAM_DRAFT = {
   ...MANAGER_SUBMITTED,
-  id: "r-6",
+  id: "r-7",
   status: "CANCELLED",
+};
+
+const TEAM_DRAFT = {
+  ...MANAGER_SUBMITTED,
+  id: "r-6",
+  status: "DRAFT",
+  subjectEmploymentId: "e-2",
+  comments: "مسودة تقييم مباشر",
 };
 
 function cloneReviews() {
   return [SELF_DRAFT, SELF_SUBMITTED, SELF_ACKNOWLEDGED, MANAGER_SUBMITTED, PEER_SUBMITTED, CANCELLED_TEAM_DRAFT]
     .map((review) => ({ ...review }));
+}
+
+function teamReviews() {
+  return [TEAM_DRAFT, CANCELLED_TEAM_DRAFT].map((review) => ({ ...review }));
 }
 
 async function renderReviewsPage() {
@@ -292,7 +309,7 @@ beforeEach(() => {
   i18nState.locale = "ar";
   i18nState.messages = AR_MESSAGES;
   hrG3ApiMock.listReviews.mockImplementation(() => Promise.resolve(cloneReviews()));
-  hrG3ApiMock.listTeamReviews.mockImplementation(() => Promise.resolve([MANAGER_SUBMITTED, CANCELLED_TEAM_DRAFT]));
+  hrG3ApiMock.listTeamReviews.mockImplementation(() => Promise.resolve(teamReviews()));
   hrG3ApiMock.createSelfReview.mockImplementation((input: Record<string, unknown>) =>
     Promise.resolve({ ...SELF_DRAFT, id: "r-new", status: "DRAFT", ...input }));
   hrG3ApiMock.submitReview.mockImplementation((id: string) =>
@@ -336,7 +353,8 @@ describe("/hr/performance/reviews — Task 6 performance review surface", () => 
     hrG3ApiMock.listTeamReviews.mockResolvedValue([]);
     await renderReviewsPage();
     await waitFor(() => expect(screen.getByTestId("reviews-ready")).toBeInTheDocument());
-    expect(screen.getByText(AR_MESSAGES["hrm.g3.reviews.empty.title"])).toBeInTheDocument();
+    // Both the SELF and TEAM panels surface the empty surface.
+    expect(screen.getAllByText(AR_MESSAGES["hrm.g3.reviews.empty.title"]).length).toBeGreaterThan(0);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -529,9 +547,10 @@ describe("/hr/performance/reviews — Task 6 performance review surface", () => 
     await waitFor(() => expect(screen.getByTestId("reviews-ready")).toBeInTheDocument());
 
     expect(screen.getAllByText(AR_MESSAGES["hrm.g3.reviews.title"]).length).toBeGreaterThan(0);
-    expect(screen.getByRole("table")).toHaveTextContent(AR_MESSAGES["hrm.g3.reviews.col.cycle"]);
-    expect(screen.getByRole("table")).toHaveTextContent(AR_MESSAGES["hrm.g3.reviews.col.status"]);
-    expect(screen.getByRole("table")).toHaveTextContent(AR_MESSAGES["hrm.g3.reviews.col.rating"]);
+    const selfTable = screen.getAllByRole("table")[0];
+    expect(selfTable).toHaveTextContent(AR_MESSAGES["hrm.g3.reviews.col.cycle"]);
+    expect(selfTable).toHaveTextContent(AR_MESSAGES["hrm.g3.reviews.col.status"]);
+    expect(selfTable).toHaveTextContent(AR_MESSAGES["hrm.g3.reviews.col.rating"]);
   });
 
   it("20. renders the same surface in English through the translator catalog", async () => {
@@ -541,9 +560,10 @@ describe("/hr/performance/reviews — Task 6 performance review surface", () => 
     await waitFor(() => expect(screen.getByTestId("reviews-ready")).toBeInTheDocument());
 
     expect(screen.getAllByText(EN_MESSAGES["hrm.g3.reviews.title"]).length).toBeGreaterThan(0);
-    expect(screen.getByRole("table")).toHaveTextContent(EN_MESSAGES["hrm.g3.reviews.col.cycle"]);
-    expect(screen.getByRole("table")).toHaveTextContent(EN_MESSAGES["hrm.g3.reviews.col.status"]);
-    expect(screen.getByRole("table")).toHaveTextContent(EN_MESSAGES["hrm.g3.reviews.col.rating"]);
+    const selfTable = screen.getAllByRole("table")[0];
+    expect(selfTable).toHaveTextContent(EN_MESSAGES["hrm.g3.reviews.col.cycle"]);
+    expect(selfTable).toHaveTextContent(EN_MESSAGES["hrm.g3.reviews.col.status"]);
+    expect(selfTable).toHaveTextContent(EN_MESSAGES["hrm.g3.reviews.col.rating"]);
   });
 
   it("21. renders mobile records via the established mobile record list", async () => {
@@ -586,8 +606,9 @@ describe("/hr/performance/reviews — Task 6 performance review surface", () => 
     await waitFor(() => expect(screen.getByTestId("reviews-ready")).toBeInTheDocument());
 
     expect(screen.getAllByRole("heading", { level: 1 }).length).toBeGreaterThan(0);
-    expect(screen.getByLabelText(AR_MESSAGES["hrm.g3.reviews.form.cycle"])).toBeInTheDocument();
-    expect(screen.getByLabelText(AR_MESSAGES["hrm.g3.reviews.form.rating"])).toBeInTheDocument();
+    // SELF and TEAM creation forms each carry labelled controls.
+    expect(screen.getAllByLabelText(AR_MESSAGES["hrm.g3.reviews.form.cycle"]).length).toBe(2);
+    expect(screen.getAllByLabelText(AR_MESSAGES["hrm.g3.reviews.form.rating"]).length).toBe(2);
     for (const button of container.querySelectorAll("button")) {
       expect(button.tagName).toBe("BUTTON");
     }
