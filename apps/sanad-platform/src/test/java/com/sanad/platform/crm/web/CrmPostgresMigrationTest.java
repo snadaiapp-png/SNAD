@@ -518,7 +518,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION),
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(PARTNER_PRINCIPAL_FOUNDATION_VERSION),
-                        MigrationVersion.fromVersion(PARTNER_REFERENCE_INTEGRITY_VERSION));
+                        MigrationVersion.fromVersion(PARTNER_REFERENCE_INTEGRITY_VERSION),
+                        MigrationVersion.fromVersion(PARTNER_MEMBERSHIP_ADMIN_BOUNDARY_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -738,7 +739,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION),
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(PARTNER_PRINCIPAL_FOUNDATION_VERSION),
-                        MigrationVersion.fromVersion(PARTNER_REFERENCE_INTEGRITY_VERSION));
+                        MigrationVersion.fromVersion(PARTNER_REFERENCE_INTEGRITY_VERSION),
+                        MigrationVersion.fromVersion(PARTNER_MEMBERSHIP_ADMIN_BOUNDARY_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
