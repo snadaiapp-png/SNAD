@@ -6,6 +6,9 @@ import { useAuth } from "@/lib/auth/auth-provider";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import {
   SnadModuleShell,
+  type SnadModuleNavSection,
+} from "@/components/sds/module/SnadModuleShell";
+import {
   AccountsIcon,
   AdminIcon,
   AssignmentsIcon,
@@ -19,8 +22,7 @@ import {
   PolicyIcon,
   ReportsIcon,
   TasksIcon,
-  type SnadModuleNavSection,
-} from "@/components/sds/module";
+} from "@/components/sds/module/icons";
 import { ScpAccessProvider, useScpAccess } from "./ScpAccess";
 import { ScpAuthGate } from "./ScpStates";
 
