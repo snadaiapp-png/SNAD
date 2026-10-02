@@ -205,7 +205,7 @@ jobs:
             -Atc "SELECT current_database() || '|' || current_user"
 
           ROLE_FLAGS="$(sudo -u postgres psql -Atc "SELECT rolsuper || '|' || rolcreatedb || '|' || rolcreaterole || '|' || rolbypassrls FROM pg_roles WHERE rolname = 'sanad_g3'")"
-          test "$ROLE_FLAGS" = "f|f|f|f" || {
+          test "$ROLE_FLAGS" = "false|false|false|false" || {
             echo "::error::G3 database role is not least-privilege: $ROLE_FLAGS"
             exit 1
           }
