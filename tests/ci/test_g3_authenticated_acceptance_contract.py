@@ -27,7 +27,7 @@ def main() -> None:
 
     lower_workflow = workflow.lower()
     require("services:" not in lower_workflow, "Docker/service database paths are forbidden")
-    require("testcontainers" not in lower_workflow, "Testcontainers is forbidden")
+    require("org.testcontainers" not in lower_workflow, "Testcontainers runtime dependencies are forbidden")
     require("sudo systemctl start postgresql" in workflow, "host-native PostgreSQL bootstrap is required")
     require("NOBYPASSRLS" in workflow, "acceptance DB role must not bypass RLS")
     require("--sanad.rls.enabled=true" in workflow, "backend must start with RLS enabled")

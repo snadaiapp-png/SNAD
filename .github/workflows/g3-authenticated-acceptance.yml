@@ -121,6 +121,7 @@ jobs:
 
       - name: Verify G3 authenticated acceptance source contract
         shell: bash
+        working-directory: .
         run: python3 tests/ci/test_g3_authenticated_acceptance_contract.py
 
       - name: Generate ephemeral per-run credentials
