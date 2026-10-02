@@ -92,6 +92,7 @@ def verify_users_production_release() -> None:
             'workflow must prove the image/governance diff is release-governance only')
     for allowed_path in (
         '.github/workflows/users-production-release.yml',
+        '.github/workflows/users-production-certification.yml',
         '.github/workflows/users-module-closure.yml',
         'tests/ci/test_users_module_closure_workflow.py',
     ):
@@ -117,8 +118,7 @@ def verify_users_production_release() -> None:
         require(required_gate in text, f'missing fail-closed production gate {required_gate}')
 
     for required_secret in (
-        'CONTROL_PLANE_ADMIN_EMAIL',
-        'CONTROL_PLANE_ADMIN_PASSWORD',
+        'CANONICAL_OWNER_PASSWORD',
         'SANAD_CONTROL_PLANE_TENANT_ID',
     ):
         require(required_secret in text, f'missing Users production credential/config {required_secret}')
@@ -132,7 +132,12 @@ def verify_users_production_release() -> None:
         require(endpoint in text, f'missing read-only Users production probe {endpoint}')
 
     require('CANONICAL_OWNER_EMAIL: snad.ai.app@gmail.com' in text,
-            'canonical owner identity must be asserted in production')
+            'canonical owner email must be asserted in production')
+    require('CANONICAL_OWNER_ID: 00000000-0000-0000-0000-000000000010' in text,
+            'canonical owner UUID must be asserted in production')
+    require('--arg owner "$CANONICAL_OWNER_ID"' in text and
+            '(.user.id // .user.userId // .userId) == $owner' in text,
+            'production release must bind the authenticated token to the canonical owner UUID')
     require('PLATFORM_OWNER' in text,
             'PLATFORM_OWNER role must be asserted in production')
     require('PLATFORM.USER.READ' in text and 'PLATFORM.ROLE.READ' in text,
@@ -174,7 +179,7 @@ def verify_users_production_certification() -> None:
     for secret in (
         'AUTH_SMOKE_TENANT_A_ID', 'AUTH_SMOKE_TENANT_A_EMAIL', 'AUTH_SMOKE_TENANT_A_PASSWORD',
         'AUTH_SMOKE_TENANT_B_ID', 'AUTH_SMOKE_TENANT_B_EMAIL', 'AUTH_SMOKE_TENANT_B_PASSWORD',
-        'CONTROL_PLANE_ADMIN_EMAIL', 'CONTROL_PLANE_ADMIN_PASSWORD',
+        'CANONICAL_OWNER_PASSWORD',
     ):
         require(secret in text, f'missing protected Users certification input {secret}')
 
@@ -192,6 +197,11 @@ def verify_users_production_certification() -> None:
             'Control Plane Users/RBAC surfaces must be verified')
     require('snad.ai.app@gmail.com' in text and 'PLATFORM_OWNER' in text,
             'canonical owner invariant must be verified')
+    require('CANONICAL_OWNER_ID: 00000000-0000-0000-0000-000000000010' in text,
+            'certification must pin the canonical owner UUID')
+    require('--arg owner "$CANONICAL_OWNER_ID"' in text and
+            '(.user.id // .user.userId // .userId) == $owner' in text,
+            'certification must bind the Control Plane token to the canonical owner UUID')
     require('RBAC_ALLOW_DENY=PASS' in text,
             'RBAC allow/deny result must be explicit evidence')
     require('SESSION_REVOCATION=PASS' in text,

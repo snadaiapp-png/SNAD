@@ -28,6 +28,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/snad-backend
   CANONICAL_OWNER_EMAIL: snad.ai.app@gmail.com
+  CANONICAL_OWNER_ID: 00000000-0000-0000-0000-000000000010
 
 jobs:
   deploy-and-verify-users:
@@ -39,15 +40,14 @@ jobs:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
-      CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+      CANONICAL_OWNER_PASSWORD: ${{ secrets.CANONICAL_OWNER_PASSWORD }}
 
     steps:
       - name: Validate protected Users release inputs
         shell: bash
         run: |
           set -euo pipefail
-          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL CONTROL_PLANE_ADMIN_EMAIL CONTROL_PLANE_ADMIN_PASSWORD; do
+          for name in RENDER_API_KEY RENDER_SERVICE_ID PRODUCTION_BASE_URL CANONICAL_OWNER_PASSWORD; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
           done
           GOVERNANCE_SHA='${{ inputs.governance_sha }}'
@@ -55,8 +55,7 @@ jobs:
           [[ "$GOVERNANCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::governance_sha must be a full lowercase SHA"; exit 1; }
           [[ "$DEPLOYMENT_IMAGE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::deployment_image_sha must be a full lowercase SHA"; exit 1; }
           [[ "$PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::PRODUCTION_BASE_URL must use HTTPS"; exit 1; }
-          echo "::add-mask::$CONTROL_PLANE_ADMIN_EMAIL"
-          echo "::add-mask::$CONTROL_PLANE_ADMIN_PASSWORD"
+          echo "::add-mask::$CANONICAL_OWNER_PASSWORD"
 
       - name: Verify governance SHA is current main head
         id: governance
@@ -98,6 +97,7 @@ jobs:
           while IFS= read -r path; do
             case "$path" in
               .github/workflows/users-production-release.yml|\
+              .github/workflows/users-production-certification.yml|\
               .github/workflows/users-module-closure.yml|\
               tests/ci/test_users_module_closure_workflow.py)
                 ;;
@@ -298,8 +298,8 @@ jobs:
           trap 'rm -rf "$work"' EXIT
 
           login_payload=$(jq -n \
-            --arg email "$CONTROL_PLANE_ADMIN_EMAIL" \
-            --arg password "$CONTROL_PLANE_ADMIN_PASSWORD" \
+            --arg email "$CANONICAL_OWNER_EMAIL" \
+            --arg password "$CANONICAL_OWNER_PASSWORD" \
             --arg tenant "$CONTROL_PLANE_TENANT_ID" \
             '{email:$email,password:$password,tenantId:$tenant}')
           login_status=$(curl --silent --show-error --location \
@@ -309,7 +309,15 @@ jobs:
             --output "$work/login.json" \
             --write-out '%{http_code}' \
             "$base/api/v1/auth/login")
-          test "$login_status" = "200" || { echo "::error::Canonical Control Plane login failed with HTTP $login_status"; exit 1; }
+          test "$login_status" = "200" || { echo "::error::Canonical owner login failed with HTTP $login_status"; exit 1; }
+          jq -e --arg owner "$CANONICAL_OWNER_ID" --arg tenant "$CONTROL_PLANE_TENANT_ID" '
+            (.user.id // .user.userId // .userId) == $owner
+            and (.user.tenantId // .tenantId) == $tenant
+            and (.accessToken | type == "string" and length > 0)
+          ' "$work/login.json" >/dev/null || {
+            echo "::error::Canonical owner login identity/tenant binding is invalid"
+            exit 1
+          }
           token=$(jq -r '.accessToken // empty' "$work/login.json")
           test -n "$token" || { echo "::error::Login returned no accessToken"; exit 1; }
           echo "::add-mask::$token"
@@ -336,6 +344,10 @@ jobs:
             "$work/users.json")
           test -n "$owner_id" || { echo "::error::Canonical owner is absent or inactive in executive users"; exit 1; }
           [[ "$owner_id" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Canonical owner userId is invalid"; exit 1; }
+          test "$owner_id" = "$CANONICAL_OWNER_ID" || {
+            echo "::error::Executive Users canonical owner ID does not match governed owner ID"
+            exit 1
+          }
 
           read_json '/api/v1/executive/roles' "$work/roles.json"
           jq -e 'type == "array" and any(.[]; .code == "PLATFORM_OWNER" and .status == "ACTIVE" and .roleType == "SYSTEM" and .protectedRole == true and .ownerRole == true)' \
