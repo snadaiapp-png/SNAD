@@ -289,23 +289,35 @@ VALUES
      'G3', NULL, 'Unauthorized', 'G3 Unauthorized', 0, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
--- Active employments
+-- Active canonical employments. Keep the legacy required identity columns populated
+-- while authority is resolved exclusively through Person -> Employment.
 INSERT INTO hr_employees (
-    id, tenant_id, person_id, employee_number, status, hired_on, version, created_at, updated_at
+    id, tenant_id, person_id, legal_entity_id, worker_classification_code,
+    employee_number, first_name, last_name, display_name, email,
+    employment_type, status, hire_date, version, created_at, updated_at
 )
 VALUES
     ('44444444-4444-4444-8444-444444444481',
      '44444444-4444-4444-8444-444444444441',
      '44444444-4444-4444-8444-444444444471',
-     'G3-EMP-001', 'ACTIVE', CURRENT_DATE - 365, 0, NOW(), NOW()),
+     '44444444-4444-4444-8444-444444444446',
+     'GENERIC_EMPLOYEE',
+     'G3-EMP-001', 'G3', 'Employee', 'G3 Employee', 'g3-employee@g3-acceptance.example',
+     'FULL_TIME', 'ACTIVE', CURRENT_DATE - 365, 0, NOW(), NOW()),
     ('44444444-4444-4444-8444-444444444482',
      '44444444-4444-4444-8444-444444444441',
      '44444444-4444-4444-8444-444444444472',
-     'G3-MGR-001', 'ACTIVE', CURRENT_DATE - 730, 0, NOW(), NOW()),
+     '44444444-4444-4444-8444-444444444446',
+     'GENERIC_EMPLOYEE',
+     'G3-MGR-001', 'G3', 'Manager', 'G3 Manager', 'g3-manager@g3-acceptance.example',
+     'FULL_TIME', 'ACTIVE', CURRENT_DATE - 730, 0, NOW(), NOW()),
     ('44444444-4444-4444-8444-444444444483',
      '44444444-4444-4444-8444-444444444441',
      '44444444-4444-4444-8444-444444444473',
-     'G3-UNAUTH-001', 'ACTIVE', CURRENT_DATE - 90, 0, NOW(), NOW())
+     '44444444-4444-4444-8444-444444444446',
+     'GENERIC_EMPLOYEE',
+     'G3-UNAUTH-001', 'G3', 'Unauthorized', 'G3 Unauthorized', 'g3-unauthorized@g3-acceptance.example',
+     'FULL_TIME', 'ACTIVE', CURRENT_DATE - 90, 0, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 -- PRIMARY Assignments — canonical table consumed by HrEmploymentScopeResolver.

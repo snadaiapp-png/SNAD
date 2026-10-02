@@ -38,6 +38,9 @@ def main() -> None:
     for needle in (
         "hr_people",
         "hr_employees",
+        "legal_entity_id",
+        "worker_classification_code",
+        "hire_date",
         "hr_employee_assignments",
         "reports_to_assignment_id",
         "HRM.PERFORMANCE.GOAL.SELF_VIEW",
