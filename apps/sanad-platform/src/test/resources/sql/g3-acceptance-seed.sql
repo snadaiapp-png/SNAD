@@ -308,34 +308,60 @@ VALUES
      'G3-UNAUTH-001', 'ACTIVE', CURRENT_DATE - 90, 0, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
--- PRIMARY Assignments — Employee reports to Manager
-INSERT INTO hr_assignments (
-    id, tenant_id, employment_id, person_id, legal_entity_id,
-    assignment_type, status, effective_from, effective_to,
-    is_primary, reports_to_assignment_id, version, created_at, updated_at
+-- PRIMARY Assignments — canonical table consumed by HrEmploymentScopeResolver.
+-- Insert Manager first so the Employee reporting edge can reference it.
+INSERT INTO hr_employee_assignments (
+    id, tenant_id, employment_id, organization_id,
+    reports_to_assignment_id, assignment_type, occupancy_mode,
+    allocation_percent, effective_from, effective_to, status,
+    version, created_at, updated_at
 )
-VALUES
-    ('44444444-4444-4444-8444-444444444491',
-     '44444444-4444-4444-8444-444444444441',
-     '44444444-4444-4444-8444-444444444481',
-     '44444444-4444-4444-8444-444444444471',
-     '44444444-4444-4444-8444-444444444446',
-     'EMPLOYEE', 'ACTIVE', CURRENT_DATE - 365, NULL,
-     TRUE, '44444444-4444-4444-8444-444444444492', 0, NOW(), NOW()),
-    ('44444444-4444-4444-8444-444444444492',
-     '44444444-4444-4444-8444-444444444441',
-     '44444444-4444-4444-8444-444444444482',
-     '44444444-4444-4444-8444-444444444472',
-     '44444444-4444-4444-8444-444444444446',
-     'MANAGER', 'ACTIVE', CURRENT_DATE - 730, NULL,
-     TRUE, NULL, 0, NOW(), NOW()),
-    ('44444444-4444-4444-8444-444444444493',
-     '44444444-4444-4444-8444-444444444441',
-     '44444444-4444-4444-8444-444444444483',
-     '44444444-4444-4444-8444-444444444473',
-     '44444444-4444-4444-8444-444444444446',
-     'EMPLOYEE', 'ACTIVE', CURRENT_DATE - 90, NULL,
-     TRUE, '44444444-4444-4444-8444-444444444492', 0, NOW(), NOW())
+VALUES (
+    '44444444-4444-4444-8444-444444444492',
+    '44444444-4444-4444-8444-444444444441',
+    '44444444-4444-4444-8444-444444444482',
+    '44444444-4444-4444-8444-444444444445',
+    NULL,
+    'PRIMARY', 'NON_OCCUPYING', 100,
+    CURRENT_DATE - 730, NULL, 'ACTIVE',
+    0, NOW(), NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO hr_employee_assignments (
+    id, tenant_id, employment_id, organization_id,
+    reports_to_assignment_id, assignment_type, occupancy_mode,
+    allocation_percent, effective_from, effective_to, status,
+    version, created_at, updated_at
+)
+VALUES (
+    '44444444-4444-4444-8444-444444444491',
+    '44444444-4444-4444-8444-444444444441',
+    '44444444-4444-4444-8444-444444444481',
+    '44444444-4444-4444-8444-444444444445',
+    '44444444-4444-4444-8444-444444444492',
+    'PRIMARY', 'NON_OCCUPYING', 100,
+    CURRENT_DATE - 365, NULL, 'ACTIVE',
+    0, NOW(), NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO hr_employee_assignments (
+    id, tenant_id, employment_id, organization_id,
+    reports_to_assignment_id, assignment_type, occupancy_mode,
+    allocation_percent, effective_from, effective_to, status,
+    version, created_at, updated_at
+)
+VALUES (
+    '44444444-4444-4444-8444-444444444493',
+    '44444444-4444-4444-8444-444444444441',
+    '44444444-4444-4444-8444-444444444483',
+    '44444444-4444-4444-8444-444444444445',
+    NULL,
+    'PRIMARY', 'NON_OCCUPYING', 100,
+    CURRENT_DATE - 90, NULL, 'ACTIVE',
+    0, NOW(), NOW()
+)
 ON CONFLICT (id) DO NOTHING;
 
 -- ----------------------------------------------------------------------------

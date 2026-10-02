@@ -38,7 +38,7 @@ def main() -> None:
     for needle in (
         "hr_people",
         "hr_employees",
-        "hr_assignments",
+        "hr_employee_assignments",
         "reports_to_assignment_id",
         "HRM.PERFORMANCE.GOAL.SELF_VIEW",
         "HRM.PERFORMANCE.GOAL.SELF_UPDATE",
