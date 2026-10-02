@@ -35,7 +35,7 @@ describe("Executive Administration — SNAD Module Visual Contract", () => {
   });
 
   it("records /executive as compliant in the visual migration ledger", () => {
-    const ledger = source("../../../docs/superpowers/specs/2026-10-02-visual-migration-ledger.md");
+    const ledger = source("../../../../docs/superpowers/specs/2026-10-02-visual-migration-ledger.md");
     expect(ledger).toContain("Executive Administration");
     expect(ledger).toContain("/executive");
     expect(ledger).toContain("COMPLIANT (Executive IAM convergence)");
