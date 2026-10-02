@@ -34,7 +34,8 @@ export default defineConfig({
     "**/workflow-designer-browser.spec.ts",
     "**/subscription-executive-acceptance.spec.ts",
     // Stateful G2 business acceptance owns its dedicated PostgreSQL Direct stack.
-    "**/g2-authenticated.spec.ts",
+    "**/g2-authenticated.spec.ts,
+    "**/g3-authenticated.spec.ts",
     // Read-oriented authenticated G2 visual proof owns a separate role/device stack.
     "**/g2-visual.spec.ts",
     // Users Module closure owns a dedicated authenticated PostgreSQL Direct stack.
