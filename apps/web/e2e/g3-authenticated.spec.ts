@@ -11,6 +11,7 @@ import { test, expect } from "@playwright/test";
 import { loginThroughUi, logoutThroughUi, roleEmail } from "./g3-auth-session";
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
+const BFF_PREFIX = "/api/platform";
 const EMPLOYEE_EMPLOYMENT_ID = "44444444-4444-4444-8444-444444444481";
 const SEEDED_GOAL_ID = "44444444-4444-4444-8444-444444444521";
 const TARGET_PROGRESS = 42;
@@ -23,7 +24,7 @@ function authorizedG3NetworkAudit(page: import("@playwright/test").Page) {
   const unexpected: string[] = [];
   const listener = (response: import("@playwright/test").Response) => {
     const path = new URL(response.url()).pathname;
-    if (!path.startsWith("/api/v2/hr/performance/")) return;
+    if (!path.includes("/api/v2/hr/performance/")) return;
     if ([401, 403, 500].includes(response.status())) {
       unexpected.push(`${response.request().method()} ${path} -> ${response.status()}`);
     }
@@ -44,7 +45,7 @@ test("A. employee views and persists a real goal progress update", async ({ brow
   expect(login.user.email).toBe(roleEmail("employee"));
 
   const initialList = page.waitForResponse(
-    (r) => r.request().method() === "GET" && new URL(r.url()).pathname === "/api/v2/hr/performance/goals",
+    (r) => r.request().method() === "GET" && new URL(r.url()).pathname.endsWith("/api/v2/hr/performance/goals"),
   );
   await page.goto(`${BASE_URL}/hr/performance/goals`);
   await expect(page.getByTestId("goals-ready")).toBeVisible({ timeout: 20_000 });
@@ -60,7 +61,7 @@ test("A. employee views and persists a real goal progress update", async ({ brow
   const patch = page.waitForResponse(
     (r) =>
       r.request().method() === "PATCH" &&
-      new URL(r.url()).pathname === `/api/v2/hr/performance/goals/${SEEDED_GOAL_ID}/progress`,
+      new URL(r.url()).pathname.endsWith(`/api/v2/hr/performance/goals/${SEEDED_GOAL_ID}/progress`),
   );
   await page.getByTestId(`progress-save-${SEEDED_GOAL_ID}`).click();
 
@@ -71,7 +72,10 @@ test("A. employee views and persists a real goal progress update", async ({ brow
   expect(patchBody.progress).toBe(TARGET_PROGRESS);
   await expect(page.getByTestId("goals-notice")).toBeVisible({ timeout: 15_000 });
 
-  const persisted = await context.request.get(`${BASE_URL}/api/v2/hr/performance/goals/${SEEDED_GOAL_ID}`);
+  const persisted = await context.request.get(
+    `${BASE_URL}${BFF_PREFIX}/api/v2/hr/performance/goals/${SEEDED_GOAL_ID}`,
+    { headers: { Authorization: `Bearer ${login.accessToken}` } },
+  );
   expect(persisted.status()).toBe(200);
   const persistedBody = (await persisted.json()) as { progress: number };
   expect(persistedBody.progress).toBe(TARGET_PROGRESS);
@@ -99,7 +103,7 @@ test("B. employee creates, submits, and acknowledges a self review", async ({ br
   await page.getByTestId("reviews-comments-input").fill("Authenticated G3 acceptance self review");
 
   const create = page.waitForResponse(
-    (r) => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/v2/hr/performance/reviews",
+    (r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/api/v2/hr/performance/reviews"),
   );
   await page.getByTestId("reviews-create-save").click();
   const createRes = await create;
@@ -112,7 +116,7 @@ test("B. employee creates, submits, and acknowledges a self review", async ({ br
 
   await expect(page.getByTestId(`reviews-submit-${createdSelfReviewId}`)).toBeVisible({ timeout: 15_000 });
   const submit = page.waitForResponse(
-    (r) => r.request().method() === "POST" && new URL(r.url()).pathname === `/api/v2/hr/performance/reviews/${createdSelfReviewId}/submit`,
+    (r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith(`/api/v2/hr/performance/reviews/${createdSelfReviewId}/submit`),
   );
   await page.getByTestId(`reviews-submit-${createdSelfReviewId}`).click();
   const submitRes = await submit;
@@ -121,14 +125,17 @@ test("B. employee creates, submits, and acknowledges a self review", async ({ br
 
   await expect(page.getByTestId(`reviews-acknowledge-${createdSelfReviewId}`)).toBeVisible({ timeout: 15_000 });
   const acknowledge = page.waitForResponse(
-    (r) => r.request().method() === "POST" && new URL(r.url()).pathname === `/api/v2/hr/performance/reviews/${createdSelfReviewId}/acknowledge`,
+    (r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith(`/api/v2/hr/performance/reviews/${createdSelfReviewId}/acknowledge`),
   );
   await page.getByTestId(`reviews-acknowledge-${createdSelfReviewId}`).click();
   const acknowledgeRes = await acknowledge;
   expect(acknowledgeRes.status()).toBe(200);
   expect(((await acknowledgeRes.json()) as { status: string }).status).toBe("ACKNOWLEDGED");
 
-  const persisted = await context.request.get(`${BASE_URL}/api/v2/hr/performance/reviews/${createdSelfReviewId}`);
+  const persisted = await context.request.get(
+    `${BASE_URL}${BFF_PREFIX}/api/v2/hr/performance/reviews/${createdSelfReviewId}`,
+    { headers: { Authorization: `Bearer ${login.accessToken}` } },
+  );
   expect(persisted.status()).toBe(200);
   expect(((await persisted.json()) as { status: string }).status).toBe("ACKNOWLEDGED");
 
@@ -149,7 +156,8 @@ test("C. manager sees canonical direct-report team goals and reviews", async ({ 
 
   // Explicit TEAM-goals API contract: there is no manager TEAM-goals UI in Task 5.
   const teamGoals = await context.request.get(
-    `${BASE_URL}/api/v2/hr/performance/goals/team/${EMPLOYEE_EMPLOYMENT_ID}`,
+    `${BASE_URL}${BFF_PREFIX}/api/v2/hr/performance/goals/team/${EMPLOYEE_EMPLOYMENT_ID}`,
+    { headers: { Authorization: `Bearer ${login.accessToken}` } },
   );
   expect(teamGoals.status()).toBe(200);
   const teamGoalsBody = (await teamGoals.json()) as Array<{ id: string; employmentId: string; progress: number }>;
@@ -157,7 +165,7 @@ test("C. manager sees canonical direct-report team goals and reviews", async ({ 
   expect(teamGoalsBody.find((g) => g.id === SEEDED_GOAL_ID)?.progress).toBe(TARGET_PROGRESS);
 
   const teamReviewsResponse = page.waitForResponse(
-    (r) => r.request().method() === "GET" && new URL(r.url()).pathname === "/api/v2/hr/performance/reviews/team",
+    (r) => r.request().method() === "GET" && new URL(r.url()).pathname.endsWith("/api/v2/hr/performance/reviews/team"),
   );
   await page.goto(`${BASE_URL}/hr/performance/reviews`);
   await expect(page.getByTestId("reviews-ready")).toBeVisible({ timeout: 20_000 });
@@ -188,7 +196,10 @@ test("D. unauthorized principal is denied by backend with explicit 403", async (
   expect(login.user.email).toBe(roleEmail("unauthorized"));
 
   // Backend authorization proof using the authenticated browser context cookies.
-  const forbidden = await context.request.get(`${BASE_URL}/api/v2/hr/performance/goals`);
+  const forbidden = await context.request.get(
+    `${BASE_URL}${BFF_PREFIX}/api/v2/hr/performance/goals`,
+    { headers: { Authorization: `Bearer ${login.accessToken}` } },
+  );
   expect(forbidden.status(), "missing GOAL.SELF_VIEW must be a real backend 403").toBe(403);
 
   await page.goto(`${BASE_URL}/hr/performance/goals`);
