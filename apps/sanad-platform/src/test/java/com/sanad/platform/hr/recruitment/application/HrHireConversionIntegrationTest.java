@@ -393,6 +393,9 @@ class HrHireConversionIntegrationTest {
         orgUnitId = UUID.randomUUID();
         jdbc.update("INSERT INTO hr_org_units (id, tenant_id, organization_id, stable_code, created_at) "
                 + "VALUES (?, ?, ?, 'OU-T8', NOW())", orgUnitId, tenantId, organizationId);
+        jdbc.update("INSERT INTO hr_org_unit_versions (id, tenant_id, org_unit_id, name, code, unit_type, "
+                        + "effective_from, status) VALUES (?, ?, ?, 'T8 Org Unit', 'OU-T8', 'DEPARTMENT', ?, 'ACTIVE')",
+                UUID.randomUUID(), tenantId, orgUnitId, java.sql.Date.valueOf(HIRE_DATE));
 
         Object candidateService = Class.forName(
                         "com.sanad.platform.hr.recruitment.application.HrCandidateService")
