@@ -35,6 +35,9 @@ def main() -> None:
     require('test "$ACTUAL_SHA" = "$CANDIDATE_SHA"' in workflow, "workflow must verify exact checkout identity")
     require("Verify canonical G3 seed contract" in workflow, "runtime seed contract gate is required")
 
+    require("INSERT INTO saas_plans" in seed, "G3 fixture must use canonical saas_plans table")
+    require("INSERT INTO plans (" not in seed, "legacy/nonexistent plans table is forbidden")
+
     for needle in (
         "hr_people",
         "hr_employees",

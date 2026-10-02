@@ -67,25 +67,24 @@ ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------------------
 -- 2. Plan + plan_version + tenant_subscription
 -- ----------------------------------------------------------------------------
-INSERT INTO plans (
-    id, code, name, description, billing_cycle, trial_days,
-    monthly_price_minor, annual_price_minor, currency_code,
-    max_users, max_organizations, storage_mb, status, created_at, updated_at
+INSERT INTO saas_plans (
+    id, code, name, status, currency_code,
+    monthly_price_minor, annual_price_minor, trial_days,
+    max_users, max_organizations, storage_mb,
+    created_at, updated_at
 )
 VALUES (
     '44444444-4444-4444-8444-444444444442',
-    'g3-acceptance',
+    'G3-ACCEPTANCE-PLAN',
     'G3 Acceptance Plan',
-    'G3 acceptance testing plan',
-    'MONTHLY',
-    0,
+    'ACTIVE',
+    'SAR',
     30000,
     300000,
-    'SAR',
+    0,
     10,
     5,
     1024,
-    'ACTIVE',
     NOW(),
     NOW()
 )
@@ -142,7 +141,8 @@ ON CONFLICT (id) DO NOTHING;
 -- Enable HRM module
 INSERT INTO plan_module_entitlements (
     id, plan_id, module_id, module_enabled,
-    capability_code, capability_value, effective_at, created_at, updated_at
+    capability_code, capability_value, limit_value, quota_value, quota_period,
+    effective_at, created_at, updated_at
 )
 SELECT
     gen_random_uuid(),
@@ -151,6 +151,9 @@ SELECT
     true,
     'HRM.ENABLED',
     'true',
+    NULL,
+    NULL,
+    NULL,
     NOW(),
     NOW(),
     NOW()
