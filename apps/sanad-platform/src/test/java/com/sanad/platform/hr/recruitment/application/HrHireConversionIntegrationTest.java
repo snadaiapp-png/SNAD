@@ -527,7 +527,7 @@ class HrHireConversionIntegrationTest {
         for (Constructor<?> c : cmdClass.getConstructors()) {
             if (c.getParameterCount() == 9) {
                 return c.newInstance(key, claims, legalEntityId, "FULL_TIME", "SA",
-                        LocalDate.parse("2026-10-01"), new BigDecimal("100"), positionId, null);
+                        HIRE_DATE, new BigDecimal("100"), positionId, null);
             }
         }
         throw new IllegalStateException("HireConversionCommand 9-arg constructor not found");
