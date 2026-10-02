@@ -34,6 +34,27 @@ export function SnadPageHeader({
   );
 }
 
+export function SnadPageFrame({
+  title,
+  subtitle,
+  eyebrow,
+  trailing,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  eyebrow?: string;
+  trailing?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className={styles.contentInner}>
+      <SnadPageHeader title={title} subtitle={subtitle} eyebrow={eyebrow} trailing={trailing} />
+      {children}
+    </div>
+  );
+}
+
 /* ============================== KPI ====================================== */
 
 export function SnadKpiGrid({ label, children }: { label: string; children: ReactNode }) {

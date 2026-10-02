@@ -19,6 +19,7 @@ export {
 
 export {
   SnadPageHeader,
+  SnadPageFrame,
   SnadKpiGrid,
   SnadKpiCard,
   SnadOperationalPanel,
