@@ -296,6 +296,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261003.2"   // w2-t1 partner principal foundation
             , "20261003.3"   // w2-t2 partner referential-integrity closure
             , "20261003.4"   // w2-t3 partner membership & admin boundary
+            , "20261003.5"   // w2-t4 partner tenant binding boundary
     );
 
 
