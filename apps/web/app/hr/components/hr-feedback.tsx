@@ -12,6 +12,7 @@
 import type { ReactNode } from "react";
 import { isApiHttpError } from "@/lib/api/errors";
 import { HrmV2ApiError, parseHrmV2Error } from "@/lib/api/hr-v2-api";
+import sdsStyles from "@/components/sds/module/snad-module.module.css";
 import styles from "../hr.module.css";
 
 // ---------------------------------------------------------------------------
@@ -78,8 +79,8 @@ export function hrmErrorMessage(err: unknown): { message: string; kind: "forbidd
 
 export function HrLoading({ label = "جارٍ التحميل…" }: { label?: string }) {
   return (
-    <div role="status" aria-live="polite" className={styles.feedbackLoading}>
-      <span className={styles.feedbackSpinner} aria-hidden="true" />
+    <div role="status" aria-live="polite" className={sdsStyles.loadingState}>
+      <span className={sdsStyles.loadingSpinner} aria-hidden="true" />
       <span>{label}</span>
     </div>
   );
@@ -87,10 +88,10 @@ export function HrLoading({ label = "جارٍ التحميل…" }: { label?: st
 
 export function HrEmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <div className={styles.feedbackEmpty}>
-      <p className={styles.feedbackEmptyTitle}>{title}</p>
-      {description ? <p className={styles.feedbackEmptyDescription}>{description}</p> : null}
-      {action ? <div className={styles.feedbackEmptyAction}>{action}</div> : null}
+    <div className={sdsStyles.emptyState}>
+      <p className={sdsStyles.emptyTitle}>{title}</p>
+      {description ? <p className={sdsStyles.emptySubtitle}>{description}</p> : null}
+      {action ? <div>{action}</div> : null}
     </div>
   );
 }
@@ -98,8 +99,8 @@ export function HrEmptyState({ title, description, action }: { title: string; de
 /** UX-only capability gate message — backend 403 remains authoritative. */
 export function HrForbidden({ description = "لا تملك الصلاحية اللازمة لعرض هذا القسم. تواصل مع مسؤول النظام إذا كنت تحتاج وصولًا." }: { description?: string }) {
   return (
-    <div role="alert" className={styles.feedbackForbidden}>
-      <p className={styles.feedbackTitle}>القسم غير متاح</p>
+    <div role="alert" className={sdsStyles.errorState} data-kind="forbidden">
+      <p className={sdsStyles.errorStateTitle}>القسم غير متاح</p>
       <p>{description}</p>
     </div>
   );
@@ -113,8 +114,8 @@ export function HrErrorState({ error, onRetry }: { error: unknown; onRetry?: () 
   const { message, kind } = hrmErrorMessage(error);
   const violations = error instanceof HrmV2ApiError ? error.violations ?? [] : [];
   return (
-    <div role="alert" className={styles.feedbackError} data-kind={kind}>
-      <p className={styles.feedbackTitle}>
+    <div role="alert" className={sdsStyles.errorState} data-kind={kind}>
+      <p className={sdsStyles.errorStateTitle}>
         {kind === "forbidden" ? "عملية غير مصرّح بها"
           : kind === "notfound" ? "غير موجود"
           : kind === "conflict" ? "تعارض في البيانات"
@@ -130,7 +131,7 @@ export function HrErrorState({ error, onRetry }: { error: unknown; onRetry?: () 
         </ul>
       ) : null}
       {onRetry ? (
-        <button type="button" className={styles.feedbackRetry} onClick={onRetry}>
+        <button type="button" className={sdsStyles.retryButton} onClick={onRetry}>
           إعادة المحاولة
         </button>
       ) : null}

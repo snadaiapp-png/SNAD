@@ -15,17 +15,17 @@
  *   - No tooltips — the visible label IS the accessible name.
  */
 
-import styles from "../hr.module.css";
+import sdsStyles from "@/components/sds/module/snad-module.module.css";
 import type { ReactNode } from "react";
 
 export type BadgeTone = "neutral" | "success" | "warning" | "danger" | "info";
 
 const TONE_CLASS: Record<BadgeTone, string> = {
-  neutral: styles.badgeNeutral,
-  success: styles.badgeSuccess,
-  warning: styles.badgeWarning,
-  danger: styles.badgeDanger,
-  info: styles.badgeInfo,
+  neutral: sdsStyles.statusBadgeNeutral,
+  success: sdsStyles.statusBadgeSuccess,
+  warning: sdsStyles.statusBadgeWarning,
+  danger: sdsStyles.statusBadgeDanger,
+  info: sdsStyles.statusBadgeInfo,
 };
 
 interface HrStateBadgeProps {
@@ -42,11 +42,11 @@ interface HrStateBadgeProps {
 export function HrStateBadge({ label, code, tone = "neutral", icon }: HrStateBadgeProps) {
   return (
     <span
-      className={`${styles.stateBadge} ${TONE_CLASS[tone]}`}
+      className={`${sdsStyles.statusBadge} ${TONE_CLASS[tone]}`}
       data-status={code}
       role="status"
     >
-      {icon ? <span aria-hidden="true" className={styles.stateBadgeIcon}>{icon}</span> : null}
+      {icon ? <span aria-hidden="true">{icon}</span> : null}
       <span dir="auto">{label}</span>
     </span>
   );

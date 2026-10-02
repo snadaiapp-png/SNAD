@@ -11,6 +11,24 @@ import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
 
 const { useRouterMock } = vi.hoisted(() => ({ useRouterMock: vi.fn() }));
 
+const { authMock } = vi.hoisted(() => ({
+  authMock: {
+    state: "AUTHENTICATED",
+    me: {
+      capabilities: [] as string[],
+      displayName: "موظف التشغيل",
+      email: "operator@example.com",
+    },
+    logout: vi.fn(async () => undefined),
+  },
+}));
+
+// The unified HR workspace renders through the shared SNAD module shell,
+// which consumes the auth session for the persistent header identity.
+vi.mock("@/lib/auth/auth-provider", () => ({
+  useAuth: () => authMock,
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: useRouterMock,
   usePathname: () => "/hr",
@@ -36,14 +54,19 @@ const G2_LABELS: Record<string, string> = {
   "hrm.g3.workspace.nav.goals": "أهداف الأداء",
 };
 
-vi.mock("@/lib/i18n/I18nProvider", () => ({
+vi.mock("@/lib/i18n/I18nProvider", async () => {
+  const { createContext } = await import("react");
+  const I18nContext = createContext(null);
+  return {
+    I18nContext,
   useI18n: () => ({
     locale: "ar",
     direction: "rtl",
     setLocale: vi.fn(),
     t: (key: string) => G2_LABELS[key] ?? key,
   }),
-}));
+  };
+});
 
 const FULL_CAPS = Object.values(HRM_CAPABILITIES);
 const NO_HR_CAPS: string[] = [];

@@ -109,7 +109,11 @@ vi.mock("@/lib/auth/auth-provider", () => ({
     me: { capabilities: authMock.capabilities, id: authMock.id },
   }),
 }));
-vi.mock("@/lib/i18n/I18nProvider", () => ({ useI18n: () => i18nMock }));
+vi.mock("@/lib/i18n/I18nProvider", async () => {
+  const { createContext } = await import("react");
+  const I18nContext = createContext(null);
+  return { I18nContext, useI18n: () => i18nMock };
+});
 vi.mock("@/lib/i18n", () => ({ translations: { ar: {}, en: {} } }));
 vi.mock("@/components/auth/auth-loading-state", () => ({
   AuthLoadingState: () => <div>Loading session</div>,

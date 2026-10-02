@@ -119,14 +119,19 @@ vi.mock("@/lib/auth/auth-provider", () => ({
   useAuth: () => ({ state: authMock.state, me: { capabilities: authMock.capabilities } }),
 }));
 
-vi.mock("@/lib/i18n/I18nProvider", () => ({
+vi.mock("@/lib/i18n/I18nProvider", async () => {
+  const { createContext } = await import("react");
+  const I18nContext = createContext(null);
+  return {
+    I18nContext,
   useI18n: () => ({
     locale: i18nState.locale,
     direction: i18nState.locale === "ar" ? "rtl" : "ltr",
     setLocale: vi.fn(),
     t: (key: string) => i18nState.messages[key] ?? key,
   }),
-}));
+  };
+});
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (

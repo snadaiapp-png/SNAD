@@ -1,40 +1,49 @@
 import type { ReactNode } from "react";
-import styles from "./hr-g2-visual.module.css";
+import sdsStyles from "@/components/sds/module/snad-module.module.css";
+
+/**
+ * HR product surface primitives — thin module wrappers over the SHARED SNAD
+ * module primitives (components/sds/module) so every HR page inherits the
+ * same visual anatomy as CRM (SNAD Module Visual Contract, G3 Task 6).
+ * Historical g2-* data-testids are preserved for the visual gates.
+ */
 
 export function HrProductHeader({ title, subtitle, eyebrow, trailing }: { title: string; subtitle: string; eyebrow?: string; trailing?: ReactNode }) {
   return (
-    <header className={styles.productSurface} data-testid="g2-product-header">
-      <div className={styles.productHeaderCopy}>
-        {eyebrow ? <span className={styles.productEyebrow}>{eyebrow}</span> : null}
-        <h1 data-testid="g2-page-title">{title}</h1>
-        <p className={styles.productSubtitle}>{subtitle}</p>
+    <header className={sdsStyles.pageHeader} data-testid="g2-product-header">
+      <div className={sdsStyles.pageHeaderCopy}>
+        {eyebrow ? <span className={sdsStyles.pageEyebrow}>{eyebrow}</span> : null}
+        <h1 className={sdsStyles.pageTitle} data-testid="g2-page-title">{title}</h1>
+        {subtitle ? <p className={sdsStyles.pageDescription}>{subtitle}</p> : null}
       </div>
-      {trailing ? <div className={styles.productHeaderTrailing}>{trailing}</div> : null}
+      {trailing ? <div className={sdsStyles.pageHeaderTrailing}>{trailing}</div> : null}
     </header>
   );
 }
 
 export function HrKpiGrid({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className={styles.productKpiGrid} aria-label={label} data-testid="g2-kpi-grid">
+    <section className={sdsStyles.kpiGrid} aria-label={label} data-testid="g2-kpi-grid">
       {children}
     </section>
   );
 }
 
 export function HrKpiCard({ label, value, hint, tone = "neutral" }: { label: string; value: ReactNode; hint?: string; tone?: "neutral" | "positive" | "attention" }) {
+  const toneClass =
+    tone === "positive" ? sdsStyles.kpiCardTonePositive : tone === "attention" ? sdsStyles.kpiCardToneAttention : "";
   return (
-    <article className={styles.productKpiCard} data-tone={tone}>
-      <span className={styles.productKpiValue}>{value}</span>
-      <span className={styles.productKpiLabel}>{label}</span>
-      {hint ? <span className={styles.productKpiHint}>{hint}</span> : null}
+    <article className={`${sdsStyles.kpiCard} ${toneClass}`} data-tone={tone}>
+      <span className={sdsStyles.kpiLabel}>{label}</span>
+      <span className={sdsStyles.kpiValue}>{value}</span>
+      {hint ? <span className={sdsStyles.kpiHint}>{hint}</span> : null}
     </article>
   );
 }
 
 export function HrActionBar({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className={styles.productActionBar} aria-label={label} data-testid="g2-action-bar">
+    <section className={sdsStyles.actionBar} aria-label={label} data-testid="g2-action-bar">
       {children}
     </section>
   );
@@ -42,19 +51,19 @@ export function HrActionBar({ label, children }: { label: string; children: Reac
 
 export function HrOperationalPanel({ label, title, description, children }: { label: string; title: string; description?: string; children: ReactNode }) {
   return (
-    <section className={styles.productOperationalPanel} aria-label={label} data-testid="g2-operational-panel">
-      <header className={styles.productPanelHeader}>
-        <h2>{title}</h2>
-        {description ? <p>{description}</p> : null}
+    <section className={sdsStyles.sectionCard} aria-label={label} data-testid="g2-operational-panel">
+      <header>
+        <h2 className={sdsStyles.sectionCardTitle}>{title}</h2>
+        {description ? <p className={sdsStyles.sectionCardDescription}>{description}</p> : null}
       </header>
-      <div className={styles.productPanelBody}>{children}</div>
+      <div>{children}</div>
     </section>
   );
 }
 
 export function HrMobileRecordList({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className={styles.productMobileRecords} aria-label={label} data-testid="g2-mobile-record-list">
+    <section className={sdsStyles.mobileRecords} aria-label={label} data-testid="g2-mobile-record-list">
       {children}
     </section>
   );

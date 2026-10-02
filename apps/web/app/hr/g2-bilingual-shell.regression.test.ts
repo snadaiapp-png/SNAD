@@ -9,18 +9,27 @@ const productDictionary = readFileSync(
 );
 
 describe("G2 bilingual HR shell", () => {
-  it("uses route-scoped message IDs while preserving provider-free Arabic legacy callers", () => {
+  it("renders through the shared SNAD module shell while preserving Arabic-first legacy callers", () => {
     const workspace = readFileSync(resolve(HR_ROOT, "components/hr-workspace.tsx"), "utf8");
 
-    expect(workspace).not.toContain("useI18n");
+    // G3 Task 6 unification: the workspace renders through the shared module
+    // shell primitive and consumes the i18n provider for direction + language
+    // toggle (shared header contract) — while label resolution keeps the
+    // translator prop first and Arabic defaults for provider-free callers.
+    expect(workspace).toContain("@/components/sds/module");
+    expect(workspace).toContain("I18nContext");
     expect(workspace).toContain("translate?: (messageId: string) => string");
-    expect(workspace).toContain('translate ? translate("hrm.g2.workspace.title") : "مساحة عمل الموارد البشرية"');
-    expect(workspace).toContain('translate("hrm.g2.workspace.subtitle")');
-    expect(workspace).toContain('translate("hrm.g2.workspace.navLabel")');
-    expect(workspace).toContain("translate ? translate(link.labelMessageId) : link.label");
+    expect(workspace).toContain('translate ? translate(messageId) : ARABIC_DEFAULTS[messageId] ?? messageId');
+    expect(workspace).toContain('generic("hrm.g2.workspace.title")');
+    expect(workspace).toContain('generic("hrm.g2.workspace.subtitle")');
+    expect(workspace).toContain('generic("hrm.g2.workspace.navLabel")');
+    expect(workspace).toContain('translate ? translate(item.labelMessageId) : item.label');
     expect(workspace).not.toContain("labelEn");
     expect(workspace).not.toContain("workspaceLocale");
-    expect(workspace).not.toContain('locale === "ar"');
+    // The only permitted locale comparison is the canonical language-toggle
+    // flip (runtime behavior, not content branching).
+    expect(workspace.split('locale === "ar"').length - 1).toBe(1);
+    expect(workspace).toContain('setLocale(locale === "ar" ? "en" : "ar")');
 
     expect(productDictionary).toContain('"hrm.g2.workspace.title": "Human Resources Workspace"');
     expect(productDictionary).toContain('"hrm.g2.workspace.nav.home": "Home"');
