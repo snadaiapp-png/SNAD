@@ -3,18 +3,10 @@
 /**
  * ScpNav — capability state machine tests.
  *
- * The original defect: when access-check/v2 failed, the catch handler stored
- * `{ authenticated: false, capabilities: {} }` and `allowed()` treated an
- * absent capability as allowed — so a broken capability service silently
- * rendered as "full access" (fail-open).
- *
- * These tests pin the corrected semantics:
- *   checking     → transient optimistic render (request in flight)
- *   authorized   → a link is visible only when its capability is exactly true
- *   unauthorized → authenticated=false renders a notice, no links
- *   degraded     → request failure hides links (fail-closed) and shows an
- *                  explicit error with retry; it never reads as full access.
- * Server-side authorization remains authoritative in every state.
+ * Navigation is fail-closed after the backend access-check resolves. The
+ * Executive Authorization entry intentionally accepts any of its governed
+ * read/manage capabilities so operators are not forced through ROLE.READ when
+ * their assignment is limited to overrides or data relationships.
  */
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -68,6 +60,11 @@ const FULL_ACCESS = {
     "billing.read": true,
     "provisioning.read": true,
     "audit.read": true,
+    "PLATFORM.USER.READ": true,
+    "PLATFORM.ROLE.READ": true,
+    "ROLE.READ": true,
+    "AUTHORIZATION.OVERRIDE.MANAGE": true,
+    "AUTHORIZATION.RELATIONSHIP.MANAGE": true,
   },
 };
 
@@ -87,6 +84,9 @@ const ALL_LINK_LABELS = [
   "scp.nav.tenants",
   "scp.nav.subscriptions",
   "scp.nav.plans",
+  "controlPlane.users",
+  "controlPlane.roles",
+  "scp.nav.authorization",
   "scp.nav.entitlements",
   "scp.nav.usage",
   "scp.nav.billing",
@@ -112,7 +112,6 @@ describe("ScpNav — capability state machine", () => {
       </ScpAccessProvider>,
     );
 
-    // checking — transient optimistic render, aria-busy signals pending check
     expect(accessCheckMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("navigation")).toHaveAttribute("aria-busy", "true");
     for (const label of ALL_LINK_LABELS) {
@@ -151,8 +150,25 @@ describe("ScpNav — capability state machine", () => {
     expect(screen.queryByText("scp.nav.applications")).not.toBeInTheDocument();
     expect(screen.queryByText("scp.nav.billing")).not.toBeInTheDocument();
     expect(screen.getByText("scp.nav.audit")).toBeInTheDocument();
-    // At least one capability granted — NOT the no-access state.
     expect(screen.queryByText("scp.nav.noAccess")).not.toBeInTheDocument();
+  });
+
+  it("authorization navigation accepts any governed authorization capability", async () => {
+    accessCheckMock.mockResolvedValueOnce({
+      authenticated: true,
+      capabilities: { "AUTHORIZATION.RELATIONSHIP.MANAGE": true },
+    });
+
+    render(
+      <ScpAccessProvider>
+        <ScpNav />
+      </ScpAccessProvider>,
+    );
+    await settle();
+
+    expect(screen.getByText("scp.nav.authorization")).toBeInTheDocument();
+    expect(screen.queryByText("controlPlane.users")).not.toBeInTheDocument();
+    expect(screen.queryByText("controlPlane.roles")).not.toBeInTheDocument();
   });
 
   it("authorized — fail-closed: a capability missing from the map stays hidden", async () => {
@@ -169,10 +185,10 @@ describe("ScpNav — capability state machine", () => {
     await settle();
 
     expect(screen.getByText("scp.nav.overview")).toBeInTheDocument();
-    // absent keys are NOT treated as granted
     expect(screen.queryByText("scp.nav.applications")).not.toBeInTheDocument();
     expect(screen.queryByText("scp.nav.plans")).not.toBeInTheDocument();
     expect(screen.queryByText("scp.nav.audit")).not.toBeInTheDocument();
+    expect(screen.queryByText("scp.nav.authorization")).not.toBeInTheDocument();
   });
 
   it("degraded — access-check failure hides all links and shows an explicit error with retry", async () => {
@@ -246,7 +262,6 @@ describe("ScpNav — capability state machine", () => {
     );
     await settle();
 
-    // AUTHENTICATED_BUT_NO_CAPABILITIES — NOT an authentication failure.
     expect(screen.getByText("scp.nav.noAccess")).toBeInTheDocument();
     expect(screen.queryByText("scp.nav.unauthorized")).not.toBeInTheDocument();
     for (const label of ALL_LINK_LABELS) {
@@ -254,8 +269,7 @@ describe("ScpNav — capability state machine", () => {
     }
   });
 
-  it("authenticated-no-access — all capabilities explicitly false (never mapped to authentication failure)", async () => {
-    // Every distinct capability the nav gates a link on, explicitly false.
+  it("authenticated-no-access — all capabilities explicitly false never map to authentication failure", async () => {
     const allFalse: Record<string, boolean> = {
       "subscription.read": false,
       "catalog.read": false,
@@ -265,6 +279,11 @@ describe("ScpNav — capability state machine", () => {
       "billing.read": false,
       "provisioning.read": false,
       "audit.read": false,
+      "PLATFORM.USER.READ": false,
+      "PLATFORM.ROLE.READ": false,
+      "ROLE.READ": false,
+      "AUTHORIZATION.OVERRIDE.MANAGE": false,
+      "AUTHORIZATION.RELATIONSHIP.MANAGE": false,
     };
     accessCheckMock.mockResolvedValueOnce({ authenticated: true, capabilities: allFalse });
 

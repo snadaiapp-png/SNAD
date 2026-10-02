@@ -7,9 +7,12 @@ import { ScpError, ScpNotice } from "./ScpStates";
 import { useScpAccess } from "./ScpAccess";
 import styles from "../scp.module.css";
 
+type CapabilityRequirement = string | string[];
+type NavLink = [href: string, labelKey: string, capability: CapabilityRequirement];
+
 interface NavSection {
   headingKey: string;
-  links: Array<[href: string, labelKey: string, capability: string]>;
+  links: NavLink[];
 }
 
 const SECTIONS: NavSection[] = [
@@ -21,9 +24,13 @@ const SECTIONS: NavSection[] = [
       ["/executive/tenants", "scp.nav.tenants", "subscription.read"],
       ["/executive/subscriptions", "scp.nav.subscriptions", "subscription.read"],
       ["/executive/plans", "scp.nav.plans", "plan.read"],
-      ["/executive/authorization", "scp.nav.authorization", "ROLE.READ"],
       ["/executive/users", "controlPlane.users", "PLATFORM.USER.READ"],
       ["/executive/access", "controlPlane.roles", "PLATFORM.ROLE.READ"],
+      [
+        "/executive/authorization",
+        "scp.nav.authorization",
+        ["ROLE.READ", "AUTHORIZATION.OVERRIDE.MANAGE", "AUTHORIZATION.RELATIONSHIP.MANAGE"],
+      ],
     ],
   },
   {
@@ -43,10 +50,15 @@ export function ScpNav() {
   const { t } = useI18n();
   const { phase, capabilities, refresh } = useScpAccess();
 
-  const visible = (capability: string): boolean => {
+  const granted = (requirement: CapabilityRequirement): boolean => {
+    const required = Array.isArray(requirement) ? requirement : [requirement];
+    return required.some((capability) => capabilities[capability] === true);
+  };
+
+  const visible = (requirement: CapabilityRequirement): boolean => {
     if (phase === "checking") return true;
     if (phase !== "authorized") return false;
-    return capabilities[capability] === true;
+    return granted(requirement);
   };
 
   if (phase === "degraded") {
@@ -67,7 +79,7 @@ export function ScpNav() {
 
   if (phase === "authorized") {
     const anyVisible = SECTIONS.some((section) =>
-      section.links.some(([, , capability]) => capabilities[capability] === true),
+      section.links.some(([, , requirement]) => granted(requirement)),
     );
     if (!anyVisible) {
       return (
@@ -85,7 +97,7 @@ export function ScpNav() {
       aria-busy={phase === "checking" ? "true" : undefined}
     >
       {SECTIONS.map((section) => {
-        const links = section.links.filter(([, , capability]) => visible(capability));
+        const links = section.links.filter(([, , requirement]) => visible(requirement));
         if (links.length === 0) return null;
         return (
           <div key={section.headingKey}>

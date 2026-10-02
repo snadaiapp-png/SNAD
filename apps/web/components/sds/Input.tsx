@@ -4,8 +4,8 @@
  * ============================================================================
  *  SDS Input — Component
  * ----------------------------------------------------------------------------
- *  A labeled text input supporting `text`, `email`, `password`, and `search`
- *  types, with hint and error states. Built on SDS v2 tokens; RTL-aware.
+ *  A labeled text input supporting governed text/date-time input types,
+ *  with hint and error states. Built on SDS v2 tokens; RTL-aware.
  *
  *  Accessibility:
  *    • <label> is associated with <input> via htmlFor / id (auto-generated
@@ -34,7 +34,8 @@ export type TextInputType =
   | 'search'
   | 'tel'
   | 'url'
-  | 'number';
+  | 'number'
+  | 'datetime-local';
 
 export interface InputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'size'> {
