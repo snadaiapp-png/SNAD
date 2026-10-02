@@ -201,3 +201,200 @@ describe("hrG3Api typed goals facade (Task 5 SELF surface)", () => {
     expect(JSON.stringify(patchCall[1])).not.toContain("tenantId");
   });
 });
+
+const REVIEW_ROOT = "/api/v2/hr/performance/reviews";
+
+/** Runtime shape of PerformanceReview from HrPerformanceReviewV2Controller. */
+const REVIEW_RESPONSE = {
+  id: "5c2a1b7e-2222-4d22-8d22-1b2c3d4e5f6a",
+  tenantId: "t-1",
+  subjectPersonId: "p-1",
+  subjectEmploymentId: "e-1",
+  reviewerPersonId: "p-1",
+  reviewerEmploymentId: "e-1",
+  source: "SELF",
+  status: "DRAFT",
+  cycle: "2026-H1",
+  periodStart: "2026-01-01",
+  periodEnd: "2026-06-30",
+  rating: null,
+  comments: "خطة الربع الأول",
+  version: 0,
+  createdAt: "2026-10-01T08:00:00Z",
+  createdBy: "u-1",
+  updatedAt: "2026-10-01T09:30:00Z",
+  updatedBy: "u-1",
+};
+
+const TEAM_REVIEW_RESPONSE = {
+  ...REVIEW_RESPONSE,
+  id: "7d3b2c8e-3333-4e33-9e33-2c3d4e5f6a7b",
+  source: "MANAGER",
+  status: "SUBMITTED",
+  rating: 4,
+  reviewerPersonId: "p-9",
+  reviewerEmploymentId: "e-9",
+};
+
+const REVIEW_WRITE_INPUT = {
+  cycle: "2026-H1",
+  periodStart: "2026-01-01",
+  periodEnd: "2026-06-30",
+  rating: 4,
+  comments: "أداء قوي ومستقر",
+};
+
+describe("hrG3Api typed reviews facade (Task 6 SELF + TEAM surfaces)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("R1. listReviews routes GET /api/v2/hr/performance/reviews through apiClient", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.get).mockResolvedValueOnce([REVIEW_RESPONSE]);
+
+    const result = await hrG3Api.listReviews();
+
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+    expect(apiClient.get).toHaveBeenCalledWith(REVIEW_ROOT);
+    expect(result).toEqual([REVIEW_RESPONSE]);
+  });
+
+  it("R2. getReview routes GET /api/v2/hr/performance/reviews/{reviewId} through apiClient", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.get).mockResolvedValueOnce(REVIEW_RESPONSE);
+
+    const result = await hrG3Api.getReview(REVIEW_RESPONSE.id);
+
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+    expect(apiClient.get).toHaveBeenCalledWith(`${REVIEW_ROOT}/${REVIEW_RESPONSE.id}`);
+    expect(result).toEqual(REVIEW_RESPONSE);
+  });
+
+  it("R3. createSelfReview routes POST /api/v2/hr/performance/reviews with the typed write body", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.post).mockResolvedValueOnce(REVIEW_RESPONSE);
+
+    const result = await hrG3Api.createSelfReview(REVIEW_WRITE_INPUT);
+
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith(REVIEW_ROOT, REVIEW_WRITE_INPUT, expect.anything());
+    expect(result).toEqual(REVIEW_RESPONSE);
+  });
+
+  it("R4. submitReview routes POST /api/v2/hr/performance/reviews/{reviewId}/submit without a body", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ ...REVIEW_RESPONSE, status: "SUBMITTED" });
+
+    const result = await hrG3Api.submitReview(REVIEW_RESPONSE.id);
+
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      `${REVIEW_ROOT}/${REVIEW_RESPONSE.id}/submit`,
+      undefined,
+      expect.anything(),
+    );
+    expect(result).toEqual({ ...REVIEW_RESPONSE, status: "SUBMITTED" });
+  });
+
+  it("R5. acknowledgeReview routes POST /api/v2/hr/performance/reviews/{reviewId}/acknowledge without a body", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ ...REVIEW_RESPONSE, status: "ACKNOWLEDGED" });
+
+    const result = await hrG3Api.acknowledgeReview(REVIEW_RESPONSE.id);
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      `${REVIEW_ROOT}/${REVIEW_RESPONSE.id}/acknowledge`,
+      undefined,
+      expect.anything(),
+    );
+    expect(result).toEqual({ ...REVIEW_RESPONSE, status: "ACKNOWLEDGED" });
+  });
+
+  it("R6. listTeamReviews routes GET /api/v2/hr/performance/reviews/team through apiClient", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.get).mockResolvedValueOnce([TEAM_REVIEW_RESPONSE]);
+
+    const result = await hrG3Api.listTeamReviews();
+
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+    expect(apiClient.get).toHaveBeenCalledWith(`${REVIEW_ROOT}/team`);
+    expect(result).toEqual([TEAM_REVIEW_RESPONSE]);
+  });
+
+  it("R7. getTeamReview routes GET /api/v2/hr/performance/reviews/team/{reviewId} through apiClient", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.get).mockResolvedValueOnce(TEAM_REVIEW_RESPONSE);
+
+    const result = await hrG3Api.getTeamReview(TEAM_REVIEW_RESPONSE.id);
+
+    expect(apiClient.get).toHaveBeenCalledWith(`${REVIEW_ROOT}/team/${TEAM_REVIEW_RESPONSE.id}`);
+    expect(result).toEqual(TEAM_REVIEW_RESPONSE);
+  });
+
+  it("R8. createTeamReview routes POST /api/v2/hr/performance/reviews/team/{employmentId} — employmentId stays in the path, never as body authority", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.post).mockResolvedValueOnce(TEAM_REVIEW_RESPONSE);
+
+    const result = await hrG3Api.createTeamReview("e-7", REVIEW_WRITE_INPUT);
+
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith(`${REVIEW_ROOT}/team/e-7`, REVIEW_WRITE_INPUT, expect.anything());
+    expect(result).toEqual(TEAM_REVIEW_RESPONSE);
+    const body = vi.mocked(apiClient.post).mock.calls[0][1] as Record<string, unknown>;
+    expect(JSON.stringify(Object.keys(body))).not.toContain("employmentId");
+    expect(JSON.stringify(Object.keys(body))).not.toContain("tenantId");
+  });
+
+  it("R9. cancelTeamReview routes POST /api/v2/hr/performance/reviews/team/reviews/{reviewId}/cancel without a body", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ ...TEAM_REVIEW_RESPONSE, status: "CANCELLED" });
+
+    const result = await hrG3Api.cancelTeamReview(TEAM_REVIEW_RESPONSE.id);
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      `${REVIEW_ROOT}/team/reviews/${TEAM_REVIEW_RESPONSE.id}/cancel`,
+      undefined,
+      expect.anything(),
+    );
+    expect(result).toEqual({ ...TEAM_REVIEW_RESPONSE, status: "CANCELLED" });
+  });
+
+  it("R10. mutations use the governed apiClient transport with an Idempotency-Key", async () => {
+    const { hrG3Api } = await loadFacade();
+    vi.mocked(apiClient.post).mockResolvedValue(REVIEW_RESPONSE);
+
+    await hrG3Api.createSelfReview(REVIEW_WRITE_INPUT);
+    await hrG3Api.submitReview(REVIEW_RESPONSE.id);
+    await hrG3Api.acknowledgeReview(REVIEW_RESPONSE.id);
+
+    for (const call of vi.mocked(apiClient.post).mock.calls) {
+      const options = call[2] as { context: { headers: Record<string, string> } };
+      expect(options?.context?.headers?.["Idempotency-Key"], `mutation ${call[0]} must carry Idempotency-Key`).toEqual(expect.any(String));
+    }
+  });
+
+  it("R11. propagates real backend errors instead of swallowing them", async () => {
+    const { hrG3Api } = await loadFacade();
+    const forbidden = new Error("HTTP 403 Forbidden: GET /api/v2/hr/performance/reviews");
+    vi.mocked(apiClient.get).mockRejectedValueOnce(forbidden);
+    const conflict = new Error("HTTP 409 Conflict: POST /api/v2/hr/performance/reviews/x/submit");
+    vi.mocked(apiClient.post).mockRejectedValueOnce(conflict);
+
+    await expect(hrG3Api.listReviews()).rejects.toBe(forbidden);
+    await expect(hrG3Api.submitReview(REVIEW_RESPONSE.id)).rejects.toBe(conflict);
+  });
+
+  it("R12. exposes no updateReview or createPeerReview — the backend defines no such endpoints", async () => {
+    const { hrG3Api } = await loadFacade();
+    expect((hrG3Api as Record<string, unknown>).updateReview).toBeUndefined();
+    expect((hrG3Api as Record<string, unknown>).createPeerReview).toBeUndefined();
+  });
+
+  it("R13. review facade opens no ad-hoc fetch (apiClient is the only transport owner)", async () => {
+    await loadFacade();
+    const facadePath = resolve(__dirname, "hr-g3-api.ts");
+    const facadeSource = readFileSync(facadePath, "utf8");
+    expect(facadeSource).not.toMatch(/\bfetch\s*\(/);
+  });
+});
