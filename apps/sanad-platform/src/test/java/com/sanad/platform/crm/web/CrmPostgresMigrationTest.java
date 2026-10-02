@@ -235,7 +235,8 @@ class CrmPostgresMigrationTest {
     private static final String HR_G3_PERFORMANCE_CAPABILITIES_VERSION = "20261003.1";
     private static final String PARTNER_PRINCIPAL_FOUNDATION_VERSION = "20261003.2";
     private static final String PARTNER_REFERENCE_INTEGRITY_VERSION = "20261003.3";
-    private static final String LATEST_MIGRATION_VERSION = PARTNER_REFERENCE_INTEGRITY_VERSION;
+    private static final String PARTNER_MEMBERSHIP_ADMIN_BOUNDARY_VERSION = "20261003.4";
+    private static final String LATEST_MIGRATION_VERSION = PARTNER_MEMBERSHIP_ADMIN_BOUNDARY_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -517,7 +518,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION),
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(PARTNER_PRINCIPAL_FOUNDATION_VERSION),
-                        MigrationVersion.fromVersion(PARTNER_REFERENCE_INTEGRITY_VERSION));
+                        MigrationVersion.fromVersion(PARTNER_REFERENCE_INTEGRITY_VERSION),
+                        MigrationVersion.fromVersion(PARTNER_MEMBERSHIP_ADMIN_BOUNDARY_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -737,7 +739,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_REVIEWS_VERSION),
                         MigrationVersion.fromVersion(HR_G3_PERFORMANCE_CAPABILITIES_VERSION),
                         MigrationVersion.fromVersion(PARTNER_PRINCIPAL_FOUNDATION_VERSION),
-                        MigrationVersion.fromVersion(PARTNER_REFERENCE_INTEGRITY_VERSION));
+                        MigrationVersion.fromVersion(PARTNER_REFERENCE_INTEGRITY_VERSION),
+                        MigrationVersion.fromVersion(PARTNER_MEMBERSHIP_ADMIN_BOUNDARY_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
