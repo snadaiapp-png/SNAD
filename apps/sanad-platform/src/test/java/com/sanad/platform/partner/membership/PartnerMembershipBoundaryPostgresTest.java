@@ -55,6 +55,74 @@ class PartnerMembershipBoundaryPostgresTest {
     }
 
     @Test
+    void forceRlsAndPartnerScopedShapeAreEnforced() throws Exception {
+        try (Connection c = connection();
+             Statement s = c.createStatement()) {
+            try (ResultSet rs = s.executeQuery(
+                    "SELECT relrowsecurity, relforcerowsecurity " +
+                    "FROM pg_class WHERE relname='partner_memberships'")) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getBoolean("relrowsecurity")).isTrue();
+                assertThat(rs.getBoolean("relforcerowsecurity")).isTrue();
+            }
+
+            try (ResultSet rs = s.executeQuery(
+                    "SELECT COUNT(*) FROM information_schema.columns " +
+                    "WHERE table_name='partner_memberships' AND column_name='tenant_id'")) {
+                rs.next();
+                assertThat(rs.getLong(1)).isZero();
+            }
+        }
+    }
+
+    @Test
+    void authorityVersionDefaultsToZero() throws Exception {
+        try (Connection c = connection()) {
+            c.setAutoCommit(false);
+            Fixture f = fixture(c, 1);
+            setPartnerContext(c, f.partnerId());
+
+            UUID membershipId = insertMembership(
+                    c, f.partnerId(), f.userIds()[0], "PARTNER_USER");
+
+            try (PreparedStatement ps = c.prepareStatement(
+                    "SELECT version FROM partner_memberships WHERE id=?")) {
+                ps.setObject(1, membershipId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                    assertThat(rs.getInt(1)).isZero();
+                }
+            }
+            c.rollback();
+        }
+    }
+
+    @Test
+    void lifecycleConstraintRejectsSuspendedWithoutRequiredTimestampAndReason() throws Exception {
+        try (Connection c = connection()) {
+            c.setAutoCommit(false);
+            Fixture f = fixture(c, 1);
+            setPartnerContext(c, f.partnerId());
+
+            assertThatThrownBy(() -> {
+                try (PreparedStatement ps = c.prepareStatement(
+                        "INSERT INTO partner_memberships " +
+                        "(id,partner_id,user_id,membership_role,status,created_by,updated_by) " +
+                        "VALUES (?,?,?,'PARTNER_USER','SUSPENDED',?,?)")) {
+                    ps.setObject(1, UUID.randomUUID());
+                    ps.setObject(2, f.partnerId());
+                    ps.setObject(3, f.userIds()[0]);
+                    ps.setObject(4, f.userIds()[0]);
+                    ps.setObject(5, f.userIds()[0]);
+                    ps.executeUpdate();
+                }
+            }).isInstanceOf(SQLException.class)
+              .satisfies(ex -> assertThat(((SQLException) ex).getSQLState()).isEqualTo("23514"));
+            c.rollback();
+        }
+    }
+
+    @Test
     void canonicalUserForeignKeyRejectsUnknownUser() throws Exception {
         try (Connection c = connection()) {
             c.setAutoCommit(false);
