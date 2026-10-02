@@ -103,8 +103,9 @@ class R0C13G02SchemaPostgresTest {
             // V20261001_8..12 are the forward-only UAC Wave 1 execution overlay.
             // V20261002_2 adds HRM-G3 performance goals; V20261002_3 adds performance reviews + RLS.
             // V20261003_1 adds Task 4 capabilities and ADMIN TENANT-scope backfill.
-            // V20261003_2 adds the W2-T1 partner principal foundation (forward-only ledger head).
-            assertThat(rs.getString(1)).isEqualTo("20261003.2");
+            // V20261003_2 adds the W2-T1 partner principal foundation.
+            // V20261003_3 closes the deferred partner FK/orphan-scan integrity gap.
+            assertThat(rs.getString(1)).isEqualTo("20261003.3");
         }
     }
 
