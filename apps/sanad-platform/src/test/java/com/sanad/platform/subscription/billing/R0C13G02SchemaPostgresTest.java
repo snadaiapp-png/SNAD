@@ -106,7 +106,8 @@ class R0C13G02SchemaPostgresTest {
             // V20261003_2 adds the W2-T1 partner principal foundation.
             // V20261003_3 closes the deferred partner FK/orphan-scan integrity gap.
             // V20261003_4 adds the W2-T3 partner membership/admin boundary.
-            assertThat(rs.getString(1)).isEqualTo("20261003.4");
+            // V20261003_5 adds the W2-T4 partner tenant binding boundary.
+            assertThat(rs.getString(1)).isEqualTo("20261003.5");
         }
     }
 
