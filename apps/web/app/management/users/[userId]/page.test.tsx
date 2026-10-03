@@ -83,7 +83,7 @@ describe("Tenant User Detail", () => {
   it("updates identity only inside the authenticated tenant", async () => {
     const user = userEvent.setup(); render(<TenantUserDetailPage />); await screen.findByText("سالم العتيبي");
     await user.clear(screen.getByLabelText("البريد الإلكتروني")); await user.type(screen.getByLabelText("البريد الإلكتروني"), "updated@example.com"); await user.click(screen.getByRole("button", { name: "حفظ التعديلات" }));
-    await waitFor(() => expect(usersApiMock.update).toHaveBeenCalledWith(TENANT_ID, USER_ID, { email: "updated@example.com", displayName: "سالم العتيبي" }));
+    await waitFor(() => expect(usersApiMock.update).toHaveBeenCalledWith(TENANT_ID, USER_ID, { email: "updated@example.com", username: "salem", displayName: "سالم العتيبي" }));
   });
 
   it("renders username and sends a governed set-password link without exposing credentials", async () => {
