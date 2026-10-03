@@ -31,3 +31,8 @@ def test_g3_qa_role_capability_partition_is_explicit():
         assert capability in text
     assert "G3_NEGATIVE_PRINCIPAL=PASS" in text
     assert 'startswith("HRM.PERFORMANCE.")' in text
+
+def test_g3_production_spec_is_excluded_from_generic_playwright_matrices():
+    for relative in ["apps/web/playwright.config.ts", "apps/web/playwright.standard.config.ts"]:
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        assert '"**/g3-production-readonly.spec.ts"' in text
