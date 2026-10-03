@@ -124,6 +124,37 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
     if not ui_passed:
         return checks
 
+    # Incident #1247: engineering/local acceptance can be green while a live
+    # App Router route is missing from the deployed Vercel artifact. These
+    # user-facing G3 routes are therefore production-readiness authorities.
+    critical_frontend_routes = (
+        ("hrm-g3-goals-route", "/hr/performance/goals"),
+        ("hrm-g3-reviews-route", "/hr/performance/reviews"),
+    )
+    soft_404_markers = (
+        "page not found",
+        "does not exist or has been moved",
+    )
+    for check_name, route_path in critical_frontend_routes:
+        route_url = f"{production_url}{route_path}"
+        status, body, _ = request(route_url, timeout)
+        route_html = body.decode("utf-8", errors="replace")
+        normalized_html = route_html.lower()
+        matched_soft_404 = [marker for marker in soft_404_markers if marker in normalized_html]
+        route_passed = status == 200 and not matched_soft_404
+        checks.append(
+            result(
+                name=check_name,
+                url=route_url,
+                expected="HTTP 200 and not the application 404 page",
+                actual=f"HTTP {status}; soft404Markers={matched_soft_404 or 'none'}",
+                passed=route_passed,
+                status_code=status,
+            )
+        )
+        if not route_passed:
+            return checks
+
     integration_url = f"{production_url}/api/system/backend-status"
     status, body, _ = request(integration_url, timeout)
     integration: dict[str, Any] = {}
