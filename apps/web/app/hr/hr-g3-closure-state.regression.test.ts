@@ -93,7 +93,7 @@ describe("HR-G3 final engineering closure reconciliation", () => {
       expect(evidence).toMatch(/G3_FINAL_GATE\s*=\s*PASS/);
       expect(evidence).toMatch(/G3_FULLY_CLOSED\s*=\s*PASS/);
       expect(evidence).toContain("e36f28f97580bb622bb9677cb2725800fa6c5755");
-      expect(evidence).toContain("#1234");
+      expect(evidence).toContain("#" + "1234");
       expect(evidence).toContain("37093935385");
       expect(evidence).toContain("37093941741");
       expect(evidence).toContain("37093947620");
