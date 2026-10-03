@@ -26,6 +26,15 @@ DEFAULT_ATTEMPTS = 18
 DEFAULT_DELAY_SECONDS = 10.0
 DEFAULT_TIMEOUT_SECONDS = 15.0
 
+CRITICAL_FRONTEND_ROUTES = (
+    ("hrm-g3-goals-route", "/hr/performance/goals"),
+    ("hrm-g3-reviews-route", "/hr/performance/reviews"),
+)
+SOFT_404_MARKERS = (
+    "page not found",
+    "does not exist or has been moved",
+)
+
 
 @dataclass(frozen=True)
 class ProbeResult:
@@ -102,6 +111,32 @@ def result(
     )
 
 
+def check_critical_frontend_routes(production_url: str, timeout: float) -> list[ProbeResult]:
+    """Verify the live HRM G3 routes fail closed on hard or soft 404s."""
+
+    checks: list[ProbeResult] = []
+    for check_name, route_path in CRITICAL_FRONTEND_ROUTES:
+        route_url = f"{production_url}{route_path}"
+        status, body, _ = request(route_url, timeout)
+        route_html = body.decode("utf-8", errors="replace")
+        normalized_html = route_html.lower()
+        matched_soft_404 = [marker for marker in SOFT_404_MARKERS if marker in normalized_html]
+        route_passed = status == 200 and not matched_soft_404
+        checks.append(
+            result(
+                name=check_name,
+                url=route_url,
+                expected="HTTP 200 and not the application 404 page",
+                actual=f"HTTP {status}; soft404Markers={matched_soft_404 or 'none'}",
+                passed=route_passed,
+                status_code=status,
+            )
+        )
+        if not route_passed:
+            break
+    return checks
+
+
 def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
     checks: list[ProbeResult] = []
 
@@ -124,36 +159,10 @@ def run_once(production_url: str, timeout: float) -> list[ProbeResult]:
     if not ui_passed:
         return checks
 
-    # Incident #1247: engineering/local acceptance can be green while a live
-    # App Router route is missing from the deployed Vercel artifact. These
-    # user-facing G3 routes are therefore production-readiness authorities.
-    critical_frontend_routes = (
-        ("hrm-g3-goals-route", "/hr/performance/goals"),
-        ("hrm-g3-reviews-route", "/hr/performance/reviews"),
-    )
-    soft_404_markers = (
-        "page not found",
-        "does not exist or has been moved",
-    )
-    for check_name, route_path in critical_frontend_routes:
-        route_url = f"{production_url}{route_path}"
-        status, body, _ = request(route_url, timeout)
-        route_html = body.decode("utf-8", errors="replace")
-        normalized_html = route_html.lower()
-        matched_soft_404 = [marker for marker in soft_404_markers if marker in normalized_html]
-        route_passed = status == 200 and not matched_soft_404
-        checks.append(
-            result(
-                name=check_name,
-                url=route_url,
-                expected="HTTP 200 and not the application 404 page",
-                actual=f"HTTP {status}; soft404Markers={matched_soft_404 or 'none'}",
-                passed=route_passed,
-                status_code=status,
-            )
-        )
-        if not route_passed:
-            return checks
+    route_checks = check_critical_frontend_routes(production_url, timeout)
+    checks.extend(route_checks)
+    if not all(check.passed for check in route_checks):
+        return checks
 
     integration_url = f"{production_url}/api/system/backend-status"
     status, body, _ = request(integration_url, timeout)
@@ -320,6 +329,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--delay-seconds", type=float, default=DEFAULT_DELAY_SECONDS)
     parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument(
+        "--frontend-routes-only",
+        action="store_true",
+        help="Verify only the fail-closed HRM G3 live frontend route sentinel.",
+    )
+    parser.add_argument(
         "--evidence-file",
         type=Path,
         default=Path("production-readiness-evidence.json"),
@@ -345,7 +359,10 @@ def main() -> int:
     last_checks: list[ProbeResult] = []
     for attempt in range(1, args.attempts + 1):
         try:
-            last_checks = run_once(production_url, args.timeout_seconds)
+            if args.frontend_routes_only:
+                last_checks = check_critical_frontend_routes(production_url, args.timeout_seconds)
+            else:
+                last_checks = run_once(production_url, args.timeout_seconds)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
             last_checks = [
                 result(
