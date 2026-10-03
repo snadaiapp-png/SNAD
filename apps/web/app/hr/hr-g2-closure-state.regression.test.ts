@@ -75,16 +75,16 @@ describe("HR-G2 final engineering closure reconciliation", () => {
     ]);
   });
 
-  it("marks only G2 as newly DONE without changing later HR phases", () => {
+  it("preserves certified G2 while allowing independently certified G3 to advance", () => {
     expect(Object.fromEntries(HR_GROUP_DATA.map((group) => [group.code, group.status]))).toEqual({
-      G0: "DONE", G1: "DONE", G2: "DONE", G3: "NOT_STARTED", G4: "NOT_STARTED", G5: "NOT_STARTED",
+      G0: "DONE", G1: "DONE", G2: "DONE", G3: "DONE", G4: "NOT_STARTED", G5: "NOT_STARTED",
     });
   });
 
-  it("recomputes G2 to 100% and the HR program to 60% (15/25)", async () => {
+  it("keeps G2 at 100% while program progress reflects certified G3 (19/25)", async () => {
     const provider = new HrExecutionProvider();
     expect(await provider.getProgress("HR-PROGRAM", "G2")).toMatchObject({ total: 5, done: 5, percentage: 100 });
-    expect(await provider.getProgramProgress("HR-PROGRAM")).toMatchObject({ total: 25, done: 15, percentage: 60 });
+    expect(await provider.getProgramProgress("HR-PROGRAM")).toMatchObject({ total: 25, done: 19, percentage: 76 });
   });
 
   it("records the 60/60 bilingual desktop/mobile visual evidence", () => {
