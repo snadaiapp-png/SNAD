@@ -186,6 +186,47 @@ export const HR_G2_CLOSURE = {
   productionAuthorization: "NO" as const,
 } as const;
 
+// ── G3 Closure Reconciliation (authoritative, documented-state-bound) ────
+
+/**
+ * HR-G3 engineering closure reconciliation.
+ *
+ * G3 (Performance Reviews & Goals) completed the canonical eight-task
+ * implementation plan and was re-certified on the exact main SHA below.
+ * This block reconciles the static execution dashboard to that verified
+ * repository state. Legal, Saudi-country, and production authorities remain
+ * independent and are not implied by engineering closure.
+ */
+export const HR_G3_CLOSURE = {
+  implementation: "DONE" as GroupStatus,
+  certificatePath: "docs/hrm/g3/evidence/HRM-G3-ENGINEERING-CLOSURE.md",
+  manifestPath: "docs/hrm/g3/evidence/G3-FINAL-EVIDENCE-MANIFEST.md",
+  referencePrNumber: 1234 as const,
+  closureEvidenceMainSha: "0acdc42507d817766a0113ae418c7c36dde678d1",
+  postMergeRuns: {
+    authenticatedAcceptance: 37121204831 as const,
+    schemaIsolation: 37121204843 as const,
+    ci: 37121204852 as const,
+    postMergeVerification: 37121204833 as const,
+    playwrightVisualRegression: 37121204782 as const,
+  } as const,
+  implementationPerCanonicalTask: {
+    T1: "DONE" as const,
+    T2: "DONE" as const,
+    T3: "DONE" as const,
+    T4: "DONE" as const,
+    T5: "DONE" as const,
+    T6: "DONE" as const,
+    T7: "DONE" as const,
+    T8: "DONE" as const,
+  } as const,
+  engineeringFinalGate: "PASS" as const,
+  engineeringCertification: "APPROVED" as const,
+  legalCertification: "BLOCKED" as const,
+  saCountryPack: "DRAFT" as const,
+  productionAuthorization: "NO" as const,
+} as const;
+
 // ── HR-Specific Task Type ────────────────────────────────────────────────
 
 /**
@@ -261,7 +302,8 @@ export const HR_GROUP_DATA = [
     titleEn: "Performance: Reviews & Goals",
     purposeAr: "نظام تقييم الأداء وأهداف الموظفين ودورات المراجعة.",
     purposeEn: "Performance evaluation system, employee goals, and review cycles.",
-    status: "NOT_STARTED" as GroupStatus,
+    // Reconciled via HR_G3_CLOSURE — canonical T1..T8 complete and exact-SHA gates green.
+    status: "DONE" as GroupStatus,
     dependencies: ["G1"],
     canParallelizeWith: ["G2"],
     stageReport: null,
@@ -560,7 +602,7 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "performance_goals table for employee goals with progress tracking",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    status: "DONE",
     dependencies: [],
     acceptanceCriteriaAr: "جدول goals مع metric و target و progress",
     implementationNotesAr: "ربط مع employee_id و دعم دورة الأهداف السنوية",
@@ -575,7 +617,7 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "performance_reviews table for periodic performance evaluations with results",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    status: "DONE",
     dependencies: ["G3-T01"],
     acceptanceCriteriaAr: "جدول reviews مع تقييمات من المدير والزميل والذاتي",
     implementationNotesAr: "دعم 360-degree review",
@@ -590,7 +632,7 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Performance evaluation interface with rating forms and results display",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    status: "DONE",
     dependencies: ["G3-T02"],
     acceptanceCriteriaAr: "نموذج تقييم يدعم التقييمات المتعددة والتعليقات",
     implementationNotesAr: "عرض تطور الأداء عبر الفترات الزمنية",
@@ -605,7 +647,7 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Interface for tracking employee goals with progress assessment and updates",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    status: "DONE",
     dependencies: ["G3-T01"],
     acceptanceCriteriaAr: "متابعة الأهداف مع مؤشرات الأداء الرئيسية",
     implementationNotesAr: "عرض سجل التحديثات لكل هدف",
