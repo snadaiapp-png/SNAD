@@ -345,6 +345,27 @@ jobs:
             exit 1
           esac
 
+      - name: Capture production route serving diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hrm-route-diagnostics"
+          for path in / /hr/employees /hr/assignments /hr/performance/goals /hr/performance/reviews; do
+            slug="$(printf '%s' "$path" | sed 's#^/##; s#[^A-Za-z0-9._-]#-#g')"
+            [ -n "$slug" ] || slug=root
+            headers="$RUNNER_TEMP/hrm-route-diagnostics/$slug.headers"
+            body="$RUNNER_TEMP/hrm-route-diagnostics/$slug.body"
+            status="$(curl --silent --show-error --location --max-time 30 \
+              --dump-header "$headers" \
+              --output "$body" \
+              --write-out '%{http_code}' \
+              "https://snad-app.vercel.app$path" || true)"
+            echo "=== ROUTE $path HTTP $status ==="
+            grep -Ei '^(server:|content-type:|cache-control:|x-vercel-|x-matched-path:|x-nextjs-|location:)' "$headers" || true
+            printf 'body-prefix='
+            head -c 180 "$body" | tr '\n' ' ' || true
+            echo
+          done
       - name: Verify production-alias HRM G3 routes
         id: g3_routes_production
         continue-on-error: true
@@ -469,6 +490,7 @@ jobs:
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
             ${{ runner.temp }}/frontend-smoke-metadata.json
+            ${{ runner.temp }}/hrm-route-diagnostics
             ${{ runner.temp }}/hrm-g3-production-release.json
             ${{ runner.temp }}/hrm-g3-production-routes.json
             ${{ runner.temp }}/hrm-g3-git-main-routes.json
@@ -492,6 +514,7 @@ jobs:
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
             ${{ runner.temp }}/frontend-smoke-metadata.json
+            ${{ runner.temp }}/hrm-route-diagnostics
             ${{ runner.temp }}/hrm-g3-production-routes.json
             ${{ runner.temp }}/hrm-g3-git-main-routes.json
             ${{ runner.temp }}/hrm-g3-preview-url.json
@@ -514,6 +537,7 @@ jobs:
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
             ${{ runner.temp }}/frontend-smoke-metadata.json
+            ${{ runner.temp }}/hrm-route-diagnostics
             ${{ runner.temp }}/hrm-g3-production-routes.json
             ${{ runner.temp }}/hrm-g3-git-main-routes.json
             ${{ runner.temp }}/hrm-g3-preview-url.json
