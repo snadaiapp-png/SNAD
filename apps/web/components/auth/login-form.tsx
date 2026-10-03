@@ -6,7 +6,7 @@ import styles from "./auth.module.css";
 import v3Styles from "./login-v3.module.css";
 import { AuthErrorAlert } from "./auth-error-alert";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
-import { SnadLogo } from "@/components/sds";
+import { SnadLogo } from "@/components/sds/SnadLogo";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 function AuthenticatingLabel({ pending, delayed }: { pending: string; delayed: string }) {

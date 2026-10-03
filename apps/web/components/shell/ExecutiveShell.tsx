@@ -39,7 +39,9 @@
 
 import { forwardRef, type ReactNode } from 'react';
 
-import { SnadLogo, LanguageSwitcher, ThemeSwitcher } from '@/components/sds';
+import { SnadLogo } from '@/components/sds/SnadLogo';
+import { LanguageSwitcher } from '@/components/sds/switchers/LanguageSwitcher';
+import { ThemeSwitcher } from '@/components/sds/switchers/ThemeSwitcher';
 import styles from './ExecutiveShell.module.css';
 
 export interface ExecutiveShellProps {

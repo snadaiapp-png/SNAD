@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Button, Input, Modal } from "@/components/sds";
+import { Button, Input } from "@/components/sds";
+import { Modal } from "@/components/sds/Modal";
 import type { UsersMessages } from "@/lib/i18n/users-l10n";
 
 interface UserCreateDialogProps {

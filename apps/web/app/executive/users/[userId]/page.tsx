@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Button } from "@/components/sds/executive";
+import { Button } from "@/components/sds";
 import {
   scpApi,
   type PlatformRole,
