@@ -101,7 +101,10 @@ BEGIN
         SELECT status INTO partner_status FROM partners WHERE id = NEW.partner_id;
         SELECT status INTO tenant_status FROM tenants WHERE id = NEW.tenant_id;
 
-        IF partner_status IS DISTINCT FROM 'ACTIVE' THEN
+        -- Known-but-not-ACTIVE partners are rejected here (23001). Unknown ids
+        -- fall through so the canonical FK constraint reports 23503 instead of
+        -- this trigger masking the referential-integrity violation.
+        IF partner_status IS NOT NULL AND partner_status <> 'ACTIVE' THEN
             RAISE EXCEPTION 'PARTNER_TENANT_BINDING_PARTNER_NOT_ACTIVE'
                 USING ERRCODE = '23001';
         END IF;

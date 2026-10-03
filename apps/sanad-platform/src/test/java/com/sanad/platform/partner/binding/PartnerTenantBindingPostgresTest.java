@@ -285,13 +285,36 @@ class PartnerTenantBindingPostgresTest {
             setPlatformContext(c);
             UUID binding = insertBinding(c, f.partnerA(), f.tenantId(), f.actor());
 
-            assertThatThrownBy(() -> {
-                try (PreparedStatement ps = c.prepareStatement(
-                        "DELETE FROM partner_tenant_bindings WHERE id=?")) {
-                    ps.setObject(1, binding);
-                    ps.executeUpdate();
+            // FORCE RLS with no DELETE policy fails closed silently: no row is
+            // ever visible to a DELETE, so executeUpdate must affect 0 rows for
+            // every context. The governance record must survive and closure is
+            // only possible via TERMINATED (never a physical delete).
+            try (PreparedStatement ps = c.prepareStatement(
+                    "DELETE FROM partner_tenant_bindings WHERE id=?")) {
+                ps.setObject(1, binding);
+                int deleted = ps.executeUpdate();
+                assertThat(deleted).as("platform physical delete must affect 0 rows").isZero();
+            }
+
+            setPartnerContext(c, f.partnerA());
+            try (PreparedStatement ps = c.prepareStatement(
+                    "DELETE FROM partner_tenant_bindings WHERE id=?")) {
+                ps.setObject(1, binding);
+                int deleted = ps.executeUpdate();
+                assertThat(deleted).as("partner physical delete must affect 0 rows").isZero();
+            }
+
+            setPlatformContext(c);
+            try (PreparedStatement ps = c.prepareStatement(
+                    "SELECT count(*) FROM partner_tenant_bindings WHERE id=?")) {
+                ps.setObject(1, binding);
+                try (ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    assertThat(rs.getInt(1))
+                            .as("binding must survive physical delete attempts")
+                            .isEqualTo(1);
                 }
-            }).isInstanceOf(SQLException.class);
+            }
             c.rollback();
         }
     }
