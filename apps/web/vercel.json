@@ -7,7 +7,9 @@
       "infra/*": false,
       "fix/*": false,
       "chore/*": false,
-      "docs/*": false
+      "docs/*": false,
+      "main": true,
+      "exec/*": false
     }
   }
 }
