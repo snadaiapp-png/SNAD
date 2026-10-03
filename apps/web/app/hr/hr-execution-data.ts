@@ -186,6 +186,46 @@ export const HR_G2_CLOSURE = {
   productionAuthorization: "NO" as const,
 } as const;
 
+// ── G3 Closure Reconciliation (authoritative, documented-state-bound) ────
+
+/**
+ * HR-G3 engineering closure reconciliation.
+ *
+ * G3 Performance Reviews & Goals is closed by exact-SHA implementation
+ * evidence on main. The implementation merge SHA passed the protected
+ * required checks, authenticated browser acceptance, PostgreSQL Direct
+ * verification, HRM security/RLS verification, and post-merge evidence
+ * aggregation. The previously missing CRM G1 schema-isolation required
+ * check was executed manually via workflow_dispatch on that exact SHA and
+ * completed successfully.
+ *
+ * This is an engineering closure only. Production/Go-Live authorization,
+ * legal certification, and Saudi country-pack certification are separate
+ * governance gates and are not implied by this record.
+ */
+export const HR_G3_CLOSURE = {
+  implementation: "DONE" as GroupStatus,
+  certificatePath: "docs/hrm/g3/evidence/HRM-G3-ENGINEERING-CLOSURE.md",
+  manifestPath: "docs/hrm/g3/evidence/G3-FINAL-EVIDENCE-MANIFEST.md",
+  implementationMergeSha: "99adf88046772fbe6492f5e74c4c5a184c6d0376",
+  authenticatedAcceptanceRunId: 37078851136 as const,
+  postMergeVerificationRunId: 37078851075 as const,
+  schemaIsolationDispatchRunId: 37088523419 as const,
+  schemaIsolationCheckJobId: 111103669620 as const,
+  implementationPerRoadmapTask: {
+    T01: "DONE" as const,
+    T02: "DONE" as const,
+    T03: "DONE" as const,
+    T04: "DONE" as const,
+  } as const,
+  engineeringFinalGate: "PASS" as const,
+  engineeringCertification: "APPROVED" as const,
+  productionSmokeForG3Closure: "NOT_APPLICABLE" as const,
+  productionAuthorization: "NO" as const,
+  legalCertification: "BLOCKED" as const,
+  saCountryPack: "DRAFT" as const,
+} as const;
+
 // ── HR-Specific Task Type ────────────────────────────────────────────────
 
 /**
@@ -261,10 +301,11 @@ export const HR_GROUP_DATA = [
     titleEn: "Performance: Reviews & Goals",
     purposeAr: "نظام تقييم الأداء وأهداف الموظفين ودورات المراجعة.",
     purposeEn: "Performance evaluation system, employee goals, and review cycles.",
-    status: "NOT_STARTED" as GroupStatus,
+    // Reconciled via HR_G3_CLOSURE — exact-SHA G3 closure evidence is PASS.
+    status: "DONE" as GroupStatus,
     dependencies: ["G1"],
     canParallelizeWith: ["G2"],
-    stageReport: null,
+    stageReport: "docs/hrm/g3/evidence/HRM-G3-ENGINEERING-CLOSURE.md",
   },
   {
     code: "G4",
@@ -560,7 +601,7 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "performance_goals table for employee goals with progress tracking",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    status: "DONE",
     dependencies: [],
     acceptanceCriteriaAr: "جدول goals مع metric و target و progress",
     implementationNotesAr: "ربط مع employee_id و دعم دورة الأهداف السنوية",
@@ -575,7 +616,7 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "performance_reviews table for periodic performance evaluations with results",
     type: "Database",
     priority: "Critical",
-    status: "NOT_STARTED",
+    status: "DONE",
     dependencies: ["G3-T01"],
     acceptanceCriteriaAr: "جدول reviews مع تقييمات من المدير والزميل والذاتي",
     implementationNotesAr: "دعم 360-degree review",
@@ -590,7 +631,7 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Performance evaluation interface with rating forms and results display",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    status: "DONE",
     dependencies: ["G3-T02"],
     acceptanceCriteriaAr: "نموذج تقييم يدعم التقييمات المتعددة والتعليقات",
     implementationNotesAr: "عرض تطور الأداء عبر الفترات الزمنية",
@@ -605,7 +646,7 @@ export const HR_TASKS: HrTask[] = [
     descriptionEn: "Interface for tracking employee goals with progress assessment and updates",
     type: "Frontend",
     priority: "High",
-    status: "NOT_STARTED",
+    status: "DONE",
     dependencies: ["G3-T01"],
     acceptanceCriteriaAr: "متابعة الأهداف مع مؤشرات الأداء الرئيسية",
     implementationNotesAr: "عرض سجل التحديثات لكل هدف",

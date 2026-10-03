@@ -51,10 +51,10 @@ describe("HR-G0 closure state reconciliation", () => {
     }
   });
 
-  it("keeps later HR phases isolated after independently certified G2 closure", () => {
-    // G1 and G2 are independently reconciled by their own closure blocks and
-    // regressions. This G0 test must not pin either later phase to an obsolete
-    // historical state. G3..G5 have not started and remain NOT_STARTED.
+  it("keeps later HR phases isolated after independently certified G3 closure", () => {
+    // G1, G2, and G3 are independently reconciled by their own closure blocks
+    // and regressions. This G0 test must not pin a later phase to an obsolete
+    // historical state. Only G4..G5 remain NOT_STARTED.
     const g1 = HR_GROUP_DATA.find((g) => g.code === "G1");
     expect(g1?.status).toBe(HR_G1_CLOSURE.implementation);
 
@@ -62,7 +62,7 @@ describe("HR-G0 closure state reconciliation", () => {
     expect(g2?.status).toBe("DONE");
 
     const untouched = HR_GROUP_DATA.filter((g) =>
-      ["G3", "G4", "G5"].includes(g.code)
+      ["G4", "G5"].includes(g.code)
     );
     for (const group of untouched) {
       expect(group.status, `${group.code} has not started`).toBe("NOT_STARTED");
