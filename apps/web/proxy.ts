@@ -19,7 +19,13 @@ type ReleaseEnv = {
   VERCEL_GIT_COMMIT_REF?: string;
 };
 
-export function isUnauthorizedProductionSource(env: ReleaseEnv = process.env): boolean {
+export function isUnauthorizedProductionSource(
+  env: ReleaseEnv = {
+    VERCEL_TARGET_ENV: process.env.VERCEL_TARGET_ENV,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+    VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF,
+  },
+): boolean {
   const target = (env.VERCEL_TARGET_ENV || env.VERCEL_ENV || "").toLowerCase();
   const ref = (env.VERCEL_GIT_COMMIT_REF || "").trim();
   return (target === "production" || target === "prod") && ref !== "" && ref !== "main";
