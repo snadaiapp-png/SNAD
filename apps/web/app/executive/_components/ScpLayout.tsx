@@ -22,7 +22,7 @@ import {
   PolicyIcon,
   ReportsIcon,
   TasksIcon,
-} from "@/components/sds/module/icons";
+} from "@/components/sds/module/executive-icons";
 import { ScpAccessProvider, useScpAccess } from "./ScpAccess";
 import { ScpAuthGate } from "./ScpStates";
 
