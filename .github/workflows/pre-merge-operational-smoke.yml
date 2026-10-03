@@ -307,6 +307,17 @@ jobs:
             --url "$FRONTEND_SMOKE_URL" \
             --port 3001
 
+      - name: Verify live HRM G3 production routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check-production-readiness.py \
+            --frontend-routes-only \
+            --attempts 1 \
+            --delay-seconds 0 \
+            --timeout-seconds 15 \
+            --evidence-file "$RUNNER_TEMP/hrm-g3-production-routes.json"
+
       # Evidence upload with bounded retry: transient (403) intermediary failures on
       # FinalizeArtifact must not fail an otherwise-successful smoke job, but the
       # evidence requirement itself is NOT weakened: the final attempt has no
@@ -322,6 +333,7 @@ jobs:
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
             ${{ runner.temp }}/frontend-smoke-metadata.json
+            ${{ runner.temp }}/hrm-g3-production-routes.json
           if-no-files-found: error
           retention-days: 14
 
@@ -340,6 +352,7 @@ jobs:
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
             ${{ runner.temp }}/frontend-smoke-metadata.json
+            ${{ runner.temp }}/hrm-g3-production-routes.json
           if-no-files-found: error
           retention-days: 14
           overwrite: true
@@ -358,6 +371,7 @@ jobs:
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
             ${{ runner.temp }}/frontend-smoke-metadata.json
+            ${{ runner.temp }}/hrm-g3-production-routes.json
           if-no-files-found: error
           retention-days: 14
           overwrite: true
