@@ -96,8 +96,12 @@ class PlatformApiCountTest {
      *  Merge union: 940 + 8 (UAC W1) + 20 (Platform IAM) + 3 (temporary access)
      *    = 971 total operations.
      *  + 18 HRM-G3 Task 4 capability-scoped performance operations
-     *  under /api/v2/hr/performance/goals and /reviews = 989. */
-    private static final long EXPECTED_TOTAL_OPS = 989;
+     *  under /api/v2/hr/performance/goals and /reviews = 989.
+     *  + 4 W2-T6 Partner Portal Authorization Boundary operations:
+     *  GET /api/v1/partner/me, GET /api/v1/partner/tenants,
+     *  GET /api/v1/partner/delegations, GET /api/v1/partner/tenants/{tenantId}/authorization
+     *  = 993. */
+    private static final long EXPECTED_TOTAL_OPS = 993;
     private static final long EXPECTED_HRM_V2_OPS = 145;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -137,6 +141,10 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access", "post")).isTrue();
         assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access/{grantId}/revoke", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/partner/me", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/partner/tenants", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/partner/delegations", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/partner/tenants/{tenantId}/authorization", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health", "get")).isTrue();
         assertThat(has(paths, "/api/v1/system-health/actions", "post")).isTrue();
         assertThat(has(paths, "/api/v1/workflows/catalog/modules", "get")).isTrue();
