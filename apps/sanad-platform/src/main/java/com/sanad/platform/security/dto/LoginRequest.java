@@ -10,11 +10,11 @@ import jakarta.validation.constraints.Size;
 /**
  * Request body for {@code POST /api/v1/auth/login}.
  *
- * <p>Email-only login — no tenantId required. The backend searches
- * for the user by email across all tenants. If exactly one match is
- * found, login proceeds. If multiple matches exist (same email in
- * different tenants), a 409 is returned with the list of tenants
- * so the frontend can prompt for selection.</p>
+ * <p>Additive identifier login: callers supply exactly one of email or
+ * tenant-scoped username. An optional tenantId scopes the lookup directly.
+ * Without tenantId, the backend resolves the identifier across tenants and
+ * reuses the existing ambiguous-tenant flow when more than one tenant matches.
+ * Legacy email login remains fully supported.</p>
  */
 public class LoginRequest {
 
