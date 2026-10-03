@@ -141,7 +141,7 @@ public class AuthService {
      * Authenticate with composite rate-limit keys (IP + account + combined).
      *
      * <p>When {@code rateLimitKeys} is {@code null} (legacy callers), falls back
-     * to the legacy email-only in-memory cache. New callers should pass the
+     * to the legacy identifier in-memory cache. New callers should pass the
      * composite keys produced by {@code LoginRateLimitKeys} so the configured
      * {@link LoginRateLimiter} (in-memory Caffeine by default, replaceable by a
      * distributed adapter) governs per-IP, per-account, and combined buckets.
@@ -171,7 +171,7 @@ public class AuthService {
             Integer failures = loginFailureCache.getIfPresent(legacyKey);
             int maxAttempts = securityProperties.getLoginRateLimit().getMaxAttempts();
             if (failures != null && failures >= maxAttempts) {
-                log.warn("Login rate limit exceeded for email={}", normalizedEmail);
+                log.warn("Login rate limit exceeded for identifierType={}", emailLogin ? "email" : "username");
                 throw new LoginRateLimitException(
                         "تم تجاوز عدد محاولات الدخول المسموح بها. حاول لاحقًا.");
             }
