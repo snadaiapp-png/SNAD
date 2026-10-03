@@ -54,7 +54,7 @@ public class UserService {
 
     @Transactional
     public UserResponse updateUser(UUID tenantId,UUID userId,UpdateUserRequest request){
-        Objects.requireNonNull(request,"UpdateUserRequest must not be null");User user=loadUser(tenantId,userId);String email=normalizeEmail(request.getEmail());String username=normalizeUsername(request.getUsername());
+        Objects.requireNonNull(request,"UpdateUserRequest must not be null");User user=loadUser(tenantId,userId);String email=normalizeEmail(request.getEmail());String username=request.getUsername()==null?user.getUsername():normalizeUsername(request.getUsername());
         if(!email.equals(user.getEmail())&&userRepository.existsByTenantIdAndEmail(tenantId,email))throw new DuplicateUserEmailException(tenantId,email);
         if(!Objects.equals(username,user.getUsername())&&username!=null&&userRepository.existsByTenantIdAndUsername(tenantId,username))throw new DuplicateUsernameException(tenantId,username);
         user.setEmail(email);user.setUsername(username);user.setDisplayName(normalizeDisplayName(request.getDisplayName()));return userMapper.toResponse(userRepository.save(user));
