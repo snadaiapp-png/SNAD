@@ -131,9 +131,11 @@ export function createUsersApi(client: ApiClient = apiClient) {
     ) {
       const body: CreateUserRequest = {
         email: requireValidEmail(input.email),
-        username: input.username?.trim().toLowerCase() || null,
         displayName: requireValidDisplayName(input.displayName ?? null),
       };
+      if (input.username !== undefined) {
+        body.username = input.username?.trim().toLowerCase() || null;
+      }
       if (input.status !== undefined) {
         body.status = input.status;
       }
@@ -157,9 +159,11 @@ export function createUsersApi(client: ApiClient = apiClient) {
     ) {
       const body: UpdateUserRequest = {
         email: requireValidEmail(input.email),
-        username: input.username?.trim().toLowerCase() || null,
         displayName: requireValidDisplayName(input.displayName ?? null),
       };
+      if (input.username !== undefined) {
+        body.username = input.username?.trim().toLowerCase() || null;
+      }
       return client.put<UserResponse, UpdateUserRequest>(
         `/api/v1/users/${requireValidUuid(userId, "userId")}`,
         body,
