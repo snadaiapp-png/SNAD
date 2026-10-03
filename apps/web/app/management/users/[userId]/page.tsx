@@ -6,6 +6,7 @@ import { ExecutiveShell } from "@/components/shell";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { usersApi, type UserResponse } from "@/lib/api/users";
+import { createTenantAuthApi } from "@/lib/api/auth";
 import {
   tenantAccessApi,
   type RoleResponse,
@@ -27,7 +28,7 @@ export default function TenantUserDetailPage() {
   const params = useParams<{ userId: string }>();
   const router = useRouter();
   const { state, user: actor, me } = useAuth();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const tenantId = actor?.tenantId ?? null;
   const userId = params.userId;
   const capabilities = me?.capabilities ?? [];
@@ -43,11 +44,13 @@ export default function TenantUserDetailPage() {
   const [roleLinks, setRoleLinks] = useState<UserRoleLinkResponse[]>([]);
   const [roles, setRoles] = useState<RoleResponse[]>([]);
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [credentialNotice, setCredentialNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state)) {
@@ -71,6 +74,7 @@ export default function TenantUserDetailPage() {
       ]);
       setTarget(userResult);
       setEmail(userResult.email);
+      setUsername(userResult.username ?? "");
       setDisplayName(userResult.displayName ?? "");
       setMemberships(membershipResult);
       setRoleLinks(linkResult);
@@ -96,8 +100,24 @@ export default function TenantUserDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await usersApi.update(tenantId, userId, { email, displayName: displayName.trim() || null });
+      await usersApi.update(tenantId, userId, { email, username: username.trim() || null, displayName: displayName.trim() || null });
       await load();
+    } catch (caught) {
+      setError(toUserFacingMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendSetPasswordLink = async () => {
+    if (!canWrite) return;
+    setBusy(true);
+    setError(null);
+    setCredentialNotice(null);
+    try {
+      const credentialApi = createTenantAuthApi(tenantId);
+      await credentialApi.adminResetPassword(userId, { locale });
+      setCredentialNotice(t("management.users.credentials.resetSuccess"));
     } catch (caught) {
       setError(toUserFacingMessage(caught));
     } finally {
@@ -146,11 +166,42 @@ export default function TenantUserDetailPage() {
                 <input aria-label={t("users.email")} type="email" value={email} disabled={!canWrite || busy} onChange={(event) => setEmail(event.target.value)} />
               </label>
               <label>
+                {t("users.username")}
+                <input
+                  aria-label={t("users.username")}
+                  autoComplete="username"
+                  value={username}
+                  disabled={!canWrite || busy}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+              </label>
+              <label>
                 {t("users.displayName")}
                 <input aria-label={t("users.displayName")} value={displayName} disabled={!canWrite || busy} onChange={(event) => setDisplayName(event.target.value)} />
               </label>
               {canWrite ? <button type="submit" disabled={busy}>{t("management.users.detail.save")}</button> : null}
             </form>
+
+            <section aria-labelledby="user-credentials-heading" data-testid="management-user-credentials">
+              <h2 id="user-credentials-heading">{t("management.users.credentials.title")}</h2>
+              <p>{t("management.users.credentials.help")}</p>
+              <dl>
+                <div>
+                  <dt>{t("users.username")}</dt>
+                  <dd>{target.username || t("management.users.credentials.notSet")}</dd>
+                </div>
+                <div>
+                  <dt>{t("users.email")}</dt>
+                  <dd>{target.email}</dd>
+                </div>
+              </dl>
+              {credentialNotice ? <p role="status">{credentialNotice}</p> : null}
+              {canWrite ? (
+                <button type="button" disabled={busy} onClick={() => void sendSetPasswordLink()}>
+                  {t("management.users.credentials.reset")}
+                </button>
+              ) : null}
+            </section>
 
             <section aria-labelledby="user-memberships-heading">
               <h2 id="user-memberships-heading">{t("management.users.detail.memberships")}</h2>
