@@ -17,7 +17,7 @@
 import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
-import styles from "./snad-module.module.css";
+import styles from "./snad-shell.module.css";
 
 export interface SnadModuleNavItem {
   href: string;
