@@ -36,3 +36,9 @@ def test_g3_production_spec_is_excluded_from_generic_playwright_matrices():
     for relative in ["apps/web/playwright.config.ts", "apps/web/playwright.standard.config.ts"]:
         text = (ROOT / relative).read_text(encoding="utf-8")
         assert '"**/g3-production-readonly.spec.ts"' in text
+
+if __name__ == "__main__":
+    test_g3_production_certification_is_manual_and_read_only()
+    test_g3_qa_role_capability_partition_is_explicit()
+    test_g3_production_spec_is_excluded_from_generic_playwright_matrices()
+    print("G3_PRODUCTION_CERTIFICATION_CONTRACT=PASS")
