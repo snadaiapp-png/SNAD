@@ -333,9 +333,19 @@ jobs:
           assign_cap "$EMP_ROLE_ID" "HRM.TIMESHEET.SELF_VIEW"
           assign_cap "$EMP_ROLE_ID" "HRM.TIMESHEET.SELF_SUBMIT"
 
+          # HRM G3 Performance — governed reuse of the dedicated Employee QA identity.
+          assign_cap "$EMP_ROLE_ID" "HRM.PERFORMANCE.GOAL.SELF_VIEW"
+          assign_cap "$EMP_ROLE_ID" "HRM.PERFORMANCE.GOAL.SELF_UPDATE"
+          assign_cap "$EMP_ROLE_ID" "HRM.PERFORMANCE.REVIEW.SELF_VIEW"
+          assign_cap "$EMP_ROLE_ID" "HRM.PERFORMANCE.REVIEW.SELF_SUBMIT"
+
           assign_cap "$MGR_ROLE_ID" "HRM.ATTENDANCE.TEAM_VIEW"
           assign_cap "$MGR_ROLE_ID" "HRM.LEAVE.TEAM_APPROVE"
           assign_cap "$MGR_ROLE_ID" "HRM.TIMESHEET.TEAM_APPROVE"
+
+          # HRM G3 Performance — governed reuse of the dedicated Manager QA identity.
+          assign_cap "$MGR_ROLE_ID" "HRM.PERFORMANCE.GOAL.TEAM_MANAGE"
+          assign_cap "$MGR_ROLE_ID" "HRM.PERFORMANCE.REVIEW.TEAM_MANAGE"
 
           assign_cap "$HR_ROLE_ID" "HRM.LEAVE.HR_APPROVE"
           assign_cap "$HR_ROLE_ID" "HRM.LEAVE.POLICY_ADMIN"
@@ -343,6 +353,21 @@ jobs:
           assign_cap "$HR_ROLE_ID" "HRM.ATTENDANCE.CORRECT"
           assign_cap "$HR_ROLE_ID" "HRM.LEAVE.TEAM_APPROVE"
           assign_cap "$HR_ROLE_ID" "HRM.ATTENDANCE.TEAM_VIEW"
+
+
+          # G3 negative principal invariant: the HR QA identity intentionally has
+          # no Performance capability. It is used to prove backend 403 enforcement.
+          HR_G3_CAPS_FILE=/tmp/g2-hr-g3-negative.json
+          HR_G3_CAPS_STATUS=$(curl --silent --show-error --fail-with-body \
+            -o "$HR_G3_CAPS_FILE" -w '%{http_code}' \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            "$API/access/roles/$HR_ROLE_ID/access-items?tenantId=$G2_TENANT_ID") || exit 1
+          test "$HR_G3_CAPS_STATUS" = "200"
+          if jq -e '.[] | select(.capabilityCode | startswith("HRM.PERFORMANCE."))' "$HR_G3_CAPS_FILE" >/dev/null; then
+            echo "::error::G2_HR_QA must remain the G3 negative principal and has a Performance capability"
+            exit 1
+          fi
+          echo "G3_NEGATIVE_PRINCIPAL=PASS"
 
       - name: Assign roles to users fail-closed
         shell: bash
