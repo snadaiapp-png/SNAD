@@ -45,6 +45,23 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             + "FROM User u WHERE u.tenantId = :tenantId AND u.email = :email")
     boolean existsByTenantIdAndEmail(@Param("tenantId") UUID tenantId, @Param("email") String email);
 
+    /** Fetch a user by normalized username within one tenant. */
+    @Query("SELECT u FROM User u WHERE u.tenantId = :tenantId AND u.username = :username")
+    Optional<User> findByTenantIdAndUsername(
+            @Param("tenantId") UUID tenantId,
+            @Param("username") String username);
+
+    /** Check tenant-local username uniqueness. */
+    @Query("SELECT CASE WHEN COUNT(u) > 0 THEN TRUE ELSE FALSE END "
+            + "FROM User u WHERE u.tenantId = :tenantId AND u.username = :username")
+    boolean existsByTenantIdAndUsername(
+            @Param("tenantId") UUID tenantId,
+            @Param("username") String username);
+
+    /** Cross-tenant username lookup used only by the login resolver. */
+    @Query("SELECT u FROM User u WHERE u.username = :username")
+    List<User> findAllByUsername(@Param("username") String username);
+
     /**
      * Find users by email across ALL tenants (for email-only login).
      * Returns a list because the same email can exist in different tenants.
