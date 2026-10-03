@@ -75,6 +75,43 @@ class ExecutivePartnerControllerTest {
     }
 
     @Test
+    void realControlPlaneGuardRejectsTenantAndPartnerContexts() {
+        UUID controlTenant = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID tenant = UUID.randomUUID();
+
+        ControlPlaneAccessGuard realGuard = new ControlPlaneAccessGuard(controlTenant.toString());
+        ExecutivePartnerController realController =
+                new ExecutivePartnerController(realGuard, service);
+
+        var tenantAuth = authWithTenant("tenant-admin", tenant, null);
+        assertThatThrownBy(() -> realController.list(tenantAuth))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Control-plane tenant required");
+
+        var partnerAuth = authWithTenant("partner-admin", tenant, UUID.randomUUID());
+        assertThatThrownBy(() -> realController.detail(partnerAuth, UUID.randomUUID()))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Control-plane tenant required");
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void realControlPlaneGuardAllowsControlTenantToReachReadService() {
+        UUID controlTenant = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        ControlPlaneAccessGuard realGuard = new ControlPlaneAccessGuard(controlTenant.toString());
+        ExecutivePartnerController realController =
+                new ExecutivePartnerController(realGuard, service);
+        var platformAuth = authWithTenant("platform-user", controlTenant, null);
+        when(service.listPartners()).thenReturn(List.of());
+
+        var response = realController.list(platformAuth);
+
+        assertThat(response.getBody()).isEmpty();
+        verify(service).listPartners();
+    }
+
+    @Test
     void endpointCapabilitiesFollowCanonicalExecutivePattern() throws Exception {
         assertCapability("list", "EXECUTIVE_VIEW", org.springframework.security.core.Authentication.class);
         assertCapability("create", "EXECUTIVE_MANAGE",
@@ -91,6 +128,19 @@ class ExecutivePartnerControllerTest {
                 org.springframework.security.core.Authentication.class, UUID.class);
         assertCapability("delegations", "EXECUTIVE_VIEW",
                 org.springframework.security.core.Authentication.class, UUID.class);
+    }
+
+    private UsernamePasswordAuthenticationToken authWithTenant(
+            String principal, UUID tenantId, UUID partnerId) {
+        var auth = new UsernamePasswordAuthenticationToken(principal, null, List.of());
+        java.util.Map<String,Object> details = new java.util.HashMap<>();
+        details.put("tenant_id", tenantId.toString());
+        details.put("user_id", UUID.randomUUID().toString());
+        if (partnerId != null) {
+            details.put("partner_id", partnerId.toString());
+        }
+        auth.setDetails(details);
+        return auth;
     }
 
     private void assertCapability(String methodName, String expected, Class<?>... parameterTypes)
