@@ -89,7 +89,7 @@ describe("HR-G3 final engineering closure reconciliation", () => {
 
   it("reconciles the committed certificate and manifest to the same exact closure", () => {
     for (const evidence of [readEvidence(CERTIFICATE_PATH), readEvidence(MANIFEST_PATH)]) {
-      expect(evidence).toContain("STATUS_AUTHORITY: CURRENT");
+      expect(evidence).toContain("STATUS_AUTHORITY: DRAFT_PENDING_EXACT_HEAD");
       expect(evidence).toMatch(/G3_FINAL_GATE\s*=\s*PENDING_EXACT_HEAD/);
       expect(evidence).toMatch(/G3_FULLY_CLOSED\s*=\s*PENDING/);
       expect(evidence).toContain("0acdc42507d817766a0113ae418c7c36dde678d1");
