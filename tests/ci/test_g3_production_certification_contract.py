@@ -16,7 +16,9 @@ def test_g3_production_certification_is_manual_and_read_only():
     assert "G3_EXPECTED_SHA" in workflow
     assert "G3_PROD_TENANT_ID" in workflow
     assert "expect(login.user.tenantId).toBe(PRODUCTION_TENANT_ID)" in spec
-    assert "g3-production-readonly.spec.ts" in (ROOT / "apps/web/playwright-g3-production.config.ts").read_text(encoding="utf-8")
+    production_config = (ROOT / "apps/web/playwright-g3-production.config.ts").read_text(encoding="utf-8")
+    assert "g3-production-readonly" in production_config
+    assert "testMatch:" in production_config
     forbidden_mutations = [".post(", ".patch(", ".put(", ".delete(", "reviews-create-save", "progress-save-"]
     assert all(marker not in spec for marker in forbidden_mutations)
 
