@@ -1,0 +1,137 @@
+/*
+ * SNAD shared module shell styles — extracted byte-for-byte in visual values
+ * from snad-module.module.css so module shells can load only shell geometry.
+ */
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--snad-surface-canvas, var(--snad-color-background-default));
+  color: var(--snad-text-primary);
+  font-family: var(--snad-font-body, var(--snad-font-arabic));
+  font-size: 15px;
+  line-height: var(--snad-leading-body, 1.6);
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 22px;
+  background: var(--snad-surface-primary);
+  border-bottom: 1px solid var(--snad-border-default);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  box-shadow: var(--snad-shadow-sm);
+}
+.headerLeft { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brandMark {
+  position: relative; width: 38px; height: 38px; border-radius: 10px;
+  background: var(--snad-brand-primary); color: var(--snad-text-inverse);
+  display: grid; place-items: center; font-family: var(--snad-font-latin);
+  font-weight: 800; font-size: 0.92rem; letter-spacing: 0.04em;
+  flex-shrink: 0; box-shadow: var(--snad-shadow-sm); text-decoration: none;
+}
+.brandMarkGold {
+  position: absolute; inset-block-end: -3px; inset-inline-end: -3px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--snad-brand-gold); border: 2px solid var(--snad-surface-primary);
+}
+.headerTitles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.headerTitle {
+  margin: 0; font-size: 1.0625rem; font-weight: 800; color: var(--snad-text-primary);
+  line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.headerSubtitle {
+  margin: 0; font-size: 0.78rem; color: var(--snad-text-secondary); line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.headerRight { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.headerUser {
+  font-size: 0.82rem; color: var(--snad-text-secondary); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-inline-size: 16rem;
+}
+.headerBtn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px;
+  border-radius: 9px; border: 1px solid var(--snad-border-default);
+  background: var(--snad-surface-primary); color: var(--snad-text-primary);
+  font: inherit; font-weight: 700; font-size: 0.86rem; cursor: pointer;
+  transition: background var(--snad-motion-fast) var(--snad-motion-ease-standard),
+              border-color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+              color var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+.headerBtn:hover { background: var(--snad-surface-secondary); border-color: var(--snad-brand-primary); color: var(--snad-text-brand); }
+.headerBtn:focus-visible { outline: 3px solid var(--snad-focus-ring); outline-offset: 2px; }
+.langBtn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px;
+  border-radius: 9px; border: 1px solid var(--snad-brand-gold);
+  background: var(--snad-brand-gold-soft, var(--snad-color-gold-200));
+  color: var(--snad-text-brand); font: inherit; font-weight: 800; font-size: 0.84rem;
+  cursor: pointer;
+  transition: background var(--snad-motion-fast) var(--snad-motion-ease-standard),
+              color var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+.langBtn:hover { background: var(--snad-brand-gold); color: var(--snad-text-inverse); }
+.langBtn:focus-visible { outline: 3px solid var(--snad-focus-ring); outline-offset: 2px; }
+.headerBtnIcon svg { width: 16px; height: 16px; }
+.body { flex: 1; display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 0; }
+.sidebar {
+  background: var(--snad-surface-primary); border-inline-end: 1px solid var(--snad-border-default);
+  overflow-y: auto; padding: 14px 10px 24px; position: sticky; top: 67px;
+  align-self: start; max-height: calc(100vh - 67px);
+}
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--snad-border-default); border-radius: 3px; }
+.sidebarNav { display: flex; flex-direction: column; gap: 2px; }
+.sidebarItem {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 11px;
+  border: 1px solid transparent; border-radius: 9px; background: transparent;
+  color: var(--snad-text-secondary); font: inherit; font-size: 0.88rem; font-weight: 600;
+  text-align: start; cursor: pointer; text-decoration: none;
+  transition: background var(--snad-motion-fast) var(--snad-motion-ease-standard),
+              color var(--snad-motion-fast) var(--snad-motion-ease-standard),
+              border-color var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+.sidebarItem:hover { background: var(--snad-surface-secondary); color: var(--snad-text-primary); }
+.sidebarItem:focus-visible { outline: 3px solid var(--snad-focus-ring); outline-offset: 2px; }
+.sidebarItemActive, .sidebarItemActive:hover {
+  background: var(--snad-brand-primary); color: var(--snad-text-inverse);
+  border-color: var(--snad-brand-primary); font-weight: 700;
+}
+.sidebarItemActive .sidebarItemIcon { color: var(--snad-brand-gold); }
+.sidebarItemIcon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; color: currentColor; flex-shrink: 0;
+}
+.sidebarItemIcon svg { width: 16px; height: 16px; }
+.sidebarItemLabel { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebarDivider { height: 1px; background: var(--snad-border-subtle); margin: 12px 6px; }
+.sidebarSectionLabel {
+  padding: 6px 11px 4px; font-size: 0.7rem; font-weight: 800;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--snad-text-secondary);
+}
+.content { min-width: 0; padding: 22px 26px 40px; overflow-x: hidden; }
+
+@media (max-width: 768px) {
+  .header { padding: 10px 14px; gap: 10px; }
+  .headerTitle { font-size: 0.95rem; }
+  .headerSubtitle { display: none; }
+  .headerBtn, .langBtn { padding: 7px 10px; font-size: 0.8rem; }
+  .brandMark { width: 32px; height: 32px; font-size: 0.82rem; }
+  .brandMarkGold { width: 12px; height: 12px; }
+  .body { grid-template-columns: 1fr; }
+  .sidebar {
+    position: relative; top: 0; max-height: none; border-inline-end: 0;
+    border-bottom: 1px solid var(--snad-border-default); padding: 10px 8px;
+  }
+  .sidebarNav { flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; }
+  .sidebarItem { flex-shrink: 0; padding: 8px 10px; font-size: 0.82rem; white-space: nowrap; }
+  .sidebarDivider, .sidebarSectionLabel { display: none; }
+  .content { padding: 16px 14px 32px; }
+}
+@media (max-width: 480px) {
+  .headerRight { gap: 6px; }
+  .headerBtn span, .langBtn span { display: none; }
+}

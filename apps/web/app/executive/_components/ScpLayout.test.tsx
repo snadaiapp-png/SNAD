@@ -1,85 +1,93 @@
 // @vitest-environment jsdom
-
-/**
- * R0C-12 G6-R3 — the authoritative design (§9) requires the shared executive
- * layout to provide a desktop sidebar, a collapsible nav on tablet and a
- * drawer on mobile. These tests pin the accessible toggle contract:
- *   - a persistent toggle button with aria-expanded / aria-controls
- *   - the nav slot exposes data-open so CSS can collapse (tablet) or draw
- *     the overlay drawer (mobile)
- *   - an explicit backdrop control closes the drawer
- *   - navigating via a nav link closes the drawer
- */
 import "@testing-library/jest-dom/vitest";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type React from "react";
 
-vi.mock("@/lib/i18n/I18nProvider", () => ({
-  useI18n: () => ({ t: (key: string) => `i18n:${key}` }),
+const accessState = vi.hoisted(() => ({
+  phase: "authorized" as "authorized" | "checking" | "unauthorized" | "degraded",
+  capabilities: {
+    "subscription.read": true,
+    "PLATFORM.USER.READ": true,
+    "PLATFORM.ROLE.READ": true,
+    "ROLE.READ": true,
+  } as Record<string, boolean>,
 }));
 
-vi.mock("./ScpStates", () => ({
-  ScpAuthGate: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
+vi.mock("@/lib/auth/auth-provider", () => ({
+  useAuth: () => ({
+    state: "AUTHENTICATED",
+    me: { displayName: "Executive Operator", email: "operator@example.test" },
+    logout: vi.fn(async () => undefined),
+  }),
+}));
+
+vi.mock("@/lib/i18n/I18nProvider", () => ({
+  useI18n: () => ({
+    t: (key: string) => `i18n:${key}`,
+    locale: "en",
+    direction: "ltr",
+    setLocale: vi.fn(),
+  }),
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/executive/users",
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
+
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={String(href)} {...props}>{children}</a>
   ),
 }));
 
-vi.mock("./ScpNav", () => ({
-  ScpNav: () => <nav data-testid="scp-nav">nav</nav>,
+vi.mock("./ScpStates", async () => {
+  const actual = await vi.importActual<typeof import("./ScpStates")>("./ScpStates");
+  return {
+    ...actual,
+    ScpAuthGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  };
+});
+
+vi.mock("./ScpAccess", () => ({
+  ScpAccessProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useScpAccess: () => ({
+    phase: accessState.phase,
+    capabilities: accessState.capabilities,
+  }),
 }));
 
 import { ScpLayout } from "./ScpLayout";
 
-describe("ScpLayout responsive navigation", () => {
-  beforeEach(() => {
-    cleanup();
+afterEach(() => cleanup());
+
+describe("Executive shared SNAD module shell", () => {
+  it("renders the same shared shell identity used by CRM and HR", () => {
+    render(<ScpLayout><p>page</p></ScpLayout>);
+
+    expect(screen.getByText("i18n:scp.layout.title")).toBeInTheDocument();
+    expect(screen.getByText("Executive Operator")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "i18n:scp.nav.ariaLabel" })).toBeInTheDocument();
+
+    const users = screen.getByRole("link", { name: "i18n:controlPlane.users" });
+    expect(users).toHaveAttribute("href", "/executive/users");
+    expect(users).toHaveAttribute("aria-current", "page");
   });
 
-  it("renders an accessible nav toggle wired to the sidebar slot", async () => {
-    const user = userEvent.setup();
-    render(
-      <ScpLayout>
-        <div>page</div>
-      </ScpLayout>,
-    );
-    const toggle = screen.getByRole("button", {
-      name: "i18n:scp.nav.openMenu",
-    });
-    expect(toggle).toHaveAttribute("aria-controls", "scp-sidebar-nav");
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    const slot = document.getElementById("scp-sidebar-nav");
-    expect(slot).not.toBeNull();
-    expect(slot).toHaveAttribute("data-open", "false");
+  it("keeps navigation capability-gated and fail-closed after access resolution", () => {
+    accessState.capabilities = { "PLATFORM.USER.READ": true };
+    render(<ScpLayout><p>page</p></ScpLayout>);
 
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(document.getElementById("scp-sidebar-nav")).toHaveAttribute(
-      "data-open",
-      "true",
-    );
-  });
+    expect(screen.getByRole("link", { name: "i18n:controlPlane.users" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "i18n:controlPlane.roles" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "i18n:scp.nav.authorization" })).not.toBeInTheDocument();
 
-  it("offers an explicit backdrop control that closes the drawer", async () => {
-    const user = userEvent.setup();
-    render(
-      <ScpLayout>
-        <div>page</div>
-      </ScpLayout>,
-    );
-    await user.click(
-      screen.getByRole("button", { name: "i18n:scp.nav.openMenu" }),
-    );
-    const backdrop = screen.getByRole("button", {
-      name: "i18n:scp.nav.closeMenu",
-    });
-    await user.click(backdrop);
-    expect(
-      screen.getByRole("button", { name: "i18n:scp.nav.openMenu" }),
-    ).toHaveAttribute("aria-expanded", "false");
-    expect(document.getElementById("scp-sidebar-nav")).toHaveAttribute(
-      "data-open",
-      "false",
-    );
+    accessState.capabilities = {
+      "subscription.read": true,
+      "PLATFORM.USER.READ": true,
+      "PLATFORM.ROLE.READ": true,
+      "ROLE.READ": true,
+    };
   });
 });

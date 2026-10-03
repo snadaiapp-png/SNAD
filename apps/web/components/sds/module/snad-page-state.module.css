@@ -1,0 +1,118 @@
+/*
+ * SNAD shared page/state styles — visual values copied from the canonical
+ * module contract, isolated so state consumers do not load KPI/form/table CSS.
+ */
+.contentInner {
+  max-width: 1180px; margin-inline: auto; display: flex; flex-direction: column; gap: 22px;
+}
+.pageHeader {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.pageHeaderCopy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pageEyebrow {
+  font-size: 0.76rem; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--snad-brand-gold);
+}
+.pageTitle {
+  margin: 0; font-size: 1.5rem; font-weight: 800;
+  color: var(--snad-text-primary); line-height: 1.25;
+}
+.pageDescription {
+  margin: 0; font-size: 0.92rem; color: var(--snad-text-secondary); line-height: 1.55;
+}
+.pageHeaderTrailing { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.statusBadge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+  border-radius: 999px; font-size: 0.74rem; font-weight: 700;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.statusBadge::before {
+  content: ""; display: inline-block; width: 6px; height: 6px;
+  border-radius: 50%; background: currentColor;
+}
+.statusBadgeNeutral {
+  background: var(--snad-surface-secondary); color: var(--snad-text-muted);
+  border-color: var(--snad-border-default);
+}
+.statusBadgeSuccess {
+  background: var(--snad-success-soft, color-mix(in srgb, var(--snad-success, var(--snad-color-success)) 12%, transparent));
+  color: var(--snad-success, var(--snad-color-success));
+  border-color: var(--snad-success, var(--snad-color-success));
+}
+.statusBadgeWarning {
+  background: var(--snad-warning-soft, color-mix(in srgb, var(--snad-warning, var(--snad-color-warning)) 12%, transparent));
+  color: var(--snad-warning, var(--snad-color-warning));
+  border-color: var(--snad-warning, var(--snad-color-warning));
+}
+.statusBadgeInfo {
+  background: var(--snad-info-soft, color-mix(in srgb, var(--snad-info, var(--snad-color-info)) 12%, transparent));
+  color: var(--snad-info, var(--snad-color-info));
+  border-color: var(--snad-info, var(--snad-color-info));
+}
+.statusBadgeDanger {
+  background: var(--snad-error-soft, color-mix(in srgb, var(--snad-error, var(--snad-color-error)) 12%, transparent));
+  color: var(--snad-error, var(--snad-color-error));
+  border-color: var(--snad-error, var(--snad-color-error));
+}
+.loadingState {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 320px; padding: 40px; color: var(--snad-text-secondary); font-size: 0.92rem;
+}
+.loadingSpinner {
+  width: 18px; height: 18px; border: 2px solid var(--snad-border-default);
+  border-top-color: var(--snad-brand-primary); border-radius: 50%;
+  animation: snadModuleSpin 0.8s linear infinite;
+}
+@keyframes snadModuleSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .loadingSpinner { animation: none; } }
+.emptyState {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 12px; padding: 56px 24px; background: var(--snad-surface-primary);
+  border: 1px dashed var(--snad-border-default); border-radius: 16px;
+  box-shadow: var(--snad-shadow-sm);
+}
+.emptyIcon {
+  display: grid; place-items: center; width: 80px; height: 80px; border-radius: 50%;
+  background: var(--snad-surface-secondary); color: var(--snad-brand-primary); margin-bottom: 4px;
+}
+.emptyIcon svg { width: 44px; height: 44px; }
+.emptyTitle { margin: 0; font-size: 1.18rem; font-weight: 800; color: var(--snad-text-primary); }
+.emptySubtitle {
+  margin: 0; font-size: 0.92rem; color: var(--snad-text-secondary);
+  max-width: 460px; line-height: 1.6;
+}
+.hint { font-size: 0.76rem; color: var(--snad-text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.errorState {
+  display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; font-size: 0.88rem;
+  color: var(--snad-error, var(--snad-color-error));
+  background: color-mix(in srgb, var(--snad-error, var(--snad-color-error)) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-error, var(--snad-color-error)) 30%, transparent);
+  border-radius: 12px;
+}
+.errorStateTitle { margin: 0; font-weight: 800; }
+.retryButton {
+  align-self: flex-start; padding: 8px 16px; border-radius: 9px;
+  border: 1px solid var(--snad-border-default); background: var(--snad-surface-primary);
+  color: var(--snad-text-primary); font: inherit; font-weight: 700; font-size: 0.86rem;
+  cursor: pointer;
+  transition: background var(--snad-motion-fast) var(--snad-motion-ease-standard),
+              border-color var(--snad-motion-fast) var(--snad-motion-ease-standard);
+}
+.retryButton:hover { border-color: var(--snad-brand-primary); color: var(--snad-text-brand); }
+.retryButton:focus-visible { outline: 3px solid var(--snad-focus-ring); outline-offset: 2px; }
+.successNotice {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  font-size: 0.86rem; font-weight: 700;
+  color: var(--snad-success, var(--snad-color-success));
+  background: color-mix(in srgb, var(--snad-success, var(--snad-color-success)) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--snad-success, var(--snad-color-success)) 30%, transparent);
+  border-radius: 10px;
+}
+@media (max-width: 768px) {
+  .contentInner { gap: 16px; }
+  .pageTitle { font-size: 1.25rem; }
+  .emptyState { padding: 36px 18px; }
+  .emptyIcon { width: 64px; height: 64px; }
+  .emptyIcon svg { width: 36px; height: 36px; }
+}

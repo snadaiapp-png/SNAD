@@ -1,7 +1,8 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { Button, Input, Modal } from "@/components/sds";
+import { Button, Input } from "@/components/sds";
+import { Modal } from "@/components/sds/Modal";
 import { ScpError } from "../_components/ScpStates";
 import styles from "../scp.module.css";
 import type { TenantDialog } from "./tenant-dialog-validation";

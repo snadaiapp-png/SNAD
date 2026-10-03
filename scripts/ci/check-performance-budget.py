@@ -120,7 +120,8 @@ def _app_router_page_bundles():
             fail(f"Client-reference manifest is corrupt: {manifest_path}: {exc}")
 
         chunks = set()
-        for module in manifest.get("clientModules", {}).values():
+        chunk_modules = {}
+        for module_key, module in manifest.get("clientModules", {}).items():
             for asset in module.get("chunks", []):
                 normalized = asset.replace("/_next/", "").lstrip("/")
                 if not normalized.endswith(".js"):
@@ -129,11 +130,17 @@ def _app_router_page_bundles():
                 if not asset_path.exists():
                     fail(f"JavaScript chunk referenced by App Router manifest is missing: {normalized}")
                 chunks.add(normalized)
+                chunk_modules.setdefault(normalized, set()).add(module_key)
                 all_js_files.add(normalized)
 
         route = _route_name(manifest_path)
         page_bundles[route] = {
             "js_files": len(chunks),
+            "js_assets": sorted(chunks),
+            "chunk_modules": {
+                asset: sorted(modules)
+                for asset, modules in chunk_modules.items()
+            },
             "total_js_bytes": sum((BUILD_DIR / asset).stat().st_size for asset in chunks),
         }
 
@@ -152,6 +159,7 @@ def _legacy_page_bundles(manifest):
             all_js_files.add(asset)
         page_bundles[page] = {
             "js_files": len(js_assets),
+            "js_assets": sorted(js_assets),
             "total_js_bytes": sum((BUILD_DIR / asset).stat().st_size for asset in js_assets),
         }
     return page_bundles, all_js_files
@@ -325,6 +333,29 @@ def main():
         over = "OVER" if data["total_js_bytes"] > BUDGETS["per_route_js"] else "OK"
         print(f"  {page:50s} {data['total_js_bytes']:>10,} bytes  [{over}]")
     print()
+
+    executive_routes = [
+        (page, data)
+        for page, data in bundle_data["page_bundles"].items()
+        if page.startswith("/executive")
+    ]
+    if executive_routes:
+        executive_page, executive_data = max(
+            executive_routes,
+            key=lambda item: item[1]["total_js_bytes"],
+        )
+        print(f"Largest Executive Route Chunks: {executive_page}")
+        for asset in sorted(
+            executive_data.get("js_assets", []),
+            key=lambda value: (BUILD_DIR / value).stat().st_size,
+            reverse=True,
+        ):
+            size = (BUILD_DIR / asset).stat().st_size
+            print(f"  {size:>10,} bytes  {asset}")
+            for module_key in executive_data.get("chunk_modules", {}).get(asset, []):
+                if "[project]/apps/web/" in module_key and "/node_modules/" not in module_key:
+                    print(f"               ↳ {module_key}")
+        print()
 
     if violations:
         print(f"FAIL — {len(violations)} performance budget violation(s):")

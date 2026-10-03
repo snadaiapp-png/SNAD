@@ -13,6 +13,6 @@ Governance: the SNAD Module Visual Contract (2026-10-02-snad-module-visual-contr
 | ERP | (none found) | NO_UI | — | no dedicated web module surfaces at baseline |
 | Accounting | (none found) | NO_UI | — | no dedicated web module surfaces at baseline |
 | Partner | (none found) | NO_UI | — | no web surfaces at baseline |
-| Executive/Workspace | /workspace, /executive | LEGACY | shell/ components | cross-module landing shells; drift-frozen |
+| Executive Administration | /executive | COMPLIANT (Executive IAM convergence) | shared SnadModuleShell + SnadPageFrame/state primitives | Users, Access, Authorization and SCP pages share the CRM/HR visual contract; capability gating remains backend-authoritative |\n| Workspace | /workspace | LEGACY | shell/ components | cross-module landing surface; drift-frozen |
 
 Inventory method: `apps/web/app/*` top-level route directories enumerated at baseline dc6d36dc5; classification per presence of product shell + styles. NO_UI = no module web route group found.

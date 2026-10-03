@@ -1,19 +1,12 @@
 /*
  * ============================================================================
- *  SDS Component Library — Barrel Export
+ *  SDS Component Library — Lightweight Runtime Barrel
  * ----------------------------------------------------------------------------
- *  Re-exports every SDS primitive so consumers can do:
- *
- *     import { Button, Card, Input, Modal, Badge } from '@/components/sds';
- *
- *  Each component is also available as a named export from its own module
- *  for tree-shaking-friendly imports:
- *
- *     import { Button } from '@/components/sds/Button';
- *
- *  Token + theme assets are NOT exported from here — they are CSS custom
- *  properties resolved at runtime. See:
- *     apps/web/design-system/tokens/theme.css
+ *  Keep the high-frequency, lightweight form primitives on the shared barrel.
+ *  Heavier primitives (Modal, SnadLogo, switchers) must be imported from their
+ *  canonical direct modules so unrelated routes do not pull their runtimes.
+ *  Card and Badge currently have no runtime consumers and remain available by
+ *  direct module import if needed in future work.
  * ============================================================================
  */
 
@@ -25,42 +18,33 @@ export {
 } from './Button';
 
 export {
-  Card,
-  LinkCard,
-  type CardProps,
-  type CardVariant,
-  type CardComponentProps,
-  type LinkCardProps,
-} from './Card';
-
-export {
   Input,
   type InputProps,
   type TextInputType,
 } from './Input';
 
-export {
-  Modal,
-  type ModalProps,
-  type ModalSize,
+/* Type-only compatibility exports do not enter the production JS graph. */
+export type {
+  CardProps,
+  CardVariant,
+  CardComponentProps,
+  LinkCardProps,
+} from './Card';
+
+export type {
+  ModalProps,
+  ModalSize,
 } from './Modal';
 
-export {
-  Badge,
-  type BadgeProps,
-  type BadgeVariant,
-  type BadgeSize,
+export type {
+  BadgeProps,
+  BadgeVariant,
+  BadgeSize,
 } from './Badge';
 
-export {
-  SnadLogo,
-  type SnadLogoProps,
-  type SnadLogoVariant,
-  type SnadLogoSize,
-  type SnadLogoTheme,
+export type {
+  SnadLogoProps,
+  SnadLogoVariant,
+  SnadLogoSize,
+  SnadLogoTheme,
 } from './SnadLogo';
-
-export {
-  LanguageSwitcher,
-  ThemeSwitcher,
-} from './switchers';

@@ -11,7 +11,7 @@ Every SNAD web module (CRM, HR, future modules) MUST render its product shell th
 | Primitive | Purpose | Key contract |
 |-----------|---------|--------------|
 | SnadModuleShell | 100vh flex-column module root on ivory canvas: sticky HEADER (brand tile + gold dot + titles + user + actions), 264px SIDEBAR (sectioned NAV with 16×16 icons, active = brand fill + gold icon, aria-current), CONTENT region + 1180px inner max | props: brandMark, brandHref, title, subtitle, navSections (visibility resolved by caller), activeHref (longest-prefix wins), navLabel, contentId, dir, user, language/back/logout handlers, authLoading |
-| SnadPageHeader | page title 1.5rem/800 + description + eyebrow + trailing | module-neutral |
+| SnadPageHeader | page title 1.5rem/800 + description + eyebrow + trailing | module-neutral |\n| SnadPageFrame | canonical 1180px content stack combining shared page header + 22px vertical rhythm | module-neutral; use for migrated module pages |
 | SnadKpiGrid / SnadKpiCard | KPI grid + white card w/ 4px gold inline-start bar, numeric font | tone support |
 | SnadOperationalPanel | white section card + brand-bar section title | header slot + body |
 | SnadActionBar | action row surface | wraps controls |

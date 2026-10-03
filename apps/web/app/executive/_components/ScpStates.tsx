@@ -3,14 +3,20 @@
 import type { ReactNode } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
-import { Button } from "@/components/sds";
+import {
+  SnadEmptyState,
+  SnadErrorState,
+  SnadLoadingState,
+  SnadPageFrame,
+  SnadStatusBadge,
+  SnadSuccessNotice,
+  type SnadBadgeTone,
+} from "@/components/sds/module/SnadPageStates";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import styles from "../scp.module.css";
 
 /**
- * Client auth gate for every control-plane page — mirrors the legacy
- * console's in-page guard (executive pages render only when the session
- * state machine reaches AUTHENTICATED).
+ * Client auth gate for every control-plane page.
+ * Session authorization remains independent from visual-shell migration.
  */
 export function ScpAuthGate({ children }: { children: ReactNode }) {
   const { state } = useAuth();
@@ -30,54 +36,34 @@ export function ScpPage({
   children: ReactNode;
 }) {
   return (
-    <section className={styles.main} aria-busy="false">
-      <header>
-        <h1 className={styles.pageTitle}>{title}</h1>
-        {subtitle ? <p className={styles.pageSubtitle}>{subtitle}</p> : null}
-      </header>
+    <SnadPageFrame title={title} subtitle={subtitle}>
       {children}
-    </section>
+    </SnadPageFrame>
   );
 }
 
-export function ScpSkeleton({ lines = 6 }: { lines?: number }) {
-  return (
-    <div className={styles.panel} role="status" aria-live="polite">
-      {Array.from({ length: lines }, (_, index) => (
-        <span key={index} className={styles.skeletonLine} style={{ inlineSize: `${90 - index * 9}%` }} />
-      ))}
-    </div>
-  );
+export function ScpSkeleton({ lines: _lines = 6 }: { lines?: number }) {
+  const { t } = useI18n();
+  return <SnadLoadingState label={t("scp.state.loading")} />;
 }
 
 export function ScpError({ message, onRetry }: { message: string; onRetry?: () => void }) {
   const { t } = useI18n();
   return (
-    <div className={`${styles.stateBox} ${styles.stateError}`} role="alert">
-      <p>{message || t("scp.state.errorGeneric")}</p>
-      {onRetry ? (
-        <Button variant="secondary" size="sm" onClick={onRetry}>
-          {t("scp.state.retry")}
-        </Button>
-      ) : null}
-    </div>
+    <SnadErrorState
+      message={message || t("scp.state.errorGeneric")}
+      retryLabel={t("scp.state.retry")}
+      onRetry={onRetry}
+    />
   );
 }
 
 export function ScpEmpty({ message }: { message: string }) {
-  return (
-    <div className={styles.stateBox} role="status">
-      <p>{message}</p>
-    </div>
-  );
+  return <SnadEmptyState title={message} />;
 }
 
 export function ScpNotice({ children }: { children: ReactNode }) {
-  return (
-    <div className={styles.stateBox} role="status" aria-live="polite">
-      {children}
-    </div>
-  );
+  return <SnadSuccessNotice>{children}</SnadSuccessNotice>;
 }
 
 /** Status chip with tone derived from the value (data-driven, no hardcoding). */
@@ -86,16 +72,13 @@ export function ScpStatusPill({ value }: { value: string }) {
   const positive = ["ACTIVE", "PAID", "SUCCEEDED", "TRIAL", "TRIALING", "CURRENT"];
   const warning = ["PAST_DUE", "PENDING", "PENDING_PAYMENT", "PENDING_ACTIVATION", "RETRYING", "GRACE_PERIOD", "DRAFT", "PAUSED"];
   const negative = ["SUSPENDED", "CANCELLED", "EXPIRED", "TERMINATED", "FAILED", "VOID"];
-  const tone = positive.includes(normalized)
-    ? "positive"
+  const tone: SnadBadgeTone = positive.includes(normalized)
+    ? "success"
     : warning.includes(normalized)
       ? "warning"
       : negative.includes(normalized)
-        ? "negative"
+        ? "danger"
         : "neutral";
-  return (
-    <span className={styles.statusPill} data-tone={tone}>
-      {value}
-    </span>
-  );
+
+  return <SnadStatusBadge label={value} tone={tone} status={normalized} />;
 }
