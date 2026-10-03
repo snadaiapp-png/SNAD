@@ -80,6 +80,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
+        String partnerIdClaim = claims.get(JwtTokenProvider.PARTNER_ID_CLAIM, String.class);
+        UUID jwtPartnerId = null;
+        if (partnerIdClaim != null && !partnerIdClaim.isBlank()) {
+            try {
+                jwtPartnerId = UUID.fromString(partnerIdClaim);
+            } catch (IllegalArgumentException e) {
+                writeError(response, request, 401, "Unauthorized", "رمز المصادقة غير صالح");
+                return;
+            }
+        }
+
+        String requestPartnerIdParam = request.getParameter("partnerId");
+        if (requestPartnerIdParam != null && !requestPartnerIdParam.isBlank() && jwtPartnerId != null) {
+            try {
+                UUID requestedPartnerId = UUID.fromString(requestPartnerIdParam);
+                if (!requestedPartnerId.equals(jwtPartnerId)) {
+                    writePartnerScopeMismatch(response, request);
+                    return;
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Controller-level validation owns malformed partner identifiers.
+            }
+        }
+
         String requestTenantIdParam = request.getParameter("tenantId");
         if (requestTenantIdParam != null && !requestTenantIdParam.isBlank()) {
             try {
@@ -146,6 +170,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         details.put("user_id", claims.getSubject());
         details.put("tenant_id", jwtTenantIdStr);
         details.put("email", claims.get("email", String.class));
+        if (jwtPartnerId != null) {
+            details.put(JwtTokenProvider.PARTNER_ID_CLAIM, jwtPartnerId.toString());
+        }
         details.put(JwtTokenProvider.ROTATION_REQUIRED_CLAIM, rotationRequired);
         details.put(JwtTokenProvider.SESSION_VERSION_CLAIM, jwtSessionVersion);
 
@@ -192,6 +219,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return "/api/v1/auth/me".equals(uri)
                 || "/api/v1/auth/change-credential".equals(uri)
                 || "/api/v1/auth/logout".equals(uri);
+    }
+
+    private void writePartnerScopeMismatch(
+            HttpServletResponse response,
+            HttpServletRequest request
+    ) throws IOException {
+        response.setStatus(403);
+        response.setContentType("application/json");
+        response.getWriter().write(
+                "{\"timestamp\":\"" + java.time.Instant.now() + "\","
+                        + "\"status\":403,"
+                        + "\"error\":\"Forbidden\","
+                        + "\"code\":\"PARTNER_SCOPE_MISMATCH\","
+                        + "\"message\":\"تم رفض الوصول: تعارض في هوية الشريك\","
+                        + "\"path\":\"" + request.getRequestURI() + "\"}");
     }
 
     private void writeError(

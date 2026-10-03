@@ -25,6 +25,7 @@ public class JwtTokenProvider {
 
     public static final String ROTATION_REQUIRED_CLAIM = "credential_rotation_required";
     public static final String SESSION_VERSION_CLAIM = "session_version";
+    public static final String PARTNER_ID_CLAIM = "partner_id";
 
     private static final Logger log = LoggerFactory.getLogger(JwtTokenProvider.class);
     private static final int MIN_SECRET_BYTES = 32;
@@ -85,15 +86,53 @@ public class JwtTokenProvider {
             boolean credentialRotationRequired,
             long sessionVersion
     ) {
+        return mintAccessTokenInternal(
+                userId, tenantId, null, email, credentialRotationRequired, sessionVersion);
+    }
+
+    /**
+     * Mints a partner-scoped access token. The partner scope is signed into the
+     * token and later propagated by JwtAuthenticationFilter; callers can never
+     * select or override this scope through request parameters.
+     */
+    public String mintPartnerAccessToken(
+            UUID userId,
+            UUID tenantId,
+            UUID partnerId,
+            String email,
+            boolean credentialRotationRequired,
+            long sessionVersion
+    ) {
+        if (partnerId == null) {
+            throw new IllegalArgumentException("partnerId is required for a partner token");
+        }
+        return mintAccessTokenInternal(
+                userId, tenantId, partnerId, email, credentialRotationRequired, sessionVersion);
+    }
+
+    private String mintAccessTokenInternal(
+            UUID userId,
+            UUID tenantId,
+            UUID partnerId,
+            String email,
+            boolean credentialRotationRequired,
+            long sessionVersion
+    ) {
         Instant now = Instant.now();
         Instant expiry = now.plus(jwtConfig.getAccessTokenTtl());
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(userId.toString())
                 .claim("tenant_id", tenantId.toString())
                 .claim("email", email)
                 .claim(ROTATION_REQUIRED_CLAIM, credentialRotationRequired)
-                .claim(SESSION_VERSION_CLAIM, sessionVersion)
+                .claim(SESSION_VERSION_CLAIM, sessionVersion);
+
+        if (partnerId != null) {
+            builder.claim(PARTNER_ID_CLAIM, partnerId.toString());
+        }
+
+        return builder
                 .issuer(jwtConfig.getIssuer())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiry))
