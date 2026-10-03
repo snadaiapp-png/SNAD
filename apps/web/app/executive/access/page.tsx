@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/sds";
+import { Button } from "@/components/sds/Button";
 import {
   scpApi,
   type PlatformCapability,

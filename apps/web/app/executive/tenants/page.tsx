@@ -6,7 +6,8 @@ import Link from "next/link";
 import { scpApi, type PageResponse, type TenantRow } from "@/lib/api/scp-api";
 import { executiveApi, type ManagedTenant } from "@/lib/api/executive-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { Button, Input } from "@/components/sds";
+import { Button } from "@/components/sds/Button";
+import { Input } from "@/components/sds/Input";
 import {
   ScpEmpty,
   ScpError,

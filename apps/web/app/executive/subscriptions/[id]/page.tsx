@@ -24,7 +24,8 @@ const SubscriptionOperatingGovernanceLazy = dynamic(
   { ssr: false },
 );
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { Button, Input } from "@/components/sds";
+import { Button } from "@/components/sds/Button";
+import { Input } from "@/components/sds/Input";
 import {
   ScpEmpty,
   ScpError,

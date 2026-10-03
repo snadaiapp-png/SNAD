@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Button } from "@/components/sds";
+import { Button } from "@/components/sds/Button";
 import { scpApi, type PlatformCapability, type PlatformTemporaryAccess } from "@/lib/api/scp-platform-iam-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useScpAccess } from "../../_components/ScpAccess";

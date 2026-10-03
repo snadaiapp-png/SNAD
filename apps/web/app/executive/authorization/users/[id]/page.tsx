@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useParams } from "next/navigation";
-import { Button, Input } from "@/components/sds";
+import { Button } from "@/components/sds/Button";
+import { Input } from "@/components/sds/Input";
 import {
   createOverride,
   createRelationship,
