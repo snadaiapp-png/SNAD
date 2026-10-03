@@ -80,8 +80,8 @@ describe("HR-G3 final engineering closure reconciliation", () => {
   });
 
   it("keeps legal, Saudi compliance, and production authorization independent", () => {
-    expect(HR_G3_CLOSURE?.engineeringFinalGate).toBe("PASS");
-    expect(HR_G3_CLOSURE?.engineeringCertification).toBe("APPROVED");
+    expect(HR_G3_CLOSURE?.engineeringFinalGate).toBe("PENDING_EXACT_HEAD");
+    expect(HR_G3_CLOSURE?.engineeringCertification).toBe("PENDING");
     expect(HR_G3_CLOSURE?.legalCertification).toBe("BLOCKED");
     expect(HR_G3_CLOSURE?.saCountryPack).toBe("DRAFT");
     expect(HR_G3_CLOSURE?.productionAuthorization).toBe("NO");
@@ -90,8 +90,8 @@ describe("HR-G3 final engineering closure reconciliation", () => {
   it("reconciles the committed certificate and manifest to the same exact closure", () => {
     for (const evidence of [readEvidence(CERTIFICATE_PATH), readEvidence(MANIFEST_PATH)]) {
       expect(evidence).toContain("STATUS_AUTHORITY: CURRENT");
-      expect(evidence).toMatch(/G3_FINAL_GATE\s*=\s*PASS/);
-      expect(evidence).toMatch(/G3_FULLY_CLOSED\s*=\s*PASS/);
+      expect(evidence).toMatch(/G3_FINAL_GATE\s*=\s*PENDING_EXACT_HEAD/);
+      expect(evidence).toMatch(/G3_FULLY_CLOSED\s*=\s*PENDING/);
       expect(evidence).toContain("0acdc42507d817766a0113ae418c7c36dde678d1");
       expect(evidence).toContain("#" + "1234");
       expect(evidence).toContain("37121204831");
