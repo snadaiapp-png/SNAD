@@ -191,7 +191,7 @@ export const HR_G2_CLOSURE = {
 /**
  * HR-G3 engineering closure reconciliation.
  *
- * G3 implementation merged via PR #1234 at 99adf88046772fbe6492f5e74c4c5a184c6d0376.
+ * G3 implementation merged via PR 1234 at 99adf88046772fbe6492f5e74c4c5a184c6d0376.
  * After later main movement, the complete G3 closure gate was re-certified on
  * exact main e36f28f97580bb622bb9677cb2725800fa6c5755 using PostgreSQL Direct,
  * exact-SHA CI, CRM G1 schema isolation, authenticated G3 browser acceptance,
