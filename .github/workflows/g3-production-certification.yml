@@ -29,6 +29,7 @@ jobs:
       WEB_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
       G3_EXPECTED_SHA: ${{ inputs.release_sha }}
       G2_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      G3_PROD_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
       G2_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
       G2_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
       E2E_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}
@@ -47,7 +48,7 @@ jobs:
           set -euo pipefail
           test "${{ inputs.confirm }}" = "run-g3-production-certification"
           [[ "$G3_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
-          for name in WEB_BASE_URL G2_TENANT_ID G2_ADMIN_EMAIL G2_ADMIN_PASSWORD E2E_EMPLOYEE_EMAIL E2E_EMPLOYEE_PASSWORD E2E_MANAGER_EMAIL E2E_MANAGER_PASSWORD E2E_UNAUTHORIZED_EMAIL E2E_UNAUTHORIZED_PASSWORD; do
+          for name in WEB_BASE_URL G2_TENANT_ID G3_PROD_TENANT_ID G2_ADMIN_EMAIL G2_ADMIN_PASSWORD E2E_EMPLOYEE_EMAIL E2E_EMPLOYEE_PASSWORD E2E_MANAGER_EMAIL E2E_MANAGER_PASSWORD E2E_UNAUTHORIZED_EMAIL E2E_UNAUTHORIZED_PASSWORD; do
             test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
             echo "::add-mask::${!name}"
           done
@@ -82,7 +83,11 @@ jobs:
           login "$E2E_EMPLOYEE_EMAIL" "$E2E_EMPLOYEE_PASSWORD" "$RUNNER_TEMP/employee-login.json"
           ADMIN_TOKEN="$(jq -r '.accessToken // empty' "$RUNNER_TEMP/admin-login.json")"
           EMP_USER_ID="$(jq -r '.user.id // empty' "$RUNNER_TEMP/employee-login.json")"
+          ADMIN_TENANT="$(jq -r '.user.tenantId // empty' "$RUNNER_TEMP/admin-login.json")"
+          EMP_TENANT="$(jq -r '.user.tenantId // empty' "$RUNNER_TEMP/employee-login.json")"
           test -n "$ADMIN_TOKEN" && test -n "$EMP_USER_ID"
+          test "$ADMIN_TENANT" = "$G2_TENANT_ID" || { echo "::error::Admin tenant binding mismatch"; exit 1; }
+          test "$EMP_TENANT" = "$G2_TENANT_ID" || { echo "::error::Employee tenant binding mismatch"; exit 1; }
           echo "::add-mask::$ADMIN_TOKEN"
           echo "::add-mask::$EMP_USER_ID"
           curl --fail-with-body --silent --show-error --max-time 45 -H "Authorization: Bearer $ADMIN_TOKEN" "$WEB_BASE_URL/api/platform/api/v2/hr/people" > "$RUNNER_TEMP/people.json"

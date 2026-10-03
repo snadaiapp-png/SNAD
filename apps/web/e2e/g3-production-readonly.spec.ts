@@ -13,10 +13,14 @@ import { loginThroughUi, logoutThroughUi } from "./g3-auth-session";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://snad-app.vercel.app";
 const EXPECTED_SHA = process.env.G3_EXPECTED_SHA ?? "";
 const EMPLOYEE_EMPLOYMENT_ID = process.env.G3_PROD_EMPLOYEE_EMPLOYMENT_ID ?? "";
+const PRODUCTION_TENANT_ID = process.env.G3_PROD_TENANT_ID ?? "";
 
 function requireRuntimeContract() {
   expect(EXPECTED_SHA, "G3_EXPECTED_SHA is required").toMatch(/^[0-9a-f]{40}$/);
   expect(EMPLOYEE_EMPLOYMENT_ID, "G3_PROD_EMPLOYEE_EMPLOYMENT_ID is required").toMatch(
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i,
+  );
+  expect(PRODUCTION_TENANT_ID, "G3_PROD_TENANT_ID is required").toMatch(
     /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i,
   );
 }
@@ -37,6 +41,7 @@ test("B. employee authenticates through UI and reads live SELF Goals and Reviews
   const context = await browser.newContext();
   const page = await context.newPage();
   const login = await loginThroughUi(page, "employee");
+  expect(login.user.tenantId).toBe(PRODUCTION_TENANT_ID);
 
   await page.goto(`${BASE_URL}/hr/performance/goals`);
   await expect(page.getByTestId("goals-ready")).toBeVisible({ timeout: 20_000 });
@@ -62,6 +67,7 @@ test("C. manager authenticates and reads canonical direct-report TEAM data", asy
   const context = await browser.newContext();
   const page = await context.newPage();
   const login = await loginThroughUi(page, "manager");
+  expect(login.user.tenantId).toBe(PRODUCTION_TENANT_ID);
 
   const teamGoals = await context.request.get(
     `${BASE_URL}/api/platform/api/v2/hr/performance/goals/team/${EMPLOYEE_EMPLOYMENT_ID}`,
@@ -87,6 +93,7 @@ test("D. negative QA principal is denied by backend and UI", async ({ browser })
   const context = await browser.newContext();
   const page = await context.newPage();
   const login = await loginThroughUi(page, "unauthorized");
+  expect(login.user.tenantId).toBe(PRODUCTION_TENANT_ID);
 
   const goals = await context.request.get(`${BASE_URL}/api/platform/api/v2/hr/performance/goals`, {
     headers: { Authorization: `Bearer ${login.accessToken}` },
