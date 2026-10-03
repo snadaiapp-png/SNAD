@@ -106,7 +106,7 @@ export const HR_G1_CLOSURE = {
   /** Post-Merge Main Verification run that passed all A-F jobs. */
   postMergeVerificationRunId: 35617855980 as const,
   /** Engineering-only final gate; production authorization remains separate. */
-  engineeringFinalGate: "PENDING_EXACT_HEAD" as const,
+  engineeringFinalGate: "PASS" as const,
   /** Per-canonical-task implementation status (T1..T12). */
   implementationPerCanonicalTask: {
     T1: "DONE" as const,
@@ -173,7 +173,7 @@ export const HR_G2_CLOSURE = {
     T5: "DONE" as const,
   } as const,
   engineeringFinalGate: "PASS" as const,
-  engineeringCertification: "PENDING" as const,
+  engineeringCertification: "APPROVED" as const,
   visualEvidence: {
     total: 60 as const,
     arDesktop: 15 as const,
@@ -220,8 +220,8 @@ export const HR_G3_CLOSURE = {
     T7: "DONE" as const,
     T8: "DONE" as const,
   } as const,
-  engineeringFinalGate: "PASS" as const,
-  engineeringCertification: "APPROVED" as const,
+  engineeringFinalGate: "PENDING_EXACT_HEAD" as const,
+  engineeringCertification: "PENDING" as const,
   legalCertification: "BLOCKED" as const,
   saCountryPack: "DRAFT" as const,
   productionAuthorization: "NO" as const,
