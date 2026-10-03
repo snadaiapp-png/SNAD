@@ -11,7 +11,7 @@ import {
   SnadStatusBadge,
   SnadSuccessNotice,
   type SnadBadgeTone,
-} from "@/components/sds/module/SnadSurfaces";
+} from "@/components/sds/module/SnadPageStates";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 /**
