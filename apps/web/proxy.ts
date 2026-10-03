@@ -13,10 +13,11 @@ import { NextResponse, type NextRequest } from "next/server";
 export const CRM_ROOT_ENTRY_COOKIE = "snad_crm_root_entry";
 export const RELEASE_GUARD_HEADER = "x-snad-release-guard";
 
-type ReleaseEnv = Pick<
-  NodeJS.ProcessEnv,
-  "VERCEL_TARGET_ENV" | "VERCEL_ENV" | "VERCEL_GIT_COMMIT_REF"
->;
+type ReleaseEnv = {
+  VERCEL_TARGET_ENV?: string;
+  VERCEL_ENV?: string;
+  VERCEL_GIT_COMMIT_REF?: string;
+};
 
 export function isUnauthorizedProductionSource(env: ReleaseEnv = process.env): boolean {
   const target = (env.VERCEL_TARGET_ENV || env.VERCEL_ENV || "").toLowerCase();
