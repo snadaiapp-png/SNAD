@@ -120,7 +120,8 @@ def _app_router_page_bundles():
             fail(f"Client-reference manifest is corrupt: {manifest_path}: {exc}")
 
         chunks = set()
-        for module in manifest.get("clientModules", {}).values():
+        chunk_modules = {}
+        for module_key, module in manifest.get("clientModules", {}).items():
             for asset in module.get("chunks", []):
                 normalized = asset.replace("/_next/", "").lstrip("/")
                 if not normalized.endswith(".js"):
@@ -129,12 +130,17 @@ def _app_router_page_bundles():
                 if not asset_path.exists():
                     fail(f"JavaScript chunk referenced by App Router manifest is missing: {normalized}")
                 chunks.add(normalized)
+                chunk_modules.setdefault(normalized, set()).add(module_key)
                 all_js_files.add(normalized)
 
         route = _route_name(manifest_path)
         page_bundles[route] = {
             "js_files": len(chunks),
             "js_assets": sorted(chunks),
+            "chunk_modules": {
+                asset: sorted(modules)
+                for asset, modules in chunk_modules.items()
+            },
             "total_js_bytes": sum((BUILD_DIR / asset).stat().st_size for asset in chunks),
         }
 
@@ -346,6 +352,9 @@ def main():
         ):
             size = (BUILD_DIR / asset).stat().st_size
             print(f"  {size:>10,} bytes  {asset}")
+            for module_key in executive_data.get("chunk_modules", {}).get(asset, []):
+                if "[project]/apps/web/" in module_key and "/node_modules/" not in module_key:
+                    print(f"               ↳ {module_key}")
         print()
 
     if violations:
