@@ -333,11 +333,17 @@ jobs:
             exit 1
           }
           ACTUAL_SHA="$(jq -r '.commitSha // empty' "$RUNNER_TEMP/hrm-g3-production-release.json")"
+          COMMIT_REF="$(jq -r '.commitRef // empty' "$RUNNER_TEMP/hrm-g3-production-release.json")"
           ENVIRONMENT="$(jq -r '.environment // empty' "$RUNNER_TEMP/hrm-g3-production-release.json")"
           echo "release-sha=$ACTUAL_SHA"
+          echo "release-ref=$COMMIT_REF"
           echo "release-environment=$ENVIRONMENT"
           test "$ACTUAL_SHA" = "$EXPECTED_PRODUCTION_SHA" || {
             echo "::error::PRODUCTION_RELEASE_SHA_MISMATCH expected=$EXPECTED_PRODUCTION_SHA actual=$ACTUAL_SHA"
+            exit 1
+          }
+          test "$COMMIT_REF" = "main" || {
+            echo "::error::PRODUCTION_RELEASE_REF_MISMATCH expected=main actual=$COMMIT_REF"
             exit 1
           }
           case "$ENVIRONMENT" in production|prod) ;; *)
