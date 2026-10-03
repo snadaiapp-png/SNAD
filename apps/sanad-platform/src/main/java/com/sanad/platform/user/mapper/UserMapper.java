@@ -17,6 +17,7 @@ public class UserMapper {
                 user.getId(),
                 user.getTenantId(),
                 user.getEmail(),
+                user.getUsername(),
                 user.getDisplayName(),
                 user.getStatus(),
                 user.getCreatedAt(),

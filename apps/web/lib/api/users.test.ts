@@ -119,6 +119,21 @@ describe("usersApi — create", () => {
     expect((body as { email: string }).email).toBe("new@example.com");
   });
 
+  it("sends normalized username only when explicitly provided", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
+    await usersApi.create(VALID_TENANT, {
+      email: "new@example.com",
+      username: "  Sales.User  ",
+      displayName: "Sales User",
+    });
+    const [, body] = vi.mocked(apiClient.post).mock.calls[0];
+    expect(body).toEqual({
+      email: "new@example.com",
+      username: "sales.user",
+      displayName: "Sales User",
+    });
+  });
+
   it("trims displayName and converts empty to null", async () => {
     vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
     await usersApi.create(VALID_TENANT, { email: "new@example.com", displayName: "   " });
@@ -170,6 +185,21 @@ describe("usersApi — update", () => {
     await usersApi.update(VALID_TENANT, VALID_USER, { email: "  Updated@Example.COM  ", displayName: null });
     const [, body] = vi.mocked(apiClient.put).mock.calls[0];
     expect((body as { email: string }).email).toBe("updated@example.com");
+  });
+
+  it("sends normalized username when explicitly provided", async () => {
+    vi.mocked(apiClient.put).mockResolvedValue(makeUser() as never);
+    await usersApi.update(VALID_TENANT, VALID_USER, {
+      email: "updated@example.com",
+      username: "  Updated.User  ",
+      displayName: "Updated",
+    });
+    const [, body] = vi.mocked(apiClient.put).mock.calls[0];
+    expect(body).toEqual({
+      email: "updated@example.com",
+      username: "updated.user",
+      displayName: "Updated",
+    });
   });
 
   it("rejects invalid userId", async () => {

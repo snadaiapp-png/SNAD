@@ -51,6 +51,10 @@ public class User {
     @Column(name = "email", nullable = false, length = 255)
     private String email;
 
+    @Size(max = 100)
+    @Column(name = "username", length = 100)
+    private String username;
+
     @Size(max = 200)
     @Column(name = "display_name", length = 200)
     private String displayName;
@@ -130,6 +134,9 @@ public class User {
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = normalizeEmail(email); }
 
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = normalizeUsername(username); }
+
     public String getDisplayName() { return displayName; }
     public void setDisplayName(String displayName) { this.displayName = displayName; }
 
@@ -198,6 +205,7 @@ public class User {
                 "id=" + id +
                 ", tenantId=" + tenantId +
                 ", email='" + email + '\'' +
+                ", username='" + username + '\'' +
                 ", displayName='" + displayName + '\'' +
                 ", status=" + status +
                 ", lastLoginAt=" + lastLoginAt +
@@ -211,5 +219,13 @@ public class User {
 
     private static String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeUsername(String username) {
+        if (username == null) {
+            return null;
+        }
+        String normalized = username.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() ? null : normalized;
     }
 }

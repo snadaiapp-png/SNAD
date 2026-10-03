@@ -11,6 +11,7 @@ public class UserResponse {
     private UUID id;
     private UUID tenantId;
     private String email;
+    private String username;
     private String displayName;
     private UserStatus status;
     private Instant createdAt;
@@ -21,9 +22,15 @@ public class UserResponse {
 
     public UserResponse(UUID id, UUID tenantId, String email, String displayName,
                         UserStatus status, Instant createdAt, Instant updatedAt) {
+        this(id, tenantId, email, null, displayName, status, createdAt, updatedAt);
+    }
+
+    public UserResponse(UUID id, UUID tenantId, String email, String username, String displayName,
+                        UserStatus status, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.tenantId = tenantId;
         this.email = email;
+        this.username = username;
         this.displayName = displayName;
         this.status = status;
         this.createdAt = createdAt;
@@ -52,6 +59,14 @@ public class UserResponse {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
     }
 
     public String getDisplayName() {
