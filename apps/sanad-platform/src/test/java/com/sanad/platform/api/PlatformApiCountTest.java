@@ -100,8 +100,13 @@ class PlatformApiCountTest {
      *  + 4 W2-T6 Partner Portal Authorization Boundary operations:
      *  GET /api/v1/partner/me, GET /api/v1/partner/tenants,
      *  GET /api/v1/partner/delegations, GET /api/v1/partner/tenants/{tenantId}/authorization
-     *  = 993. */
-    private static final long EXPECTED_TOTAL_OPS = 993;
+     *  = 993.
+     *  + 7 W2-T7 Executive Partner Control Plane operations:
+     *  GET/POST /api/v1/executive/partners,
+     *  GET /api/v1/executive/partners/{partnerId},
+     *  PATCH /api/v1/executive/partners/{partnerId}/status,
+     *  GET /users, /tenants, /delegations = 1000. */
+    private static final long EXPECTED_TOTAL_OPS = 1000;
     private static final long EXPECTED_HRM_V2_OPS = 145;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -118,7 +123,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(28);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(117);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(124);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
@@ -141,6 +146,13 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access", "post")).isTrue();
         assertThat(has(paths, "/api/v1/executive/users/{userId}/temporary-access/{grantId}/revoke", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/partners", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/partners", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/partners/{partnerId}", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/partners/{partnerId}/status", "patch")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/partners/{partnerId}/users", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/partners/{partnerId}/tenants", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/partners/{partnerId}/delegations", "get")).isTrue();
         assertThat(has(paths, "/api/v1/partner/me", "get")).isTrue();
         assertThat(has(paths, "/api/v1/partner/tenants", "get")).isTrue();
         assertThat(has(paths, "/api/v1/partner/delegations", "get")).isTrue();
