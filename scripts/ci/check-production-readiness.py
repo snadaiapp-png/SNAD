@@ -71,6 +71,9 @@ def request(url: str, timeout: float) -> tuple[int, bytes, dict[str, str]]:
         "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
         "User-Agent": "SNAD-Production-Readiness/1.0",
     }
+    trusted_oidc_token = os.environ.get("VERCEL_TRUSTED_OIDC_TOKEN", "").strip()
+    if trusted_oidc_token:
+        headers["x-vercel-trusted-oidc-idp-token"] = trusted_oidc_token
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:

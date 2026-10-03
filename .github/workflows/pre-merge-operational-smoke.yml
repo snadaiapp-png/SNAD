@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   issues: read
+  id-token: write
 
 concurrency:
   group: pre-merge-operational-smoke-${{ github.event.pull_request.number || github.ref }}
@@ -308,6 +309,15 @@ jobs:
             --url "$FRONTEND_SMOKE_URL" \
             --port 3001
 
+      - name: Mint GitHub OIDC token for Vercel Trusted Source
+        id: vercel_oidc
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput('token', token);
+
       - name: Verify production-alias HRM G3 routes
         id: g3_routes_production
         continue-on-error: true
@@ -326,6 +336,8 @@ jobs:
         id: g3_routes_git_main
         continue-on-error: true
         shell: bash
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.vercel_oidc.outputs.token }}
         run: |
           set -euo pipefail
           python3 scripts/ci/check-production-readiness.py \
@@ -385,6 +397,8 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'incident/') && steps.g3_preview_url.outcome == 'success' }}
         continue-on-error: true
         shell: bash
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.vercel_oidc.outputs.token }}
         run: |
           set -euo pipefail
           python3 scripts/ci/check-production-readiness.py \

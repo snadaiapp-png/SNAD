@@ -131,3 +131,35 @@ def test_readiness_rejects_exposed_target_host(monkeypatch):
     assert checks[-1].name == "frontend-backend-integration"
     assert checks[-1].passed is False
     assert "targetHostExposed=True" in checks[-1].actual
+
+
+def test_request_adds_vercel_trusted_oidc_header(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    def fake_urlopen(req, timeout):
+        captured["header"] = req.get_header("X-vercel-trusted-oidc-idp-token")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setenv("VERCEL_TRUSTED_OIDC_TOKEN", "ephemeral-github-oidc")
+    monkeypatch.setattr(probe.urllib.request, "urlopen", fake_urlopen)
+
+    status, body, _headers = probe.request("https://protected.example.test", 3.0)
+
+    assert status == 200
+    assert body == b"ok"
+    assert captured["header"] == "ephemeral-github-oidc"
+    assert captured["timeout"] == 3.0
