@@ -25,10 +25,15 @@ def response(status: int, value: object) -> tuple[int, bytes, dict[str, str]]:
     return status, body, {}
 
 
+ROUTE_OK = b"<html><body>SNAD HRM route shell</body></html>"
+
+
 def test_readiness_requires_redacted_target_host(monkeypatch):
     responses = iter(
         [
             response(200, '<html lang="ar" dir="rtl">SNAD سند</html>'.encode()),
+            response(200, ROUTE_OK),
+            response(200, ROUTE_OK),
             response(200, {"configured": True, "reachable": True, "statusCode": 200}),
             response(401, {"error": "unauthorized"}),
             response(200, {"status": "UP"}),
@@ -42,6 +47,8 @@ def test_readiness_requires_redacted_target_host(monkeypatch):
 
     assert [check.name for check in checks] == [
         "production-ui",
+        "hrm-g3-goals-route",
+        "hrm-g3-reviews-route",
         "frontend-backend-integration",
         "bff-authentication-chain",
         "backend-host-policy",
@@ -50,10 +57,62 @@ def test_readiness_requires_redacted_target_host(monkeypatch):
     assert all(check.passed for check in checks)
 
 
+def test_readiness_fails_closed_on_g3_goals_http_404(monkeypatch):
+    responses = iter(
+        [
+            response(200, '<html lang="ar" dir="rtl">SNAD سند</html>'.encode()),
+            response(404, b"<html><body><h1>404</h1><p>Page not found</p></body></html>"),
+            response(200, ROUTE_OK),
+        ]
+    )
+    monkeypatch.setattr(probe, "request", lambda _url, _timeout: next(responses))
+
+    checks = probe.run_once("https://production.example.test", 1.0)
+
+    assert [check.name for check in checks] == [
+        "production-ui",
+        "hrm-g3-goals-route",
+        "hrm-g3-reviews-route",
+    ]
+    goals_check = checks[1]
+    assert goals_check.url == "https://production.example.test/hr/performance/goals"
+    assert goals_check.status_code == 404
+    assert goals_check.passed is False
+    assert checks[2].passed is True
+
+
+def test_readiness_fails_closed_on_g3_reviews_soft_404(monkeypatch):
+    responses = iter(
+        [
+            response(200, '<html lang="ar" dir="rtl">SNAD سند</html>'.encode()),
+            response(200, ROUTE_OK),
+            response(
+                200,
+                b"<html><body><h1>404</h1><p>The page you are looking for does not exist or has been moved.</p></body></html>",
+            ),
+        ]
+    )
+    monkeypatch.setattr(probe, "request", lambda _url, _timeout: next(responses))
+
+    checks = probe.run_once("https://production.example.test", 1.0)
+
+    assert [check.name for check in checks] == [
+        "production-ui",
+        "hrm-g3-goals-route",
+        "hrm-g3-reviews-route",
+    ]
+    assert checks[-1].url == "https://production.example.test/hr/performance/reviews"
+    assert checks[-1].status_code == 200
+    assert checks[-1].passed is False
+    assert "does not exist or has been moved" in checks[-1].actual
+
+
 def test_readiness_rejects_exposed_target_host(monkeypatch):
     responses = iter(
         [
             response(200, '<html lang="ar" dir="rtl">SNAD سند</html>'.encode()),
+            response(200, ROUTE_OK),
+            response(200, ROUTE_OK),
             response(
                 200,
                 {
