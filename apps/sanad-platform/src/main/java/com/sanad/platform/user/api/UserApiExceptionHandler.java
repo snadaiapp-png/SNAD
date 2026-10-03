@@ -2,6 +2,7 @@ package com.sanad.platform.user.api;
 
 import com.sanad.platform.organization.api.ApiErrorResponse;
 import com.sanad.platform.user.exception.DuplicateUserEmailException;
+import com.sanad.platform.user.exception.DuplicateUsernameException;
 import com.sanad.platform.user.exception.UserNotFoundException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +31,12 @@ public class UserApiExceptionHandler {
     @ExceptionHandler(DuplicateUserEmailException.class)
     public ResponseEntity<ApiErrorResponse> handleDuplicateEmail(
             DuplicateUserEmailException ex, HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
+    }
+
+    @ExceptionHandler(DuplicateUsernameException.class)
+    public ResponseEntity<ApiErrorResponse> handleDuplicateUsername(
+            DuplicateUsernameException ex, HttpServletRequest request) {
         return error(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
     }
 
