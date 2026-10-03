@@ -6,8 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { scpApi, type PageResponse, type SubscriptionRow } from "@/lib/api/scp-api";
 import { executiveApi, type ManagedTenant, type SaasPlan } from "@/lib/api/executive-api";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { Button } from "@/components/sds/Button";
-import { Input } from "@/components/sds/Input";
+import { Button, Input } from "@/components/sds/executive";
 import {
   ScpEmpty,
   ScpError,
