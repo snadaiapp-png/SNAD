@@ -27,7 +27,9 @@ class ReleaseGateTopologyTest(unittest.TestCase):
             )
 
         self.assertIn("Verify candidate HRM G3 routes locally", text)
-        self.assertIn("http://127.0.0.1:3001/hr/performance/goals", text.replace("$path", "hr/performance/goals") if False else text)
+        self.assertIn("/hr/performance/goals", text)
+        self.assertIn("/hr/performance/reviews", text)
+        self.assertIn("http://127.0.0.1:3001$path", text)
         self.assertIn("CANDIDATE_ROUTE_HTTP_FAILURE", text)
         self.assertIn("CANDIDATE_ROUTE_SOFT_404", text)
 
