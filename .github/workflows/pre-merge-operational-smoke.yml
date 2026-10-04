@@ -307,10 +307,7 @@ jobs:
             --url "$FRONTEND_SMOKE_URL" \
             --port 3001
 
-      - name: Verify candidate HRM G3 routes locally
-        shell: bash
-        run: |
-          set -euo pipefail
+
           : > "$RUNNER_TEMP/hrm-g3-local-routes.txt"
           for path in /hr/performance/goals /hr/performance/reviews; do
             body="$RUNNER_TEMP/$(printf '%s' "$path" | tr '/' '-').html"
