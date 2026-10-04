@@ -19,6 +19,7 @@
  */
 
 import { apiClient, ApiClient } from "./client";
+import { ApiConfigurationError } from "./errors";
 import {
   requireValidUuid,
   requireValidEmail,
