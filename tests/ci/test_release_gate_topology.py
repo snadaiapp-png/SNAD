@@ -26,12 +26,13 @@ class ReleaseGateTopologyTest(unittest.TestCase):
                 msg=f"pre-merge gate must not depend on deployed production state: {token}",
             )
 
-        self.assertIn("Verify candidate HRM G3 routes locally", text)
         self.assertIn("/hr/performance/goals", text)
         self.assertIn("/hr/performance/reviews", text)
+        self.assertIn("app-paths-manifest.json", text)
+        self.assertIn("CANDIDATE_ROUTE_MANIFEST=PASS", text)
         self.assertIn("http://127.0.0.1:3001$path", text)
         self.assertIn("CANDIDATE_ROUTE_HTTP_FAILURE", text)
-        self.assertIn("CANDIDATE_ROUTE_SOFT_404", text)
+        self.assertNotIn("CANDIDATE_ROUTE_SOFT_404", text)
 
     def test_production_gate_is_main_only_and_exact_sha(self):
         text = PRODUCTION.read_text(encoding="utf-8")
