@@ -1,25 +1,55 @@
 /**
  * proxy.ts — Next.js 16 Proxy (replaces deprecated middleware.ts)
  * ----------------------------------------------------------------
- * Migration date: 2026-08-03
- * Previous: middleware.ts (Next.js middleware pattern, deprecated in v16)
- * Current: proxy.ts (Next.js 16 proxy pattern)
- *
- * Runtime behavior (identical to previous middleware):
- *   1. GET /crm → 307 redirect to /crm/overview
- *   2. Set snad_crm_root_entry cookie (60s TTL, sameSite lax)
- *   3. Cookie is cleared by AuthRouteRecovery in providers.tsx
+ * Runtime invariants:
+ *   1. Production may only serve a Git-linked deployment sourced from main.
+ *      If Vercel reports a non-main Git ref in production, fail closed with
+ *      HTTP 503 for all application routes except the release identity probe.
+ *   2. GET /crm → 307 redirect to /crm/overview and preserve root intent.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 
 export const CRM_ROOT_ENTRY_COOKIE = "snad_crm_root_entry";
+export const RELEASE_GUARD_HEADER = "x-snad-release-guard";
+
+type ReleaseEnv = {
+  VERCEL_TARGET_ENV?: string;
+  VERCEL_ENV?: string;
+  VERCEL_GIT_COMMIT_REF?: string;
+};
+
+export function isUnauthorizedProductionSource(
+  env: ReleaseEnv = {
+    VERCEL_TARGET_ENV: process.env.VERCEL_TARGET_ENV,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+    VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF,
+  },
+): boolean {
+  const target = (env.VERCEL_TARGET_ENV || env.VERCEL_ENV || "").toLowerCase();
+  const ref = (env.VERCEL_GIT_COMMIT_REF || "").trim();
+  return (target === "production" || target === "prod") && ref !== "" && ref !== "main";
+}
 
 export const config = {
-  matcher: ["/crm"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/system/release).*)"],
 };
 
 export function proxy(request: NextRequest) {
+  if (isUnauthorizedProductionSource()) {
+    return new NextResponse("SNAD production deployment is not authorized for this source branch.", {
+      status: 503,
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        [RELEASE_GUARD_HEADER]: "blocked-non-main-production-source",
+      },
+    });
+  }
+
+  if (request.nextUrl.pathname !== "/crm") {
+    return NextResponse.next();
+  }
+
   const destination = request.nextUrl.clone();
   destination.pathname = "/crm/overview";
   destination.search = "";
