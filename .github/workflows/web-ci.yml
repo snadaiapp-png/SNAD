@@ -85,7 +85,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          python3 -m unittest tests.ci.test_release_gate_topology -v
+          python3 -m unittest discover -s tests/ci -p 'test_release_gate_topology.py' -v
 
       - name: Lint
         run: npm run lint
