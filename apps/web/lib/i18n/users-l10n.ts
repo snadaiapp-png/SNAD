@@ -11,6 +11,7 @@ const ar: TranslationDictionary = {
   "users.create": "إضافة مستخدم",
   "users.createTitle": "إضافة مستخدم جديد",
   "users.email": "البريد الإلكتروني",
+  "users.username": "اسم المستخدم",
   "users.displayName": "الاسم المعروض",
   "users.submitCreate": "إرسال الدعوة",
   "users.cancel": "إلغاء",
@@ -44,6 +45,11 @@ const ar: TranslationDictionary = {
   "management.users.detail.noRoles": "لا توجد أدوار مسندة",
   "management.users.detail.loading": "جارٍ تحميل بيانات المستخدم",
   "management.users.detail.error": "تعذر تحميل بيانات المستخدم",
+  "management.users.credentials.title": "بيانات الدخول",
+  "management.users.credentials.help": "تُدار بيانات الدخول دون عرض كلمة المرور أو تخزينها في الواجهة.",
+  "management.users.credentials.reset": "إرسال رابط تعيين كلمة المرور",
+  "management.users.credentials.resetSuccess": "تم إرسال رابط تعيين كلمة المرور",
+  "management.users.credentials.notSet": "غير معيّن",
 };
 
 const en: TranslationDictionary = {
@@ -55,6 +61,7 @@ const en: TranslationDictionary = {
   "users.create": "Add user",
   "users.createTitle": "Add a new user",
   "users.email": "Email",
+  "users.username": "Username",
   "users.displayName": "Display name",
   "users.submitCreate": "Send invitation",
   "users.cancel": "Cancel",
@@ -88,6 +95,11 @@ const en: TranslationDictionary = {
   "management.users.detail.noRoles": "No assigned roles",
   "management.users.detail.loading": "Loading user details",
   "management.users.detail.error": "Unable to load user details",
+  "management.users.credentials.title": "Credentials & sign-in",
+  "management.users.credentials.help": "Credentials are managed without displaying or storing passwords in the UI.",
+  "management.users.credentials.reset": "Send set-password link",
+  "management.users.credentials.resetSuccess": "Set-password link sent",
+  "management.users.credentials.notSet": "Not set",
 };
 
 export function usersDictionary(locale: Locale): TranslationDictionary {
