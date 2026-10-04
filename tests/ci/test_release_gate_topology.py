@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PRE_MERGE = ROOT / ".github" / "workflows" / "pre-merge-operational-smoke.yml"
 PRODUCTION = ROOT / ".github" / "workflows" / "production-operational-smoke.yml"
 RECONCILE = ROOT / ".github" / "workflows" / "vercel-main-production-reconcile.yml"
+VERCEL_CONFIG = ROOT / "apps" / "web" / "vercel.json"
 
 
 class ReleaseGateTopologyTest(unittest.TestCase):
@@ -62,6 +63,17 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertIn('--deployment "$PRODUCTION_WEB_BASE_URL"', text)
         self.assertIn('--token="$VERCEL_TOKEN"', text)
         self.assertNotIn('observed="$(curl --fail', text)
+
+    def test_production_has_single_writer(self):
+        import json
+
+        config = json.loads(VERCEL_CONFIG.read_text(encoding="utf-8"))
+        deployment_enabled = config["git"]["deploymentEnabled"]
+        self.assertIs(
+            deployment_enabled.get("main"),
+            False,
+            msg="Vercel Git Integration must not auto-deploy main; governed CLI reconcile is the single production writer",
+        )
 
 
 if __name__ == "__main__":
