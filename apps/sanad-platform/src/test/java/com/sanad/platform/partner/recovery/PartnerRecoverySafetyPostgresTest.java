@@ -60,14 +60,16 @@ class PartnerRecoverySafetyPostgresTest {
 
     @Test
     void tableIsForceRlsAndOnlyCanonicalRecoverCapabilityIsAccepted() throws Exception {
-        try (Connection c = connection()) {
-            c.setAutoCommit(false);
-            Fixture f = fixture(c, 1);
-            UUID membership = activeMembership(c, f.partnerId(), f.userIds()[0], "PARTNER_USER");
-            setPlatformContext(c);
+        Fixture f;
+        UUID membership;
+        try (Connection setup = connection()) {
+            setup.setAutoCommit(false);
+            f = fixture(setup, 1);
+            membership = activeMembership(
+                    setup, f.partnerId(), f.userIds()[0], "PARTNER_USER");
 
-            try (Statement s = c.createStatement();
-                 ResultSet rs = s.executeQuery("""
+            try (Statement statement = setup.createStatement();
+                 ResultSet rs = statement.executeQuery("""
                          SELECT relrowsecurity, relforcerowsecurity
                            FROM pg_class
                           WHERE relname='partner_membership_capabilities'
@@ -76,9 +78,15 @@ class PartnerRecoverySafetyPostgresTest {
                 assertThat(rs.getBoolean("relrowsecurity")).isTrue();
                 assertThat(rs.getBoolean("relforcerowsecurity")).isTrue();
             }
+            setup.commit();
+        }
 
-            UUID wrongCapability = capabilityId(c, "TENANT.ACTIVATE");
-            assertThatThrownBy(() -> insertRecovery(c, f.partnerId(), membership,
+        try (Connection platform = connection()) {
+            platform.setAutoCommit(false);
+            setPlatformContext(platform);
+            UUID wrongCapability = capabilityId(platform, "AUTHORIZATION.BREAK_GLASS");
+            assertThatThrownBy(() -> insertRecovery(
+                    platform, f.partnerId(), membership,
                     wrongCapability, f.userIds()[0], null, null))
                     .isInstanceOf(SQLException.class)
                     .satisfies(ex -> {
@@ -86,32 +94,40 @@ class PartnerRecoverySafetyPostgresTest {
                         assertThat(sql.getSQLState()).isEqualTo("23001");
                         assertThat(sql.getMessage()).contains("PARTNER_RECOVERY_CAPABILITY_INVALID");
                     });
-            c.rollback();
+            platform.rollback();
         }
     }
 
     @Test
     void inactiveMembershipCannotReceiveActiveRecoveryGrant() throws Exception {
-        try (Connection c = connection()) {
-            c.setAutoCommit(false);
-            Fixture f = fixture(c, 1);
-            UUID membership = activeMembership(c, f.partnerId(), f.userIds()[0], "PARTNER_USER");
-            setPartnerContext(c, f.partnerId());
-            try (PreparedStatement ps = c.prepareStatement(
+        Fixture f;
+        UUID membership;
+        try (Connection setup = connection()) {
+            setup.setAutoCommit(false);
+            f = fixture(setup, 1);
+            membership = activeMembership(
+                    setup, f.partnerId(), f.userIds()[0], "PARTNER_USER");
+            setPartnerContext(setup, f.partnerId());
+            try (PreparedStatement ps = setup.prepareStatement(
                     "UPDATE partner_memberships SET status='INACTIVE', updated_by=? WHERE id=?")) {
                 ps.setObject(1, f.userIds()[0]);
                 ps.setObject(2, membership);
                 ps.executeUpdate();
             }
+            setup.commit();
+        }
 
-            setPlatformContext(c);
-            UUID recover = capabilityId(c, "AUTHORIZATION.RECOVER");
-            assertThatThrownBy(() -> insertRecovery(c, f.partnerId(), membership,
+        try (Connection platform = connection()) {
+            platform.setAutoCommit(false);
+            setPlatformContext(platform);
+            UUID recover = capabilityId(platform, "AUTHORIZATION.RECOVER");
+            assertThatThrownBy(() -> insertRecovery(
+                    platform, f.partnerId(), membership,
                     recover, f.userIds()[0], null, null))
                     .isInstanceOf(SQLException.class)
                     .satisfies(ex -> assertThat(((SQLException) ex).getMessage())
                             .contains("PARTNER_RECOVERY_MEMBERSHIP_INACTIVE"));
-            c.rollback();
+            platform.rollback();
         }
     }
 
@@ -119,16 +135,21 @@ class PartnerRecoverySafetyPostgresTest {
     void cannotRevokeFinalRecoveryPathAndRejectedMutationWritesNoAudit() throws Exception {
         Fixture f;
         UUID grant;
+        UUID membership;
         try (Connection setup = connection()) {
             setup.setAutoCommit(false);
             f = fixture(setup, 1);
-            UUID membership = activeMembership(
+            membership = activeMembership(
                     setup, f.partnerId(), f.userIds()[0], "PARTNER_USER");
-            setPlatformContext(setup);
-            grant = insertRecovery(setup, f.partnerId(), membership,
-                    capabilityId(setup, "AUTHORIZATION.RECOVER"),
-                    f.userIds()[0], null, null);
             setup.commit();
+        }
+        try (Connection platform = connection()) {
+            platform.setAutoCommit(false);
+            setPlatformContext(platform);
+            grant = insertRecovery(platform, f.partnerId(), membership,
+                    capabilityId(platform, "AUTHORIZATION.RECOVER"),
+                    f.userIds()[0], null, null);
+            platform.commit();
         }
 
         long auditBefore = auditCount(f.partnerId(), grant);
@@ -157,16 +178,22 @@ class PartnerRecoverySafetyPostgresTest {
         Fixture f;
         UUID grant1;
         UUID grant2;
-        try (Connection c = connection()) {
-            c.setAutoCommit(false);
-            f = fixture(c, 2);
-            UUID m1 = activeMembership(c, f.partnerId(), f.userIds()[0], "PARTNER_USER");
-            UUID m2 = activeMembership(c, f.partnerId(), f.userIds()[1], "PARTNER_USER");
-            setPlatformContext(c);
-            UUID recover = capabilityId(c, "AUTHORIZATION.RECOVER");
-            grant1 = insertRecovery(c, f.partnerId(), m1, recover, f.userIds()[0], null, null);
-            grant2 = insertRecovery(c, f.partnerId(), m2, recover, f.userIds()[1], null, null);
-            c.commit();
+        UUID m1;
+        UUID m2;
+        try (Connection setup = connection()) {
+            setup.setAutoCommit(false);
+            f = fixture(setup, 2);
+            m1 = activeMembership(setup, f.partnerId(), f.userIds()[0], "PARTNER_USER");
+            m2 = activeMembership(setup, f.partnerId(), f.userIds()[1], "PARTNER_USER");
+            setup.commit();
+        }
+        try (Connection platform = connection()) {
+            platform.setAutoCommit(false);
+            setPlatformContext(platform);
+            UUID recover = capabilityId(platform, "AUTHORIZATION.RECOVER");
+            grant1 = insertRecovery(platform, f.partnerId(), m1, recover, f.userIds()[0], null, null);
+            grant2 = insertRecovery(platform, f.partnerId(), m2, recover, f.userIds()[1], null, null);
+            platform.commit();
         }
 
         try (Connection c = connection()) {
@@ -185,18 +212,24 @@ class PartnerRecoverySafetyPostgresTest {
     void expiredRecoveryPathDoesNotSatisfySurvivalInvariant() throws Exception {
         Fixture f;
         UUID currentGrant;
-        try (Connection c = connection()) {
-            c.setAutoCommit(false);
-            f = fixture(c, 2);
-            UUID m1 = activeMembership(c, f.partnerId(), f.userIds()[0], "PARTNER_USER");
-            UUID m2 = activeMembership(c, f.partnerId(), f.userIds()[1], "PARTNER_USER");
-            setPlatformContext(c);
-            UUID recover = capabilityId(c, "AUTHORIZATION.RECOVER");
-            currentGrant = insertRecovery(c, f.partnerId(), m1, recover,
+        UUID m1;
+        UUID m2;
+        try (Connection setup = connection()) {
+            setup.setAutoCommit(false);
+            f = fixture(setup, 2);
+            m1 = activeMembership(setup, f.partnerId(), f.userIds()[0], "PARTNER_USER");
+            m2 = activeMembership(setup, f.partnerId(), f.userIds()[1], "PARTNER_USER");
+            setup.commit();
+        }
+        try (Connection platform = connection()) {
+            platform.setAutoCommit(false);
+            setPlatformContext(platform);
+            UUID recover = capabilityId(platform, "AUTHORIZATION.RECOVER");
+            currentGrant = insertRecovery(platform, f.partnerId(), m1, recover,
                     f.userIds()[0], null, null);
-            insertRecovery(c, f.partnerId(), m2, recover, f.userIds()[1],
+            insertRecovery(platform, f.partnerId(), m2, recover, f.userIds()[1],
                     OffsetDateTime.now().minusHours(2), OffsetDateTime.now().minusHours(1));
-            c.commit();
+            platform.commit();
         }
 
         try (Connection c = connection()) {
@@ -217,17 +250,22 @@ class PartnerRecoverySafetyPostgresTest {
     void membershipLifecycleCannotInvalidateFinalRecoveryPath() throws Exception {
         Fixture f;
         UUID membership;
-        try (Connection c = connection()) {
-            c.setAutoCommit(false);
-            f = fixture(c, 2);
+        try (Connection setup = connection()) {
+            setup.setAutoCommit(false);
+            f = fixture(setup, 2);
             // Separate admin ensures LAST_PARTNER_ADMIN is not the blocker.
-            activeMembership(c, f.partnerId(), f.userIds()[0], "PARTNER_ADMIN");
-            membership = activeMembership(c, f.partnerId(), f.userIds()[1], "PARTNER_USER");
-            setPlatformContext(c);
-            insertRecovery(c, f.partnerId(), membership,
-                    capabilityId(c, "AUTHORIZATION.RECOVER"),
+            activeMembership(setup, f.partnerId(), f.userIds()[0], "PARTNER_ADMIN");
+            membership = activeMembership(
+                    setup, f.partnerId(), f.userIds()[1], "PARTNER_USER");
+            setup.commit();
+        }
+        try (Connection platform = connection()) {
+            platform.setAutoCommit(false);
+            setPlatformContext(platform);
+            insertRecovery(platform, f.partnerId(), membership,
+                    capabilityId(platform, "AUTHORIZATION.RECOVER"),
                     f.userIds()[1], null, null);
-            c.commit();
+            platform.commit();
         }
 
         try (Connection c = connection()) {
@@ -258,17 +296,23 @@ class PartnerRecoverySafetyPostgresTest {
         Fixture a;
         Fixture b;
         UUID grantA;
-        try (Connection c = connection()) {
-            c.setAutoCommit(false);
-            a = fixture(c, 1);
-            b = fixture(c, 1);
-            UUID ma = activeMembership(c, a.partnerId(), a.userIds()[0], "PARTNER_USER");
-            UUID mb = activeMembership(c, b.partnerId(), b.userIds()[0], "PARTNER_USER");
-            setPlatformContext(c);
-            UUID recover = capabilityId(c, "AUTHORIZATION.RECOVER");
-            grantA = insertRecovery(c, a.partnerId(), ma, recover, a.userIds()[0], null, null);
-            insertRecovery(c, b.partnerId(), mb, recover, b.userIds()[0], null, null);
-            c.commit();
+        UUID ma;
+        UUID mb;
+        try (Connection setup = connection()) {
+            setup.setAutoCommit(false);
+            a = fixture(setup, 1);
+            b = fixture(setup, 1);
+            ma = activeMembership(setup, a.partnerId(), a.userIds()[0], "PARTNER_USER");
+            mb = activeMembership(setup, b.partnerId(), b.userIds()[0], "PARTNER_USER");
+            setup.commit();
+        }
+        try (Connection platform = connection()) {
+            platform.setAutoCommit(false);
+            setPlatformContext(platform);
+            UUID recover = capabilityId(platform, "AUTHORIZATION.RECOVER");
+            grantA = insertRecovery(platform, a.partnerId(), ma, recover, a.userIds()[0], null, null);
+            insertRecovery(platform, b.partnerId(), mb, recover, b.userIds()[0], null, null);
+            platform.commit();
         }
 
         try (Connection c = connection()) {
@@ -294,18 +338,24 @@ class PartnerRecoverySafetyPostgresTest {
         Fixture f;
         UUID grant1;
         UUID grant2;
+        UUID m1;
+        UUID m2;
         try (Connection setup = connection()) {
             setup.setAutoCommit(false);
             f = fixture(setup, 2);
-            UUID m1 = activeMembership(setup, f.partnerId(), f.userIds()[0], "PARTNER_USER");
-            UUID m2 = activeMembership(setup, f.partnerId(), f.userIds()[1], "PARTNER_USER");
-            setPlatformContext(setup);
-            UUID recover = capabilityId(setup, "AUTHORIZATION.RECOVER");
-            grant1 = insertRecovery(setup, f.partnerId(), m1, recover,
-                    f.userIds()[0], null, null);
-            grant2 = insertRecovery(setup, f.partnerId(), m2, recover,
-                    f.userIds()[1], null, null);
+            m1 = activeMembership(setup, f.partnerId(), f.userIds()[0], "PARTNER_USER");
+            m2 = activeMembership(setup, f.partnerId(), f.userIds()[1], "PARTNER_USER");
             setup.commit();
+        }
+        try (Connection platform = connection()) {
+            platform.setAutoCommit(false);
+            setPlatformContext(platform);
+            UUID recover = capabilityId(platform, "AUTHORIZATION.RECOVER");
+            grant1 = insertRecovery(platform, f.partnerId(), m1, recover,
+                    f.userIds()[0], null, null);
+            grant2 = insertRecovery(platform, f.partnerId(), m2, recover,
+                    f.userIds()[1], null, null);
+            platform.commit();
         }
 
         CountDownLatch start = new CountDownLatch(1);
@@ -543,7 +593,7 @@ class PartnerRecoverySafetyPostgresTest {
 
     private void setPlatformContext(Connection c) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(
-                "SELECT set_config('app.tenant_id', ?, true), set_config('app.partner_id', '', true)")) {
+                "SELECT set_config('app.tenant_id', ?, true)")) {
             ps.setString(1, CONTROL_TENANT.toString());
             ps.execute();
         }
