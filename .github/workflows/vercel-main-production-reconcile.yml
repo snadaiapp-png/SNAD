@@ -106,8 +106,7 @@ jobs:
           observed=""
           for attempt in $(seq 1 36); do
             marker_url="$PRODUCTION_WEB_BASE_URL/__snad_release_sha.txt"
-            if observed="$(npx --yes vercel@latest curl "$marker_url" \
-              --token="$VERCEL_TOKEN" | tr -d '\r\n')"; then
+            if observed="$(npx --yes vercel@latest --token="$VERCEL_TOKEN" curl "$marker_url" | tr -d '\r\n')"; then
               :
             else
               rc=$?
@@ -135,8 +134,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release" \
-            --token="$VERCEL_TOKEN" \
+          npx --yes vercel@latest --token="$VERCEL_TOKEN" curl "$PRODUCTION_WEB_BASE_URL/api/system/release" \
             > "$RUNNER_TEMP/production-release.json" || true
 
       - name: Emit reconcile evidence
