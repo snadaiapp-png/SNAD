@@ -239,7 +239,8 @@ class CrmPostgresMigrationTest {
     private static final String PARTNER_TENANT_BINDING_BOUNDARY_VERSION = "20261003.5";
     private static final String PARTNER_DELEGATION_GRANT_BOUNDARY_VERSION = "20261003.6";
     private static final String TENANT_USERNAME_VERSION = "20261003.7";
-    private static final String LATEST_MIGRATION_VERSION = TENANT_USERNAME_VERSION;
+    private static final String PARTNER_RECOVERY_SAFETY_VERSION = "20261004.1";
+    private static final String LATEST_MIGRATION_VERSION = PARTNER_RECOVERY_SAFETY_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
