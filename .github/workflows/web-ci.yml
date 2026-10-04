@@ -80,6 +80,13 @@ jobs:
           echo "Running SNAD Brand Name Governance check..."
           python3 scripts/ci/check-brand-name-governance.py
 
+      - name: Release gate topology regression
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests.ci.test_release_gate_topology -v
+
       - name: Lint
         run: npm run lint
 
