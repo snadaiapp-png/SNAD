@@ -105,9 +105,15 @@ jobs:
           set -euo pipefail
           observed=""
           for attempt in $(seq 1 36); do
-            observed="$(npx --yes vercel@latest curl /__snad_release_sha.txt \
-              --deployment "$PRODUCTION_WEB_BASE_URL" \
-              --token="$VERCEL_TOKEN" 2>/dev/null | tr -d '\r\n' || true)"
+            marker_url="$PRODUCTION_WEB_BASE_URL/__snad_release_sha.txt"
+            if observed="$(npx --yes vercel@latest curl "$marker_url" \
+              --token="$VERCEL_TOKEN" | tr -d '\r\n')"; then
+              :
+            else
+              rc=$?
+              observed=""
+              echo "Vercel protected marker probe failed (attempt $attempt/36; exit=$rc)"
+            fi
             if [ "$observed" = "$GITHUB_SHA" ]; then
               echo "Exact production artifact marker = $observed"
               exit 0
@@ -129,8 +135,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes vercel@latest curl /api/system/release \
-            --deployment "$PRODUCTION_WEB_BASE_URL" \
+          npx --yes vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release" \
             --token="$VERCEL_TOKEN" \
             > "$RUNNER_TEMP/production-release.json" || true
 
