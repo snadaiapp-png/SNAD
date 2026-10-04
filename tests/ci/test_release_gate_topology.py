@@ -60,9 +60,10 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         text = RECONCILE.read_text(encoding="utf-8")
 
         self.assertIn('marker_url="$PRODUCTION_WEB_BASE_URL/__snad_release_sha.txt"', text)
-        self.assertIn('vercel@latest curl "$marker_url"', text)
-        self.assertIn('vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release"', text)
-        self.assertIn('--token="$VERCEL_TOKEN"', text)
+        self.assertIn('vercel@latest --token="$VERCEL_TOKEN" curl "$marker_url"', text)
+        self.assertIn('vercel@latest --token="$VERCEL_TOKEN" curl "$PRODUCTION_WEB_BASE_URL/api/system/release"', text)
+        self.assertNotIn('vercel@latest curl "$marker_url" \\', text)
+        self.assertNotIn('vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release" \\', text)
         self.assertNotIn('--deployment "$PRODUCTION_WEB_BASE_URL"', text)
         self.assertNotIn("2>/dev/null", text)
         self.assertIn("Vercel protected marker probe failed", text)
