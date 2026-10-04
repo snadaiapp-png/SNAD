@@ -13,6 +13,8 @@ const ar: TranslationDictionary = {
   "users.email": "البريد الإلكتروني",
   "users.username": "اسم المستخدم",
   "users.displayName": "الاسم المعروض",
+  "users.mobileNumber": "رقم الجوال",
+  "users.mobileRegion": "رمز المنطقة",
   "users.submitCreate": "إرسال الدعوة",
   "users.cancel": "إلغاء",
   "users.empty": "لا يوجد مستخدمون بعد",
@@ -46,7 +48,18 @@ const ar: TranslationDictionary = {
   "management.users.detail.loading": "جارٍ تحميل بيانات المستخدم",
   "management.users.detail.error": "تعذر تحميل بيانات المستخدم",
   "management.users.credentials.title": "بيانات الدخول",
-  "management.users.credentials.help": "تُدار بيانات الدخول دون عرض كلمة المرور أو تخزينها في الواجهة.",
+  "management.users.credentials.help": "تُدار بيانات الدخول دون عرض كلمة المرور الحالية أو تخزينها في الواجهة.",
+  "management.users.credentials.initialized": "بيانات الدخول مهيأة",
+  "management.users.credentials.rotation": "يتطلب تغيير كلمة المرور",
+  "management.users.credentials.lastLogin": "آخر تسجيل دخول",
+  "management.users.credentials.yes": "نعم",
+  "management.users.credentials.no": "لا",
+  "management.users.credentials.never": "لم يسجل الدخول بعد",
+  "management.users.credentials.initialize": "تهيئة بيانات الدخول الأولى",
+  "management.users.credentials.initial": "كلمة المرور المؤقتة",
+  "management.users.credentials.confirm": "تأكيد كلمة المرور المؤقتة",
+  "management.users.credentials.initializeSuccess": "تمت تهيئة بيانات الدخول ويجب على المستخدم تغييرها عند أول تسجيل دخول",
+  "management.users.credentials.mismatch": "كلمتا المرور غير متطابقتين",
   "management.users.credentials.reset": "إرسال رابط تعيين كلمة المرور",
   "management.users.credentials.resetSuccess": "تم إرسال رابط تعيين كلمة المرور",
   "management.users.credentials.notSet": "غير معيّن",
@@ -63,6 +76,8 @@ const en: TranslationDictionary = {
   "users.email": "Email",
   "users.username": "Username",
   "users.displayName": "Display name",
+  "users.mobileNumber": "Mobile number",
+  "users.mobileRegion": "Region code",
   "users.submitCreate": "Send invitation",
   "users.cancel": "Cancel",
   "users.empty": "No users yet",
@@ -96,7 +111,18 @@ const en: TranslationDictionary = {
   "management.users.detail.loading": "Loading user details",
   "management.users.detail.error": "Unable to load user details",
   "management.users.credentials.title": "Credentials & sign-in",
-  "management.users.credentials.help": "Credentials are managed without displaying or storing passwords in the UI.",
+  "management.users.credentials.help": "Credentials are managed without displaying the current password or persisting submitted credentials in the UI.",
+  "management.users.credentials.initialized": "Credential initialized",
+  "management.users.credentials.rotation": "Password change required",
+  "management.users.credentials.lastLogin": "Last login",
+  "management.users.credentials.yes": "Yes",
+  "management.users.credentials.no": "No",
+  "management.users.credentials.never": "Never signed in",
+  "management.users.credentials.initialize": "Initialize first credential",
+  "management.users.credentials.initial": "Temporary password",
+  "management.users.credentials.confirm": "Confirm temporary password",
+  "management.users.credentials.initializeSuccess": "Credential initialized; the user must change it at first sign-in",
+  "management.users.credentials.mismatch": "Passwords do not match",
   "management.users.credentials.reset": "Send set-password link",
   "management.users.credentials.resetSuccess": "Set-password link sent",
   "management.users.credentials.notSet": "Not set",
@@ -108,7 +134,7 @@ export function usersDictionary(locale: Locale): TranslationDictionary {
 
 export interface UsersMessages {
   title: string; subtitle: string; search: string; statusFilter: string; allStatuses: string;
-  create: string; createTitle: string; email: string; displayName: string; submitCreate: string;
+  create: string; createTitle: string; email: string; username: string; displayName: string; mobileNumber: string; mobileRegion: string; submitCreate: string;
   cancel: string; empty: string; noMatches: string; loading: string; forbidden: string; error: string;
   open: string; activate: string; deactivate: string; suspend: string; archive: string; actions: string;
   status: string; status_ACTIVE: string; status_INACTIVE: string; status_INVITED: string;
@@ -119,8 +145,8 @@ export function usersMessages(t: Translate): UsersMessages {
   return {
     title: t("users.title"), subtitle: t("users.subtitle"), search: t("users.search"),
     statusFilter: t("users.statusFilter"), allStatuses: t("users.allStatuses"), create: t("users.create"),
-    createTitle: t("users.createTitle"), email: t("users.email"), displayName: t("users.displayName"),
-    submitCreate: t("users.submitCreate"), cancel: t("users.cancel"), empty: t("users.empty"),
+    createTitle: t("users.createTitle"), email: t("users.email"), username: t("users.username"), displayName: t("users.displayName"),
+    mobileNumber: t("users.mobileNumber"), mobileRegion: t("users.mobileRegion"), submitCreate: t("users.submitCreate"), cancel: t("users.cancel"), empty: t("users.empty"),
     noMatches: t("users.noMatches"), loading: t("users.loading"), forbidden: t("users.forbidden"),
     error: t("users.error"), open: t("users.open"), activate: t("users.activate"),
     deactivate: t("users.deactivate"), suspend: t("users.suspend"), archive: t("users.archive"),

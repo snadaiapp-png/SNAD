@@ -73,7 +73,7 @@ export default function TenantUsersPage() {
   if (TRANSIENT_AUTH_STATES.has(state)) return <AuthLoadingState phase="session" />;
   if (state !== "AUTHENTICATED" || !tenantId) return <AuthLoadingState phase="workspace" />;
 
-  const createUser = async (input: { email: string; displayName?: string | null }) => {
+  const createUser = async (input: { email: string; username: string; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null }) => {
     setCreating(true);
     setError(null);
     try {

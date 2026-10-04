@@ -10,18 +10,24 @@ interface UserCreateDialogProps {
   busy: boolean;
   messages: UsersMessages;
   onClose: () => void;
-  onSubmit: (input: { email: string; displayName?: string | null }) => Promise<void>;
+  onSubmit: (input: { email: string; username: string; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null }) => Promise<void>;
 }
 
 export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: UserCreateDialogProps) {
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [mobileNumber, setMobileNumber] = useState("");
+  const [mobileRegion, setMobileRegion] = useState("");
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSubmit({ email, displayName });
+    await onSubmit({ email, username, displayName, mobileNumber, mobileRegion });
     setEmail("");
+    setUsername("");
     setDisplayName("");
+    setMobileNumber("");
+    setMobileRegion("");
   };
 
   return (
@@ -40,7 +46,10 @@ export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: Us
       <form id="tenant-user-create-form" onSubmit={submit}>
         <div style={{ display: "grid", gap: "var(--snad-space-4, 16px)" }}>
           <Input type="email" label={messages.email} required value={email} onChange={(event) => setEmail(event.target.value)} />
+          <Input label={messages.username} required value={username} onChange={(event) => setUsername(event.target.value)} />
           <Input label={messages.displayName} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          <Input label={messages.mobileNumber} value={mobileNumber} onChange={(event) => setMobileNumber(event.target.value)} />
+          <Input label={messages.mobileRegion} value={mobileRegion} maxLength={2} onChange={(event) => setMobileRegion(event.target.value)} />
         </div>
       </form>
     </Modal>

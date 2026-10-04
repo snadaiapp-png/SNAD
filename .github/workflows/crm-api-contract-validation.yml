@@ -194,7 +194,29 @@ jobs:
           from pathlib import Path
           runtime=json.loads(Path('/tmp/crm-openapi.runtime.json').read_text(encoding='utf-8'))
           committed=json.loads(Path('docs/crm/contracts/openapi/crm-openapi.json').read_text(encoding='utf-8'))
-          if runtime!=committed: raise SystemExit('CRM OpenAPI semantic drift detected')
+
+          # Ignore only springdoc's unstable numeric suffix on duplicate operationIds.
+          # Every other OpenAPI field remains strict.
+          import re
+          def normalize_operation_ids(value):
+              if isinstance(value, dict):
+                  normalized={}
+                  for key, child in value.items():
+                      if key == 'operationId' and isinstance(child, str):
+                          normalized[key] = re.sub(r'_\d+$', '', child)
+                      else:
+                          normalized[key] = normalize_operation_ids(child)
+                  return normalized
+              if isinstance(value, list):
+                  return [normalize_operation_ids(child) for child in value]
+              return value
+
+          runtime_semantic=normalize_operation_ids(runtime)
+          committed_semantic=normalize_operation_ids(committed)
+          if runtime_semantic!=committed_semantic:
+              raise SystemExit('CRM OpenAPI semantic drift detected')
+          if runtime!=committed:
+              print('CRM OpenAPI semantic parity PASS; ignored operationId numeric-suffix noise only')
           required_headers={
             ('/accounts','post','Idempotency-Key'),('/contacts','post','Idempotency-Key'),
             ('/leads','post','Idempotency-Key'),('/opportunities','post','Idempotency-Key'),
