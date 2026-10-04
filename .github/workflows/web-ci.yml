@@ -91,6 +91,7 @@ jobs:
         run: npm run lint
 
       - name: Test
+        id: web_tests
         shell: bash
         run: |
           set -o pipefail
@@ -100,12 +101,12 @@ jobs:
         run: npm run typecheck
 
       - name: Upload Vitest diagnostics
-        if: always()
+        if: always() && steps.web_tests.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: sanad-web-vitest-${{ github.run_id }}
           path: ${{ runner.temp }}/vitest.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Performance budget policy regression
@@ -119,6 +120,7 @@ jobs:
         run: npm run validate:integrity
 
       - name: Build Next.js application
+        id: web_build
         run: npm run build
 
       - name: Performance Budget Check
@@ -130,11 +132,11 @@ jobs:
           python3 scripts/ci/check-performance-budget.py
 
       - name: Upload Next.js build output
-        if: always()
+        if: always() && steps.web_build.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: sanad-web-next-build
           path: apps/web/.next/
-          if-no-files-found: error
+          if-no-files-found: warn
           include-hidden-files: true
           retention-days: 7
