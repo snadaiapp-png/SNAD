@@ -43,7 +43,12 @@ export interface UserResponse {
   email: string;
   username: string | null;
   displayName: string | null;
+  mobileNumber: string | null;
+  mobileRegion: string | null;
   status: UserStatus;
+  lastLoginAt: string | null;
+  credentialInitialized: boolean;
+  credentialRotationRequired: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -56,6 +61,8 @@ export interface CreateUserRequest {
   email: string;
   username?: string | null;
   displayName: string | null;
+  mobileNumber?: string | null;
+  mobileRegion?: string | null;
   status?: UserStatus;
 }
 
@@ -67,6 +74,8 @@ export interface UpdateUserRequest {
   email: string;
   username?: string | null;
   displayName: string | null;
+  mobileNumber?: string | null;
+  mobileRegion?: string | null;
 }
 
 /**
@@ -77,6 +86,24 @@ export type UserLifecycleAction = "activate" | "deactivate" | "suspend" | "archi
 // ---------------------------------------------------------------------------
 // Validation helpers
 // ---------------------------------------------------------------------------
+
+function normalizeMobileNumber(value?: string | null): string | null {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) return null;
+  if (!/^\+[1-9][0-9]{7,14}$/.test(normalized)) {
+    throw new ApiConfigurationError("رقم الجوال يجب أن يكون بصيغة E.164");
+  }
+  return normalized;
+}
+
+function normalizeMobileRegion(value?: string | null): string | null {
+  const normalized = value?.trim().toUpperCase() ?? "";
+  if (!normalized) return null;
+  if (!/^[A-Z]{2}$/.test(normalized)) {
+    throw new ApiConfigurationError("رمز المنطقة يجب أن يتكون من حرفين");
+  }
+  return normalized;
+}
 
 function requireValidLifecycleAction(action: string): UserLifecycleAction {
   const allowed: UserLifecycleAction[] = ["activate", "deactivate", "suspend", "archive"];
@@ -127,7 +154,7 @@ export function createUsersApi(client: ApiClient = apiClient) {
      */
     async create(
       tenantId: string,
-      input: { email: string; username?: string | null; displayName?: string | null; status?: UserStatus }
+      input: { email: string; username?: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; status?: UserStatus }
     ) {
       const body: CreateUserRequest = {
         email: requireValidEmail(input.email),
@@ -136,6 +163,8 @@ export function createUsersApi(client: ApiClient = apiClient) {
       if (input.username !== undefined) {
         body.username = input.username?.trim().toLowerCase() || null;
       }
+      if (input.mobileNumber !== undefined) body.mobileNumber = normalizeMobileNumber(input.mobileNumber);
+      if (input.mobileRegion !== undefined) body.mobileRegion = normalizeMobileRegion(input.mobileRegion);
       if (input.status !== undefined) {
         body.status = input.status;
       }
@@ -155,7 +184,7 @@ export function createUsersApi(client: ApiClient = apiClient) {
     async update(
       tenantId: string,
       userId: string,
-      input: { email: string; username?: string | null; displayName?: string | null }
+      input: { email: string; username?: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null }
     ) {
       const body: UpdateUserRequest = {
         email: requireValidEmail(input.email),
@@ -164,6 +193,8 @@ export function createUsersApi(client: ApiClient = apiClient) {
       if (input.username !== undefined) {
         body.username = input.username?.trim().toLowerCase() || null;
       }
+      if (input.mobileNumber !== undefined) body.mobileNumber = normalizeMobileNumber(input.mobileNumber);
+      if (input.mobileRegion !== undefined) body.mobileRegion = normalizeMobileRegion(input.mobileRegion);
       return client.put<UserResponse, UpdateUserRequest>(
         `/api/v1/users/${requireValidUuid(userId, "userId")}`,
         body,
