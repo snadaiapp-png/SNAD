@@ -57,3 +57,26 @@ def test_git_source_deploy_resolves_required_project_name_and_logs_http_errors()
     assert "VERCEL_PROJECT_LOOKUP_HTTP_" in text
     assert "VERCEL_GIT_SOURCE_DEPLOYMENT_HTTP_" in text
     assert 'error.read().decode("utf-8", errors="replace")' in text
+
+
+def test_vercel_reconcile_fails_closed_on_monorepo_and_route_artifact_drift():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "Verify Vercel monorepo project settings" in text
+    assert 'root_directory != "apps/web"' in text
+    assert "sourceFilesOutsideRootDirectory" in text
+    assert "VERCEL_MONOREPO_PROJECT_SETTINGS = PASS" in text
+    assert "HRM_G3_ROUTE_ARTIFACT_MISSING" in text
+    assert "HRM_G3_PREBUILT_ROUTE_ARTIFACTS = PASS" in text
+    assert "find .vercel/output -type f | grep -E 'hr/performance/(goals|reviews)' || true" not in text
+
+
+def test_vercel_reconcile_proves_unique_deployment_before_final_alias_identity():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "Verify HRM G3 routes on created deployment" in text
+    assert '--production-url "$DEPLOYMENT_URL"' in text
+    assert "hrm-g3-deployment-routes.json" in text
+    assert "Verify production alias still points to created deployment" in text
+    assert "PRODUCTION_ALIAS_DEPLOYMENT_DRIFT" in text
+    assert "PRODUCTION_ALIAS_CREATED_DEPLOYMENT = PASS" in text
