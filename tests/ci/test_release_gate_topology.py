@@ -7,6 +7,7 @@ PRE_MERGE = ROOT / ".github" / "workflows" / "pre-merge-operational-smoke.yml"
 PRODUCTION = ROOT / ".github" / "workflows" / "production-operational-smoke.yml"
 RECONCILE = ROOT / ".github" / "workflows" / "vercel-main-production-reconcile.yml"
 VERCEL_CONFIG = ROOT / "apps" / "web" / "vercel.json"
+RECOVERY_SCRIPT = ROOT / "scripts" / "operations" / "vercel_main_production_reconcile.py"
 
 
 class ReleaseGateTopologyTest(unittest.TestCase):
@@ -55,6 +56,10 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertIn("PRODUCTION_SMOKE_SUPERSEDED", text)
         self.assertIn("check-production-readiness.py", text)
         self.assertIn("--frontend-routes-only", text)
+        self.assertIn("id-token: write", text)
+        self.assertIn("await core.getIDToken()", text)
+        self.assertIn("VERCEL_TRUSTED_OIDC_TOKEN", text)
+        self.assertIn("x-vercel-trusted-oidc-idp-token", text)
 
     def test_reconcile_uses_rest_identity_and_trusted_oidc(self):
         text = RECONCILE.read_text(encoding="utf-8")
@@ -79,6 +84,18 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertIn('"project": project_id', text)
         self.assertNotIn("vercel@latest deploy", text)
         self.assertNotIn("--prebuilt", text)
+
+    def test_recovery_script_matches_protected_exact_main_contract(self):
+        text = RECOVERY_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('"ci": True', text)
+        self.assertIn('"rootDirectory": "apps/web"', text)
+        self.assertIn('"snadMainSha": release_sha', text)
+        self.assertIn("forceNew=1&skipAutoDetectionConfirmation=1", text)
+        self.assertIn("VERCEL_TRUSTED_OIDC_TOKEN", text)
+        self.assertIn("x-vercel-trusted-oidc-idp-token", text)
+        self.assertIn("VERCEL_ORG_ID", text)
+        self.assertIn('meta.get("snadMainSha") or meta.get("githubCommitSha")', text)
 
     def test_production_has_single_writer(self):
         import json

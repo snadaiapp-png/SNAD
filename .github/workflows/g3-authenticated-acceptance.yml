@@ -42,6 +42,11 @@ on:
       - 'apps/web/playwright.config.ts'
       - 'apps/web/playwright.standard.config.ts'
       - 'tests/ci/test_g3_authenticated_acceptance_contract.py'
+      - 'apps/web/e2e/g3-production-readonly.spec.ts'
+      - 'apps/web/playwright-g3-production.config.ts'
+      - 'tests/ci/test_g3_production_certification_contract.py'
+      - '.github/workflows/g3-production-certification.yml'
+      - '.github/workflows/g2-production-identity-provisioning.yml'
       - 'apps/web/package.json'
       - 'apps/web/package-lock.json'
       - '.github/workflows/g3-authenticated-acceptance.yml'
@@ -57,6 +62,11 @@ on:
       - 'apps/web/playwright.config.ts'
       - 'apps/web/playwright.standard.config.ts'
       - 'tests/ci/test_g3_authenticated_acceptance_contract.py'
+      - 'apps/web/e2e/g3-production-readonly.spec.ts'
+      - 'apps/web/playwright-g3-production.config.ts'
+      - 'tests/ci/test_g3_production_certification_contract.py'
+      - '.github/workflows/g3-production-certification.yml'
+      - '.github/workflows/g2-production-identity-provisioning.yml'
       - '.github/workflows/g3-authenticated-acceptance.yml'
   workflow_dispatch:
 
@@ -119,10 +129,13 @@ jobs:
           }
           echo "candidate_sha=$CANDIDATE_SHA"
 
-      - name: Verify G3 authenticated acceptance source contract
+      - name: Verify G3 authenticated and production-certification source contracts
         shell: bash
         working-directory: .
-        run: python3 tests/ci/test_g3_authenticated_acceptance_contract.py
+        run: |
+          set -euo pipefail
+          python3 tests/ci/test_g3_authenticated_acceptance_contract.py
+          python3 tests/ci/test_g3_production_certification_contract.py
 
       - name: Generate ephemeral per-run credentials
         shell: bash

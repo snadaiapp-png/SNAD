@@ -37,11 +37,14 @@ def request_json(
     token: str | None = None,
     payload: dict[str, Any] | None = None,
     timeout: int = 60,
+    extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     data = None if payload is None else json.dumps(payload, separators=(",", ":")).encode("utf-8")
     headers = {"Accept": "application/json", "User-Agent": "SNAD-Vercel-Main-Reconcile/1.0"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if extra_headers:
+        headers.update(extra_headers)
     if data is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -63,15 +66,15 @@ def request_json(
 
 
 def fetch_text(url: str, timeout: int = 45) -> tuple[int, str, dict[str, str]]:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
-            "User-Agent": "SNAD-Vercel-Main-Reconcile/1.0",
-            "Cache-Control": "no-cache",
-        },
-        method="GET",
-    )
+    headers = {
+        "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
+        "User-Agent": "SNAD-Vercel-Main-Reconcile/2.0",
+        "Cache-Control": "no-cache",
+    }
+    trusted_oidc_token = os.environ.get("VERCEL_TRUSTED_OIDC_TOKEN", "").strip()
+    if trusted_oidc_token:
+        headers["x-vercel-trusted-oidc-idp-token"] = trusted_oidc_token
+    req = urllib.request.Request(url, headers=headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return (
@@ -89,7 +92,7 @@ def fetch_text(url: str, timeout: int = 45) -> tuple[int, str, dict[str, str]]:
 
 def deployment_sha(deployment: dict[str, Any]) -> str:
     meta = deployment.get("meta")
-    return str(meta.get("githubCommitSha") or "") if isinstance(meta, dict) else ""
+    return str(meta.get("snadMainSha") or meta.get("githubCommitSha") or "") if isinstance(meta, dict) else ""
 
 
 def deployment_state(deployment: dict[str, Any]) -> str:
@@ -115,7 +118,9 @@ def create_exact_main_deployment(
     owner, repo = repository.split("/", 1)
     created = request_json(
         "POST",
-        f"https://api.vercel.com/v13/deployments?teamId={urllib.parse.quote(team_id)}",
+        "https://api.vercel.com/v13/deployments"
+        "?forceNew=1&skipAutoDetectionConfirmation=1&teamId="
+        + urllib.parse.quote(team_id),
         token,
         {
             "name": project_name,
@@ -133,10 +138,14 @@ def create_exact_main_deployment(
                 "commitRef": "main",
                 "commitSha": release_sha,
                 "dirty": False,
-                "ci": "true",
+                "ci": True,
                 "ciType": "github-actions",
+                "rootDirectory": "apps/web",
             },
             "meta": {
+                "snadMainSha": release_sha,
+                "snadMainRef": "main",
+                "snadDeploymentMethod": "git-source-rest",
                 "githubCommitSha": release_sha,
                 "githubCommitRef": "main",
                 "incident": "HRM-G3-PRODUCTION-ROUTE-RECOVERY",
@@ -186,9 +195,20 @@ def wait_for_deployment(
 def verify_public_release(base_url: str, release_sha: str) -> dict[str, Any]:
     deadline = time.monotonic() + 5 * 60
     last: dict[str, Any] | None = None
+    trusted_oidc_token = os.environ.get("VERCEL_TRUSTED_OIDC_TOKEN", "").strip()
+    protected_headers = (
+        {"x-vercel-trusted-oidc-idp-token": trusted_oidc_token}
+        if trusted_oidc_token
+        else None
+    )
     while time.monotonic() < deadline:
         try:
-            last = request_json("GET", f"{base_url}/api/system/release", timeout=30)
+            last = request_json(
+                "GET",
+                f"{base_url}/api/system/release",
+                timeout=30,
+                extra_headers=protected_headers,
+            )
             if (
                 last.get("commitSha") == release_sha
                 and last.get("commitRef") == "main"
@@ -250,7 +270,14 @@ def main() -> int:
 
         token = required("VERCEL_TOKEN")
         project_id = required("VERCEL_PROJECT_ID")
-        team_id = required("VERCEL_TEAM_ID")
+        team_id = (
+            os.environ.get("VERCEL_TEAM_ID", "").strip()
+            or os.environ.get("VERCEL_ORG_ID", "").strip()
+        )
+        if not team_id:
+            raise ReconcileFailure(
+                "missing required environment value: VERCEL_TEAM_ID or VERCEL_ORG_ID"
+            )
         base_url = os.environ.get("PRODUCTION_WEB_BASE_URL", "https://snad-app.vercel.app").rstrip("/")
 
         deployment_id = create_exact_main_deployment(token, project_id, team_id, repository, release_sha)

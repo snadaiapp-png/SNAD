@@ -141,6 +141,7 @@ export const HRM_CAPABILITIES = {
   // These constants are UX gating only and never imply role shortcuts.
   GOAL_SELF_VIEW: "HRM.PERFORMANCE.GOAL.SELF_VIEW",
   GOAL_SELF_UPDATE: "HRM.PERFORMANCE.GOAL.SELF_UPDATE",
+  GOAL_TEAM_MANAGE: "HRM.PERFORMANCE.GOAL.TEAM_MANAGE",
 
   // === G3 Performance Reviews (Task 6 SELF + TEAM surfaces) ===
   // Backend authority: HrPerformanceReviewV2Controller @RequireCapability.
