@@ -45,3 +45,15 @@ def test_vercel_reconcile_creates_exact_sha_git_source_deployment_without_upload
     assert "vercel@latest deploy" not in text
     assert "--prebuilt" not in text
     assert "vercel-deploy.log" not in text
+
+
+def test_git_source_deploy_resolves_required_project_name_and_logs_http_errors():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "https://api.vercel.com/v9/projects/" in text
+    assert 'project_name = str(project.get("name") or "").strip()' in text
+    assert '"name": project_name' in text
+    assert '"project": project_id' in text
+    assert "VERCEL_PROJECT_LOOKUP_HTTP_" in text
+    assert "VERCEL_GIT_SOURCE_DEPLOYMENT_HTTP_" in text
+    assert 'error.read().decode("utf-8", errors="replace")' in text
