@@ -36,6 +36,9 @@ export default defineConfig({
     // Stateful G2 business acceptance owns its dedicated PostgreSQL Direct stack.
     "**/g2-authenticated.spec.ts",
     "**/g3-authenticated.spec.ts",
+    // Production G3 certification requires governed Production QA identities
+    // and must run only through playwright-g3-production.config.ts.
+    "**/g3-production-readonly.spec.ts",
     // Read-oriented authenticated G2 visual proof owns a separate role/device stack.
     "**/g2-visual.spec.ts",
     // Users Module closure owns a dedicated authenticated PostgreSQL Direct stack.
