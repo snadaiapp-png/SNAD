@@ -71,7 +71,7 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
   // TALENT
   { href: "/hr/recruitment", label: "التوظيف", labelMessageId: "hrm.g2.workspace.nav.recruitment", Icon: RecruitmentIcon, capabilitiesAny: [HRM_CAPABILITIES.RECRUITMENT_OPENING_VIEW, HRM_CAPABILITIES.RECRUITMENT_CANDIDATE_VIEW, HRM_CAPABILITIES.RECRUITMENT_APPLICATION_MANAGE, HRM_CAPABILITIES.RECRUITMENT_INTERVIEW_MANAGE, HRM_CAPABILITIES.RECRUITMENT_OFFER_MANAGE, HRM_CAPABILITIES.RECRUITMENT_HIRE_CONVERT] },
   { href: "/hr/onboarding", label: "التأهيل", labelMessageId: "hrm.g2.workspace.nav.onboarding", Icon: OnboardingIcon, capabilitiesAny: [HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE, HRM_CAPABILITIES.ONBOARDING_TASK_COMPLETE, HRM_CAPABILITIES.ONBOARDING_TASK_WAIVE] },
-  { href: "/hr/performance/goals", label: "أهداف الأداء", labelMessageId: "hrm.g3.workspace.nav.goals", Icon: GoalsIcon, capability: HRM_CAPABILITIES.GOAL_SELF_VIEW },
+  { href: "/hr/performance/goals", label: "أهداف الأداء", labelMessageId: "hrm.g3.workspace.nav.goals", Icon: GoalsIcon, capabilitiesAny: [HRM_CAPABILITIES.GOAL_SELF_VIEW, HRM_CAPABILITIES.GOAL_TEAM_MANAGE] },
   { href: "/hr/performance/reviews", label: "تقييمات الأداء", labelMessageId: "hrm.g3.workspace.nav.reviews", Icon: ReviewsIcon, capabilitiesAny: [HRM_CAPABILITIES.REVIEW_SELF_VIEW, HRM_CAPABILITIES.REVIEW_TEAM_MANAGE] },
   // TIME & LEAVE
   { href: "/hr/attendance", label: "حضوري", labelMessageId: "hrm.g2.landing.attendance", Icon: AttendanceIcon, capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW, HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD] },
