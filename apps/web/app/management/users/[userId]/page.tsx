@@ -47,6 +47,10 @@ export default function TenantUserDetailPage() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [mobileNumber, setMobileNumber] = useState("");
+  const [mobileRegion, setMobileRegion] = useState("");
+  const [initialCredential, setInitialCredential] = useState("");
+  const [confirmCredential, setConfirmCredential] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -77,6 +81,8 @@ export default function TenantUserDetailPage() {
       setEmail(userResult.email);
       setUsername(userResult.username ?? "");
       setDisplayName(userResult.displayName ?? "");
+      setMobileNumber(userResult.mobileNumber ?? "");
+      setMobileRegion(userResult.mobileRegion ?? "");
       setMemberships(membershipResult);
       setRoleLinks(linkResult);
       setRoles(roleResult);
@@ -101,7 +107,37 @@ export default function TenantUserDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await usersApi.update(tenantId, userId, { email, username: username.trim() || null, displayName: displayName.trim() || null });
+      await usersApi.update(tenantId, userId, {
+        email,
+        username: username.trim() || null,
+        displayName: displayName.trim() || null,
+        mobileNumber: mobileNumber.trim() || null,
+        mobileRegion: mobileRegion.trim() || null,
+      });
+      await load();
+    } catch (caught) {
+      setError(toUserFacingMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const initializeCredential = async () => {
+    if (!canWrite || !target || target.status !== "ACTIVE" || target.credentialInitialized) return;
+    if (initialCredential !== confirmCredential) {
+      setCredentialNotice(null);
+      setError(t("management.users.credentials.mismatch"));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setCredentialNotice(null);
+    try {
+      const credentialApi = createTenantAuthApi(tenantId);
+      await credentialApi.adminInitializeCredential(userId, { initialCredential });
+      setInitialCredential("");
+      setConfirmCredential("");
+      setCredentialNotice(t("management.users.credentials.initializeSuccess"));
       await load();
     } catch (caught) {
       setError(toUserFacingMessage(caught));
@@ -180,6 +216,14 @@ export default function TenantUserDetailPage() {
                 {t("users.displayName")}
                 <input aria-label={t("users.displayName")} value={displayName} disabled={!canWrite || busy} onChange={(event) => setDisplayName(event.target.value)} />
               </label>
+              <label>
+                {t("users.mobileNumber")}
+                <input aria-label={t("users.mobileNumber")} value={mobileNumber} disabled={!canWrite || busy} onChange={(event) => setMobileNumber(event.target.value)} />
+              </label>
+              <label>
+                {t("users.mobileRegion")}
+                <input aria-label={t("users.mobileRegion")} maxLength={2} value={mobileRegion} disabled={!canWrite || busy} onChange={(event) => setMobileRegion(event.target.value)} />
+              </label>
               {canWrite ? <button type="submit" disabled={busy}>{t("management.users.detail.save")}</button> : null}
             </form>
 
@@ -195,9 +239,50 @@ export default function TenantUserDetailPage() {
                   <dt>{t("users.email")}</dt>
                   <dd>{target.email}</dd>
                 </div>
+                <div>
+                  <dt>{t("management.users.credentials.initialized")}</dt>
+                  <dd>{target.credentialInitialized ? t("management.users.credentials.yes") : t("management.users.credentials.no")}</dd>
+                </div>
+                <div>
+                  <dt>{t("management.users.credentials.rotation")}</dt>
+                  <dd>{target.credentialRotationRequired ? t("management.users.credentials.yes") : t("management.users.credentials.no")}</dd>
+                </div>
+                <div>
+                  <dt>{t("management.users.credentials.lastLogin")}</dt>
+                  <dd>{target.lastLoginAt || t("management.users.credentials.never")}</dd>
+                </div>
               </dl>
               {credentialNotice ? <p role="status">{credentialNotice}</p> : null}
-              {canWrite ? (
+              {canWrite && target.status === "ACTIVE" && !target.credentialInitialized ? (
+                <div>
+                  <label>
+                    {t("management.users.credentials.initial")}
+                    <input
+                      aria-label={t("management.users.credentials.initial")}
+                      type="password"
+                      autoComplete="new-password"
+                      value={initialCredential}
+                      disabled={busy}
+                      onChange={(event) => setInitialCredential(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    {t("management.users.credentials.confirm")}
+                    <input
+                      aria-label={t("management.users.credentials.confirm")}
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmCredential}
+                      disabled={busy}
+                      onChange={(event) => setConfirmCredential(event.target.value)}
+                    />
+                  </label>
+                  <button type="button" disabled={busy || initialCredential.length < 8 || confirmCredential.length < 8} onClick={() => void initializeCredential()}>
+                    {t("management.users.credentials.initialize")}
+                  </button>
+                </div>
+              ) : null}
+              {canWrite && target.credentialInitialized ? (
                 <button type="button" disabled={busy} onClick={() => void sendSetPasswordLink()}>
                   {t("management.users.credentials.reset")}
                 </button>
