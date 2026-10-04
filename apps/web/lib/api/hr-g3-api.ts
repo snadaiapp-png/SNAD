@@ -12,6 +12,10 @@ import { apiClient } from "./client";
  *   POST   /api/v2/hr/performance/goals                     (GOAL.SELF_UPDATE)
  *   PUT    /api/v2/hr/performance/goals/{goalId}            (GOAL.SELF_UPDATE)
  *   PATCH  /api/v2/hr/performance/goals/{goalId}/progress   (GOAL.SELF_UPDATE)
+ *   GET    /api/v2/hr/performance/goals/team/{employmentId}  (GOAL.TEAM_MANAGE)
+ *   POST   /api/v2/hr/performance/goals/team/{employmentId}  (GOAL.TEAM_MANAGE)
+ *   PUT    /api/v2/hr/performance/goals/team/{employmentId}/{goalId} (GOAL.TEAM_MANAGE)
+ *   PATCH  /api/v2/hr/performance/goals/team/{employmentId}/{goalId}/progress (GOAL.TEAM_MANAGE)
  *
  * Reviews (Task 6) — SELF and TEAM are capability-separated:
  *   GET    /api/v2/hr/performance/reviews                        (REVIEW.SELF_VIEW)
@@ -134,6 +138,20 @@ export const hrG3Api = {
 
   updateGoalProgress: (goalId: string, input: G3GoalProgressRequest) =>
     apiClient.patch<G3PerformanceGoal>(`${ROOT}/${goalId}/progress`, input, mutationOptions()),
+
+  // ---- Task 5: performance goals (TEAM — capability-separated) ----------
+
+  listTeamGoals: (employmentId: string) =>
+    apiClient.get<G3PerformanceGoal[]>(`${ROOT}/team/${employmentId}`),
+
+  createTeamGoal: (employmentId: string, input: G3GoalWriteRequest) =>
+    apiClient.post<G3PerformanceGoal>(`${ROOT}/team/${employmentId}`, input, mutationOptions()),
+
+  updateTeamGoal: (employmentId: string, goalId: string, input: G3GoalWriteRequest) =>
+    apiClient.put<G3PerformanceGoal>(`${ROOT}/team/${employmentId}/${goalId}`, input, mutationOptions()),
+
+  updateTeamGoalProgress: (employmentId: string, goalId: string, input: G3GoalProgressRequest) =>
+    apiClient.patch<G3PerformanceGoal>(`${ROOT}/team/${employmentId}/${goalId}/progress`, input, mutationOptions()),
 
   // ---- Task 6: performance reviews (SELF) --------------------------------
 
