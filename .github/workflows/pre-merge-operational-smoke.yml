@@ -7,8 +7,6 @@ on:
 
 permissions:
   contents: read
-  issues: read
-  id-token: write
 
 concurrency:
   group: pre-merge-operational-smoke-${{ github.event.pull_request.number || github.ref }}
@@ -309,177 +307,44 @@ jobs:
             --url "$FRONTEND_SMOKE_URL" \
             --port 3001
 
-      - name: Mint GitHub OIDC token for Vercel Trusted Source
-        id: vercel_oidc
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const token = await core.getIDToken();
-            core.setSecret(token);
-            core.setOutput('token', token);
 
-      - name: Verify production alias exact release identity
-        id: g3_production_identity
-        continue-on-error: true
-        shell: bash
-        env:
-          EXPECTED_PRODUCTION_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          STATUS="$(curl --silent --show-error --location --max-time 45             --output "$RUNNER_TEMP/hrm-g3-production-release.json"             --write-out '%{http_code}'             https://snad-app.vercel.app/api/system/release || true)"
-          echo "release-http-status=$STATUS"
-          test "$STATUS" = "200" || {
-            echo "::error::PRODUCTION_RELEASE_IDENTITY_HTTP_$STATUS"
-            exit 1
-          }
-          ACTUAL_SHA="$(jq -r '.commitSha // empty' "$RUNNER_TEMP/hrm-g3-production-release.json")"
-          COMMIT_REF="$(jq -r '.commitRef // empty' "$RUNNER_TEMP/hrm-g3-production-release.json")"
-          ENVIRONMENT="$(jq -r '.environment // empty' "$RUNNER_TEMP/hrm-g3-production-release.json")"
-          echo "release-sha=$ACTUAL_SHA"
-          echo "release-ref=$COMMIT_REF"
-          echo "release-environment=$ENVIRONMENT"
-          test "$ACTUAL_SHA" = "$EXPECTED_PRODUCTION_SHA" || {
-            echo "::error::PRODUCTION_RELEASE_SHA_MISMATCH expected=$EXPECTED_PRODUCTION_SHA actual=$ACTUAL_SHA"
-            exit 1
-          }
-          test "$COMMIT_REF" = "main" || {
-            echo "::error::PRODUCTION_RELEASE_REF_MISMATCH expected=main actual=$COMMIT_REF"
-            exit 1
-          }
-          case "$ENVIRONMENT" in production|prod) ;; *)
-            echo "::error::PRODUCTION_RELEASE_ENVIRONMENT_MISMATCH actual=$ENVIRONMENT"
-            exit 1
-          esac
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
 
-      - name: Capture production route serving diagnostics
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/hrm-route-diagnostics"
-          for path in / /hr/employees /hr/assignments /hr/performance/goals /hr/performance/reviews; do
-            slug="$(printf '%s' "$path" | sed 's#^/##; s#[^A-Za-z0-9._-]#-#g')"
-            [ -n "$slug" ] || slug=root
-            headers="$RUNNER_TEMP/hrm-route-diagnostics/$slug.headers"
-            body="$RUNNER_TEMP/hrm-route-diagnostics/$slug.body"
-            status="$(curl --silent --show-error --location --max-time 30 \
-              --dump-header "$headers" \
+          manifest_path = Path(".next/server/app-paths-manifest.json")
+          if not manifest_path.is_file():
+              raise SystemExit("CANDIDATE_ROUTE_MANIFEST_MISSING")
+
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          keys = set(manifest)
+          required = (
+              "/hr/performance/goals",
+              "/hr/performance/reviews",
+          )
+          missing = []
+          for route in required:
+              accepted = {route, f"{route}/page"}
+              if not (accepted & keys):
+                  missing.append(route)
+          if missing:
+              raise SystemExit(f"CANDIDATE_ROUTE_MANIFEST_MISSING_ROUTES={','.join(missing)}")
+          print("CANDIDATE_ROUTE_MANIFEST=PASS")
+          PY
+
+          : > "$RUNNER_TEMP/hrm-g3-local-routes.txt"
+          for path in /hr/performance/goals /hr/performance/reviews; do
+            body="$RUNNER_TEMP/$(printf '%s' "$path" | tr '/' '-').html"
+            status="$(curl --silent --show-error --location --max-time 15 \
               --output "$body" \
               --write-out '%{http_code}' \
-              "https://snad-app.vercel.app$path" || true)"
-            echo "=== ROUTE $path HTTP $status ==="
-            grep -Ei '^(server:|content-type:|cache-control:|x-vercel-|x-matched-path:|x-nextjs-|location:)' "$headers" || true
-            printf 'body-prefix='
-            head -c 180 "$body" | tr '\n' ' ' || true
-            echo
+              "http://127.0.0.1:3001$path" || true)"
+            printf '%s %s\n' "$path" "$status" | tee -a "$RUNNER_TEMP/hrm-g3-local-routes.txt"
+            test "$status" = "200" || {
+              echo "::error::CANDIDATE_ROUTE_HTTP_FAILURE path=$path status=$status"
+              exit 1
+            }
           done
-      - name: Verify production-alias HRM G3 routes
-        id: g3_routes_production
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check-production-readiness.py \
-            --frontend-routes-only \
-            --attempts 1 \
-            --delay-seconds 0 \
-            --timeout-seconds 15 \
-            --production-url https://snad-app.vercel.app \
-            --evidence-file "$RUNNER_TEMP/hrm-g3-production-routes.json"
-
-      - name: Verify git-main-alias HRM G3 routes
-        id: g3_routes_git_main
-        continue-on-error: true
-        shell: bash
-        env:
-          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.vercel_oidc.outputs.token }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check-production-readiness.py \
-            --frontend-routes-only \
-            --attempts 1 \
-            --delay-seconds 0 \
-            --timeout-seconds 15 \
-            --production-url https://snad-app-git-main-snad-team.vercel.app \
-            --evidence-file "$RUNNER_TEMP/hrm-g3-git-main-routes.json"
-
-      - name: Resolve Vercel incident preview URL
-        id: g3_preview_url
-        if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'incident/') }}
-        continue-on-error: true
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          API_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100"
-          PREVIEW_URL=""
-          for attempt in $(seq 1 30); do
-            curl --fail --silent --show-error \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$API_URL" > "$RUNNER_TEMP/pr-comments.json"
-            PREVIEW_URL="$(python3 - "$RUNNER_TEMP/pr-comments.json" <<'PY'
-          import json
-          import re
-          import sys
-
-          with open(sys.argv[1], encoding="utf-8") as handle:
-              comments = json.load(handle)
-
-          for comment in reversed(comments):
-              match = re.search(r"\[Preview\]\((https://[^)]+\.vercel\.app)\)", comment.get("body", ""))
-              if match:
-                  print(match.group(1))
-                  break
-          PY
-          )"
-            if [ -n "$PREVIEW_URL" ]; then
-              echo "G3_PREVIEW_URL=$PREVIEW_URL" >> "$GITHUB_ENV"
-              printf '{"previewUrl":"%s"}\n' "$PREVIEW_URL" > "$RUNNER_TEMP/hrm-g3-preview-url.json"
-              echo "Resolved Vercel preview: $PREVIEW_URL"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error::VERCEL_PREVIEW_URL_NOT_FOUND_FOR_INCIDENT_PR"
-          exit 1
-
-      - name: Verify incident-preview HRM G3 routes
-        id: g3_routes_preview
-        if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'incident/') && steps.g3_preview_url.outcome == 'success' }}
-        continue-on-error: true
-        shell: bash
-        env:
-          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.vercel_oidc.outputs.token }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check-production-readiness.py \
-            --frontend-routes-only \
-            --attempts 1 \
-            --delay-seconds 0 \
-            --timeout-seconds 15 \
-            --production-url "$G3_PREVIEW_URL" \
-            --evidence-file "$RUNNER_TEMP/hrm-g3-preview-routes.json"
-
-      - name: Enforce HRM G3 live route matrix
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "production-release-identity=${{ steps.g3_production_identity.outcome }}"
-          echo "production=${{ steps.g3_routes_production.outcome }}"
-          echo "git-main=${{ steps.g3_routes_git_main.outcome }}"
-          test "${{ steps.g3_production_identity.outcome }}" = success
-          test "${{ steps.g3_routes_production.outcome }}" = success
-          test "${{ steps.g3_routes_git_main.outcome }}" = success
-          if [[ "${GITHUB_HEAD_REF:-}" == incident/* ]]; then
-            echo "preview-url=${{ steps.g3_preview_url.outcome }}"
-            echo "preview-routes=${{ steps.g3_routes_preview.outcome }}"
-            test "${{ steps.g3_preview_url.outcome }}" = success
-            test "${{ steps.g3_routes_preview.outcome }}" = success
-          fi
 
       # Evidence upload with bounded retry: transient (403) intermediary failures on
       # FinalizeArtifact must not fail an otherwise-successful smoke job, but the
@@ -496,12 +361,7 @@ jobs:
             ${{ runner.temp }}/frontend.log
             ${{ runner.temp }}/frontend-auth.html
             ${{ runner.temp }}/frontend-smoke-metadata.json
-            ${{ runner.temp }}/hrm-route-diagnostics
-            ${{ runner.temp }}/hrm-g3-production-release.json
-            ${{ runner.temp }}/hrm-g3-production-routes.json
-            ${{ runner.temp }}/hrm-g3-git-main-routes.json
-            ${{ runner.temp }}/hrm-g3-preview-url.json
-            ${{ runner.temp }}/hrm-g3-preview-routes.json
+            ${{ runner.temp }}/hrm-g3-local-routes.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -552,19 +412,3 @@ jobs:
           retention-days: 14
           overwrite: true
 
-  smoke-summary:
-    name: Pre-Merge Operational Smoke Summary
-    if: always()
-    needs:
-      - backend-smoke
-      - frontend-smoke
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require both independent smokes
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Backend smoke: ${{ needs.backend-smoke.result }}"
-          echo "Frontend smoke: ${{ needs.frontend-smoke.result }}"
-          test "${{ needs.backend-smoke.result }}" = success
-          test "${{ needs.frontend-smoke.result }}" = success

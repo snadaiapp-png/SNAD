@@ -18,13 +18,12 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       PRODUCTION_WEB_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
-      VERCEL_RECONCILE_EVIDENCE: vercel-main-reconcile-evidence.json
 
     steps:
       - name: Checkout exact main SHA
@@ -33,34 +32,157 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Verify immutable current main
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
           test "$remote_main" = "$GITHUB_SHA" || {
             echo "::error::VERCEL_RECONCILE_NOT_CURRENT_MAIN expected=$GITHUB_SHA actual=$remote_main"
             exit 1
           }
 
-      - name: Validate reconciler source
+      - name: Prepare exact-SHA artifact marker
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/operations/vercel_main_production_reconcile.py
+          mkdir -p apps/web/public
+          printf '%s\n' "$GITHUB_SHA" > apps/web/public/__snad_release_sha.txt
 
-      - name: Reconcile exact main to Vercel Production
+      - name: Pull Vercel production configuration
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/operations/vercel_main_production_reconcile.py
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_ORG_ID"
+          test -n "$VERCEL_PROJECT_ID"
+          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build clean production artifact locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .vercel/output
+          npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN" 2>&1 | tee "$RUNNER_TEMP/vercel-build.log"
+
+          marker="$(find .vercel/output -type f -name '__snad_release_sha.txt' -print -quit)"
+          test -n "$marker" || {
+            echo "::error::EXACT_SHA_MARKER_MISSING_FROM_PREBUILT_ARTIFACT"
+            exit 1
+          }
+          test "$(tr -d '\r\n' < "$marker")" = "$GITHUB_SHA" || {
+            echo "::error::EXACT_SHA_MARKER_MISMATCH_IN_PREBUILT_ARTIFACT"
+            exit 1
+          }
+
+          echo "Prebuilt HRM route evidence:"
+          find .vercel/output -type f | grep -E 'hr/performance/(goals|reviews)' || true
+
+      - name: Deploy prebuilt artifact to Vercel Production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest deploy             --prebuilt             --prod             --token="$VERCEL_TOKEN"             --meta "snadMainSha=$GITHUB_SHA"             --meta "snadMainRef=main"             2>&1 | tee "$RUNNER_TEMP/vercel-deploy.log"
+
+          DEPLOYMENT_URL="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$RUNNER_TEMP/vercel-deploy.log" | head -n 1 || true)"
+          test -n "$DEPLOYMENT_URL" || {
+            echo "::error::VERCEL_DEPLOYMENT_URL_NOT_FOUND"
+            exit 1
+          }
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact artifact reached production alias
+        shell: bash
+        run: |
+          set -euo pipefail
+          observed=""
+          for attempt in $(seq 1 36); do
+            marker_url="$PRODUCTION_WEB_BASE_URL/__snad_release_sha.txt"
+            if observed="$(npx --yes vercel@latest --token="$VERCEL_TOKEN" curl "$marker_url" | tr -d '\r\n')"; then
+              :
+            else
+              rc=$?
+              observed=""
+              echo "Vercel protected marker probe failed (attempt $attempt/36; exit=$rc)"
+            fi
+            if [ "$observed" = "$GITHUB_SHA" ]; then
+              echo "Exact production artifact marker = $observed"
+              exit 0
+            fi
+            echo "Waiting for protected production alias convergence (attempt $attempt/36; observed=${observed:-none})"
+            sleep 5
+          done
+          echo "::error::PRODUCTION_ARTIFACT_SHA_MISMATCH expected=$GITHUB_SHA actual=${observed:-none}"
+          exit 1
+
+      - name: Verify live HRM G3 routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check-production-readiness.py             --frontend-routes-only             --attempts 6             --delay-seconds 5             --timeout-seconds 20             --production-url "$PRODUCTION_WEB_BASE_URL"             --evidence-file "$RUNNER_TEMP/hrm-g3-production-routes.json"
+
+      - name: Capture production release identity
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest --token="$VERCEL_TOKEN" curl "$PRODUCTION_WEB_BASE_URL/api/system/release" \
+            > "$RUNNER_TEMP/production-release.json" || true
+
+      - name: Emit reconcile evidence
+        if: always()
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          route_path = Path(os.environ["RUNNER_TEMP"]) / "hrm-g3-production-routes.json"
+          release_path = Path(os.environ["RUNNER_TEMP"]) / "production-release.json"
+
+          def load(path):
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  return None
+
+          evidence = {
+              "schemaVersion": 2,
+              "method": "vercel-cli-prebuilt",
+              "githubSha": os.environ.get("GITHUB_SHA"),
+              "githubRef": os.environ.get("GITHUB_REF"),
+              "deploymentUrl": os.environ.get("DEPLOYMENT_URL"),
+              "productionUrl": os.environ.get("PRODUCTION_WEB_BASE_URL"),
+              "releaseIdentity": load(release_path),
+              "routes": load(route_path),
+          }
+          Path("vercel-main-reconcile-evidence.json").write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
 
       - name: Upload Vercel reconcile evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: vercel-main-reconcile-${{ github.run_id }}-${{ github.run_attempt }}
-          path: vercel-main-reconcile-evidence.json
-          if-no-files-found: error
+          path: |
+            vercel-main-reconcile-evidence.json
+            ${{ runner.temp }}/vercel-build.log
+            ${{ runner.temp }}/vercel-deploy.log
+            ${{ runner.temp }}/hrm-g3-production-routes.json
+            ${{ runner.temp }}/production-release.json
+          if-no-files-found: warn
           retention-days: 90
