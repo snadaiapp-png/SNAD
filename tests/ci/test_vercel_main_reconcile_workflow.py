@@ -29,3 +29,19 @@ def test_broken_vercel_curl_token_pattern_is_absent():
 
     assert 'vercel@latest curl "$marker_url"' not in text
     assert 'vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release"' not in text
+
+
+def test_vercel_reconcile_creates_exact_sha_git_source_deployment_without_upload():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "Create exact-SHA Git-source Production deployment via Vercel REST API" in text
+    assert '"gitSource": {' in text
+    assert '"type": "github"' in text
+    assert '"ref": "main"' in text
+    assert '"sha": expected' in text
+    assert '"target": "production"' in text
+    assert '"project": project_id' in text
+    assert '"snadDeploymentMethod": "git-source-rest"' in text
+    assert "vercel@latest deploy" not in text
+    assert "--prebuilt" not in text
+    assert "vercel-deploy.log" not in text
