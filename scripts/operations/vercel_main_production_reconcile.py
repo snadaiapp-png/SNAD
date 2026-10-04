@@ -132,7 +132,7 @@ def create_exact_main_deployment(
                 "remoteUrl": f"https://github.com/{repository}",
                 "commitRef": "main",
                 "commitSha": release_sha,
-                "dirty": "false",
+                "dirty": False,
                 "ci": "true",
                 "ciType": "github-actions",
             },
