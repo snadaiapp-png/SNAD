@@ -83,22 +83,30 @@ export default function ReviewsPage() {
     setLoading(true);
     setError(null);
     setTeamError(null);
-    try {
-      if (canViewSelf) {
+
+    if (canViewSelf) {
+      try {
         setReviews(await hrG3Api.listReviews());
-      } else {
+      } catch (err) {
         setReviews([]);
+        setError(err);
       }
-      if (canManageTeam) {
-        setTeamReviews(await hrG3Api.listTeamReviews());
-      } else {
-        setTeamReviews(null);
-      }
-    } catch (err) {
-      setError(err);
-    } finally {
-      setLoading(false);
+    } else {
+      setReviews([]);
     }
+
+    if (canManageTeam) {
+      try {
+        setTeamReviews(await hrG3Api.listTeamReviews());
+      } catch (err) {
+        setTeamReviews([]);
+        setTeamError(err);
+      }
+    } else {
+      setTeamReviews(null);
+    }
+
+    setLoading(false);
   }, [canViewSelf, canManageTeam]);
 
   useEffect(() => {
