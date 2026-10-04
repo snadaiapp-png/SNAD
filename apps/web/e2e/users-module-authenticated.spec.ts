@@ -48,6 +48,8 @@ test("tenant users/access renders real data and stays fail-closed", async ({ pag
   await expect(page.getByTestId("management-user-detail-ready")).toBeVisible();
   await expect(page.locator("#user-memberships-heading")).toBeVisible();
   await expect(page.locator("#user-roles-heading")).toBeVisible();
+  await expect(page.getByTestId("management-user-credentials")).toBeVisible();
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
 
   await page.goto("/management/access");
   await expect(page.getByTestId("management-access-ready")).toBeVisible();
