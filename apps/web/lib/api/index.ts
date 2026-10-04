@@ -114,5 +114,6 @@ export type {
   ResetPasswordRequest,
   ResetPasswordResponse,
   ChangeCredentialRequest,
+  AdminInitializeCredentialRequest,
   AdminResetPasswordRequest,
 } from "./auth";
