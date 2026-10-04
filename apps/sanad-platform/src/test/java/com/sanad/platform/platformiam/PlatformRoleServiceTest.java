@@ -19,6 +19,7 @@ import com.sanad.platform.platformiam.service.PlatformOwnerSafetyService;
 import com.sanad.platform.platformiam.service.PlatformRoleService;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
@@ -104,6 +105,86 @@ class PlatformRoleServiceTest {
         verify(f.ownerSafety).assertMayRemoveOwnerRole(CONTROL_TENANT, USER_ID, ROLE_ID);
         verify(f.grants).revoke(CONTROL_TENANT, GRANT_ID);
         verify(f.grants).grant(CONTROL_TENANT, USER_ID, OTHER_ROLE_ID, null);
+    }
+
+    @Test
+    void supportOperatorCannotSelfPromoteToPlatformOwner() {
+        Fixture f = fixture();
+        when(f.grants.list(CONTROL_TENANT, ACTOR_ID)).thenReturn(List.of());
+        when(f.metadata.findByControlTenantIdAndRoleId(CONTROL_TENANT, ROLE_ID))
+                .thenReturn(Optional.of(new PlatformRoleMetadata(
+                        CONTROL_TENANT, ROLE_ID, PlatformRoleMetadata.RoleType.SYSTEM,
+                        true, true, NOW, NOW)));
+
+        assertThatThrownBy(() -> f.service.replaceUserRoles(
+                actor(), ACTOR_ID,
+                new ReplacePlatformRolesRequest(List.of(ROLE_ID), "self escalation")))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("PROTECTED_ROLE_SELF_ESCALATION_DENIED");
+
+        verify(f.grants, never()).grant(any(), any(), any(), any());
+        verify(f.audit, never()).success(any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void platformAdminCannotSelfPromoteToPlatformOwner() {
+        Fixture f = fixture();
+        UserAccessResponse admin = new UserAccessResponse(
+                GRANT_ID, CONTROL_TENANT, ACTOR_ID, OTHER_ROLE_ID, "PLATFORM_ADMIN",
+                null, UserGrantStatus.ACTIVE, NOW.minusSeconds(100), NOW.minusSeconds(100));
+        when(f.grants.list(CONTROL_TENANT, ACTOR_ID)).thenReturn(List.of(admin));
+        when(f.metadata.findByControlTenantIdAndRoleId(CONTROL_TENANT, OTHER_ROLE_ID))
+                .thenReturn(Optional.of(new PlatformRoleMetadata(
+                        CONTROL_TENANT, OTHER_ROLE_ID, PlatformRoleMetadata.RoleType.SYSTEM,
+                        true, false, NOW, NOW)));
+        when(f.metadata.findByControlTenantIdAndRoleId(CONTROL_TENANT, ROLE_ID))
+                .thenReturn(Optional.of(new PlatformRoleMetadata(
+                        CONTROL_TENANT, ROLE_ID, PlatformRoleMetadata.RoleType.SYSTEM,
+                        true, true, NOW, NOW)));
+
+        assertThatThrownBy(() -> f.service.replaceUserRoles(
+                actor(), ACTOR_ID,
+                new ReplacePlatformRolesRequest(List.of(OTHER_ROLE_ID, ROLE_ID), "self escalation")))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("PROTECTED_ROLE_SELF_ESCALATION_DENIED");
+
+        verify(f.grants, never()).grant(any(), any(), any(), any());
+    }
+
+    @Test
+    void selfAssignCustomRoleRemainsAllowed() {
+        Fixture f = fixture();
+        when(f.grants.list(CONTROL_TENANT, ACTOR_ID))
+                .thenReturn(List.of(), List.of());
+        when(f.metadata.findByControlTenantIdAndRoleId(CONTROL_TENANT, ROLE_ID))
+                .thenReturn(Optional.of(new PlatformRoleMetadata(
+                        CONTROL_TENANT, ROLE_ID, PlatformRoleMetadata.RoleType.CUSTOM,
+                        false, false, NOW, NOW)));
+
+        f.service.replaceUserRoles(actor(), ACTOR_ID,
+                new ReplacePlatformRolesRequest(List.of(ROLE_ID), "custom role"));
+
+        verify(f.grants).grant(CONTROL_TENANT, ACTOR_ID, ROLE_ID, null);
+    }
+
+    @Test
+    void existingProtectedRoleRetentionIsNotEscalation() {
+        Fixture f = fixture();
+        UserAccessResponse owner = new UserAccessResponse(
+                GRANT_ID, CONTROL_TENANT, ACTOR_ID, ROLE_ID, "PLATFORM_OWNER",
+                null, UserGrantStatus.ACTIVE, NOW.minusSeconds(100), NOW.minusSeconds(100));
+        when(f.grants.list(CONTROL_TENANT, ACTOR_ID))
+                .thenReturn(List.of(owner), List.of(owner));
+        when(f.metadata.findByControlTenantIdAndRoleId(CONTROL_TENANT, ROLE_ID))
+                .thenReturn(Optional.of(new PlatformRoleMetadata(
+                        CONTROL_TENANT, ROLE_ID, PlatformRoleMetadata.RoleType.SYSTEM,
+                        true, true, NOW, NOW)));
+
+        f.service.replaceUserRoles(actor(), ACTOR_ID,
+                new ReplacePlatformRolesRequest(List.of(ROLE_ID), "retain"));
+
+        verify(f.grants, never()).grant(any(), any(), any(), any());
+        verify(f.grants, never()).revoke(any(), any());
     }
 
     @Test
