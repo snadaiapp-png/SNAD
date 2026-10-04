@@ -47,7 +47,10 @@ vi.mock("@/lib/i18n/I18nProvider", () => ({
       "users.create": "إضافة مستخدم",
       "users.createTitle": "إضافة مستخدم جديد",
       "users.email": "البريد الإلكتروني",
+      "users.username": "اسم المستخدم",
       "users.displayName": "الاسم المعروض",
+      "users.mobileNumber": "رقم الجوال",
+      "users.mobileRegion": "رمز المنطقة",
       "users.submitCreate": "إرسال الدعوة",
       "users.empty": "لا يوجد مستخدمون بعد",
       "users.noMatches": "لا توجد نتائج مطابقة",
@@ -176,12 +179,16 @@ describe("Tenant User Directory", () => {
 
     expect(screen.queryByLabelText(/tenant|المستأجر|معرف المستأجر/i)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("البريد الإلكتروني"), "new@example.com");
+    await user.type(screen.getByLabelText("اسم المستخدم"), "new.user");
     await user.type(screen.getByLabelText("الاسم المعروض"), "مستخدم جديد");
     await user.click(screen.getByRole("button", { name: "إرسال الدعوة" }));
 
     await waitFor(() => expect(usersApiMock.create).toHaveBeenCalledWith(TENANT_ID, {
       email: "new@example.com",
+      username: "new.user",
       displayName: "مستخدم جديد",
+      mobileNumber: "",
+      mobileRegion: "",
     }));
     await waitFor(() => expect(usersApiMock.list).toHaveBeenCalledTimes(2));
   });
