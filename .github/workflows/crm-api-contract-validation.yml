@@ -190,23 +190,18 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, re
+          import json, os
           from pathlib import Path
-
           runtime=json.loads(Path('/tmp/crm-openapi.runtime.json').read_text(encoding='utf-8'))
           committed=json.loads(Path('docs/crm/contracts/openapi/crm-openapi.json').read_text(encoding='utf-8'))
 
-          # springdoc generates numeric suffixes for duplicate operationIds across the
-          # aggregate platform document (for example list_5 vs list_6). Those suffixes
-          # can shift when unrelated modules add/remove endpoints even when the CRM
-          # path contract itself is unchanged. Compare operationId bases while keeping
-          # every other OpenAPI field strict and path-local.
-          def normalize_operation_id_suffixes(value):
+          # Ignore only springdoc's unstable numeric suffix on duplicate operationIds.
+          # Every other OpenAPI field remains strict.
+          import re
+          def normalize_operation_ids(value):
               if isinstance(value, dict):
-                  normalized = {}
-                  for key, child in value.items():
-                      if key == 'operationId' and isinstance(child, str):
-                          normalized[key] = re.sub(r'_\\d+          required_headers={
+                  return {
+                      key: (re.sub(r'_\\d+          required_headers={
             ('/accounts','post','Idempotency-Key'),('/contacts','post','Idempotency-Key'),
             ('/leads','post','Idempotency-Key'),('/opportunities','post','Idempotency-Key'),
             ('/activities','post','Idempotency-Key'),('/imports/upload','post','Idempotency-Key'),
@@ -296,20 +291,20 @@ jobs:
           echo '## CRM API Contract Validation' >> "$GITHUB_STEP_SUMMARY"
           echo "**SHA:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Run ID:** ${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
-, '', child)
-                      else:
-                          normalized[key] = normalize_operation_id_suffixes(child)
-                  return normalized
+, '', child) if key == 'operationId' and isinstance(child, str)
+                            else normalize_operation_ids(child))
+                      for key, child in value.items()
+                  }
               if isinstance(value, list):
-                  return [normalize_operation_id_suffixes(child) for child in value]
+                  return [normalize_operation_ids(child) for child in value]
               return value
 
-          runtime_semantic=normalize_operation_id_suffixes(runtime)
-          committed_semantic=normalize_operation_id_suffixes(committed)
+          runtime_semantic=normalize_operation_ids(runtime)
+          committed_semantic=normalize_operation_ids(committed)
           if runtime_semantic!=committed_semantic:
               raise SystemExit('CRM OpenAPI semantic drift detected')
           if runtime!=committed:
-              print('CRM OpenAPI semantic parity PASS; ignored aggregate operationId numeric-suffix noise only')
+              print('CRM OpenAPI semantic parity PASS; ignored operationId numeric-suffix noise only')
           required_headers={
             ('/accounts','post','Idempotency-Key'),('/contacts','post','Idempotency-Key'),
             ('/leads','post','Idempotency-Key'),('/opportunities','post','Idempotency-Key'),
