@@ -141,16 +141,22 @@ public class AuthService {
      * Authenticate with composite rate-limit keys (IP + account + combined).
      *
      * <p>When {@code rateLimitKeys} is {@code null} (legacy callers), falls back
-     * to the legacy email-only in-memory cache. New callers should pass the
+     * to the legacy identifier in-memory cache. New callers should pass the
      * composite keys produced by {@code LoginRateLimitKeys} so the configured
      * {@link LoginRateLimiter} (in-memory Caffeine by default, replaceable by a
      * distributed adapter) governs per-IP, per-account, and combined buckets.
      */
     @Transactional
     public AuthResponse login(LoginRequest request, String[] rateLimitKeys) {
-        String normalizedEmail = request.getEmail().trim().toLowerCase();
+        String normalizedEmail = normalizeLoginEmail(request.getEmail());
+        String normalizedUsername = normalizeLoginUsername(request.getUsername());
+        boolean emailLogin = normalizedEmail != null;
+        if (emailLogin == (normalizedUsername != null)) {
+            throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
+        }
+        String normalizedIdentifier = emailLogin ? normalizedEmail : normalizedUsername;
 
-        // Rate limit: composite keys (preferred) or legacy email-only fallback.
+        // Rate limit: composite keys (preferred) or legacy identifier fallback.
         if (rateLimitKeys != null && rateLimitKeys.length > 0) {
             for (String key : rateLimitKeys) {
                 LoginRateLimiter.Decision decision = loginRateLimiter.check(key);
@@ -161,45 +167,51 @@ public class AuthService {
                 }
             }
         } else {
-            String legacyKey = "email:" + normalizedEmail;
+            String legacyKey = "identifier:" + normalizedIdentifier;
             Integer failures = loginFailureCache.getIfPresent(legacyKey);
             int maxAttempts = securityProperties.getLoginRateLimit().getMaxAttempts();
             if (failures != null && failures >= maxAttempts) {
-                log.warn("Login rate limit exceeded for email={}", normalizedEmail);
+                log.warn("Login rate limit exceeded for identifierType={}", emailLogin ? "email" : "username");
                 throw new LoginRateLimitException(
                         "تم تجاوز عدد محاولات الدخول المسموح بها. حاول لاحقًا.");
             }
         }
 
-        // Find user by email across all tenants (or scoped if tenantId provided)
+        // Resolve through the canonical tenant user repository. Username is
+        // tenant-scoped and may legitimately exist in more than one tenant.
         User user;
         if (request.getTenantId() != null) {
-            // Login with explicit tenantId (backward compatibility)
-            user = userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail)
-                    .orElse(null);
+            user = emailLogin
+                    ? userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail).orElse(null)
+                    : userRepository.findByTenantIdAndUsername(request.getTenantId(), normalizedUsername).orElse(null);
         } else {
-            // Email-only login: find across all tenants
-            List<User> users = userRepository.findAllByEmail(normalizedEmail);
+            List<User> users = emailLogin
+                    ? userRepository.findAllByEmail(normalizedEmail)
+                    : userRepository.findAllByUsername(normalizedUsername);
             if (users.isEmpty()) {
                 user = null;
             } else if (users.size() == 1) {
                 user = users.get(0);
             } else {
-                // Multiple tenants — return 409 with tenant list for selection
-                log.warn("Login ambiguous: email={} found in {} tenants", normalizedEmail, users.size());
-                throw new AmbiguousTenantException("البريد الإلكتروني موجود في عدة مستأجرين", users);
+                log.warn("Login ambiguous: identifierType={} found in {} tenants",
+                        emailLogin ? "email" : "username", users.size());
+                throw new AmbiguousTenantException(
+                        emailLogin
+                                ? "البريد الإلكتروني موجود في عدة مستأجرين"
+                                : "اسم المستخدم موجود في عدة مستأجرين",
+                        users);
             }
         }
 
         if (user == null) {
-            recordLoginFailure(rateLimitKeys, normalizedEmail);
-            log.warn("Login failed: user not found for email={}", normalizedEmail);
+            recordLoginFailure(rateLimitKeys, normalizedIdentifier);
+            log.warn("Login failed: user not found for identifierType={}", emailLogin ? "email" : "username");
             throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
         }
 
         if (user.getPasswordHash() == null
                 || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            recordLoginFailure(rateLimitKeys, normalizedEmail);
+            recordLoginFailure(rateLimitKeys, normalizedIdentifier);
             log.warn("Login failed: credential mismatch for userId={}", user.getId());
             throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
         }
@@ -211,7 +223,7 @@ public class AuthService {
         requireLoginEligibleTenant(user.getTenantId());
         requireLoginEligibleSubscription(user);
 
-        recordLoginSuccess(rateLimitKeys, normalizedEmail);
+        recordLoginSuccess(rateLimitKeys, normalizedIdentifier);
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
         return issueTokens(user);
@@ -258,25 +270,40 @@ public class AuthService {
         }
     }
 
-    private void recordLoginFailure(String[] rateLimitKeys, String normalizedEmail) {
+    private void recordLoginFailure(String[] rateLimitKeys, String normalizedIdentifier) {
         if (rateLimitKeys != null) {
             for (String key : rateLimitKeys) {
                 loginRateLimiter.recordFailure(key);
             }
         }
         // Legacy in-memory counter kept for backward compatibility with older callers.
-        loginFailureCache.put("email:" + normalizedEmail,
-                (loginFailureCache.getIfPresent("email:" + normalizedEmail) == null ? 0
-                        : loginFailureCache.getIfPresent("email:" + normalizedEmail)) + 1);
+        String legacyKey = "identifier:" + normalizedIdentifier;
+        loginFailureCache.put(legacyKey,
+                (loginFailureCache.getIfPresent(legacyKey) == null ? 0
+                        : loginFailureCache.getIfPresent(legacyKey)) + 1);
     }
 
-    private void recordLoginSuccess(String[] rateLimitKeys, String normalizedEmail) {
+    private void recordLoginSuccess(String[] rateLimitKeys, String normalizedIdentifier) {
         if (rateLimitKeys != null) {
             for (String key : rateLimitKeys) {
                 loginRateLimiter.recordSuccess(key);
             }
         }
-        loginFailureCache.invalidate("email:" + normalizedEmail);
+        loginFailureCache.invalidate("identifier:" + normalizedIdentifier);
+    }
+
+    private static String normalizeLoginEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return null;
+        }
+        return email.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static String normalizeLoginUsername(String username) {
+        if (username == null || username.isBlank()) {
+            return null;
+        }
+        return username.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     /**

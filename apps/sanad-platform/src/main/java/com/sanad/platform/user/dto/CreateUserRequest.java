@@ -17,6 +17,9 @@ public class CreateUserRequest {
     @Size(max = 255, message = "email must be at most 255 characters")
     private String email;
 
+    @Size(max = 100, message = "username must be at most 100 characters")
+    private String username;
+
     @Size(max = 200, message = "displayName must be at most 200 characters")
     private String displayName;
 
@@ -26,7 +29,12 @@ public class CreateUserRequest {
     }
 
     public CreateUserRequest(String email, String displayName, UserStatus status) {
+        this(email, null, displayName, status);
+    }
+
+    public CreateUserRequest(String email, String username, String displayName, UserStatus status) {
         setEmail(email);
+        this.username = username;
         this.displayName = displayName;
         this.status = status;
     }
@@ -41,6 +49,14 @@ public class CreateUserRequest {
      */
     public void setEmail(String email) {
         this.email = email == null ? null : email.trim();
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
     }
 
     public String getDisplayName() {

@@ -44,6 +44,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -99,8 +100,10 @@ public class AuthController {
     @PostMapping("/login")
     @Operation(summary = "Authenticate and return the complete post-login bootstrap")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
-        String normalizedEmail = request.getEmail() == null ? "" : request.getEmail().trim().toLowerCase();
-        String[] compositeKeys = rateLimitKeys.keysFor(normalizedEmail, httpRequest);
+        String normalizedIdentifier = request.getUsername() != null && !request.getUsername().isBlank()
+                ? request.getUsername().trim().toLowerCase(Locale.ROOT)
+                : request.getEmail() == null ? "" : request.getEmail().trim().toLowerCase(Locale.ROOT);
+        String[] compositeKeys = rateLimitKeys.keysFor(normalizedIdentifier, httpRequest);
         return authResponse(authService.login(request, compositeKeys));
     }
 

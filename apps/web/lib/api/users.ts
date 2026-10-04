@@ -41,6 +41,7 @@ export interface UserResponse {
   id: string;
   tenantId: string;
   email: string;
+  username: string | null;
   displayName: string | null;
   status: UserStatus;
   createdAt: string;
@@ -53,6 +54,7 @@ export interface UserResponse {
  */
 export interface CreateUserRequest {
   email: string;
+  username?: string | null;
   displayName: string | null;
   status?: UserStatus;
 }
@@ -63,6 +65,7 @@ export interface CreateUserRequest {
  */
 export interface UpdateUserRequest {
   email: string;
+  username?: string | null;
   displayName: string | null;
 }
 
@@ -124,12 +127,15 @@ export function createUsersApi(client: ApiClient = apiClient) {
      */
     async create(
       tenantId: string,
-      input: { email: string; displayName?: string | null; status?: UserStatus }
+      input: { email: string; username?: string | null; displayName?: string | null; status?: UserStatus }
     ) {
       const body: CreateUserRequest = {
         email: requireValidEmail(input.email),
         displayName: requireValidDisplayName(input.displayName ?? null),
       };
+      if (input.username !== undefined) {
+        body.username = input.username?.trim().toLowerCase() || null;
+      }
       if (input.status !== undefined) {
         body.status = input.status;
       }
@@ -149,12 +155,15 @@ export function createUsersApi(client: ApiClient = apiClient) {
     async update(
       tenantId: string,
       userId: string,
-      input: { email: string; displayName?: string | null }
+      input: { email: string; username?: string | null; displayName?: string | null }
     ) {
       const body: UpdateUserRequest = {
         email: requireValidEmail(input.email),
         displayName: requireValidDisplayName(input.displayName ?? null),
       };
+      if (input.username !== undefined) {
+        body.username = input.username?.trim().toLowerCase() || null;
+      }
       return client.put<UserResponse, UpdateUserRequest>(
         `/api/v1/users/${requireValidUuid(userId, "userId")}`,
         body,

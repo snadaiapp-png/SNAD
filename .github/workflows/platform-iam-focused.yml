@@ -152,7 +152,7 @@ jobs:
         env:
           # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
-        run: mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true -Dtest='PlatformApiCountTest,PlatformTemporaryAccessServiceTest,PlatformUserControllerAuthorizationTest,PlatformAccessControllerAuthorizationTest'
+        run: mvn test -B -ntp -Dsurefire.useFile=false -DfailIfNoTests=true -Dtest='PlatformApiCountTest,PlatformTemporaryAccessServiceTest,PlatformUserControllerAuthorizationTest,PlatformAccessControllerAuthorizationTest,UsernameAuthExpansionContractTest'
 
       - name: Upload test reports
         if: always()
@@ -299,4 +299,3 @@ jobs:
           path: apps/sanad-platform/target/surefire-reports/
           if-no-files-found: error
           retention-days: 14
-
