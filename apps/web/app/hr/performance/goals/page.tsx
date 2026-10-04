@@ -39,8 +39,10 @@ export default function GoalsPage() {
   const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
 
-  const canView = capabilities.includes(HRM_CAPABILITIES.GOAL_SELF_VIEW);
+  const canViewSelf = capabilities.includes(HRM_CAPABILITIES.GOAL_SELF_VIEW);
   const canUpdate = capabilities.includes(HRM_CAPABILITIES.GOAL_SELF_UPDATE);
+  const canManageTeam = capabilities.includes(HRM_CAPABILITIES.GOAL_TEAM_MANAGE);
+  const canView = canViewSelf || canManageTeam;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -51,20 +53,29 @@ export default function GoalsPage() {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(false);
+  const [teamEmploymentId, setTeamEmploymentId] = useState("");
+  const [teamGoals, setTeamGoals] = useState<G3PerformanceGoal[] | null>(null);
+  const [teamError, setTeamError] = useState<unknown>(null);
+  const [teamLoading, setTeamLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await hrG3Api.listGoals();
-      setGoals(result);
-      setSelectedGoalId((current) => (current && result.some((goal) => goal.id === current) ? current : result[0]?.id ?? ""));
+      if (canViewSelf) {
+        const result = await hrG3Api.listGoals();
+        setGoals(result);
+        setSelectedGoalId((current) => (current && result.some((goal) => goal.id === current) ? current : result[0]?.id ?? ""));
+      } else {
+        setGoals([]);
+        setSelectedGoalId("");
+      }
     } catch (err) {
       setError(err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canViewSelf]);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED" || !canView) return;
@@ -76,6 +87,21 @@ export default function GoalsPage() {
     () => goals.find((goal) => goal.id === selectedGoalId) ?? null,
     [goals, selectedGoalId],
   );
+
+  async function loadTeamGoals() {
+    const employmentId = teamEmploymentId.trim();
+    if (!employmentId) return;
+    setTeamLoading(true);
+    setTeamError(null);
+    try {
+      setTeamGoals(await hrG3Api.listTeamGoals(employmentId));
+    } catch (err) {
+      setTeamGoals(null);
+      setTeamError(err);
+    } finally {
+      setTeamLoading(false);
+    }
+  }
 
   function selectGoal(goalId: string) {
     setSelectedGoalId(goalId);
@@ -183,6 +209,50 @@ export default function GoalsPage() {
                 <HrKpiCard label={t("hrm.g3.goals.kpi.completed")} value={String(completedGoals)} hint={t("hrm.g3.goals.col.status")} tone="positive" />
               </div>
             </HrKpiGrid>
+
+            {canManageTeam ? (
+              <div data-testid="goals-team-panel">
+                <HrOperationalPanel
+                  label={t("hrm.g3.workspace.nav.goals")}
+                  title={t("hrm.g3.workspace.nav.goals")}
+                  description={t("hrm.g3.reviews.team.description")}
+                >
+                  <div className={styles.actionRow}>
+                    <label htmlFor="goals-team-employment-input" className={styles.kpiLabel}>
+                      {t("hrm.g3.reviews.team.employmentId")}
+                    </label>
+                    <input
+                      id="goals-team-employment-input"
+                      className={styles.filterSelect}
+                      value={teamEmploymentId}
+                      onChange={(event) => setTeamEmploymentId(event.target.value)}
+                      disabled={teamLoading}
+                      data-testid="goals-team-employment-input"
+                    />
+                    <button
+                      type="button"
+                      className={styles.linkButton}
+                      disabled={teamLoading || teamEmploymentId.trim() === ""}
+                      onClick={() => void loadTeamGoals()}
+                      data-testid="goals-team-load"
+                    >
+                      {teamLoading ? t("hrm.g3.goals.loading") : t("hrm.g3.workspace.nav.goals")}
+                    </button>
+                  </div>
+                  {teamError ? <HrErrorState error={teamError} onRetry={() => void loadTeamGoals()} /> : null}
+                  {teamGoals ? (
+                    <HrDataTable<G3PerformanceGoal>
+                      caption={t("hrm.g3.workspace.nav.goals")}
+                      columns={columns}
+                      rows={teamGoals}
+                      rowKey={(goal) => goal.id}
+                      emptyTitle={t("hrm.g3.goals.empty.title")}
+                      emptyDescription={t("hrm.g3.goals.empty.description")}
+                    />
+                  ) : null}
+                </HrOperationalPanel>
+              </div>
+            ) : null}
 
             {canUpdate && selectedGoal ? (
               <HrActionBar label={t("hrm.g3.goals.action.updateProgress")}>
