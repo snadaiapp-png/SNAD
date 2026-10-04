@@ -1,0 +1,162 @@
+name: G3 Production Certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact current main SHA already live on Vercel
+        required: true
+        type: string
+      confirm:
+        description: Type "run-g3-production-certification"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: g3-production-certification
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    name: G3 authenticated live read-only certification
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      WEB_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      G3_EXPECTED_SHA: ${{ inputs.release_sha }}
+      G2_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      G3_PROD_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      G2_ADMIN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      G2_ADMIN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+      E2E_EMPLOYEE_EMAIL: ${{ secrets.G2_PROD_EMPLOYEE_EMAIL }}
+      E2E_EMPLOYEE_PASSWORD: ${{ secrets.G2_PROD_EMPLOYEE_PASSWORD }}
+      E2E_MANAGER_EMAIL: ${{ secrets.G2_PROD_MANAGER_EMAIL }}
+      E2E_MANAGER_PASSWORD: ${{ secrets.G2_PROD_MANAGER_PASSWORD }}
+      E2E_UNAUTHORIZED_EMAIL: ${{ secrets.G2_PROD_HR_EMAIL }}
+      E2E_UNAUTHORIZED_PASSWORD: ${{ secrets.G2_PROD_HR_PASSWORD }}
+      PLAYWRIGHT_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      CI: '1'
+
+    steps:
+      - name: Validate authorization and exact current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confirm }}" = "run-g3-production-certification"
+          [[ "$G3_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          for name in WEB_BASE_URL G2_TENANT_ID G3_PROD_TENANT_ID G2_ADMIN_EMAIL G2_ADMIN_PASSWORD E2E_EMPLOYEE_EMAIL E2E_EMPLOYEE_PASSWORD E2E_MANAGER_EMAIL E2E_MANAGER_PASSWORD E2E_UNAUTHORIZED_EMAIL E2E_UNAUTHORIZED_PASSWORD; do
+            test -n "${!name:-}" || { echo "::error::$name is required"; exit 1; }
+            echo "::add-mask::${!name}"
+          done
+          remote_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$G3_EXPECTED_SHA" || { echo "::error::release_sha is not exact current main"; exit 1; }
+
+      - name: Checkout exact release SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Mint GitHub OIDC token for protected Vercel probes
+        id: oidc
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput('token', token);
+
+      - name: Verify exact Vercel production release identity
+        shell: bash
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --location --max-time 45             -H "x-vercel-trusted-oidc-idp-token: $VERCEL_TRUSTED_OIDC_TOKEN"             -o "$RUNNER_TEMP/release.json" -w '%{http_code}' "$WEB_BASE_URL/api/system/release")"
+          test "$code" = "200"
+          jq -e --arg sha "$G3_EXPECTED_SHA" '.commitSha == $sha and .commitRef == "main" and (.environment == "production" or .environment == "prod")' "$RUNNER_TEMP/release.json" >/dev/null
+
+      - name: Resolve canonical G2 Employee employment through governed APIs
+        shell: bash
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          login() {
+            local email="$1" password="$2" out="$3"
+            local code
+            code="$(curl --silent --show-error --max-time 45 -o "$out" -w '%{http_code}'               -H "x-vercel-trusted-oidc-idp-token: $VERCEL_TRUSTED_OIDC_TOKEN"               -H 'Content-Type: application/json'               --data "$(jq -n --arg e "$email" --arg p "$password" --arg t "$G2_TENANT_ID" '{email:$e,password:$p,tenantId:$t}')"               "$WEB_BASE_URL/api/platform/api/v1/auth/login")"
+            test "$code" = "200"
+          }
+          login "$G2_ADMIN_EMAIL" "$G2_ADMIN_PASSWORD" "$RUNNER_TEMP/admin-login.json"
+          login "$E2E_EMPLOYEE_EMAIL" "$E2E_EMPLOYEE_PASSWORD" "$RUNNER_TEMP/employee-login.json"
+          ADMIN_TOKEN="$(jq -r '.accessToken // empty' "$RUNNER_TEMP/admin-login.json")"
+          EMP_USER_ID="$(jq -r '.user.id // empty' "$RUNNER_TEMP/employee-login.json")"
+          ADMIN_TENANT="$(jq -r '.user.tenantId // empty' "$RUNNER_TEMP/admin-login.json")"
+          EMP_TENANT="$(jq -r '.user.tenantId // empty' "$RUNNER_TEMP/employee-login.json")"
+          test -n "$ADMIN_TOKEN" && test -n "$EMP_USER_ID"
+          test "$ADMIN_TENANT" = "$G2_TENANT_ID" || { echo "::error::Admin tenant binding mismatch"; exit 1; }
+          test "$EMP_TENANT" = "$G2_TENANT_ID" || { echo "::error::Employee tenant binding mismatch"; exit 1; }
+          echo "::add-mask::$ADMIN_TOKEN"
+          echo "::add-mask::$EMP_USER_ID"
+          curl --fail-with-body --silent --show-error --max-time 45             -H "x-vercel-trusted-oidc-idp-token: $VERCEL_TRUSTED_OIDC_TOKEN"             -H "Authorization: Bearer $ADMIN_TOKEN"             "$WEB_BASE_URL/api/platform/api/v2/hr/people" > "$RUNNER_TEMP/people.json"
+          EMP_PERSON_ID="$(jq -r --arg uid "$EMP_USER_ID" '.[] | select(.userId == $uid) | .personId' "$RUNNER_TEMP/people.json" | head -1)"
+          test -n "$EMP_PERSON_ID"
+          echo "::add-mask::$EMP_PERSON_ID"
+          curl --fail-with-body --silent --show-error --max-time 45             -H "x-vercel-trusted-oidc-idp-token: $VERCEL_TRUSTED_OIDC_TOKEN"             -H "Authorization: Bearer $ADMIN_TOKEN"             "$WEB_BASE_URL/api/platform/api/v2/hr/employments" > "$RUNNER_TEMP/employments.json"
+          EMP_EMPLOYMENT_ID="$(jq -r --arg pid "$EMP_PERSON_ID" '.[] | select(.personId == $pid and .currentStatus == "ACTIVE") | .employmentId' "$RUNNER_TEMP/employments.json" | head -1)"
+          [[ "$EMP_EMPLOYMENT_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Unable to resolve one active employee employment"; exit 1; }
+          echo "::add-mask::$EMP_EMPLOYMENT_ID"
+          echo "G3_PROD_EMPLOYEE_EMPLOYMENT_ID=$EMP_EMPLOYMENT_ID" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies and Chromium
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install chromium --with-deps
+
+      - name: Run G3 authenticated production certification
+        working-directory: apps/web
+        shell: bash
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: npx playwright test --config=playwright-g3-production.config.ts
+
+      - name: Upload immutable G3 production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g3-production-certification-${{ github.run_id }}
+          path: |
+            apps/web/playwright-g3-production-report/
+            apps/web/test-results/
+            ${{ runner.temp }}/release.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Record certification summary
+        if: success()
+        run: |
+          {
+            echo "## G3 Production Certification"
+            echo "- Exact Vercel SHA: $G3_EXPECTED_SHA"
+            echo "- Employee SELF UI/API: PASS"
+            echo "- Manager TEAM API/UI: PASS"
+            echo "- Negative principal backend/UI 403: PASS"
+            echo "- Production business-data mutation: NONE"
+            echo "- Result: PASS"
+          } >> "$GITHUB_STEP_SUMMARY"
