@@ -56,16 +56,29 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertIn("check-production-readiness.py", text)
         self.assertIn("--frontend-routes-only", text)
 
-    def test_reconcile_uses_full_production_urls_with_vercel_curl(self):
+    def test_reconcile_uses_rest_identity_and_trusted_oidc(self):
         text = RECONCILE.read_text(encoding="utf-8")
 
-        self.assertIn('marker_url="$PRODUCTION_WEB_BASE_URL/__snad_release_sha.txt"', text)
-        self.assertIn('vercel@latest curl "$marker_url"', text)
-        self.assertIn('vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release"', text)
-        self.assertIn('--token="$VERCEL_TOKEN"', text)
+        self.assertIn("Verify exact production deployment via Vercel REST API", text)
+        self.assertIn("https://api.vercel.com/v13/deployments/", text)
+        self.assertIn('meta.get("snadMainSha") or meta.get("githubCommitSha")', text)
+        self.assertIn('state == "READY"', text)
+        self.assertIn('target == "production"', text)
+        self.assertIn("production_host in aliases", text)
+        self.assertIn("id-token: write", text)
+        self.assertIn("await core.getIDToken()", text)
+        self.assertIn("x-vercel-trusted-oidc-idp-token", text)
+        self.assertNotIn('vercel@latest --token="$VERCEL_TOKEN" curl', text)
+        self.assertNotIn('vercel@latest curl "$marker_url"', text)
         self.assertNotIn('--deployment "$PRODUCTION_WEB_BASE_URL"', text)
         self.assertNotIn("2>/dev/null", text)
-        self.assertIn("Vercel protected marker probe failed", text)
+        self.assertIn("Create exact-SHA Git-source Production deployment via Vercel REST API", text)
+        self.assertIn('"gitSource": {', text)
+        self.assertIn('"sha": expected', text)
+        self.assertIn('"target": "production"', text)
+        self.assertIn('"project": project_id', text)
+        self.assertNotIn("vercel@latest deploy", text)
+        self.assertNotIn("--prebuilt", text)
 
     def test_production_has_single_writer(self):
         import json
@@ -75,7 +88,7 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertIs(
             deployment_enabled.get("main"),
             False,
-            msg="Vercel Git Integration must not auto-deploy main; governed CLI reconcile is the single production writer",
+            msg="Vercel Git Integration must not auto-deploy main; governed REST reconcile is the single production writer",
         )
 
 
