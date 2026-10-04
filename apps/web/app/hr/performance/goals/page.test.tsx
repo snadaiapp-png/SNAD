@@ -28,6 +28,10 @@ const { hrG3ApiMock, authMock, i18nState, AR_MESSAGES, EN_MESSAGES } = vi.hoiste
     createGoal: vi.fn(),
     updateGoal: vi.fn(),
     updateGoalProgress: vi.fn(),
+    listTeamGoals: vi.fn(),
+    createTeamGoal: vi.fn(),
+    updateTeamGoal: vi.fn(),
+    updateTeamGoalProgress: vi.fn(),
   },
   authMock: { state: "AUTHENTICATED", capabilities: [] as string[] },
   i18nState: { locale: "ar" as "ar" | "en", messages: {} as Record<string, string> },
@@ -406,11 +410,15 @@ describe("/hr/performance/goals — Task 5 goals tracking surface", () => {
     expect(source).not.toMatch(/\bfetch\s*\(/);
   });
 
-  it("19. never derives SELF authority from caller-supplied tenant/user/employment ids", async () => {
+  it("19. keeps SELF authority implicit while TEAM uses only the governed direct-report employment route", async () => {
     const source = pageSource();
     expect(source).not.toContain("tenantId");
-    expect(source).not.toContain("employmentId");
     expect(source).not.toContain("userId");
+    expect(source).toContain("hrG3Api.listGoals()");
+    expect(source).toContain("hrG3Api.updateGoalProgress(selectedGoal.id");
+    expect(source).toContain("hrG3Api.listTeamGoals(employmentId)");
+    expect(source).not.toMatch(/hrG3Api\.listGoals\([^)]*employmentId/);
+    expect(source).not.toMatch(/hrG3Api\.updateGoalProgress\([^,]+,[^)]*employmentId/);
   });
 
   it("20. keeps accessibility: labelled controls, alert/status roles, headings, native buttons", async () => {
@@ -436,5 +444,24 @@ describe("/hr/performance/goals — Task 5 goals tracking surface", () => {
     const source = pageSource();
     expect(source).not.toMatch(/locale\s*===\s*["']ar["']/);
     expect(source).not.toMatch(/locale\s*===\s*["']en["']/);
+  });
+
+  it("22. TEAM_MANAGE exposes the manager surface without widening SELF authority", async () => {
+    authMock.capabilities = ["HRM.PERFORMANCE.GOAL.TEAM_MANAGE"];
+    hrG3ApiMock.listTeamGoals.mockResolvedValue(cloneGoals());
+
+    await renderGoalsPage();
+    await waitFor(() => expect(screen.getByTestId("goals-ready")).toBeInTheDocument());
+
+    expect(screen.getByTestId("goals-team-panel")).toBeInTheDocument();
+    expect(hrG3ApiMock.listGoals).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("goals-team-employment-input"), {
+      target: { value: "e-1" },
+    });
+    fireEvent.click(screen.getByTestId("goals-team-load"));
+
+    await waitFor(() => expect(hrG3ApiMock.listTeamGoals).toHaveBeenCalledWith("e-1"));
+    expect(await screen.findByText(GOAL_G1.title)).toBeInTheDocument();
   });
 });
