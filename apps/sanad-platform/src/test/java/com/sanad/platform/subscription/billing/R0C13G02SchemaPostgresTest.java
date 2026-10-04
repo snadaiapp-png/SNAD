@@ -109,7 +109,7 @@ class R0C13G02SchemaPostgresTest {
             // V20261003_5 adds the W2-T4 partner tenant binding boundary.
             // V20261003_6 adds the W2-T5 partner delegation grant boundary + gate.
             // V20261003_7 adds the optional tenant-scoped username identity field.
-            assertThat(rs.getString(1)).isEqualTo("20261003.7");
+            assertThat(rs.getString(1)).isEqualTo("20261004.1");
         }
     }
 
