@@ -190,11 +190,126 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os
+          import json, os, re
           from pathlib import Path
+
           runtime=json.loads(Path('/tmp/crm-openapi.runtime.json').read_text(encoding='utf-8'))
           committed=json.loads(Path('docs/crm/contracts/openapi/crm-openapi.json').read_text(encoding='utf-8'))
-          if runtime!=committed: raise SystemExit('CRM OpenAPI semantic drift detected')
+
+          # springdoc generates numeric suffixes for duplicate operationIds across the
+          # aggregate platform document (for example list_5 vs list_6). Those suffixes
+          # can shift when unrelated modules add/remove endpoints even when the CRM
+          # path contract itself is unchanged. Compare operationId bases while keeping
+          # every other OpenAPI field strict and path-local.
+          def normalize_operation_id_suffixes(value):
+              if isinstance(value, dict):
+                  normalized = {}
+                  for key, child in value.items():
+                      if key == 'operationId' and isinstance(child, str):
+                          normalized[key] = re.sub(r'_\\d+          required_headers={
+            ('/accounts','post','Idempotency-Key'),('/contacts','post','Idempotency-Key'),
+            ('/leads','post','Idempotency-Key'),('/opportunities','post','Idempotency-Key'),
+            ('/activities','post','Idempotency-Key'),('/imports/upload','post','Idempotency-Key'),
+            ('/imports/{jobId}/run','post','Idempotency-Key'),('/leads/{leadId}/convert','post','Idempotency-Key'),
+            ('/accounts/{accountId}','patch','If-Match'),('/opportunities/{opportunityId}','patch','If-Match'),
+            ('/activities/{activityId}','patch','If-Match'),('/pipelines/{pipelineId}','patch','If-Match'),
+            ('/pipelines','post','Idempotency-Key'),
+            ('/accounts/{accountId}/addresses','post','Idempotency-Key'),
+            ('/contacts/{contactId}/addresses','post','Idempotency-Key'),
+            ('/accounts/{accountId}/communication-methods','post','Idempotency-Key'),
+            ('/contacts/{contactId}/communication-methods','post','Idempotency-Key'),
+            ('/addresses/import','post','Idempotency-Key'),
+            ('/communication-methods/import','post','Idempotency-Key'),
+            ('/teams','post','Idempotency-Key'),
+            ('/teams/{teamId}','patch','If-Match'),
+            ('/teams/{teamId}/memberships','post','Idempotency-Key'),
+            ('/teams/{teamId}/memberships/{membershipId}','patch','If-Match'),
+            ('/teams/{teamId}/memberships/{membershipId}','delete','If-Match'),
+            ('/queues','post','Idempotency-Key'),
+            ('/queues/{queueId}','patch','If-Match'),
+            ('/queues/{queueId}/items/{itemId}/claim','post','Idempotency-Key'),
+            ('/queues/{queueId}/items/{itemId}/release','post','Idempotency-Key'),
+            ('/territories','post','Idempotency-Key'),
+            ('/territories/{territoryId}','patch','If-Match'),
+            ('/territories/{territoryId}/assignments','post','Idempotency-Key'),
+            ('/territories/{territoryId}/assignments/{assignmentId}','delete','If-Match'),
+            ('/assignment-rules','post','Idempotency-Key'),
+            ('/assignment-rules/{ruleId}/versions','post','Idempotency-Key'),
+            ('/assignment-rules/{ruleId}/versions/{version}/activate','patch','If-Match'),
+            ('/assignments/reassign','post','Idempotency-Key'),
+            ('/assignments/bulk-reassign','post','Idempotency-Key'),
+            ('/transfers','post','Idempotency-Key'),
+            ('/transfers/{transferId}/submit','post','Idempotency-Key'),
+            ('/transfers/{transferId}/submit','post','If-Match'),
+            ('/transfers/{transferId}/approve','post','Idempotency-Key'),
+            ('/transfers/{transferId}/approve','post','If-Match'),
+            ('/transfers/{transferId}/cancel','post','Idempotency-Key'),
+            ('/transfers/{transferId}/cancel','post','If-Match'),
+            ('/integrations/ai','post','Idempotency-Key'),
+            ('/integrations/{requestId}/confirm','post','Idempotency-Key'),
+            ('/integrations/{requestId}/confirm','post','If-Match'),
+            ('/integrations/{requestId}/reject','post','Idempotency-Key'),
+            ('/integrations/{requestId}/reject','post','If-Match'),
+            ('/integrations/workflows','post','Idempotency-Key'),
+            ('/integrations/workflows/{requestId}/cancel','post','Idempotency-Key'),
+            ('/integrations/workflows/{requestId}/cancel','post','If-Match')
+          }
+          params=committed.get('components',{}).get('parameters',{})
+          for path,method,header in required_headers:
+              found=False
+              for parameter in committed['paths'][path][method].get('parameters',[]):
+                  resolved=params.get(parameter['$ref'].split('/')[-1],{}) if '$ref' in parameter else parameter
+                  if resolved.get('name')==header and resolved.get('in')=='header' and resolved.get('required') is True:
+                      found=True; break
+              if not found: raise SystemExit(f'Missing required header {header} on {method.upper()} {path}')
+          pipeline=committed['paths']['/pipelines']['post']
+          if '201' not in pipeline.get('responses',{}) or '200' in pipeline.get('responses',{}):
+              raise SystemExit('POST /pipelines must declare 201 Created only')
+          print(f'OpenAPI semantic drift check: PASS ({os.environ["EXPECTED_CRM_PATHS"]} paths, {os.environ["EXPECTED_CRM_OPERATIONS"]} operations)')
+          PY
+      - name: Stop OpenAPI backend
+        if: always()
+        run: if [ -f /tmp/crm-openapi-backend.pid ]; then kill "$(cat /tmp/crm-openapi-backend.pid)" 2>/dev/null || true; fi
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Generated TypeScript drift check
+        working-directory: apps/web
+        run: |
+          cp lib/api/generated/crm-api-types.ts /tmp/crm-api-types.before.ts
+          npm run crm:generate-api-types
+          diff -u /tmp/crm-api-types.before.ts lib/api/generated/crm-api-types.ts
+      - name: Upload generated TypeScript evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-generated-types-${{ github.sha }}
+          path: apps/web/lib/api/generated/crm-api-types.ts
+          if-no-files-found: warn
+          retention-days: 14
+      - name: TypeScript typecheck
+        working-directory: apps/web
+        run: npx tsc --noEmit --skipLibCheck lib/api/generated/crm-api-types.ts
+      - name: Publish validation summary
+        if: always()
+        run: |
+          echo '## CRM API Contract Validation' >> "$GITHUB_STEP_SUMMARY"
+          echo "**SHA:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run ID:** ${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+, '', child)
+                      else:
+                          normalized[key] = normalize_operation_id_suffixes(child)
+                  return normalized
+              if isinstance(value, list):
+                  return [normalize_operation_id_suffixes(child) for child in value]
+              return value
+
+          runtime_semantic=normalize_operation_id_suffixes(runtime)
+          committed_semantic=normalize_operation_id_suffixes(committed)
+          if runtime_semantic!=committed_semantic:
+              raise SystemExit('CRM OpenAPI semantic drift detected')
+          if runtime!=committed:
+              print('CRM OpenAPI semantic parity PASS; ignored aggregate operationId numeric-suffix noise only')
           required_headers={
             ('/accounts','post','Idempotency-Key'),('/contacts','post','Idempotency-Key'),
             ('/leads','post','Idempotency-Key'),('/opportunities','post','Idempotency-Key'),
