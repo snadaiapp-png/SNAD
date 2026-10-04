@@ -198,6 +198,19 @@ public class PlatformRoleService {
         Set<UUID> existing = new HashSet<>();
         current.forEach(grant -> existing.add(grant.roleId()));
 
+        UUID actorUserId = requiredUuid(actor, "user_id");
+        if (actorUserId.equals(userId)) {
+            for (UUID roleId : desired) {
+                if (existing.contains(roleId)) {
+                    continue;
+                }
+                PlatformRoleMetadata item = requireMetadata(tenantId, roleId);
+                if (item.protectedRole() || item.roleType() == PlatformRoleMetadata.RoleType.SYSTEM) {
+                    throw new AccessDeniedException("PROTECTED_ROLE_SELF_ESCALATION_DENIED");
+                }
+            }
+        }
+
         for (UserAccessResponse grant : current) {
             if (!desired.contains(grant.roleId())) {
                 ownerSafety.assertMayRemoveOwnerRole(tenantId, userId, grant.roleId());

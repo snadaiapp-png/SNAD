@@ -2,7 +2,9 @@ package com.sanad.platform.platformiam;
 
 import com.sanad.platform.commerce.PgAcceptanceWiringConfig;
 import com.sanad.platform.platformiam.dto.CreatePlatformUserRequest;
+import com.sanad.platform.platformiam.dto.ReplacePlatformRolesRequest;
 import com.sanad.platform.platformiam.service.PlatformAuthorizationService;
+import com.sanad.platform.platformiam.service.PlatformRoleService;
 import com.sanad.platform.platformiam.service.PlatformTemporaryAccessService;
 import com.sanad.platform.platformiam.service.PlatformUserService;
 import org.junit.jupiter.api.AfterEach;
@@ -12,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
@@ -27,6 +30,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Task 6A PostgreSQL Direct acceptance for cross-tenant Platform User identity isolation. */
 @SpringBootTest(properties = {
@@ -45,6 +49,7 @@ class PlatformUserPostgresAcceptanceTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTemporaryAccessService temporaryAccess;
     @Autowired private PlatformAuthorizationService authorization;
+    @Autowired private PlatformRoleService platformRoles;
     @Autowired private PlatformTransactionManager transactionManager;
 
     private final List<UUID> createdUsers = new ArrayList<>();
@@ -130,6 +135,66 @@ class PlatformUserPostgresAcceptanceTest {
                 .contains("REVOKED");
     }
 
+    @Test
+    void protectedRoleSelfEscalationWritesNoGrantAndNoSuccessAudit() {
+        var user = platformUsers.createPlatformUser(actor(),
+                new CreatePlatformUserRequest(
+                        "t8-self-escalation+" + UUID.randomUUID() + "@example.test",
+                        "T8 Self Escalation"));
+        createdUsers.add(user.userId());
+        platformUsers.activate(actor(), user.userId(), "W2-T8 acceptance fixture");
+
+        UUID adminRoleId = jdbc.queryForObject(
+                "SELECT id FROM roles WHERE tenant_id=? AND code='PLATFORM_ADMIN'",
+                UUID.class, CONTROL_TENANT);
+        UUID ownerRoleId = jdbc.queryForObject(
+                "SELECT id FROM roles WHERE tenant_id=? AND code='PLATFORM_OWNER'",
+                UUID.class, CONTROL_TENANT);
+
+        inControlTenantTransaction(() -> {
+            platformRoles.replaceUserRoles(actor(), user.userId(),
+                    new ReplacePlatformRolesRequest(List.of(adminRoleId), "seed platform admin"));
+            return null;
+        });
+
+        Authentication self = userActor(user.userId());
+        long grantCountBefore = inControlTenantTransaction(() -> jdbc.queryForObject("""
+                SELECT COUNT(*) FROM user_role_assignments
+                 WHERE tenant_id=? AND user_id=? AND role_id=? AND status='ACTIVE'
+                """, Long.class, CONTROL_TENANT, user.userId(), ownerRoleId));
+        long auditCountBefore = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM platform_audit_logs
+                 WHERE action='PLATFORM_ROLE_ASSIGNMENT_CHANGED'
+                   AND resource_type='PLATFORM_USER'
+                   AND resource_id=?
+                """, Long.class, user.userId().toString());
+
+        assertThatThrownBy(() -> inControlTenantTransaction(() ->
+                platformRoles.replaceUserRoles(
+                        self,
+                        user.userId(),
+                        new ReplacePlatformRolesRequest(
+                                List.of(adminRoleId, ownerRoleId),
+                                "attempt protected self escalation"))))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("PROTECTED_ROLE_SELF_ESCALATION_DENIED");
+
+        long grantCountAfter = inControlTenantTransaction(() -> jdbc.queryForObject("""
+                SELECT COUNT(*) FROM user_role_assignments
+                 WHERE tenant_id=? AND user_id=? AND role_id=? AND status='ACTIVE'
+                """, Long.class, CONTROL_TENANT, user.userId(), ownerRoleId));
+        long auditCountAfter = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM platform_audit_logs
+                 WHERE action='PLATFORM_ROLE_ASSIGNMENT_CHANGED'
+                   AND resource_type='PLATFORM_USER'
+                   AND resource_id=?
+                """, Long.class, user.userId().toString());
+
+        assertThat(grantCountBefore).isZero();
+        assertThat(grantCountAfter).isZero();
+        assertThat(auditCountAfter).isEqualTo(auditCountBefore);
+    }
+
     private UUID seedTenant(String key) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
@@ -162,6 +227,15 @@ class PlatformUserPostgresAcceptanceTest {
                     CONTROL_TENANT_ID);
             return work.get();
         });
+    }
+
+    private static Authentication userActor(UUID userId) {
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken("platform-user", "n/a", List.of());
+        auth.setDetails(Map.of(
+                "tenant_id", CONTROL_TENANT_ID,
+                "user_id", userId.toString()));
+        return auth;
     }
 
     private static Authentication actor() {

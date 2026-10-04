@@ -512,7 +512,7 @@ jobs:
         #   RbacAccessCheckPostgresAcceptanceTest = 15
         #   ModuleRegistryUatPostgresAcceptanceTest = 10
         #   PlatformSessionInvalidationPostgresAcceptanceTest = 3
-        #   PlatformUserPostgresAcceptanceTest = 2
+        #   PlatformUserPostgresAcceptanceTest = 3
         # -DfailIfNoTests=true prevents a rename/move from becoming false-green.
         env:
           # Required by ProductionSecurityGuard (prod profile) — ephemeral per-run key
@@ -546,7 +546,7 @@ jobs:
               "RbacAccessCheckPostgresAcceptanceTest": 15,
               "ModuleRegistryUatPostgresAcceptanceTest": 10,
               "PlatformSessionInvalidationPostgresAcceptanceTest": 3,
-              "PlatformUserPostgresAcceptanceTest": 2,
+              "PlatformUserPostgresAcceptanceTest": 3,
           }
           actual = {}
           failures = errors = skipped = total = 0
@@ -578,7 +578,7 @@ jobs:
               print(f"{cls}={actual.get(cls, 0)}/{count}")
 
           ok = (
-              total == 36
+              total == 37
               and failures == 0
               and errors == 0
               and skipped == 0
