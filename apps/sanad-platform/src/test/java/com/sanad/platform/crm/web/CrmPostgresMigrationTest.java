@@ -526,7 +526,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTNER_MEMBERSHIP_ADMIN_BOUNDARY_VERSION),
                         MigrationVersion.fromVersion(PARTNER_TENANT_BINDING_BOUNDARY_VERSION),
                         MigrationVersion.fromVersion(PARTNER_DELEGATION_GRANT_BOUNDARY_VERSION),
-                        MigrationVersion.fromVersion(TENANT_USERNAME_VERSION));
+                        MigrationVersion.fromVersion(TENANT_USERNAME_VERSION),
+                        MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -750,7 +751,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTNER_MEMBERSHIP_ADMIN_BOUNDARY_VERSION),
                         MigrationVersion.fromVersion(PARTNER_TENANT_BINDING_BOUNDARY_VERSION),
                         MigrationVersion.fromVersion(PARTNER_DELEGATION_GRANT_BOUNDARY_VERSION),
-                        MigrationVersion.fromVersion(TENANT_USERNAME_VERSION));
+                        MigrationVersion.fromVersion(TENANT_USERNAME_VERSION,
+            PARTNER_RECOVERY_SAFETY_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
