@@ -1,0 +1,66 @@
+name: Vercel Main Production Reconcile
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-main-production-reconcile
+  cancel-in-progress: true
+
+jobs:
+  reconcile:
+    name: Reconcile Vercel Production to exact main
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 35
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      PRODUCTION_WEB_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      VERCEL_RECONCILE_EVIDENCE: vercel-main-reconcile-evidence.json
+
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify immutable current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$GITHUB_SHA" || {
+            echo "::error::VERCEL_RECONCILE_NOT_CURRENT_MAIN expected=$GITHUB_SHA actual=$remote_main"
+            exit 1
+          }
+
+      - name: Validate reconciler source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/operations/vercel_main_production_reconcile.py
+
+      - name: Reconcile exact main to Vercel Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/vercel_main_production_reconcile.py
+
+      - name: Upload Vercel reconcile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-main-reconcile-${{ github.run_id }}-${{ github.run_attempt }}
+          path: vercel-main-reconcile-evidence.json
+          if-no-files-found: error
+          retention-days: 90
