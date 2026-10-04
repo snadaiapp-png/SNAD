@@ -18,7 +18,7 @@ The implementation order is intentionally strict:
 2. Username persistence + auth implementation
 3. User profile/API expansion
 4. Credential administration UI
-5. Module Access Matrix read model
+5. Dynamic Application Access Registry + Effective Access Matrix
 6. Role/scope mutation UX
 7. Effective access + audit
 8. E2E / PostgreSQL Direct / protected merge / production certification
@@ -247,53 +247,78 @@ Action:
 
 ---
 
-## Phase 5 — Module Access Matrix read model
+## Phase 5 — Dynamic Application Access Registry + Effective Access Matrix
 
 ### Goal
 
-Add one product view to the User Administration Workspace.
+Make User Administration application-agnostic. Any conforming SANAD application must appear automatically after governed IAM registration without modifying Users Module code.
 
-### First rendering
+### Registry contract
 
-Group current effective access into:
+Introduce/reuse one central Application Registry whose records are populated through a versioned IAM Contract / Manifest. The contract must declare at minimum:
+
+- stable application code and version;
+- localized display metadata;
+- owned capability namespace(s);
+- governed role templates when supplied;
+- supported scope contracts;
+- lifecycle/status and compatibility metadata.
+
+The registry is discovery/metadata only. It never grants access.
+
+### Non-negotiable invariant
 
 ```text
-CRM
-HRM
-Workflow
-ERP
-Finance/Accounting
-Ecommerce
-POS
-Executive
-Other
+SANAD_DYNAMIC_APPLICATION_IAM = REQUIRED
+APPLICATION_ONBOARDING_MODEL = CONTRACT_REGISTERED + AUTO_DISCOVERED
+NEW_APPLICATION_REQUIRES_USERS_CODE_CHANGE = FALSE
+USERS_MODULE_APP_HARDCODING = PROHIBITED
+APPLICATION_REGISTRY = DISCOVERY_AND_METADATA_ONLY
+AUTHORIZATION_ENGINE = AUTHORITATIVE
+UNKNOWN_APPLICATION_OR_CAPABILITY = FAIL_CLOSED
 ```
 
-Grouping is based on capability namespace and governed role metadata.
+No hardcoded CRM/HRM/Workflow/ERP/Finance/Ecommerce/POS list may exist in the Users presentation or authorization path. Those are current registry entries only.
 
 ### Data sources
 
-Reuse:
+Reuse canonical authorization state:
 
+- registered application metadata;
 - user role links;
 - roles;
 - role capabilities;
-- effective permissions where available;
+- supported scope contracts;
+- effective permissions;
 - authorization overrides/relationships where applicable.
 
-Avoid N+1 API fan-out. If composition becomes excessive, introduce one backend projection endpoint rather than duplicating authorization rules in Next.js.
+Avoid N+1 API fan-out. Prefer one backend projection endpoint that joins registry metadata with backend-authoritative effective access. Next.js must not reproduce authorization decisions.
 
 ### Display
 
-For each module:
+For every discovered application:
 
+- application identity and governed lifecycle state;
 - effective access status;
 - assigned roles;
-- scope;
+- supported/current scope;
 - summarized capabilities;
-- advanced capability list.
+- advanced capability list;
+- source/reason where available.
 
-No module `enabled` boolean becomes a security source of truth.
+Unknown, invalid, disabled, stale, or incompatible registrations fail closed. No application `enabled` boolean becomes a security source of truth.
+
+### Dynamic onboarding acceptance
+
+A contract test must register a synthetic future application not referenced by Users source code and prove that:
+
+1. it is discovered automatically;
+2. its capabilities and supported scopes are rendered from registry/canonical authorization data;
+3. valid role grants affect effective access;
+4. revocation removes effective access;
+5. no Users Module source change is required;
+6. cross-tenant grants are denied;
+7. unknown capability/scope references fail closed.
 
 ---
 
@@ -317,7 +342,7 @@ Expose:
 
 Do not invent universal department scope.
 
-Where HRM/CRM/Workflow have canonical relationship/scope services, integrate them through explicit module adapters and show the source in effective access.
+Application-specific scopes must be exposed through the registered scope contract and canonical authorization relationship/scope service. User Administration consumes that generic contract; adding an application must not require a new Users-side adapter or hardcoded application branch.
 
 ### UX
 
@@ -415,10 +440,10 @@ Must cover at least:
 3. initialize temporary credential;
 4. user first login by username;
 5. forced credential rotation;
-6. admin assigns CRM role;
-7. admin assigns Workflow role with supported scope;
-8. effective module access reflects both;
-9. revoke one role and verify access removal;
+6. register/use at least one synthetic conforming application that is not named in Users source code;
+7. admin assigns a role from a discovered application with a supported scope;
+8. effective application access reflects the canonical grant automatically;
+9. revoke the role and verify access removal without any Users Module code change;
 10. suspend account and prove login denial;
 11. reactivate;
 12. archive and prove login denial;
@@ -497,7 +522,7 @@ PHASE_1_USERNAME_AUTH_CONTRACT = STARTING
 PHASE_2_USERNAME_IMPLEMENTATION = NOT_STARTED
 PHASE_3_PROFILE_API = NOT_STARTED
 PHASE_4_CREDENTIAL_UI = NOT_STARTED
-PHASE_5_MODULE_ACCESS_MATRIX = NOT_STARTED
+PHASE_5_DYNAMIC_APPLICATION_ACCESS = NOT_STARTED
 PHASE_6_SCOPE_MUTATIONS = NOT_STARTED
 PHASE_7_EFFECTIVE_ACCESS_AUDIT = NOT_STARTED
 PHASE_8_RELEASE_CERTIFICATION = NOT_STARTED
