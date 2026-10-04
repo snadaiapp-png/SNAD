@@ -1,7 +1,9 @@
 name: Production Operational Smoke
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Vercel Main Production Reconcile"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -15,31 +17,45 @@ concurrency:
 jobs:
   production-smoke:
     name: Production Live Route Gate
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       PRODUCTION_WEB_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
 
     steps:
-      - name: Checkout exact main SHA
+      - name: Checkout reconciled exact main SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.TARGET_SHA }}
           fetch-depth: 0
 
-      - name: Verify immutable current main
+      - name: Verify reconciled SHA is still current main
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = "refs/heads/main"
-          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
-          test "$remote_main" = "$GITHUB_SHA" || {
-            echo "::error::PRODUCTION_SMOKE_NOT_CURRENT_MAIN expected=$GITHUB_SHA actual=$remote_main"
+          echo "SUPERSEDED=false" >> "$GITHUB_ENV"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA" || {
+            echo "::error::PRODUCTION_SMOKE_CHECKOUT_SHA_MISMATCH expected=$TARGET_SHA actual=$(git rev-parse HEAD)"
             exit 1
           }
 
-      - name: Wait for production alias exact release identity
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          if [ "$remote_main" != "$TARGET_SHA" ]; then
+            echo "PRODUCTION_SMOKE_SUPERSEDED reconciled_sha=$TARGET_SHA current_main=$remote_main"
+            echo "SUPERSEDED=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "PRODUCTION_SMOKE_TARGET_SHA=$TARGET_SHA"
+
+      - name: Verify production alias exact release identity
+        if: env.SUPERSEDED != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -49,7 +65,7 @@ jobs:
           observed_env=""
           observed_status=""
 
-          for attempt in $(seq 1 60); do
+          for attempt in $(seq 1 12); do
             observed_status="$(curl --silent --show-error --location --max-time 20 \
               --output "$release_file" \
               --write-out '%{http_code}' \
@@ -62,10 +78,10 @@ jobs:
               observed_env="$(jq -r '.environment // empty' "$release_file")"
               echo "attempt=$attempt status=$observed_status sha=$observed_sha ref=$observed_ref env=$observed_env"
 
-              if [ "$observed_sha" = "$GITHUB_SHA" ] && [ "$observed_ref" = "main" ]; then
+              if [ "$observed_sha" = "$TARGET_SHA" ] && [ "$observed_ref" = "main" ]; then
                 case "$observed_env" in
                   production|prod)
-                    echo "Production alias converged to exact main."
+                    echo "Production alias matches the reconciled exact main SHA."
                     exit 0
                     ;;
                 esac
@@ -74,13 +90,14 @@ jobs:
               echo "attempt=$attempt release-http-status=$observed_status"
             fi
 
-            sleep 10
+            sleep 5
           done
 
-          echo "::error::PRODUCTION_RELEASE_DID_NOT_CONVERGE expected_sha=$GITHUB_SHA actual_sha=${observed_sha:-none} actual_ref=${observed_ref:-none} actual_env=${observed_env:-none}"
+          echo "::error::PRODUCTION_RELEASE_IDENTITY_MISMATCH expected_sha=$TARGET_SHA actual_sha=${observed_sha:-none} actual_ref=${observed_ref:-none} actual_env=${observed_env:-none}"
           exit 1
 
       - name: Capture production route diagnostics
+        if: env.SUPERSEDED != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -101,6 +118,7 @@ jobs:
           done
 
       - name: Verify production HRM G3 routes
+        if: env.SUPERSEDED != 'true'
         shell: bash
         run: |
           set -euo pipefail
