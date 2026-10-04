@@ -13,6 +13,8 @@ const { TENANT_ID, USER_ID, ROLE_ID, GRANT_ID, usersApiMock, tenantAccessApiMock
   const messages: Record<string, string> = {
     "users.email": "البريد الإلكتروني",
     "users.displayName": "الاسم المعروض",
+    "users.mobileNumber": "رقم الجوال",
+    "users.mobileRegion": "رمز المنطقة",
     "management.users.detail.title": "تفاصيل المستخدم",
     "management.users.detail.save": "حفظ التعديلات",
     "management.users.detail.memberships": "عضويات المؤسسات",
@@ -28,13 +30,24 @@ const { TENANT_ID, USER_ID, ROLE_ID, GRANT_ID, usersApiMock, tenantAccessApiMock
     "management.users.credentials.title": "بيانات الدخول",
     "management.users.credentials.reset": "إرسال رابط تعيين كلمة المرور",
     "management.users.credentials.resetSuccess": "تم إرسال رابط تعيين كلمة المرور",
-    "management.users.credentials.help": "لا يتم عرض أو تخزين كلمة المرور في الواجهة",
+    "management.users.credentials.help": "لا يتم عرض أو تخزين كلمة المرور الحالية في الواجهة",
+    "management.users.credentials.initialized": "بيانات الدخول مهيأة",
+    "management.users.credentials.rotation": "يتطلب تغيير كلمة المرور",
+    "management.users.credentials.lastLogin": "آخر تسجيل دخول",
+    "management.users.credentials.yes": "نعم",
+    "management.users.credentials.no": "لا",
+    "management.users.credentials.never": "لم يسجل الدخول بعد",
+    "management.users.credentials.initialize": "تهيئة بيانات الدخول الأولى",
+    "management.users.credentials.initial": "كلمة المرور المؤقتة",
+    "management.users.credentials.confirm": "تأكيد كلمة المرور المؤقتة",
+    "management.users.credentials.initializeSuccess": "تمت تهيئة بيانات الدخول",
+    "management.users.credentials.mismatch": "كلمتا المرور غير متطابقتين",
   };
   return {
     TENANT_ID, USER_ID, ROLE_ID, GRANT_ID,
     translate: (key: string) => messages[key] ?? key,
     usersApiMock: { get: vi.fn(), update: vi.fn(), transition: vi.fn() },
-    credentialApiMock: { adminResetPassword: vi.fn() },
+    credentialApiMock: { adminInitializeCredential: vi.fn(), adminResetPassword: vi.fn() },
     tenantAccessApiMock: { listUserMemberships: vi.fn(), listUserRoleLinks: vi.fn(), listRoles: vi.fn(), grantUserRole: vi.fn(), revokeUserRole: vi.fn() },
     authMock: {
       state: "AUTHENTICATED",
@@ -55,12 +68,12 @@ vi.mock("@/lib/api/user-facing-errors", () => ({ toUserFacingMessage: () => "ت�
 
 import TenantUserDetailPage from "./page";
 
-const USER = { id: USER_ID, tenantId: TENANT_ID, email: "salem@example.com", username: "salem", displayName: "سالم العتيبي", status: "ACTIVE", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
+const USER = { id: USER_ID, tenantId: TENANT_ID, email: "salem@example.com", username: "salem", displayName: "سالم العتيبي", mobileNumber: "+966500000000", mobileRegion: "SA", status: "ACTIVE", lastLoginAt: "2026-10-01T10:00:00Z", credentialInitialized: true, credentialRotationRequired: false, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
 
 beforeEach(() => {
-  usersApiMock.get.mockReset(); usersApiMock.update.mockReset(); usersApiMock.transition.mockReset(); credentialApiMock.adminResetPassword.mockReset();
+  usersApiMock.get.mockReset(); usersApiMock.update.mockReset(); usersApiMock.transition.mockReset(); credentialApiMock.adminInitializeCredential.mockReset(); credentialApiMock.adminResetPassword.mockReset();
   tenantAccessApiMock.listUserMemberships.mockReset(); tenantAccessApiMock.listUserRoleLinks.mockReset(); tenantAccessApiMock.listRoles.mockReset(); tenantAccessApiMock.grantUserRole.mockReset(); tenantAccessApiMock.revokeUserRole.mockReset();
-  usersApiMock.get.mockResolvedValue(USER); usersApiMock.update.mockResolvedValue(USER); usersApiMock.transition.mockResolvedValue(USER); credentialApiMock.adminResetPassword.mockResolvedValue({ message: "تم إرسال رابط أحادي الاستخدام لإعداد كلمة مرور جديدة." });
+  usersApiMock.get.mockResolvedValue(USER); usersApiMock.update.mockResolvedValue(USER); usersApiMock.transition.mockResolvedValue(USER); credentialApiMock.adminInitializeCredential.mockResolvedValue(undefined); credentialApiMock.adminResetPassword.mockResolvedValue({ message: "تم إرسال رابط أحادي الاستخدام لإعداد كلمة مرور جديدة." });
   tenantAccessApiMock.listUserMemberships.mockResolvedValue([{ id: "55555555-5555-5555-5555-555555555555", tenantId: TENANT_ID, organizationId: "66666666-6666-6666-6666-666666666666", userId: USER_ID, email: USER.email, displayName: USER.displayName, status: "ACTIVE", createdAt: USER.createdAt, updatedAt: USER.updatedAt }]);
   tenantAccessApiMock.listUserRoleLinks.mockResolvedValue([{ id: GRANT_ID, tenantId: TENANT_ID, userId: USER_ID, roleId: ROLE_ID, roleCode: "TENANT_ADMIN", organizationId: null, status: "ACTIVE", createdAt: USER.createdAt, updatedAt: USER.updatedAt }]);
   tenantAccessApiMock.listRoles.mockResolvedValue([{ id: ROLE_ID, tenantId: TENANT_ID, code: "TENANT_ADMIN", name: "Tenant Admin", description: null, status: "ACTIVE", createdAt: USER.createdAt, updatedAt: USER.updatedAt }]);
@@ -83,7 +96,7 @@ describe("Tenant User Detail", () => {
   it("updates identity only inside the authenticated tenant", async () => {
     const user = userEvent.setup(); render(<TenantUserDetailPage />); await screen.findByText("سالم العتيبي");
     await user.clear(screen.getByLabelText("البريد الإلكتروني")); await user.type(screen.getByLabelText("البريد الإلكتروني"), "updated@example.com"); await user.click(screen.getByRole("button", { name: "حفظ التعديلات" }));
-    await waitFor(() => expect(usersApiMock.update).toHaveBeenCalledWith(TENANT_ID, USER_ID, { email: "updated@example.com", username: "salem", displayName: "سالم العتيبي" }));
+    await waitFor(() => expect(usersApiMock.update).toHaveBeenCalledWith(TENANT_ID, USER_ID, { email: "updated@example.com", username: "salem", displayName: "سالم العتيبي", mobileNumber: "+966500000000", mobileRegion: "SA" }));
   });
 
   it("renders username and sends a governed set-password link without exposing credentials", async () => {
@@ -95,6 +108,18 @@ describe("Tenant User Detail", () => {
     await user.click(screen.getByRole("button", { name: "إرسال رابط تعيين كلمة المرور" }));
     await waitFor(() => expect(credentialApiMock.adminResetPassword).toHaveBeenCalledWith(USER_ID, { locale: "ar" }));
     expect(screen.getByRole("status")).toHaveTextContent("تم إرسال رابط تعيين كلمة المرور");
+  });
+
+  it("initializes the first credential only for an eligible passwordless active user", async () => {
+    const user = userEvent.setup();
+    usersApiMock.get.mockResolvedValue({ ...USER, credentialInitialized: false, credentialRotationRequired: false, lastLoginAt: null });
+    render(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("كلمة المرور المؤقتة"), "TempPass123!");
+    await user.type(screen.getByLabelText("تأكيد كلمة المرور المؤقتة"), "TempPass123!");
+    await user.click(screen.getByRole("button", { name: "تهيئة بيانات الدخول الأولى" }));
+    await waitFor(() => expect(credentialApiMock.adminInitializeCredential).toHaveBeenCalledWith(USER_ID, { initialCredential: "TempPass123!" }));
+    expect(screen.getByRole("status")).toHaveTextContent("تمت تهيئة بيانات الدخول");
   });
 
   it("hides credential mutation when USER.WRITE is absent", async () => {

@@ -19,7 +19,12 @@ public class UserMapper {
                 user.getEmail(),
                 user.getUsername(),
                 user.getDisplayName(),
+                user.getMobileNumber(),
+                user.getMobileRegion(),
                 user.getStatus(),
+                user.getLastLoginAt(),
+                user.getPasswordHash() != null && !user.getPasswordHash().isBlank(),
+                user.isMustChangePassword(),
                 user.getCreatedAt(),
                 user.getUpdatedAt()
         );

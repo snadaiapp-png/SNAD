@@ -65,6 +65,7 @@ export interface ForgotPasswordResponse { message: string; token?: string; reset
 export interface ResetPasswordRequest { token: string; newPassword: string; }
 export interface ResetPasswordResponse { message: string; }
 export interface ChangeCredentialRequest { currentCredential: string; newCredential: string; }
+export interface AdminInitializeCredentialRequest { initialCredential: string; }
 export interface AdminResetPasswordRequest { locale?: "ar" | "en"; }
 
 export class AmbiguousTenantError extends Error {
@@ -155,6 +156,16 @@ export function createAuthApi(
     async changeCredential(req: ChangeCredentialRequest): Promise<void> {
       await client.post<void, ChangeCredentialRequest>(
         "/api/v1/auth/change-credential",
+        req,
+        scopedOptions(AUTH_REQUEST_TIMEOUT_MS),
+      );
+    },
+    async adminInitializeCredential(
+      userId: string,
+      req: AdminInitializeCredentialRequest,
+    ): Promise<void> {
+      await client.post<void, AdminInitializeCredentialRequest>(
+        `/api/v1/auth/admin-initialize-credential/${userId}`,
         req,
         scopedOptions(AUTH_REQUEST_TIMEOUT_MS),
       );

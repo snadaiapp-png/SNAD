@@ -47,6 +47,8 @@ public class UserService {
         UserStatus initial=request.getStatus()==null?UserStatus.INVITED:request.getStatus();
         User user=new User(tenantId,email,name,initial);
         user.setUsername(username);
+        user.setMobileNumber(normalizeMobileNumber(request.getMobileNumber()));
+        user.setMobileRegion(normalizeMobileRegion(request.getMobileRegion()));
         return userMapper.toResponse(userRepository.save(user));
     }
     @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public List<UserResponse> listUsers(UUID tenantId){Objects.requireNonNull(tenantId,"tenantId must not be null");return userRepository.findByTenantId(tenantId).stream().map(userMapper::toResponse).toList();}
@@ -57,7 +59,12 @@ public class UserService {
         Objects.requireNonNull(request,"UpdateUserRequest must not be null");User user=loadUser(tenantId,userId);String email=normalizeEmail(request.getEmail());String username=request.getUsername()==null?user.getUsername():normalizeUsername(request.getUsername());
         if(!email.equals(user.getEmail())&&userRepository.existsByTenantIdAndEmail(tenantId,email))throw new DuplicateUserEmailException(tenantId,email);
         if(!Objects.equals(username,user.getUsername())&&username!=null&&userRepository.existsByTenantIdAndUsername(tenantId,username))throw new DuplicateUsernameException(tenantId,username);
-        user.setEmail(email);user.setUsername(username);user.setDisplayName(normalizeDisplayName(request.getDisplayName()));return userMapper.toResponse(userRepository.save(user));
+        user.setEmail(email);
+        user.setUsername(username);
+        user.setDisplayName(normalizeDisplayName(request.getDisplayName()));
+        user.setMobileNumber(normalizeMobileNumber(request.getMobileNumber()));
+        user.setMobileRegion(normalizeMobileRegion(request.getMobileRegion()));
+        return userMapper.toResponse(userRepository.save(user));
     }
     @Transactional public UserResponse activateUser(UUID tenantId,UUID userId){return setStatus(tenantId,userId,UserStatus.ACTIVE);}
     @Transactional public UserResponse deactivateUser(UUID tenantId,UUID userId){return setStatus(tenantId,userId,UserStatus.INACTIVE);}
@@ -80,4 +87,18 @@ public class UserService {
         return n;
     }
     private static String normalizeDisplayName(String displayName){if(displayName==null)return null;String n=displayName.trim();if(n.length()>200)throw new IllegalArgumentException("displayName must be at most 200 characters");return n.isEmpty()?null:n;}
+    private static String normalizeMobileNumber(String mobileNumber){
+        if(mobileNumber==null)return null;
+        String n=mobileNumber.trim();
+        if(n.isEmpty())return null;
+        if(!n.matches("^\\+[1-9][0-9]{7,14}$"))throw new IllegalArgumentException("mobileNumber must be E.164");
+        return n;
+    }
+    private static String normalizeMobileRegion(String mobileRegion){
+        if(mobileRegion==null)return null;
+        String n=mobileRegion.trim().toUpperCase(Locale.ROOT);
+        if(n.isEmpty())return null;
+        if(!n.matches("^[A-Z]{2}$"))throw new IllegalArgumentException("mobileRegion must be a two-letter region");
+        return n;
+    }
 }
