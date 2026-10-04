@@ -72,6 +72,13 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertNotIn('vercel@latest curl "$marker_url"', text)
         self.assertNotIn('--deployment "$PRODUCTION_WEB_BASE_URL"', text)
         self.assertNotIn("2>/dev/null", text)
+        self.assertIn("Create exact-SHA Git-source Production deployment via Vercel REST API", text)
+        self.assertIn('"gitSource": {', text)
+        self.assertIn('"sha": expected', text)
+        self.assertIn('"target": "production"', text)
+        self.assertIn('"project": project_id', text)
+        self.assertNotIn("vercel@latest deploy", text)
+        self.assertNotIn("--prebuilt", text)
 
     def test_production_has_single_writer(self):
         import json
@@ -81,7 +88,7 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertIs(
             deployment_enabled.get("main"),
             False,
-            msg="Vercel Git Integration must not auto-deploy main; governed CLI reconcile is the single production writer",
+            msg="Vercel Git Integration must not auto-deploy main; governed REST reconcile is the single production writer",
         )
 
 
