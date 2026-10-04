@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PRE_MERGE = ROOT / ".github" / "workflows" / "pre-merge-operational-smoke.yml"
 PRODUCTION = ROOT / ".github" / "workflows" / "production-operational-smoke.yml"
+RECONCILE = ROOT / ".github" / "workflows" / "vercel-main-production-reconcile.yml"
 
 
 class ReleaseGateTopologyTest(unittest.TestCase):
@@ -34,18 +35,33 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertIn("CANDIDATE_ROUTE_HTTP_FAILURE", text)
         self.assertNotIn("CANDIDATE_ROUTE_SOFT_404", text)
 
-    def test_production_gate_is_main_only_and_exact_sha(self):
+    def test_production_gate_runs_only_after_successful_reconcile(self):
         text = PRODUCTION.read_text(encoding="utf-8")
 
         self.assertIn("name: Production Operational Smoke", text)
+        self.assertIn("workflow_run:", text)
+        self.assertIn('workflows: ["Vercel Main Production Reconcile"]', text)
+        self.assertIn("types: [completed]", text)
         self.assertIn("branches: [main]", text)
-        self.assertIn("github.ref == 'refs/heads/main'", text)
-        self.assertIn("refs/heads/main", text)
+        self.assertNotIn("  push:\n", text)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", text)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", text)
+        self.assertIn("TARGET_SHA:", text)
+        self.assertIn("github.event.workflow_run.head_sha || github.sha", text)
         self.assertIn("/api/system/release", text)
-        self.assertIn('observed_sha" = "$GITHUB_SHA"', text)
+        self.assertIn('observed_sha" = "$TARGET_SHA"', text)
         self.assertIn('observed_ref" = "main"', text)
+        self.assertIn("PRODUCTION_SMOKE_SUPERSEDED", text)
         self.assertIn("check-production-readiness.py", text)
         self.assertIn("--frontend-routes-only", text)
+
+    def test_reconcile_uses_authenticated_vercel_curl_for_protected_marker(self):
+        text = RECONCILE.read_text(encoding="utf-8")
+
+        self.assertIn("vercel@latest curl /__snad_release_sha.txt", text)
+        self.assertIn('--deployment "$PRODUCTION_WEB_BASE_URL"', text)
+        self.assertIn('--token="$VERCEL_TOKEN"', text)
+        self.assertNotIn('observed="$(curl --fail', text)
 
 
 if __name__ == "__main__":
