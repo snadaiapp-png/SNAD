@@ -94,6 +94,7 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          import urllib.error
           import urllib.parse
           import urllib.request
           from pathlib import Path
@@ -105,12 +106,40 @@ jobs:
           repository = os.environ["GITHUB_REPOSITORY"]
           owner, repo = repository.split("/", 1)
 
+          project_endpoint = (
+              "https://api.vercel.com/v9/projects/"
+              + urllib.parse.quote(project_id, safe="")
+              + "?teamId="
+              + urllib.parse.quote(team_id, safe="")
+          )
+          project_request = urllib.request.Request(
+              project_endpoint,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/json",
+                  "User-Agent": "SNAD-HRM-G3-Reconcile/3.1",
+              },
+          )
+          try:
+              with urllib.request.urlopen(project_request, timeout=30) as response:
+                  project = json.load(response)
+          except urllib.error.HTTPError as error:
+              body = error.read().decode("utf-8", errors="replace")
+              raise SystemExit(
+                  f"VERCEL_PROJECT_LOOKUP_HTTP_{error.code} {body}"
+              ) from error
+
+          project_name = str(project.get("name") or "").strip()
+          if not project_name:
+              raise SystemExit("VERCEL_PROJECT_LOOKUP_MISSING_NAME")
+
           endpoint = (
               "https://api.vercel.com/v13/deployments"
               "?forceNew=1&skipAutoDetectionConfirmation=1&teamId="
               + urllib.parse.quote(team_id, safe="")
           )
           payload = {
+              "name": project_name,
               "project": project_id,
               "target": "production",
               "gitSource": {
@@ -147,8 +176,14 @@ jobs:
               },
               method="POST",
           )
-          with urllib.request.urlopen(request, timeout=60) as response:
-              deployment = json.load(response)
+          try:
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  deployment = json.load(response)
+          except urllib.error.HTTPError as error:
+              body = error.read().decode("utf-8", errors="replace")
+              raise SystemExit(
+                  f"VERCEL_GIT_SOURCE_DEPLOYMENT_HTTP_{error.code} {body}"
+              ) from error
 
           deployment_id = str(deployment.get("id") or deployment.get("uid") or "")
           deployment_host = str(deployment.get("url") or "")
