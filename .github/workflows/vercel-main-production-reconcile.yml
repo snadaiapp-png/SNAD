@@ -103,15 +103,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          marker_url="$PRODUCTION_WEB_BASE_URL/__snad_release_sha.txt"
           observed=""
           for attempt in $(seq 1 36); do
-            observed="$(curl --fail --silent --show-error --max-time 15               -H 'Cache-Control: no-cache'               "$marker_url" 2>/dev/null | tr -d '\r\n' || true)"
+            observed="$(npx --yes vercel@latest curl /__snad_release_sha.txt \
+              --deployment "$PRODUCTION_WEB_BASE_URL" \
+              --token="$VERCEL_TOKEN" 2>/dev/null | tr -d '\r\n' || true)"
             if [ "$observed" = "$GITHUB_SHA" ]; then
               echo "Exact production artifact marker = $observed"
               exit 0
             fi
-            echo "Waiting for production alias convergence (attempt $attempt/36; observed=${observed:-none})"
+            echo "Waiting for protected production alias convergence (attempt $attempt/36; observed=${observed:-none})"
             sleep 5
           done
           echo "::error::PRODUCTION_ARTIFACT_SHA_MISMATCH expected=$GITHUB_SHA actual=${observed:-none}"
@@ -128,7 +129,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 20             -H 'Cache-Control: no-cache'             "$PRODUCTION_WEB_BASE_URL/api/system/release"             -o "$RUNNER_TEMP/production-release.json" || true
+          npx --yes vercel@latest curl /api/system/release \
+            --deployment "$PRODUCTION_WEB_BASE_URL" \
+            --token="$VERCEL_TOKEN" \
+            > "$RUNNER_TEMP/production-release.json" || true
 
       - name: Emit reconcile evidence
         if: always()
