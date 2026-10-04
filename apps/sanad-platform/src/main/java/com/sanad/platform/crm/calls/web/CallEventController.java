@@ -8,6 +8,7 @@ import com.sanad.platform.crm.calls.domain.CallStatus;
 import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.error.CrmErrorCode;
 import com.sanad.platform.security.authorization.RequireCapability;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -66,6 +67,7 @@ public class CallEventController {
     }
 
     @GetMapping("/calls")
+    @Operation(operationId = "listCalls")
     @RequireCapability(CAP_READ)
     public CallEventListResponse list(@RequestParam(required = false) String status,
                                       @RequestParam(required = false) String cursor,
