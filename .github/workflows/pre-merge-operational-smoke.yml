@@ -308,6 +308,30 @@ jobs:
             --port 3001
 
 
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest_path = Path(".next/server/app-paths-manifest.json")
+          if not manifest_path.is_file():
+              raise SystemExit("CANDIDATE_ROUTE_MANIFEST_MISSING")
+
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          keys = set(manifest)
+          required = (
+              "/hr/performance/goals",
+              "/hr/performance/reviews",
+          )
+          missing = []
+          for route in required:
+              accepted = {route, f"{route}/page"}
+              if not (accepted & keys):
+                  missing.append(route)
+          if missing:
+              raise SystemExit(f"CANDIDATE_ROUTE_MANIFEST_MISSING_ROUTES={','.join(missing)}")
+          print("CANDIDATE_ROUTE_MANIFEST=PASS")
+          PY
+
           : > "$RUNNER_TEMP/hrm-g3-local-routes.txt"
           for path in /hr/performance/goals /hr/performance/reviews; do
             body="$RUNNER_TEMP/$(printf '%s' "$path" | tr '/' '-').html"
@@ -320,10 +344,6 @@ jobs:
               echo "::error::CANDIDATE_ROUTE_HTTP_FAILURE path=$path status=$status"
               exit 1
             }
-            if grep -Eqi 'page not found|does not exist or has been moved' "$body"; then
-              echo "::error::CANDIDATE_ROUTE_SOFT_404 path=$path"
-              exit 1
-            fi
           done
 
       # Evidence upload with bounded retry: transient (403) intermediary failures on
