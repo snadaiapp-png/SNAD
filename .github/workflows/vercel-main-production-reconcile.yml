@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: vercel-main-production-reconcile
@@ -99,33 +100,105 @@ jobs:
           }
           echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Verify exact artifact reached production alias
+      - name: Mint GitHub OIDC token for protected Vercel probes
+        id: oidc
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput('token', token);
+
+      - name: Verify exact production deployment via Vercel REST API
         shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
         run: |
           set -euo pipefail
-          observed=""
-          for attempt in $(seq 1 36); do
-            marker_url="$PRODUCTION_WEB_BASE_URL/__snad_release_sha.txt"
-            if observed="$(npx --yes vercel@latest curl "$marker_url" \
-              --token="$VERCEL_TOKEN" | tr -d '\r\n')"; then
-              :
-            else
-              rc=$?
-              observed=""
-              echo "Vercel protected marker probe failed (attempt $attempt/36; exit=$rc)"
-            fi
-            if [ "$observed" = "$GITHUB_SHA" ]; then
-              echo "Exact production artifact marker = $observed"
-              exit 0
-            fi
-            echo "Waiting for protected production alias convergence (attempt $attempt/36; observed=${observed:-none})"
-            sleep 5
-          done
-          echo "::error::PRODUCTION_ARTIFACT_SHA_MISMATCH expected=$GITHUB_SHA actual=${observed:-none}"
-          exit 1
+          python3 - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          expected = os.environ["GITHUB_SHA"]
+          token = os.environ["VERCEL_TOKEN"]
+          team_id = os.environ["VERCEL_ORG_ID"]
+          deployment_url = os.environ["DEPLOYMENT_URL"]
+          production_url = os.environ["PRODUCTION_WEB_BASE_URL"]
+
+          deployment_host = urllib.parse.urlparse(deployment_url).netloc or deployment_url.removeprefix("https://")
+          production_host = urllib.parse.urlparse(production_url).netloc
+          endpoint = (
+              "https://api.vercel.com/v13/deployments/"
+              + urllib.parse.quote(deployment_host, safe="")
+              + "?teamId="
+              + urllib.parse.quote(team_id, safe="")
+          )
+
+          last = None
+          for attempt in range(1, 37):
+              request = urllib.request.Request(
+                  endpoint,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/json",
+                      "User-Agent": "SNAD-Vercel-Reconcile/2.0",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  last = json.load(response)
+
+              meta = last.get("meta") if isinstance(last.get("meta"), dict) else {}
+              observed_sha = str(meta.get("snadMainSha") or meta.get("githubCommitSha") or "")
+              state = str(last.get("readyState") or last.get("state") or "")
+              target = str(last.get("target") or "")
+              aliases = last.get("alias") if isinstance(last.get("alias"), list) else []
+              alias_ok = production_host in aliases
+
+              print(
+                  f"attempt={attempt}/36 state={state or 'UNKNOWN'} "
+                  f"target={target or 'UNKNOWN'} sha={observed_sha or 'UNKNOWN'} "
+                  f"productionAlias={alias_ok}"
+              )
+
+              if state == "READY" and target == "production" and observed_sha == expected and alias_ok:
+                  evidence = {
+                      "schemaVersion": 1,
+                      "deploymentId": last.get("id") or last.get("uid"),
+                      "deploymentUrl": last.get("url"),
+                      "productionAlias": production_host,
+                      "readyState": state,
+                      "target": target,
+                      "deploymentSha": observed_sha,
+                      "expectedSha": expected,
+                      "aliases": aliases,
+                      "result": "PASS",
+                  }
+                  Path(os.environ["RUNNER_TEMP"], "vercel-production-identity.json").write_text(
+                      json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+                      encoding="utf-8",
+                  )
+                  print("VERCEL_PRODUCTION_IDENTITY = PASS")
+                  raise SystemExit(0)
+
+              time.sleep(5)
+
+          actual = "none"
+          if isinstance(last, dict):
+              meta = last.get("meta") if isinstance(last.get("meta"), dict) else {}
+              actual = str(meta.get("snadMainSha") or meta.get("githubCommitSha") or "none")
+          raise SystemExit(
+              f"PRODUCTION_ARTIFACT_SHA_MISMATCH expected={expected} actual={actual}"
+          )
+          PY
 
       - name: Verify live HRM G3 routes
         shell: bash
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
           set -euo pipefail
           python3 scripts/ci/check-production-readiness.py             --frontend-routes-only             --attempts 6             --delay-seconds 5             --timeout-seconds 20             --production-url "$PRODUCTION_WEB_BASE_URL"             --evidence-file "$RUNNER_TEMP/hrm-g3-production-routes.json"
@@ -133,10 +206,13 @@ jobs:
       - name: Capture production release identity
         if: always()
         shell: bash
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
           set -euo pipefail
-          npx --yes vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release" \
-            --token="$VERCEL_TOKEN" \
+          curl --fail --silent --show-error \
+            -H "x-vercel-trusted-oidc-idp-token: $VERCEL_TRUSTED_OIDC_TOKEN" \
+            "$PRODUCTION_WEB_BASE_URL/api/system/release" \
             > "$RUNNER_TEMP/production-release.json" || true
 
       - name: Emit reconcile evidence
@@ -184,6 +260,7 @@ jobs:
             vercel-main-reconcile-evidence.json
             ${{ runner.temp }}/vercel-build.log
             ${{ runner.temp }}/vercel-deploy.log
+            ${{ runner.temp }}/vercel-production-identity.json
             ${{ runner.temp }}/hrm-g3-production-routes.json
             ${{ runner.temp }}/production-release.json
           if-no-files-found: warn
