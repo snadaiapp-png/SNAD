@@ -86,19 +86,104 @@ jobs:
           echo "Prebuilt HRM route evidence:"
           find .vercel/output -type f | grep -E 'hr/performance/(goals|reviews)' || true
 
-      - name: Deploy prebuilt artifact to Vercel Production
+      - name: Create exact-SHA Git-source Production deployment via Vercel REST API
         id: deploy
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes vercel@latest deploy             --prebuilt             --prod             --token="$VERCEL_TOKEN"             --meta "snadMainSha=$GITHUB_SHA"             --meta "snadMainRef=main"             2>&1 | tee "$RUNNER_TEMP/vercel-deploy.log"
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
 
-          DEPLOYMENT_URL="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' "$RUNNER_TEMP/vercel-deploy.log" | head -n 1 || true)"
-          test -n "$DEPLOYMENT_URL" || {
-            echo "::error::VERCEL_DEPLOYMENT_URL_NOT_FOUND"
-            exit 1
+          expected = os.environ["GITHUB_SHA"]
+          token = os.environ["VERCEL_TOKEN"]
+          team_id = os.environ["VERCEL_ORG_ID"]
+          project_id = os.environ["VERCEL_PROJECT_ID"]
+          repository = os.environ["GITHUB_REPOSITORY"]
+          owner, repo = repository.split("/", 1)
+
+          endpoint = (
+              "https://api.vercel.com/v13/deployments"
+              "?forceNew=1&skipAutoDetectionConfirmation=1&teamId="
+              + urllib.parse.quote(team_id, safe="")
+          )
+          payload = {
+              "project": project_id,
+              "target": "production",
+              "gitSource": {
+                  "type": "github",
+                  "org": owner,
+                  "repo": repo,
+                  "ref": "main",
+                  "sha": expected,
+              },
+              "gitMetadata": {
+                  "remoteUrl": f"https://github.com/{repository}",
+                  "commitRef": "main",
+                  "commitSha": expected,
+                  "dirty": False,
+                  "ci": True,
+                  "ciType": "github-actions",
+                  "rootDirectory": "apps/web",
+              },
+              "meta": {
+                  "snadMainSha": expected,
+                  "snadMainRef": "main",
+                  "snadDeploymentMethod": "git-source-rest",
+              },
           }
-          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+          request = urllib.request.Request(
+              endpoint,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                  "User-Agent": "SNAD-HRM-G3-Reconcile/3.0",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              deployment = json.load(response)
+
+          deployment_id = str(deployment.get("id") or deployment.get("uid") or "")
+          deployment_host = str(deployment.get("url") or "")
+          if not deployment_id or not deployment_host:
+              raise SystemExit(
+                  "VERCEL_GIT_SOURCE_DEPLOYMENT_INVALID_RESPONSE "
+                  + json.dumps(deployment, sort_keys=True)
+              )
+
+          deployment_url = (
+              deployment_host
+              if deployment_host.startswith("https://")
+              else f"https://{deployment_host}"
+          )
+          evidence = {
+              "schemaVersion": 1,
+              "method": "git-source-rest",
+              "expectedSha": expected,
+              "deploymentId": deployment_id,
+              "deploymentUrl": deployment_url,
+              "initialReadyState": deployment.get("readyState") or deployment.get("status"),
+          }
+          Path(os.environ["RUNNER_TEMP"], "vercel-deploy.json").write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"deployment_id={deployment_id}\n")
+              output.write(f"deployment_url={deployment_url}\n")
+
+          print(
+              f"Created Git-source production deployment id={deployment_id} "
+              f"url={deployment_url} sha={expected}"
+          )
+          PY
 
       - name: Mint GitHub OIDC token for protected Vercel probes
         id: oidc
@@ -237,7 +322,7 @@ jobs:
 
           evidence = {
               "schemaVersion": 2,
-              "method": "vercel-cli-prebuilt",
+              "method": "vercel-git-source-rest",
               "githubSha": os.environ.get("GITHUB_SHA"),
               "githubRef": os.environ.get("GITHUB_REF"),
               "deploymentUrl": os.environ.get("DEPLOYMENT_URL"),
@@ -259,7 +344,7 @@ jobs:
           path: |
             vercel-main-reconcile-evidence.json
             ${{ runner.temp }}/vercel-build.log
-            ${{ runner.temp }}/vercel-deploy.log
+            ${{ runner.temp }}/vercel-deploy.json
             ${{ runner.temp }}/vercel-production-identity.json
             ${{ runner.temp }}/hrm-g3-production-routes.json
             ${{ runner.temp }}/production-release.json
