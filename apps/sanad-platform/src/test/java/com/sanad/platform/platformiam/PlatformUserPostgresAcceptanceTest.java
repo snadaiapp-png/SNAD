@@ -151,8 +151,11 @@ class PlatformUserPostgresAcceptanceTest {
                 "SELECT id FROM roles WHERE tenant_id=? AND code='PLATFORM_OWNER'",
                 UUID.class, CONTROL_TENANT);
 
-        platformRoles.replaceUserRoles(actor(), user.userId(),
-                new ReplacePlatformRolesRequest(List.of(adminRoleId), "seed platform admin"));
+        inControlTenantTransaction(() -> {
+            platformRoles.replaceUserRoles(actor(), user.userId(),
+                    new ReplacePlatformRolesRequest(List.of(adminRoleId), "seed platform admin"));
+            return null;
+        });
 
         Authentication self = userActor(user.userId());
         long grantCountBefore = inControlTenantTransaction(() -> jdbc.queryForObject("""
@@ -166,12 +169,13 @@ class PlatformUserPostgresAcceptanceTest {
                    AND resource_id=?
                 """, Long.class, user.userId().toString());
 
-        assertThatThrownBy(() -> platformRoles.replaceUserRoles(
-                self,
-                user.userId(),
-                new ReplacePlatformRolesRequest(
-                        List.of(adminRoleId, ownerRoleId),
-                        "attempt protected self escalation")))
+        assertThatThrownBy(() -> inControlTenantTransaction(() ->
+                platformRoles.replaceUserRoles(
+                        self,
+                        user.userId(),
+                        new ReplacePlatformRolesRequest(
+                                List.of(adminRoleId, ownerRoleId),
+                                "attempt protected self escalation"))))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("PROTECTED_ROLE_SELF_ESCALATION_DENIED");
 
