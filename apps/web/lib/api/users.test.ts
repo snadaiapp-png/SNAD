@@ -34,7 +34,12 @@ function makeUser(overrides: Partial<Record<string, unknown>> = {}): Record<stri
     tenantId: VALID_TENANT,
     email: "user@example.com",
     displayName: "User Name",
+    mobileNumber: "+966500000000",
+    mobileRegion: "SA",
     status: "ACTIVE",
+    lastLoginAt: null,
+    credentialInitialized: false,
+    credentialRotationRequired: false,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -134,6 +139,13 @@ describe("usersApi — create", () => {
     });
   });
 
+  it("normalizes mobile profile fields when provided", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
+    await usersApi.create(VALID_TENANT, { email: "new@example.com", displayName: "New", mobileNumber: "  +966500000000  ", mobileRegion: " sa " });
+    const [, body] = vi.mocked(apiClient.post).mock.calls[0];
+    expect(body).toMatchObject({ mobileNumber: "+966500000000", mobileRegion: "SA" });
+  });
+
   it("trims displayName and converts empty to null", async () => {
     vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
     await usersApi.create(VALID_TENANT, { email: "new@example.com", displayName: "   " });
@@ -200,6 +212,13 @@ describe("usersApi — update", () => {
       username: "updated.user",
       displayName: "Updated",
     });
+  });
+
+  it("sends mobile profile updates when explicitly provided", async () => {
+    vi.mocked(apiClient.put).mockResolvedValue(makeUser() as never);
+    await usersApi.update(VALID_TENANT, VALID_USER, { email: "updated@example.com", displayName: "Updated", mobileNumber: "+966500000001", mobileRegion: "sa" });
+    const [, body] = vi.mocked(apiClient.put).mock.calls[0];
+    expect(body).toMatchObject({ mobileNumber: "+966500000001", mobileRegion: "SA" });
   });
 
   it("rejects invalid userId", async () => {
