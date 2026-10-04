@@ -204,40 +204,66 @@ Protected last-admin invariants remain enforced by the backend.
 
 ---
 
-## 7. Module Access Matrix
+## 7. Dynamic Application Access Registry & Effective Access Matrix
 
-### 7.1 Principle
+### 7.1 Governing principle
 
-Module access is not persisted as a parallel boolean.
+Application access is not persisted as a parallel boolean and the Users Module must never contain a hardcoded list of SANAD applications.
 
 It is derived from canonical authorization state:
 
 ```text
-assigned role grants
-+ role capabilities
-+ direct governed overrides where supported
-+ scope
-= effective module access
+Application IAM Contract / Manifest
+-> Application Registry (discovery + metadata only)
+-> canonical role grants
+-> role capabilities
+-> governed scopes
+-> direct governed overrides where supported
+= backend-authoritative effective application access
 ```
 
-The matrix is a product projection over this state.
+The Effective Access Matrix is a product projection over this state. The Application Registry is never an authorization engine and cannot grant access by itself.
 
-### 7.2 Initial modules
+### 7.2 Dynamic application onboarding
 
-The first matrix groups capabilities for:
+Every current or future SANAD application must register through one governed IAM contract/manifest. At minimum the registration declares:
 
-- CRM
-- HRM
-- Workflow
-- ERP
-- Accounting / Finance
-- Ecommerce
-- POS
-- Executive read access where tenant-appropriate
+- stable application code and version;
+- localized display metadata;
+- capability namespaces owned by the application;
+- governed role templates, when provided;
+- supported scope types;
+- lifecycle/status metadata;
+- compatibility/version metadata required by the platform registry.
 
-Additional modules must be data-driven by capability namespace, not hardcoded security rules in the browser.
+After a valid registration, User Administration discovers the application automatically. Adding a new application must not require a code change in `/management/users`, `users.ts`, User Administration components, or a browser-side application list.
 
-### 7.3 Canonical role templates
+The invariant is:
+
+```text
+NEW_APPLICATION_REQUIRES_USERS_CODE_CHANGE = FALSE
+USERS_MODULE_APP_HARDCODING = PROHIBITED
+```
+
+Existing CRM, HRM, Workflow, ERP, Finance/Accounting, Ecommerce, POS, Executive, and later applications are registry data, not special cases in Users.
+
+Unknown, invalid, disabled, stale, or incompatible application registrations fail closed. Unknown capabilities or unsupported scopes also fail closed.
+
+### 7.3 Registry authority boundary
+
+The registry provides discovery, presentation metadata, namespace ownership, and scope-contract metadata only.
+
+The canonical authorization engine remains authoritative:
+
+```text
+APPLICATION_REGISTRY = DISCOVERY_AND_METADATA_ONLY
+AUTHORIZATION_ENGINE = AUTHORITATIVE
+APPLICATION_ACCESS_SOURCE = ROLE + CAPABILITY + SCOPE
+```
+
+No registry flag, application `enabled` boolean, frontend state, or manifest metadata may bypass canonical RBAC/capability/scope evaluation.
+
+### 7.4 Canonical role templates
 
 Existing templates remain valid starting points, including:
 
@@ -447,16 +473,19 @@ The expansion is complete only when all of the following are true:
 10. Admin reset uses single-use recovery flow.
 11. Create/edit/profile/lifecycle UI is capability-gated and tenant-bound.
 12. Archive is the administrative delete operation.
-13. Module matrix is backed by canonical roles/capabilities, not browser booleans.
-14. Multiple roles per user work.
-15. Organization-scoped role grants work through the UI.
-16. Effective access is displayed from backend-authoritative state.
-17. Cross-tenant user/role/scope mutations are denied.
-18. Last-admin protections remain green.
-19. Arabic/English, RTL/LTR, responsive, keyboard, and accessibility gates pass.
-20. Full PostgreSQL Direct regression passes with `FAILURES=0` and `ERRORS=0`.
-21. Authenticated desktop/mobile E2E evidence is captured.
-22. Exact-head review, protected merge, post-merge verification, and live production certification pass before final expansion closure.
+13. Dynamic Application Access Matrix is populated from the governed Application Registry and canonical roles/capabilities/scopes, never a browser-side application list or boolean.
+14. A newly registered conforming application appears in User Administration without a Users Module code change.
+15. Unknown/invalid application, capability, or scope metadata fails closed.
+16. Application Registry remains discovery/metadata only and cannot authorize access.
+17. Multiple roles per user work.
+18. Organization-scoped role grants work through the UI.
+19. Effective access is displayed from backend-authoritative state.
+20. Cross-tenant user/application/role/scope mutations are denied.
+21. Last-admin protections remain green.
+22. Arabic/English, RTL/LTR, responsive, keyboard, and accessibility gates pass.
+23. Full PostgreSQL Direct regression passes with `FAILURES=0` and `ERRORS=0`.
+24. Authenticated desktop/mobile E2E proves dynamic application discovery and effective-access behavior.
+25. Exact-head review, protected merge, post-merge verification, and live production certification pass before final expansion closure.
 
 ---
 
@@ -485,6 +514,13 @@ ADMIN_INITIAL_CREDENTIAL = ALLOWED_ONCE
 ADMIN_RESET = SINGLE_USE_LINK
 USER_DELETE = ARCHIVE
 MODULE_ACCESS = ROLE + CAPABILITY + SCOPE
+SANAD_DYNAMIC_APPLICATION_IAM = REQUIRED
+APPLICATION_ONBOARDING_MODEL = CONTRACT_REGISTERED + AUTO_DISCOVERED
+NEW_APPLICATION_REQUIRES_USERS_CODE_CHANGE = FALSE
+USERS_MODULE_APP_HARDCODING = PROHIBITED
+APPLICATION_REGISTRY = DISCOVERY_AND_METADATA_ONLY
+AUTHORIZATION_ENGINE = AUTHORITATIVE
+UNKNOWN_APPLICATION_OR_CAPABILITY = FAIL_CLOSED
 PARALLEL_MODULE_IAM = PROHIBITED
 POSTGRESQL_DIRECT = REQUIRED
 ```
