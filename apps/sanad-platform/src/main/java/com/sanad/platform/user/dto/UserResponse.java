@@ -13,7 +13,12 @@ public class UserResponse {
     private String email;
     private String username;
     private String displayName;
+    private String mobileNumber;
+    private String mobileRegion;
     private UserStatus status;
+    private Instant lastLoginAt;
+    private boolean credentialInitialized;
+    private boolean credentialRotationRequired;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -22,17 +27,29 @@ public class UserResponse {
 
     public UserResponse(UUID id, UUID tenantId, String email, String displayName,
                         UserStatus status, Instant createdAt, Instant updatedAt) {
-        this(id, tenantId, email, null, displayName, status, createdAt, updatedAt);
+        this(id, tenantId, email, null, displayName, null, null, status, null, false, false, createdAt, updatedAt);
     }
 
     public UserResponse(UUID id, UUID tenantId, String email, String username, String displayName,
                         UserStatus status, Instant createdAt, Instant updatedAt) {
+        this(id, tenantId, email, username, displayName, null, null, status, null, false, false, createdAt, updatedAt);
+    }
+
+    public UserResponse(UUID id, UUID tenantId, String email, String username, String displayName,
+                        String mobileNumber, String mobileRegion, UserStatus status, Instant lastLoginAt,
+                        boolean credentialInitialized, boolean credentialRotationRequired,
+                        Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.tenantId = tenantId;
         this.email = email;
         this.username = username;
         this.displayName = displayName;
+        this.mobileNumber = mobileNumber;
+        this.mobileRegion = mobileRegion;
         this.status = status;
+        this.lastLoginAt = lastLoginAt;
+        this.credentialInitialized = credentialInitialized;
+        this.credentialRotationRequired = credentialRotationRequired;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -77,12 +94,52 @@ public class UserResponse {
         this.displayName = displayName;
     }
 
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
+
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
+    }
+
+    public String getMobileRegion() {
+        return mobileRegion;
+    }
+
+    public void setMobileRegion(String mobileRegion) {
+        this.mobileRegion = mobileRegion;
+    }
+
     public UserStatus getStatus() {
         return status;
     }
 
     public void setStatus(UserStatus status) {
         this.status = status;
+    }
+
+    public Instant getLastLoginAt() {
+        return lastLoginAt;
+    }
+
+    public void setLastLoginAt(Instant lastLoginAt) {
+        this.lastLoginAt = lastLoginAt;
+    }
+
+    public boolean isCredentialInitialized() {
+        return credentialInitialized;
+    }
+
+    public void setCredentialInitialized(boolean credentialInitialized) {
+        this.credentialInitialized = credentialInitialized;
+    }
+
+    public boolean isCredentialRotationRequired() {
+        return credentialRotationRequired;
+    }
+
+    public void setCredentialRotationRequired(boolean credentialRotationRequired) {
+        this.credentialRotationRequired = credentialRotationRequired;
     }
 
     public Instant getCreatedAt() {

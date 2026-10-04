@@ -2,6 +2,7 @@ package com.sanad.platform.user.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -20,6 +21,14 @@ public class UpdateUserRequest {
 
     @Size(max = 200, message = "displayName must be at most 200 characters")
     private String displayName;
+
+    @Pattern(regexp = "^\\+[1-9][0-9]{7,14}$", message = "mobileNumber must be E.164")
+    @Size(max = 20, message = "mobileNumber must be at most 20 characters")
+    private String mobileNumber;
+
+    @Pattern(regexp = "^[A-Za-z]{2}$", message = "mobileRegion must be a two-letter region")
+    @Size(max = 2, message = "mobileRegion must be two characters")
+    private String mobileRegion;
 
     public UpdateUserRequest() {
     }
@@ -52,6 +61,22 @@ public class UpdateUserRequest {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
+
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
+    }
+
+    public String getMobileRegion() {
+        return mobileRegion;
+    }
+
+    public void setMobileRegion(String mobileRegion) {
+        this.mobileRegion = mobileRegion;
     }
 
     public String getDisplayName() {
