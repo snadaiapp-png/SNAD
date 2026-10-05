@@ -17,12 +17,16 @@ sys.modules[SPEC.name] = probe
 SPEC.loader.exec_module(probe)
 
 
-def response(status: int, value: object) -> tuple[int, bytes, dict[str, str]]:
+def response(
+    status: int,
+    value: object,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, bytes, dict[str, str]]:
     if isinstance(value, bytes):
         body = value
     else:
         body = json.dumps(value).encode("utf-8")
-    return status, body, {}
+    return status, body, headers or {}
 
 
 ROUTE_OK = b"<html><body>SNAD HRM route shell</body></html>"
@@ -105,6 +109,65 @@ def test_readiness_fails_closed_on_g3_reviews_soft_404(monkeypatch):
     assert checks[-1].status_code == 200
     assert checks[-1].passed is False
     assert "does not exist or has been moved" in checks[-1].actual
+
+
+
+
+def test_readiness_accepts_next_flight_not_found_strings_when_route_identity_matches(monkeypatch):
+    embedded_not_found = (
+        b"<html><body>SNAD HRM route shell"
+        b"<script>Page not found; does not exist or has been moved</script>"
+        b"</body></html>"
+    )
+    responses = iter(
+        [
+            response(
+                200,
+                embedded_not_found,
+                {"x-matched-path": "/hr/performance/goals"},
+            ),
+            response(
+                200,
+                embedded_not_found,
+                {"x-matched-path": "/hr/performance/reviews"},
+            ),
+        ]
+    )
+    monkeypatch.setattr(probe, "request", lambda _url, _timeout: next(responses))
+
+    checks = probe.check_critical_frontend_routes(
+        "https://production.example.test", 1.0
+    )
+
+    assert all(check.passed for check in checks)
+    assert "xMatchedPath=/hr/performance/goals" in checks[0].actual
+    assert "soft404Markers=['page not found', 'does not exist or has been moved']" in checks[0].actual
+
+
+def test_readiness_fails_closed_when_vercel_matches_not_found_route(monkeypatch):
+    responses = iter(
+        [
+            response(
+                200,
+                ROUTE_OK,
+                {"x-matched-path": "/404"},
+            ),
+            response(
+                200,
+                ROUTE_OK,
+                {"x-matched-path": "/hr/performance/reviews"},
+            ),
+        ]
+    )
+    monkeypatch.setattr(probe, "request", lambda _url, _timeout: next(responses))
+
+    checks = probe.check_critical_frontend_routes(
+        "https://production.example.test", 1.0
+    )
+
+    assert checks[0].passed is False
+    assert "xMatchedPath=/404" in checks[0].actual
+    assert checks[1].passed is True
 
 
 def test_readiness_rejects_exposed_target_host(monkeypatch):
