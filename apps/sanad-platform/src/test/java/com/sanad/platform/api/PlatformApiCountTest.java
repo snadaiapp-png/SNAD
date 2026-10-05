@@ -105,8 +105,14 @@ class PlatformApiCountTest {
      *  GET/POST /api/v1/executive/partners,
      *  GET /api/v1/executive/partners/{partnerId},
      *  PATCH /api/v1/executive/partners/{partnerId}/status,
-     *  GET /users, /tenants, /delegations = 1000.\n     *  + 1 Users Phase 5 application-access projection endpoint\n     *  (GET /api/v1/users/{userId}/application-access) = 1001. */
-    private static final long EXPECTED_TOTAL_OPS = 1001;
+     *  GET /users, /tenants, /delegations = 1000.
+     *  + 1 Users Phase 5 application-access projection endpoint
+     *  (GET /api/v1/users/{userId}/application-access) = 1001.
+     *  + 3 R0C13 G07 billing operator operations:
+     *  GET /api/v1/executive/billing/v3,
+     *  POST /api/v1/executive/billing/reconciliation,
+     *  GET /api/v1/executive/billing/provider/readiness = 1004. */
+    private static final long EXPECTED_TOTAL_OPS = 1004;
     private static final long EXPECTED_HRM_V2_OPS = 145;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -123,7 +129,7 @@ class PlatformApiCountTest {
         JsonNode paths = objectMapper.readTree(body).path("paths");
         assertThat(count(paths, "/api/v1/users")).isEqualTo(10);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(28);
-        assertThat(count(paths, "/api/v1/executive")).isEqualTo(124);
+        assertThat(count(paths, "/api/v1/executive")).isEqualTo(127);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
         assertThat(count(paths, "/api/v1/crm")).isEqualTo(EXPECTED_CRM_V1_OPS);
         assertThat(count(paths, "/api/v2/crm")).isEqualTo(EXPECTED_CRM_V2_OPS);
@@ -154,6 +160,10 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/executive/partners/{partnerId}/users", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/partners/{partnerId}/tenants", "get")).isTrue();
         assertThat(has(paths, "/api/v1/executive/partners/{partnerId}/delegations", "get")).isTrue();
+        // R0C13 G07 billing operator surface: additive and capability-scoped.
+        assertThat(has(paths, "/api/v1/executive/billing/v3", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/billing/reconciliation", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/executive/billing/provider/readiness", "get")).isTrue();
         assertThat(has(paths, "/api/v1/partner/me", "get")).isTrue();
         assertThat(has(paths, "/api/v1/partner/tenants", "get")).isTrue();
         assertThat(has(paths, "/api/v1/partner/delegations", "get")).isTrue();
