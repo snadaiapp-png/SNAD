@@ -2,6 +2,7 @@ package com.sanad.platform.user.access;
 
 import com.sanad.platform.access.UserAccessResponse;
 import com.sanad.platform.access.grant.UserGrantStatus;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -70,7 +71,8 @@ public class UserApplicationAccessReadRepository {
                  ORDER BY rc.role_id, ac.code
                 """,
                 new MapSqlParameterSource().addValue("tenantId", tenantId).addValue("roleIds", roleIds),
-                rs -> result.computeIfAbsent(rs.getObject("role_id", UUID.class), ignored -> new LinkedHashSet<>())
+                (RowCallbackHandler) rs -> result
+                        .computeIfAbsent(rs.getObject("role_id", UUID.class), ignored -> new LinkedHashSet<>())
                         .add(rs.getString("code")));
         return result;
     }
