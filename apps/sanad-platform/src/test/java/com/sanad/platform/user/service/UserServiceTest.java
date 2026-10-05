@@ -1,5 +1,7 @@
 package com.sanad.platform.user.service;
 
+import com.sanad.platform.security.domain.RefreshTokenRepository;
+import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
@@ -45,6 +47,12 @@ class UserServiceTest {
 
     @Mock
     private UserMapper userMapper;
+
+    @Mock
+    private RefreshTokenRepository refreshTokenRepository;
+
+    @Mock
+    private SessionVersionCache sessionVersionCache;
 
     @InjectMocks
     private UserService service;
@@ -246,24 +254,33 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("deactivateUser: sets INACTIVE")
+    @DisplayName("deactivateUser: sets INACTIVE and immediately revokes sessions")
     void deactivateUser_setsInactive() {
         assertStatusTransition(UserStatus.INACTIVE);
         assertThat(user.getStatus()).isEqualTo(UserStatus.INACTIVE);
+        assertThat(user.getSessionVersion()).isEqualTo(1L);
+        verify(sessionVersionCache).invalidate(tenantId, userId);
+        verify(refreshTokenRepository).revokeAllActive(tenantId, userId);
     }
 
     @Test
-    @DisplayName("suspendUser: sets SUSPENDED")
+    @DisplayName("suspendUser: sets SUSPENDED and immediately revokes sessions")
     void suspendUser_setsSuspended() {
         assertStatusTransition(UserStatus.SUSPENDED);
         assertThat(user.getStatus()).isEqualTo(UserStatus.SUSPENDED);
+        assertThat(user.getSessionVersion()).isEqualTo(1L);
+        verify(sessionVersionCache).invalidate(tenantId, userId);
+        verify(refreshTokenRepository).revokeAllActive(tenantId, userId);
     }
 
     @Test
-    @DisplayName("archiveUser: sets ARCHIVED")
+    @DisplayName("archiveUser: sets ARCHIVED and immediately revokes sessions")
     void archiveUser_setsArchived() {
         assertStatusTransition(UserStatus.ARCHIVED);
         assertThat(user.getStatus()).isEqualTo(UserStatus.ARCHIVED);
+        assertThat(user.getSessionVersion()).isEqualTo(1L);
+        verify(sessionVersionCache).invalidate(tenantId, userId);
+        verify(refreshTokenRepository).revokeAllActive(tenantId, userId);
     }
 
     @Test
