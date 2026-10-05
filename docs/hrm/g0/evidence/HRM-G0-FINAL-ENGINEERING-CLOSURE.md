@@ -31,6 +31,10 @@ UNEXPECTED_HR_DRIFT = NONE
 ```text
 HRM_G0_IMPLEMENTATION = COMPLETE
 HRM_G0_PR_914 = MERGED
+G0_ENGINEERING_CERTIFICATION = APPROVED
+G0_RECONCILIATION_PR = 990
+G0_INDEPENDENT_REVIEW = APPROVED (abdulrhmansenan1985-creator, 2026-09-07T17:22:20Z)
+G0_RECONCILIATION_MERGE_SHA = ddf7a7757ba99cdb492b4a05c60adae71e8aa97c
 POSTGRESQL_DIRECT = PASS
 FULL_BACKEND = PASS
 FULL_WEB = PASS
@@ -193,7 +197,21 @@ RECONCILIATION_CANDIDATE_SHA = 7dfcc8935cdc804351518310cd5fb976cce0777b
 G0_CLOSURE_MERGE_SHA = recorded after the protected merge lands on main (Phase 9)
 ```
 
-## 10. Claim discipline
+## 10. Engineering approval reconciliation
+
+The reconciliation PR #990 received an independent `APPROVED` review from
+`abdulrhmansenan1985-creator` at `2026-09-07T17:22:20Z` and was merged at
+`ddf7a7757ba99cdb492b4a05c60adae71e8aa97c`. Therefore the engineering
+certificate is no longer pending review. This approval does **not** alter the
+independent legal or Saudi Country Pack gates.
+
+```text
+G0_ENGINEERING_CERTIFICATION = APPROVED
+LEGAL_REVIEW = BLOCKED_OR_PENDING_HUMAN
+SA_PACK = DRAFT
+```
+
+## 11. Claim discipline
 
 This certificate deliberately does NOT contain, and must never be quoted as,
 the following claims, because no independent gate has proven them:
@@ -207,7 +225,7 @@ Legal review of the Saudi Country Pack is an independent human gate
 (`SA_PACK = DRAFT`). Production remains untouched
 (`PRODUCTION_AUTHORIZATION = NO`, `PRODUCTION_MUTATIONS = 0`).
 
-## 11. Follow-up defect register (non-blocking, out of reconciliation scope)
+## 12. Follow-up defect register (non-blocking, out of reconciliation scope)
 
 1. **HRM-CERT-PERSISTENCE** — HR execution certifications other than G0 are held
    in a process-local Map (`HrExecutionProvider`) and do not survive restart;
