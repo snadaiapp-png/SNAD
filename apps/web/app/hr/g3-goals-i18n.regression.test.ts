@@ -7,7 +7,7 @@ const productDictionary = readFileSync(
   "utf8",
 );
 const goalsPageSource = readFileSync(
-  resolve(__dirname, "performance/goals/page.tsx"),
+  resolve(__dirname, "performance/goals/goals-client.tsx"),
   "utf8",
 );
 const workspaceSource = readFileSync(
