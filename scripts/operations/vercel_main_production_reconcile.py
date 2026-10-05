@@ -232,29 +232,36 @@ def verify_routes(base_url: str) -> list[dict[str, Any]]:
         "/hr/performance/goals",
         "/hr/performance/reviews",
     )
-    soft_404_markers = ("page not found", "does not exist or has been moved")
     evidence: list[dict[str, Any]] = []
     for path in paths:
-        status, body, headers = fetch_text(f"{base_url}{path}")
-        normalized = body.lower()
-        matched_soft_404 = [marker for marker in soft_404_markers if marker in normalized]
+        status, _body, headers = fetch_text(f"{base_url}{path}")
         matched_path = headers.get("x-matched-path")
-        passed = status == 200 and not matched_soft_404
+        route_identity_required = path in {
+            "/hr/performance/goals",
+            "/hr/performance/reviews",
+        }
+        passed = status == 200 and (
+            not route_identity_required or matched_path == path
+        )
         evidence.append(
             {
                 "path": path,
                 "status": status,
                 "xMatchedPath": matched_path,
-                "soft404Markers": matched_soft_404,
+                "routeIdentityRequired": route_identity_required,
                 "passed": passed,
             }
         )
         print(
             f"route={path} status={status} "
-            f"x-matched-path={matched_path or 'none'} soft404={matched_soft_404 or 'none'}"
+            f"x-matched-path={matched_path or 'none'} "
+            f"identity-required={route_identity_required}"
         )
         if not passed:
-            raise ReconcileFailure(f"production route failed after reconcile: {path} HTTP {status}")
+            raise ReconcileFailure(
+                "production route failed after reconcile: "
+                f"{path} HTTP {status} x-matched-path={matched_path or 'none'}"
+            )
     return evidence
 
 

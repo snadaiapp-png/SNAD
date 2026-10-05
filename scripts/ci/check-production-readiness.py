@@ -30,12 +30,6 @@ CRITICAL_FRONTEND_ROUTES = (
     ("hrm-g3-goals-route", "/hr/performance/goals"),
     ("hrm-g3-reviews-route", "/hr/performance/reviews"),
 )
-SOFT_404_MARKERS = (
-    "page not found",
-    "does not exist or has been moved",
-)
-
-
 @dataclass(frozen=True)
 class ProbeResult:
     name: str
@@ -115,22 +109,25 @@ def result(
 
 
 def check_critical_frontend_routes(production_url: str, timeout: float) -> list[ProbeResult]:
-    """Verify the live HRM G3 routes fail closed on hard or soft 404s."""
+    """Verify live HRM G3 routes by Vercel's exact matched-path identity.
+
+    Next.js App Router may embed the global not-found boundary text in valid page
+    payloads, so body-text soft-404 heuristics are not reliable. Vercel exposes
+    the resolved route through x-matched-path; require an exact match and HTTP 200.
+    """
 
     checks: list[ProbeResult] = []
     for check_name, route_path in CRITICAL_FRONTEND_ROUTES:
         route_url = f"{production_url}{route_path}"
-        status, body, _ = request(route_url, timeout)
-        route_html = body.decode("utf-8", errors="replace")
-        normalized_html = route_html.lower()
-        matched_soft_404 = [marker for marker in SOFT_404_MARKERS if marker in normalized_html]
-        route_passed = status == 200 and not matched_soft_404
+        status, _body, headers = request(route_url, timeout)
+        matched_path = headers.get("x-matched-path", "")
+        route_passed = status == 200 and matched_path == route_path
         checks.append(
             result(
                 name=check_name,
                 url=route_url,
-                expected="HTTP 200 and not the application 404 page",
-                actual=f"HTTP {status}; soft404Markers={matched_soft_404 or 'none'}",
+                expected=f"HTTP 200 with x-matched-path={route_path}",
+                actual=f"HTTP {status}; x-matched-path={matched_path or 'none'}",
                 passed=route_passed,
                 status_code=status,
             )

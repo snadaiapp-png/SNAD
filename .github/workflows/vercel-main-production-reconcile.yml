@@ -221,20 +221,42 @@ jobs:
             echo "VERCEL_PREBUILT_IGNORE_BYPASS = ACTIVE"
           fi
 
-          set +e
-          npx --yes vercel@latest deploy \
-            --prebuilt \
-            --prod \
-            --yes \
-            --token="$VERCEL_TOKEN" \
-            --meta "snadMainSha=$GITHUB_SHA" \
-            --meta "snadMainRef=main" \
-            --meta "snadDeploymentMethod=verified-prebuilt" \
-            --env "SNAD_RELEASE_SHA=$GITHUB_SHA" \
-            --env "SNAD_RELEASE_REF=main" \
-            >"$deploy_stdout" 2> >(tee "$deploy_stderr" >&2)
-          rc=$?
-          set -e
+          rc=1
+          for attempt in 1 2 3; do
+            : >"$deploy_stdout"
+            : >"$deploy_stderr"
+            echo "VERCEL_PREBUILT_DEPLOY_ATTEMPT=$attempt archive=tgz"
+
+            set +e
+            npx --yes vercel@latest deploy \
+              --prebuilt \
+              --archive=tgz \
+              --prod \
+              --yes \
+              --token="$VERCEL_TOKEN" \
+              --meta "snadMainSha=$GITHUB_SHA" \
+              --meta "snadMainRef=main" \
+              --meta "snadDeploymentMethod=verified-prebuilt" \
+              --env "SNAD_RELEASE_SHA=$GITHUB_SHA" \
+              --env "SNAD_RELEASE_REF=main" \
+              >"$deploy_stdout" 2> >(tee "$deploy_stderr" >&2)
+            rc=$?
+            set -e
+
+            if [ "$rc" -eq 0 ]; then
+              break
+            fi
+
+            if grep -Eq 'Upload aborted|unexpected error occurred|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up' "$deploy_stderr"; then
+              echo "::warning::VERCEL_PREBUILT_TRANSIENT_UPLOAD_FAILURE attempt=$attempt exit=$rc"
+              if [ "$attempt" -lt 3 ]; then
+                sleep $((attempt * 10))
+                continue
+              fi
+            fi
+
+            break
+          done
 
           restore_vercelignore
           trap - EXIT
