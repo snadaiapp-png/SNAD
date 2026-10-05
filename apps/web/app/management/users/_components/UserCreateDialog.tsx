@@ -10,7 +10,17 @@ interface UserCreateDialogProps {
   busy: boolean;
   messages: UsersMessages;
   onClose: () => void;
-  onSubmit: (input: { email: string; username: string; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null }) => Promise<void>;
+  onSubmit: (input: { email: string; username: string; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential: string }) => Promise<void>;
+}
+
+function createInitialCredential(): string {
+  if (process.env.NODE_ENV !== "production") {
+    return "12345678";
+  }
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+  const values = new Uint32Array(20);
+  crypto.getRandomValues(values);
+  return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
 }
 
 export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: UserCreateDialogProps) {
@@ -19,15 +29,17 @@ export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: Us
   const [displayName, setDisplayName] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
   const [mobileRegion, setMobileRegion] = useState("");
+  const [initialCredential, setInitialCredential] = useState(createInitialCredential);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSubmit({ email, username, displayName, mobileNumber, mobileRegion });
+    await onSubmit({ email, username, displayName, mobileNumber, mobileRegion, initialCredential });
     setEmail("");
     setUsername("");
     setDisplayName("");
     setMobileNumber("");
     setMobileRegion("");
+    setInitialCredential(createInitialCredential());
   };
 
   return (
@@ -50,6 +62,17 @@ export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: Us
           <Input label={messages.displayName} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
           <Input label={messages.mobileNumber} value={mobileNumber} onChange={(event) => setMobileNumber(event.target.value)} />
           <Input label={messages.mobileRegion} value={mobileRegion} maxLength={2} onChange={(event) => setMobileRegion(event.target.value)} />
+          <Input
+            type="password"
+            label={messages.initialCredential}
+            required
+            minLength={8}
+            maxLength={256}
+            autoComplete="new-password"
+            value={initialCredential}
+            onChange={(event) => setInitialCredential(event.target.value)}
+          />
+          <p>{messages.initialCredentialHelp}</p>
         </div>
       </form>
     </Modal>
