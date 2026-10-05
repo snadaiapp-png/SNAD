@@ -11,6 +11,8 @@ type G3Closure = {
   manifestPath: string;
   referencePrNumber: number;
   closureEvidenceMainSha: string;
+  productionClosurePath: string;
+  productionClosureMainSha: string;
   postMergeRuns: {
     authenticatedAcceptance: number;
     schemaIsolation: number;
@@ -21,6 +23,12 @@ type G3Closure = {
   implementationPerCanonicalTask: Record<"T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" | "T8", string>;
   engineeringFinalGate: string;
   engineeringCertification: string;
+  productionClosure: string;
+  productionRuns: {
+    postMergeVerification: number;
+    vercelMainProductionReconcile: number;
+    operationalSmoke: number;
+  };
   legalCertification: string;
   saCountryPack: string;
   productionAuthorization: string;
@@ -30,6 +38,7 @@ const HR_G3_CLOSURE = (executionData as unknown as { HR_G3_CLOSURE?: G3Closure }
 const REPO_ROOT = resolve(__dirname, "../../../../");
 const CERTIFICATE_PATH = resolve(REPO_ROOT, "docs/hrm/g3/evidence/HRM-G3-ENGINEERING-CLOSURE.md");
 const MANIFEST_PATH = resolve(REPO_ROOT, "docs/hrm/g3/evidence/G3-FINAL-EVIDENCE-MANIFEST.md");
+const PRODUCTION_CLOSURE_PATH = resolve(REPO_ROOT, "docs/hrm/g3/evidence/G3-PRODUCTION-CLOSURE.md");
 
 function readEvidence(path: string): string {
   expect(existsSync(path)).toBe(true);
@@ -42,6 +51,7 @@ describe("HR-G3 final engineering closure reconciliation", () => {
     expect(HR_G3_CLOSURE?.implementation).toBe("DONE");
     expect(HR_G3_CLOSURE?.certificatePath).toBe("docs/hrm/g3/evidence/HRM-G3-ENGINEERING-CLOSURE.md");
     expect(HR_G3_CLOSURE?.manifestPath).toBe("docs/hrm/g3/evidence/G3-FINAL-EVIDENCE-MANIFEST.md");
+    expect(HR_G3_CLOSURE?.productionClosurePath).toBe("docs/hrm/g3/evidence/G3-PRODUCTION-CLOSURE.md");
   });
 
   it("binds G3 closure to the exact certified main SHA and real runs", () => {
@@ -82,6 +92,13 @@ describe("HR-G3 final engineering closure reconciliation", () => {
   it("keeps legal, Saudi compliance, and production authorization independent", () => {
     expect(HR_G3_CLOSURE?.engineeringFinalGate).toBe("PASS");
     expect(HR_G3_CLOSURE?.engineeringCertification).toBe("APPROVED");
+    expect(HR_G3_CLOSURE?.productionClosure).toBe("PASS");
+    expect(HR_G3_CLOSURE?.productionClosureMainSha).toBe("2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581");
+    expect(HR_G3_CLOSURE?.productionRuns).toEqual({
+      postMergeVerification: 37329097719,
+      vercelMainProductionReconcile: 37329097684,
+      operationalSmoke: 37329356654,
+    });
     expect(HR_G3_CLOSURE?.legalCertification).toBe("BLOCKED");
     expect(HR_G3_CLOSURE?.saCountryPack).toBe("DRAFT");
     expect(HR_G3_CLOSURE?.productionAuthorization).toBe("NO");
@@ -105,5 +122,15 @@ describe("HR-G3 final engineering closure reconciliation", () => {
       expect(evidence).toContain("LEGAL_REVIEW = PENDING_HUMAN");
       expect(evidence).toContain("SA_COUNTRY_PACK = DRAFT");
     }
+  });
+
+  it("binds current production closure to the exact production baseline", () => {
+    const evidence = readEvidence(PRODUCTION_CLOSURE_PATH);
+    expect(evidence).toContain("STATUS_AUTHORITY: CURRENT");
+    expect(evidence).toContain("2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581");
+    expect(evidence).toContain("37329097719");
+    expect(evidence).toContain("37329097684");
+    expect(evidence).toContain("37329356654");
+    expect(evidence).toContain("production closure is PASS");
   });
 });

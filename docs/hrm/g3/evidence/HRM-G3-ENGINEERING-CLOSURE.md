@@ -6,6 +6,12 @@
 > G3_FULLY_CLOSED = PASS
 > Reference implementation PR: #1234
 
+> **Production reconciliation:** the later production closure is authoritative in
+> `docs/hrm/g3/evidence/G3-PRODUCTION-CLOSURE.md`, bound to main
+> `2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581`. Production statements below
+> remain the historical engineering-closure boundary and must not be read as
+> the current production status.
+
 ## Exact-SHA closure authority
 
 | Field | Certified value |
