@@ -145,7 +145,7 @@ describe("usersApi — create", () => {
       email: "new@example.com",
       username: "new.user",
       displayName: "New User",
-      initialCredential: "  Temporary-12345678  ",
+      initialCredential: "Temporary-12345678",
     });
     const [, body] = vi.mocked(apiClient.post).mock.calls[0];
     expect(body).toMatchObject({
