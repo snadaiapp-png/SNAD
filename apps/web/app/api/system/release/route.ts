@@ -7,8 +7,15 @@ export const dynamic = "force-dynamic";
 const RELEASE_CONTRACT_VERSION = "3";
 
 export function GET(): NextResponse {
-  const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "UNKNOWN";
-  const commitRef = process.env.VERCEL_GIT_COMMIT_REF || "UNKNOWN";
+  const commitSha =
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.SNAD_RELEASE_SHA ||
+    process.env.GITHUB_SHA ||
+    "UNKNOWN";
+  const commitRef =
+    process.env.VERCEL_GIT_COMMIT_REF ||
+    process.env.SNAD_RELEASE_REF ||
+    "UNKNOWN";
   const environment = process.env.VERCEL_TARGET_ENV || process.env.VERCEL_ENV || process.env.NODE_ENV || "UNKNOWN";
 
   return NextResponse.json(
