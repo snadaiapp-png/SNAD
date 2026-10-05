@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,10 +26,30 @@ class R0C13G07OperatorSurfaceContractTest {
             "BILLING.REFUND",
             "BILLING.PROVIDER_ADMIN");
 
+    private static Path canonicalG07Migration() throws Exception {
+        Path migrationDirectory = ROOT.resolve("src/main/resources/db/migration");
+        try (Stream<Path> migrations = Files.list(migrationDirectory)) {
+            List<Path> matches = migrations
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString()
+                            .endsWith("__r0c13_g07_operator_capabilities.sql"))
+                    .toList();
+
+            assertThat(matches)
+                    .as("exactly one canonical R0C13 G07 Flyway migration must exist")
+                    .hasSize(1);
+            return matches.getFirst();
+        }
+    }
+
     @Test
     void migrationSeedsAllGranularCapabilitiesAndPreservesLegacyBillingRoles() throws Exception {
-        String sql = Files.readString(ROOT.resolve(
-                "src/main/resources/db/migration/V20261005_1__r0c13_g07_operator_capabilities.sql"));
+        Path migration = canonicalG07Migration();
+        assertThat(migration.getFileName().toString())
+                .as("R0C13 G07 migration must use a Flyway versioned filename")
+                .matches("V\\d+(?:_\\d+)*__r0c13_g07_operator_capabilities\\.sql");
+
+        String sql = Files.readString(migration);
 
         for (String capability : G07_CAPABILITIES) {
             assertThat(sql).contains("'" + capability + "'");
