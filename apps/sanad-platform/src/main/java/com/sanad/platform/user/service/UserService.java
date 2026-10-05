@@ -3,6 +3,7 @@ package com.sanad.platform.user.service;
 import com.sanad.platform.access.service.LastAdminGuard;
 import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.security.filter.SessionVersionCache;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
@@ -32,6 +33,7 @@ public class UserService {
     private final UserMapper userMapper;
     private final RefreshTokenRepository refreshTokenRepository;
     private final SessionVersionCache sessionVersionCache;
+    private final PasswordEncoder passwordEncoder;
     private LastAdminGuard lastAdminGuard;
 
     public UserService(
@@ -39,13 +41,15 @@ public class UserService {
             UserRepository userRepository,
             UserMapper userMapper,
             RefreshTokenRepository refreshTokenRepository,
-            SessionVersionCache sessionVersionCache
+            SessionVersionCache sessionVersionCache,
+            PasswordEncoder passwordEncoder
     ) {
         this.tenantRepository = tenantRepository;
         this.userRepository = userRepository;
         this.userMapper = userMapper;
         this.refreshTokenRepository = refreshTokenRepository;
         this.sessionVersionCache = sessionVersionCache;
+        this.passwordEncoder = passwordEncoder;
     }
     @Autowired(required=false) void setLastAdminGuard(LastAdminGuard guard){this.lastAdminGuard=guard;}
 
@@ -58,11 +62,31 @@ public class UserService {
         tenantRepository.findById(tenantId).orElseThrow(()->new EntityNotFoundException("Tenant not found with id: "+tenantId));
         if(userRepository.existsByTenantIdAndEmail(tenantId,email))throw new DuplicateUserEmailException(tenantId,email);
         if(username!=null&&userRepository.existsByTenantIdAndUsername(tenantId,username))throw new DuplicateUsernameException(tenantId,username);
-        UserStatus initial=request.getStatus()==null?UserStatus.INVITED:request.getStatus();
+
+        String initialCredential = normalizeInitialCredential(request.getInitialCredential());
+        boolean bootstrapCredential = initialCredential != null;
+        if (bootstrapCredential
+                && request.getStatus() != null
+                && request.getStatus() != UserStatus.ACTIVE) {
+            throw new IllegalArgumentException("initialCredential requires ACTIVE user status");
+        }
+
+        UserStatus initial = bootstrapCredential
+                ? UserStatus.ACTIVE
+                : (request.getStatus()==null?UserStatus.INVITED:request.getStatus());
         User user=new User(tenantId,email,name,initial);
         user.setUsername(username);
         user.setMobileNumber(normalizeMobileNumber(request.getMobileNumber()));
         user.setMobileRegion(normalizeMobileRegion(request.getMobileRegion()));
+
+        if (bootstrapCredential) {
+            user.setPasswordHash(passwordEncoder.encode(initialCredential));
+            user.setPasswordSetAt(java.time.Instant.now());
+            user.setPasswordSetBy("admin-create");
+            user.setMustChangePassword(true);
+            user.setLastLoginAt(null);
+        }
+
         return userMapper.toResponse(userRepository.save(user));
     }
     @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public List<UserResponse> listUsers(UUID tenantId){Objects.requireNonNull(tenantId,"tenantId must not be null");return userRepository.findByTenantId(tenantId).stream().map(userMapper::toResponse).toList();}
@@ -136,6 +160,13 @@ public class UserService {
         String n=mobileRegion.trim().toUpperCase(Locale.ROOT);
         if(n.isEmpty())return null;
         if(!n.matches("^[A-Z]{2}$"))throw new IllegalArgumentException("mobileRegion must be a two-letter region");
+        return n;
+    }
+    private static String normalizeInitialCredential(String initialCredential){
+        if(initialCredential==null)return null;
+        String n=initialCredential.trim();
+        if(n.isEmpty())return null;
+        if(n.length()<8||n.length()>256)throw new IllegalArgumentException("initialCredential must be between 8 and 256 characters");
         return n;
     }
 }
