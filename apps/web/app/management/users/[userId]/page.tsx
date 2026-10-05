@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ExecutiveShell } from "@/components/shell";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
@@ -13,7 +13,8 @@ import {
   type UserRoleLinkResponse,
 } from "@/lib/api/tenant-access";
 import type { OrganizationMembershipResponse } from "@/lib/api/memberships";
-import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
+import { effectivePermissions, type EffectivePermission } from "@/lib/api/access-api";
+import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 const TRANSIENT_AUTH_STATES = new Set([
@@ -23,6 +24,14 @@ const TRANSIENT_AUTH_STATES = new Set([
   "REFRESHING_SESSION",
   "LOGGING_OUT",
 ]);
+
+type ScopeKind = "TENANT" | "ORGANIZATION";
+
+interface PendingRevoke {
+  grantId: string;
+  roleCode: string;
+  scopeLabel: string;
+}
 
 export default function TenantUserDetailPage() {
   const params = useParams<{ userId: string }>();
@@ -44,6 +53,7 @@ export default function TenantUserDetailPage() {
   const [memberships, setMemberships] = useState<OrganizationMembershipResponse[]>([]);
   const [roleLinks, setRoleLinks] = useState<UserRoleLinkResponse[]>([]);
   const [roles, setRoles] = useState<RoleResponse[]>([]);
+  const [effectiveAccess, setEffectiveAccess] = useState<EffectivePermission[]>([]);
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -52,9 +62,12 @@ export default function TenantUserDetailPage() {
   const [initialCredential, setInitialCredential] = useState("");
   const [confirmCredential, setConfirmCredential] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("");
+  const [selectedScope, setSelectedScope] = useState<ScopeKind>("TENANT");
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [pendingRevoke, setPendingRevoke] = useState<PendingRevoke | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UserFacingError | null>(null);
   const [credentialNotice, setCredentialNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,6 +75,18 @@ export default function TenantUserDetailPage() {
       router.replace(`/?returnUrl=${encodeURIComponent(`/management/users/${userId}`)}`);
     }
   }, [router, state, userId]);
+
+  // Reset transient mutation state when the actor's tenant changes (G7).
+  // This prevents a previously selected role / scope / organization from
+  // leaking across tenant boundaries. The backend remains the sole
+  // authority — this is purely a UX safeguard so the operator does not
+  // accidentally submit a stale selection against the new tenant.
+  useEffect(() => {
+    setSelectedRoleId("");
+    setSelectedScope("TENANT");
+    setSelectedOrganizationId("");
+    setPendingRevoke(null);
+  }, [tenantId]);
 
   const load = useCallback(async () => {
     if (!tenantId || !canRead) {
@@ -71,11 +96,12 @@ export default function TenantUserDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [userResult, membershipResult, linkResult, roleResult] = await Promise.all([
+      const [userResult, membershipResult, linkResult, roleResult, effectiveResult] = await Promise.all([
         usersApi.get(tenantId, userId),
         canReadMemberships ? tenantAccessApi.listUserMemberships(userId) : Promise.resolve([]),
         canReadRoles ? tenantAccessApi.listUserRoleLinks(tenantId, userId) : Promise.resolve([]),
         canReadRoles ? tenantAccessApi.listRoles(tenantId) : Promise.resolve([]),
+        canReadRoles ? effectivePermissions(userId) : Promise.resolve([]),
       ]);
       setTarget(userResult);
       setEmail(userResult.email);
@@ -86,17 +112,33 @@ export default function TenantUserDetailPage() {
       setMemberships(membershipResult);
       setRoleLinks(linkResult);
       setRoles(roleResult);
-      if (roleResult.length > 0) setSelectedRoleId(roleResult[0].id);
+      setEffectiveAccess(effectiveResult);
+      if (roleResult.length > 0 && selectedRoleId === "") setSelectedRoleId(roleResult[0].id);
     } catch (caught) {
-      setError(toUserFacingMessage(caught) || t("management.users.detail.error"));
+      setError(toUserFacingError(caught));
     } finally {
       setLoading(false);
     }
-  }, [canRead, canReadMemberships, canReadRoles, t, tenantId, userId]);
+  }, [canRead, canReadMemberships, canReadRoles, selectedRoleId, tenantId, userId]);
 
   useEffect(() => {
     if (state === "AUTHENTICATED") void load();
   }, [load, state]);
+
+  const organizationOptions = useMemo(() => {
+    // Organization scope choices are derived exclusively from the user's
+    // existing memberships — these are tenant-bound and backend-authoritative.
+    // No synthetic organization id is ever fabricated on the frontend.
+    return memberships.filter((m) => m.organizationId).map((m) => ({
+      id: m.organizationId,
+      label: m.displayName || m.email,
+    }));
+  }, [memberships]);
+
+  const scopeOptions = useMemo<ReadonlyArray<{ value: ScopeKind; label: string }>>(() => [
+    { value: "TENANT", label: t("management.users.detail.scopeTenant") },
+    { value: "ORGANIZATION", label: t("management.users.detail.scopeOrganization") },
+  ], [t]);
 
   if (TRANSIENT_AUTH_STATES.has(state)) return <AuthLoadingState phase="session" />;
   if (state !== "AUTHENTICATED" || !tenantId) return <AuthLoadingState phase="workspace" />;
@@ -116,7 +158,7 @@ export default function TenantUserDetailPage() {
       });
       await load();
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      setError(toUserFacingError(caught));
     } finally {
       setBusy(false);
     }
@@ -126,7 +168,7 @@ export default function TenantUserDetailPage() {
     if (!canWrite || !target || target.status !== "ACTIVE" || target.credentialInitialized) return;
     if (initialCredential !== confirmCredential) {
       setCredentialNotice(null);
-      setError(t("management.users.credentials.mismatch"));
+      setError({ title: t("management.users.credentials.mismatch"), message: t("management.users.credentials.mismatch"), kind: "validation" });
       return;
     }
     setBusy(true);
@@ -140,7 +182,7 @@ export default function TenantUserDetailPage() {
       setCredentialNotice(t("management.users.credentials.initializeSuccess"));
       await load();
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      setError(toUserFacingError(caught));
     } finally {
       setBusy(false);
     }
@@ -156,7 +198,7 @@ export default function TenantUserDetailPage() {
       await credentialApi.adminResetPassword(userId, { locale });
       setCredentialNotice(t("management.users.credentials.resetSuccess"));
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      setError(toUserFacingError(caught));
     } finally {
       setBusy(false);
     }
@@ -164,25 +206,44 @@ export default function TenantUserDetailPage() {
 
   const grantRole = async () => {
     if (!canGrantRole || !selectedRoleId) return;
+    // Fail-closed scope contract: only TENANT and ORGANIZATION scopes are
+    // offered. Organization scope requires a canonical organizationId that
+    // the backend validates against the authenticated tenant. No other
+    // scope type is exposable from the Users workspace.
+    const organizationId = selectedScope === "ORGANIZATION" ? selectedOrganizationId : undefined;
+    if (selectedScope === "ORGANIZATION" && !organizationId) return;
     setBusy(true);
+    setError(null);
     try {
-      await tenantAccessApi.grantUserRole(tenantId, userId, selectedRoleId, undefined);
+      await tenantAccessApi.grantUserRole(tenantId, userId, selectedRoleId, organizationId);
       await load();
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      setError(toUserFacingError(caught));
     } finally {
       setBusy(false);
     }
   };
 
-  const revokeRole = async (grantId: string) => {
+  const requestRevoke = (link: UserRoleLinkResponse) => {
     if (!canRevokeRole) return;
+    const scopeLabel = link.organizationId
+      ? t("management.users.detail.scopeOrganizationLabel")
+      : t("management.users.detail.scopeTenantLabel");
+    setPendingRevoke({ grantId: link.id, roleCode: link.roleCode, scopeLabel });
+  };
+
+  const cancelRevoke = () => setPendingRevoke(null);
+
+  const confirmRevoke = async () => {
+    if (!pendingRevoke || !canRevokeRole) return;
     setBusy(true);
+    setError(null);
     try {
-      await tenantAccessApi.revokeUserRole(tenantId, grantId);
+      await tenantAccessApi.revokeUserRole(tenantId, pendingRevoke.grantId);
+      setPendingRevoke(null);
       await load();
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      setError(toUserFacingError(caught));
     } finally {
       setBusy(false);
     }
@@ -192,7 +253,12 @@ export default function TenantUserDetailPage() {
     <ExecutiveShell>
       <section data-testid="management-user-detail-ready">
         <h1>{t("management.users.detail.title")}</h1>
-        {error ? <div role="alert">{error}</div> : null}
+        {error ? (
+          <div role="alert">
+            <h2>{error.title}</h2>
+            <p>{error.message}</p>
+          </div>
+        ) : null}
         {loading ? <div role="status">{t("management.users.detail.loading")}</div> : null}
         {!loading && target ? (
           <>
@@ -300,7 +366,8 @@ export default function TenantUserDetailPage() {
                 <ul>{roleLinks.map((link) => (
                   <li key={link.id}>
                     <span>{link.roleCode}</span>
-                    {canRevokeRole ? <button type="button" disabled={busy} onClick={() => void revokeRole(link.id)}>{t("management.users.detail.revoke")}</button> : null}
+                    <span>{link.organizationId ? t("management.users.detail.scopeOrganizationLabel") : t("management.users.detail.scopeTenantLabel")}</span>
+                    {canRevokeRole ? <button type="button" disabled={busy} onClick={() => requestRevoke(link)}>{t("management.users.detail.revoke")}</button> : null}
                   </li>
                 ))}</ul>
               )}
@@ -312,11 +379,75 @@ export default function TenantUserDetailPage() {
                       {roles.map((role) => <option key={role.id} value={role.id}>{role.code}</option>)}
                     </select>
                   </label>
-                  <button type="button" disabled={busy || !selectedRoleId} onClick={() => void grantRole()}>{t("management.users.detail.grant")}</button>
+                  <label>
+                    {t("management.users.detail.scope")}
+                    <select
+                      aria-label={t("management.users.detail.scope")}
+                      value={selectedScope}
+                      onChange={(event) => setSelectedScope(event.target.value as ScopeKind)}
+                    >
+                      {scopeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  {selectedScope === "ORGANIZATION" ? (
+                    <label>
+                      {t("management.users.detail.scopeOrganizationPlaceholder")}
+                      <select
+                        aria-label={t("management.users.detail.scopeOrganizationPlaceholder")}
+                        value={selectedOrganizationId}
+                        onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                      >
+                        <option value="">{t("management.users.detail.scopeOrganizationPlaceholder")}</option>
+                        {organizationOptions.map((org) => <option key={org.id} value={org.id}>{org.label}</option>)}
+                      </select>
+                    </label>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={busy || !selectedRoleId || (selectedScope === "ORGANIZATION" && !selectedOrganizationId)}
+                    onClick={() => void grantRole()}
+                  >
+                    {t("management.users.detail.grant")}
+                  </button>
                 </div>
               ) : null}
             </section>
+
+            <section aria-labelledby="user-effective-access-heading" data-testid="management-user-effective-access">
+              <h2 id="user-effective-access-heading">{t("management.users.detail.effectiveAccess")}</h2>
+              <p>{t("management.users.detail.effectiveAccessCount")}: {effectiveAccess.length}</p>
+              {effectiveAccess.length === 0 ? <p>{t("management.users.detail.effectiveAccessEmpty")}</p> : (
+                <ul>{effectiveAccess.map((perm) => (
+                  <li key={`${perm.capabilityId}-${perm.scopeType}-${perm.scopeReference ?? ""}-${perm.source}`}>
+                    {perm.capabilityId} — {perm.scopeType}{perm.scopeReference ? ` (${perm.scopeReference})` : ""} — {perm.source}
+                  </li>
+                ))}</ul>
+              )}
+            </section>
           </>
+        ) : null}
+
+        {pendingRevoke ? (
+          <div role="dialog" aria-modal="true" aria-labelledby="revoke-confirm-title">
+            <h2 id="revoke-confirm-title">{t("management.users.detail.revokeConfirmTitle")}</h2>
+            <p>{t("management.users.detail.revokeConfirmMessage")}</p>
+            <dl>
+              <div>
+                <dt>{t("management.users.detail.role")}</dt>
+                <dd>{pendingRevoke.roleCode}</dd>
+              </div>
+              <div>
+                <dt>{t("management.users.detail.scope")}</dt>
+                <dd>{pendingRevoke.scopeLabel}</dd>
+              </div>
+            </dl>
+            <button type="button" disabled={busy} onClick={() => void confirmRevoke()}>
+              {t("management.users.detail.revokeConfirmApply")}
+            </button>
+            <button type="button" disabled={busy} onClick={cancelRevoke}>
+              {t("management.users.detail.revokeConfirmCancel")}
+            </button>
+          </div>
         ) : null}
       </section>
     </ExecutiveShell>
