@@ -52,10 +52,10 @@ class UserApplicationAccessProjectionServiceTest {
         List<ApplicationAccessProjection> result = service.project(TENANT, USER);
 
         assertThat(result).hasSize(1);
-        assertThat(result.getFirst().applicationCode()).isEqualTo("FUTURE_LEDGER");
-        assertThat(result.getFirst().effectiveAccess()).isTrue();
-        assertThat(result.getFirst().effectiveCapabilities()).containsExactly("FUTURE_LEDGER.READ");
-        assertThat(result.getFirst().assignedRoles()).containsExactly("FUTURE_LEDGER_USER");
+        assertThat(result.get(0).applicationCode()).isEqualTo("FUTURE_LEDGER");
+        assertThat(result.get(0).effectiveAccess()).isTrue();
+        assertThat(result.get(0).effectiveCapabilities()).containsExactly("FUTURE_LEDGER.READ");
+        assertThat(result.get(0).assignedRoles()).containsExactly("FUTURE_LEDGER_USER");
     }
 
     @Test
@@ -73,7 +73,7 @@ class UserApplicationAccessProjectionServiceTest {
 
         var service = new UserApplicationAccessProjectionService(registry, accessRead, users);
 
-        ApplicationAccessProjection projection = service.project(TENANT, USER).getFirst();
+        ApplicationAccessProjection projection = service.project(TENANT, USER).get(0);
 
         assertThat(projection.registryValid()).isFalse();
         assertThat(projection.effectiveAccess()).isFalse();
@@ -96,7 +96,7 @@ class UserApplicationAccessProjectionServiceTest {
 
         var service = new UserApplicationAccessProjectionService(registry, accessRead, users);
 
-        ApplicationAccessProjection projection = service.project(TENANT, USER).getFirst();
+        ApplicationAccessProjection projection = service.project(TENANT, USER).get(0);
 
         assertThat(projection.registryValid()).isFalse();
         assertThat(projection.effectiveAccess()).isFalse();
