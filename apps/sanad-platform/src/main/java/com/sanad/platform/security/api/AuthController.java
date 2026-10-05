@@ -167,7 +167,7 @@ public class AuthController {
         String rawToken = authService.initiatePasswordReset(request, httpRequest.getRemoteAddr());
         try {
             recoveryNotifications.deliverRequestedReset(
-                    request.getEmail(), rawToken, httpRequest.getLocale().getLanguage());
+                    rawToken, httpRequest.getLocale().getLanguage());
         } catch (RuntimeException exception) {
             log.error("Password recovery delivery failed; token revoked", exception);
         }
