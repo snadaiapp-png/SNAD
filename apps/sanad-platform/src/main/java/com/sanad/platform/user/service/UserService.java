@@ -164,9 +164,8 @@ public class UserService {
     }
     private static String normalizeInitialCredential(String initialCredential){
         if(initialCredential==null)return null;
-        String n=initialCredential.trim();
-        if(n.isEmpty())return null;
-        if(n.length()<8||n.length()>256)throw new IllegalArgumentException("initialCredential must be between 8 and 256 characters");
-        return n;
+        if(initialCredential.isBlank())return null;
+        if(initialCredential.length()<8||initialCredential.length()>256)throw new IllegalArgumentException("initialCredential must be between 8 and 256 characters");
+        return initialCredential;
     }
 }
