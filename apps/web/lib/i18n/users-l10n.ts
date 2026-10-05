@@ -15,7 +15,9 @@ const ar: TranslationDictionary = {
   "users.displayName": "الاسم المعروض",
   "users.mobileNumber": "رقم الجوال",
   "users.mobileRegion": "رمز المنطقة",
-  "users.submitCreate": "إرسال الدعوة",
+  "users.initialCredential": "كلمة المرور المؤقتة",
+  "users.initialCredentialHelp": "يستطيع المستخدم تسجيل الدخول بها مرة أولى ثم يجب تغييرها قبل استخدام المنصة.",
+  "users.submitCreate": "إنشاء المستخدم",
   "users.cancel": "إلغاء",
   "users.empty": "لا يوجد مستخدمون بعد",
   "users.noMatches": "لا توجد نتائج مطابقة",
@@ -78,7 +80,9 @@ const en: TranslationDictionary = {
   "users.displayName": "Display name",
   "users.mobileNumber": "Mobile number",
   "users.mobileRegion": "Region code",
-  "users.submitCreate": "Send invitation",
+  "users.initialCredential": "Temporary password",
+  "users.initialCredentialHelp": "The user can sign in immediately and must change it before using the platform.",
+  "users.submitCreate": "Create user",
   "users.cancel": "Cancel",
   "users.empty": "No users yet",
   "users.noMatches": "No matching users",
@@ -134,7 +138,7 @@ export function usersDictionary(locale: Locale): TranslationDictionary {
 
 export interface UsersMessages {
   title: string; subtitle: string; search: string; statusFilter: string; allStatuses: string;
-  create: string; createTitle: string; email: string; username: string; displayName: string; mobileNumber: string; mobileRegion: string; submitCreate: string;
+  create: string; createTitle: string; email: string; username: string; displayName: string; mobileNumber: string; mobileRegion: string; initialCredential: string; initialCredentialHelp: string; submitCreate: string;
   cancel: string; empty: string; noMatches: string; loading: string; forbidden: string; error: string;
   open: string; activate: string; deactivate: string; suspend: string; archive: string; actions: string;
   status: string; status_ACTIVE: string; status_INACTIVE: string; status_INVITED: string;
@@ -146,7 +150,7 @@ export function usersMessages(t: Translate): UsersMessages {
     title: t("users.title"), subtitle: t("users.subtitle"), search: t("users.search"),
     statusFilter: t("users.statusFilter"), allStatuses: t("users.allStatuses"), create: t("users.create"),
     createTitle: t("users.createTitle"), email: t("users.email"), username: t("users.username"), displayName: t("users.displayName"),
-    mobileNumber: t("users.mobileNumber"), mobileRegion: t("users.mobileRegion"), submitCreate: t("users.submitCreate"), cancel: t("users.cancel"), empty: t("users.empty"),
+    mobileNumber: t("users.mobileNumber"), mobileRegion: t("users.mobileRegion"), initialCredential: t("users.initialCredential"), initialCredentialHelp: t("users.initialCredentialHelp"), submitCreate: t("users.submitCreate"), cancel: t("users.cancel"), empty: t("users.empty"),
     noMatches: t("users.noMatches"), loading: t("users.loading"), forbidden: t("users.forbidden"),
     error: t("users.error"), open: t("users.open"), activate: t("users.activate"),
     deactivate: t("users.deactivate"), suspend: t("users.suspend"), archive: t("users.archive"),
