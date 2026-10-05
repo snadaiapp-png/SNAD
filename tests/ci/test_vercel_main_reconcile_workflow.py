@@ -71,12 +71,14 @@ def test_vercel_reconcile_fails_closed_on_monorepo_and_route_artifact_drift():
     assert "find .vercel/output -type f | grep -E 'hr/performance/(goals|reviews)' || true" not in text
 
 
-def test_vercel_reconcile_proves_unique_deployment_before_final_alias_identity():
+def test_vercel_reconcile_probes_live_routes_only_after_alias_identity():
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "Verify HRM G3 routes on created deployment" in text
-    assert '--production-url "$DEPLOYMENT_URL"' in text
-    assert "hrm-g3-deployment-routes.json" in text
+    assert "Verify HRM G3 routes on created deployment" not in text
+    assert '--production-url "$DEPLOYMENT_URL"' not in text
+    assert "hrm-g3-deployment-routes.json" not in text
+    assert "Verify live HRM G3 routes" in text
+    assert '--production-url "$PRODUCTION_WEB_BASE_URL"' in text
     assert "Verify production alias still points to created deployment" in text
     assert "PRODUCTION_ALIAS_DEPLOYMENT_DRIFT" in text
     assert "PRODUCTION_ALIAS_CREATED_DEPLOYMENT = PASS" in text
