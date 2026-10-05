@@ -105,8 +105,8 @@ class PlatformApiCountTest {
      *  GET/POST /api/v1/executive/partners,
      *  GET /api/v1/executive/partners/{partnerId},
      *  PATCH /api/v1/executive/partners/{partnerId}/status,
-     *  GET /users, /tenants, /delegations = 1000. */
-    private static final long EXPECTED_TOTAL_OPS = 1000;
+     *  GET /users, /tenants, /delegations = 1000.\n     *  + 1 Users Phase 5 application-access projection endpoint\n     *  (GET /api/v1/users/{userId}/application-access) = 1001. */
+    private static final long EXPECTED_TOTAL_OPS = 1001;
     private static final long EXPECTED_HRM_V2_OPS = 145;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -121,7 +121,7 @@ class PlatformApiCountTest {
     void platformPublishesExpectedOperations() throws Exception {
         String body = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         JsonNode paths = objectMapper.readTree(body).path("paths");
-        assertThat(count(paths, "/api/v1/users")).isEqualTo(9);
+        assertThat(count(paths, "/api/v1/users")).isEqualTo(10);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(28);
         assertThat(count(paths, "/api/v1/executive")).isEqualTo(124);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
@@ -134,6 +134,7 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/management/modules/status", "get")).isTrue();
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/auth/admin-initialize-credential/{userId}", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/users/{userId}/application-access", "get")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/access/effective-permissions", "get")).isTrue();
         assertThat(has(paths, "/api/v1/access/effective-permissions/resync", "post")).isTrue();

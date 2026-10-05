@@ -300,6 +300,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261003.6"   // w2-t5 partner delegation grant boundary + gate
             , "20261003.7"   // tenant-scoped username identity
             , "20261004.1"   // w2-t9 partner recovery safety
+            , "20261005.1"   // Users Phase 5 dynamic application IAM registry
     );
 
 

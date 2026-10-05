@@ -1,0 +1,38 @@
+package com.sanad.platform.user.access;
+
+import com.sanad.platform.access.api.AccessPrincipalContext;
+import com.sanad.platform.security.authorization.RequireCapability;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/v1/users")
+public class UserApplicationAccessController {
+
+    private final UserApplicationAccessProjectionService projectionService;
+
+    public UserApplicationAccessController(UserApplicationAccessProjectionService projectionService) {
+        this.projectionService = projectionService;
+    }
+
+    @GetMapping("/{userId}/application-access")
+    @RequireCapability("USER.READ")
+    public List<ApplicationAccessProjection> list(
+            Authentication authentication,
+            @RequestParam UUID tenantId,
+            @PathVariable UUID userId) {
+        UUID authenticatedTenant = AccessPrincipalContext.requireTenantId(authentication);
+        if (!authenticatedTenant.equals(tenantId)) {
+            throw new AccessDeniedException("Cross-tenant application access read denied");
+        }
+        return projectionService.project(tenantId, userId);
+    }
+}
