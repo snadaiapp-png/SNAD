@@ -145,6 +145,8 @@ The system already exposes safe credential primitives and the UI must compose th
 
 ### 5.1 First credential
 
+**Governance reconciliation:** this approved expansion is the authoritative rule for the one-time first-credential case. It supersedes the earlier #1252 UI constraint that avoided password inputs, but only for an eligible ACTIVE user that has no credential. Existing credentials remain non-overwritable and continue to use the single-use reset-link flow.
+
 For an eligible ACTIVE user that has no credential:
 
 ```text
