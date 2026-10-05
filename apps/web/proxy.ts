@@ -2,9 +2,12 @@
  * proxy.ts — Next.js 16 Proxy (replaces deprecated middleware.ts)
  * ----------------------------------------------------------------
  * Runtime invariants:
- *   1. Production may only serve a Git-linked deployment sourced from main.
- *      If Vercel reports a non-main Git ref in production, fail closed with
- *      HTTP 503 for all application routes except the release identity probe.
+ *   1. Production may only serve a governed release sourced from main.
+ *      Git-linked deployments use VERCEL_GIT_COMMIT_REF. Verified prebuilt
+ *      deployments use the explicit SNAD_RELEASE_REF/SNAD_RELEASE_SHA pair
+ *      injected by the governed reconcile workflow. Any non-main effective
+ *      ref fails closed with HTTP 503 for all application routes except the
+ *      release identity probe.
  *   2. GET /crm → 307 redirect to /crm/overview and preserve root intent.
  */
 
@@ -17,6 +20,8 @@ type ReleaseEnv = {
   VERCEL_TARGET_ENV?: string;
   VERCEL_ENV?: string;
   VERCEL_GIT_COMMIT_REF?: string;
+  SNAD_RELEASE_REF?: string;
+  SNAD_RELEASE_SHA?: string;
 };
 
 export function isUnauthorizedProductionSource(
@@ -24,10 +29,16 @@ export function isUnauthorizedProductionSource(
     VERCEL_TARGET_ENV: process.env.VERCEL_TARGET_ENV,
     VERCEL_ENV: process.env.VERCEL_ENV,
     VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF,
+    SNAD_RELEASE_REF: process.env.SNAD_RELEASE_REF,
+    SNAD_RELEASE_SHA: process.env.SNAD_RELEASE_SHA,
   },
 ): boolean {
   const target = (env.VERCEL_TARGET_ENV || env.VERCEL_ENV || "").toLowerCase();
-  const ref = (env.VERCEL_GIT_COMMIT_REF || "").trim();
+  const governedRef =
+    (env.SNAD_RELEASE_SHA || "").trim() !== ""
+      ? (env.SNAD_RELEASE_REF || "").trim()
+      : "";
+  const ref = governedRef || (env.VERCEL_GIT_COMMIT_REF || "").trim();
   return (target === "production" || target === "prod") && ref !== "" && ref !== "main";
 }
 

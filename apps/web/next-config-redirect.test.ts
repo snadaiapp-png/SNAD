@@ -11,6 +11,8 @@ import {
 const ORIGINAL_VERCEL_TARGET_ENV = process.env.VERCEL_TARGET_ENV;
 const ORIGINAL_VERCEL_ENV = process.env.VERCEL_ENV;
 const ORIGINAL_VERCEL_GIT_COMMIT_REF = process.env.VERCEL_GIT_COMMIT_REF;
+const ORIGINAL_SNAD_RELEASE_REF = process.env.SNAD_RELEASE_REF;
+const ORIGINAL_SNAD_RELEASE_SHA = process.env.SNAD_RELEASE_SHA;
 
 function restore(name: string, value: string | undefined) {
   if (value === undefined) delete process.env[name];
@@ -21,6 +23,8 @@ afterEach(() => {
   restore("VERCEL_TARGET_ENV", ORIGINAL_VERCEL_TARGET_ENV);
   restore("VERCEL_ENV", ORIGINAL_VERCEL_ENV);
   restore("VERCEL_GIT_COMMIT_REF", ORIGINAL_VERCEL_GIT_COMMIT_REF);
+  restore("SNAD_RELEASE_REF", ORIGINAL_SNAD_RELEASE_REF);
+  restore("SNAD_RELEASE_SHA", ORIGINAL_SNAD_RELEASE_SHA);
 });
 
 describe("SNAD Next.js proxy", () => {
@@ -28,6 +32,8 @@ describe("SNAD Next.js proxy", () => {
     delete process.env.VERCEL_TARGET_ENV;
     delete process.env.VERCEL_ENV;
     delete process.env.VERCEL_GIT_COMMIT_REF;
+    delete process.env.SNAD_RELEASE_REF;
+    delete process.env.SNAD_RELEASE_SHA;
 
     const response = proxy(new NextRequest("http://localhost:3000/crm"));
 
@@ -62,10 +68,47 @@ describe("SNAD Next.js proxy", () => {
     process.env.VERCEL_TARGET_ENV = "production";
     process.env.VERCEL_ENV = "production";
     process.env.VERCEL_GIT_COMMIT_REF = "main";
+    delete process.env.SNAD_RELEASE_REF;
+    delete process.env.SNAD_RELEASE_SHA;
 
     const response = proxy(new NextRequest("https://snad-app.vercel.app/hr/performance/goals"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get(RELEASE_GUARD_HEADER)).toBeNull();
+  });
+
+  it("allows governed prebuilt production when Vercel reports HEAD but SNAD release identity is main", () => {
+    process.env.VERCEL_TARGET_ENV = "production";
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_GIT_COMMIT_REF = "HEAD";
+    process.env.SNAD_RELEASE_REF = "main";
+    process.env.SNAD_RELEASE_SHA = "0c32ba13e1a3c2b43d613c666f6316e6549df37e";
+
+    const response = proxy(new NextRequest("https://snad-app.vercel.app/hr/performance/goals"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get(RELEASE_GUARD_HEADER)).toBeNull();
+  });
+
+  it("does not trust SNAD_RELEASE_REF without the governed release SHA marker", () => {
+    expect(
+      isUnauthorizedProductionSource({
+        VERCEL_TARGET_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "HEAD",
+        SNAD_RELEASE_REF: "main",
+        SNAD_RELEASE_SHA: "",
+      }),
+    ).toBe(true);
+  });
+
+  it("fails closed when the governed prebuilt release ref itself is non-main", () => {
+    expect(
+      isUnauthorizedProductionSource({
+        VERCEL_TARGET_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "main",
+        SNAD_RELEASE_REF: "feature/unsafe",
+        SNAD_RELEASE_SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+    ).toBe(true);
   });
 });
