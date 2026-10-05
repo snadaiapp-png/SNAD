@@ -49,6 +49,14 @@ def test_vercel_reconcile_deploys_the_verified_prebuilt_artifact():
     assert '"snadDeploymentMethod": "git-source-rest"' not in text
 
 
+def test_prebuilt_deploy_archives_output_to_avoid_file_upload_abort():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "--prebuilt" in text
+    assert "--archive=tgz" in text
+    assert text.index("--prebuilt") < text.index("--archive=tgz") < text.index("--prod")
+
+
 def test_prebuilt_release_identity_has_explicit_runtime_fallbacks():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     release = RELEASE_ROUTE.read_text(encoding="utf-8")
