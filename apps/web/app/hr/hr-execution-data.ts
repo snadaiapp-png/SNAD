@@ -45,9 +45,9 @@ export const HR_G0_CLOSURE = {
   mergeSha: "748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b",
   /** Documented engineering certificate backing this state. */
   certificatePath: "docs/hrm/g0/evidence/HRM-G0-FINAL-ENGINEERING-CLOSURE.md",
-  /** Engineering certification — PENDING until the human review of the
-   *  closure certificate approves it. NOT auto-approved by this code. */
-  engineeringCertification: "PENDING" as "PENDING" | "APPROVED" | "REJECTED",
+  /** Engineering certification approved by the governed pre-G4 reconciliation.
+   *  Legal and production authorities remain independent. */
+  engineeringCertification: "APPROVED" as "PENDING" | "APPROVED" | "REJECTED",
   /** Legal certification is an INDEPENDENT human gate — always separate
    *  from engineering completion. Blocked pending human legal review. */
   legalCertification: "BLOCKED" as "BLOCKED" | "PENDING" | "APPROVED",
