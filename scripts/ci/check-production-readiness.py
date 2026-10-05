@@ -120,17 +120,28 @@ def check_critical_frontend_routes(production_url: str, timeout: float) -> list[
     checks: list[ProbeResult] = []
     for check_name, route_path in CRITICAL_FRONTEND_ROUTES:
         route_url = f"{production_url}{route_path}"
-        status, body, _ = request(route_url, timeout)
+        status, body, headers = request(route_url, timeout)
         route_html = body.decode("utf-8", errors="replace")
         normalized_html = route_html.lower()
         matched_soft_404 = [marker for marker in SOFT_404_MARKERS if marker in normalized_html]
-        route_passed = status == 200 and not matched_soft_404
+        matched_path = headers.get("x-matched-path", "").strip()
+
+        if matched_path:
+            route_passed = status == 200 and matched_path == route_path
+            routing_evidence = f"x-matched-path={matched_path}"
+        else:
+            route_passed = status == 200 and not matched_soft_404
+            routing_evidence = "x-matched-path=absent; marker-fallback"
+
         checks.append(
             result(
                 name=check_name,
                 url=route_url,
-                expected="HTTP 200 and not the application 404 page",
-                actual=f"HTTP {status}; soft404Markers={matched_soft_404 or 'none'}",
+                expected=f"HTTP 200 with x-matched-path={route_path}, or marker-clean fallback when header is unavailable",
+                actual=(
+                    f"HTTP {status}; {routing_evidence}; "
+                    f"soft404Markers={matched_soft_404 or 'none'}"
+                ),
                 passed=route_passed,
                 status_code=status,
             )
