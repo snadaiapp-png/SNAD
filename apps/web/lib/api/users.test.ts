@@ -139,6 +139,31 @@ describe("usersApi — create", () => {
     });
   });
 
+  it("sends one-time bootstrap credential when provided", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(makeUser({ status: "ACTIVE", credentialInitialized: true, credentialRotationRequired: true }) as never);
+    await usersApi.create(VALID_TENANT, {
+      email: "new@example.com",
+      username: "new.user",
+      displayName: "New User",
+      initialCredential: "  Temporary-12345678  ",
+    });
+    const [, body] = vi.mocked(apiClient.post).mock.calls[0];
+    expect(body).toMatchObject({
+      email: "new@example.com",
+      username: "new.user",
+      initialCredential: "Temporary-12345678",
+    });
+  });
+
+  it("rejects a bootstrap credential shorter than eight characters", async () => {
+    await expect(usersApi.create(VALID_TENANT, {
+      email: "new@example.com",
+      displayName: "New User",
+      initialCredential: "short",
+    })).rejects.toThrow(ApiConfigurationError);
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
   it("normalizes mobile profile fields when provided", async () => {
     vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
     await usersApi.create(VALID_TENANT, { email: "new@example.com", displayName: "New", mobileNumber: "  +966500000000  ", mobileRegion: " sa " });
@@ -153,7 +178,7 @@ describe("usersApi — create", () => {
     expect((body as { displayName: string | null }).displayName).toBeNull();
   });
 
-  it("does not send status when omitted (backend defaults to INVITED)", async () => {
+  it("does not send status when omitted; backend derives INVITED or ACTIVE from credential presence", async () => {
     vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
     await usersApi.create(VALID_TENANT, { email: "new@example.com", displayName: null });
     const [, body] = vi.mocked(apiClient.post).mock.calls[0];
