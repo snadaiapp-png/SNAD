@@ -23,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.lang.reflect.Field;
 import java.time.Instant;
@@ -53,6 +54,9 @@ class UserServiceTest {
 
     @Mock
     private SessionVersionCache sessionVersionCache;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
 
     @InjectMocks
     private UserService service;
@@ -162,6 +166,45 @@ class UserServiceTest {
         UserResponse result = service.createUser(tenantId, request);
 
         assertThat(result.getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("createUser: bootstrap credential activates account and requires first-login rotation")
+    void createUser_bootstrapCredential_activatesAndRequiresRotation() {
+        CreateUserRequest request =
+                new CreateUserRequest("new@example.com", "new.user", "New User", null);
+        request.setInitialCredential("Temporary-12345678");
+        stubSuccessfulCreate(tenantId, request.getEmail());
+        when(passwordEncoder.encode("Temporary-12345678")).thenReturn("bcrypt-hash");
+
+        service.createUser(tenantId, request);
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        User created = captor.getValue();
+        assertThat(created.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(created.getPasswordHash()).isEqualTo("bcrypt-hash");
+        assertThat(created.isMustChangePassword()).isTrue();
+        assertThat(created.getPasswordSetAt()).isNotNull();
+        assertThat(created.getPasswordSetBy()).isEqualTo("admin-create");
+        assertThat(created.getLastLoginAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("createUser: bootstrap credential rejects non-active explicit status")
+    void createUser_bootstrapCredential_rejectsNonActiveStatus() {
+        CreateUserRequest request =
+                new CreateUserRequest("new@example.com", "new.user", "New User", UserStatus.INVITED);
+        request.setInitialCredential("Temporary-12345678");
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(userRepository.existsByTenantIdAndEmail(tenantId, "new@example.com")).thenReturn(false);
+        when(userRepository.existsByTenantIdAndUsername(tenantId, "new.user")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.createUser(tenantId, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("initialCredential requires ACTIVE user status");
+
+        verify(userRepository, never()).save(any());
     }
 
     @Test
