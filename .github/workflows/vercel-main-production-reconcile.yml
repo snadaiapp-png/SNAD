@@ -173,125 +173,103 @@ jobs:
           print("HRM_G3_PREBUILT_ROUTE_ARTIFACTS = PASS")
           PY
 
-      - name: Create exact-SHA Git-source Production deployment via Vercel REST API
+      - name: Deploy verified prebuilt artifact to Vercel Production
         id: deploy
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          deploy_stdout="$RUNNER_TEMP/vercel-deploy-url.txt"
+          deploy_stderr="$RUNNER_TEMP/vercel-deploy.log"
+
+          set +e
+          npx --yes vercel@latest deploy \
+            --prebuilt \
+            --prod \
+            --yes \
+            --token="$VERCEL_TOKEN" \
+            --meta "snadMainSha=$GITHUB_SHA" \
+            --meta "snadMainRef=main" \
+            --meta "snadDeploymentMethod=verified-prebuilt" \
+            --env "SNAD_RELEASE_SHA=$GITHUB_SHA" \
+            --env "SNAD_RELEASE_REF=main" \
+            >"$deploy_stdout" 2> >(tee "$deploy_stderr" >&2)
+          rc=$?
+          set -e
+
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::VERCEL_PREBUILT_DEPLOY_FAILED exit=$rc"
+            exit "$rc"
+          fi
+
+          deployment_url="$(grep -E '^https://[^[:space:]]+$' "$deploy_stdout" | tail -1 | tr -d '\r')"
+          test -n "$deployment_url" || {
+            echo "::error::VERCEL_PREBUILT_DEPLOYMENT_URL_MISSING"
+            cat "$deploy_stdout"
+            exit 1
+          }
+
+          DEPLOYMENT_URL="$deployment_url" python3 - <<'PY'
           import json
           import os
-          import urllib.error
           import urllib.parse
           import urllib.request
           from pathlib import Path
 
+          deployment_url = os.environ["DEPLOYMENT_URL"]
           expected = os.environ["GITHUB_SHA"]
           token = os.environ["VERCEL_TOKEN"]
           team_id = os.environ["VERCEL_ORG_ID"]
-          project_id = os.environ["VERCEL_PROJECT_ID"]
-          repository = os.environ["GITHUB_REPOSITORY"]
-          owner, repo = repository.split("/", 1)
 
-          project_endpoint = (
-              "https://api.vercel.com/v9/projects/"
-              + urllib.parse.quote(project_id, safe="")
+          deployment_host = urllib.parse.urlparse(deployment_url).netloc
+          if not deployment_host:
+              raise SystemExit("VERCEL_PREBUILT_DEPLOYMENT_HOST_MISSING")
+
+          endpoint = (
+              "https://api.vercel.com/v13/deployments/"
+              + urllib.parse.quote(deployment_host, safe="")
               + "?teamId="
               + urllib.parse.quote(team_id, safe="")
           )
-          project_request = urllib.request.Request(
-              project_endpoint,
-              headers={
-                  "Authorization": f"Bearer {token}",
-                  "Accept": "application/json",
-                  "User-Agent": "SNAD-HRM-G3-Reconcile/3.1",
-              },
-          )
-          try:
-              with urllib.request.urlopen(project_request, timeout=30) as response:
-                  project = json.load(response)
-          except urllib.error.HTTPError as error:
-              body = error.read().decode("utf-8", errors="replace")
-              raise SystemExit(
-                  f"VERCEL_PROJECT_LOOKUP_HTTP_{error.code} {body}"
-              ) from error
-
-          project_name = str(project.get("name") or "").strip()
-          if not project_name:
-              raise SystemExit("VERCEL_PROJECT_LOOKUP_MISSING_NAME")
-
-          endpoint = (
-              "https://api.vercel.com/v13/deployments"
-              "?forceNew=1&skipAutoDetectionConfirmation=1&teamId="
-              + urllib.parse.quote(team_id, safe="")
-          )
-          payload = {
-              "name": project_name,
-              "project": project_id,
-              "target": "production",
-              "gitSource": {
-                  "type": "github",
-                  "org": owner,
-                  "repo": repo,
-                  "ref": "main",
-                  "sha": expected,
-              },
-              "gitMetadata": {
-                  "remoteUrl": f"https://github.com/{repository}",
-                  "commitRef": "main",
-                  "commitSha": expected,
-                  "dirty": False,
-                  "ci": True,
-                  "ciType": "github-actions",
-                  "rootDirectory": "apps/web",
-              },
-              "meta": {
-                  "snadMainSha": expected,
-                  "snadMainRef": "main",
-                  "snadDeploymentMethod": "git-source-rest",
-              },
-          }
-
           request = urllib.request.Request(
               endpoint,
-              data=json.dumps(payload).encode("utf-8"),
               headers={
                   "Authorization": f"Bearer {token}",
-                  "Content-Type": "application/json",
                   "Accept": "application/json",
-                  "User-Agent": "SNAD-HRM-G3-Reconcile/3.0",
+                  "User-Agent": "SNAD-HRM-G3-Prebuilt-Reconcile/1.0",
               },
-              method="POST",
           )
-          try:
-              with urllib.request.urlopen(request, timeout=60) as response:
-                  deployment = json.load(response)
-          except urllib.error.HTTPError as error:
-              body = error.read().decode("utf-8", errors="replace")
-              raise SystemExit(
-                  f"VERCEL_GIT_SOURCE_DEPLOYMENT_HTTP_{error.code} {body}"
-              ) from error
+          with urllib.request.urlopen(request, timeout=30) as response:
+              deployment = json.load(response)
 
           deployment_id = str(deployment.get("id") or deployment.get("uid") or "")
-          deployment_host = str(deployment.get("url") or "")
-          if not deployment_id or not deployment_host:
+          if not deployment_id:
+              raise SystemExit("VERCEL_PREBUILT_DEPLOYMENT_ID_MISSING")
+
+          meta = deployment.get("meta") if isinstance(deployment.get("meta"), dict) else {}
+          observed_sha = str(meta.get("snadMainSha") or "")
+          observed_method = str(meta.get("snadDeploymentMethod") or "")
+          if observed_sha != expected:
               raise SystemExit(
-                  "VERCEL_GIT_SOURCE_DEPLOYMENT_INVALID_RESPONSE "
-                  + json.dumps(deployment, sort_keys=True)
+                  f"VERCEL_PREBUILT_METADATA_SHA_MISMATCH expected={expected} actual={observed_sha or 'NONE'}"
+              )
+          if observed_method != "verified-prebuilt":
+              raise SystemExit(
+                  "VERCEL_PREBUILT_METADATA_METHOD_MISMATCH "
+                  f"actual={observed_method or 'NONE'}"
               )
 
-          deployment_url = (
-              deployment_host
-              if deployment_host.startswith("https://")
-              else f"https://{deployment_host}"
-          )
           evidence = {
-              "schemaVersion": 1,
-              "method": "git-source-rest",
+              "schemaVersion": 2,
+              "method": "verified-prebuilt",
               "expectedSha": expected,
               "deploymentId": deployment_id,
               "deploymentUrl": deployment_url,
-              "initialReadyState": deployment.get("readyState") or deployment.get("status"),
+              "readyState": deployment.get("readyState") or deployment.get("state"),
+              "target": deployment.get("target"),
+              "meta": {
+                  "snadMainSha": observed_sha,
+                  "snadDeploymentMethod": observed_method,
+              },
           }
           Path(os.environ["RUNNER_TEMP"], "vercel-deploy.json").write_text(
               json.dumps(evidence, indent=2, sort_keys=True) + "\n",
@@ -302,8 +280,8 @@ jobs:
               output.write(f"deployment_url={deployment_url}\n")
 
           print(
-              f"Created Git-source production deployment id={deployment_id} "
-              f"url={deployment_url} sha={expected}"
+              "VERCEL_VERIFIED_PREBUILT_DEPLOYMENT = PASS "
+              f"id={deployment_id} sha={expected}"
           )
           PY
 
@@ -514,7 +492,7 @@ jobs:
 
           evidence = {
               "schemaVersion": 2,
-              "method": "vercel-git-source-rest",
+              "method": "vercel-verified-prebuilt",
               "githubSha": os.environ.get("GITHUB_SHA"),
               "githubRef": os.environ.get("GITHUB_REF"),
               "deploymentUrl": os.environ.get("DEPLOYMENT_URL"),
@@ -536,6 +514,8 @@ jobs:
           path: |
             vercel-main-reconcile-evidence.json
             ${{ runner.temp }}/vercel-build.log
+            ${{ runner.temp }}/vercel-deploy.log
+            ${{ runner.temp }}/vercel-deploy-url.txt
             ${{ runner.temp }}/vercel-deploy.json
             ${{ runner.temp }}/vercel-production-identity.json
             ${{ runner.temp }}/hrm-g3-production-routes.json
