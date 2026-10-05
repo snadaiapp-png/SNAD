@@ -11,6 +11,7 @@ type G3Closure = {
   manifestPath: string;
   referencePrNumber: number;
   closureEvidenceMainSha: string;
+  productionClosureMainSha: string;
   postMergeRuns: {
     authenticatedAcceptance: number;
     schemaIsolation: number;
@@ -21,6 +22,12 @@ type G3Closure = {
   implementationPerCanonicalTask: Record<"T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" | "T8", string>;
   engineeringFinalGate: string;
   engineeringCertification: string;
+  productionOperationalCertification: string;
+  productionRuns: {
+    vercelMainProductionReconcile: number;
+    productionOperationalSmoke: number;
+    postMergeMainVerification: number;
+  };
   legalCertification: string;
   saCountryPack: string;
   productionAuthorization: string;
@@ -47,6 +54,7 @@ describe("HR-G3 final engineering closure reconciliation", () => {
   it("binds G3 closure to the exact certified main SHA and real runs", () => {
     expect(HR_G3_CLOSURE?.referencePrNumber).toBe(1234);
     expect(HR_G3_CLOSURE?.closureEvidenceMainSha).toBe("0acdc42507d817766a0113ae418c7c36dde678d1");
+    expect(HR_G3_CLOSURE?.productionClosureMainSha).toBe("2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581");
     expect(HR_G3_CLOSURE?.postMergeRuns).toEqual({
       authenticatedAcceptance: 37121204831,
       schemaIsolation: 37121204843,
@@ -82,9 +90,15 @@ describe("HR-G3 final engineering closure reconciliation", () => {
   it("keeps legal, Saudi compliance, and production authorization independent", () => {
     expect(HR_G3_CLOSURE?.engineeringFinalGate).toBe("PASS");
     expect(HR_G3_CLOSURE?.engineeringCertification).toBe("APPROVED");
+    expect(HR_G3_CLOSURE?.productionOperationalCertification).toBe("PASS");
+    expect(HR_G3_CLOSURE?.productionRuns).toEqual({
+      vercelMainProductionReconcile: 37329097684,
+      productionOperationalSmoke: 37329356654,
+      postMergeMainVerification: 37329097719,
+    });
     expect(HR_G3_CLOSURE?.legalCertification).toBe("BLOCKED");
     expect(HR_G3_CLOSURE?.saCountryPack).toBe("DRAFT");
-    expect(HR_G3_CLOSURE?.productionAuthorization).toBe("NO");
+    expect(HR_G3_CLOSURE?.productionAuthorization).toBe("GOVERNED_G3_RELEASE_COMPLETED");
   });
 
   it("reconciles the committed certificate and manifest to the same exact closure", () => {
@@ -99,9 +113,8 @@ describe("HR-G3 final engineering closure reconciliation", () => {
       expect(evidence).toContain("37121204852");
       expect(evidence).toContain("37121204833");
       expect(evidence).toContain("37121204782");
-      expect(evidence).toContain("PRODUCTION_AUTHORIZATION = NO");
-      expect(evidence).toContain("PRODUCTION_READY = NOT_CLAIMED");
-      expect(evidence).toContain("PRODUCTION_CERTIFIED = NOT_CLAIMED");
+      expect(evidence).toContain("PRODUCTION_OPERATIONAL_CERTIFICATION = PASS");
+      expect(evidence).toContain("PRODUCTION_CLOSURE_MAIN_SHA = 2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581");
       expect(evidence).toContain("LEGAL_REVIEW = PENDING_HUMAN");
       expect(evidence).toContain("SA_COUNTRY_PACK = DRAFT");
     }
