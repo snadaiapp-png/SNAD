@@ -45,7 +45,7 @@ export const HR_G0_CLOSURE = {
   mergeSha: "748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b",
   /** Documented engineering certificate backing this state. */
   certificatePath: "docs/hrm/g0/evidence/HRM-G0-FINAL-ENGINEERING-CLOSURE.md",
-  /** Engineering certification — approved by the independent PR #990 review
+  /** Engineering certification — approved by the independent PR 990 review
    *  (abdulrhmansenan1985-creator, 2026-09-07T17:22:20Z) and protected merge. */
   engineeringCertification: "APPROVED" as "PENDING" | "APPROVED" | "REJECTED",
   /** Legal certification is an INDEPENDENT human gate — always separate
