@@ -402,21 +402,6 @@ jobs:
           )
           PY
 
-      - name: Verify HRM G3 routes on created deployment
-        shell: bash
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
-          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/check-production-readiness.py \
-            --frontend-routes-only \
-            --attempts 6 \
-            --delay-seconds 5 \
-            --timeout-seconds 20 \
-            --production-url "$DEPLOYMENT_URL" \
-            --evidence-file "$RUNNER_TEMP/hrm-g3-deployment-routes.json"
-
       - name: Verify live HRM G3 routes
         shell: bash
         env:
@@ -553,7 +538,6 @@ jobs:
             ${{ runner.temp }}/vercel-build.log
             ${{ runner.temp }}/vercel-deploy.json
             ${{ runner.temp }}/vercel-production-identity.json
-            ${{ runner.temp }}/hrm-g3-deployment-routes.json
             ${{ runner.temp }}/hrm-g3-production-routes.json
             ${{ runner.temp }}/production-release.json
           if-no-files-found: warn
