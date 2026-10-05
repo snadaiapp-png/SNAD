@@ -1,6 +1,8 @@
 package com.sanad.platform.user.service;
 
 import com.sanad.platform.access.service.LastAdminGuard;
+import com.sanad.platform.security.domain.RefreshTokenRepository;
+import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
@@ -28,10 +30,22 @@ public class UserService {
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final UserMapper userMapper;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final SessionVersionCache sessionVersionCache;
     private LastAdminGuard lastAdminGuard;
 
-    public UserService(TenantRepository tenantRepository, UserRepository userRepository, UserMapper userMapper) {
-        this.tenantRepository=tenantRepository;this.userRepository=userRepository;this.userMapper=userMapper;
+    public UserService(
+            TenantRepository tenantRepository,
+            UserRepository userRepository,
+            UserMapper userMapper,
+            RefreshTokenRepository refreshTokenRepository,
+            SessionVersionCache sessionVersionCache
+    ) {
+        this.tenantRepository = tenantRepository;
+        this.userRepository = userRepository;
+        this.userMapper = userMapper;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.sessionVersionCache = sessionVersionCache;
     }
     @Autowired(required=false) void setLastAdminGuard(LastAdminGuard guard){this.lastAdminGuard=guard;}
 
@@ -71,10 +85,33 @@ public class UserService {
     @Transactional public UserResponse suspendUser(UUID tenantId,UUID userId){return setStatus(tenantId,userId,UserStatus.SUSPENDED);}
     @Transactional public UserResponse archiveUser(UUID tenantId,UUID userId){return setStatus(tenantId,userId,UserStatus.ARCHIVED);}
 
-    private UserResponse setStatus(UUID tenantId,UUID userId,UserStatus newStatus){
-        Objects.requireNonNull(newStatus,"newStatus must not be null");User user=loadUser(tenantId,userId);if(user.getStatus()==newStatus)return userMapper.toResponse(user);
-        if(newStatus!=UserStatus.ACTIVE&&lastAdminGuard!=null)lastAdminGuard.assertMayDeactivateUser(tenantId,userId);
-        user.setStatus(newStatus);return userMapper.toResponse(userRepository.save(user));
+    private UserResponse setStatus(UUID tenantId, UUID userId, UserStatus newStatus) {
+        Objects.requireNonNull(newStatus, "newStatus must not be null");
+        User user = loadUser(tenantId, userId);
+        if (user.getStatus() == newStatus) {
+            return userMapper.toResponse(user);
+        }
+
+        if (newStatus != UserStatus.ACTIVE && lastAdminGuard != null) {
+            lastAdminGuard.assertMayDeactivateUser(tenantId, userId);
+        }
+
+        user.setStatus(newStatus);
+
+        // Any transition away from ACTIVE is an authorization-state change.
+        // Invalidate already-issued access tokens immediately via session_version
+        // and revoke refresh tokens so the account cannot continue operating
+        // until it is explicitly reactivated and signs in again.
+        if (newStatus != UserStatus.ACTIVE) {
+            user.incrementSessionVersion();
+        }
+
+        User saved = userRepository.save(user);
+        if (newStatus != UserStatus.ACTIVE) {
+            sessionVersionCache.invalidate(tenantId, userId);
+            refreshTokenRepository.revokeAllActive(tenantId, userId);
+        }
+        return userMapper.toResponse(saved);
     }
     private User loadUser(UUID tenantId,UUID userId){Objects.requireNonNull(tenantId,"tenantId must not be null");Objects.requireNonNull(userId,"userId must not be null");return userRepository.findByTenantIdAndId(tenantId,userId).orElseThrow(()->new UserNotFoundException(tenantId,userId));}
     private static String normalizeEmail(String email){Objects.requireNonNull(email,"email must not be null");String n=email.trim().toLowerCase(Locale.ROOT);if(n.isBlank())throw new IllegalArgumentException("email must not be blank");if(n.length()>255)throw new IllegalArgumentException("email must be at most 255 characters");return n;}
