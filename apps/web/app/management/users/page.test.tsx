@@ -51,7 +51,9 @@ vi.mock("@/lib/i18n/I18nProvider", () => ({
       "users.displayName": "الاسم المعروض",
       "users.mobileNumber": "رقم الجوال",
       "users.mobileRegion": "رمز المنطقة",
-      "users.submitCreate": "إرسال الدعوة",
+      "users.initialCredential": "كلمة المرور المؤقتة",
+      "users.initialCredentialHelp": "يستطيع المستخدم تسجيل الدخول بها مرة أولى ثم يجب تغييرها قبل استخدام المنصة.",
+      "users.submitCreate": "إنشاء المستخدم",
       "users.empty": "لا يوجد مستخدمون بعد",
       "users.noMatches": "لا توجد نتائج مطابقة",
       "users.loading": "جارٍ تحميل المستخدمين",
@@ -181,7 +183,8 @@ describe("Tenant User Directory", () => {
     await user.type(screen.getByLabelText("البريد الإلكتروني"), "new@example.com");
     await user.type(screen.getByLabelText("اسم المستخدم"), "new.user");
     await user.type(screen.getByLabelText("الاسم المعروض"), "مستخدم جديد");
-    await user.click(screen.getByRole("button", { name: "إرسال الدعوة" }));
+    expect(screen.getByLabelText("كلمة المرور المؤقتة")).toHaveValue("12345678");
+    await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
 
     await waitFor(() => expect(usersApiMock.create).toHaveBeenCalledWith(TENANT_ID, {
       email: "new@example.com",
@@ -189,6 +192,7 @@ describe("Tenant User Directory", () => {
       displayName: "مستخدم جديد",
       mobileNumber: "",
       mobileRegion: "",
+      initialCredential: "12345678",
     }));
     await waitFor(() => expect(usersApiMock.list).toHaveBeenCalledTimes(2));
   });
