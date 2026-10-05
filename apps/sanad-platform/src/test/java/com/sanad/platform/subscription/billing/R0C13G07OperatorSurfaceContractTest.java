@@ -38,7 +38,7 @@ class R0C13G07OperatorSurfaceContractTest {
             assertThat(matches)
                     .as("exactly one canonical R0C13 G07 Flyway migration must exist")
                     .hasSize(1);
-            return matches.getFirst();
+            return matches.get(0);
         }
     }
 
