@@ -100,3 +100,27 @@ def test_prebuilt_deploy_bypasses_vercelignore_only_for_output_upload_and_restor
     assert "VERCEL_PREBUILT_IGNORE_BYPASS = ACTIVE" in text
     assert "VERCEL_PREBUILT_IGNORE_BYPASS = PASS" in text
     assert "VERCELIGNORE_RESTORE_FAILED" in text
+
+
+def test_hrm_g3_routes_must_build_as_dynamic_before_production_deploy():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "HRM_G3_ROUTE_MISSING_FROM_NEXT_BUILD" in text
+    assert "HRM_G3_ROUTE_NOT_DYNAMIC" in text
+    assert "HRM_G3_ROUTE_STATIC_PRERENDER_REGRESSION" in text
+    assert "HRM_G3_DYNAMIC_ROUTE_BUILD_CONTRACT = PASS" in text
+    assert '"/hr/performance/goals"' in text
+    assert '"/hr/performance/reviews"' in text
+
+
+def test_reconcile_captures_route_diagnostics_before_live_g3_gate():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "Capture production route diagnostics" in text
+    assert "/hr/employees" in text
+    assert "/hr/assignments" in text
+    assert "/hr/performance/goals" in text
+    assert "/hr/performance/reviews" in text
+    assert "x-matched-path:" in text
+    assert "x-snad-release-guard:" in text
+    assert "production-route-diagnostics" in text
