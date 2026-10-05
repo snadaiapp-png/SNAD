@@ -180,6 +180,20 @@ jobs:
           set -euo pipefail
           deploy_stdout="$RUNNER_TEMP/vercel-deploy-url.txt"
           deploy_stderr="$RUNNER_TEMP/vercel-deploy.log"
+          vercelignore_backup="$RUNNER_TEMP/vercelignore.prebuilt.backup"
+
+          restore_vercelignore() {
+            if [ -f "$vercelignore_backup" ]; then
+              cp "$vercelignore_backup" .vercelignore
+            fi
+          }
+          trap restore_vercelignore EXIT
+
+          if [ -f .vercelignore ]; then
+            cp .vercelignore "$vercelignore_backup"
+            rm .vercelignore
+            echo "VERCEL_PREBUILT_IGNORE_BYPASS = ACTIVE"
+          fi
 
           set +e
           npx --yes vercel@latest deploy \
@@ -195,6 +209,16 @@ jobs:
             >"$deploy_stdout" 2> >(tee "$deploy_stderr" >&2)
           rc=$?
           set -e
+
+          restore_vercelignore
+          trap - EXIT
+          if [ -f "$vercelignore_backup" ]; then
+            test -f .vercelignore || {
+              echo "::error::VERCELIGNORE_RESTORE_FAILED"
+              exit 1
+            }
+            echo "VERCEL_PREBUILT_IGNORE_BYPASS = PASS"
+          fi
 
           if [ "$rc" -ne 0 ]; then
             echo "::error::VERCEL_PREBUILT_DEPLOY_FAILED exit=$rc"

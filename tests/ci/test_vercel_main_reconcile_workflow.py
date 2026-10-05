@@ -59,6 +59,8 @@ def test_prebuilt_release_identity_has_explicit_runtime_fallbacks():
     assert "process.env.SNAD_RELEASE_REF" in release
     assert "process.env.VERCEL_GIT_COMMIT_SHA" in release
     assert "process.env.VERCEL_GIT_COMMIT_REF" in release
+    assert release.index("process.env.SNAD_RELEASE_SHA") < release.index("process.env.VERCEL_GIT_COMMIT_SHA")
+    assert release.index("process.env.SNAD_RELEASE_REF") < release.index("process.env.VERCEL_GIT_COMMIT_REF")
 
 
 def test_vercel_reconcile_fails_closed_on_monorepo_and_route_artifact_drift():
@@ -84,3 +86,17 @@ def test_vercel_reconcile_probes_live_routes_only_after_alias_identity():
     assert "Verify production alias still points to created deployment" in text
     assert "PRODUCTION_ALIAS_DEPLOYMENT_DRIFT" in text
     assert "PRODUCTION_ALIAS_CREATED_DEPLOYMENT = PASS" in text
+
+
+def test_prebuilt_deploy_bypasses_vercelignore_only_for_output_upload_and_restores_it():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'vercelignore_backup="$RUNNER_TEMP/vercelignore.prebuilt.backup"' in text
+    assert "restore_vercelignore()" in text
+    assert "rm .vercelignore" in text
+    assert "trap restore_vercelignore EXIT" in text
+    assert "restore_vercelignore" in text
+    assert "trap - EXIT" in text
+    assert "VERCEL_PREBUILT_IGNORE_BYPASS = ACTIVE" in text
+    assert "VERCEL_PREBUILT_IGNORE_BYPASS = PASS" in text
+    assert "VERCELIGNORE_RESTORE_FAILED" in text
