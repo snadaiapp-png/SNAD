@@ -66,6 +66,66 @@ jobs:
           test -n "$VERCEL_PROJECT_ID"
           npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
 
+      - name: Verify Vercel monorepo project settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ["VERCEL_TOKEN"]
+          team_id = os.environ["VERCEL_ORG_ID"]
+          project_id = os.environ["VERCEL_PROJECT_ID"]
+          endpoint = (
+              "https://api.vercel.com/v9/projects/"
+              + urllib.parse.quote(project_id, safe="")
+              + "?teamId="
+              + urllib.parse.quote(team_id, safe="")
+          )
+          request = urllib.request.Request(
+              endpoint,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/json",
+                  "User-Agent": "SNAD-Vercel-Project-Contract/1.0",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              project = json.load(response)
+
+          root_directory = str(project.get("rootDirectory") or "")
+          outside_root = project.get("sourceFilesOutsideRootDirectory")
+          framework = str(project.get("framework") or "")
+
+          print(
+              "VERCEL_PROJECT_SETTINGS "
+              f"rootDirectory={root_directory or 'NONE'} "
+              f"sourceFilesOutsideRootDirectory={outside_root!r} "
+              f"framework={framework or 'NONE'}"
+          )
+
+          if root_directory != "apps/web":
+              raise SystemExit(
+                  "VERCEL_PROJECT_ROOT_DIRECTORY_MISMATCH "
+                  f"expected=apps/web actual={root_directory or 'NONE'}"
+              )
+          if outside_root is not True:
+              raise SystemExit(
+                  "VERCEL_PROJECT_OUTSIDE_ROOT_DISABLED "
+                  "expected=sourceFilesOutsideRootDirectory:true"
+              )
+          if framework != "nextjs":
+              raise SystemExit(
+                  "VERCEL_PROJECT_FRAMEWORK_MISMATCH "
+                  f"expected=nextjs actual={framework or 'NONE'}"
+              )
+
+          print("VERCEL_MONOREPO_PROJECT_SETTINGS = PASS")
+          PY
+
       - name: Build clean production artifact locally
         shell: bash
         run: |
@@ -84,7 +144,34 @@ jobs:
           }
 
           echo "Prebuilt HRM route evidence:"
-          find .vercel/output -type f | grep -E 'hr/performance/(goals|reviews)' || true
+          python3 - <<'PY'
+          from pathlib import Path
+
+          output = Path(".vercel/output")
+          entries = [p.as_posix() for p in output.rglob("*")]
+          config_text = ""
+          config_path = output / "config.json"
+          if config_path.is_file():
+              config_text = config_path.read_text(encoding="utf-8", errors="replace")
+
+          missing = []
+          for route in ("/hr/performance/goals", "/hr/performance/reviews"):
+              route_fragment = route.lstrip("/")
+              matched = [entry for entry in entries if route_fragment in entry]
+              if route in config_text:
+                  matched.append("config.json")
+              if not matched:
+                  missing.append(route)
+              else:
+                  print(f"ROUTE_ARTIFACT_PRESENT {route}: {matched[:5]}")
+
+          if missing:
+              raise SystemExit(
+                  "HRM_G3_ROUTE_ARTIFACT_MISSING " + ",".join(missing)
+              )
+
+          print("HRM_G3_PREBUILT_ROUTE_ARTIFACTS = PASS")
+          PY
 
       - name: Create exact-SHA Git-source Production deployment via Vercel REST API
         id: deploy
@@ -315,13 +402,98 @@ jobs:
           )
           PY
 
+      - name: Verify HRM G3 routes on created deployment
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check-production-readiness.py \
+            --frontend-routes-only \
+            --attempts 6 \
+            --delay-seconds 5 \
+            --timeout-seconds 20 \
+            --production-url "$DEPLOYMENT_URL" \
+            --evidence-file "$RUNNER_TEMP/hrm-g3-deployment-routes.json"
+
       - name: Verify live HRM G3 routes
         shell: bash
         env:
           VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/check-production-readiness.py             --frontend-routes-only             --attempts 6             --delay-seconds 5             --timeout-seconds 20             --production-url "$PRODUCTION_WEB_BASE_URL"             --evidence-file "$RUNNER_TEMP/hrm-g3-production-routes.json"
+          python3 scripts/ci/check-production-readiness.py \
+            --frontend-routes-only \
+            --attempts 6 \
+            --delay-seconds 5 \
+            --timeout-seconds 20 \
+            --production-url "$PRODUCTION_WEB_BASE_URL" \
+            --evidence-file "$RUNNER_TEMP/hrm-g3-production-routes.json"
+
+      - name: Verify production alias still points to created deployment
+        shell: bash
+        env:
+          EXPECTED_DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          expected_id = os.environ["EXPECTED_DEPLOYMENT_ID"]
+          expected_sha = os.environ["GITHUB_SHA"]
+          token = os.environ["VERCEL_TOKEN"]
+          team_id = os.environ["VERCEL_ORG_ID"]
+          production_host = urllib.parse.urlparse(
+              os.environ["PRODUCTION_WEB_BASE_URL"]
+          ).netloc
+
+          endpoint = (
+              "https://api.vercel.com/v13/deployments/"
+              + urllib.parse.quote(production_host, safe="")
+              + "?teamId="
+              + urllib.parse.quote(team_id, safe="")
+          )
+          request = urllib.request.Request(
+              endpoint,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/json",
+                  "User-Agent": "SNAD-Vercel-Alias-Lock/1.0",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              deployment = json.load(response)
+
+          observed_id = str(deployment.get("id") or deployment.get("uid") or "")
+          meta = deployment.get("meta") if isinstance(deployment.get("meta"), dict) else {}
+          observed_sha = str(meta.get("snadMainSha") or meta.get("githubCommitSha") or "")
+          state = str(deployment.get("readyState") or deployment.get("state") or "")
+          target = str(deployment.get("target") or "")
+
+          print(
+              "PRODUCTION_ALIAS_IDENTITY "
+              f"deploymentId={observed_id or 'NONE'} "
+              f"sha={observed_sha or 'NONE'} state={state or 'NONE'} target={target or 'NONE'}"
+          )
+
+          if observed_id != expected_id:
+              raise SystemExit(
+                  "PRODUCTION_ALIAS_DEPLOYMENT_DRIFT "
+                  f"expected={expected_id} actual={observed_id or 'NONE'}"
+              )
+          if observed_sha != expected_sha or state != "READY" or target != "production":
+              raise SystemExit(
+                  "PRODUCTION_ALIAS_IDENTITY_MISMATCH "
+                  f"expectedSha={expected_sha} actualSha={observed_sha or 'NONE'} "
+                  f"state={state or 'NONE'} target={target or 'NONE'}"
+              )
+
+          print("PRODUCTION_ALIAS_CREATED_DEPLOYMENT = PASS")
+          PY
 
       - name: Capture production release identity
         if: always()
@@ -381,6 +553,7 @@ jobs:
             ${{ runner.temp }}/vercel-build.log
             ${{ runner.temp }}/vercel-deploy.json
             ${{ runner.temp }}/vercel-production-identity.json
+            ${{ runner.temp }}/hrm-g3-deployment-routes.json
             ${{ runner.temp }}/hrm-g3-production-routes.json
             ${{ runner.temp }}/production-release.json
           if-no-files-found: warn

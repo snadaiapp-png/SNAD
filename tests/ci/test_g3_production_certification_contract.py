@@ -19,6 +19,13 @@ def test_g3_production_certification_is_manual_and_read_only():
     assert "api/system/release" in workflow
     assert "G3_EXPECTED_SHA" in workflow
     assert "G3_PROD_TENANT_ID" in workflow
+    assert 'API_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}' in workflow
+    assert '"$API_ROOT/api/v1/auth/login"' in workflow
+    assert 'get_backend_json "/api/v2/hr/people"' in workflow
+    assert 'get_backend_json "/api/v2/hr/employments"' in workflow
+    assert "/api/platform/api/v2/hr/people" not in workflow
+    assert "/api/platform/api/v2/hr/employments" not in workflow
+    assert "G3_CANONICAL_EMPLOYMENT_RESOLUTION=PASS" in workflow
     assert "expect(login.user.tenantId).toBe(PRODUCTION_TENANT_ID)" in spec
     production_config = (ROOT / "apps/web/playwright-g3-production.config.ts").read_text(encoding="utf-8")
     assert "g3-production-readonly" in production_config
