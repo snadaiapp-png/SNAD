@@ -196,9 +196,15 @@ function httpError(status: number): ApiHttpError {
 }
 
 function pageSource(): string {
-  const pagePath = resolve(__dirname, "page.tsx");
-  expect(existsSync(pagePath), "Task 5 page.tsx must exist").toBe(true);
-  return readFileSync(pagePath, "utf8");
+  const clientPath = resolve(__dirname, "goals-client.tsx");
+  expect(existsSync(clientPath), "Task 5 goals client surface must exist").toBe(true);
+  return readFileSync(clientPath, "utf8");
+}
+
+function routeSource(): string {
+  const routePath = resolve(__dirname, "page.tsx");
+  expect(existsSync(routePath), "Task 5 dynamic route wrapper must exist").toBe(true);
+  return readFileSync(routePath, "utf8");
 }
 
 beforeEach(() => {
@@ -463,5 +469,13 @@ describe("/hr/performance/goals — Task 5 goals tracking surface", () => {
 
     await waitFor(() => expect(hrG3ApiMock.listTeamGoals).toHaveBeenCalledWith("e-1"));
     expect(await screen.findByText(GOAL_G1.title)).toBeInTheDocument();
+  });
+
+  it("23. forces the authenticated production route to remain dynamic", () => {
+    const source = routeSource();
+    expect(source).toContain('export const dynamic = "force-dynamic"');
+    expect(source).toContain("export const revalidate = 0");
+    expect(source).toContain('import GoalsClient from "./goals-client"');
+    expect(source).not.toContain('"use client"');
   });
 });

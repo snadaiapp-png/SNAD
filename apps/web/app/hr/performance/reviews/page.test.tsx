@@ -292,9 +292,15 @@ function httpError(status: number): ApiHttpError {
 }
 
 function pageSource(): string {
-  const pagePath = resolve(__dirname, "page.tsx");
-  expect(existsSync(pagePath), "Task 6 page.tsx must exist").toBe(true);
-  return readFileSync(pagePath, "utf8");
+  const clientPath = resolve(__dirname, "reviews-client.tsx");
+  expect(existsSync(clientPath), "Task 6 reviews client surface must exist").toBe(true);
+  return readFileSync(clientPath, "utf8");
+}
+
+function routeSource(): string {
+  const routePath = resolve(__dirname, "page.tsx");
+  expect(existsSync(routePath), "Task 6 dynamic route wrapper must exist").toBe(true);
+  return readFileSync(routePath, "utf8");
 }
 
 beforeEach(() => {
@@ -620,5 +626,13 @@ describe("/hr/performance/reviews — Task 6 performance review surface", () => 
     const source = pageSource();
     expect(source).not.toMatch(/locale\s*===\s*["']ar["']/);
     expect(source).not.toMatch(/locale\s*===\s*["']en["']/);
+  });
+
+  it("28. forces the authenticated production route to remain dynamic", () => {
+    const source = routeSource();
+    expect(source).toContain('export const dynamic = "force-dynamic"');
+    expect(source).toContain("export const revalidate = 0");
+    expect(source).toContain('import ReviewsClient from "./reviews-client"');
+    expect(source).not.toContain('"use client"');
   });
 });
