@@ -45,9 +45,9 @@ export const HR_G0_CLOSURE = {
   mergeSha: "748e2c6076c94b7a29e2a5e8e4f4a817b0f2fc2b",
   /** Documented engineering certificate backing this state. */
   certificatePath: "docs/hrm/g0/evidence/HRM-G0-FINAL-ENGINEERING-CLOSURE.md",
-  /** Engineering certification — PENDING until the human review of the
-   *  closure certificate approves it. NOT auto-approved by this code. */
-  engineeringCertification: "PENDING" as "PENDING" | "APPROVED" | "REJECTED",
+  /** Engineering certification — approved by the independent PR #990 review
+   *  (abdulrhmansenan1985-creator, 2026-09-07T17:22:20Z) and protected merge. */
+  engineeringCertification: "APPROVED" as "PENDING" | "APPROVED" | "REJECTED",
   /** Legal certification is an INDEPENDENT human gate — always separate
    *  from engineering completion. Blocked pending human legal review. */
   legalCertification: "BLOCKED" as "BLOCKED" | "PENDING" | "APPROVED",
@@ -203,6 +203,8 @@ export const HR_G3_CLOSURE = {
   manifestPath: "docs/hrm/g3/evidence/G3-FINAL-EVIDENCE-MANIFEST.md",
   referencePrNumber: 1234 as const,
   closureEvidenceMainSha: "0acdc42507d817766a0113ae418c7c36dde678d1",
+  /** Production closure was subsequently re-certified on current exact main. */
+  productionClosureMainSha: "2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581",
   postMergeRuns: {
     authenticatedAcceptance: 37121204831 as const,
     schemaIsolation: 37121204843 as const,
@@ -222,9 +224,15 @@ export const HR_G3_CLOSURE = {
   } as const,
   engineeringFinalGate: "PASS" as const,
   engineeringCertification: "APPROVED" as const,
+  productionOperationalCertification: "PASS" as const,
+  productionRuns: {
+    vercelMainProductionReconcile: 37329097684 as const,
+    productionOperationalSmoke: 37329356654 as const,
+    postMergeMainVerification: 37329097719 as const,
+  } as const,
   legalCertification: "BLOCKED" as const,
   saCountryPack: "DRAFT" as const,
-  productionAuthorization: "NO" as const,
+  productionAuthorization: "GOVERNED_G3_RELEASE_COMPLETED" as const,
 } as const;
 
 // ── HR-Specific Task Type ────────────────────────────────────────────────
