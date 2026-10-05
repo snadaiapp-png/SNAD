@@ -1,0 +1,149 @@
+name: G2 Canonical Scope PostgreSQL Direct
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrEmploymentScopeResolver.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrEmploymentScopeResolverPostgresTest.java'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
+      - 'apps/sanad-platform/src/main/resources/db/migration/**'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/**'
+      - 'apps/sanad-platform/pom.xml'
+      - '.github/workflows/g2-canonical-scope-postgres.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrEmploymentScopeResolver.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/time/HrEmploymentScopeResolverPostgresTest.java'
+      - 'apps/sanad-platform/src/test/resources/sql/g2-acceptance-seed.sql'
+      - 'apps/sanad-platform/src/main/resources/db/migration/**'
+      - 'apps/sanad-platform/src/main/resources/db/vendor/postgresql/**'
+      - 'apps/sanad-platform/pom.xml'
+      - '.github/workflows/g2-canonical-scope-postgres.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g2-canonical-scope-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canonical-scope-postgres:
+    name: Canonical HR scope resolver (PostgreSQL Direct)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g2_scope?prepareThreshold=0
+      SPRING_DATASOURCE_USERNAME: sanad_g2_scope
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify checkout identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          echo "candidate_sha=$CANDIDATE_SHA"
+
+      - name: Generate ephemeral PostgreSQL credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_CRED="$(openssl rand -hex 24)"
+          echo "::add-mask::$DB_CRED"
+          echo "SPRING_DATASOURCE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "PGPASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+
+      - name: Start host-native PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null
+          command -v pg_isready >/dev/null
+          sudo systemctl start postgresql
+          for i in $(seq 1 30); do
+            pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1 && break
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+          psql --version
+
+      - name: Provision least-privilege test role and databases
+        shell: bash
+        env:
+          DB_CRED: ${{ env.SPRING_DATASOURCE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -v db_credential="$DB_CRED" <<'SQL'
+          SELECT format('CREATE ROLE sanad_g2_scope WITH LOGIN PASSWORD %L', :'db_credential')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g2_scope')
+          \gexec
+
+          ALTER ROLE sanad_g2_scope
+            NOSUPERUSER
+            NOCREATEDB
+            NOCREATEROLE
+            NOBYPASSRLS;
+
+          SELECT 'CREATE DATABASE sanad_g2_scope OWNER sanad_g2_scope'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'sanad_g2_scope')
+          \gexec
+
+          SELECT 'CREATE DATABASE test_migration OWNER sanad_g2_scope'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'test_migration')
+          \gexec
+
+          ALTER DATABASE sanad_g2_scope OWNER TO sanad_g2_scope;
+          ALTER DATABASE test_migration OWNER TO sanad_g2_scope;
+          GRANT CONNECT ON DATABASE postgres TO sanad_g2_scope;
+          SQL
+
+          PGPASSWORD="$DB_CRED" psql -h 127.0.0.1 -U sanad_g2_scope -d sanad_g2_scope -v ON_ERROR_STOP=1 -Atc "SELECT current_database() || '|' || current_user"
+          PGPASSWORD="$DB_CRED" psql -h 127.0.0.1 -U sanad_g2_scope -d test_migration -v ON_ERROR_STOP=1 -Atc "SELECT current_database() || '|' || current_user"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run canonical scope PostgreSQL regression
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest=HrEmploymentScopeResolverPostgresTest \
+            -DfailIfNoTests=true \
+            test
+
+      - name: Assert regression actually executed
+        if: always()
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT=target/surefire-reports/TEST-com.sanad.platform.hr.time.HrEmploymentScopeResolverPostgresTest.xml
+          test -f "$REPORT" || { echo "::error::Missing Surefire report for HrEmploymentScopeResolverPostgresTest"; exit 1; }
+          python3 - "$REPORT" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          path = sys.argv[1]
+          root = ET.parse(path).getroot()
+          tests = int(root.attrib.get('tests', '0'))
+          failures = int(root.attrib.get('failures', '0'))
+          errors = int(root.attrib.get('errors', '0'))
+          skipped = int(root.attrib.get('skipped', '0'))
+          print(f"tests={tests} failures={failures} errors={errors} skipped={skipped}")
+          if tests < 3 or skipped != 0 or failures != 0 or errors != 0:
+              raise SystemExit(1)
+          PY
