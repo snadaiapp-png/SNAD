@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -43,8 +44,8 @@ class UserApplicationAccessProjectionServiceTest {
         when(accessRead.activeRoleGrants(TENANT, USER)).thenReturn(List.of(
                 new UserAccessResponse(UUID.randomUUID(), TENANT, USER, ROLE, "FUTURE_LEDGER_USER",
                         null, UserGrantStatus.ACTIVE, Instant.EPOCH, Instant.EPOCH)));
-        when(accessRead.capabilitiesByRoleIds(TENANT, Set.of(ROLE)))
-                .thenReturn(Set.of("FUTURE_LEDGER.READ"));
+        when(accessRead.capabilityCodesByRoleIds(TENANT, Set.of(ROLE)))
+                .thenReturn(Map.of(ROLE, Set.of("FUTURE_LEDGER.READ")));
 
         var service = new UserApplicationAccessProjectionService(registry, accessRead, users);
 
@@ -55,6 +56,28 @@ class UserApplicationAccessProjectionServiceTest {
         assertThat(result.getFirst().effectiveAccess()).isTrue();
         assertThat(result.getFirst().effectiveCapabilities()).containsExactly("FUTURE_LEDGER.READ");
         assertThat(result.getFirst().assignedRoles()).containsExactly("FUTURE_LEDGER_USER");
+    }
+
+    @Test
+    void unsupportedScopeFailsClosed() {
+        User target = new User(TENANT, "future.user@example.com", "Future User", UserStatus.ACTIVE);
+        when(users.findByTenantIdAndId(TENANT, USER)).thenReturn(Optional.of(target));
+        when(registry.findDiscoverable()).thenReturn(List.of(
+                new ApplicationIamRegistration(
+                        "FUTURE_LEDGER", "Future Ledger", "دفتر المستقبل", "ACTIVE", "1",
+                        Set.of("FUTURE_LEDGER"), Set.of("PLANETARY_CLUSTER"), Set.of("FUTURE_LEDGER.READ"))));
+        when(accessRead.knownCapabilities()).thenReturn(Set.of("FUTURE_LEDGER.READ"));
+        when(accessRead.effectiveCapabilityCodes(TENANT, USER)).thenReturn(Set.of("FUTURE_LEDGER.READ"));
+        when(accessRead.activeRoleGrants(TENANT, USER)).thenReturn(List.of());
+        when(accessRead.capabilityCodesByRoleIds(TENANT, Set.of())).thenReturn(Map.of());
+
+        var service = new UserApplicationAccessProjectionService(registry, accessRead, users);
+
+        ApplicationAccessProjection projection = service.project(TENANT, USER).getFirst();
+
+        assertThat(projection.registryValid()).isFalse();
+        assertThat(projection.effectiveAccess()).isFalse();
+        assertThat(projection.reason()).isEqualTo("UNKNOWN_OR_UNSUPPORTED_SCOPE");
     }
 
     @Test
@@ -69,7 +92,7 @@ class UserApplicationAccessProjectionServiceTest {
         when(accessRead.knownCapabilities()).thenReturn(Set.of("FUTURE_LEDGER.READ"));
         when(accessRead.effectiveCapabilityCodes(TENANT, USER)).thenReturn(Set.of("FUTURE_LEDGER.READ"));
         when(accessRead.activeRoleGrants(TENANT, USER)).thenReturn(List.of());
-        when(accessRead.capabilitiesByRoleIds(TENANT, Set.of())).thenReturn(Set.of());
+        when(accessRead.capabilityCodesByRoleIds(TENANT, Set.of())).thenReturn(Map.of());
 
         var service = new UserApplicationAccessProjectionService(registry, accessRead, users);
 
