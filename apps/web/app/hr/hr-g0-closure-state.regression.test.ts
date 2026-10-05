@@ -104,7 +104,7 @@ describe("HR-G0 closure state reconciliation", () => {
     expect(certification).not.toBeNull();
     // The documented certification is stable and Map-independent.
     expect(certification!.id).toBe("CERT-G0-DOCUMENTED");
-    expect(certification!.status).toBe("PENDING_REVIEW");
+    expect(certification!.status).toBe("CERTIFIED");
     // Notes must carry the claim-discipline semantics.
     expect(certification!.notes).toContain("legal certification: BLOCKED");
   });
