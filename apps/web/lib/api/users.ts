@@ -110,12 +110,11 @@ function normalizeMobileRegion(value?: string | null): string | null {
 
 function requireValidInitialCredential(value?: string | null): string | undefined {
   if (value == null) return undefined;
-  const normalized = value.trim();
-  if (!normalized) return undefined;
-  if (normalized.length < 8 || normalized.length > 256) {
+  if (!value.trim()) return undefined;
+  if (value.length < 8 || value.length > 256) {
     throw new ApiConfigurationError("كلمة المرور المؤقتة يجب أن تكون بين 8 و256 حرفًا");
   }
-  return normalized;
+  return value;
 }
 
 function requireValidLifecycleAction(action: string): UserLifecycleAction {
