@@ -27,6 +27,11 @@ public class ControlPlaneAccessService {
             "entitlement.read", "entitlement.manage", "entitlement.override",
             "usage.read",
             "billing.read", "billing.adjust",
+            // R0C13 G07 granular operator capabilities. Uppercase codes are
+            // canonical access_capabilities entries; the lowercase SCP codes
+            // above remain for R0C12 compatibility.
+            "BILLING.READ", "BILLING.MANAGE", "BILLING.RECONCILE",
+            "BILLING.REFUND", "BILLING.PROVIDER_ADMIN",
             "provisioning.read", "provisioning.retry",
             "audit.read",
             // Wave 1 UAC administration is surfaced through the same fail-closed
