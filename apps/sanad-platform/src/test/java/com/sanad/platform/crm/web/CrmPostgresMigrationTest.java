@@ -240,7 +240,8 @@ class CrmPostgresMigrationTest {
     private static final String PARTNER_DELEGATION_GRANT_BOUNDARY_VERSION = "20261003.6";
     private static final String TENANT_USERNAME_VERSION = "20261003.7";
     private static final String PARTNER_RECOVERY_SAFETY_VERSION = "20261004.1";
-    private static final String LATEST_MIGRATION_VERSION = PARTNER_RECOVERY_SAFETY_VERSION;
+    private static final String DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION = "20261005.1";
+    private static final String LATEST_MIGRATION_VERSION = DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -527,7 +528,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTNER_TENANT_BINDING_BOUNDARY_VERSION),
                         MigrationVersion.fromVersion(PARTNER_DELEGATION_GRANT_BOUNDARY_VERSION),
                         MigrationVersion.fromVersion(TENANT_USERNAME_VERSION),
-                        MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION));
+                        MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION),
+                        MigrationVersion.fromVersion(DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -752,7 +754,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTNER_TENANT_BINDING_BOUNDARY_VERSION),
                         MigrationVersion.fromVersion(PARTNER_DELEGATION_GRANT_BOUNDARY_VERSION),
                         MigrationVersion.fromVersion(TENANT_USERNAME_VERSION),
-                        MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION));
+                        MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION),
+                        MigrationVersion.fromVersion(DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
