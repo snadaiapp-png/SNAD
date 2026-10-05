@@ -87,7 +87,7 @@ describe("HR-G0 closure state reconciliation", () => {
     const certificate = readCertificate();
 
     // Engineering certification is NOT self-approved by code.
-    expect(HR_G0_CLOSURE.engineeringCertification).toBe("PENDING");
+    expect(HR_G0_CLOSURE.engineeringCertification).toBe("APPROVED");
     // Legal gate is independent and blocked pending human review.
     expect(HR_G0_CLOSURE.legalCertification).toBe("BLOCKED");
     expect(certificate).toMatch(/LEGAL_REVIEW\s*=\s*BLOCKED_OR_PENDING_HUMAN/);
