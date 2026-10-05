@@ -1,5 +1,7 @@
 package com.sanad.platform.user.service;
 
+import com.sanad.platform.security.domain.RefreshTokenRepository;
+import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
@@ -21,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.lang.reflect.Field;
 import java.time.Instant;
@@ -45,6 +48,15 @@ class UserServiceTest {
 
     @Mock
     private UserMapper userMapper;
+
+    @Mock
+    private RefreshTokenRepository refreshTokenRepository;
+
+    @Mock
+    private SessionVersionCache sessionVersionCache;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
 
     @InjectMocks
     private UserService service;
@@ -157,6 +169,45 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("createUser: bootstrap credential activates account and requires first-login rotation")
+    void createUser_bootstrapCredential_activatesAndRequiresRotation() {
+        CreateUserRequest request =
+                new CreateUserRequest("new@example.com", "new.user", "New User", null);
+        request.setInitialCredential("Temporary-12345678");
+        stubSuccessfulCreate(tenantId, request.getEmail());
+        when(passwordEncoder.encode("Temporary-12345678")).thenReturn("bcrypt-hash");
+
+        service.createUser(tenantId, request);
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        User created = captor.getValue();
+        assertThat(created.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(created.getPasswordHash()).isEqualTo("bcrypt-hash");
+        assertThat(created.isMustChangePassword()).isTrue();
+        assertThat(created.getPasswordSetAt()).isNotNull();
+        assertThat(created.getPasswordSetBy()).isEqualTo("admin-create");
+        assertThat(created.getLastLoginAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("createUser: bootstrap credential rejects non-active explicit status")
+    void createUser_bootstrapCredential_rejectsNonActiveStatus() {
+        CreateUserRequest request =
+                new CreateUserRequest("new@example.com", "new.user", "New User", UserStatus.INVITED);
+        request.setInitialCredential("Temporary-12345678");
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(userRepository.existsByTenantIdAndEmail(tenantId, "new@example.com")).thenReturn(false);
+        when(userRepository.existsByTenantIdAndUsername(tenantId, "new.user")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.createUser(tenantId, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("initialCredential requires ACTIVE user status");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("listUsers: returns users only from the requested tenant")
     void listUsers_tenantScoped() {
         User second = new User(tenantId, "bob@example.com", "Bob", UserStatus.ACTIVE);
@@ -246,24 +297,33 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("deactivateUser: sets INACTIVE")
+    @DisplayName("deactivateUser: sets INACTIVE and immediately revokes sessions")
     void deactivateUser_setsInactive() {
         assertStatusTransition(UserStatus.INACTIVE);
         assertThat(user.getStatus()).isEqualTo(UserStatus.INACTIVE);
+        assertThat(user.getSessionVersion()).isEqualTo(1L);
+        verify(sessionVersionCache).invalidate(tenantId, userId);
+        verify(refreshTokenRepository).revokeAllActive(tenantId, userId);
     }
 
     @Test
-    @DisplayName("suspendUser: sets SUSPENDED")
+    @DisplayName("suspendUser: sets SUSPENDED and immediately revokes sessions")
     void suspendUser_setsSuspended() {
         assertStatusTransition(UserStatus.SUSPENDED);
         assertThat(user.getStatus()).isEqualTo(UserStatus.SUSPENDED);
+        assertThat(user.getSessionVersion()).isEqualTo(1L);
+        verify(sessionVersionCache).invalidate(tenantId, userId);
+        verify(refreshTokenRepository).revokeAllActive(tenantId, userId);
     }
 
     @Test
-    @DisplayName("archiveUser: sets ARCHIVED")
+    @DisplayName("archiveUser: sets ARCHIVED and immediately revokes sessions")
     void archiveUser_setsArchived() {
         assertStatusTransition(UserStatus.ARCHIVED);
         assertThat(user.getStatus()).isEqualTo(UserStatus.ARCHIVED);
+        assertThat(user.getSessionVersion()).isEqualTo(1L);
+        verify(sessionVersionCache).invalidate(tenantId, userId);
+        verify(refreshTokenRepository).revokeAllActive(tenantId, userId);
     }
 
     @Test

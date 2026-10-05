@@ -1,6 +1,9 @@
 package com.sanad.platform.user.service;
 
 import com.sanad.platform.access.service.LastAdminGuard;
+import com.sanad.platform.security.domain.RefreshTokenRepository;
+import com.sanad.platform.security.filter.SessionVersionCache;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
@@ -28,10 +31,25 @@ public class UserService {
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final UserMapper userMapper;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final SessionVersionCache sessionVersionCache;
+    private final PasswordEncoder passwordEncoder;
     private LastAdminGuard lastAdminGuard;
 
-    public UserService(TenantRepository tenantRepository, UserRepository userRepository, UserMapper userMapper) {
-        this.tenantRepository=tenantRepository;this.userRepository=userRepository;this.userMapper=userMapper;
+    public UserService(
+            TenantRepository tenantRepository,
+            UserRepository userRepository,
+            UserMapper userMapper,
+            RefreshTokenRepository refreshTokenRepository,
+            SessionVersionCache sessionVersionCache,
+            PasswordEncoder passwordEncoder
+    ) {
+        this.tenantRepository = tenantRepository;
+        this.userRepository = userRepository;
+        this.userMapper = userMapper;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.sessionVersionCache = sessionVersionCache;
+        this.passwordEncoder = passwordEncoder;
     }
     @Autowired(required=false) void setLastAdminGuard(LastAdminGuard guard){this.lastAdminGuard=guard;}
 
@@ -44,11 +62,31 @@ public class UserService {
         tenantRepository.findById(tenantId).orElseThrow(()->new EntityNotFoundException("Tenant not found with id: "+tenantId));
         if(userRepository.existsByTenantIdAndEmail(tenantId,email))throw new DuplicateUserEmailException(tenantId,email);
         if(username!=null&&userRepository.existsByTenantIdAndUsername(tenantId,username))throw new DuplicateUsernameException(tenantId,username);
-        UserStatus initial=request.getStatus()==null?UserStatus.INVITED:request.getStatus();
+
+        String initialCredential = normalizeInitialCredential(request.getInitialCredential());
+        boolean bootstrapCredential = initialCredential != null;
+        if (bootstrapCredential
+                && request.getStatus() != null
+                && request.getStatus() != UserStatus.ACTIVE) {
+            throw new IllegalArgumentException("initialCredential requires ACTIVE user status");
+        }
+
+        UserStatus initial = bootstrapCredential
+                ? UserStatus.ACTIVE
+                : (request.getStatus()==null?UserStatus.INVITED:request.getStatus());
         User user=new User(tenantId,email,name,initial);
         user.setUsername(username);
         user.setMobileNumber(normalizeMobileNumber(request.getMobileNumber()));
         user.setMobileRegion(normalizeMobileRegion(request.getMobileRegion()));
+
+        if (bootstrapCredential) {
+            user.setPasswordHash(passwordEncoder.encode(initialCredential));
+            user.setPasswordSetAt(java.time.Instant.now());
+            user.setPasswordSetBy("admin-create");
+            user.setMustChangePassword(true);
+            user.setLastLoginAt(null);
+        }
+
         return userMapper.toResponse(userRepository.save(user));
     }
     @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public List<UserResponse> listUsers(UUID tenantId){Objects.requireNonNull(tenantId,"tenantId must not be null");return userRepository.findByTenantId(tenantId).stream().map(userMapper::toResponse).toList();}
@@ -71,10 +109,33 @@ public class UserService {
     @Transactional public UserResponse suspendUser(UUID tenantId,UUID userId){return setStatus(tenantId,userId,UserStatus.SUSPENDED);}
     @Transactional public UserResponse archiveUser(UUID tenantId,UUID userId){return setStatus(tenantId,userId,UserStatus.ARCHIVED);}
 
-    private UserResponse setStatus(UUID tenantId,UUID userId,UserStatus newStatus){
-        Objects.requireNonNull(newStatus,"newStatus must not be null");User user=loadUser(tenantId,userId);if(user.getStatus()==newStatus)return userMapper.toResponse(user);
-        if(newStatus!=UserStatus.ACTIVE&&lastAdminGuard!=null)lastAdminGuard.assertMayDeactivateUser(tenantId,userId);
-        user.setStatus(newStatus);return userMapper.toResponse(userRepository.save(user));
+    private UserResponse setStatus(UUID tenantId, UUID userId, UserStatus newStatus) {
+        Objects.requireNonNull(newStatus, "newStatus must not be null");
+        User user = loadUser(tenantId, userId);
+        if (user.getStatus() == newStatus) {
+            return userMapper.toResponse(user);
+        }
+
+        if (newStatus != UserStatus.ACTIVE && lastAdminGuard != null) {
+            lastAdminGuard.assertMayDeactivateUser(tenantId, userId);
+        }
+
+        user.setStatus(newStatus);
+
+        // Any transition away from ACTIVE is an authorization-state change.
+        // Invalidate already-issued access tokens immediately via session_version
+        // and revoke refresh tokens so the account cannot continue operating
+        // until it is explicitly reactivated and signs in again.
+        if (newStatus != UserStatus.ACTIVE) {
+            user.incrementSessionVersion();
+        }
+
+        User saved = userRepository.save(user);
+        if (newStatus != UserStatus.ACTIVE) {
+            sessionVersionCache.invalidate(tenantId, userId);
+            refreshTokenRepository.revokeAllActive(tenantId, userId);
+        }
+        return userMapper.toResponse(saved);
     }
     private User loadUser(UUID tenantId,UUID userId){Objects.requireNonNull(tenantId,"tenantId must not be null");Objects.requireNonNull(userId,"userId must not be null");return userRepository.findByTenantIdAndId(tenantId,userId).orElseThrow(()->new UserNotFoundException(tenantId,userId));}
     private static String normalizeEmail(String email){Objects.requireNonNull(email,"email must not be null");String n=email.trim().toLowerCase(Locale.ROOT);if(n.isBlank())throw new IllegalArgumentException("email must not be blank");if(n.length()>255)throw new IllegalArgumentException("email must be at most 255 characters");return n;}
@@ -100,5 +161,11 @@ public class UserService {
         if(n.isEmpty())return null;
         if(!n.matches("^[A-Z]{2}$"))throw new IllegalArgumentException("mobileRegion must be a two-letter region");
         return n;
+    }
+    private static String normalizeInitialCredential(String initialCredential){
+        if(initialCredential==null)return null;
+        if(initialCredential.isBlank())return null;
+        if(initialCredential.length()<8||initialCredential.length()>256)throw new IllegalArgumentException("initialCredential must be between 8 and 256 characters");
+        return initialCredential;
     }
 }

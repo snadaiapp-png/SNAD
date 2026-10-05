@@ -20,8 +20,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>This bean caches the scalar result for {@link #TTL_SECONDS} seconds. The
  * security posture is preserved because every path that increments
- * {@code session_version} (logout, password change, credential reset, admin
- * reset) calls {@link #invalidate}; the TTL is the fallback bound for any
+ * {@code session_version} (logout, password change/reset, first-credential
+ * initialization, and lifecycle disablement) calls {@link #invalidate}; the TTL is the fallback bound for any
  * out-of-band DB edit. This matches the granularity JWT expiry already imposes.
  *
  * <p>A {@code null} result (user deleted) is cached as absence via

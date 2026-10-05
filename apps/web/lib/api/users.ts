@@ -56,7 +56,8 @@ export interface UserResponse {
 
 /**
  * Request body for creating a user.
- * `status` is optional — backend defaults to INVITED when omitted.
+ * `status` is optional. When `initialCredential` is supplied, the backend creates
+ * an ACTIVE account and requires credential rotation at first sign-in.
  */
 export interface CreateUserRequest {
   email: string;
@@ -64,6 +65,7 @@ export interface CreateUserRequest {
   displayName: string | null;
   mobileNumber?: string | null;
   mobileRegion?: string | null;
+  initialCredential?: string;
   status?: UserStatus;
 }
 
@@ -104,6 +106,15 @@ function normalizeMobileRegion(value?: string | null): string | null {
     throw new ApiConfigurationError("رمز المنطقة يجب أن يتكون من حرفين");
   }
   return normalized;
+}
+
+function requireValidInitialCredential(value?: string | null): string | undefined {
+  if (value == null) return undefined;
+  if (!value.trim()) return undefined;
+  if (value.length < 8 || value.length > 256) {
+    throw new ApiConfigurationError("كلمة المرور المؤقتة يجب أن تكون بين 8 و256 حرفًا");
+  }
+  return value;
 }
 
 function requireValidLifecycleAction(action: string): UserLifecycleAction {
@@ -151,11 +162,12 @@ export function createUsersApi(client: ApiClient = apiClient) {
      *
      * Email is trimmed + lowercased before sending.
      * DisplayName is trimmed, empty → null.
-     * Status defaults to INVITED if omitted.
+     * Supplying initialCredential creates an immediately sign-in capable ACTIVE user
+     * with mandatory first-login credential rotation.
      */
     async create(
       tenantId: string,
-      input: { email: string; username?: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; status?: UserStatus }
+      input: { email: string; username?: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential?: string | null; status?: UserStatus }
     ) {
       const body: CreateUserRequest = {
         email: requireValidEmail(input.email),
@@ -166,6 +178,8 @@ export function createUsersApi(client: ApiClient = apiClient) {
       }
       if (input.mobileNumber !== undefined) body.mobileNumber = normalizeMobileNumber(input.mobileNumber);
       if (input.mobileRegion !== undefined) body.mobileRegion = normalizeMobileRegion(input.mobileRegion);
+      const initialCredential = requireValidInitialCredential(input.initialCredential);
+      if (initialCredential !== undefined) body.initialCredential = initialCredential;
       if (input.status !== undefined) {
         body.status = input.status;
       }

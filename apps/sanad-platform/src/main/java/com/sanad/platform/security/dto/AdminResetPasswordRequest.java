@@ -24,12 +24,4 @@ public class AdminResetPasswordRequest {
         throw new IllegalArgumentException("Unsupported administrative recovery field: " + field);
     }
 
-    /** Legacy service compatibility guard. Direct password payloads are disabled. */
-    @Deprecated
-    public String getNewPassword() {
-        throw new UnsupportedOperationException("Direct administrative password reset is disabled");
-    }
-
-    @Deprecated
-    public boolean isForceChange() { return true; }
 }

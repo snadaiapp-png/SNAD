@@ -1,5 +1,6 @@
 package com.sanad.platform.user.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.sanad.platform.user.domain.UserStatus;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -31,6 +32,15 @@ public class CreateUserRequest {
     @Pattern(regexp = "^[A-Za-z]{2}$", message = "mobileRegion must be a two-letter region")
     @Size(max = 2, message = "mobileRegion must be two characters")
     private String mobileRegion;
+
+    /**
+     * Optional one-time bootstrap credential. When present the new user is
+     * created ACTIVE, the credential is hashed immediately, and first-login
+     * rotation is mandatory. The raw value is write-only and is never returned.
+     */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @Size(min = 8, max = 256, message = "initialCredential must be between 8 and 256 characters")
+    private String initialCredential;
 
     private UserStatus status;
 
@@ -90,6 +100,14 @@ public class CreateUserRequest {
 
     public void setMobileRegion(String mobileRegion) {
         this.mobileRegion = mobileRegion;
+    }
+
+    public String getInitialCredential() {
+        return initialCredential;
+    }
+
+    public void setInitialCredential(String initialCredential) {
+        this.initialCredential = initialCredential;
     }
 
     public UserStatus getStatus() {
