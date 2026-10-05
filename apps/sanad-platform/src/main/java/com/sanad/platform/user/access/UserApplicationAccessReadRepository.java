@@ -7,8 +7,10 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -50,6 +52,27 @@ public class UserApplicationAccessReadRepository {
                         UserGrantStatus.valueOf(rs.getString("status")),
                         rs.getTimestamp("created_at").toInstant(),
                         rs.getTimestamp("updated_at").toInstant()));
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, Set<String>> capabilityCodesByRoleIds(UUID tenantId, Set<UUID> roleIds) {
+        if (roleIds == null || roleIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Set<String>> result = new LinkedHashMap<>();
+        jdbc.query("""
+                SELECT rc.role_id, ac.code
+                  FROM role_capabilities rc
+                  JOIN access_capabilities ac ON ac.id = rc.capability_id
+                 WHERE rc.tenant_id = :tenantId
+                   AND rc.role_id IN (:roleIds)
+                   AND ac.status = 'ACTIVE'
+                 ORDER BY rc.role_id, ac.code
+                """,
+                new MapSqlParameterSource().addValue("tenantId", tenantId).addValue("roleIds", roleIds),
+                rs -> result.computeIfAbsent(rs.getObject("role_id", UUID.class), ignored -> new LinkedHashSet<>())
+                        .add(rs.getString("code")));
+        return result;
     }
 
     @Transactional(readOnly = true)
