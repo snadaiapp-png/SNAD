@@ -355,10 +355,46 @@ jobs:
         # generates an ephemeral key at startup. Setting the well-known
         # test key here would introduce a redundant gitleaks finding.
         run: |
-          mvn test -B -ntp \
-            -Dsurefire.useFile=true \
-            -DfailIfNoTests=true \
-            -Dtest='com.sanad.platform.crm.**.*IntegrationTest'
+          set -euo pipefail
+
+          # Maven Central can transiently reject artifact descriptor downloads
+          # (403/429/5xx or transport resets). Retry ONLY those transport
+          # failures; compile/test/assertion failures remain immediately fatal.
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            log_file="$(mktemp)"
+            set +e
+            mvn test -B -ntp \
+              -Dsurefire.useFile=true \
+              -DfailIfNoTests=true \
+              -Dtest='com.sanad.platform.crm.**.*IntegrationTest' 2>&1 | tee "$log_file"
+            rc=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$rc" -eq 0 ]; then
+              rm -f "$log_file"
+              exit 0
+            fi
+
+            if ! grep -Eiq \
+              'Could not transfer artifact|status code: (403|429|5[0-9]{2})|Connection reset|Connection timed out|Read timed out|Remote host terminated the handshake|Temporary failure in name resolution' \
+              "$log_file"; then
+              echo "::error::CRM integration tests failed for a non-transport reason; not retrying."
+              rm -f "$log_file"
+              exit "$rc"
+            fi
+
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::Maven artifact transport failure persisted after $max_attempts attempts."
+              rm -f "$log_file"
+              exit "$rc"
+            fi
+
+            delay=$((attempt * 15))
+            echo "::warning::Transient Maven artifact transport failure on attempt $attempt/$max_attempts; retrying in ${delay}s."
+            rm -f "$log_file"
+            sleep "$delay"
+          done
 
       - name: Upload CRM test reports
         if: always()
