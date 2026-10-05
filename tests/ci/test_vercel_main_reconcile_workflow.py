@@ -2,6 +2,7 @@ from pathlib import Path
 
 
 WORKFLOW = Path(".github/workflows/vercel-main-production-reconcile.yml")
+RELEASE_ROUTE = Path("apps/web/app/api/system/release/route.ts")
 
 
 def test_vercel_reconcile_uses_rest_metadata_for_artifact_identity():
@@ -31,32 +32,33 @@ def test_broken_vercel_curl_token_pattern_is_absent():
     assert 'vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release"' not in text
 
 
-def test_vercel_reconcile_creates_exact_sha_git_source_deployment_without_upload():
+def test_vercel_reconcile_deploys_the_verified_prebuilt_artifact():
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "Create exact-SHA Git-source Production deployment via Vercel REST API" in text
-    assert '"gitSource": {' in text
-    assert '"type": "github"' in text
-    assert '"ref": "main"' in text
-    assert '"sha": expected' in text
-    assert '"target": "production"' in text
-    assert '"project": project_id' in text
-    assert '"snadDeploymentMethod": "git-source-rest"' in text
-    assert "vercel@latest deploy" not in text
-    assert "--prebuilt" not in text
-    assert "vercel-deploy.log" not in text
+    assert "Deploy verified prebuilt artifact to Vercel Production" in text
+    assert "vercel@latest deploy" in text
+    assert "--prebuilt" in text
+    assert "--prod" in text
+    assert '--meta "snadMainSha=$GITHUB_SHA"' in text
+    assert '--meta "snadMainRef=main"' in text
+    assert '--meta "snadDeploymentMethod=verified-prebuilt"' in text
+    assert '--env "SNAD_RELEASE_SHA=$GITHUB_SHA"' in text
+    assert '--env "SNAD_RELEASE_REF=main"' in text
+    assert "VERCEL_VERIFIED_PREBUILT_DEPLOYMENT = PASS" in text
+    assert '"gitSource": {' not in text
+    assert '"snadDeploymentMethod": "git-source-rest"' not in text
 
 
-def test_git_source_deploy_resolves_required_project_name_and_logs_http_errors():
-    text = WORKFLOW.read_text(encoding="utf-8")
+def test_prebuilt_release_identity_has_explicit_runtime_fallbacks():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    release = RELEASE_ROUTE.read_text(encoding="utf-8")
 
-    assert "https://api.vercel.com/v9/projects/" in text
-    assert 'project_name = str(project.get("name") or "").strip()' in text
-    assert '"name": project_name' in text
-    assert '"project": project_id' in text
-    assert "VERCEL_PROJECT_LOOKUP_HTTP_" in text
-    assert "VERCEL_GIT_SOURCE_DEPLOYMENT_HTTP_" in text
-    assert 'error.read().decode("utf-8", errors="replace")' in text
+    assert "SNAD_RELEASE_SHA" in workflow
+    assert "SNAD_RELEASE_REF" in workflow
+    assert "process.env.SNAD_RELEASE_SHA" in release
+    assert "process.env.SNAD_RELEASE_REF" in release
+    assert "process.env.VERCEL_GIT_COMMIT_SHA" in release
+    assert "process.env.VERCEL_GIT_COMMIT_REF" in release
 
 
 def test_vercel_reconcile_fails_closed_on_monorepo_and_route_artifact_drift():
@@ -71,12 +73,14 @@ def test_vercel_reconcile_fails_closed_on_monorepo_and_route_artifact_drift():
     assert "find .vercel/output -type f | grep -E 'hr/performance/(goals|reviews)' || true" not in text
 
 
-def test_vercel_reconcile_proves_unique_deployment_before_final_alias_identity():
+def test_vercel_reconcile_probes_live_routes_only_after_alias_identity():
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "Verify HRM G3 routes on created deployment" in text
-    assert '--production-url "$DEPLOYMENT_URL"' in text
-    assert "hrm-g3-deployment-routes.json" in text
+    assert "Verify HRM G3 routes on created deployment" not in text
+    assert '--production-url "$DEPLOYMENT_URL"' not in text
+    assert "hrm-g3-deployment-routes.json" not in text
+    assert "Verify live HRM G3 routes" in text
+    assert '--production-url "$PRODUCTION_WEB_BASE_URL"' in text
     assert "Verify production alias still points to created deployment" in text
     assert "PRODUCTION_ALIAS_DEPLOYMENT_DRIFT" in text
     assert "PRODUCTION_ALIAS_CREATED_DEPLOYMENT = PASS" in text
