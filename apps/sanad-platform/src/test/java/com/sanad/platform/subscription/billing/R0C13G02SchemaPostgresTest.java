@@ -29,6 +29,8 @@ class R0C13G02SchemaPostgresTest {
     private static final String DB_PASSWORD = System.getenv().getOrDefault(
             "SPRING_DATASOURCE_PASSWORD", "");
     private static final String ISOLATED_URL = MigrationTestSchemaSupport.getIsolatedJdbcUrl(DB_URL);
+    private static final UUID CONTROL_TENANT_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     private static final List<String> G02_TABLES = List.of(
             "subscription_billing_provider_customers",
@@ -109,9 +111,49 @@ class R0C13G02SchemaPostgresTest {
             // V20261003_5 adds the W2-T4 partner tenant binding boundary.
             // V20261003_6 adds the W2-T5 partner delegation grant boundary + gate.
             // V20261003_7 adds the optional tenant-scoped username identity field.
-            // V20261004_1 adds W2-T9 partner recovery safety.
             // V20261005_1 adds the Users Phase 5 dynamic application IAM registry.
-            assertThat(rs.getString(1)).isEqualTo("20261005.1");
+            // V20261005_2 adds the forward-only R0C13 G07 operator capability seed and is terminal.
+            assertThat(rs.getString(1)).isEqualTo("20261005.2");
+        }
+    }
+
+    @Test
+    void g07GranularCapabilitiesAreTenantScopedToCanonicalPlatformOwner() throws SQLException {
+        setTenant(CONTROL_TENANT_ID);
+        String sql = """
+                SELECT COUNT(*)
+                  FROM access_capabilities capability
+                 WHERE capability.status = 'ACTIVE'
+                   AND capability.code IN (
+                       'BILLING.READ',
+                       'BILLING.MANAGE',
+                       'BILLING.RECONCILE',
+                       'BILLING.REFUND',
+                       'BILLING.PROVIDER_ADMIN'
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM access_scope_grants grant_row
+                         JOIN roles role_row
+                           ON role_row.id = grant_row.role_id
+                          AND role_row.tenant_id = grant_row.tenant_id
+                        WHERE grant_row.tenant_id = ?
+                          AND role_row.code = 'PLATFORM_OWNER'
+                          AND role_row.status = 'ACTIVE'
+                          AND grant_row.user_id IS NULL
+                          AND grant_row.capability_id = capability.id
+                          AND grant_row.scope_type = 'TENANT'
+                          AND grant_row.status = 'ACTIVE'
+                   )
+                """;
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setObject(1, CONTROL_TENANT_ID);
+            try (ResultSet rs = ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getInt(1))
+                        .as("every G07 billing capability must have canonical PLATFORM_OWNER TENANT scope")
+                        .isZero();
+            }
         }
     }
 

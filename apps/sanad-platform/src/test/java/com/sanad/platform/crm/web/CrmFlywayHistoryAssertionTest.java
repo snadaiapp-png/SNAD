@@ -301,6 +301,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261003.7"   // tenant-scoped username identity
             , "20261004.1"   // w2-t9 partner recovery safety
             , "20261005.1"   // Users Phase 5 dynamic application IAM registry
+            , "20261005.2"   // r0c13 g07 billing operator capabilities
     );
 
 
