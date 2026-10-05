@@ -38,6 +38,7 @@ const HR_G3_CLOSURE = (executionData as unknown as { HR_G3_CLOSURE?: G3Closure }
 const REPO_ROOT = resolve(__dirname, "../../../../");
 const CERTIFICATE_PATH = resolve(REPO_ROOT, "docs/hrm/g3/evidence/HRM-G3-ENGINEERING-CLOSURE.md");
 const MANIFEST_PATH = resolve(REPO_ROOT, "docs/hrm/g3/evidence/G3-FINAL-EVIDENCE-MANIFEST.md");
+const PRODUCTION_CLOSURE_PATH = resolve(REPO_ROOT, "docs/hrm/g3/evidence/G3-PRODUCTION-CLOSURE.md");
 
 function readEvidence(path: string): string {
   expect(existsSync(path)).toBe(true);
@@ -50,6 +51,7 @@ describe("HR-G3 final engineering closure reconciliation", () => {
     expect(HR_G3_CLOSURE?.implementation).toBe("DONE");
     expect(HR_G3_CLOSURE?.certificatePath).toBe("docs/hrm/g3/evidence/HRM-G3-ENGINEERING-CLOSURE.md");
     expect(HR_G3_CLOSURE?.manifestPath).toBe("docs/hrm/g3/evidence/G3-FINAL-EVIDENCE-MANIFEST.md");
+    expect(HR_G3_CLOSURE?.productionClosurePath).toBe("docs/hrm/g3/evidence/G3-PRODUCTION-CLOSURE.md");
   });
 
   it("binds G3 closure to the exact certified main SHA and real runs", () => {
