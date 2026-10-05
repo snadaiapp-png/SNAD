@@ -11,6 +11,8 @@ type G3Closure = {
   manifestPath: string;
   referencePrNumber: number;
   closureEvidenceMainSha: string;
+  productionClosurePath: string;
+  productionClosureMainSha: string;
   postMergeRuns: {
     authenticatedAcceptance: number;
     schemaIsolation: number;
@@ -21,6 +23,12 @@ type G3Closure = {
   implementationPerCanonicalTask: Record<"T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" | "T8", string>;
   engineeringFinalGate: string;
   engineeringCertification: string;
+  productionClosure: string;
+  productionRuns: {
+    postMergeVerification: number;
+    vercelMainProductionReconcile: number;
+    operationalSmoke: number;
+  };
   legalCertification: string;
   saCountryPack: string;
   productionAuthorization: string;
