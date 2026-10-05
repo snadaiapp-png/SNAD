@@ -114,23 +114,52 @@ def result(
     )
 
 
+def route_identity_passed(
+    route_path: str,
+    status: int,
+    body: bytes,
+    headers: dict[str, str],
+) -> tuple[bool, list[str], str | None]:
+    """Resolve route identity without mistaking Next Flight payload text for a soft 404."""
+
+    normalized_html = body.decode("utf-8", errors="replace").lower()
+    matched_soft_404 = [marker for marker in SOFT_404_MARKERS if marker in normalized_html]
+    matched_path = headers.get("x-matched-path")
+    normalized_matched_path = matched_path.rstrip("/") if matched_path and matched_path != "/" else matched_path
+    normalized_route_path = route_path.rstrip("/") if route_path != "/" else route_path
+
+    if status != 200:
+        return False, matched_soft_404, matched_path
+
+    if matched_path:
+        # Vercel/Next route identity is authoritative when present. Next.js may
+        # embed the global not-found component strings in Flight payloads even
+        # when the requested route matched and rendered successfully.
+        return normalized_matched_path == normalized_route_path, matched_soft_404, matched_path
+
+    # Fail closed on platforms/proxies that do not expose x-matched-path.
+    return not matched_soft_404, matched_soft_404, matched_path
+
+
 def check_critical_frontend_routes(production_url: str, timeout: float) -> list[ProbeResult]:
-    """Verify the live HRM G3 routes fail closed on hard or soft 404s."""
+    """Verify live HRM G3 routes by HTTP status and authoritative route identity."""
 
     checks: list[ProbeResult] = []
     for check_name, route_path in CRITICAL_FRONTEND_ROUTES:
         route_url = f"{production_url}{route_path}"
-        status, body, _ = request(route_url, timeout)
-        route_html = body.decode("utf-8", errors="replace")
-        normalized_html = route_html.lower()
-        matched_soft_404 = [marker for marker in SOFT_404_MARKERS if marker in normalized_html]
-        route_passed = status == 200 and not matched_soft_404
+        status, body, headers = request(route_url, timeout)
+        route_passed, matched_soft_404, matched_path = route_identity_passed(
+            route_path, status, body, headers
+        )
         checks.append(
             result(
                 name=check_name,
                 url=route_url,
-                expected="HTTP 200 and not the application 404 page",
-                actual=f"HTTP {status}; soft404Markers={matched_soft_404 or 'none'}",
+                expected="HTTP 200 with the requested route identity (or no soft-404 fallback)",
+                actual=(
+                    f"HTTP {status}; xMatchedPath={matched_path or 'none'}; "
+                    f"soft404Markers={matched_soft_404 or 'none'}"
+                ),
                 passed=route_passed,
                 status_code=status,
             )
