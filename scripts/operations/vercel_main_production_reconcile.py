@@ -239,7 +239,16 @@ def verify_routes(base_url: str) -> list[dict[str, Any]]:
         normalized = body.lower()
         matched_soft_404 = [marker for marker in soft_404_markers if marker in normalized]
         matched_path = headers.get("x-matched-path")
-        passed = status == 200 and not matched_soft_404
+        normalized_matched_path = matched_path.rstrip("/") if matched_path and matched_path != "/" else matched_path
+        normalized_path = path.rstrip("/") if path != "/" else path
+        if status != 200:
+            passed = False
+        elif matched_path:
+            # Prefer Vercel/Next route identity over generic strings embedded
+            # in Flight payloads by the global not-found component.
+            passed = normalized_matched_path == normalized_path
+        else:
+            passed = not matched_soft_404
         evidence.append(
             {
                 "path": path,
