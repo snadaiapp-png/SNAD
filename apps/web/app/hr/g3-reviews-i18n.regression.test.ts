@@ -7,7 +7,7 @@ const productDictionary = readFileSync(
   "utf8",
 );
 const reviewsPageSource = readFileSync(
-  resolve(__dirname, "performance/reviews/page.tsx"),
+  resolve(__dirname, "performance/reviews/reviews-client.tsx"),
   "utf8",
 );
 const workspaceSource = readFileSync(
