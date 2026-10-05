@@ -224,9 +224,15 @@ export const HR_G3_CLOSURE = {
   } as const,
   engineeringFinalGate: "PASS" as const,
   engineeringCertification: "APPROVED" as const,
+  productionClosure: "PASS" as const,
+  productionRuns: {
+    postMergeVerification: 37329097719 as const,
+    vercelMainProductionReconcile: 37329097684 as const,
+    operationalSmoke: 37329356654 as const,
+  } as const,
   legalCertification: "BLOCKED" as const,
   saCountryPack: "DRAFT" as const,
-  productionAuthorization: "NO" as const,
+  productionAuthorization: "YES" as const,
 } as const;
 
 // ── HR-Specific Task Type ────────────────────────────────────────────────
