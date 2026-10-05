@@ -232,7 +232,7 @@ export const HR_G3_CLOSURE = {
   } as const,
   legalCertification: "BLOCKED" as const,
   saCountryPack: "DRAFT" as const,
-  productionAuthorization: "YES" as const,
+  productionAuthorization: "NO" as const,
 } as const;
 
 // ── HR-Specific Task Type ────────────────────────────────────────────────
