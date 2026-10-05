@@ -10,7 +10,6 @@ import com.sanad.platform.security.domain.PasswordResetTokenStatus;
 import com.sanad.platform.security.domain.RefreshToken;
 import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.security.domain.RefreshTokenStatus;
-import com.sanad.platform.security.dto.AdminResetPasswordRequest;
 import com.sanad.platform.security.dto.AuthResponse;
 import com.sanad.platform.security.dto.ChangeCredentialRequest;
 import com.sanad.platform.security.dto.ForgotPasswordRequest;
@@ -519,18 +518,21 @@ public class AuthService {
         }
         resetRequestCache.put(rateLimitKey, (count == null ? 0 : count) + 1);
 
-        // Find user by email — if not found, silently return (no account enumeration)
-        List<User> users = userRepository.findAllByEmail(normalizedEmail);
-        if (users.isEmpty()) {
-            log.info("Password reset requested for non-existent email={}", normalizedEmail);
+        // Resolve only an unambiguous ACTIVE account. Email is tenant-scoped in
+        // SANAD, so the same normalized email may legitimately exist in more
+        // than one tenant. Recovery must never guess which tenant identity to
+        // mutate. Keep the public response generic by returning null for both
+        // missing/inactive and ambiguous matches.
+        List<User> activeUsers = userRepository.findAllByEmail(normalizedEmail).stream()
+                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
+                .toList();
+        if (activeUsers.size() != 1) {
+            log.info("Password reset request not actionable for email={} activeMatches={}",
+                    normalizedEmail, activeUsers.size());
             return null;
         }
 
-        // If multiple tenants, use the first active user (or the first one)
-        User user = users.stream()
-                .filter(u -> u.getStatus() == UserStatus.ACTIVE)
-                .findFirst()
-                .orElse(users.get(0));
+        User user = activeUsers.get(0);
 
         // Revoke any existing active reset tokens for this user
         passwordResetTokenRepository.revokeAllActive(user.getTenantId(), user.getId());
@@ -613,46 +615,6 @@ public class AuthService {
 
         log.info("AUDIT: Password reset completed for userId={} tenantId={} email={}",
                 user.getId(), user.getTenantId(), user.getEmail());
-    }
-
-    // =========================================================================
-    // Administrative Password Reset (AUTH-ACCOUNT-001)
-    // =========================================================================
-
-    /**
-     * Administratively resets a user's password.
-     * This is used for bootstrap credential provisioning and account recovery
-     * by an administrator. Sets mustChangePassword=true by default.
-     *
-     * All existing sessions and refresh tokens are revoked.
-     * An audit event is recorded.
-     */
-    @Transactional
-    public void adminResetPassword(UUID tenantId, UUID userId, AdminResetPasswordRequest request) {
-        User user = userRepository.findByTenantIdAndId(tenantId, userId)
-                .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
-
-        if (user.getStatus() != UserStatus.ACTIVE) {
-            throw new AccountInactiveException("حساب المستخدم غير نشط");
-        }
-
-        // Update password and invalidate all sessions
-        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
-        user.setPasswordSetAt(Instant.now());
-        user.setPasswordSetBy("admin-reset");
-        user.setMustChangePassword(request.isForceChange());
-        user.incrementSessionVersion();
-        userRepository.save(user);
-        sessionVersionCache.invalidate(tenantId, userId);
-
-        // Revoke all refresh tokens (force re-login on all devices)
-        int revokedTokens = refreshTokenRepository.revokeAllActive(tenantId, userId);
-
-        // Revoke all active password reset tokens
-        int revokedResets = passwordResetTokenRepository.revokeAllActive(tenantId, userId);
-
-        log.info("AUDIT: Admin password reset for userId={} tenantId={} forceChange={} revokedRefreshTokens={} revokedResetTokens={}",
-                userId, tenantId, request.isForceChange(), revokedTokens, revokedResets);
     }
 
     // =========================================================================
