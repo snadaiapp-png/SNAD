@@ -203,6 +203,8 @@ export const HR_G3_CLOSURE = {
   manifestPath: "docs/hrm/g3/evidence/G3-FINAL-EVIDENCE-MANIFEST.md",
   referencePrNumber: 1234 as const,
   closureEvidenceMainSha: "0acdc42507d817766a0113ae418c7c36dde678d1",
+  productionClosurePath: "docs/hrm/g3/evidence/G3-PRODUCTION-CLOSURE.md",
+  productionClosureMainSha: "2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581",
   postMergeRuns: {
     authenticatedAcceptance: 37121204831 as const,
     schemaIsolation: 37121204843 as const,
