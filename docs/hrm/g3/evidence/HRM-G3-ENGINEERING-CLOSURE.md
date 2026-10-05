@@ -5,6 +5,8 @@
 > G3_FINAL_GATE = PASS
 > G3_FULLY_CLOSED = PASS
 > Reference implementation PR: #1234
+> Production closure PR: #1281
+> PRODUCTION_OPERATIONAL_CERTIFICATION = PASS
 
 ## Exact-SHA closure authority
 
@@ -17,6 +19,36 @@
 | Post-Merge Main Verification | run `37121204833` — SUCCESS |
 | Playwright E2E & Visual Regression | run `37121204782` — SUCCESS |
 | Vercel exact-SHA status | SUCCESS |
+
+## Production closure reconciliation
+
+The engineering baseline above remains the immutable G3 implementation certificate.
+Subsequent production hardening and exact-main reconciliation were completed without
+changing the G3 business model, authorization model, RLS policy, or tenant isolation
+contract. The final production-operational closure authority is:
+
+| Field | Certified value |
+|---|---|
+| Production closure `main` SHA | `2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581` |
+| Production closure PR | `#1281` — merged |
+| Vercel Main Production Reconcile | run `37329097684` — SUCCESS |
+| Production Operational Smoke | run `37329356654` — SUCCESS |
+| Post-Merge Main Verification | run `37329097719` — SUCCESS |
+| PMV JOB C — PostgreSQL Direct integration | SUCCESS |
+| PMV JOB D — HRM focused security/RLS | SUCCESS |
+| PMV JOB F — Final evidence aggregation | SUCCESS |
+
+The last G3 Authenticated Acceptance before the final two closure-only commits ran on
+`aca661620c54592668602345800533255033b269` and completed SUCCESS. The two commits
+between that SHA and the production closure SHA modify only production reconcile /
+readiness workflows, operational scripts, and their tests; they do not modify G3
+business or authorization code.
+
+```text
+PRODUCTION_OPERATIONAL_CERTIFICATION = PASS
+PRODUCTION_CLOSURE_MAIN_SHA = 2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581
+PRODUCTION_AUTHORIZATION = GOVERNED_G3_RELEASE_COMPLETED
+```
 
 ## Canonical implementation reconciliation
 
@@ -59,19 +91,18 @@ On the certified SHA:
 - `CRM Deployment Readiness` — SUCCESS
 - Vercel commit status — SUCCESS
 
-## Independent gates — not implied by engineering closure
+## Independent legal/compliance gates
+
+Production operational closure is now separately proven above. It does not imply
+Saudi legal certification or Country Pack approval:
 
 ```text
-PRODUCTION_AUTHORIZATION = NO
-PRODUCTION_READY = NOT_CLAIMED
-PRODUCTION_CERTIFIED = NOT_CLAIMED
+PRODUCTION_OPERATIONAL_CERTIFICATION = PASS
 LEGAL_REVIEW = PENDING_HUMAN
 SA_COUNTRY_PACK = DRAFT
+SAUDI_LEGAL_COMPLIANT = NOT_CLAIMED
 ```
 
-Production smoke remains a separate production/go-live concern and is not a
-standalone G3 Task 8 closure gate.
-
-This certificate is an engineering closure record only. It does not transform
-future commits into certified baselines; any later source SHA requires its own
+The engineering implementation certificate remains bound to its original exact SHA;
+the production closure is separately bound to the later exact-main SHA and its own
 verification evidence.
