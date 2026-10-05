@@ -224,6 +224,7 @@ jobs:
           set +e
           npx --yes vercel@latest deploy \
             --prebuilt \
+            --archive=tgz \
             --prod \
             --yes \
             --token="$VERCEL_TOKEN" \
