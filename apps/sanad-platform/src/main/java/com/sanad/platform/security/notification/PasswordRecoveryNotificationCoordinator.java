@@ -20,7 +20,6 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -44,18 +43,30 @@ public class PasswordRecoveryNotificationCoordinator {
     }
 
     @Transactional
-    public void deliverRequestedReset(String email, String rawToken, String locale) {
+    public void deliverRequestedReset(String rawToken, String locale) {
         if (rawToken == null || rawToken.isBlank()) {
             return;
         }
-        List<User> users = userRepository.findAllByEmail(email.trim().toLowerCase());
-        if (users.isEmpty()) {
+
+        // Bind delivery to the exact persisted reset token rather than
+        // re-resolving by email. Email can be duplicated across tenants, while
+        // the token carries the authoritative tenant/user tuple.
+        PasswordResetToken token = tokenRepository.findByTokenHashForUpdate(hash(rawToken))
+                .filter(PasswordResetToken::isUsable)
+                .orElse(null);
+        if (token == null) {
             return;
         }
-        User user = users.stream()
+
+        User user = userRepository.findByTenantIdAndId(token.getTenantId(), token.getUserId())
                 .filter(candidate -> candidate.getStatus() == UserStatus.ACTIVE)
-                .findFirst()
-                .orElse(users.get(0));
+                .orElse(null);
+        if (user == null) {
+            token.setStatus(PasswordResetTokenStatus.REVOKED);
+            tokenRepository.save(token);
+            return;
+        }
+
         try {
             notificationService.deliverResetLink(user, rawToken, locale, false);
         } catch (RuntimeException exception) {
