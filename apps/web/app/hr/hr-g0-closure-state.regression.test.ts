@@ -12,7 +12,7 @@
  *
  * Claim discipline enforced here:
  *   - Engineering completion must never imply legal approval.
- *   - Engineering certification is APPROVED only because PR #990 has an independent APPROVED review.
+ *   - Engineering certification is APPROVED only because PR 990 has an independent APPROVED review.
  *   - No production authorization may be fabricated.
  */
 import { readFileSync, existsSync } from "fs";
@@ -86,7 +86,7 @@ describe("HR-G0 closure state reconciliation", () => {
   it("keeps engineering completion strictly separated from legal and production gates", () => {
     const certificate = readCertificate();
 
-    // Engineering certification is backed by the independent APPROVED review on PR #990.
+    // Engineering certification is backed by the independent APPROVED review on PR 990.
     expect(HR_G0_CLOSURE.engineeringCertification).toBe("APPROVED");
     expect(certificate).toContain("G0_ENGINEERING_CERTIFICATION = APPROVED");
     // Legal gate is independent and blocked pending human review.
