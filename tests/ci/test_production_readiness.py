@@ -163,3 +163,40 @@ def test_request_adds_vercel_trusted_oidc_header(monkeypatch):
     assert body == b"ok"
     assert captured["header"] == "ephemeral-github-oidc"
     assert captured["timeout"] == 3.0
+
+
+def test_readiness_accepts_exact_matched_path_even_when_bundle_contains_404_copy(monkeypatch):
+    noisy_body = (
+        b'<html><body>SNAD HRM route shell'
+        b'<script>var copy="Page not found; does not exist or has been moved"</script>'
+        b'</body></html>'
+    )
+    responses = iter(
+        [
+            (200, noisy_body, {"x-matched-path": "/hr/performance/goals"}),
+            (200, noisy_body, {"x-matched-path": "/hr/performance/reviews"}),
+        ]
+    )
+    monkeypatch.setattr(probe, "request", lambda _url, _timeout: next(responses))
+
+    checks = probe.check_critical_frontend_routes("https://production.example.test", 1.0)
+
+    assert all(check.passed for check in checks)
+    assert "x-matched-path=/hr/performance/goals" in checks[0].actual
+    assert "x-matched-path=/hr/performance/reviews" in checks[1].actual
+
+
+def test_readiness_rejects_vercel_soft_404_matched_path_even_with_clean_body(monkeypatch):
+    responses = iter(
+        [
+            (200, ROUTE_OK, {"x-matched-path": "/404"}),
+            (200, ROUTE_OK, {"x-matched-path": "/hr/performance/reviews"}),
+        ]
+    )
+    monkeypatch.setattr(probe, "request", lambda _url, _timeout: next(responses))
+
+    checks = probe.check_critical_frontend_routes("https://production.example.test", 1.0)
+
+    assert checks[0].passed is False
+    assert "x-matched-path=/404" in checks[0].actual
+    assert checks[1].passed is True
