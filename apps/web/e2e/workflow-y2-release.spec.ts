@@ -679,7 +679,7 @@ test("P09 — disabled user cannot act; work preserved without auto-transfer; ex
   const staleMineRes = await request.get(`${API}/api/v1/workflows/work-items/mine`, {
     headers: { Authorization: `Bearer ${preLoginToken}` },
   });
-  expect(staleMineRes.status(), "disabled user work listing must be denied").toBe(403);
+  expect(staleMineRes.status(), "disabled user stale access token must be revoked").toBe(401);
 
   // The work is preserved: no automatic manager transfer, no silent completion.
   const emp2BeforeRes = await getAs(request, ACTORS.EMPLOYEE_2, "/api/v1/workflows/work-items/mine");
@@ -867,7 +867,7 @@ test("P12 — tenant B is denied every real tenant A workflow resource; tenant A
   const startRes = await startY2Instance(request, ACTORS.DESIGNER, wf.defId);
   expect(startRes.status()).toBe(200);
   const instance = (await startRes.json()) as InstanceMap;
-  const poolRes = await getAs(request, ACTORS.EMPLOYEE_1, "/api/v1/workflows/work-items/pool");
+  const poolRes = await getAs(request, ACTORS.EMPLOYEE_2, "/api/v1/workflows/work-items/pool");
   expect(poolRes.status()).toBe(200);
   const item = ((await poolRes.json()) as WorkItemMap[])
     .find((w) => w.workflowInstanceId === instance.id);
