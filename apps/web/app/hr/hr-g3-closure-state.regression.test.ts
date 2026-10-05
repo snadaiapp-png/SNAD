@@ -92,6 +92,13 @@ describe("HR-G3 final engineering closure reconciliation", () => {
   it("keeps legal, Saudi compliance, and production authorization independent", () => {
     expect(HR_G3_CLOSURE?.engineeringFinalGate).toBe("PASS");
     expect(HR_G3_CLOSURE?.engineeringCertification).toBe("APPROVED");
+    expect(HR_G3_CLOSURE?.productionClosure).toBe("PASS");
+    expect(HR_G3_CLOSURE?.productionClosureMainSha).toBe("2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581");
+    expect(HR_G3_CLOSURE?.productionRuns).toEqual({
+      postMergeVerification: 37329097719,
+      vercelMainProductionReconcile: 37329097684,
+      operationalSmoke: 37329356654,
+    });
     expect(HR_G3_CLOSURE?.legalCertification).toBe("BLOCKED");
     expect(HR_G3_CLOSURE?.saCountryPack).toBe("DRAFT");
     expect(HR_G3_CLOSURE?.productionAuthorization).toBe("NO");
