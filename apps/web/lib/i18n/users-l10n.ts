@@ -65,6 +65,19 @@ const ar: TranslationDictionary = {
   "management.users.credentials.reset": "إرسال رابط تعيين كلمة المرور",
   "management.users.credentials.resetSuccess": "تم إرسال رابط تعيين كلمة المرور",
   "management.users.credentials.notSet": "غير معيّن",
+  "management.users.detail.scope": "النطاق",
+  "management.users.detail.scopeTenant": "نطاق المستأجر",
+  "management.users.detail.scopeOrganization": "نطاق مؤسسة",
+  "management.users.detail.scopeOrganizationPlaceholder": "اختر المؤسسة",
+  "management.users.detail.scopeTenantLabel": "على مستوى المستأجر",
+  "management.users.detail.scopeOrganizationLabel": "على مستوى المؤسسة",
+  "management.users.detail.revokeConfirmTitle": "تأكيد سحب الدور",
+  "management.users.detail.revokeConfirmMessage": "هل تريد سحب هذا الدور من المستخدم؟",
+  "management.users.detail.revokeConfirmApply": "نعم، سحب الدور",
+  "management.users.detail.revokeConfirmCancel": "إلغاء",
+  "management.users.detail.effectiveAccess": "الصلاحيات الفعّالة",
+  "management.users.detail.effectiveAccessEmpty": "لا توجد صلاحيات فعّالة",
+  "management.users.detail.effectiveAccessCount": "عدد الصلاحيات الفعّالة",
 };
 
 const en: TranslationDictionary = {
@@ -130,6 +143,19 @@ const en: TranslationDictionary = {
   "management.users.credentials.reset": "Send set-password link",
   "management.users.credentials.resetSuccess": "Set-password link sent",
   "management.users.credentials.notSet": "Not set",
+  "management.users.detail.scope": "Scope",
+  "management.users.detail.scopeTenant": "Tenant-wide",
+  "management.users.detail.scopeOrganization": "Organization",
+  "management.users.detail.scopeOrganizationPlaceholder": "Choose organization",
+  "management.users.detail.scopeTenantLabel": "Tenant-wide",
+  "management.users.detail.scopeOrganizationLabel": "Organization-scoped",
+  "management.users.detail.revokeConfirmTitle": "Confirm role revocation",
+  "management.users.detail.revokeConfirmMessage": "Revoke this role from the user?",
+  "management.users.detail.revokeConfirmApply": "Yes, revoke role",
+  "management.users.detail.revokeConfirmCancel": "Cancel",
+  "management.users.detail.effectiveAccess": "Effective access",
+  "management.users.detail.effectiveAccessEmpty": "No effective permissions",
+  "management.users.detail.effectiveAccessCount": "Effective permission count",
 };
 
 export function usersDictionary(locale: Locale): TranslationDictionary {
