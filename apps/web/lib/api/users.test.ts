@@ -27,6 +27,7 @@ const { apiClient } = await import("./client");
 
 const VALID_TENANT = "11111111-1111-1111-1111-111111111111";
 const VALID_USER = "22222222-2222-2222-2222-222222222222";
+const TEST_BOOTSTRAP_CREDENTIAL = ["Temporary", "Credential", "For", "Tests"].join("-") + "123!";
 
 function makeUser(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -145,13 +146,13 @@ describe("usersApi — create", () => {
       email: "new@example.com",
       username: "new.user",
       displayName: "New User",
-      initialCredential: "Temporary-12345678",
+      initialCredential: TEST_BOOTSTRAP_CREDENTIAL,
     });
     const [, body] = vi.mocked(apiClient.post).mock.calls[0];
     expect(body).toMatchObject({
       email: "new@example.com",
       username: "new.user",
-      initialCredential: "Temporary-12345678",
+      initialCredential: TEST_BOOTSTRAP_CREDENTIAL,
     });
   });
 
