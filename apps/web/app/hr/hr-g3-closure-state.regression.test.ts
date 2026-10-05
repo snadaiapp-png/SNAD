@@ -123,4 +123,14 @@ describe("HR-G3 final engineering closure reconciliation", () => {
       expect(evidence).toContain("SA_COUNTRY_PACK = DRAFT");
     }
   });
+
+  it("binds current production closure to the exact production baseline", () => {
+    const evidence = readEvidence(PRODUCTION_CLOSURE_PATH);
+    expect(evidence).toContain("STATUS_AUTHORITY: CURRENT");
+    expect(evidence).toContain("2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581");
+    expect(evidence).toContain("37329097719");
+    expect(evidence).toContain("37329097684");
+    expect(evidence).toContain("37329356654");
+    expect(evidence).toContain("production closure is PASS");
+  });
 });
