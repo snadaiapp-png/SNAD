@@ -174,7 +174,7 @@ export class HrExecutionProvider {
    * The documented G0 engineering certification — derived from the
    * committed closure evidence, not from volatile runtime state.
    * Engineering certification is backed by the independent APPROVED review
-   * on reconciliation PR #990; legal certification remains a separate human gate.
+   * on reconciliation PR 990; legal certification remains a separate human gate.
    */
   documentedG0Certification(): Certification {
     return {
