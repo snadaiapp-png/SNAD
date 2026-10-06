@@ -9,7 +9,8 @@
       "chore/*": false,
       "docs/*": false,
       "main": false,
-      "exec/*": false
+      "exec/*": false,
+      "r0c13/*": false
     }
   }
 }

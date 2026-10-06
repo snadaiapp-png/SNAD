@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("Vercel deployment governance", () => {
-  it("keeps main deployable and blocks exec branches from automatic deployment", () => {
+  it("keeps governed branches off Git auto-deploy", () => {
     const configPath = resolve(process.cwd(), "vercel.json");
     const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
       git?: { deploymentEnabled?: Record<string, boolean> | boolean };
@@ -12,7 +12,8 @@ describe("Vercel deployment governance", () => {
     expect(typeof config.git?.deploymentEnabled).toBe("object");
     const rules = config.git?.deploymentEnabled as Record<string, boolean>;
 
-    expect(rules.main).toBe(true);
+    expect(rules.main).toBe(false);
     expect(rules["exec/*"]).toBe(false);
+    expect(rules["r0c13/*"]).toBe(false);
   });
 });
