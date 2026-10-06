@@ -243,7 +243,10 @@ class CrmPostgresMigrationTest {
     private static final String DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION = "20261005.1";
     // TEST_ALIGNMENT_REASON: R0C13 G07 adds a forward-only capability seed after Users Phase 5.
     private static final String R0C13_G07_OPERATOR_CAPABILITIES_VERSION = "20261005.2";
-    private static final String LATEST_MIGRATION_VERSION = R0C13_G07_OPERATOR_CAPABILITIES_VERSION;
+    // TEST_ALIGNMENT_REASON: Users Phase 7 extends the effective access explanation model
+    // (effect = ALLOW | DENY + canonical reason). Forward-only, no rewrite of prior stamps.
+    private static final String USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION = "20261006.1";
+    private static final String LATEST_MIGRATION_VERSION = USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -533,7 +536,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION),
                         MigrationVersion.fromVersion(DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION),
                         // TEST_ALIGNMENT_REASON: R0C13 G07 follows Users Phase 5 with the forward-only 20261005.2 capability seed.
-                        MigrationVersion.fromVersion(R0C13_G07_OPERATOR_CAPABILITIES_VERSION));
+                        // TEST_ALIGNMENT_REASON: Users Phase 7 extends the effective access
+                        // explanation model with the forward-only 20261006.1 migration.
+                        MigrationVersion.fromVersion(R0C13_G07_OPERATOR_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -761,7 +767,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION),
                         MigrationVersion.fromVersion(DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION),
                         // TEST_ALIGNMENT_REASON: keep both exact upgrade ledgers aligned with the repository tail.
-                        MigrationVersion.fromVersion(R0C13_G07_OPERATOR_CAPABILITIES_VERSION));
+                        // TEST_ALIGNMENT_REASON: Users Phase 7 extends the effective access
+                        // explanation model with the forward-only 20261006.1 migration.
+                        MigrationVersion.fromVersion(R0C13_G07_OPERATOR_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

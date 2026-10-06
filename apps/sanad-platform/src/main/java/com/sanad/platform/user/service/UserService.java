@@ -1,5 +1,6 @@
 package com.sanad.platform.user.service;
 
+import com.sanad.platform.access.audit.AccessMutationAuditSupport;
 import com.sanad.platform.access.service.LastAdminGuard;
 import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.security.filter.SessionVersionCache;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -35,6 +37,7 @@ public class UserService {
     private final SessionVersionCache sessionVersionCache;
     private final PasswordEncoder passwordEncoder;
     private LastAdminGuard lastAdminGuard;
+    private AccessMutationAuditSupport audit;
 
     public UserService(
             TenantRepository tenantRepository,
@@ -52,6 +55,7 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
     @Autowired(required=false) void setLastAdminGuard(LastAdminGuard guard){this.lastAdminGuard=guard;}
+    @Autowired(required=false) void setAudit(AccessMutationAuditSupport audit){this.audit=audit;}
 
     @Transactional
     public UserResponse createUser(UUID tenantId,CreateUserRequest request){
@@ -87,7 +91,30 @@ public class UserService {
             user.setLastLoginAt(null);
         }
 
-        return userMapper.toResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        // Null-tolerant maps: the generated identity is present in production
+        // (UUID generated at persist time); unit tests may exercise pre-assign.
+        java.util.Map<String,Object> createdAfter = new java.util.LinkedHashMap<>();
+        createdAfter.put("userId", saved.getId());
+        createdAfter.put("email", saved.getEmail());
+        createdAfter.put("username", saved.getUsername());
+        createdAfter.put("displayName", saved.getDisplayName());
+        createdAfter.put("status", saved.getStatus().name());
+        createdAfter.put("temporaryAccessProvisioned", bootstrapCredential);
+        createdAfter.put("rotationRequired", bootstrapCredential);
+        audit(tenantId, "USER_CREATED", saved.getId(), null, createdAfter);
+        if (bootstrapCredential) {
+            // Distinct security fact: an administrative temporary access secret
+            // was provisioned at creation (rotation is enforced on first sign-in).
+            // The payload is metadata only — never the secret material itself.
+            java.util.Map<String,Object> credentialAfter = new java.util.LinkedHashMap<>();
+            credentialAfter.put("userId", saved.getId());
+            credentialAfter.put("temporaryAccessProvisioned", true);
+            credentialAfter.put("rotationRequired", true);
+            credentialAfter.put("setBy", "admin-create");
+            audit(tenantId, "USER_CREDENTIAL_INITIALIZED", saved.getId(), null, credentialAfter);
+        }
+        return userMapper.toResponse(saved);
     }
     @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public List<UserResponse> listUsers(UUID tenantId){Objects.requireNonNull(tenantId,"tenantId must not be null");return userRepository.findByTenantId(tenantId).stream().map(userMapper::toResponse).toList();}
     @Transactional(readOnly=true,propagation=Propagation.SUPPORTS) public UserResponse getUser(UUID tenantId,UUID userId){return userMapper.toResponse(loadUser(tenantId,userId));}
@@ -97,12 +124,42 @@ public class UserService {
         Objects.requireNonNull(request,"UpdateUserRequest must not be null");User user=loadUser(tenantId,userId);String email=normalizeEmail(request.getEmail());String username=request.getUsername()==null?user.getUsername():normalizeUsername(request.getUsername());
         if(!email.equals(user.getEmail())&&userRepository.existsByTenantIdAndEmail(tenantId,email))throw new DuplicateUserEmailException(tenantId,email);
         if(!Objects.equals(username,user.getUsername())&&username!=null&&userRepository.existsByTenantIdAndUsername(tenantId,username))throw new DuplicateUsernameException(tenantId,username);
+
+        // Actual-change detection: idempotent update requests must not emit
+        // false-change audit events.
+        java.util.LinkedHashMap<String,Object> before=new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String,Object> after=new java.util.LinkedHashMap<>();
+        boolean usernameChanged=false;
+        if(!email.equals(user.getEmail())){before.put("email",user.getEmail());after.put("email",email);}
+        if(!Objects.equals(username,user.getUsername())){usernameChanged=true;before.put("username",user.getUsername());after.put("username",username);}
+        String displayName=normalizeDisplayName(request.getDisplayName());
+        if(!Objects.equals(displayName,user.getDisplayName())){before.put("displayName",user.getDisplayName());after.put("displayName",displayName);}
+        String mobileNumber=normalizeMobileNumber(request.getMobileNumber());
+        if(!Objects.equals(mobileNumber,user.getMobileNumber())){before.put("mobileNumber",user.getMobileNumber());after.put("mobileNumber",mobileNumber);}
+        String mobileRegion=normalizeMobileRegion(request.getMobileRegion());
+        if(!Objects.equals(mobileRegion,user.getMobileRegion())){before.put("mobileRegion",user.getMobileRegion());after.put("mobileRegion",mobileRegion);}
+
         user.setEmail(email);
         user.setUsername(username);
-        user.setDisplayName(normalizeDisplayName(request.getDisplayName()));
-        user.setMobileNumber(normalizeMobileNumber(request.getMobileNumber()));
-        user.setMobileRegion(normalizeMobileRegion(request.getMobileRegion()));
-        return userMapper.toResponse(userRepository.save(user));
+        user.setDisplayName(displayName);
+        user.setMobileNumber(mobileNumber);
+        user.setMobileRegion(mobileRegion);
+        User saved=userRepository.save(user);
+
+        if(!after.isEmpty()){
+            java.util.LinkedHashMap<String,Object> afterWithFields=new java.util.LinkedHashMap<>(after);
+            afterWithFields.put("changedFields",new java.util.ArrayList<>(after.keySet()));
+            afterWithFields.put("userId",userId);
+            audit(tenantId,"USER_PROFILE_UPDATED",userId,
+                    java.util.Collections.unmodifiableMap(before),java.util.Collections.unmodifiableMap(afterWithFields));
+        }
+        if(usernameChanged){
+            // Distinct identity fact: the governed username changed (login identity).
+            audit(tenantId,"USER_USERNAME_CHANGED",userId,
+                    Map.of("userId",userId,"username",before.get("username")==null?"":before.get("username")),
+                    Map.of("userId",userId,"username",username));
+        }
+        return userMapper.toResponse(saved);
     }
     @Transactional public UserResponse activateUser(UUID tenantId,UUID userId){return setStatus(tenantId,userId,UserStatus.ACTIVE);}
     @Transactional public UserResponse deactivateUser(UUID tenantId,UUID userId){return setStatus(tenantId,userId,UserStatus.INACTIVE);}
@@ -115,6 +172,7 @@ public class UserService {
         if (user.getStatus() == newStatus) {
             return userMapper.toResponse(user);
         }
+        UserStatus previousStatus = user.getStatus();
 
         if (newStatus != UserStatus.ACTIVE && lastAdminGuard != null) {
             lastAdminGuard.assertMayDeactivateUser(tenantId, userId);
@@ -135,7 +193,26 @@ public class UserService {
             sessionVersionCache.invalidate(tenantId, userId);
             refreshTokenRepository.revokeAllActive(tenantId, userId);
         }
+        audit(tenantId, lifecycleAction(newStatus), userId,
+                Map.of("userId", userId, "status", previousStatus.name()),
+                Map.of("userId", userId, "status", newStatus.name()));
         return userMapper.toResponse(saved);
+    }
+
+    private static String lifecycleAction(UserStatus newStatus) {
+        return switch (newStatus) {
+            case ACTIVE -> "USER_ACTIVATED";
+            case SUSPENDED -> "USER_SUSPENDED";
+            case INACTIVE -> "USER_DEACTIVATED";
+            case ARCHIVED -> "USER_ARCHIVED";
+            default -> throw new IllegalArgumentException("Unsupported lifecycle status: " + newStatus);
+        };
+    }
+
+    private void audit(UUID tenantId, String action, UUID targetUserId, Object before, Object after) {
+        if (audit != null) {
+            audit.success(tenantId, action, "USER", targetUserId == null ? null : targetUserId.toString(), before, after);
+        }
     }
     private User loadUser(UUID tenantId,UUID userId){Objects.requireNonNull(tenantId,"tenantId must not be null");Objects.requireNonNull(userId,"userId must not be null");return userRepository.findByTenantIdAndId(tenantId,userId).orElseThrow(()->new UserNotFoundException(tenantId,userId));}
     private static String normalizeEmail(String email){Objects.requireNonNull(email,"email must not be null");String n=email.trim().toLowerCase(Locale.ROOT);if(n.isBlank())throw new IllegalArgumentException("email must not be blank");if(n.length()>255)throw new IllegalArgumentException("email must be at most 255 characters");return n;}

@@ -1,5 +1,6 @@
 package com.sanad.platform.security.notification;
 
+import com.sanad.platform.admin.service.PlatformAuditWriter;
 import com.sanad.platform.security.domain.PasswordResetToken;
 import com.sanad.platform.security.domain.PasswordResetTokenRepository;
 import com.sanad.platform.security.domain.PasswordResetTokenStatus;
@@ -31,6 +32,7 @@ public class PasswordRecoveryNotificationCoordinator {
     private final UserRepository userRepository;
     private final PasswordResetTokenRepository tokenRepository;
     private final SecurityNotificationService notificationService;
+    private PlatformAuditWriter credentialAuditWriter;
 
     public PasswordRecoveryNotificationCoordinator(
             UserRepository userRepository,
@@ -40,6 +42,12 @@ public class PasswordRecoveryNotificationCoordinator {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.notificationService = notificationService;
+    }
+
+    /** Optional Phase 7 audit writer for administrative reset-link issuance. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setCredentialAuditWriter(PlatformAuditWriter credentialAuditWriter) {
+        this.credentialAuditWriter = credentialAuditWriter;
     }
 
     @Transactional
@@ -93,7 +101,9 @@ public class PasswordRecoveryNotificationCoordinator {
             UUID tenantId,
             UUID userId,
             String locale,
-            String ipAddress
+            String ipAddress,
+            UUID actorUserId,
+            String issuedBy
     ) {
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
@@ -117,6 +127,23 @@ public class PasswordRecoveryNotificationCoordinator {
             token.setStatus(PasswordResetTokenStatus.REVOKED);
             tokenRepository.save(token);
             throw exception;
+        }
+
+        // Phase 7 audit: issuance fact with safe delivery metadata only — the
+        // single-use link value and its secret are never audited. The issuer
+        // attribution comes from the governed calling surface (administrator
+        // console vs governed self-registration provisioning). Emitted only
+        // after a successful delivery (no false SUCCESS).
+        if (credentialAuditWriter != null) {
+            credentialAuditWriter.writeSuccess(tenantId, actorUserId, tenantId,
+                    "USER_RESET_LINK_ISSUED", "USER", userId.toString(),
+                    "ACCOUNT_RECOVERY", null,
+                    java.util.Map.of("userId", userId,
+                            "deliveryChannel", "email",
+                            "singleUse", true,
+                            "ttlMinutes", RESET_TTL.toMinutes(),
+                            "issuedBy", issuedBy),
+                    null, Instant.now());
         }
         return rawToken;
     }

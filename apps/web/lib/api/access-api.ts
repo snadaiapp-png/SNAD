@@ -41,9 +41,11 @@ export interface SubjectRelationship {
 
 export interface EffectivePermission {
   capabilityId: string;
+  effect: "ALLOW" | "DENY";
   scopeType: string;
   scopeReference: string | null;
   source: "ROLE" | "OVERRIDE" | "BREAK_GLASS";
+  reason: string;
   matchedRoleId: string | null;
   authorizationVersion: number;
   computedAt: string;

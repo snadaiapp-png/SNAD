@@ -420,8 +420,22 @@ export default function TenantUserDetailPage() {
               <p>{t("management.users.detail.effectiveAccessCount")}: {effectiveAccess.length}</p>
               {effectiveAccess.length === 0 ? <p>{t("management.users.detail.effectiveAccessEmpty")}</p> : (
                 <ul>{effectiveAccess.map((perm) => (
-                  <li key={`${perm.capabilityId}-${perm.scopeType}-${perm.scopeReference ?? ""}-${perm.source}`}>
+                  <li key={`${perm.capabilityId}-${perm.effect}-${perm.scopeType}-${perm.scopeReference ?? ""}-${perm.source}`}>
                     {perm.capabilityId} — {perm.scopeType}{perm.scopeReference ? ` (${perm.scopeReference})` : ""} — {perm.source}
+                    {" "}
+                    {/* Backend-authoritative effect: the frontend never computes
+                        authorization outcomes or deny precedence itself. */}
+                    <strong data-testid="effective-access-effect">{perm.effect}</strong>
+                    {perm.matchedRoleId ? (
+                      <>
+                        {" "}— {t("management.users.detail.effectiveAccessRoleOrigin")}: {perm.matchedRoleId}
+                      </>
+                    ) : null}
+                    {perm.reason ? (
+                      <>
+                        {" "}— {t("management.users.detail.effectiveAccessReason")}: {perm.reason}
+                      </>
+                    ) : null}
                   </li>
                 ))}</ul>
               )}

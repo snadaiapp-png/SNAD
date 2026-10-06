@@ -40,9 +40,13 @@ public class RoleCapabilityService {
         if (capability.getStatus() != CapabilityStatus.ACTIVE) throw new IllegalStateException("Only active capabilities can be attached");
         java.util.Optional<RoleCapability> existing = mappingRepository.findByTenantIdAndRoleIdAndCapabilityId(tenantId, roleId, capabilityId);
         RoleCapability mapping = existing.orElseGet(() -> mappingRepository.save(new RoleCapability(tenantId, roleId, capabilityId)));
-        audit(tenantId, "ROLE_CAPABILITY_ATTACH", mapping.getId(), null,
-                Map.of("roleId", roleId, "capabilityId", capabilityId));
-        if (existing.isEmpty() && authChanges != null) authChanges.roleChanged(tenantId, roleId, "ROLE_CAPABILITY_CHANGED");
+        if (existing.isEmpty()) {
+            // Idempotent re-attach of an existing mapping is a no-op and must
+            // not emit a false-change audit event.
+            audit(tenantId, "ROLE_CAPABILITY_ATTACHED", mapping.getId(), null,
+                    Map.of("roleId", roleId, "capabilityId", capabilityId));
+            if (authChanges != null) authChanges.roleChanged(tenantId, roleId, "ROLE_CAPABILITY_CHANGED");
+        }
         return response(mapping, capability.getCode());
     }
 
@@ -53,7 +57,7 @@ public class RoleCapabilityService {
         RoleCapability mapping = mappingRepository.findByTenantIdAndRoleIdAndCapabilityId(tenantId, roleId, capabilityId).orElse(null);
         if (mapping != null) {
             mappingRepository.delete(mapping);
-            audit(tenantId, "ROLE_CAPABILITY_DETACH", mapping.getId(),
+            audit(tenantId, "ROLE_CAPABILITY_DETACHED", mapping.getId(),
                     Map.of("roleId", roleId, "capabilityId", capabilityId), null);
             if (authChanges != null) authChanges.roleChanged(tenantId, roleId, "ROLE_CAPABILITY_CHANGED");
         }
