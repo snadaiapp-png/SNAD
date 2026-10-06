@@ -149,6 +149,57 @@ public class HrTimesheetService {
         ), params.toArray());
     }
 
+    /**
+     * G4 authoritative payroll input: resolve exactly one APPROVED timesheet
+     * for the requested employment and exact payroll period.
+     *
+     * <p>This is an HR-owned G2 read contract. Payroll must not query
+     * {@code hr_timesheets} directly or recalculate attendance. Missing or
+     * ambiguous canonical input fails closed.</p>
+     */
+    @Transactional(readOnly = true)
+    public PayrollTimesheetInput requireApprovedPayrollInput(
+            UUID tenantId, UUID employmentId, LocalDate periodStart, LocalDate periodEnd) {
+        List<PayrollTimesheetInput> matches = jdbc.query(
+                "SELECT id, employment_id, period_start, period_end, total_worked_minutes, " +
+                "total_break_minutes, state, approved_at, version " +
+                "FROM hr_timesheets " +
+                "WHERE tenant_id = ? AND employment_id = ? " +
+                "AND period_start = ? AND period_end = ? AND state = 'APPROVED' " +
+                "ORDER BY id",
+                (rs, rowNum) -> new PayrollTimesheetInput(
+                        UUID.fromString(rs.getString("id")),
+                        UUID.fromString(rs.getString("employment_id")),
+                        rs.getDate("period_start").toLocalDate(),
+                        rs.getDate("period_end").toLocalDate(),
+                        rs.getInt("total_worked_minutes"),
+                        rs.getInt("total_break_minutes"),
+                        rs.getString("state"),
+                        rs.getTimestamp("approved_at") != null
+                                ? rs.getTimestamp("approved_at").toInstant()
+                                : null,
+                        rs.getInt("version")),
+                tenantId, employmentId, periodStart, periodEnd);
+        if (matches.size() != 1) {
+            throw new IllegalStateException(
+                    "HRM_PAYROLL_TIMESHEET_INPUT_INVALID: expected exactly one APPROVED timesheet, found "
+                            + matches.size());
+        }
+        return matches.get(0);
+    }
+
+    public record PayrollTimesheetInput(
+            UUID id,
+            UUID employmentId,
+            LocalDate periodStart,
+            LocalDate periodEnd,
+            int totalWorkedMinutes,
+            int totalBreakMinutes,
+            String state,
+            Instant approvedAt,
+            int version
+    ) {}
+
     private void writeAuditAndOutbox(UUID tenantId, String eventType, UUID resourceId) {
         UUID auditId = UUID.randomUUID();
         UUID outboxId = UUID.randomUUID();
