@@ -95,7 +95,7 @@ jobs:
           mvn -B -ntp test
           -Dsurefire.useFile=false
           -Dsurefire.failIfNoSpecifiedTests=false
-          -Dtest='TenantCommercialStateServiceTest,TenantDirectoryCommercialStatePostgresTest,ExecutiveReadModelsTest,ExecutivePlatformLoginLinkTest,PlatformOperationsTenantManagementContractTest,ExecutiveTenantProvisioningPostgresTest,*SubscriptionContinuation*Test,*RecurringPrice*Test,*ExecutiveBilling*Test,*ConsistencyDiagnostic*Test,BillingStateConvergencePostgresTest'
+          -Dtest='TenantCommercialStateServiceTest,TenantDirectoryCommercialStatePostgresTest,ExecutiveReadModelsTest,ExecutivePlatformLoginLinkTest,PlatformOperationsTenantManagementContractTest,ExecutiveTenantProvisioningPostgresTest,*SubscriptionContinuation*Test,*RecurringPrice*Test,*ExecutiveBilling*Test,*ConsistencyDiagnostic*Test,BillingStateConvergencePostgresTest,R0C13G09RequiredContractsRedTest,R0C13G09FailureInjectionPostgresTest,R0C13G09ProviderModeContractTest'
       - name: Upload focused reports
         if: always()
         uses: actions/upload-artifact@v4
