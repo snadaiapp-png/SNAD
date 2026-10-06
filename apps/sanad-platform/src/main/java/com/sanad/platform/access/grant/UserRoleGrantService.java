@@ -50,10 +50,23 @@ public class UserRoleGrantService {
         boolean authorityChanged = existing.isEmpty() || grant.getStatus() == UserGrantStatus.REVOKED;
         if(grant.getStatus()==UserGrantStatus.REVOKED) grant.setStatus(UserGrantStatus.ACTIVE);
         if(grant.getId()==null||existing.isPresent()) grant=grantRepository.save(grant);
-        audit(tenantId,"USER_ROLE_GRANT",grant.getId(),null,
-                Map.of("userId",userId,"roleId",roleId,"scope",organizationId==null?"TENANT":"ORGANIZATION"));
-        if (authorityChanged && authChanges != null) {
-            authChanges.subjectChanged(tenantId, userId, "USER_ROLE_CHANGED", "USER_ROLE_GRANT", grant.getId());
+        if (authorityChanged) {
+            // Idempotent re-grants of an already-ACTIVE grant are a no-op and
+            // must not emit a false-change audit event.
+            audit(tenantId,"USER_ROLE_GRANTED",grant.getId(),null,
+                    Map.of("userId",userId,"roleId",roleId,"scope",organizationId==null?"TENANT":"ORGANIZATION"));
+            if (organizationId != null) {
+                // Distinct scope fact (contract §10): the governed organization
+                // scope binding set of the subject changed — the organization is
+                // now a boundary of this role's authority. This is a different
+                // fact from the authority grant itself (role id + scope kind).
+                audit(tenantId,"USER_SCOPE_CHANGED",grant.getId(),null,
+                        Map.of("userId",userId,"roleId",roleId,"organizationId",organizationId,
+                                "scope","ORGANIZATION","operation","GRANTED"));
+            }
+            if (authChanges != null) {
+                authChanges.subjectChanged(tenantId, userId, "USER_ROLE_CHANGED", "USER_ROLE_GRANT", grant.getId());
+            }
         }
         return response(grant,role.getCode());
     }
@@ -68,11 +81,23 @@ public class UserRoleGrantService {
         }
         grant.setStatus(UserGrantStatus.REVOKED); grant=grantRepository.save(grant);
         Role role=roleService.load(tenantId,grant.getRoleId());
-        audit(tenantId,"USER_ROLE_REVOKE",grantId,
-                Map.of("status",before.name(),"userId",grant.getUserId()),
-                Map.of("status",grant.getStatus().name(),"userId",grant.getUserId()));
-        if (before != UserGrantStatus.REVOKED && authChanges != null) {
-            authChanges.subjectChanged(tenantId, grant.getUserId(), "USER_ROLE_CHANGED", "USER_ROLE_GRANT", grantId);
+        if (before != UserGrantStatus.REVOKED) {
+            // Re-revoking an already-REVOKED grant is a no-op and must not
+            // emit a false-change audit event.
+            audit(tenantId,"USER_ROLE_REVOKED",grantId,
+                    Map.of("status",before.name(),"userId",grant.getUserId()),
+                    Map.of("status",grant.getStatus().name(),"userId",grant.getUserId()));
+            if (grant.getOrganizationId() != null) {
+                // Distinct scope fact: the governed organization scope binding
+                // was removed from the subject's effective scope set.
+                audit(tenantId,"USER_SCOPE_CHANGED",grantId,
+                        Map.of("userId",grant.getUserId(),"roleId",grant.getRoleId(),
+                                "organizationId",grant.getOrganizationId(),"scope","ORGANIZATION","operation","REVOKED"),
+                        null);
+            }
+            if (authChanges != null) {
+                authChanges.subjectChanged(tenantId, grant.getUserId(), "USER_ROLE_CHANGED", "USER_ROLE_GRANT", grantId);
+            }
         }
         return response(grant,role.getCode());
     }

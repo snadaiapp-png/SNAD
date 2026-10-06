@@ -78,6 +78,9 @@ const ar: TranslationDictionary = {
   "management.users.detail.effectiveAccess": "الصلاحيات الفعّالة",
   "management.users.detail.effectiveAccessEmpty": "لا توجد صلاحيات فعّالة",
   "management.users.detail.effectiveAccessCount": "عدد الصلاحيات الفعّالة",
+  "management.users.detail.effectiveAccessEffect": "التأثير",
+  "management.users.detail.effectiveAccessReason": "السبب",
+  "management.users.detail.effectiveAccessRoleOrigin": "أصل الدور",
 };
 
 const en: TranslationDictionary = {
@@ -156,6 +159,9 @@ const en: TranslationDictionary = {
   "management.users.detail.effectiveAccess": "Effective access",
   "management.users.detail.effectiveAccessEmpty": "No effective permissions",
   "management.users.detail.effectiveAccessCount": "Effective permission count",
+  "management.users.detail.effectiveAccessEffect": "Effect",
+  "management.users.detail.effectiveAccessReason": "Reason",
+  "management.users.detail.effectiveAccessRoleOrigin": "Role origin",
 };
 
 export function usersDictionary(locale: Locale): TranslationDictionary {

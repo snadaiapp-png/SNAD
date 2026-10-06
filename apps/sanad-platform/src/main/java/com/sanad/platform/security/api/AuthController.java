@@ -237,7 +237,8 @@ public class AuthController {
             return ResponseEntity.status(401).header(HttpHeaders.CACHE_CONTROL, "no-store").build();
         }
         String rawToken = recoveryNotifications.createAdministrativeResetLink(
-                principal.tenantId(), userId, request.getLocale(), httpRequest.getRemoteAddr());
+                principal.tenantId(), userId, request.getLocale(), httpRequest.getRemoteAddr(),
+                principal.userId());
 
         Map<String, Object> response = new java.util.HashMap<>();
         response.put("message", "تم إرسال رابط أحادي الاستخدام لإعداد كلمة مرور جديدة.");
