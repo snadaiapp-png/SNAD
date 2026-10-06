@@ -39,8 +39,8 @@ class HrG1MigrationTest {
     static final String G1_SCHEMA_VERSION = "20260918.2";
     static final String G1_RLS_VERSION = "20260918.3";
     static final String G1_SEED_VERSION = "20260918.4";
-    // Users Phase 5 occupies 20261005.1; R0C13 G07 uses 20261005.2; HRM G4 payroll snapshot is the new terminal migration.
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261006.1";
+    // Users Phase 5 occupies 20261005.1; R0C13 G07 seeds 20261005.2; Users Phase 7 uses 20261006.1; HRM G4 payroll snapshot heads the ledger at 20261006.2.
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261006.2";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
