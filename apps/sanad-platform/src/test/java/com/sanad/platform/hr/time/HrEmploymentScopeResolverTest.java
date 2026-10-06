@@ -51,41 +51,16 @@ class HrEmploymentScopeResolverTest {
     }
 
     @Test
-    void selfEmploymentFallsBackToUniqueActiveLegacyUserBindingWhenCanonicalPersonLinkIsMissing() {
-        UUID tenantId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
-        UUID employmentId = UUID.randomUUID();
-
-        when(jdbc.queryForObject(anyString(), eq(UUID.class), eq(tenantId), eq(userId)))
-                .thenThrow(new EmptyResultDataAccessException(1))
-                .thenReturn(employmentId);
-
-        assertThat(resolver.requireSelfEmployment(tenantId, userId)).isEqualTo(employmentId);
-
-        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        verify(jdbc, org.mockito.Mockito.times(2))
-                .queryForObject(sql.capture(), eq(UUID.class), eq(tenantId), eq(userId));
-        assertThat(sql.getAllValues().get(0))
-                .contains("JOIN hr_people")
-                .contains("person.user_id = ?");
-        assertThat(sql.getAllValues().get(1))
-                .contains("employee.user_id = ?")
-                .contains("employee.status = 'ACTIVE'")
-                .contains("u.status = 'ACTIVE'");
-    }
-
-    @Test
     void missingActiveEmploymentFailsClosed() {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
 
         when(jdbc.queryForObject(anyString(), eq(UUID.class), eq(tenantId), eq(userId)))
-                .thenThrow(new EmptyResultDataAccessException(1))
                 .thenThrow(new EmptyResultDataAccessException(1));
 
         assertThatThrownBy(() -> resolver.requireSelfEmployment(tenantId, userId))
                 .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("unique active HR employment");
+                .hasMessageContaining("active HR employment");
     }
 
     @Test
@@ -98,7 +73,7 @@ class HrEmploymentScopeResolverTest {
 
         assertThatThrownBy(() -> resolver.requireSelfEmployment(tenantId, userId))
                 .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("unique active HR employment");
+                .hasMessageContaining("active HR employment");
     }
 
     @Test
