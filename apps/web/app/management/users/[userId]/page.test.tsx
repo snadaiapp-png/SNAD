@@ -361,3 +361,93 @@ describe("Tenant User Detail — Phase 6: Role and scope mutation UX", () => {
     }
   });
 });
+
+describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
+  const effectiveRowsBase = [
+    {
+      capabilityId: "11111111-2222-3333-4444-555555555555",
+      scopeType: "TENANT_ALL",
+      scopeReference: null,
+      source: "ROLE",
+      matchedRoleId: ROLE_ID,
+      authorizationVersion: 4,
+      computedAt: "2026-10-06T00:00:00Z",
+    },
+  ];
+
+  it("renders the backend effect and canonical reason on role-derived rows", async () => {
+    accessApiMock.effectivePermissions.mockResolvedValue([
+      { ...effectiveRowsBase[0], effect: "ALLOW", reason: "ROLE_CAPABILITY_MATCH" },
+    ]);
+    render(<TenantUserDetailPage />);
+    await screen.findByText("سالم العتيبي");
+    const surface = await screen.findByTestId("management-user-effective-access");
+    // Backend-authoritative effect and reason must be visible without any
+    // frontend authorization computation.
+    expect(surface).toHaveTextContent("ALLOW");
+    expect(surface).toHaveTextContent("ROLE_CAPABILITY_MATCH");
+  });
+
+  it("renders an effective DENY row with its canonical reason from the backend", async () => {
+    accessApiMock.effectivePermissions.mockResolvedValue([
+      {
+        ...effectiveRowsBase[0],
+        effect: "DENY",
+        source: "OVERRIDE",
+        matchedRoleId: null,
+        reason: "EXPLICIT_DIRECT_DENY",
+      },
+    ]);
+    render(<TenantUserDetailPage />);
+    await screen.findByText("سالم العتيبي");
+    const surface = await screen.findByTestId("management-user-effective-access");
+    expect(surface).toHaveTextContent("DENY");
+    expect(surface).toHaveTextContent("EXPLICIT_DIRECT_DENY");
+    expect(surface).toHaveTextContent("OVERRIDE");
+  });
+
+  it("renders role origin and break-glass provenance exactly as returned by the backend", async () => {
+    accessApiMock.effectivePermissions.mockResolvedValue([
+      { ...effectiveRowsBase[0], effect: "ALLOW", reason: "ROLE_CAPABILITY_MATCH" },
+      {
+        capabilityId: "99999999-8888-7777-6666-555555555555",
+        scopeType: "TENANT_ALL",
+        scopeReference: null,
+        source: "BREAK_GLASS",
+        matchedRoleId: null,
+        authorizationVersion: 4,
+        computedAt: "2026-10-06T00:00:00Z",
+        effect: "ALLOW",
+        reason: "EXPLICIT_ALLOW_MATCH",
+      },
+    ]);
+    render(<TenantUserDetailPage />);
+    await screen.findByText("سالم العتيبي");
+    const surface = await screen.findByTestId("management-user-effective-access");
+    expect(surface).toHaveTextContent(ROLE_ID);
+    expect(surface).toHaveTextContent("BREAK_GLASS");
+    expect(surface).toHaveTextContent("EXPLICIT_ALLOW_MATCH");
+  });
+
+  it("keeps the safe empty state when the backend returns no effective rows", async () => {
+    accessApiMock.effectivePermissions.mockResolvedValue([]);
+    render(<TenantUserDetailPage />);
+    await screen.findByText("سالم العتيبي");
+    expect(screen.getByTestId("management-user-effective-access")).toHaveTextContent(
+      "لا توجد صلاحيات فعّالة",
+    );
+  });
+
+  it("does not branch on application names anywhere in the effective access surface", async () => {
+    accessApiMock.effectivePermissions.mockResolvedValue([
+      { ...effectiveRowsBase[0], effect: "ALLOW", reason: "ROLE_CAPABILITY_MATCH" },
+    ]);
+    render(<TenantUserDetailPage />);
+    await screen.findByText("سالم العتيبي");
+    const surface = screen.getByTestId("management-user-effective-access");
+    const text = surface.textContent ?? "";
+    for (const forbidden of ["CRM", "HRM", "Workflow", "ERP", "Ecommerce", "POS"]) {
+      expect(text).not.toContain(forbidden);
+    }
+  });
+});
