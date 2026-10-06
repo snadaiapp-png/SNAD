@@ -18,7 +18,9 @@ on:
       - 'tests/ci/test_users_module_closure_workflow.py'
       - '.github/workflows/users-module-closure.yml'
   push:
-    branches: [main]
+    branches:
+      - main
+      - chore/users-phase8-verification-release-20261006
     paths:
       - 'apps/sanad-platform/**'
       - 'apps/web/app/management/users/**'
