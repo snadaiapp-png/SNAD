@@ -1,0 +1,67 @@
+{
+  "gate": "R0C13-G09",
+  "task": "G09-T2 failure-injection certification",
+  "database_path": "POSTGRESQL_DIRECT",
+  "docker_testcontainers": "FORBIDDEN",
+  "red_baseline": {
+    "base_main_sha": "2db5ae056a8082a96cadacc8349444ce2d4b2895",
+    "red_head_sha": "9841ecb2544447e67140735f917994c5399dad74",
+    "pull_request": 1290,
+    "ci_run_id": 37469065399,
+    "required_failure": "CI / Maven Test Suite",
+    "contract_guard": "apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G09RequiredContractsRedTest.java",
+    "status": "CAPTURED"
+  },
+  "implemented_contracts": [
+    "financeFailureAfterProviderSuccessDoesNotActivateSubscription",
+    "outboxFailureRollsBackRequiredLocalMutation",
+    "auditFailureRollsBackRequiredPrivilegedMutation",
+    "providerTimeoutProducesRetryableStateNotPaid",
+    "unauthorizedRefundHasZeroProviderOrDomainSideEffect",
+    "liveModeWithoutAuthorityFailsClosed"
+  ],
+  "implementation_files": [
+    "apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G09PostgresSupport.java",
+    "apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G09FailureInjectionPostgresTest.java",
+    "apps/sanad-platform/src/test/java/com/sanad/platform/subscription/billing/R0C13G09ProviderModeContractTest.java",
+    ".github/workflows/tenant-subscription-billing-focused.yml"
+  ],
+  "focused_verification": {
+    "run_id": 37485303634,
+    "head_sha": "21037cfa8ccda5a94a0c59bbe56597b71aa025f4",
+    "job": "G09 Focused PostgreSQL Direct",
+    "result": "SUCCESS",
+    "tests": [
+      "R0C13G09RequiredContractsRedTest",
+      "R0C13G09FailureInjectionPostgresTest",
+      "R0C13G09ProviderModeContractTest"
+    ]
+  },
+  "security_secret_verification": {
+    "run_id": 37486602145,
+    "head_sha": "0c3836382d3be606eea58d719711fe5df07e9238",
+    "job": "G09 Security and Secret Scans",
+    "result": "SUCCESS",
+    "gitleaks": {
+      "red_baseline_findings": 8,
+      "head_findings": 8,
+      "new_g09_findings": 0,
+      "mode": "baseline-aware current-tree comparison"
+    },
+    "supplemental_secret_scanner_tests": {
+      "tests": 40,
+      "result": "PASS"
+    },
+    "workflow_security_policy": {
+      "tests": 50,
+      "result": "PASS"
+    }
+  },
+  "candidate": {
+    "pre_manifest_sha": "0acb6b8fb1bf4d3e0c96800971d8fcf09689cf09",
+    "temporary_verification_workflows_present": false,
+    "full_ci": "NOT_RUN_YET",
+    "approval": "REQUIRED_ON_FINAL_EXACT_HEAD",
+    "merge": "BLOCKED_UNTIL_EXACT_HEAD_GREEN_AND_APPROVAL"
+  }
+}
