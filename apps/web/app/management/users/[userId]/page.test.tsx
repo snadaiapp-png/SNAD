@@ -174,6 +174,18 @@ describe("Tenant User Detail", () => {
     });
   });
 
+  it("does not misrepresent unread memberships or roles as empty data", async () => {
+    authMock.capabilities = ["USER.READ"];
+    render(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+    expect(screen.queryByTestId("management-user-memberships")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("management-user-roles")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("management-user-effective-access")).not.toBeInTheDocument();
+    expect(tenantAccessApiMock.listUserMemberships).not.toHaveBeenCalled();
+    expect(tenantAccessApiMock.listUserRoleLinks).not.toHaveBeenCalled();
+    expect(accessApiMock.effectivePermissions).not.toHaveBeenCalled();
+  });
+
   it("updates identity only inside the authenticated tenant", async () => {
     const user = userEvent.setup(); render(<TenantUserDetailPage />); await screen.findByText("سالم العتيبي");
     await user.clear(screen.getByLabelText("البريد الإلكتروني")); await user.type(screen.getByLabelText("البريد الإلكتروني"), "updated@example.com"); await user.click(screen.getByRole("button", { name: "حفظ التعديلات" }));
