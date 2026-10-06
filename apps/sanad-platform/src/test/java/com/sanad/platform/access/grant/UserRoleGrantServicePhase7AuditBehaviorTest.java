@@ -132,14 +132,20 @@ class UserRoleGrantServicePhase7AuditBehaviorTest {
 
         service.revoke(TENANT_ID, grantId);
 
-        ArgumentCaptor<String> action = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Object> after = ArgumentCaptor.forClass(Object.class);
-        verify(audit, times(2)).success(eq(TENANT_ID), action.capture(), eq("USER_ROLE_GRANT"),
-                any(), any(), after.capture());
-        assertThat(action.getAllValues()).containsExactly("USER_ROLE_REVOKED", "USER_SCOPE_CHANGED");
+        // The authority fact and the scope fact are distinct audit events.
+        verify(audit, times(1)).success(eq(TENANT_ID), eq("USER_ROLE_REVOKED"),
+                eq("USER_ROLE_GRANT"), any(), any(), any());
+        // On revoke, the scope fact is carried in the before-state slot
+        // (the after-state is null: the binding no longer exists).
+        ArgumentCaptor<Object> scopeBefore = ArgumentCaptor.forClass(Object.class);
+        verify(audit, times(1)).success(eq(TENANT_ID), eq("USER_SCOPE_CHANGED"),
+                eq("USER_ROLE_GRANT"), any(), scopeBefore.capture(), any());
         @SuppressWarnings("unchecked")
-        Map<String, Object> scopeEvent = (Map<String, Object>) after.getAllValues().get(1);
-        assertThat(scopeEvent).containsEntry("operation", "REVOKED").containsEntry("organizationId", ORG_ID);
+        Map<String, Object> scopeEvent = (Map<String, Object>) scopeBefore.getValue();
+        assertThat(scopeEvent).containsEntry("operation", "REVOKED")
+                .containsEntry("organizationId", ORG_ID)
+                .containsEntry("userId", USER_ID)
+                .containsEntry("roleId", ROLE_ID);
     }
 
     @Test

@@ -536,7 +536,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION),
                         MigrationVersion.fromVersion(DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION),
                         // TEST_ALIGNMENT_REASON: R0C13 G07 follows Users Phase 5 with the forward-only 20261005.2 capability seed.
-                        MigrationVersion.fromVersion(R0C13_G07_OPERATOR_CAPABILITIES_VERSION));
+                        // TEST_ALIGNMENT_REASON: Users Phase 7 extends the effective access
+                        // explanation model with the forward-only 20261006.1 migration.
+                        MigrationVersion.fromVersion(R0C13_G07_OPERATOR_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -764,7 +767,10 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(PARTNER_RECOVERY_SAFETY_VERSION),
                         MigrationVersion.fromVersion(DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION),
                         // TEST_ALIGNMENT_REASON: keep both exact upgrade ledgers aligned with the repository tail.
-                        MigrationVersion.fromVersion(R0C13_G07_OPERATOR_CAPABILITIES_VERSION));
+                        // TEST_ALIGNMENT_REASON: Users Phase 7 extends the effective access
+                        // explanation model with the forward-only 20261006.1 migration.
+                        MigrationVersion.fromVersion(R0C13_G07_OPERATOR_CAPABILITIES_VERSION),
+                        MigrationVersion.fromVersion(USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

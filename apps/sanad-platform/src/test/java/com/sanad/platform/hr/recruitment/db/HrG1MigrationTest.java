@@ -39,8 +39,8 @@ class HrG1MigrationTest {
     static final String G1_SCHEMA_VERSION = "20260918.2";
     static final String G1_RLS_VERSION = "20260918.3";
     static final String G1_SEED_VERSION = "20260918.4";
-    // Users Phase 5 occupies 20261005.1; R0C13 G07 is the forward-only terminal seed.
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261005.2";
+    // Users Phase 5 occupies 20261005.1; R0C13 G07 seeds 20261005.2; Users Phase 7 heads the ledger at 20261006.1.
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261006.1"; // Users Phase 7 effective access explanation model (forward-only) extends the ledger head
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",

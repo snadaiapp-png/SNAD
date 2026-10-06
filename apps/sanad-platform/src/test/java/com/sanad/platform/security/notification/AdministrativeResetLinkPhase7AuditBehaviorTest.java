@@ -88,6 +88,13 @@ class AdministrativeResetLinkPhase7AuditBehaviorTest {
                 .isInstanceOf(IllegalStateException.class);
         verify(audit, never()).writeSuccess(any(), any(), any(), anyString(), any(), any(),
                 any(), any(), any(), any(), any());
-        verify(tokenRepository).save(any(PasswordResetToken.class));
+        // The issued value is persisted once, then persisted again as REVOKED
+        // when delivery fails — no usable single-use link may survive.
+        org.mockito.ArgumentCaptor<PasswordResetToken> saved =
+                org.mockito.ArgumentCaptor.forClass(PasswordResetToken.class);
+        verify(tokenRepository, org.mockito.Mockito.times(2)).save(saved.capture());
+        assertThat(saved.getAllValues().get(1).getStatus())
+                .as("failed delivery must revoke the issued value")
+                .isEqualTo(com.sanad.platform.security.domain.PasswordResetTokenStatus.REVOKED);
     }
 }

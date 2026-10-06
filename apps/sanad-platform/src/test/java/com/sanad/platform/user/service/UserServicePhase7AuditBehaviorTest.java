@@ -5,6 +5,7 @@ import com.sanad.platform.access.audit.AccessMutationAuditSupport;
 import com.sanad.platform.access.service.LastAdminGuard;
 import com.sanad.platform.security.domain.RefreshTokenRepository;
 import com.sanad.platform.security.filter.SessionVersionCache;
+import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
@@ -57,8 +58,10 @@ class UserServicePhase7AuditBehaviorTest {
         userRepository = mock(UserRepository.class);
         userMapper = mock(UserMapper.class);
         audit = mock(AccessMutationAuditSupport.class);
+        TenantRepository tenantRepository = mock(TenantRepository.class);
+        when(tenantRepository.findById(TENANT_ID)).thenReturn(Optional.of(mock(Tenant.class)));
         UserService raw = new UserService(
-                mock(TenantRepository.class), userRepository, userMapper,
+                tenantRepository, userRepository, userMapper,
                 mock(RefreshTokenRepository.class), mock(SessionVersionCache.class),
                 mock(PasswordEncoder.class));
         raw.setAudit(audit);
@@ -92,8 +95,10 @@ class UserServicePhase7AuditBehaviorTest {
     void bootstrapCreateAlsoEmitsDistinctCredentialInitializationFact() throws Exception {
         PasswordEncoder encoder = mock(PasswordEncoder.class);
         when(encoder.encode(anyString())).thenReturn("unit-test-encoded-hash");
+        TenantRepository tenantRepository = mock(TenantRepository.class);
+        when(tenantRepository.findById(TENANT_ID)).thenReturn(Optional.of(mock(Tenant.class)));
         UserService withEncoder = new UserService(
-                mock(TenantRepository.class), userRepository, userMapper,
+                tenantRepository, userRepository, userMapper,
                 mock(RefreshTokenRepository.class), mock(SessionVersionCache.class), encoder);
         withEncoder.setAudit(audit);
         CreateUserRequest request = new CreateUserRequest();

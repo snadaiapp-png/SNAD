@@ -1103,7 +1103,10 @@ jobs:
                       if has_skip:
                           cn = (tc.get("classname") or s.get("name") or "").split(".")[-1]
                           skip_classes[cn] = skip_classes.get(cn, 0) + 1
-          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15, "ModuleRegistryUatPostgresAcceptanceTest": 10, "PlatformSessionInvalidationPostgresAcceptanceTest": 3, "PlatformUserPostgresAcceptanceTest": 2}
+          # TEST_ALIGNMENT_REASON: W2-T8 (#1253) added a third @EnabledIfEnvironmentVariable-gated
+          # acceptance test to PlatformUserPostgresAcceptanceTest; the allowed skip count follows
+          # the class (3), matching the post-merge companion table above.
+          ALLOWED = {"CommerceOrderPostgresConcurrencyTest": 6, "RbacAccessCheckPostgresAcceptanceTest": 15, "ModuleRegistryUatPostgresAcceptanceTest": 10, "PlatformSessionInvalidationPostgresAcceptanceTest": 3, "PlatformUserPostgresAcceptanceTest": 3}
           unexplained = critical = 0
           detail = []
           for cn, n in sorted(skip_classes.items()):
