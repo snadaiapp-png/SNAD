@@ -72,6 +72,9 @@ jobs:
       USERS_CROSS_TENANT_ID: 00000000-0000-0000-0000-000000000001
       USERS_CONTROL_EMAIL: snad.ai.app@gmail.com
       USERS_CONTROL_TENANT_ID: 00000000-0000-0000-0000-000000000001
+      USERS_PHASE8_ADMIN_EMAIL: phase8-admin@users-acceptance.example
+      USERS_PHASE8_ORGANIZATION_ID: 33333333-3333-4333-8333-333333333335
+      USERS_PHASE8_SYNTHETIC_ROLE_ID: 88888888-8888-4888-8888-888888888807
       SANAD_CONTROL_PLANE_TENANT_ID: 00000000-0000-0000-0000-000000000001
       CRM_TENANT_B_EMAIL: g2-hr@g2-acceptance.example
       CRM_TENANT_B_ID: 33333333-3333-4333-8333-333333333331
@@ -101,9 +104,13 @@ jobs:
           set -euo pipefail
           DB_CRED="$(openssl rand -hex 24)"
           E2E_CRED="$(openssl rand -hex 24)"
+          PHASE8_TEMP_CRED="$(openssl rand -base64 36 | tr -d '\n')"
+          PHASE8_ROTATED_CRED="$(openssl rand -base64 36 | tr -d '\n')"
           CRM_KEY="$(openssl rand -base64 32 | tr -d '\n')"
           echo "::add-mask::$DB_CRED"
           echo "::add-mask::$E2E_CRED"
+          echo "::add-mask::$PHASE8_TEMP_CRED"
+          echo "::add-mask::$PHASE8_ROTATED_CRED"
           echo "::add-mask::$CRM_KEY"
           echo "DATABASE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
           echo "SPRING_DATASOURCE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
@@ -111,6 +118,9 @@ jobs:
           echo "USERS_E2E_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
           echo "USERS_TENANT_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
           echo "USERS_CONTROL_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "USERS_PHASE8_ADMIN_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "USERS_PHASE8_TEMP_PASSWORD=$PHASE8_TEMP_CRED" >> "$GITHUB_ENV"
+          echo "USERS_PHASE8_ROTATED_PASSWORD=$PHASE8_ROTATED_CRED" >> "$GITHUB_ENV"
           echo "CRM_CUSTOM_FIELD_ENCRYPTION_KEY=$CRM_KEY" >> "$GITHUB_ENV"
 
       - name: Start host-native PostgreSQL
@@ -187,6 +197,11 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -v users_e2e_password="$USERS_E2E_PASSWORD" \
             -f apps/sanad-platform/src/test/resources/sql/users-module-closure-seed.sql
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v ON_ERROR_STOP=1 \
+            -v users_phase8_password="$USERS_E2E_PASSWORD" \
+            -f apps/sanad-platform/src/test/resources/sql/users-phase8-acceptance-seed.sql
 
       - name: Verify authenticated fixtures
         shell: bash
@@ -206,6 +221,12 @@ jobs:
           test "$READ_CAPS" = "4"
           WRITE_CAPS=$(tenant_psql "SELECT COUNT(DISTINCT cap.code) FROM user_role_assignments ura JOIN role_capabilities rc ON rc.tenant_id=ura.tenant_id AND rc.role_id=ura.role_id JOIN access_capabilities cap ON cap.id=rc.capability_id WHERE ura.tenant_id='$USERS_TENANT_ID' AND ura.user_id='33333333-3333-4333-8333-333333333343' AND ura.status='ACTIVE' AND cap.code IN ('ROLE.MANAGE','CAPABILITY.MANAGE')")
           test "$WRITE_CAPS" = "0"
+          PHASE8_ADMIN=$(tenant_psql "SELECT COUNT(*) FROM users WHERE tenant_id='$USERS_TENANT_ID' AND lower(email)=lower('$USERS_PHASE8_ADMIN_EMAIL') AND status='ACTIVE'")
+          test "$PHASE8_ADMIN" = "1"
+          PHASE8_APP=$(tenant_psql "SELECT COUNT(*) FROM application_iam_contracts WHERE application_code='FUTURELAB' AND status='ACTIVE' AND contract_version='1'")
+          test "$PHASE8_APP" = "1"
+          PHASE8_ROLE=$(tenant_psql "SELECT COUNT(*) FROM roles WHERE tenant_id='$USERS_TENANT_ID' AND id='$USERS_PHASE8_SYNTHETIC_ROLE_ID' AND status='ACTIVE'")
+          test "$PHASE8_ROLE" = "1"
 
       - name: Start backend
         working-directory: apps/sanad-platform
@@ -248,9 +269,11 @@ jobs:
           STANDARD="$(npx playwright test --config=playwright.standard.config.ts --list 2>&1 || true)"
           test "$(printf '%s' "$STANDARD" | grep -c 'users-module-authenticated.spec.ts' || true)" = "0"
           test "$(printf '%s' "$STANDARD" | grep -c 'users-module-visual.spec.ts' || true)" = "0"
+          test "$(printf '%s' "$STANDARD" | grep -c 'users-phase8-release.spec.ts' || true)" = "0"
           DEDICATED="$(npx playwright test --config=playwright.users-module.config.ts --list 2>&1)"
           test "$(printf '%s' "$DEDICATED" | grep -c 'users-module-authenticated.spec.ts' || true)" -ge "1"
           test "$(printf '%s' "$DEDICATED" | grep -c 'users-module-visual.spec.ts' || true)" -ge "2"
+          test "$(printf '%s' "$DEDICATED" | grep -c 'users-phase8-release.spec.ts' || true)" -ge "2"
 
       - name: Start frontend
         working-directory: apps/web
@@ -266,11 +289,26 @@ jobs:
           cat "$RUNNER_TEMP/users-module-web.log"
           exit 1
 
-      - name: Run users-module-authenticated.spec.ts and users-module-visual.spec.ts
+      - name: Run Users authenticated, Phase 8 release, and visual acceptance
         working-directory: apps/web
         run: |
           rm -rf test-results/users-module-visual-evidence test-results/users-module-runtime-diagnostics
           npx playwright test --config=playwright.users-module.config.ts
+
+      - name: Verify Phase 8 browser artifacts contain no runtime credentials
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="apps/web/test-results"
+          test -d "$ROOT" || { echo "::error::Users test-results missing"; exit 1; }
+          for value in "$USERS_PHASE8_ADMIN_PASSWORD" "$USERS_PHASE8_TEMP_PASSWORD" "$USERS_PHASE8_ROTATED_PASSWORD"; do
+            if grep -R -F -I -- "$value" "$ROOT" >/dev/null 2>&1; then
+              echo "::error::PHASE8_ARTIFACT_SECRET_LEAK=FAIL"
+              exit 1
+            fi
+          done
+          echo "PHASE8_ARTIFACT_SECRET_LEAK=PASS"
 
       - name: Upload safe Users Module runtime diagnostics
         if: always()
