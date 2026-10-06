@@ -336,6 +336,45 @@ public class HrLeaveService {
         writeAuditAndOutbox(tenantId, "LeaveCancelled", requestId, userId);
     }
 
+    /**
+     * G4 authoritative payroll input: approved leave outcomes overlapping the
+     * requested payroll period. Payroll consumes these outcomes as-is and must
+     * not recalculate leave workflow state or attendance.
+     */
+    @Transactional(readOnly = true)
+    public List<PayrollLeaveInput> listApprovedPayrollInputs(
+            UUID tenantId, UUID employmentId, LocalDate periodStart, LocalDate periodEnd) {
+        return jdbc.query(
+                "SELECT lr.id, lr.leave_type_id, lr.start_date, lr.end_date, lr.days_count, " +
+                "lr.approved_at, lt.is_paid " +
+                "FROM hr_leave_requests lr " +
+                "JOIN hr_leave_types lt ON lt.id = lr.leave_type_id AND lt.tenant_id = lr.tenant_id " +
+                "WHERE lr.tenant_id = ? AND lr.employment_id = ? AND lr.state = 'APPROVED' " +
+                "AND lr.start_date <= ? AND lr.end_date >= ? " +
+                "ORDER BY lr.start_date, lr.end_date, lr.id",
+                (rs, rowNum) -> new PayrollLeaveInput(
+                        UUID.fromString(rs.getString("id")),
+                        UUID.fromString(rs.getString("leave_type_id")),
+                        rs.getDate("start_date").toLocalDate(),
+                        rs.getDate("end_date").toLocalDate(),
+                        rs.getBigDecimal("days_count"),
+                        rs.getBoolean("is_paid"),
+                        rs.getTimestamp("approved_at") != null
+                                ? rs.getTimestamp("approved_at").toInstant()
+                                : null),
+                tenantId, employmentId, periodEnd, periodStart);
+    }
+
+    public record PayrollLeaveInput(
+            UUID requestId,
+            UUID leaveTypeId,
+            LocalDate startDate,
+            LocalDate endDate,
+            BigDecimal daysCount,
+            boolean paid,
+            Instant approvedAt
+    ) {}
+
     // ==================== Leave Balances ====================
 
     @Transactional(readOnly = true)
