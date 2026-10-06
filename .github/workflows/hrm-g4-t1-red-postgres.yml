@@ -122,6 +122,16 @@ jobs:
             -DfailIfNoTests=true \
             test
 
+      - name: Run complete HR RLS catalog gate
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest=HrRlsFailClosedIntegrationTest \
+            -DfailIfNoTests=true \
+            test
+
       - name: Assert RED test actually executed
         if: always()
         working-directory: apps/sanad-platform
