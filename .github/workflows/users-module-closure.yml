@@ -29,7 +29,9 @@ on:
       - 'apps/web/app/executive/access/**'
       - 'apps/web/e2e/users-module-*.ts'
       - 'apps/web/playwright.users-module.config.ts'
+      - 'apps/web/playwright.standard.config.ts'
       - 'apps/web/package-lock.json'
+      - 'tests/ci/test_users_phase8_release_acceptance_contract.py'
       - '.github/workflows/users-module-closure.yml'
   workflow_dispatch:
 
