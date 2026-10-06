@@ -292,13 +292,14 @@ jobs:
           exit 1
 
       - name: Run Users authenticated, Phase 8 release, and visual acceptance
+        id: phase8-e2e
         working-directory: apps/web
         run: |
           rm -rf test-results/users-module-visual-evidence test-results/users-module-runtime-diagnostics
           npx playwright test --config=playwright.users-module.config.ts
 
       - name: Verify Phase 8 browser artifacts contain no runtime credentials
-        if: always()
+        if: ${{ !cancelled() && steps.phase8-e2e.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
