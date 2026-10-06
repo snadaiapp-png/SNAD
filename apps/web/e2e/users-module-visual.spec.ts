@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { loginThroughUi } from "./crm-auth-session";
 import { captureUsersEvidence } from "./users-module-visual-helpers";
 
@@ -11,6 +11,23 @@ const CONTROL_TENANT_ID = process.env.USERS_CONTROL_TENANT_ID ?? "00000000-0000-
 
 function requireEnv(name: string, value: string) {
   expect(value, `${name} must be configured by the users-module closure workflow`).toBeTruthy();
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const geometry = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="management-user-detail-ready"]');
+    const rect = root?.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      rootLeft: rect?.left ?? 0,
+      rootRight: rect?.right ?? 0,
+    };
+  });
+
+  expect(geometry.documentScrollWidth).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+  expect(geometry.rootLeft).toBeGreaterThanOrEqual(-1);
+  expect(geometry.rootRight).toBeLessThanOrEqual(geometry.viewportWidth + 1);
 }
 
 test("capture authenticated users module evidence", async ({ page }, testInfo) => {
@@ -30,7 +47,29 @@ test("capture authenticated users module evidence", async ({ page }, testInfo) =
   expect(tenantDetailHref).toBeTruthy();
 
   await page.goto(tenantDetailHref!);
-  await captureUsersEvidence(page, testInfo, "management-user-detail", '[data-testid="management-user-detail-ready"]', TENANT_ID, tenantSession.accessToken);
+  await expect(page.getByTestId("management-user-identity")).toBeVisible();
+  await expect(page.getByTestId("management-user-credentials")).toBeVisible();
+  await expect(page.getByTestId("management-user-roles")).toBeVisible();
+  await expect(page.getByTestId("management-user-effective-access")).toBeVisible();
+
+  await page.evaluate(() => {
+    document.documentElement.setAttribute("dir", "rtl");
+    document.documentElement.setAttribute("lang", "ar");
+  });
+  await expectNoHorizontalOverflow(page);
+  await captureUsersEvidence(page, testInfo, "management-user-detail-rtl", '[data-testid="management-user-detail-ready"]', TENANT_ID, tenantSession.accessToken);
+
+  await page.evaluate(() => {
+    document.documentElement.setAttribute("dir", "ltr");
+    document.documentElement.setAttribute("lang", "en");
+  });
+  await expectNoHorizontalOverflow(page);
+  await captureUsersEvidence(page, testInfo, "management-user-detail-ltr", '[data-testid="management-user-detail-ready"]', TENANT_ID, tenantSession.accessToken);
+
+  await page.evaluate(() => {
+    document.documentElement.setAttribute("dir", "rtl");
+    document.documentElement.setAttribute("lang", "ar");
+  });
 
   await page.goto("/management/access");
   await captureUsersEvidence(page, testInfo, "management-access", '[data-testid="management-access-ready"]', TENANT_ID, tenantSession.accessToken);

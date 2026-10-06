@@ -16,6 +16,7 @@ import type { OrganizationMembershipResponse } from "@/lib/api/memberships";
 import { effectivePermissions, type EffectivePermission } from "@/lib/api/access-api";
 import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import styles from "./user-detail.module.css";
 
 const TRANSIENT_AUTH_STATES = new Set([
   "INITIALIZING",
@@ -253,8 +254,10 @@ export default function TenantUserDetailPage() {
 
   return (
     <ExecutiveShell>
-      <section data-testid="management-user-detail-ready">
-        <h1>{t("management.users.detail.title")}</h1>
+      <section className={styles.root} data-testid="management-user-detail-ready">
+        <header className={styles.pageHeader}>
+          <h1 className={styles.title}>{t("management.users.detail.title")}</h1>
+        </header>
         {error ? (
           <div role="alert">
             <h2>{error.title}</h2>
@@ -264,8 +267,8 @@ export default function TenantUserDetailPage() {
         {loading ? <div role="status">{t("management.users.detail.loading")}</div> : null}
         {!loading && target ? (
           <>
-            <h2>{target.displayName || target.email}</h2>
-            <form onSubmit={saveIdentity}>
+            <h2 className={styles.userHeading}>{target.displayName || target.email}</h2>
+            <form className={styles.identityForm} data-testid="management-user-identity" onSubmit={saveIdentity}>
               <label>
                 {t("users.email")}
                 <input aria-label={t("users.email")} type="email" value={email} disabled={!canWrite || busy} onChange={(event) => setEmail(event.target.value)} />
@@ -295,10 +298,10 @@ export default function TenantUserDetailPage() {
               {canWrite ? <button type="submit" disabled={busy}>{t("management.users.detail.save")}</button> : null}
             </form>
 
-            <section aria-labelledby="user-credentials-heading" data-testid="management-user-credentials">
+            <section className={styles.card} aria-labelledby="user-credentials-heading" data-testid="management-user-credentials">
               <h2 id="user-credentials-heading">{t("management.users.credentials.title")}</h2>
               <p>{t("management.users.credentials.help")}</p>
-              <dl>
+              <dl className={styles.statsGrid}>
                 <div>
                   <dt>{t("users.username")}</dt>
                   <dd>{target.username || t("management.users.credentials.notSet")}</dd>
@@ -322,7 +325,7 @@ export default function TenantUserDetailPage() {
               </dl>
               {credentialNotice ? <p role="status">{credentialNotice}</p> : null}
               {canWrite && target.status === "ACTIVE" && !target.credentialInitialized ? (
-                <div>
+                <div className={styles.credentialActions}>
                   <label>
                     {t("management.users.credentials.initial")}
                     <input
@@ -357,16 +360,16 @@ export default function TenantUserDetailPage() {
               ) : null}
             </section>
 
-            <section aria-labelledby="user-memberships-heading">
+            <section className={styles.card} aria-labelledby="user-memberships-heading" data-testid="management-user-memberships">
               <h2 id="user-memberships-heading">{t("management.users.detail.memberships")}</h2>
-              {memberships.length === 0 ? <p>{t("management.users.detail.noMemberships")}</p> : <ul>{memberships.map((membership) => <li key={membership.id}>{membership.displayName || membership.email} — {membership.status}</li>)}</ul>}
+              {memberships.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.noMemberships")}</p> : <ul className={styles.list}>{memberships.map((membership) => <li className={styles.listItem} key={membership.id}>{membership.displayName || membership.email} — {membership.status}</li>)}</ul>}
             </section>
 
-            <section aria-labelledby="user-roles-heading">
+            <section className={styles.card} aria-labelledby="user-roles-heading" data-testid="management-user-roles">
               <h2 id="user-roles-heading">{t("management.users.detail.roles")}</h2>
-              {roleLinks.length === 0 ? <p>{t("management.users.detail.noRoles")}</p> : (
-                <ul>{roleLinks.map((link) => (
-                  <li key={link.id}>
+              {roleLinks.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.noRoles")}</p> : (
+                <ul className={styles.list}>{roleLinks.map((link) => (
+                  <li className={styles.roleItem} key={link.id}>
                     <span>{link.roleCode}</span>
                     <span>{link.organizationId ? t("management.users.detail.scopeOrganizationLabel") : t("management.users.detail.scopeTenantLabel")}</span>
                     {canRevokeRole ? <button type="button" disabled={busy} onClick={() => requestRevoke(link)}>{t("management.users.detail.revoke")}</button> : null}
@@ -374,7 +377,7 @@ export default function TenantUserDetailPage() {
                 ))}</ul>
               )}
               {canGrantRole ? (
-                <div>
+                <div className={styles.grantGrid}>
                   <label>
                     {t("management.users.detail.role")}
                     <select aria-label={t("management.users.detail.role")} value={selectedRoleId} onChange={(event) => setSelectedRoleId(event.target.value)}>
@@ -415,12 +418,12 @@ export default function TenantUserDetailPage() {
               ) : null}
             </section>
 
-            <section aria-labelledby="user-effective-access-heading" data-testid="management-user-effective-access">
+            <section className={styles.card} aria-labelledby="user-effective-access-heading" data-testid="management-user-effective-access">
               <h2 id="user-effective-access-heading">{t("management.users.detail.effectiveAccess")}</h2>
               <p>{t("management.users.detail.effectiveAccessCount")}: {effectiveAccess.length}</p>
-              {effectiveAccess.length === 0 ? <p>{t("management.users.detail.effectiveAccessEmpty")}</p> : (
-                <ul>{effectiveAccess.map((perm) => (
-                  <li key={`${perm.capabilityId}-${perm.effect}-${perm.scopeType}-${perm.scopeReference ?? ""}-${perm.source}`}>
+              {effectiveAccess.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.effectiveAccessEmpty")}</p> : (
+                <ul className={styles.accessList}>{effectiveAccess.map((perm) => (
+                  <li className={styles.accessItem} key={`${perm.capabilityId}-${perm.effect}-${perm.scopeType}-${perm.scopeReference ?? ""}-${perm.source}`}>
                     {perm.capabilityId} — {perm.scopeType}{perm.scopeReference ? ` (${perm.scopeReference})` : ""} — {perm.source}
                     {" "}
                     {/* Backend-authoritative effect: the frontend never computes
@@ -444,7 +447,7 @@ export default function TenantUserDetailPage() {
         ) : null}
 
         {pendingRevoke ? (
-          <div role="dialog" aria-modal="true" aria-labelledby="revoke-confirm-title">
+          <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="revoke-confirm-title">
             <h2 id="revoke-confirm-title">{t("management.users.detail.revokeConfirmTitle")}</h2>
             <p>{t("management.users.detail.revokeConfirmMessage")}</p>
             <dl>

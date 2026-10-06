@@ -332,13 +332,15 @@ jobs:
           test -s "$ROOT/manifest.ndjson"
           required=(
             desktop/management-users.png
-            desktop/management-user-detail.png
+            desktop/management-user-detail-rtl.png
+            desktop/management-user-detail-ltr.png
             desktop/management-access.png
             desktop/executive-users.png
             desktop/executive-user-detail.png
             desktop/executive-access.png
             mobile/management-users.png
-            mobile/management-user-detail.png
+            mobile/management-user-detail-rtl.png
+            mobile/management-user-detail-ltr.png
             mobile/management-access.png
             mobile/executive-users.png
             mobile/executive-user-detail.png
@@ -349,9 +351,9 @@ jobs:
             grep -q "\"file\":\"$rel\"" "$ROOT/manifest.ndjson" || { echo "::error::manifest missing $rel"; exit 1; }
           done
           LINES=$(wc -l < "$ROOT/manifest.ndjson")
-          test "$LINES" -ge 12
+          test "$LINES" -ge 14
           SHA_LINES=$(grep -c "$USERS_CANDIDATE_SHA" "$ROOT/manifest.ndjson" || true)
-          test "$SHA_LINES" -ge 12
+          test "$SHA_LINES" -ge 14
 
       - name: Upload exact-SHA Users Module evidence
         uses: actions/upload-artifact@v4

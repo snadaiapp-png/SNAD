@@ -57,7 +57,8 @@ def verify_users_module_closure() -> None:
     for device in ('desktop', 'mobile'):
         for name in (
             'management-users',
-            'management-user-detail',
+            'management-user-detail-rtl',
+            'management-user-detail-ltr',
             'management-access',
             'executive-users',
             'executive-user-detail',
