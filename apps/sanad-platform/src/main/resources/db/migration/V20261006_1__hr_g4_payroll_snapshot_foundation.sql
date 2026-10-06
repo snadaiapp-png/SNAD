@@ -6,6 +6,12 @@
 -- PostgreSQL Direct / FORCE RLS / tenant-congruent references.
 -- ============================================================
 
+-- Add the tenant-congruent candidate key needed by G4 source FKs. The
+-- employment UUID is already globally unique; this additive key lets the
+-- database also prove tenant congruence at reference time.
+ALTER TABLE hr_employees
+    ADD CONSTRAINT uq_hr_employees_id_tenant UNIQUE (id, tenant_id);
+
 CREATE TABLE hr_payroll_runs (
     id                    UUID           NOT NULL DEFAULT gen_random_uuid(),
     tenant_id             UUID           NOT NULL REFERENCES tenants(id),
