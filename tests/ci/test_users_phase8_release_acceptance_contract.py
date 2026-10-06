@@ -15,6 +15,7 @@ AUTH_SPEC = ROOT / "apps/web/e2e/users-module-authenticated.spec.ts"
 VISUAL_SPEC = ROOT / "apps/web/e2e/users-module-visual.spec.ts"
 PHASE8_SPEC = ROOT / "apps/web/e2e/users-phase8-release.spec.ts"
 PLAYWRIGHT_CONFIG = ROOT / "apps/web/playwright.users-module.config.ts"
+STANDARD_PLAYWRIGHT_CONFIG = ROOT / "apps/web/playwright.standard.config.ts"
 CLOSURE_WORKFLOW = ROOT / ".github/workflows/users-module-closure.yml"
 PROD_CERT = ROOT / ".github/workflows/users-production-certification.yml"
 
@@ -26,6 +27,7 @@ class UsersPhase8ReleaseAcceptanceContractTest(unittest.TestCase):
         cls.visual = VISUAL_SPEC.read_text(encoding="utf-8")
         cls.phase8 = PHASE8_SPEC.read_text(encoding="utf-8")
         cls.config = PLAYWRIGHT_CONFIG.read_text(encoding="utf-8")
+        cls.standard_config = STANDARD_PLAYWRIGHT_CONFIG.read_text(encoding="utf-8")
         cls.closure = CLOSURE_WORKFLOW.read_text(encoding="utf-8")
         cls.cert = PROD_CERT.read_text(encoding="utf-8")
 
@@ -91,6 +93,7 @@ class UsersPhase8ReleaseAcceptanceContractTest(unittest.TestCase):
         self.assertIn("users-visual-mobile", self.config)
         self.assertIn("users-phase8-release-desktop", self.config)
         self.assertIn('devices["Pixel 7"]', self.config)
+        self.assertIn("users-phase8-release.spec.ts", self.standard_config)
 
     def test_credential_artifacts_are_scanned_for_secret_leakage(self):
         combined = self.phase8 + "\n" + self.visual
