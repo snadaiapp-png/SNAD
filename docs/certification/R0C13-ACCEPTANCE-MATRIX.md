@@ -228,10 +228,10 @@ inferred from this parent evidence alone.
 
 | ID | Acceptance predicate | Required evidence | Gate | Initial |
 |---|---|---|---|---|
-| R13-REL-001 | implementation PR exact head independently APPROVED | GitHub review | G10 | NOT_STARTED |
-| R13-REL-002 | required exact-head checks all green | GitHub checks | G10 | NOT_STARTED |
-| R13-REL-003 | PMV success on merged exact main | PMV manifest | G10/G11 | NOT_STARTED |
-| R13-REL-004 | immutable exact-SHA image/provenance exists | artifact/OCI evidence | G10/G11 | NOT_STARTED |
+| R13-REL-001 | implementation PR exact head independently APPROVED | PR #1290 review APPROVED on exact head `c710592b693a9f46c5b04f58bc7c4351fce94e0b` by `abdulrhmansenan1985-creator` at `2026-10-06T16:38:20Z`; G10 candidate evidence: `evidence/subscription/r0c13-g10-release-candidate.json` | G10 | PASS |
+| R13-REL-002 | required exact-head checks all green | PR #1290 exact-head required checks green on `c710592b693a9f46c5b04f58bc7c4351fce94e0b`; includes Maven, PostgreSQL Direct acceptance, CRM integration, web build, provenance, deployment readiness, tenant isolation; G10 candidate evidence recorded | G10 | PASS |
+| R13-REL-003 | PMV success on merged exact main | merge SHA `a7bec5601b8d15feca983815c9bbb73269f9fed9`; Post-Merge Main Verification run `37498056105` / #1197 = SUCCESS with JOB A-F successful | G10/G11 | PASS |
+| R13-REL-004 | immutable exact-SHA image/provenance exists | exact SHA `a7bec5601b8d15feca983815c9bbb73269f9fed9`; Stage 07 Artifact Provenance run `37498056103` = SUCCESS; Publish Render Backend Image run `37498056262` = SUCCESS | G10/G11 | PASS |
 | R13-REL-005 | production deployment exact SHA/image binding passes | release evidence | G11 | NOT_STARTED |
 | R13-REL-006 | production provider mode = DISABLED | sanitized runtime evidence | G11 | NOT_STARTED |
 | R13-REL-007 | no TEST/simulated provider active in production | runtime evidence | G11 | NOT_STARTED |
