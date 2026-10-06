@@ -186,6 +186,26 @@ describe("Tenant User Detail", () => {
     expect(accessApiMock.effectivePermissions).not.toHaveBeenCalled();
   });
 
+  it("ignores a late response from a previous tenant scope", async () => {
+    const { rerender } = render(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+
+    let resolveOther!: (value: typeof USER) => void;
+    usersApiMock.get.mockImplementationOnce(() => new Promise((resolve) => { resolveOther = resolve; }));
+    authMock.user = { ...authMock.user, tenantId: OTHER_TENANT_ID };
+    rerender(<TenantUserDetailPage />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("جارٍ تحميل بيانات المستخدم"));
+
+    usersApiMock.get.mockResolvedValueOnce(USER);
+    authMock.user = { ...authMock.user, tenantId: TENANT_ID };
+    rerender(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+
+    resolveOther({ ...USER, tenantId: OTHER_TENANT_ID, email: "other@example.com", displayName: "مستخدم مستأجر آخر" });
+    await waitFor(() => expect(screen.queryByText("مستخدم مستأجر آخر")).not.toBeInTheDocument());
+    expect(screen.getByText("سالم العتيبي")).toBeInTheDocument();
+  });
+
   it("updates identity only inside the authenticated tenant", async () => {
     const user = userEvent.setup(); render(<TenantUserDetailPage />); await screen.findByText("سالم العتيبي");
     await user.clear(screen.getByLabelText("البريد الإلكتروني")); await user.type(screen.getByLabelText("البريد الإلكتروني"), "updated@example.com"); await user.click(screen.getByRole("button", { name: "حفظ التعديلات" }));
