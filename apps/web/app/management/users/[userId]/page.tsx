@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ExecutiveShell } from "@/components/shell";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
@@ -52,6 +52,10 @@ export default function TenantUserDetailPage() {
   const canReadRoles = capabilities.includes("ROLE.READ");
   const canGrantRole = capabilities.includes("USER.GRANT_ROLE");
   const canRevokeRole = capabilities.includes("USER.REVOKE_ROLE");
+  const dataScopeKey = `${tenantId ?? "none"}:${userId}:${canRead ? "read" : "deny"}:${canReadMemberships ? "memberships" : "no-memberships"}:${canReadRoles ? "roles" : "no-roles"}`;
+  const activeDataScopeRef = useRef(dataScopeKey);
+  const loadSequenceRef = useRef(0);
+  activeDataScopeRef.current = dataScopeKey;
 
   const [target, setTarget] = useState<UserResponse | null>(null);
   const [memberships, setMemberships] = useState<OrganizationMembershipResponse[]>([]);
@@ -93,8 +97,12 @@ export default function TenantUserDetailPage() {
   }, [tenantId]);
 
   const load = useCallback(async () => {
-    // Fail closed across actor/tenant/user transitions: never keep a prior
-    // user's data mounted while a new scoped request is pending or denied.
+    const requestedScope = dataScopeKey;
+    if (activeDataScopeRef.current !== requestedScope) return;
+    const sequence = ++loadSequenceRef.current;
+
+    // Fail closed across actor/tenant/user/capability transitions: never keep
+    // prior scoped data mounted while a new request is pending or denied.
     setTarget(null);
     setMemberships([]);
     setRoleLinks([]);
@@ -114,6 +122,7 @@ export default function TenantUserDetailPage() {
         canReadRoles ? tenantAccessApi.listRoles(tenantId) : Promise.resolve([]),
         canReadRoles ? effectivePermissions(userId) : Promise.resolve([]),
       ]);
+      if (sequence !== loadSequenceRef.current || activeDataScopeRef.current !== requestedScope) return;
       setTarget(userResult);
       setEmail(userResult.email);
       setUsername(userResult.username ?? "");
@@ -130,11 +139,15 @@ export default function TenantUserDetailPage() {
           : (roleResult[0]?.id ?? "")
       );
     } catch (caught) {
-      setError(toUserFacingError(caught));
+      if (sequence === loadSequenceRef.current && activeDataScopeRef.current === requestedScope) {
+        setError(toUserFacingError(caught));
+      }
     } finally {
-      setLoading(false);
+      if (sequence === loadSequenceRef.current && activeDataScopeRef.current === requestedScope) {
+        setLoading(false);
+      }
     }
-  }, [canRead, canReadMemberships, canReadRoles, tenantId, userId]);
+  }, [canRead, canReadMemberships, canReadRoles, dataScopeKey, tenantId, userId]);
 
   useEffect(() => {
     if (state === "AUTHENTICATED") void load();
