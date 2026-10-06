@@ -101,7 +101,7 @@ public final class PayrollCalculationEngine {
 
     private List<CalculationLine> calculateAllowances(
             List<PayrollAuthoritativeInputPort.CompensationComponentInput> components,
-            Set<String> enabledCodes,
+            List<ConfiguredAllowance> configured,
             BigDecimal base) {
         List<ConfiguredAllowance> orderedRules = configured.stream()
                 .sorted(Comparator.comparing(ConfiguredAllowance::code))
