@@ -50,7 +50,10 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+# Manual workflow_dispatch is intentionally disabled here.
+# Re-run an existing post-merge run instead, so certification for the same SHA
+# cannot create a second run that blocks the canonical push-triggered run via
+# the shared concurrency group below.
 
 permissions:
   contents: read
