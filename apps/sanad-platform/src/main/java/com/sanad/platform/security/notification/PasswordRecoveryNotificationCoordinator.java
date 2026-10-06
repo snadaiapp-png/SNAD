@@ -102,7 +102,8 @@ public class PasswordRecoveryNotificationCoordinator {
             UUID userId,
             String locale,
             String ipAddress,
-            UUID actorUserId
+            UUID actorUserId,
+            String issuedBy
     ) {
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
@@ -128,9 +129,11 @@ public class PasswordRecoveryNotificationCoordinator {
             throw exception;
         }
 
-        // Phase 7 audit: administrative issuance fact with safe delivery
-        // metadata only — the single-use link value and its secret are never
-        // audited. Emitted only after a successful delivery (no false SUCCESS).
+        // Phase 7 audit: issuance fact with safe delivery metadata only — the
+        // single-use link value and its secret are never audited. The issuer
+        // attribution comes from the governed calling surface (administrator
+        // console vs governed self-registration provisioning). Emitted only
+        // after a successful delivery (no false SUCCESS).
         if (credentialAuditWriter != null) {
             credentialAuditWriter.writeSuccess(tenantId, actorUserId, tenantId,
                     "USER_RESET_LINK_ISSUED", "USER", userId.toString(),
@@ -139,7 +142,7 @@ public class PasswordRecoveryNotificationCoordinator {
                             "deliveryChannel", "email",
                             "singleUse", true,
                             "ttlMinutes", RESET_TTL.toMinutes(),
-                            "issuedBy", "ADMINISTRATOR"),
+                            "issuedBy", issuedBy),
                     null, Instant.now());
         }
         return rawToken;

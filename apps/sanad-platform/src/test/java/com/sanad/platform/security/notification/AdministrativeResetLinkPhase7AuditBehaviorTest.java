@@ -62,7 +62,7 @@ class AdministrativeResetLinkPhase7AuditBehaviorTest {
     @Test
     void administrativeIssuanceEmitsCanonicalEventWithExactSafePayloadKeys() {
         String rawLink = coordinator.createAdministrativeResetLink(
-                TENANT_ID, USER_ID, "ar", "127.0.0.1", ACTOR_ID);
+                TENANT_ID, USER_ID, "ar", "127.0.0.1", ACTOR_ID, "ADMINISTRATOR");
 
         assertThat(rawLink).isNotBlank();
         ArgumentCaptor<Object> after = ArgumentCaptor.forClass(Object.class);
@@ -84,7 +84,7 @@ class AdministrativeResetLinkPhase7AuditBehaviorTest {
                 .when(notificationService).deliverResetLink(any(), anyString(), anyString(), eq(true));
 
         assertThatThrownBy(() -> coordinator.createAdministrativeResetLink(
-                TENANT_ID, USER_ID, "ar", "127.0.0.1", ACTOR_ID))
+                TENANT_ID, USER_ID, "ar", "127.0.0.1", ACTOR_ID, "ADMINISTRATOR"))
                 .isInstanceOf(IllegalStateException.class);
         verify(audit, never()).writeSuccess(any(), any(), any(), anyString(), any(), any(),
                 any(), any(), any(), any(), any());
