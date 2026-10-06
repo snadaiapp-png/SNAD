@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ExecutiveShell } from "@/components/shell";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { usersApi, type UserResponse } from "@/lib/api/users";
+import { usersApi, type UserLifecycleAction, type UserResponse } from "@/lib/api/users";
 import { createTenantAuthApi } from "@/lib/api/auth";
 import {
   tenantAccessApi,
@@ -16,6 +16,8 @@ import type { OrganizationMembershipResponse } from "@/lib/api/memberships";
 import { effectivePermissions, type EffectivePermission } from "@/lib/api/access-api";
 import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { usersMessages } from "@/lib/i18n/users-l10n";
+import { UserLifecycleActions } from "../_components/UserLifecycleActions";
 import styles from "./user-detail.module.css";
 
 const TRANSIENT_AUTH_STATES = new Set([
@@ -38,13 +40,14 @@ export default function TenantUserDetailPage() {
   const params = useParams<{ userId: string }>();
   const router = useRouter();
   const { state, user: actor, me } = useAuth();
-  const { t } = useI18n();
-  const { locale = "ar" } = useI18n();
+  const { t, locale = "ar" } = useI18n();
+  const messages = useMemo(() => usersMessages(t), [t]);
   const tenantId = actor?.tenantId ?? null;
   const userId = params.userId;
   const capabilities = me?.capabilities ?? [];
   const canRead = capabilities.includes("USER.READ");
   const canWrite = capabilities.includes("USER.WRITE");
+  const canArchive = capabilities.includes("USER.DELETE");
   const canReadMemberships = capabilities.includes("MEMBERSHIP.READ");
   const canReadRoles = capabilities.includes("ROLE.READ");
   const canGrantRole = capabilities.includes("USER.GRANT_ROLE");
@@ -90,12 +93,19 @@ export default function TenantUserDetailPage() {
   }, [tenantId]);
 
   const load = useCallback(async () => {
+    // Fail closed across actor/tenant/user transitions: never keep a prior
+    // user's data mounted while a new scoped request is pending or denied.
+    setTarget(null);
+    setMemberships([]);
+    setRoleLinks([]);
+    setRoles([]);
+    setEffectiveAccess([]);
+    setLoading(true);
+    setError(null);
     if (!tenantId || !canRead) {
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError(null);
     try {
       const [userResult, membershipResult, linkResult, roleResult, effectiveResult] = await Promise.all([
         usersApi.get(tenantId, userId),
@@ -115,7 +125,9 @@ export default function TenantUserDetailPage() {
       setRoles(roleResult);
       setEffectiveAccess(effectiveResult);
       setSelectedRoleId((currentRoleId) =>
-        currentRoleId === "" && roleResult.length > 0 ? roleResult[0].id : currentRoleId
+        currentRoleId && roleResult.some((role) => role.id === currentRoleId)
+          ? currentRoleId
+          : (roleResult[0]?.id ?? "")
       );
     } catch (caught) {
       setError(toUserFacingError(caught));
@@ -127,6 +139,21 @@ export default function TenantUserDetailPage() {
   useEffect(() => {
     if (state === "AUTHENTICATED") void load();
   }, [load, state]);
+
+  const transitionUser = async (action: UserLifecycleAction) => {
+    const permitted = action === "archive" ? canArchive : canWrite;
+    if (!target || !permitted) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await usersApi.transition(tenantId, userId, action);
+      await load();
+    } catch (caught) {
+      setError(toUserFacingError(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const organizationOptions = useMemo(() => {
     // Organization scope choices are derived exclusively from the user's
@@ -258,7 +285,9 @@ export default function TenantUserDetailPage() {
         <header className={styles.pageHeader}>
           <h1 className={styles.title}>{t("management.users.detail.title")}</h1>
         </header>
-        {error ? (
+        {!canRead ? (
+          <div role="alert">{messages.forbidden}</div>
+        ) : error ? (
           <div role="alert">
             <h2>{error.title}</h2>
             <p>{error.message}</p>
@@ -267,7 +296,22 @@ export default function TenantUserDetailPage() {
         {loading ? <div role="status">{t("management.users.detail.loading")}</div> : null}
         {!loading && target ? (
           <>
-            <h2 className={styles.userHeading}>{target.displayName || target.email}</h2>
+            <div className={styles.userHeadingRow}>
+              <div>
+                <h2 className={styles.userHeading}>{target.displayName || target.email}</h2>
+                <span className={styles.statusBadge}>{messages[`status_${target.status}` as keyof typeof messages]}</span>
+              </div>
+              <div className={styles.lifecycleActions} data-testid="management-user-lifecycle">
+                <UserLifecycleActions
+                  status={target.status}
+                  canWrite={canWrite}
+                  canArchive={canArchive}
+                  busy={busy}
+                  messages={messages}
+                  onAction={(action) => void transitionUser(action)}
+                />
+              </div>
+            </div>
             <form className={styles.identityForm} data-testid="management-user-identity" onSubmit={saveIdentity}>
               <label>
                 {t("users.email")}
@@ -360,12 +404,12 @@ export default function TenantUserDetailPage() {
               ) : null}
             </section>
 
-            <section className={styles.card} aria-labelledby="user-memberships-heading" data-testid="management-user-memberships">
+            {canReadMemberships ? <section className={styles.card} aria-labelledby="user-memberships-heading" data-testid="management-user-memberships">
               <h2 id="user-memberships-heading">{t("management.users.detail.memberships")}</h2>
               {memberships.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.noMemberships")}</p> : <ul className={styles.list}>{memberships.map((membership) => <li className={styles.listItem} key={membership.id}>{membership.displayName || membership.email} — {membership.status}</li>)}</ul>}
-            </section>
+            </section> : null}
 
-            <section className={styles.card} aria-labelledby="user-roles-heading" data-testid="management-user-roles">
+            {canReadRoles ? <section className={styles.card} aria-labelledby="user-roles-heading" data-testid="management-user-roles">
               <h2 id="user-roles-heading">{t("management.users.detail.roles")}</h2>
               {roleLinks.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.noRoles")}</p> : (
                 <ul className={styles.list}>{roleLinks.map((link) => (
@@ -416,9 +460,9 @@ export default function TenantUserDetailPage() {
                   </button>
                 </div>
               ) : null}
-            </section>
+            </section> : null}
 
-            <section className={styles.card} aria-labelledby="user-effective-access-heading" data-testid="management-user-effective-access">
+            {canReadRoles ? <section className={styles.card} aria-labelledby="user-effective-access-heading" data-testid="management-user-effective-access">
               <h2 id="user-effective-access-heading">{t("management.users.detail.effectiveAccess")}</h2>
               <p>{t("management.users.detail.effectiveAccessCount")}: {effectiveAccess.length}</p>
               {effectiveAccess.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.effectiveAccessEmpty")}</p> : (
@@ -442,7 +486,7 @@ export default function TenantUserDetailPage() {
                   </li>
                 ))}</ul>
               )}
-            </section>
+            </section> : null}
           </>
         ) : null}
 
