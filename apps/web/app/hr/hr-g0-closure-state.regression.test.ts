@@ -12,7 +12,7 @@
  *
  * Claim discipline enforced here:
  *   - Engineering completion must never imply legal approval.
- *   - Engineering certification stays PENDING until human review approves it.
+ *   - Engineering certification is APPROVED only because PR 990 has an independent APPROVED review.
  *   - No production authorization may be fabricated.
  */
 import { readFileSync, existsSync } from "fs";
@@ -86,8 +86,9 @@ describe("HR-G0 closure state reconciliation", () => {
   it("keeps engineering completion strictly separated from legal and production gates", () => {
     const certificate = readCertificate();
 
-    // Engineering certification is NOT self-approved by code.
-    expect(HR_G0_CLOSURE.engineeringCertification).toBe("PENDING");
+    // Engineering certification is backed by the independent APPROVED review on PR 990.
+    expect(HR_G0_CLOSURE.engineeringCertification).toBe("APPROVED");
+    expect(certificate).toContain("G0_ENGINEERING_CERTIFICATION = APPROVED");
     // Legal gate is independent and blocked pending human review.
     expect(HR_G0_CLOSURE.legalCertification).toBe("BLOCKED");
     expect(certificate).toMatch(/LEGAL_REVIEW\s*=\s*BLOCKED_OR_PENDING_HUMAN/);
@@ -104,7 +105,7 @@ describe("HR-G0 closure state reconciliation", () => {
     expect(certification).not.toBeNull();
     // The documented certification is stable and Map-independent.
     expect(certification!.id).toBe("CERT-G0-DOCUMENTED");
-    expect(certification!.status).toBe("PENDING_REVIEW");
+    expect(certification!.status).toBe("CERTIFIED");
     // Notes must carry the claim-discipline semantics.
     expect(certification!.notes).toContain("legal certification: BLOCKED");
   });

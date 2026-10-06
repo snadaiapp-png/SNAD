@@ -4,6 +4,8 @@
 > G3_FINAL_GATE = PASS
 > G3_FULLY_CLOSED = PASS
 > Reference implementation PR: #1234
+> Production closure PR: #1281
+> PRODUCTION_OPERATIONAL_CERTIFICATION = PASS
 
 ## Certified exact-SHA evidence
 
@@ -17,7 +19,23 @@ POST_MERGE_MAIN_VERIFICATION_RUN = 37121204833
 PLAYWRIGHT_E2E_VISUAL_REGRESSION_RUN = 37121204782
 ```
 
-All listed runs completed successfully on the exact certified main SHA above.
+All listed runs completed successfully on the exact certified engineering SHA above.
+
+## Production operational closure evidence
+
+```text
+PRODUCTION_CLOSURE_PR = #1281
+PRODUCTION_CLOSURE_MAIN_SHA = 2ba84d4c146ca0b9b4f105fed53d81cfa7d2f581
+VERCEL_MAIN_PRODUCTION_RECONCILE_RUN = 37329097684
+PRODUCTION_OPERATIONAL_SMOKE_RUN = 37329356654
+FINAL_POST_MERGE_MAIN_VERIFICATION_RUN = 37329097719
+PRODUCTION_OPERATIONAL_CERTIFICATION = PASS
+PRODUCTION_AUTHORIZATION = GOVERNED_G3_RELEASE_COMPLETED
+```
+
+All three final production-closure runs completed SUCCESS on the same exact SHA.
+The final PMV includes SUCCESS for PostgreSQL Direct integration, HRM focused
+security/RLS, security/governance scans, and final evidence aggregation.
 
 ## Required closure checks
 
@@ -71,19 +89,15 @@ and Testcontainers are not closure authorities.
 
 ## Independent authorities
 
-G3 engineering closure does not itself grant legal, Saudi-country, or
-production authorization:
+The later production-operational closure is proven independently from the original
+engineering certificate. Legal and Saudi-country certification remain separate:
 
 ```text
-PRODUCTION_AUTHORIZATION = NO
-PRODUCTION_READY = NOT_CLAIMED
-PRODUCTION_CERTIFIED = NOT_CLAIMED
+PRODUCTION_OPERATIONAL_CERTIFICATION = PASS
 LEGAL_REVIEW = PENDING_HUMAN
 SA_COUNTRY_PACK = DRAFT
+SAUDI_LEGAL_COMPLIANT = NOT_CLAIMED
 ```
-
-Production smoke is not a standalone G3 Task 8 closure gate. Production /
-go-live authorization remains a separate authority.
 
 ## Exact-SHA rule
 

@@ -113,13 +113,15 @@ export default function TenantUserDetailPage() {
       setRoleLinks(linkResult);
       setRoles(roleResult);
       setEffectiveAccess(effectiveResult);
-      if (roleResult.length > 0 && selectedRoleId === "") setSelectedRoleId(roleResult[0].id);
+      setSelectedRoleId((currentRoleId) =>
+        currentRoleId === "" && roleResult.length > 0 ? roleResult[0].id : currentRoleId
+      );
     } catch (caught) {
       setError(toUserFacingError(caught));
     } finally {
       setLoading(false);
     }
-  }, [canRead, canReadMemberships, canReadRoles, selectedRoleId, tenantId, userId]);
+  }, [canRead, canReadMemberships, canReadRoles, tenantId, userId]);
 
   useEffect(() => {
     if (state === "AUTHENTICATED") void load();
