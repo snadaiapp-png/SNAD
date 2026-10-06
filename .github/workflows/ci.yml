@@ -687,9 +687,10 @@ jobs:
 #   - PG-ACCEPTANCE COMPANION after the Gate-G freeze only:
 #     pristine pg_acceptance DB, SPRING_PROFILES_ACTIVE=
 #     pg-acceptance, ALL FIVE gated classes in one explicit
-#     invocation, EXPECTED_ACCEPTANCE_TESTS=36 (Commerce=6,
+#     invocation, EXPECTED_ACCEPTANCE_TESTS=37 (Commerce=6,
 #     RBAC=15, ModuleRegistryHumanUAT=10, SessionInvalidation=3,
-#     PlatformUser=2), 0F/0E/0S
+#     PlatformUser=3 — W2-T8 #1253 added a third gated
+#     PlatformUser acceptance test), 0F/0E/0S
 #   - EVIDENCE MANIFEST + VERDICT files (A6-GATE-G-METADATA.txt,
 #     A6-GATE-G-RECONCILIATION.txt, A6-GATE-G-VERDICT.txt,
 #     A6-PG-ACCEPTANCE-VERDICT.txt, SHA256SUMS.txt) uploaded as a
@@ -1248,12 +1249,18 @@ jobs:
           com = per_class.get("CommerceOrderPostgresConcurrencyTest", [0, 0, 0, 0])
           rbac = per_class.get("RbacAccessCheckPostgresAcceptanceTest", [0, 0, 0, 0])
           module_uat = per_class.get("ModuleRegistryUatPostgresAcceptanceTest", [0, 0, 0, 0])
-          ok = (tests == 31 and failures == 0 and errors == 0 and skipped == 0
+          session_inv = per_class.get("PlatformSessionInvalidationPostgresAcceptanceTest", [0, 0, 0, 0])
+          platform_user = per_class.get("PlatformUserPostgresAcceptanceTest", [0, 0, 0, 0])
+          # TEST_ALIGNMENT_REASON: five gated acceptance classes since W2-T8 #1253
+          # (Commerce=6, RBAC=15, ModuleRegistryHumanUAT=10, SessionInvalidation=3,
+          # PlatformUser=3 -> 37 total, all profile-gated under pg-acceptance).
+          ok = (tests == 37 and failures == 0 and errors == 0 and skipped == 0
                 and com[0] == 6 and rbac[0] == 15 and module_uat[0] == 10
+                and session_inv[0] == 3 and platform_user[0] == 3
                 and acc_exit == "0" and parse_errors == 0)
           with open(out_path, "w") as w:
               w.write("ACCEPTANCE_EXIT_CODE=%s\n" % acc_exit)
-              w.write("EXPECTED_ACCEPTANCE_TESTS=36\n")
+              w.write("EXPECTED_ACCEPTANCE_TESTS=37\n")
               w.write("ACTUAL_ACCEPTANCE_TESTS=%d\n" % tests)
               w.write("PG_ACCEPTANCE_TESTS=%d\n" % tests)
               w.write("PG_ACCEPTANCE_FAILURES=%d\n" % failures)
@@ -1314,7 +1321,9 @@ jobs:
               "SUREFIRE_RECONCILIATION==PASS": recon.get("SUREFIRE_RECONCILIATION") == "PASS",
               "CRITICAL_INVARIANTS==PASS": recon.get("CRITICAL_INVARIANTS") == "PASS",
               "FROZEN_EVIDENCE_BINDING==PASS": feb == "PASS",
-              "PG_ACCEPTANCE==36/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "36"
+              # TEST_ALIGNMENT_REASON: acceptance totals follow the five gated classes;
+              # PlatformUser=3 since W2-T8 #1253 (36 -> 37 total).
+              "PG_ACCEPTANCE==37/0/0/0": (acc.get("PG_ACCEPTANCE_TESTS") == "37"
                                            and acc.get("PG_ACCEPTANCE_FAILURES") == "0"
                                            and acc.get("PG_ACCEPTANCE_ERRORS") == "0"
                                            and acc.get("PG_ACCEPTANCE_SKIPPED") == "0"),
