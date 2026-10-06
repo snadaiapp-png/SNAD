@@ -2,6 +2,7 @@ package com.sanad.platform.security.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.sanad.platform.admin.service.PlatformAuditWriter;
 import com.sanad.platform.security.authorization.ControlPlaneAccessGuard;
 import com.sanad.platform.security.config.SecurityProperties;
 import com.sanad.platform.security.domain.PasswordResetToken;
@@ -72,6 +73,7 @@ public class AuthService {
     private final TenantRepository tenantRepository;
     private final SubscriptionResolutionService subscriptionResolution;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
+    private PlatformAuditWriter credentialAuditWriter;
 
     @Autowired
     public AuthService(
@@ -110,6 +112,12 @@ public class AuthService {
         this.resetRequestCache = Caffeine.newBuilder()
                 .expireAfterWrite(1, TimeUnit.HOURS)
                 .build();
+    }
+
+    /** Optional Phase 7 audit writer for credential administration events. */
+    @Autowired(required = false)
+    void setCredentialAuditWriter(PlatformAuditWriter credentialAuditWriter) {
+        this.credentialAuditWriter = credentialAuditWriter;
     }
 
     /**
@@ -457,6 +465,19 @@ public class AuthService {
         refreshTokenRepository.revokeAllActive(tenantId, userId);
         sessionVersionCache.invalidate(tenantId, userId);
 
+        // Phase 7 audit: metadata only — the temporary access secret itself,
+        // its hash, and the delivery material are never audited.
+        if (credentialAuditWriter != null) {
+            credentialAuditWriter.writeSuccess(tenantId, actorUserId, tenantId,
+                    "USER_CREDENTIAL_INITIALIZED", "USER", userId.toString(),
+                    "CREDENTIAL_ADMINISTRATION", null,
+                    java.util.Map.of("userId", userId,
+                            "temporaryAccessProvisioned", true,
+                            "rotationRequired", true,
+                            "setBy", "admin-initialize"),
+                    null, Instant.now());
+        }
+
         log.info(
                 "Credential initialized for userId={} tenantId={} actorUserId={}; rotation required",
                 userId, tenantId, actorUserId);
@@ -548,6 +569,19 @@ public class AuthService {
                 Instant.now().plus(RESET_TOKEN_TTL),
                 ipAddress);
         passwordResetTokenRepository.save(resetToken);
+
+        // Phase 7 audit: issuance fact only — safe delivery metadata, never
+        // the raw token, its hash, or the link URL.
+        if (credentialAuditWriter != null) {
+            credentialAuditWriter.writeSuccess(user.getTenantId(), null, user.getTenantId(),
+                    "USER_RESET_LINK_ISSUED", "USER", user.getId().toString(),
+                    "ACCOUNT_RECOVERY", null,
+                    java.util.Map.of("userId", user.getId(),
+                            "deliveryChannel", "email",
+                            "singleUse", true,
+                            "ttlMinutes", RESET_TOKEN_TTL.toMinutes()),
+                    null, Instant.now());
+        }
 
         log.info("Password reset token created for userId={} tenantId={} email={} (expires in {}min)",
                 user.getId(), user.getTenantId(), normalizedEmail, RESET_TOKEN_TTL.toMinutes());

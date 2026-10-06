@@ -43,7 +43,7 @@ class EffectivePermissionProjectionSchemaPostgresTest {
     }
 
     @Test
-    void createsAuthorizationVersionAndFailClosedAllowOnlyProjection() throws Exception {
+    void createsAuthorizationVersionAndTwoEffectProjectionWithCanonicalReason() throws Exception {
         Flyway flyway = Flyway.configure()
                 .dataSource(isolatedUrl(), USER, PASSWORD)
                 .locations("classpath:db/migration")
@@ -74,24 +74,35 @@ class EffectivePermissionProjectionSchemaPostgresTest {
             assertProjectionChecks(connection);
 
             setTenant(connection, tenantA);
-            insertProjection(connection, tenantA, userA, capability, "ALLOW", "ROLE");
+            insertProjection(connection, tenantA, userA, capability, "ALLOW", "ROLE", "ROLE_CAPABILITY_MATCH");
             assertThat(countProjectionRows(connection, tenantA)).isEqualTo(1L);
 
-            SQLException deny = assertThrows(SQLException.class, () -> insertProjection(
-                    connection, tenantA, UUID.randomUUID(), capability, "DENY", "ROLE"));
-            assertThat(deny.getSQLState()).isEqualTo("23514");
+            // Phase 7: the projection is a two-effect explanation model. An
+            // active DENY override row is representable with the canonical
+            // direct-deny reason (deny dominance is enforced by the projection
+            // service, not by this schema-level insert probe).
+            insertProjection(connection, tenantA, UUID.randomUUID(), capability, "DENY", "ROLE",
+                    "EXPLICIT_DIRECT_DENY");
+            assertThat(countProjectionRows(connection, tenantA)).isEqualTo(2L);
+            assertThat(reasonOfLastRow(connection, tenantA)).isEqualTo("EXPLICIT_DIRECT_DENY");
 
             SQLException invalidSource = assertThrows(SQLException.class, () -> insertProjection(
-                    connection, tenantA, UUID.randomUUID(), capability, "ALLOW", "DELEGATION"));
+                    connection, tenantA, UUID.randomUUID(), capability, "ALLOW", "DELEGATION",
+                    "ROLE_CAPABILITY_MATCH"));
             assertThat(invalidSource.getSQLState()).isEqualTo("23514");
 
+            SQLException missingReason = assertThrows(SQLException.class, () -> insertProjection(
+                    connection, tenantA, UUID.randomUUID(), capability, "ALLOW", "ROLE", null));
+            assertThat(missingReason.getSQLState()).isEqualTo("23502");
+
             setTenant(connection, tenantB);
-            insertProjection(connection, tenantB, userB, capability, "ALLOW", "OVERRIDE");
+            insertProjection(connection, tenantB, userB, capability, "ALLOW", "OVERRIDE", "EXPLICIT_ALLOW_MATCH");
 
             setTenant(connection, tenantA);
             assertThat(countProjectionRows(connection, tenantB)).isZero();
             SQLException crossTenant = assertThrows(SQLException.class, () -> insertProjection(
-                    connection, tenantB, UUID.randomUUID(), capability, "ALLOW", "BREAK_GLASS"));
+                    connection, tenantB, UUID.randomUUID(), capability, "ALLOW", "BREAK_GLASS",
+                    "EXPLICIT_ALLOW_MATCH"));
             assertThat(crossTenant.getSQLState()).isEqualTo("42501");
         }
 
@@ -122,13 +133,14 @@ class EffectivePermissionProjectionSchemaPostgresTest {
             UUID userId,
             UUID capabilityId,
             String effect,
-            String source) throws SQLException {
+            String source,
+            String reason) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement("""
                 INSERT INTO effective_permission_projection (
                     id, tenant_id, user_id, capability_id, effect,
                     scope_type, scope_reference, source, matched_role_id,
-                    authorization_version, computed_at
-                ) VALUES (?, ?, ?, ?, ?, 'TENANT_ALL', NULL, ?, NULL, 1, CURRENT_TIMESTAMP)
+                    authorization_version, computed_at, reason
+                ) VALUES (?, ?, ?, ?, ?, 'TENANT_ALL', NULL, ?, NULL, 1, CURRENT_TIMESTAMP, ?)
                 """)) {
             ps.setObject(1, UUID.randomUUID());
             ps.setObject(2, tenantId);
@@ -136,7 +148,21 @@ class EffectivePermissionProjectionSchemaPostgresTest {
             ps.setObject(4, capabilityId);
             ps.setString(5, effect);
             ps.setString(6, source);
+            ps.setString(7, reason);
             ps.executeUpdate();
+        }
+    }
+
+    /** Reads the reason of the most recently computed row for a tenant (order by computed_at). */
+    private static String reasonOfLastRow(Connection connection, UUID tenantId) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT reason FROM effective_permission_projection WHERE tenant_id = ? "
+                + "ORDER BY computed_at DESC, id LIMIT 1")) {
+            ps.setObject(1, tenantId);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
         }
     }
 

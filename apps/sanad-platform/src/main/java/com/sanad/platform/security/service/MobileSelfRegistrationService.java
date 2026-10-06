@@ -71,7 +71,9 @@ public class MobileSelfRegistrationService {
                     registration.tenantId(),
                     registration.userId(),
                     normalizeLocale(locale),
-                    clientIp);
+                    clientIp,
+                    registration.userId(),
+                    "SELF_REGISTRATION");
 
             log.info(
                     "AUDIT: mobile self-registration completed tenantId={} userId={} region={} ip={}",
