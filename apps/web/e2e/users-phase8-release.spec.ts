@@ -182,6 +182,8 @@ test("Phase 8 authenticated release journey closes the remaining Users gaps", as
   );
   expect([403, 404]).toContain(crossTenantMutation.status());
 
+  // Secret-leakage evidence is enforced after Playwright by the closure workflow,
+  // which scans retained artifacts for the runtime credential values.
   expect(CREDENTIAL_ROTATION_REQUIRED).toBe("CREDENTIAL_ROTATION_REQUIRED");
 });
 
