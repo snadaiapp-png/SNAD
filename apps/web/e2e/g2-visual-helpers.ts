@@ -39,7 +39,18 @@ export async function assertVisualSurface(page: Page, surface: VisualSurface): P
   expect(new URL(page.url()).pathname, `${surface.route} must not redirect to a shell, login, or unauthorized route`).toBe(
     surface.route,
   );
-  await expect(page.getByTestId(surface.readyTestId)).toBeVisible({ timeout: 20_000 });
+  const ready = page.getByTestId(surface.readyTestId);
+  const routeError = page.locator('main [role="alert"]').first();
+  await Promise.race([
+    ready.waitFor({ state: "visible", timeout: 20_000 }),
+    routeError.waitFor({ state: "visible", timeout: 20_000 }).then(async () => {
+      const message = (await routeError.innerText()).trim();
+      throw new Error(
+        `${surface.route} entered an error state before readiness: ${message}; failed HR responses: ${state!.failedHrResponses.join(" | ") || "none captured"}`,
+      );
+    }),
+  ]);
+  await expect(ready).toBeVisible();
   await expect(page.getByTestId(surface.productSurfaceTestId)).toBeVisible({ timeout: 20_000 });
   for (const testId of surface.requiredProductTestIds) {
     await expect(
