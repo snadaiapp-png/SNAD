@@ -34,9 +34,16 @@ jobs:
           git archive "$G09_RED_SHA" | tar -x -C "$BASE_DIR"
 
           set +e
-          ./gitleaks detect --source="$BASE_DIR" --config="$BASE_DIR/.gitleaks.toml"             --no-git --redact --report-format=json             --report-path="$RUNNER_TEMP/g09-red-gitleaks.json" --exit-code=1
+          (
+            cd "$BASE_DIR"
+            "$GITHUB_WORKSPACE/gitleaks" detect --source=. --config=.gitleaks.toml --no-git --redact --report-format=json --report-path="$RUNNER_TEMP/g09-red-gitleaks.json" --exit-code=1
+          )
           BASE_STATUS=$?
-          ./gitleaks detect --source=. --config=.gitleaks.toml             --no-git --redact --report-format=json             --report-path="$RUNNER_TEMP/g09-head-gitleaks.json" --exit-code=1
+          (
+            cd "$GITHUB_WORKSPACE"
+            ./gitleaks detect --source=. --config=.gitleaks.toml --no-git --redact --report-format=json --report-path="$RUNNER_TEMP/g09-head-gitleaks.json" --exit-code=1
+          )
+          HEAD_STATUS=$?
           HEAD_STATUS=$?
           set -e
 
