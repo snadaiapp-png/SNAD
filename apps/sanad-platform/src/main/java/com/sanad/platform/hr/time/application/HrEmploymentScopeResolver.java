@@ -1,6 +1,5 @@
 package com.sanad.platform.hr.time.application;
 
-import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -29,72 +28,28 @@ public class HrEmploymentScopeResolver {
     @Transactional(readOnly = true)
     public UUID requireSelfEmployment(UUID tenantId, UUID userId) {
         try {
-            return canonicalPersonEmployment(tenantId, userId);
-        } catch (EmptyResultDataAccessException canonicalMissing) {
-            /*
-             * Production compatibility bridge:
-             *
-             * Older governed identities can still carry the platform user link
-             * directly on hr_employees.user_id while their canonical Person link
-             * is being reconciled. SELF service must remain available for that
-             * already-authorized identity, but only when the legacy binding is
-             * unique, tenant-local, ACTIVE, and points to an ACTIVE platform user.
-             *
-             * Canonical Person -> Employment remains authoritative whenever it
-             * exists. Ambiguous canonical bindings never fall back.
-             */
-            try {
-                return legacyDirectEmployment(tenantId, userId);
-            } catch (IncorrectResultSizeDataAccessException legacyMissingOrAmbiguous) {
-                throw denied(legacyMissingOrAmbiguous);
-            }
-        } catch (IncorrectResultSizeDataAccessException canonicalAmbiguous) {
-            throw denied(canonicalAmbiguous);
+            return jdbc.queryForObject(
+                    """
+                    SELECT employee.id
+                      FROM hr_employees employee
+                      JOIN hr_people person
+                        ON person.id = employee.person_id
+                       AND person.tenant_id = employee.tenant_id
+                      JOIN users u
+                        ON u.id = person.user_id
+                       AND u.tenant_id = person.tenant_id
+                     WHERE employee.tenant_id = ?
+                       AND person.user_id = ?
+                       AND employee.status = 'ACTIVE'
+                       AND u.status = 'ACTIVE'
+                    """,
+                    UUID.class,
+                    tenantId,
+                    userId);
+        } catch (IncorrectResultSizeDataAccessException ex) {
+            throw new AccessDeniedException(
+                    "Authenticated principal has no active HR employment in this tenant", ex);
         }
-    }
-
-    private UUID canonicalPersonEmployment(UUID tenantId, UUID userId) {
-        return jdbc.queryForObject(
-                """
-                SELECT employee.id
-                  FROM hr_employees employee
-                  JOIN hr_people person
-                    ON person.id = employee.person_id
-                   AND person.tenant_id = employee.tenant_id
-                  JOIN users u
-                    ON u.id = person.user_id
-                   AND u.tenant_id = person.tenant_id
-                 WHERE employee.tenant_id = ?
-                   AND person.user_id = ?
-                   AND employee.status = 'ACTIVE'
-                   AND u.status = 'ACTIVE'
-                """,
-                UUID.class,
-                tenantId,
-                userId);
-    }
-
-    private UUID legacyDirectEmployment(UUID tenantId, UUID userId) {
-        return jdbc.queryForObject(
-                """
-                SELECT employee.id
-                  FROM hr_employees employee
-                  JOIN users u
-                    ON u.id = employee.user_id
-                   AND u.tenant_id = employee.tenant_id
-                 WHERE employee.tenant_id = ?
-                   AND employee.user_id = ?
-                   AND employee.status = 'ACTIVE'
-                   AND u.status = 'ACTIVE'
-                """,
-                UUID.class,
-                tenantId,
-                userId);
-    }
-
-    private static AccessDeniedException denied(IncorrectResultSizeDataAccessException cause) {
-        return new AccessDeniedException(
-                "Authenticated principal has no unique active HR employment in this tenant", cause);
     }
 
     @Transactional(readOnly = true)
