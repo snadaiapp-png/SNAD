@@ -1,0 +1,257 @@
+.root {
+  inline-size: min(1180px, 100%);
+  margin-inline: auto;
+  padding: var(--snad-space-6, 24px);
+  display: grid;
+  gap: var(--snad-space-5, 20px);
+  color: var(--snad-color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.pageHeader,
+.userHeading {
+  margin: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+}
+
+.userHeading {
+  font-size: clamp(1.25rem, 2.2vw, 1.6rem);
+}
+
+.root h2 {
+  margin-block: 0 0.75rem;
+}
+
+.root p {
+  line-height: 1.65;
+}
+
+.root form,
+.card,
+.dialog {
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-lg, 12px);
+  background: var(--snad-color-surface-primary);
+  box-shadow: var(--snad-shadow-sm);
+}
+
+.identityForm,
+.card {
+  padding: var(--snad-space-5, 20px);
+}
+
+.identityForm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--snad-space-4, 16px);
+  align-items: end;
+}
+
+.root label {
+  min-inline-size: 0;
+  display: grid;
+  gap: var(--snad-space-1, 4px);
+  color: var(--snad-color-text-secondary);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.root input,
+.root select {
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 44px;
+  box-sizing: border-box;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md, 8px);
+  background: var(--snad-color-surface-primary);
+  color: var(--snad-color-text-primary);
+  padding-inline: var(--snad-space-3, 12px);
+  font: inherit;
+}
+
+.root input:focus-visible,
+.root select:focus-visible,
+.root button:focus-visible {
+  outline: 2px solid var(--snad-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.root button {
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  max-inline-size: 100%;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md, 8px);
+  background: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-primary);
+  padding: var(--snad-space-2, 8px) var(--snad-space-4, 16px);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: normal;
+}
+
+.root button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.identityForm > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.card {
+  min-inline-size: 0;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--snad-space-3, 12px);
+  margin: 0;
+}
+
+.statsGrid > div {
+  min-inline-size: 0;
+  padding: var(--snad-space-3, 12px);
+  border-radius: var(--snad-radius-md, 8px);
+  background: var(--snad-color-surface-secondary);
+}
+
+.statsGrid dt {
+  color: var(--snad-color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.statsGrid dd {
+  margin: var(--snad-space-1, 4px) 0 0;
+  color: var(--snad-color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.credentialActions,
+.grantGrid {
+  margin-block-start: var(--snad-space-4, 16px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--snad-space-3, 12px);
+  align-items: end;
+}
+
+.credentialActions > button,
+.grantGrid > button {
+  justify-self: start;
+}
+
+.list,
+.accessList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--snad-space-2, 8px);
+}
+
+.listItem,
+.roleItem,
+.accessItem {
+  min-inline-size: 0;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md, 8px);
+  background: var(--snad-color-surface-secondary);
+  padding: var(--snad-space-3, 12px);
+  overflow-wrap: anywhere;
+}
+
+.roleItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--snad-space-3, 12px);
+  align-items: center;
+}
+
+.accessItem {
+  line-height: 1.65;
+}
+
+.emptyState {
+  margin: 0;
+  color: var(--snad-color-text-secondary);
+}
+
+.dialog {
+  position: fixed;
+  z-index: var(--snad-z-modal, 1000);
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  inline-size: min(520px, calc(100vw - 32px));
+  max-block-size: calc(100svh - 32px);
+  overflow: auto;
+  padding: var(--snad-space-5, 20px);
+}
+
+.dialog dl {
+  display: grid;
+  gap: var(--snad-space-2, 8px);
+}
+
+.dialog dd {
+  margin: 0;
+}
+
+.dialog > button + button {
+  margin-inline-start: var(--snad-space-2, 8px);
+}
+
+@media (max-width: 760px) {
+  .root {
+    padding: var(--snad-space-4, 16px);
+    gap: var(--snad-space-4, 16px);
+  }
+
+  .identityForm,
+  .card {
+    padding: var(--snad-space-4, 16px);
+  }
+
+  .identityForm,
+  .statsGrid,
+  .credentialActions,
+  .grantGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .identityForm > button,
+  .credentialActions > button,
+  .grantGrid > button {
+    inline-size: 100%;
+    justify-self: stretch;
+  }
+
+  .roleItem {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .roleItem > button {
+    inline-size: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .root {
+    padding-inline: var(--snad-space-3, 12px);
+  }
+
+  .identityForm,
+  .card {
+    padding: var(--snad-space-3, 12px);
+  }
+}
