@@ -41,6 +41,7 @@ class R0C13G09FailureInjectionPostgresTest extends R0C13G09PostgresSupport {
 
     @Autowired private BillingWebhookService webhookService;
 
+    @SpyBean private BillingPaymentProvider providerSpy;
     @SpyBean private SubscriptionFinancePort financePort;
     @SpyBean private BillingOutbox outbox;
     @SpyBean private PlatformAuditWriter auditWriter;
@@ -116,7 +117,6 @@ class R0C13G09FailureInjectionPostgresTest extends R0C13G09PostgresSupport {
 
     @Test
     void providerTimeoutProducesRetryableStateNotPaid() {
-        BillingPaymentProvider providerSpy = provider;
         doThrow(new IllegalStateException("G09 injected provider timeout"))
                 .when(providerSpy)
                 .queryPaymentState(any(BillingPaymentProvider.QueryPaymentStateQuery.class));
