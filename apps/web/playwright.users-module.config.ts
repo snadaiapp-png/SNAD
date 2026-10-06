@@ -27,6 +27,11 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      name: "users-phase8-release-desktop",
+      testMatch: /users-phase8-release\.spec\.ts$/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "users-visual-desktop",
       testMatch: /users-module-visual\.spec\.ts$/,
       use: { ...devices["Desktop Chrome"] },
