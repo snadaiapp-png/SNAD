@@ -278,6 +278,17 @@ jobs:
           SCP_SMOKE_EVIDENCE_FILE: scp-contract-smoke.json
         run: bash scripts/production/verify-scp-contract-smoke.sh
 
+      - name: Verify R0C13 G11 production-disabled payment boundary
+        env:
+          PRODUCTION_BASE_URL: ${{ env.PRODUCTION_BASE_URL }}
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+          CONTROL_PLANE_TENANT_ID: ${{ env.CONTROL_PLANE_TENANT_ID }}
+        run: |
+          set -euo pipefail
+          bash scripts/production/verify-r0c13-g11-disabled.sh
+          cp "$RUNNER_TEMP/r0c13-g11/r0c13-g11-runtime-evidence.json" r0c13-g11-runtime-evidence.json
+
       - name: Verify Vercel Control Plane and BFF
         shell: bash
         run: |
@@ -357,7 +368,7 @@ jobs:
             --arg previousImage "${{ steps.previous.outputs.image_ref }}" \
             --arg backendUrl "$PRODUCTION_BASE_URL" \
             --arg webUrl "$WEB_PRODUCTION_BASE_URL" \
-            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,imageRef:$imageRef,deploymentId:$deployment,previousImageRef:$previousImage,backendUrl:$backendUrl,webUrl:$webUrl,health:"UP",readiness:"UP",flyway:"PASS",securityBoundary:"PASS",vercelControlPlane:"UP",vercelBff:"CONNECTED",g2ProductionVisual:"PASS"}' \
+            '{result:"DEPLOYMENT_VERIFIED",commit:$commit,imageRef:$imageRef,deploymentId:$deployment,previousImageRef:$previousImage,backendUrl:$backendUrl,webUrl:$webUrl,health:"UP",readiness:"UP",flyway:"PASS",securityBoundary:"PASS",r0c13G11:"PASS",providerMode:"DISABLED",livePaymentCollection:"OFF",vercelControlPlane:"UP",vercelBff:"CONNECTED",g2ProductionVisual:"PASS"}' \
             > production-release-evidence.json
 
       - name: Upload release evidence
@@ -371,6 +382,7 @@ jobs:
             production-release-evidence.json
             render-rollback.json
             scp-contract-smoke.json
+            r0c13-g11-runtime-evidence.json
             apps/web/test-results/g2-visual-evidence/
             apps/web/playwright-g2-visual-report/
           if-no-files-found: warn
@@ -382,7 +394,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production deployment passed for exact image \`${{ steps.image.outputs.image_ref }}\` (commit \`${{ steps.target.outputs.sha }}\`), deployment \`${{ steps.deploy.outputs.id }}\`. Readiness, Control Plane tenant, Flyway, security boundary, Vercel Control Plane/BFF and authenticated G2 Employee/Manager/HR desktop+mobile visual smoke passed."
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Render production deployment passed for exact image \`${{ steps.image.outputs.image_ref }}\` (commit \`${{ steps.target.outputs.sha }}\`), deployment \`${{ steps.deploy.outputs.id }}\`. Readiness, Control Plane tenant, Flyway, security boundary, R0C13 G11 provider DISABLED / live-payment OFF negative smoke, Vercel Control Plane/BFF and authenticated G2 Employee/Manager/HR desktop+mobile visual smoke passed."
 
       - name: Roll back failed release
         if: failure() && inputs.rollback_on_failure && steps.previous.outputs.image_ref != ''
