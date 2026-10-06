@@ -44,6 +44,7 @@ export default defineConfig({
     // Users Module closure owns a dedicated authenticated PostgreSQL Direct stack.
     "**/users-module-authenticated.spec.ts",
     "**/users-module-visual.spec.ts",
+    "**/users-phase8-release.spec.ts",
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
