@@ -47,7 +47,7 @@ public final class PayrollCalculationEngine {
         BigDecimal base = money(baseComponent.amount());
 
         List<CalculationLine> earnings = calculateAllowances(
-                snapshot.compensationComponents(), policy.enabledAllowanceCodes(), base);
+                snapshot.compensationComponents(), policy.configuredAllowances(), base);
 
         BigDecimal allowanceTotal = earnings.stream()
                 .map(CalculationLine::amount)
@@ -103,27 +103,47 @@ public final class PayrollCalculationEngine {
             List<PayrollAuthoritativeInputPort.CompensationComponentInput> components,
             Set<String> enabledCodes,
             BigDecimal base) {
-        List<PayrollAuthoritativeInputPort.CompensationComponentInput> selected = components.stream()
-                .filter(c -> "ALLOWANCE".equals(c.type()))
-                .filter(c -> enabledCodes.contains(c.code()))
-                .sorted(Comparator
-                        .comparing(PayrollAuthoritativeInputPort.CompensationComponentInput::code)
-                        .thenComparing(c -> c.componentId().toString()))
+        List<ConfiguredAllowance> orderedRules = configured.stream()
+                .sorted(Comparator.comparing(ConfiguredAllowance::code))
                 .toList();
-
-        Set<String> seen = new HashSet<>();
+        Set<String> seenRules = new HashSet<>();
         List<CalculationLine> lines = new ArrayList<>();
-        for (var component : selected) {
-            if (!seen.add(component.code())) {
+        for (ConfiguredAllowance rule : orderedRules) {
+            if (!seenRules.add(rule.code())) {
                 throw new IllegalStateException(
-                        "HRM_PAYROLL_ALLOWANCE_AMBIGUOUS: duplicate enabled allowance code "
-                                + component.code());
+                        "HRM_PAYROLL_ALLOWANCE_POLICY_AMBIGUOUS: duplicate allowance rule " + rule.code());
             }
+            List<PayrollAuthoritativeInputPort.CompensationComponentInput> matches = components.stream()
+                    .filter(c -> "ALLOWANCE".equals(c.type()))
+                    .filter(c -> rule.code().equals(c.code()))
+                    .toList();
+            if (matches.size() != 1) {
+                throw new IllegalStateException(
+                        "HRM_PAYROLL_ALLOWANCE_AMBIGUOUS: expected exactly one allowance for "
+                                + rule.code() + ", found " + matches.size());
+            }
+            var component = matches.get(0);
             BigDecimal amount;
             if (component.amount() != null && component.percentage() == null) {
+                if (rule.percentageBasis() != null) {
+                    throw new IllegalStateException(
+                            "HRM_PAYROLL_ALLOWANCE_POLICY_INVALID: fixed allowance must not carry percentage basis "
+                                    + rule.code());
+                }
                 amount = money(component.amount());
             } else if (component.amount() == null && component.percentage() != null) {
-                amount = percentageOf(base, component.percentage());
+                if (rule.percentageBasis() == null) {
+                    throw new IllegalStateException(
+                            "HRM_PAYROLL_ALLOWANCE_POLICY_INVALID: percentage allowance requires explicit basis "
+                                    + rule.code());
+                }
+                BigDecimal basis = rule.percentageBasis() == PercentageBasis.BASE ? base : base;
+                if (rule.percentageBasis() != PercentageBasis.BASE) {
+                    throw new IllegalStateException(
+                            "HRM_PAYROLL_ALLOWANCE_POLICY_INVALID: GROSS basis is not available until earnings are resolved "
+                                    + rule.code());
+                }
+                amount = percentageOf(basis, component.percentage());
             } else {
                 throw new IllegalStateException(
                         "HRM_PAYROLL_ALLOWANCE_INVALID: " + component.code());
@@ -192,12 +212,12 @@ public final class PayrollCalculationEngine {
     }
 
     public record CalculationPolicy(
-            Set<String> enabledAllowanceCodes,
+            List<ConfiguredAllowance> configuredAllowances,
             List<ConfiguredDeduction> configuredDeductions,
             UnpaidLeavePolicy unpaidLeavePolicy) {
         public CalculationPolicy {
-            enabledAllowanceCodes = enabledAllowanceCodes == null
-                    ? Set.of() : Set.copyOf(enabledAllowanceCodes);
+            configuredAllowances = configuredAllowances == null
+                    ? List.of() : List.copyOf(configuredAllowances);
             configuredDeductions = configuredDeductions == null
                     ? List.of() : List.copyOf(configuredDeductions);
             unpaidLeavePolicy = Objects.requireNonNull(unpaidLeavePolicy, "unpaidLeavePolicy");
@@ -205,9 +225,26 @@ public final class PayrollCalculationEngine {
 
         public static CalculationPolicy noAdjustments() {
             return new CalculationPolicy(
-                    Set.of(),
+                    List.of(),
                     List.of(),
                     UnpaidLeavePolicy.disabled());
+        }
+    }
+
+    public record ConfiguredAllowance(String code, PercentageBasis percentageBasis) {
+        public ConfiguredAllowance {
+            Objects.requireNonNull(code, "code");
+            if (code.isBlank()) {
+                throw new IllegalArgumentException("HRM_PAYROLL_ALLOWANCE_CODE_REQUIRED");
+            }
+        }
+
+        public static ConfiguredAllowance fixed(String code) {
+            return new ConfiguredAllowance(code, null);
+        }
+
+        public static ConfiguredAllowance percentage(String code, PercentageBasis basis) {
+            return new ConfiguredAllowance(code, Objects.requireNonNull(basis, "basis"));
         }
     }
 
