@@ -1,0 +1,52 @@
+name: G09 Security and Secret Verification
+
+on:
+  push:
+    branches:
+      - exec/subscriptions-r0c13-g09-t2-focused
+
+permissions:
+  contents: read
+
+jobs:
+  g09-security:
+    name: G09 Security and Secret Scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove checked-out SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          git rev-parse HEAD
+      - name: Current-tree Gitleaks scan without containers
+        run: |
+          set -euo pipefail
+          chmod +x ./gitleaks
+          ./gitleaks detect             --source=.             --config=.gitleaks.toml             --no-git             --redact             --report-format=json             --report-path="$RUNNER_TEMP/g09-gitleaks.json"             --exit-code=1
+      - name: Supplemental secret policy regression and scan
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/ci -p 'test_scan_secrets*.py' -v
+          python3 -m py_compile scripts/ci/scan_secrets.py
+          python3 scripts/ci/scan_secrets.py             --repository-root .             --report "$RUNNER_TEMP/g09-supplemental-secret-scan.json"             --commit-sha "${{ github.sha }}"             --workflow-run-id "${{ github.run_id }}"
+      - name: Workflow security policy
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pyyaml pytest
+          python3 -m pytest             tests/ci/test_workflow_security_policy.py             tests/ci/test_post_merge_collect_all.py             -q
+          python3 scripts/ci/check_workflow_security.py > "$RUNNER_TEMP/g09-workflow-security.txt"
+      - name: Upload G09 security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g09-security-evidence
+          path: |
+            ${{ runner.temp }}/g09-gitleaks.json
+            ${{ runner.temp }}/g09-supplemental-secret-scan.json
+            ${{ runner.temp }}/g09-workflow-security.txt
+          if-no-files-found: warn
+          retention-days: 7
