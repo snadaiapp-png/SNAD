@@ -210,7 +210,7 @@
   margin-inline-start: var(--snad-space-2, 8px);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .root {
     padding: var(--snad-space-4, 16px);
     gap: var(--snad-space-4, 16px);
@@ -245,7 +245,7 @@
   }
 }
 
-@media (max-width: 420px) {
+@media (max-width: 480px) {
   .root {
     padding-inline: var(--snad-space-3, 12px);
   }
