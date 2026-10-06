@@ -268,9 +268,9 @@ class HrG4PayrollSnapshotPostgresTest {
         execute("""
                 INSERT INTO hr_compensation_packages (
                     id, tenant_id, employment_id, currency_code, pay_frequency,
-                    effective_from, effective_to, status, created_at, updated_at
+                    effective_from, effective_to, status, created_at
                 ) VALUES (?, ?, ?, 'SAR', 'MONTHLY',
-                          DATE '2026-01-01', NULL, 'ACTIVE', NOW(), NOW())
+                          DATE '2026-01-01', NULL, 'ACTIVE', NOW())
                 """, ps -> {
             ps.setObject(1, compensationPackageId);
             ps.setObject(2, tenantId);
@@ -280,9 +280,9 @@ class HrG4PayrollSnapshotPostgresTest {
         execute("""
                 INSERT INTO hr_compensation_components (
                     id, tenant_id, package_id, component_type, code,
-                    amount, percentage, created_at, updated_at
+                    amount, percentage, created_at
                 ) VALUES (?, ?, ?, 'BASE_SALARY', 'BASE',
-                          10000.0000, NULL, NOW(), NOW())
+                          10000.0000, NULL, NOW())
                 """, ps -> {
             ps.setObject(1, UUID.randomUUID());
             ps.setObject(2, tenantId);
