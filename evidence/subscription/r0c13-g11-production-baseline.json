@@ -1,0 +1,45 @@
+{
+  "gate": "R13-G11",
+  "stage": "S11_PRODUCTION_SAFE_DEPLOYMENT_WITH_PAYMENTS_DISABLED",
+  "status": "BASELINE_CAPTURED_RELEASE_CONTROL_PENDING",
+  "captured_at_utc": "2026-10-07T00:00:00Z",
+  "g10": {
+    "merge_sha": "0ca5d46034d2b125364eddbc6e9bb67013f9c7f1",
+    "post_merge_run_id": 37528512166,
+    "post_merge_run_number": 1199,
+    "result": "SUCCESS"
+  },
+  "g11_branch_base": {
+    "main_sha": "d6375dcc850db33f41c0c3763d1c62cd97f59cd8",
+    "drift_from_g10_merge": {
+      "ahead_by": 1,
+      "changed_files": 6,
+      "r0c13_subscription_billing_relevant_changes": 0,
+      "classification": "UNRELATED_HRM_G4_T3",
+      "scope_drift": "NONE"
+    }
+  },
+  "production_baseline": {
+    "provider": "Render",
+    "service_id": "srv-d8ragqkm0tmc73bviqq0",
+    "service": "sanad-backend",
+    "auto_deploy": "DISABLED",
+    "current_live_deploy_id": "dep-davtgfbtqb8s73dof3gg",
+    "current_live_image": "ghcr.io/snadaiapp-png/snad-backend:d3ecd3d40cc2804b5d11868eb0d9f96b7d3997eb",
+    "current_live_image_digest": "sha256:62db2d6f54e290b3d517f2bef2cfb3772d4bc8d3a7e1aa371c0eda06f11550e8",
+    "exact_g11_candidate_already_deployed": false,
+    "decision": "DEPLOYMENT_REQUIRED"
+  },
+  "required_acceptance": {
+    "R13-REL-005": "PENDING_CANONICAL_RELEASE",
+    "R13-REL-006": "PENDING_RUNTIME_PROOF",
+    "R13-REL-007": "PENDING_RUNTIME_PROOF",
+    "R13-REL-008": "PENDING_NEGATIVE_SMOKE",
+    "R13-REL-009": "PENDING_CANONICAL_RELEASE",
+    "R13-REL-010": "PENDING_NEGATIVE_SMOKE",
+    "R13-REL-011": "PENDING_RELEASE_ROLLBACK_PROOF",
+    "R13-REL-012": "PENDING_FINAL_DRIFT_RECHECK"
+  },
+  "production_mutation_before_protected_merge": false,
+  "live_payment_collection": "OFF"
+}
