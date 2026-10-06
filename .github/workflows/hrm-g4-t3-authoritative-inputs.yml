@@ -1,0 +1,50 @@
+name: HRM G4 T3 Authoritative Inputs
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/payroll/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrTimesheetService.java'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/time/application/HrLeaveService.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/payroll/**'
+      - '.github/workflows/hrm-g4-t3-authoritative-inputs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: G4 T3 authoritative input contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Assert payroll adapter has no direct source SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="apps/sanad-platform/src/main/java/com/sanad/platform/hr/payroll/infrastructure/CanonicalHrPayrollInputAdapter.java"
+          if grep -En 'JdbcTemplate|DataSource|java\.sql|SELECT[[:space:]]|INSERT[[:space:]]|UPDATE[[:space:]]|DELETE[[:space:]]' "$target"; then
+            echo "Direct source SQL/infrastructure dependency found in payroll adapter"
+            exit 1
+          fi
+
+      - name: Run focused T3 deterministic snapshot tests
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest=CanonicalHrPayrollInputAdapterTest \
+            -DfailIfNoTests=true \
+            test
