@@ -243,7 +243,8 @@ class CrmPostgresMigrationTest {
     private static final String DYNAMIC_APPLICATION_IAM_REGISTRY_VERSION = "20261005.1";
     // TEST_ALIGNMENT_REASON: R0C13 G07 adds a forward-only capability seed after Users Phase 5.
     private static final String R0C13_G07_OPERATOR_CAPABILITIES_VERSION = "20261005.2";
-    private static final String LATEST_MIGRATION_VERSION = R0C13_G07_OPERATOR_CAPABILITIES_VERSION;
+    private static final String HR_G4_PAYROLL_SNAPSHOT_VERSION = "20261006.1";
+    private static final String LATEST_MIGRATION_VERSION = HR_G4_PAYROLL_SNAPSHOT_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
