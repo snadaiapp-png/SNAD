@@ -1,6 +1,7 @@
 package com.sanad.platform.access.evaluation;
 
 import com.sanad.platform.access.capability.AccessCapability;
+import com.sanad.platform.access.capability.AccessCapabilityService;
 import com.sanad.platform.access.capability.CapabilityStatus;
 import com.sanad.platform.access.grant.UserRoleGrant;
 import com.sanad.platform.access.grant.UserRoleGrantService;
