@@ -303,6 +303,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261005.1"   // Users Phase 5 dynamic application IAM registry
             , "20261005.2"   // r0c13 g07 billing operator capabilities
             , "20261006.1"   // Users Phase 7 effective access explanation model
+            , "20261006.2"   // HRM G4 payroll snapshot foundation
     );
 
 

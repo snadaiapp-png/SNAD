@@ -128,6 +128,10 @@ class HrRlsFailClosedIntegrationTest {
                 // G3 Task 2 performance reviews — tenant-scoped with canonical
                 // subject AND reviewer Employment bindings.
                 "hr_performance_reviews",
+                // G4 payroll snapshot foundation — tenant-scoped, FORCE-RLS,
+                // canonical HR input references; statutory rules remain separately gated.
+                "hr_payroll_runs",
+                "hr_payroll_items",
                 "hr_person_identifiers",
                 "hr_person_private",
                 "hr_position_versions",
@@ -1299,6 +1303,92 @@ class HrRlsFailClosedIntegrationTest {
         }
     }
 
+    // --- G4 payroll snapshot seed helpers ---
+
+    private UUID insertG4PayrollRun(UUID tenantId) throws Exception {
+        UUID legalEntityId = seedLegalEntity(
+                tenantId,
+                "LE-G4-" + UUID.randomUUID().toString().substring(0, 6));
+        UUID runId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_payroll_runs " +
+                "(id, tenant_id, legal_entity_id, period_start, period_end, currency_code, status, source_cutoff_at) " +
+                "VALUES (?, ?, ?, DATE '2026-10-01', DATE '2026-10-31', 'SAR', 'DRAFT', NOW())")) {
+            ps.setObject(1, runId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, legalEntityId);
+            ps.executeUpdate();
+        }
+        return runId;
+    }
+
+    private void insertG4PayrollItem(UUID tenantId) throws Exception {
+        UUID personId = insertHrPerson(tenantId, "G4", "Payroll");
+        UUID legalEntityId = seedLegalEntity(
+                tenantId,
+                "LE-G4I-" + UUID.randomUUID().toString().substring(0, 6));
+        UUID employmentId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_employees " +
+                "(id, tenant_id, person_id, legal_entity_id, employee_number, first_name, last_name, display_name, " +
+                "employment_type, status, hire_date, version, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, 'G4', 'Payroll', 'G4 Payroll', 'FULL_TIME', 'ACTIVE', DATE '2026-01-01', 0, NOW(), NOW())")) {
+            ps.setObject(1, employmentId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, personId);
+            ps.setObject(4, legalEntityId);
+            ps.setString(5, "G4-RLS-" + employmentId.toString().substring(0, 8));
+            ps.executeUpdate();
+        }
+
+        UUID packageId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_compensation_packages " +
+                "(id, tenant_id, employment_id, currency_code, pay_frequency, effective_from, status) " +
+                "VALUES (?, ?, ?, 'SAR', 'MONTHLY', DATE '2026-01-01', 'ACTIVE')")) {
+            ps.setObject(1, packageId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, employmentId);
+            ps.executeUpdate();
+        }
+
+        UUID timesheetId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_timesheets " +
+                "(id, tenant_id, employment_id, period_start, period_end, total_worked_minutes, state, approved_at) " +
+                "VALUES (?, ?, ?, DATE '2026-10-01', DATE '2026-10-31', 9600, 'APPROVED', NOW())")) {
+            ps.setObject(1, timesheetId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, employmentId);
+            ps.executeUpdate();
+        }
+
+        UUID runId = UUID.randomUUID();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_payroll_runs " +
+                "(id, tenant_id, legal_entity_id, period_start, period_end, currency_code, status, source_cutoff_at) " +
+                "VALUES (?, ?, ?, DATE '2026-10-01', DATE '2026-10-31', 'SAR', 'CALCULATED', NOW())")) {
+            ps.setObject(1, runId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, legalEntityId);
+            ps.executeUpdate();
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO hr_payroll_items " +
+                "(id, tenant_id, payroll_run_id, employment_id, compensation_package_id, timesheet_id, " +
+                "base_amount, gross_amount, deduction_total, net_amount, status) " +
+                "VALUES (?, ?, ?, ?, ?, ?, 10000.0000, 10000.0000, 0.0000, 10000.0000, 'CALCULATED')")) {
+            ps.setObject(1, UUID.randomUUID());
+            ps.setObject(2, tenantId);
+            ps.setObject(3, runId);
+            ps.setObject(4, employmentId);
+            ps.setObject(5, packageId);
+            ps.setObject(6, timesheetId);
+            ps.executeUpdate();
+        }
+    }
+
     // --- Generic seed dispatch ---
 
     private void seedRow(String table, UUID tenantId) throws Exception {
@@ -1309,6 +1399,8 @@ class HrRlsFailClosedIntegrationTest {
             case "hr_people" -> insertHrPerson(tenantId, "RLS", "Test");
             case "hr_performance_goals" -> insertG3PerformanceGoal(tenantId);
             case "hr_performance_reviews" -> insertG3PerformanceReview(tenantId);
+            case "hr_payroll_runs" -> insertG4PayrollRun(tenantId);
+            case "hr_payroll_items" -> insertG4PayrollItem(tenantId);
             case "hr_person_private" -> {
                 UUID personId = insertHrPerson(tenantId, "PII", "Private");
                 insertHrPersonPrivate(personId, tenantId);
