@@ -8,7 +8,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -28,7 +27,10 @@ class PayrollCalculationEngineTest {
         ), List.of(unpaidLeave("2.0000")));
 
         var policy = new PayrollCalculationEngine.CalculationPolicy(
-                Set.of("HOUSING", "TRANSPORT"),
+                List.of(
+                        PayrollCalculationEngine.ConfiguredAllowance.fixed("HOUSING"),
+                        PayrollCalculationEngine.ConfiguredAllowance.percentage(
+                                "TRANSPORT", PayrollCalculationEngine.PercentageBasis.BASE)),
                 List.of(
                         PayrollCalculationEngine.ConfiguredDeduction.fixed("LOAN", new BigDecimal("50.0000")),
                         PayrollCalculationEngine.ConfiguredDeduction.percentage(
@@ -57,7 +59,7 @@ class PayrollCalculationEngineTest {
                 List.of(unpaidLeave("3.0000")));
 
         var policy = new PayrollCalculationEngine.CalculationPolicy(
-                Set.of(),
+                List.of(),
                 List.of(),
                 PayrollCalculationEngine.UnpaidLeavePolicy.disabled()
         );
@@ -76,7 +78,8 @@ class PayrollCalculationEngineTest {
         ), List.of());
 
         var policy = new PayrollCalculationEngine.CalculationPolicy(
-                Set.of("ROUNDING"),
+                List.of(PayrollCalculationEngine.ConfiguredAllowance.percentage(
+                        "ROUNDING", PayrollCalculationEngine.PercentageBasis.BASE)),
                 List.of(PayrollCalculationEngine.ConfiguredDeduction.percentage(
                         "PCT", new BigDecimal("1.11111"),
                         PayrollCalculationEngine.PercentageBasis.BASE)),
@@ -110,7 +113,7 @@ class PayrollCalculationEngineTest {
         var snapshot = snapshot(
                 List.of(component("BASE_SALARY", "BASE", "100.0000", null)), List.of());
         var policy = new PayrollCalculationEngine.CalculationPolicy(
-                Set.of(),
+                List.of(),
                 List.of(PayrollCalculationEngine.ConfiguredDeduction.fixed(
                         "RECOVERY", new BigDecimal("101.0000"))),
                 PayrollCalculationEngine.UnpaidLeavePolicy.disabled());
