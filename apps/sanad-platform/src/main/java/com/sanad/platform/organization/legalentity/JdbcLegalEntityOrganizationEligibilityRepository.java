@@ -63,6 +63,22 @@ public class JdbcLegalEntityOrganizationEligibilityRepository implements LegalEn
     }
 
     @Override
+    public LegalEntityOrganizationEligibility createActive(
+            UUID tenantId, UUID organizationId, UUID legalEntityId, LocalDate effectiveFrom) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO organization_legal_entities (
+                    id, tenant_id, organization_id, legal_entity_id,
+                    effective_from, effective_to, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, NULL, 'ACTIVE', NOW())
+                """,
+                id, tenantId, organizationId, legalEntityId, Date.valueOf(effectiveFrom));
+        return findActiveOn(tenantId, legalEntityId, organizationId, effectiveFrom)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Employer context link was inserted but cannot be re-read"));
+    }
+
+    @Override
     public Optional<LegalEntityOrganizationEligibility> findActiveOn(UUID tenantId, UUID legalEntityId, UUID organizationId, LocalDate effectiveDate) {
         return jdbc.query(
                 """
