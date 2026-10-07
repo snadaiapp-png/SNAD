@@ -1,14 +1,12 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import { Button, Input } from "@/components/sds";
 import { Modal } from "@/components/sds/Modal";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
 import { tenantAccessApi } from "@/lib/api/tenant-access";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
-import { useI18n } from "@/lib/i18n/I18nProvider";
-import { usersMessages } from "@/lib/i18n/users-l10n";
 import styles from "./GlobalUserProvisioningLauncher.module.css";
 
 function createInitialCredential(): string {
@@ -44,8 +42,21 @@ export function GlobalUserProvisioningLauncher({
   const { state, user, me } = useAuth();
   const pathname =
     typeof window === "undefined" ? "/" : window.location.pathname;
-  const { t } = useI18n();
-  const messages = useMemo(() => usersMessages(t), [t]);
+  const messages = {
+    create: "إضافة مستخدم",
+    createTitle: "إضافة مستخدم جديد",
+    subtitle: "إدارة مستخدمي مساحة العمل",
+    close: "إغلاق",
+    cancel: "إلغاء",
+    submitCreate: "إنشاء المستخدم",
+    email: "البريد الإلكتروني",
+    username: "اسم المستخدم",
+    displayName: "الاسم المعروض",
+    mobileNumber: "رقم الجوال",
+    mobileRegion: "رمز المنطقة",
+    initialCredential: "كلمة المرور المؤقتة",
+    initialCredentialHelp: "يستطيع المستخدم تسجيل الدخول بها مرة أولى ثم يجب تغييرها قبل استخدام المنصة.",
+  } as const;
   const capabilities = me?.capabilities ?? [];
   const tenantId = user?.tenantId ?? null;
   const canCreate = capabilities.includes("USER.CREATE");
