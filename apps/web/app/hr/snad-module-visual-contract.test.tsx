@@ -131,6 +131,18 @@ describe("SNAD shared module visual contract — CRM reference consumption", () 
     expect(crmShell).toContain("@/components/sds/module");
     expect(crmShell).not.toContain('from "../crm-shared-styles.module.css"');
   });
+
+  it("V3b. shared shell owns the USER.CREATE module-header action for CRM, HR, and future modules", () => {
+    const shell = source("../../components/sds/module/SnadModuleShell.tsx");
+    const crmShell = source("../crm/components/crm-shell.tsx");
+    const hrWorkspace = source("./components/hr-workspace.tsx");
+
+    expect(shell).toContain("GlobalUserProvisioningLauncher");
+    expect(shell).toContain('presentation="header"');
+    expect(shell).toContain('data-snad-module-shell="true"');
+    expect(crmShell).toContain("<SnadModuleShell");
+    expect(hrWorkspace).toContain("<SnadModuleShell");
+  });
 });
 
 describe("SNAD shared module visual contract — HR unification", () => {
