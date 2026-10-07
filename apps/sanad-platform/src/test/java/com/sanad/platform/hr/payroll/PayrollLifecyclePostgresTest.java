@@ -9,7 +9,7 @@ import com.sanad.platform.hr.integration.JdbcHrOutboxRepository;
 import com.sanad.platform.integration.events.DomainEventEnvelope;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycleService;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycleService.PayrollRunStatus;
-import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
+import com.sanad.platform.hr.payroll.persistence.JdbcPayrollLifecycleRepository;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
