@@ -111,8 +111,11 @@ class PlatformApiCountTest {
      *  + 3 R0C13 G07 billing operator operations:
      *  GET /api/v1/executive/billing/v3,
      *  POST /api/v1/executive/billing/reconciliation,
-     *  GET /api/v1/executive/billing/provider/readiness = 1004. */
-    private static final long EXPECTED_TOTAL_OPS = 1004;
+     *  GET /api/v1/executive/billing/provider/readiness = 1004.
+     *  + 1 G2 bootstrap-safe employer-context resolver
+     *  (GET /api/v1/organizations/{organizationId}/legal-entity,
+     *  ORGANIZATION.READ-gated, tenant derived from authenticated context) = 1005. */
+    private static final long EXPECTED_TOTAL_OPS = 1005;
     private static final long EXPECTED_HRM_V2_OPS = 145;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
