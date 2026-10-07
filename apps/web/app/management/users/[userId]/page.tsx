@@ -40,7 +40,8 @@ export default function TenantUserDetailPage() {
   const params = useParams<{ userId: string }>();
   const router = useRouter();
   const { state, user: actor, me } = useAuth();
-  const { t, locale = "ar" } = useI18n();
+  const { t } = useI18n();
+  const { locale = "ar" } = useI18n();
   const messages = useMemo(() => usersMessages(t), [t]);
   const tenantId = actor?.tenantId ?? null;
   const userId = params.userId;
