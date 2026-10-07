@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -67,6 +68,9 @@ public interface PayrollAuthoritativeInputPort {
             Instant approvedAt
     ) {
         public TimesheetInput {
+            Objects.requireNonNull(timesheetId, "timesheetId");
+            Objects.requireNonNull(periodStart, "periodStart");
+            Objects.requireNonNull(periodEnd, "periodEnd");
             if (periodEnd.isBefore(periodStart)) {
                 throw new IllegalArgumentException("HRM_PAYROLL_INPUT_PERIOD_INVALID");
             }
