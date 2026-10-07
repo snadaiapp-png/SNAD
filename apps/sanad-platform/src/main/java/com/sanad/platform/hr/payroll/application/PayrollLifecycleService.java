@@ -29,18 +29,21 @@ public class PayrollLifecycleService {
     private final HrTransactionalEvidenceWriter evidenceWriter;
     private final JdbcHrRequestIdempotencyService idempotency;
     private final ObjectMapper objectMapper;
+    private final PayrollAuthorizationGuard authorizationGuard;
 
     public PayrollLifecycleService(
             DataSource dataSource,
             PayrollLifecycleRepository repository,
             HrTransactionalEvidenceWriter evidenceWriter,
             JdbcHrRequestIdempotencyService idempotency,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PayrollAuthorizationGuard authorizationGuard) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
         this.repository = Objects.requireNonNull(repository, "repository");
         this.evidenceWriter = Objects.requireNonNull(evidenceWriter, "evidenceWriter");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.authorizationGuard = Objects.requireNonNull(authorizationGuard, "authorizationGuard");
     }
 
     public TransitionResult transition(
@@ -58,6 +61,7 @@ public class PayrollLifecycleService {
         requireText(reason, "reason");
         requireText(idempotencyKey, "idempotencyKey");
         requireText(requestFingerprint, "requestFingerprint");
+        authorizationGuard.requireTransition(actor, target);
 
         String operation = "HR.PAYROLL.TRANSITION." + target.name();
 
@@ -205,6 +209,7 @@ public class PayrollLifecycleService {
         requireText(reason, "reason");
         requireText(idempotencyKey, "idempotencyKey");
         requireText(requestFingerprint, "requestFingerprint");
+        authorizationGuard.requireRecalculation(actor);
 
         String operation = "HR.PAYROLL.RECALCULATE";
 
