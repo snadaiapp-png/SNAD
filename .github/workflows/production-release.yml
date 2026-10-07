@@ -19,6 +19,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  actions: write
 
 concurrency:
   group: sanad-production-release
@@ -312,6 +313,43 @@ jobs:
           set -euo pipefail
           npm ci
           npx playwright install chromium --with-deps
+
+      - name: Reconcile governed G2 production identities
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Employee SELF surfaces require the canonical Person -> Employment
+          # binding. Reconcile through the dedicated governed provisioning
+          # workflow instead of widening runtime authorization fallbacks.
+          before_id=$(gh run list --repo "$GITHUB_REPOSITORY" \
+            --workflow g2-production-identity-provisioning.yml \
+            --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+
+          gh workflow run g2-production-identity-provisioning.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            candidate=$(gh run list --repo "$GITHUB_REPOSITORY" \
+              --workflow g2-production-identity-provisioning.yml \
+              --limit 1 --json databaseId,headSha,status \
+              --jq '.[0] | select(.databaseId > '"$before_id"') | .databaseId // empty')
+            if [ -n "$candidate" ]; then
+              run_id="$candidate"
+              break
+            fi
+            sleep 2
+          done
+          test -n "$run_id" || {
+            echo "::error::G2 production identity provisioning run was not created"
+            exit 1
+          }
+
+          echo "G2_IDENTITY_PROVISIONING_RUN_ID=$run_id" >> "$GITHUB_ENV"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
 
       - name: Verify authenticated G2 production visual smoke
         working-directory: apps/web
