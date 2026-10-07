@@ -6,9 +6,8 @@ import com.sanad.platform.hr.audit.HrAuditRecord;
 import com.sanad.platform.hr.audit.JdbcHrAuditRepository;
 import com.sanad.platform.hr.compliance.domain.HrCommandContext;
 import com.sanad.platform.hr.integration.HrDomainEventPublisher;
-import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
-import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository.IdempotencyAdmission;
-import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository.PayrollRunRow;
+import com.sanad.platform.hr.payroll.application.PayrollLifecycleRepository.IdempotencyAdmission;
+import com.sanad.platform.hr.payroll.application.PayrollLifecycleRepository.PayrollRunRow;
 import com.sanad.platform.integration.events.DomainEventEnvelope;
 import org.springframework.stereotype.Service;
 
@@ -44,14 +43,14 @@ public class PayrollLifecycleService {
             allowedTransitions();
 
     private final DataSource dataSource;
-    private final JdbcPayrollLifecycleRepository repository;
+    private final PayrollLifecycleRepository repository;
     private final JdbcHrAuditRepository auditRepository;
     private final HrDomainEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
     public PayrollLifecycleService(
             DataSource dataSource,
-            JdbcPayrollLifecycleRepository repository,
+            PayrollLifecycleRepository repository,
             JdbcHrAuditRepository auditRepository,
             HrDomainEventPublisher eventPublisher,
             ObjectMapper objectMapper) {
