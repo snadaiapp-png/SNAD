@@ -39,6 +39,11 @@ class G2IdentityProvisioningContractTest(unittest.TestCase):
         text = self.text
         self.assertIn("uses: actions/checkout@v4", text)
         self.assertIn("bash scripts/g2/provision-canonical-hr.sh", text)
+        script = (ROOT / "scripts/g2/provision-canonical-hr.sh").read_text(encoding="utf-8")
+        self.assertIn("/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE", script)
+        self.assertIn("G2_EMPLOYER_CONTEXT=RESOLVED_FROM_CANONICAL_LINK", script)
+        self.assertNotIn("uuid.uuid5", script)
+        self.assertNotIn("auth-smoke-legal-entity", script)
         for capability in (
             "ORGANIZATION.READ",
             "HRM.EMPLOYEE.VIEW",
