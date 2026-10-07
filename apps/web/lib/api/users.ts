@@ -86,6 +86,21 @@ export interface UpdateUserRequest {
  */
 export type UserLifecycleAction = "activate" | "deactivate" | "suspend" | "archive";
 
+export interface ModuleProvisioningRole {
+  roleId: string;
+  roleCode: string;
+  roleName: string;
+  capabilities: string[];
+}
+
+export interface ModuleProvisioningContext {
+  applicationCode: string;
+  name: string;
+  localizedName: string | null;
+  supportedScopes: string[];
+  roles: ModuleProvisioningRole[];
+}
+
 // ---------------------------------------------------------------------------
 // Validation helpers
 // ---------------------------------------------------------------------------
@@ -142,6 +157,19 @@ export function createUsersApi(client: ApiClient = apiClient) {
     async list(tenantId: string) {
       return client.get<UserResponse[]>("/api/v1/users", {
         query: { tenantId: requireValidUuid(tenantId, "tenantId") },
+      });
+    },
+
+    async moduleProvisioningContext(tenantId: string, routeRoot: string) {
+      const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\/+/, "").split("/")[0];
+      if (!normalizedRouteRoot) {
+        throw new ApiConfigurationError("module route root is required");
+      }
+      return client.get<ModuleProvisioningContext>("/api/v1/users/module-provisioning-context", {
+        query: {
+          tenantId: requireValidUuid(tenantId, "tenantId"),
+          routeRoot: normalizedRouteRoot,
+        },
       });
     },
 
