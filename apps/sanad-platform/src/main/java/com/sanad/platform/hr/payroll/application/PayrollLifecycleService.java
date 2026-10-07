@@ -16,6 +16,9 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -114,6 +117,8 @@ public class PayrollLifecycleService {
         String operation = recalculation
                 ? "HRM.PAYROLL.RECALCULATE"
                 : "HRM.PAYROLL.TRANSITION." + target.name();
+        String canonicalFingerprint = canonicalFingerprint(
+                runId, operation, expectedVersion, requestFingerprint);
 
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -126,7 +131,7 @@ public class PayrollLifecycleService {
                         context.actorUserId(),
                         operation,
                         idempotencyKey,
-                        requestFingerprint);
+                        canonicalFingerprint);
 
                 if (admission.replay()) {
                     LifecycleResult replay = objectMapper.readValue(
@@ -333,6 +338,25 @@ public class PayrollLifecycleService {
                 "SELECT set_config('app.tenant_id', ?, true)")) {
             ps.setString(1, tenantId.toString());
             ps.execute();
+        }
+    }
+
+    private static String canonicalFingerprint(
+            UUID runId,
+            String operation,
+            long expectedVersion,
+            String callerFingerprint) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            String material = runId + "|" + operation + "|" + expectedVersion + "|" + callerFingerprint;
+            byte[] hash = digest.digest(material.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 unavailable", impossible);
         }
     }
 
