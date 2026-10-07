@@ -138,6 +138,17 @@ describe("GlobalUserProvisioningLauncher", () => {
     );
   });
 
+  it("renders as a module-header action with a visible user-plus affordance", () => {
+    navigationMock.pathname = "/crm/overview";
+    render(<GlobalUserProvisioningLauncher presentation="header" />);
+    const launcher = screen.getByTestId("global-user-provisioning");
+    expect(launcher).toHaveAttribute("data-presentation", "header");
+    expect(launcher).toHaveAttribute("data-module-context", "crm");
+    const button = screen.getByRole("button", { name: "إضافة مستخدم" });
+    expect(button).toBeInTheDocument();
+    expect(button.querySelector("svg")).not.toBeNull();
+  });
+
   it("fails closed when unauthenticated or USER.CREATE is absent", () => {
     authMock.state = "ANONYMOUS";
     const { rerender } = render(<GlobalUserProvisioningLauncher />);
