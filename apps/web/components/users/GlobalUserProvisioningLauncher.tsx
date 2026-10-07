@@ -154,7 +154,7 @@ export function GlobalUserProvisioningLauncher({
           await grantSelectedModuleRoles(existing.id);
           setOpen(false);
           reset();
-          window.location.assign(
+          window.history.pushState({}, "", 
             `/management/users/${existing.id}?returnTo=${encodeURIComponent(pathname)}`,
           );
           return;
@@ -172,7 +172,7 @@ export function GlobalUserProvisioningLauncher({
       await grantSelectedModuleRoles(created.id);
       setOpen(false);
       reset();
-      window.location.assign(
+      window.history.pushState({}, "", 
         `/management/users/${created.id}?returnTo=${encodeURIComponent(pathname)}`,
       );
     } catch (caught) {
