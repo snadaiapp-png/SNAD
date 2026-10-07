@@ -85,3 +85,43 @@
     display: none;
   }
 }
+
+
+.moduleAccess {
+  display: grid;
+  gap: var(--snad-space-3, 12px);
+  margin: 0;
+  padding: var(--snad-space-3, 12px);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md, 8px);
+}
+
+.moduleAccess legend {
+  padding-inline: var(--snad-space-2, 8px);
+  font-weight: 800;
+}
+
+.roleList {
+  display: grid;
+  gap: var(--snad-space-2, 8px);
+}
+
+.roleOption {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--snad-space-2, 8px);
+  padding: var(--snad-space-3, 12px);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md, 8px);
+  cursor: pointer;
+}
+
+.roleOption > span {
+  display: grid;
+  gap: 4px;
+}
+
+.roleOption small {
+  color: var(--snad-color-text-secondary);
+  overflow-wrap: anywhere;
+}
