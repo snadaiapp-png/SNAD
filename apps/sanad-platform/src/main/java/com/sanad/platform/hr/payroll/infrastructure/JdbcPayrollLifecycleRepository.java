@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import org.springframework.stereotype.Repository;
 
 /**
  * G4-T5 PostgreSQL persistence boundary for payroll lifecycle commands.
@@ -17,6 +18,7 @@ import java.util.UUID;
  * must establish the tenant GUC before invoking this repository. There is no
  * independent commit/rollback here.</p>
  */
+@Repository
 public class JdbcPayrollLifecycleRepository {
 
     public PayrollRunRow lockRun(Connection connection, UUID tenantId, UUID runId) throws SQLException {
@@ -127,12 +129,41 @@ public class JdbcPayrollLifecycleRepository {
             UUID tenantId,
             UUID runId,
             String targetStatus) throws SQLException {
-        if (!("REVIEWED".equals(targetStatus)
-                || "APPROVED".equals(targetStatus)
-                || "EXPORTED".equals(targetStatus)
-                || "CANCELLED".equals(targetStatus))) {
+        String requiredSource;
+        if ("REVIEWED".equals(targetStatus)) {
+            requiredSource = "CALCULATED";
+        } else if ("APPROVED".equals(targetStatus)) {
+            requiredSource = "REVIEWED";
+        } else if ("EXPORTED".equals(targetStatus)) {
+            requiredSource = "APPROVED";
+        } else if ("CANCELLED".equals(targetStatus)) {
+            try (PreparedStatement ps = connection.prepareStatement("""
+                    UPDATE hr_payroll_items
+                       SET status = 'CANCELLED',
+                           version = version + 1,
+                           updated_at = NOW()
+                     WHERE tenant_id = ?
+                       AND payroll_run_id = ?
+                       AND status IN ('CALCULATED','EXCEPTION','REVIEWED')
+                    """)) {
+                ps.setObject(1, tenantId);
+                ps.setObject(2, runId);
+                ps.executeUpdate();
+            }
+            return;
+        } else {
             return;
         }
+
+        int incompatible = countItemsNotInStatus(
+                connection, tenantId, runId, requiredSource);
+        if (incompatible != 0) {
+            throw new IllegalStateException(
+                    "HRM_PAYROLL_ITEM_STATE_CONFLICT: " + incompatible
+                            + " item(s) are not " + requiredSource
+                            + " for transition to " + targetStatus);
+        }
+
         try (PreparedStatement ps = connection.prepareStatement("""
                 UPDATE hr_payroll_items
                    SET status = ?,
@@ -140,13 +171,35 @@ public class JdbcPayrollLifecycleRepository {
                        updated_at = NOW()
                  WHERE tenant_id = ?
                    AND payroll_run_id = ?
-                   AND status <> ?
+                   AND status = ?
                 """)) {
             ps.setString(1, targetStatus);
             ps.setObject(2, tenantId);
             ps.setObject(3, runId);
-            ps.setString(4, targetStatus);
+            ps.setString(4, requiredSource);
             ps.executeUpdate();
+        }
+    }
+
+    private int countItemsNotInStatus(
+            Connection connection,
+            UUID tenantId,
+            UUID runId,
+            String requiredStatus) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement("""
+                SELECT COUNT(*)
+                  FROM hr_payroll_items
+                 WHERE tenant_id = ?
+                   AND payroll_run_id = ?
+                   AND status <> ?
+                """)) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, runId);
+            ps.setString(3, requiredStatus);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
         }
     }
 
