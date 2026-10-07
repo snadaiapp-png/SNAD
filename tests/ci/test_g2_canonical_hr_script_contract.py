@@ -18,7 +18,7 @@ class G2CanonicalHrScriptContractTest(unittest.TestCase):
         self.assertNotIn("auth-smoke-legal-entity", text)
         self.assertNotIn('EMPLOYER_EMPLOYMENTS=$(get_json "$HR_API/employments"', text)
         self.assertIn(
-            '$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE',
+            '$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE',
             text,
         )
         self.assertIn(
@@ -38,6 +38,15 @@ class G2CanonicalHrScriptContractTest(unittest.TestCase):
         bootstrap = text.split("ensure_person() {", 1)[0]
         self.assertNotIn("$HR_API/employments", bootstrap)
         self.assertIn("Employer context response has no legalEntityId", bootstrap)
+        self.assertIn("/legal-entity/bootstrap?effectiveDate=$G2_EFFECTIVE_DATE", bootstrap)
+        self.assertIn("G2_EMPLOYER_CONTEXT_SOURCE=GOVERNED_BOOTSTRAP", bootstrap)
+        self.assertIn("Final canonical read proves the effective link exists", bootstrap)
+
+    def test_employer_context_uses_governed_effective_date_not_stale_fixed_date(self):
+        text = self.text
+        self.assertIn('G2_EFFECTIVE_DATE="${G2_EFFECTIVE_DATE:-$(date -u +%F)}"', text)
+        self.assertIn('G2_EMPLOYMENT_START_DATE="$G2_EFFECTIVE_DATE"', text)
+        self.assertNotIn('G2_EMPLOYMENT_START_DATE="2026-01-01"', text)
         self.assertIn("Final canonical read proves the effective link exists", bootstrap)
 
     def test_employment_creation_uses_the_resolved_legal_entity(self):
