@@ -6,7 +6,6 @@ import com.sanad.platform.hr.audit.HrAuditRecord;
 import com.sanad.platform.hr.audit.HrAuthenticatedContext;
 import com.sanad.platform.hr.audit.HrTransactionalEvidenceWriter;
 import com.sanad.platform.hr.idempotency.JdbcHrRequestIdempotencyService;
-import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
 import com.sanad.platform.integration.events.DomainEventEnvelope;
 import com.sanad.platform.idempotency.IdempotencyBeginResult;
 import org.springframework.stereotype.Service;
@@ -26,14 +25,14 @@ public class PayrollLifecycleService {
     private static final String CLASSIFICATION = "RESTRICTED";
 
     private final DataSource dataSource;
-    private final JdbcPayrollLifecycleRepository repository;
+    private final PayrollLifecycleRepository repository;
     private final HrTransactionalEvidenceWriter evidenceWriter;
     private final JdbcHrRequestIdempotencyService idempotency;
     private final ObjectMapper objectMapper;
 
     public PayrollLifecycleService(
             DataSource dataSource,
-            JdbcPayrollLifecycleRepository repository,
+            PayrollLifecycleRepository repository,
             HrTransactionalEvidenceWriter evidenceWriter,
             JdbcHrRequestIdempotencyService idempotency,
             ObjectMapper objectMapper) {
@@ -91,7 +90,7 @@ public class PayrollLifecycleService {
                             true);
                 }
 
-                JdbcPayrollLifecycleRepository.RunState current = repository
+                PayrollLifecycleRepository.RunState current = repository
                         .loadForUpdate(connection, actor.tenantId(), payrollRunId)
                         .orElseThrow(() -> new IllegalStateException(
                                 "HRM_PAYROLL_RUN_NOT_FOUND: " + payrollRunId));
@@ -104,7 +103,7 @@ public class PayrollLifecycleService {
 
                 PayrollLifecycle.requireTransition(current.status(), target);
 
-                JdbcPayrollLifecycleRepository.RunState updated =
+                PayrollLifecycleRepository.RunState updated =
                         repository.transition(connection, current, target, actor.actorUserId());
 
                 Instant occurredAt = Instant.now();
@@ -238,7 +237,7 @@ public class PayrollLifecycleService {
                             true);
                 }
 
-                JdbcPayrollLifecycleRepository.RunState current = repository
+                PayrollLifecycleRepository.RunState current = repository
                         .loadForUpdate(connection, actor.tenantId(), payrollRunId)
                         .orElseThrow(() -> new IllegalStateException(
                                 "HRM_PAYROLL_RUN_NOT_FOUND: " + payrollRunId));
@@ -251,7 +250,7 @@ public class PayrollLifecycleService {
 
                 PayrollLifecycle.requireRecalculationAllowed(current.status());
 
-                JdbcPayrollLifecycleRepository.RunState updated =
+                PayrollLifecycleRepository.RunState updated =
                         repository.recalculate(connection, current);
 
                 Instant occurredAt = Instant.now();
