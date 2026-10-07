@@ -38,6 +38,10 @@ export default function WorkspacePage() {
   // /control-plane is a legacy compatibility route that redirects to /executive.
   // Render only the canonical Executive launcher to avoid duplicate destinations.
   const canOpenExecutive = true;
+  // Subscription & Billing is an implemented product surface under the
+  // Executive Control Plane. Expose a first-class workspace launcher instead
+  // of forcing users to discover it through the generic Executive card.
+  const canOpenSubscriptions = canOpenExecutive;
   const canOpenSystemHealth = true;
 
   return (
@@ -82,6 +86,15 @@ export default function WorkspacePage() {
                   <p className={styles.appDescription}>{t("workspace.executiveDescription")}</p>
                 </div>
                 <span className={styles.appAction}>{t("workspace.openExecutive")}</span>
+              </Link>
+            )}
+            {canOpenSubscriptions && (
+              <Link className={styles.appCard} href="/executive/subscriptions" prefetch data-testid="workspace-subscriptions">
+                <div>
+                  <div className={styles.appName}>{t("workspace.openSubscriptions")}</div>
+                  <p className={styles.appDescription}>{t("workspace.subscriptionsDescription")}</p>
+                </div>
+                <span className={styles.appAction}>{t("workspace.openSubscriptions")}</span>
               </Link>
             )}
             {canOpenSystemHealth && (
