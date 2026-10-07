@@ -140,7 +140,7 @@ public class PayrollLifecycleService {
                 payload.put("version", updated.version());
 
                 DomainEventEnvelope event = new DomainEventEnvelope(
-                        deterministicEventId(actor.tenantId(), eventTypeFor(target), payrollRunId, idempotencyKey),
+                        deterministicEventId(actor.tenantId(), actor.actorUserId(), eventTypeFor(target), payrollRunId, idempotencyKey),
                         eventTypeFor(target),
                         1,
                         AGGREGATE_TYPE,
@@ -287,7 +287,7 @@ public class PayrollLifecycleService {
 
                 String eventType = "HRM.PAYROLL.RECALCULATED.v1";
                 DomainEventEnvelope event = new DomainEventEnvelope(
-                        deterministicEventId(actor.tenantId(), eventType, payrollRunId, idempotencyKey),
+                        deterministicEventId(actor.tenantId(), actor.actorUserId(), eventType, payrollRunId, idempotencyKey),
                         eventType,
                         1,
                         AGGREGATE_TYPE,
@@ -340,8 +340,8 @@ public class PayrollLifecycleService {
     }
 
     private static UUID deterministicEventId(
-            UUID tenantId, String eventType, UUID payrollRunId, String idempotencyKey) {
-        String material = tenantId + "|" + eventType + "|" + payrollRunId + "|" + idempotencyKey;
+            UUID tenantId, UUID actorUserId, String eventType, UUID payrollRunId, String idempotencyKey) {
+        String material = tenantId + "|" + actorUserId + "|" + eventType + "|" + payrollRunId + "|" + idempotencyKey;
         return UUID.nameUUIDFromBytes(material.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
