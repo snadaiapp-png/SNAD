@@ -238,8 +238,8 @@ describe("HrWorkspace navigation", () => {
     expect(screen.getByRole("link", { name: "إجازاتي" })).toBeInTheDocument();
   });
 
-  it("renders the canonical add-user action in the HR module header when USER.CREATE is granted", () => {
-    authMock.me.capabilities = ["USER.READ", "USER.CREATE"];
+  it("renders the canonical add-user action in the HR module header when USER.CREATE and USER.GRANT_ROLE are granted", () => {
+    authMock.me.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
     render(
       <HrWorkspace capabilities={FULL_CAPS} activeHref="/hr/employees">
         <p>المحتوى</p>
