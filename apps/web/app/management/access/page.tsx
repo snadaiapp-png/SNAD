@@ -13,6 +13,11 @@ import {
 } from "@/lib/api/tenant-access";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import {
+  capabilityDisplayName,
+  roleDisplayName,
+  statusDisplayName,
+} from "@/lib/i18n/iam-display-l10n";
 import styles from "./access.module.css";
 
 const TRANSIENT_AUTH_STATES = new Set([
@@ -26,7 +31,7 @@ const TRANSIENT_AUTH_STATES = new Set([
 export default function TenantAccessPage() {
   const { state, user, me } = useAuth();
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const capabilities = me?.capabilities ?? [];
   const tenantId = user?.tenantId ?? null;
   const canReadRoles = capabilities.includes("ROLE.READ");
@@ -234,8 +239,11 @@ export default function TenantAccessPage() {
                     <tbody>
                       {roles.map((role) => (
                         <tr key={role.id}>
-                          <td><strong>{role.name}</strong><div className={styles.code}>{role.code}</div></td>
-                          <td>{role.status}</td>
+                          <td>
+                            <strong>{roleDisplayName(role.code, role.name, locale)}</strong>
+                            <div className={styles.code} dir="ltr">{role.code}</div>
+                          </td>
+                          <td>{statusDisplayName(role.status, locale)}</td>
                           <td className={styles.actions}>
                             <button type="button" onClick={() => void selectRole(role)} aria-label={`${role.name} — ${t("management.access.manageRoleCapabilities")}`}>
                               {t("management.access.manageRoleCapabilities")}
@@ -280,7 +288,10 @@ export default function TenantAccessPage() {
                 <ul className={styles.registry}>
                   {registry.map((capability) => (
                     <li key={capability.id}>
-                      <div><strong>{capability.code}</strong><div>{capability.name}</div></div>
+                      <div>
+                        <strong>{capabilityDisplayName(capability.code, capability.name, locale)}</strong>
+                        <div className={styles.code} dir="ltr">{capability.code}</div>
+                      </div>
                       {canManageCapabilities ? (
                         capability.status === "ACTIVE"
                           ? <button type="button" disabled={busy} onClick={() => void transitionCapability(capability, "deactivate")}>{t("management.access.deactivateCapability")}</button>
@@ -295,7 +306,7 @@ export default function TenantAccessPage() {
             {selectedRole ? (
               <section className={`${styles.panel} ${styles.fullWidth}`} aria-labelledby="role-capabilities-heading">
                 <div className={styles.panelHeader}>
-                  <h2 id="role-capabilities-heading">{t("management.access.roleCapabilities")}: {selectedRole.name}</h2>
+                  <h2 id="role-capabilities-heading">{t("management.access.roleCapabilities")}: {roleDisplayName(selectedRole.code, selectedRole.name, locale)}</h2>
                 </div>
                 {roleAccessLoading ? <p className={styles.state}>{t("management.access.loading")}</p> : (
                   <ul className={styles.registry}>
@@ -303,7 +314,10 @@ export default function TenantAccessPage() {
                       const attached = attachedCapabilityIds.has(capability.id);
                       return (
                         <li key={capability.id}>
-                          <div><strong>{capability.code}</strong><div>{capability.name}</div></div>
+                          <div>
+                            <strong>{capabilityDisplayName(capability.code, capability.name, locale)}</strong>
+                            <div className={styles.code} dir="ltr">{capability.code}</div>
+                          </div>
                           {canManageRoles ? (
                             attached ? (
                               <button type="button" disabled={busy} onClick={() => void detachCapability(capability.id)}>{t("management.access.detachCapability")}</button>
