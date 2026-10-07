@@ -58,4 +58,4 @@ jobs:
       - name: Run T5 unit and PostgreSQL Direct lifecycle contracts
         working-directory: apps/sanad-platform
         run: |
-          mvn --batch-mode --no-transfer-progress             -Dtest=PayrollLifecycleTest,PayrollLifecyclePostgresTest             -DfailIfNoTests=true test
+          mvn --batch-mode --no-transfer-progress             -Dtest=PayrollLifecycleTest,PayrollLifecyclePostgresTest,HrModuleBoundaryArchitectureTest             -DfailIfNoTests=true test
