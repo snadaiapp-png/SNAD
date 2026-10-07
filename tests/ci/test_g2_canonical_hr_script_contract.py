@@ -25,6 +25,12 @@ class G2CanonicalHrScriptContractTest(unittest.TestCase):
             "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK",
             text,
         )
+        self.assertIn(
+            "/legal-entity/bootstrap?effectiveDate=$G2_EMPLOYMENT_START_DATE",
+            text,
+        )
+        self.assertIn("G2_EMPLOYER_CONTEXT_SOURCE=GOVERNED_BOOTSTRAP", text)
+        self.assertIn("ORGANIZATION.WRITE", text)
         self.assertIn(".legalEntityId", text)
 
     def test_legal_entity_bootstrap_does_not_require_existing_employment(self):
@@ -32,6 +38,7 @@ class G2CanonicalHrScriptContractTest(unittest.TestCase):
         bootstrap = text.split("ensure_person() {", 1)[0]
         self.assertNotIn("$HR_API/employments", bootstrap)
         self.assertIn("Employer context response has no legalEntityId", bootstrap)
+        self.assertIn("Final canonical read proves the effective link exists", bootstrap)
 
     def test_employment_creation_uses_the_resolved_legal_entity(self):
         text = self.text
