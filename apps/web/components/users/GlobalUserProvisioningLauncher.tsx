@@ -19,12 +19,28 @@ function createInitialCredential(): string {
   return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
 }
 
+function UserPlusGlyph() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" focusable={false}>
+      <circle cx="7.5" cy="6.5" r="3" />
+      <path d="M2.5 16c.7-3 2.5-4.5 5-4.5 1.4 0 2.6.5 3.5 1.4" />
+      <path d="M15 8.5v6M12 11.5h6" />
+    </svg>
+  );
+}
+
 export function moduleContextFromPathname(pathname: string): string {
   const segment = pathname.split("/").filter(Boolean)[0];
   return segment || "workspace";
 }
 
-export function GlobalUserProvisioningLauncher() {
+export interface GlobalUserProvisioningLauncherProps {
+  presentation?: "floating" | "header";
+}
+
+export function GlobalUserProvisioningLauncher({
+  presentation = "floating",
+}: GlobalUserProvisioningLauncherProps = {}) {
   const { state, user, me } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
@@ -122,16 +138,20 @@ export function GlobalUserProvisioningLauncher() {
 
   return (
     <div
-      className={styles.launcher}
+      className={presentation === "header" ? styles.headerLauncher : styles.launcher}
       data-testid="global-user-provisioning"
       data-module-context={moduleContext}
+      data-presentation={presentation}
     >
       <Button
-        className={styles.trigger}
+        className={presentation === "header" ? styles.headerTrigger : styles.trigger}
         onClick={() => setOpen(true)}
         aria-label={messages.create}
       >
-        {messages.create}
+        <span className={styles.triggerIcon} aria-hidden="true">
+          <UserPlusGlyph />
+        </span>
+        <span>{messages.create}</span>
       </Button>
 
       <Modal
