@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from "@/lib/auth/auth-provider";
 import { TenantContextProvider } from "@/lib/auth/tenant-context";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
+import { GlobalUserProvisioningLauncher } from "@/components/users/GlobalUserProvisioningLauncher";
 import { CRM_ROOT_ENTRY_COOKIE } from "../proxy";
 
 // R0C-12 G6-R1: /executive added per the authoritative implementation plan
@@ -61,7 +62,10 @@ export function Providers({ children }: { children: ReactNode }) {
       <I18nProvider>
         <AuthProvider>
           <AuthRouteRecovery>
-            <TenantContextProvider>{children}</TenantContextProvider>
+            <TenantContextProvider>
+              {children}
+              <GlobalUserProvisioningLauncher />
+            </TenantContextProvider>
           </AuthRouteRecovery>
         </AuthProvider>
       </I18nProvider>
