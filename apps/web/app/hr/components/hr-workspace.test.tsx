@@ -81,6 +81,7 @@ const NO_HR_CAPS: string[] = [];
 beforeEach(() => {
   authMock.state = "AUTHENTICATED";
   authMock.me.capabilities = [];
+  window.history.replaceState({}, "", "/hr");
 });
 
 afterEach(() => cleanup());
