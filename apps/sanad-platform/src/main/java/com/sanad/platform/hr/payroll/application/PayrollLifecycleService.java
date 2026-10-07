@@ -4,9 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sanad.platform.hr.audit.HrAuditRecord;
 import com.sanad.platform.hr.audit.HrAuthenticatedContext;
-import com.sanad.platform.hr.audit.JdbcHrAuditRepository;
+import com.sanad.platform.hr.audit.HrTransactionalEvidenceWriter;
 import com.sanad.platform.hr.idempotency.JdbcHrRequestIdempotencyService;
-import com.sanad.platform.hr.integration.JdbcHrOutboxRepository;
 import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
 import com.sanad.platform.integration.events.DomainEventEnvelope;
 import com.sanad.platform.idempotency.IdempotencyBeginResult;
@@ -28,22 +27,19 @@ public class PayrollLifecycleService {
 
     private final DataSource dataSource;
     private final JdbcPayrollLifecycleRepository repository;
-    private final JdbcHrAuditRepository auditRepository;
-    private final JdbcHrOutboxRepository outboxRepository;
+    private final HrTransactionalEvidenceWriter evidenceWriter;
     private final JdbcHrRequestIdempotencyService idempotency;
     private final ObjectMapper objectMapper;
 
     public PayrollLifecycleService(
             DataSource dataSource,
             JdbcPayrollLifecycleRepository repository,
-            JdbcHrAuditRepository auditRepository,
-            JdbcHrOutboxRepository outboxRepository,
+            HrTransactionalEvidenceWriter evidenceWriter,
             JdbcHrRequestIdempotencyService idempotency,
             ObjectMapper objectMapper) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
         this.repository = Objects.requireNonNull(repository, "repository");
-        this.auditRepository = Objects.requireNonNull(auditRepository, "auditRepository");
-        this.outboxRepository = Objects.requireNonNull(outboxRepository, "outboxRepository");
+        this.evidenceWriter = Objects.requireNonNull(evidenceWriter, "evidenceWriter");
         this.idempotency = Objects.requireNonNull(idempotency, "idempotency");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     }
@@ -138,17 +134,14 @@ public class PayrollLifecycleService {
                         actor.requestId(),
                         occurredAt);
 
-                UUID auditId = auditRepository.insertLedgerRow(connection, audit);
-                auditRepository.insertDeliveryRow(connection, auditId, actor.tenantId());
-
                 ObjectNode payload = objectMapper.createObjectNode();
                 payload.put("payrollRunId", payrollRunId.toString());
                 payload.put("fromStatus", current.status().name());
                 payload.put("toStatus", updated.status().name());
                 payload.put("version", updated.version());
 
-                outboxRepository.append(connection, new DomainEventEnvelope(
-                        UUID.randomUUID(),
+                DomainEventEnvelope event = new DomainEventEnvelope(
+                        deterministicEventId(actor.tenantId(), eventTypeFor(target), payrollRunId, idempotencyKey),
                         eventTypeFor(target),
                         1,
                         AGGREGATE_TYPE,
@@ -161,7 +154,9 @@ public class PayrollLifecycleService {
                         actor.requestId(),
                         idempotencyKey,
                         "OPERATIONAL",
-                        payload));
+                        payload);
+
+                evidenceWriter.writeEvidence(connection, audit, event);
 
                 TransitionResult result = new TransitionResult(
                         payrollRunId,
@@ -196,6 +191,12 @@ public class PayrollLifecycleService {
             throw new IllegalStateException(
                     "HRM_PAYROLL_LIFECYCLE_FAILED: " + e.getMessage(), e);
         }
+    }
+
+    private static UUID deterministicEventId(
+            UUID tenantId, String eventType, UUID payrollRunId, String idempotencyKey) {
+        String material = tenantId + "|" + eventType + "|" + payrollRunId + "|" + idempotencyKey;
+        return UUID.nameUUIDFromBytes(material.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static String actionFor(PayrollLifecycle target) {
