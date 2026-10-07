@@ -385,12 +385,10 @@ class PayrollLifecyclePostgresTest {
         assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
                 .isEqualTo(2);
 
-        String payload = query("""
-                SELECT payload::text
-                  FROM hr_domain_event_outbox
-                 WHERE aggregate_id = '""" + runId + """'
-                   AND event_type = 'HRM.PAYROLL.RECALCULATED.v1'
-                """);
+        String payload = query(
+                "SELECT payload::text FROM hr_domain_event_outbox "
+                        + "WHERE aggregate_id = '" + runId + "' "
+                        + "AND event_type = 'HRM.PAYROLL.RECALCULATED.v1'");
         assertThat(payload)
                 .contains("CALCULATED")
                 .doesNotContain("baseAmount")
