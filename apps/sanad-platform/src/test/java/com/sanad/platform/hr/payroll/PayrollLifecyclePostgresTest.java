@@ -8,9 +8,11 @@ import com.sanad.platform.hr.audit.HrTransactionalEvidenceWriter;
 import com.sanad.platform.hr.audit.JdbcHrAuditRepository;
 import com.sanad.platform.hr.idempotency.JdbcHrRequestIdempotencyService;
 import com.sanad.platform.hr.integration.JdbcHrEvidenceWriter;
+import com.sanad.platform.hr.integration.JdbcHrOutboxRepository;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycle;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycleService;
 import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
+import com.sanad.platform.integration.events.DomainEventEnvelope;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
@@ -23,6 +25,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -146,6 +149,58 @@ class PayrollLifecyclePostgresTest {
     }
 
     @Test
+    void sameIdempotencyKeyWithDifferentFingerprintFailsClosed() throws Exception {
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
+        HrAuthenticatedContext actor = actor(tenantId);
+
+        service.transition(actor, runId, PayrollLifecycle.CALCULATED, 0,
+                "T5_CALCULATE", "key-fingerprint", "fp-one");
+
+        assertThatThrownBy(() -> service.transition(
+                actor, runId, PayrollLifecycle.CALCULATED, 0,
+                "T5_CALCULATE", "key-fingerprint", "fp-two"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HRM_IDEMPOTENCY_CONFLICT");
+
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'key-fingerprint'"))
+                .isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                .isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void governedLifecyclePersistsReviewerApproverAndExportEvidence() throws Exception {
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
+        HrAuthenticatedContext actor = actor(tenantId);
+
+        service.transition(actor, runId, PayrollLifecycle.CALCULATED, 0,
+                "CALCULATE", "key-life-1", "fp-life-1");
+        service.transition(actor, runId, PayrollLifecycle.REVIEWED, 1,
+                "REVIEW", "key-life-2", "fp-life-2");
+        service.transition(actor, runId, PayrollLifecycle.APPROVED, 2,
+                "APPROVE", "key-life-3", "fp-life-3");
+        service.transition(actor, runId, PayrollLifecycle.EXPORTED, 3,
+                "EXPORT", "key-life-4", "fp-life-4");
+
+        assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("EXPORTED");
+        assertThat(query("SELECT version::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("4");
+        assertThat(query("SELECT reviewed_by::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo(actorId.toString());
+        assertThat(query("SELECT approved_by::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo(actorId.toString());
+        assertThat(query("SELECT (exported_at IS NOT NULL)::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("true");
+        assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                .isEqualTo(4);
+        assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                .isEqualTo(4);
+    }
+
+    @Test
     void staleVersionFailsClosedAndLeavesNoPartialIdempotencyEvidence() throws Exception {
         PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
         HrAuthenticatedContext actor = actor(tenantId);
@@ -181,22 +236,54 @@ class PayrollLifecyclePostgresTest {
     }
 
     @Test
-    void outboxFailureRollsBackMutationAuditAndIdempotency() throws Exception {
+    void auditFailureRollsBackMutationAndIdempotency() throws Exception {
+        HrTransactionalEvidenceWriter failingAudit = (c, audit, event) -> {
+            throw new IllegalStateException("INJECTED_T5_AUDIT_FAILURE");
+        };
+        PayrollLifecycleService service = service(failingAudit);
+
+        assertThatThrownBy(() -> service.transition(
+                actor(tenantId), runId, PayrollLifecycle.CALCULATED, 0,
+                "AUDIT_ROLLBACK_PROBE", "key-audit-rollback", "fp-audit-rollback"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("INJECTED_T5_AUDIT_FAILURE");
+
+        assertPristine();
+    }
+
+    @Test
+    void outboxDatabaseFailureAfterAuditRollsBackEverything() throws Exception {
         HrAuditService auditService = new HrAuditService(
                 dataSource,
                 new HrRedactionGuard(),
                 new JdbcHrAuditRepository(new HrRedactionGuard()));
-        HrTransactionalEvidenceWriter failingEvidence = (c, audit, event) -> {
+        JdbcHrOutboxRepository outbox = new JdbcHrOutboxRepository();
+        ObjectMapper mapper = new ObjectMapper();
+
+        HrTransactionalEvidenceWriter failingOutbox = (c, audit, event) -> {
             auditService.appendMutationAudit(c, audit);
-            throw new IllegalStateException("INJECTED_T5_OUTBOX_FAILURE");
+            var forbidden = mapper.createObjectNode();
+            forbidden.put("bank_account", "MUST_BE_REJECTED");
+            DomainEventEnvelope poisoned = new DomainEventEnvelope(
+                    event.eventId(), event.eventType(), event.eventVersion(),
+                    event.aggregateType(), event.aggregateId(), event.tenantId(),
+                    event.organizationId(), event.actorUserId(), event.occurredAt(),
+                    event.correlationId(), event.causationId(), event.idempotencyKey(),
+                    event.dataClassification(), forbidden);
+            try {
+                outbox.append(c, poisoned);
+            } catch (SQLException e) {
+                throw new IllegalStateException("INJECTED_T5_OUTBOX_FAILURE", e);
+            }
         };
-        PayrollLifecycleService service = service(failingEvidence);
+
+        PayrollLifecycleService service = service(failingOutbox);
 
         assertThatThrownBy(() -> service.transition(
                 actor(tenantId), runId, PayrollLifecycle.CALCULATED, 0,
-                "ROLLBACK_PROBE", "key-rollback", "fp-rollback"))
+                "OUTBOX_ROLLBACK_PROBE", "key-outbox-rollback", "fp-outbox-rollback"))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("HRM_PAYROLL_LIFECYCLE_FAILED");
+                .hasMessageContaining("INJECTED_T5_OUTBOX_FAILURE");
 
         assertPristine();
     }
