@@ -225,6 +225,8 @@ export const en: TranslationDictionary = {
   "workspace.sessionActive": "Active",
   "workspace.openControlPlane": "Open Control Plane",
   "workspace.openExecutive": "Executive Management",
+  "workspace.openSubscriptions": "Subscriptions & Billing",
+  "workspace.subscriptionsDescription": "Manage plans, subscriptions, entitlements, usage, billing, and provisioning.",
   "workspace.executiveDescription": "Tenant management, plans, subscriptions, and billing.",
   "workspace.openSystemHealth": "System Health",
   "workspace.systemHealthDescription": "Infrastructure monitoring, diagnostics, and system status.",
