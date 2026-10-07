@@ -49,3 +49,39 @@
     flex: 1 1 160px;
   }
 }
+
+
+.headerLauncher {
+  display: inline-flex;
+  align-items: center;
+}
+
+.headerTrigger {
+  min-height: 36px;
+  gap: var(--snad-space-2, 8px);
+  white-space: nowrap;
+}
+
+.triggerIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 18px;
+  block-size: 18px;
+  flex: 0 0 18px;
+}
+
+.triggerIcon svg {
+  inline-size: 18px;
+  block-size: 18px;
+}
+
+:global(body:has([data-snad-module-shell="true"])) .launcher {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .headerTrigger > span:last-child {
+    display: none;
+  }
+}
