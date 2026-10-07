@@ -50,7 +50,7 @@ set_output_var() {
 
 ME=$(get_json "$API_V1/auth/me" "Read Tenant B admin capability set")
 for capability in \
-  USER.CREATE USER.WRITE ORGANIZATION.READ \
+  USER.CREATE USER.WRITE ORGANIZATION.READ ORGANIZATION.WRITE \
   HRM.EMPLOYEE.VIEW HRM.EMPLOYEE.CREATE HRM.EMPLOYEE.UPDATE \
   HRM.USER_LINK.MANAGE HRM.ASSIGNMENT.VIEW HRM.ASSIGNMENT.MANAGE; do
   if ! echo "$ME" | jq -e --arg cap "$capability" '.capabilities // [] | index($cap) != null' >/dev/null; then
@@ -68,13 +68,51 @@ G2_ORGANIZATION_ID=$(echo "$ORGANIZATIONS" | jq -r '.[] | select(.status == "ACT
 set_output_var G2_ORGANIZATION_ID "$G2_ORGANIZATION_ID"
 
 # Resolve the production Legal Entity from the canonical Organization -> Legal Entity link.
-# This is the bootstrap-safe path: it does not depend on an Employment already existing,
-# does not invent identifiers, and remains tenant-scoped by the authenticated API.
-EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE" "Resolve canonical G2 employer context")
+# Legacy production tenants may predate organization_legal_entities. In that exact case,
+# use the governed bootstrap mutation. The server only creates a link when the Organization
+# belongs to this tenant and there is exactly one ACTIVE Legal Entity; ambiguity remains blocked.
+EMPLOYER_CONTEXT_BODY=/tmp/g2-employer-context.json
+EMPLOYER_CONTEXT_STATUS=$(curl --silent --show-error \
+  -o "$EMPLOYER_CONTEXT_BODY" -w '%{http_code}' \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE") || \
+  fail "Employer context lookup transport failure"
+
+if [ "$EMPLOYER_CONTEXT_STATUS" = "200" ]; then
+  EMPLOYER_CONTEXT=$(cat "$EMPLOYER_CONTEXT_BODY")
+  echo "G2_EMPLOYER_CONTEXT_SOURCE=EXISTING_LINK"
+elif [ "$EMPLOYER_CONTEXT_STATUS" = "409" ]; then
+  echo "G2_EMPLOYER_CONTEXT_LOOKUP=UNRESOLVED; attempting governed bootstrap"
+  cat "$EMPLOYER_CONTEXT_BODY" | jq . 2>/dev/null || true
+
+  BOOTSTRAP_BODY=/tmp/g2-employer-bootstrap.json
+  BOOTSTRAP_STATUS=$(curl --silent --show-error \
+    -o "$BOOTSTRAP_BODY" -w '%{http_code}' \
+    -X POST \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity/bootstrap?effectiveDate=$G2_EMPLOYMENT_START_DATE") || \
+    fail "Employer context bootstrap transport failure"
+
+  if [ "$BOOTSTRAP_STATUS" != "200" ]; then
+    cat "$BOOTSTRAP_BODY" | jq . 2>/dev/null || true
+    fail "Governed employer context bootstrap failed (HTTP $BOOTSTRAP_STATUS)"
+  fi
+  EMPLOYER_CONTEXT=$(cat "$BOOTSTRAP_BODY")
+  echo "G2_EMPLOYER_CONTEXT_SOURCE=GOVERNED_BOOTSTRAP"
+else
+  cat "$EMPLOYER_CONTEXT_BODY" | jq . 2>/dev/null || true
+  fail "Employer context lookup failed (HTTP $EMPLOYER_CONTEXT_STATUS)"
+fi
+
 G2_LEGAL_ENTITY_ID=$(echo "$EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
 [ -n "$G2_LEGAL_ENTITY_ID" ] && [ "$G2_LEGAL_ENTITY_ID" != "null" ] || fail "Employer context response has no legalEntityId"
 [[ "$G2_LEGAL_ENTITY_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "Resolved G2 Legal Entity id is not a UUID"
 set_output_var G2_LEGAL_ENTITY_ID "$G2_LEGAL_ENTITY_ID"
+
+# Final canonical read proves the effective link exists after an optional bootstrap.
+VERIFY_EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE" "Verify canonical G2 employer context")
+VERIFY_LEGAL_ENTITY_ID=$(echo "$VERIFY_EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
+[ "$VERIFY_LEGAL_ENTITY_ID" = "$G2_LEGAL_ENTITY_ID" ] || fail "Employer context verification returned a different legalEntityId"
 echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK"
 
 ensure_person() {
