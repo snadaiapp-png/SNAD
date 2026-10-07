@@ -9,6 +9,7 @@ import { usersApi, type UserLifecycleAction, type UserResponse } from "@/lib/api
 import { createTenantAuthApi } from "@/lib/api/auth";
 import {
   tenantAccessApi,
+  type CapabilityResponse,
   type RoleResponse,
   type UserRoleLinkResponse,
 } from "@/lib/api/tenant-access";
@@ -16,6 +17,14 @@ import type { OrganizationMembershipResponse } from "@/lib/api/memberships";
 import { effectivePermissions, type EffectivePermission } from "@/lib/api/access-api";
 import { toUserFacingError, type UserFacingError } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import {
+  capabilityDisplayName,
+  effectDisplayName,
+  roleDisplayName,
+  scopeDisplayName,
+  sourceDisplayName,
+  statusDisplayName,
+} from "@/lib/i18n/iam-display-l10n";
 import { usersMessages } from "@/lib/i18n/users-l10n";
 import { UserLifecycleActions } from "../_components/UserLifecycleActions";
 import styles from "./user-detail.module.css";
@@ -51,6 +60,7 @@ export default function TenantUserDetailPage() {
   const canArchive = capabilities.includes("USER.DELETE");
   const canReadMemberships = capabilities.includes("MEMBERSHIP.READ");
   const canReadRoles = capabilities.includes("ROLE.READ");
+  const canReadCapabilities = capabilities.includes("CAPABILITY.READ");
   const canGrantRole = capabilities.includes("USER.GRANT_ROLE");
   const canRevokeRole = capabilities.includes("USER.REVOKE_ROLE");
   const dataScopeKey = `${tenantId ?? "none"}:${userId}:${canRead ? "read" : "deny"}:${canReadMemberships ? "memberships" : "no-memberships"}:${canReadRoles ? "roles" : "no-roles"}`;
@@ -60,6 +70,7 @@ export default function TenantUserDetailPage() {
   const [memberships, setMemberships] = useState<OrganizationMembershipResponse[]>([]);
   const [roleLinks, setRoleLinks] = useState<UserRoleLinkResponse[]>([]);
   const [roles, setRoles] = useState<RoleResponse[]>([]);
+  const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityResponse[]>([]);
   const [effectiveAccess, setEffectiveAccess] = useState<EffectivePermission[]>([]);
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
@@ -104,6 +115,7 @@ export default function TenantUserDetailPage() {
     setMemberships([]);
     setRoleLinks([]);
     setRoles([]);
+    setCapabilityRegistry([]);
     setEffectiveAccess([]);
     setLoading(true);
     setError(null);
@@ -112,11 +124,12 @@ export default function TenantUserDetailPage() {
       return;
     }
     try {
-      const [userResult, membershipResult, linkResult, roleResult, effectiveResult] = await Promise.all([
+      const [userResult, membershipResult, linkResult, roleResult, capabilityResult, effectiveResult] = await Promise.all([
         usersApi.get(tenantId, userId),
         canReadMemberships ? tenantAccessApi.listUserMemberships(userId) : Promise.resolve([]),
         canReadRoles ? tenantAccessApi.listUserRoleLinks(tenantId, userId) : Promise.resolve([]),
         canReadRoles ? tenantAccessApi.listRoles(tenantId) : Promise.resolve([]),
+        canReadCapabilities ? tenantAccessApi.listCapabilities() : Promise.resolve([]),
         canReadRoles ? effectivePermissions(userId) : Promise.resolve([]),
       ]);
       if (sequence !== loadSequenceRef.current) return;
@@ -129,6 +142,7 @@ export default function TenantUserDetailPage() {
       setMemberships(membershipResult);
       setRoleLinks(linkResult);
       setRoles(roleResult);
+      setCapabilityRegistry(capabilityResult);
       setEffectiveAccess(effectiveResult);
       setSelectedRoleId((currentRoleId) =>
         currentRoleId && roleResult.some((role) => role.id === currentRoleId)
@@ -144,7 +158,7 @@ export default function TenantUserDetailPage() {
         setLoading(false);
       }
     }
-  }, [canRead, canReadMemberships, canReadRoles, dataScopeKey, tenantId, userId]);
+  }, [canRead, canReadCapabilities, canReadMemberships, canReadRoles, dataScopeKey, tenantId, userId]);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
@@ -169,6 +183,11 @@ export default function TenantUserDetailPage() {
       setBusy(false);
     }
   };
+
+  const capabilityById = useMemo(
+    () => new Map(capabilityRegistry.map((capability) => [capability.id, capability])),
+    [capabilityRegistry],
+  );
 
   const organizationOptions = useMemo(() => {
     // Organization scope choices are derived exclusively from the user's
@@ -421,7 +440,7 @@ export default function TenantUserDetailPage() {
 
             {canReadMemberships ? <section className={styles.card} aria-labelledby="user-memberships-heading" data-testid="management-user-memberships">
               <h2 id="user-memberships-heading">{t("management.users.detail.memberships")}</h2>
-              {memberships.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.noMemberships")}</p> : <ul className={styles.list}>{memberships.map((membership) => <li className={styles.listItem} key={membership.id}>{membership.displayName || membership.email} — {membership.status}</li>)}</ul>}
+              {memberships.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.noMemberships")}</p> : <ul className={styles.list}>{memberships.map((membership) => <li className={styles.listItem} key={membership.id}>{membership.displayName || membership.email} — {statusDisplayName(membership.status, locale)}</li>)}</ul>}
             </section> : null}
 
             {canReadRoles ? <section className={styles.card} aria-labelledby="user-roles-heading" data-testid="management-user-roles">
@@ -429,7 +448,7 @@ export default function TenantUserDetailPage() {
               {roleLinks.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.noRoles")}</p> : (
                 <ul className={styles.list}>{roleLinks.map((link) => (
                   <li className={styles.roleItem} key={link.id}>
-                    <span>{link.roleCode}</span>
+                    <span>{roleDisplayName(link.roleCode, roles.find((role) => role.id === link.roleId)?.name, locale)} <code dir="ltr">{link.roleCode}</code></span>
                     <span>{link.organizationId ? t("management.users.detail.scopeOrganizationLabel") : t("management.users.detail.scopeTenantLabel")}</span>
                     {canRevokeRole ? <button type="button" disabled={busy} onClick={() => requestRevoke(link)}>{t("management.users.detail.revoke")}</button> : null}
                   </li>
@@ -440,7 +459,7 @@ export default function TenantUserDetailPage() {
                   <label>
                     {t("management.users.detail.role")}
                     <select aria-label={t("management.users.detail.role")} value={selectedRoleId} onChange={(event) => setSelectedRoleId(event.target.value)}>
-                      {roles.map((role) => <option key={role.id} value={role.id}>{role.code}</option>)}
+                      {roles.map((role) => <option key={role.id} value={role.id}>{roleDisplayName(role.code, role.name, locale)}</option>)}
                     </select>
                   </label>
                   <label>
@@ -483,11 +502,22 @@ export default function TenantUserDetailPage() {
               {effectiveAccess.length === 0 ? <p className={styles.emptyState}>{t("management.users.detail.effectiveAccessEmpty")}</p> : (
                 <ul className={styles.accessList}>{effectiveAccess.map((perm) => (
                   <li className={styles.accessItem} key={`${perm.capabilityId}-${perm.effect}-${perm.scopeType}-${perm.scopeReference ?? ""}-${perm.source}`}>
-                    {perm.capabilityId} — {perm.scopeType}{perm.scopeReference ? ` (${perm.scopeReference})` : ""} — {perm.source}
-                    {" "}
+                    <strong>
+                      {capabilityDisplayName(
+                        capabilityById.get(perm.capabilityId)?.code ?? perm.capabilityId,
+                        capabilityById.get(perm.capabilityId)?.name,
+                        locale,
+                      )}
+                    </strong>
+                    {" — "}
+                    {scopeDisplayName(perm.scopeType, locale)}
+                    {perm.scopeReference ? ` (${perm.scopeReference})` : ""}
+                    {" — "}
+                    {sourceDisplayName(perm.source, locale)}
+                    {" — "}
                     {/* Backend-authoritative effect: the frontend never computes
                         authorization outcomes or deny precedence itself. */}
-                    <strong data-testid="effective-access-effect">{perm.effect}</strong>
+                    <strong data-testid="effective-access-effect">{effectDisplayName(perm.effect, locale)}</strong>
                     {perm.matchedRoleId ? (
                       <>
                         {" "}— {t("management.users.detail.effectiveAccessRoleOrigin")}: {perm.matchedRoleId}
@@ -512,7 +542,7 @@ export default function TenantUserDetailPage() {
             <dl>
               <div>
                 <dt>{t("management.users.detail.role")}</dt>
-                <dd>{pendingRevoke.roleCode}</dd>
+                <dd>{roleDisplayName(pendingRevoke.roleCode, undefined, locale)}</dd>
               </div>
               <div>
                 <dt>{t("management.users.detail.scope")}</dt>
