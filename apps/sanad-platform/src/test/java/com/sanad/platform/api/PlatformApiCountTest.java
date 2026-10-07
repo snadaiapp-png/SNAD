@@ -114,8 +114,11 @@ class PlatformApiCountTest {
      *  GET /api/v1/executive/billing/provider/readiness = 1004.
      *  + 1 G2 bootstrap-safe employer-context resolver
      *  (GET /api/v1/organizations/{organizationId}/legal-entity,
-     *  ORGANIZATION.READ-gated, tenant derived from authenticated context) = 1005. */
-    private static final long EXPECTED_TOTAL_OPS = 1005;
+     *  ORGANIZATION.READ-gated, tenant derived from authenticated context) = 1005.
+     *  + 1 governed legacy employer-context bootstrap
+     *  (POST /api/v1/organizations/{organizationId}/legal-entity/bootstrap,
+     *  ORGANIZATION.WRITE-gated, exact-tenant + single-ACTIVE-LE fail-closed) = 1006. */
+    private static final long EXPECTED_TOTAL_OPS = 1006;
     private static final long EXPECTED_HRM_V2_OPS = 145;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -143,6 +146,8 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/management/modules/status", "get")).isTrue();
         assertThat(has(paths, "/api/v1/auth/change-credential", "post")).isTrue();
         assertThat(has(paths, "/api/v1/auth/admin-initialize-credential/{userId}", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/organizations/{organizationId}/legal-entity", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/organizations/{organizationId}/legal-entity/bootstrap", "post")).isTrue();
         assertThat(has(paths, "/api/v1/users/{userId}/application-access", "get")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/access/effective-permissions", "get")).isTrue();
