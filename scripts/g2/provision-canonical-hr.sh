@@ -67,9 +67,11 @@ G2_ORGANIZATION_ID=$(echo "$ORGANIZATIONS" | jq -r '.[] | select(.status == "ACT
 [ -n "$G2_ORGANIZATION_ID" ] && [ "$G2_ORGANIZATION_ID" != "null" ] || fail "Active organization has no id"
 set_output_var G2_ORGANIZATION_ID "$G2_ORGANIZATION_ID"
 
-G2_LEGAL_ENTITY_ID=$(TID="$G2_TENANT_ID" python3 -c 'import os,uuid; print(uuid.uuid5(uuid.UUID(os.environ["TID"]), "auth-smoke-legal-entity"))')
+EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE" "Resolve active G2 legal entity")
+G2_LEGAL_ENTITY_ID=$(echo "$EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
+[ -n "$G2_LEGAL_ENTITY_ID" ] && [ "$G2_LEGAL_ENTITY_ID" != "null" ] || fail "Employer context response has no legalEntityId"
 set_output_var G2_LEGAL_ENTITY_ID "$G2_LEGAL_ENTITY_ID"
-echo "G2_EMPLOYER_CONTEXT=RESOLVED_DETERMINISTICALLY"
+echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_CANONICAL_LINK"
 
 ensure_person() {
   local label="$1" user_id="$2" last_name="$3" out_var="$4"
