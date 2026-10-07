@@ -190,6 +190,8 @@ class PayrollLifecyclePostgresTest {
                 .isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
                 .isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'k2'"))
+                .isZero();
     }
 
     @Test
@@ -221,6 +223,54 @@ class PayrollLifecyclePostgresTest {
                 "idem-conflict", "fingerprint-b"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("HRM_IDEMPOTENCY_CONFLICT");
+    }
+
+    @Test
+    void sameIdempotencyKeyAndFingerprintAcrossDifferentRunFailsClosed() throws Exception {
+        service.transition(
+                context(), runId, PayrollRunStatus.CALCULATED, 0L,
+                "shared-key", "shared-raw-fingerprint");
+
+        UUID secondRun = UUID.randomUUID();
+        seedRun(secondRun, "DRAFT", 0L);
+
+        assertThatThrownBy(() -> service.transition(
+                context(), secondRun, PayrollRunStatus.CALCULATED, 0L,
+                "shared-key", "shared-raw-fingerprint"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HRM_IDEMPOTENCY_CONFLICT");
+
+        assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + secondRun + "'"))
+                .isEqualTo("DRAFT");
+    }
+
+    @Test
+    void concurrentSameIdempotencyKeyProducesOneMutationAndOneReplay() throws Exception {
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            Callable<PayrollLifecycleService.LifecycleResult> command = () ->
+                    service.transition(
+                            context(), runId, PayrollRunStatus.CALCULATED, 0L,
+                            "same-concurrent-key", "same-concurrent-fingerprint");
+
+            Future<PayrollLifecycleService.LifecycleResult> first = pool.submit(command);
+            Future<PayrollLifecycleService.LifecycleResult> second = pool.submit(command);
+
+            var firstResult = first.get();
+            var secondResult = second.get();
+
+            assertThat(secondResult).isEqualTo(firstResult);
+            assertThat(query("SELECT version::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                    .isEqualTo("1");
+            assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                    .isEqualTo(1);
+            assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                    .isEqualTo(1);
+            assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'same-concurrent-key'"))
+                    .isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
@@ -415,6 +465,10 @@ class PayrollLifecyclePostgresTest {
     }
 
     private void seedRun(String status, long version) throws Exception {
+        seedRun(runId, status, version);
+    }
+
+    private void seedRun(UUID id, String status, long version) throws Exception {
         execute("""
                 INSERT INTO hr_payroll_runs (
                     id,tenant_id,legal_entity_id,period_start,period_end,
@@ -422,7 +476,7 @@ class PayrollLifecyclePostgresTest {
                 ) VALUES (?, ?, ?, DATE '2026-10-01', DATE '2026-10-31',
                           'SAR', ?, NOW(), ?, ?, NOW(), NOW())
                 """, ps -> {
-            ps.setObject(1, runId);
+            ps.setObject(1, id);
             ps.setObject(2, tenantId);
             ps.setObject(3, legalEntityId);
             ps.setString(4, status);
