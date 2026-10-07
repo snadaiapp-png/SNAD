@@ -59,11 +59,19 @@ public interface PayrollAuthoritativeInputPort {
 
     record TimesheetInput(
             UUID timesheetId,
+            LocalDate periodStart,
+            LocalDate periodEnd,
             int totalWorkedMinutes,
             int totalBreakMinutes,
             int version,
             Instant approvedAt
-    ) {}
+    ) {
+        public TimesheetInput {
+            if (periodEnd.isBefore(periodStart)) {
+                throw new IllegalArgumentException("HRM_PAYROLL_INPUT_PERIOD_INVALID");
+            }
+        }
+    }
 
     record LeaveInput(
             UUID requestId,
