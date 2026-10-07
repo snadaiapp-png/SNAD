@@ -53,9 +53,7 @@ export default function TenantUserDetailPage() {
   const canGrantRole = capabilities.includes("USER.GRANT_ROLE");
   const canRevokeRole = capabilities.includes("USER.REVOKE_ROLE");
   const dataScopeKey = `${tenantId ?? "none"}:${userId}:${canRead ? "read" : "deny"}:${canReadMemberships ? "memberships" : "no-memberships"}:${canReadRoles ? "roles" : "no-roles"}`;
-  const activeDataScopeRef = useRef(dataScopeKey);
   const loadSequenceRef = useRef(0);
-  activeDataScopeRef.current = dataScopeKey;
 
   const [target, setTarget] = useState<UserResponse | null>(null);
   const [memberships, setMemberships] = useState<OrganizationMembershipResponse[]>([]);
@@ -97,8 +95,6 @@ export default function TenantUserDetailPage() {
   }, [tenantId]);
 
   const load = useCallback(async () => {
-    const requestedScope = dataScopeKey;
-    if (activeDataScopeRef.current !== requestedScope) return;
     const sequence = ++loadSequenceRef.current;
 
     // Fail closed across actor/tenant/user/capability transitions: never keep
@@ -122,7 +118,7 @@ export default function TenantUserDetailPage() {
         canReadRoles ? tenantAccessApi.listRoles(tenantId) : Promise.resolve([]),
         canReadRoles ? effectivePermissions(userId) : Promise.resolve([]),
       ]);
-      if (sequence !== loadSequenceRef.current || activeDataScopeRef.current !== requestedScope) return;
+      if (sequence !== loadSequenceRef.current) return;
       setTarget(userResult);
       setEmail(userResult.email);
       setUsername(userResult.username ?? "");
@@ -139,23 +135,28 @@ export default function TenantUserDetailPage() {
           : (roleResult[0]?.id ?? "")
       );
     } catch (caught) {
-      if (sequence === loadSequenceRef.current && activeDataScopeRef.current === requestedScope) {
+      if (sequence === loadSequenceRef.current) {
         setError(toUserFacingError(caught));
       }
     } finally {
-      if (sequence === loadSequenceRef.current && activeDataScopeRef.current === requestedScope) {
+      if (sequence === loadSequenceRef.current) {
         setLoading(false);
       }
     }
   }, [canRead, canReadMemberships, canReadRoles, dataScopeKey, tenantId, userId]);
 
   useEffect(() => {
-    if (state === "AUTHENTICATED") void load();
-  }, [load, state]);
+    if (state !== "AUTHENTICATED") return;
+    void load();
+    return () => {
+      // Invalidate any request started for the previous tenant/user/capability scope.
+      loadSequenceRef.current += 1;
+    };
+  }, [dataScopeKey, load, state]);
 
   const transitionUser = async (action: UserLifecycleAction) => {
     const permitted = action === "archive" ? canArchive : canWrite;
-    if (!target || !permitted) return;
+    if (!tenantId || !target || !permitted) return;
     setBusy(true);
     setError(null);
     try {
