@@ -128,6 +128,8 @@ class CanonicalHrPayrollInputAdapterTest {
         assertThat(first.contractVersionNumber()).isEqualTo(3);
         assertThat(first.compensationPackageVersion()).isEqualTo(4L);
         assertThat(first.timesheet().version()).isEqualTo(5);
+        assertThat(first.timesheet().periodStart()).isEqualTo(START);
+        assertThat(first.timesheet().periodEnd()).isEqualTo(END);
         assertThat(first.compensationComponents())
                 .extracting(PayrollAuthoritativeInputPort.CompensationComponentInput::code)
                 .containsExactly("BASE", "Z_ALLOWANCE");
