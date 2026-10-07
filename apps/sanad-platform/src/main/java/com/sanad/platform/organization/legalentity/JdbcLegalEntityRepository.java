@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -52,6 +53,26 @@ public class JdbcLegalEntityRepository implements LegalEntityRepository {
                 ),
                 tenantId, code
         ).stream().findFirst();
+    }
+
+    @Override
+    public List<LegalEntity> findActiveByTenantId(UUID tenantId) {
+        return jdbc.query(
+                "SELECT id, tenant_id, code, name, registered_country_code, statutory_country_code, status, created_at, updated_at " +
+                        "FROM legal_entities WHERE tenant_id = ? AND status = 'ACTIVE' ORDER BY id",
+                (rs, rowNum) -> new LegalEntity(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getString("code"),
+                        rs.getString("name"),
+                        rs.getString("registered_country_code"),
+                        rs.getString("statutory_country_code"),
+                        LegalEntityStatus.valueOf(rs.getString("status")),
+                        rs.getTimestamp("created_at").toInstant(),
+                        rs.getTimestamp("updated_at").toInstant()
+                ),
+                tenantId
+        );
     }
 
     @Override
