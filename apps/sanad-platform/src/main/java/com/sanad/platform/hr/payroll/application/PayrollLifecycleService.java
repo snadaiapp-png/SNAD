@@ -193,6 +193,153 @@ public class PayrollLifecycleService {
         }
     }
 
+    public TransitionResult recalculate(
+            HrAuthenticatedContext actor,
+            UUID payrollRunId,
+            long expectedVersion,
+            String reason,
+            String idempotencyKey,
+            String requestFingerprint) {
+
+        Objects.requireNonNull(actor, "actor");
+        Objects.requireNonNull(payrollRunId, "payrollRunId");
+        requireText(reason, "reason");
+        requireText(idempotencyKey, "idempotencyKey");
+        requireText(requestFingerprint, "requestFingerprint");
+
+        String operation = "HR.PAYROLL.RECALCULATE";
+
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                setTenantLocal(connection, actor.tenantId());
+
+                IdempotencyBeginResult begin = idempotency.begin(
+                        connection,
+                        actor.tenantId(),
+                        actor.actorUserId(),
+                        operation,
+                        idempotencyKey,
+                        requestFingerprint);
+
+                if (begin.alreadyExists()) {
+                    if (begin.priorStatus() == null || begin.priorResponse() == null) {
+                        throw new IllegalStateException(
+                                "HRM_IDEMPOTENCY_CONFLICT: payroll recalculation is still in flight");
+                    }
+                    TransitionResult replay = objectMapper.readValue(
+                            begin.priorResponse(), TransitionResult.class);
+                    connection.commit();
+                    return new TransitionResult(
+                            replay.payrollRunId(),
+                            replay.fromStatus(),
+                            replay.toStatus(),
+                            replay.version(),
+                            true);
+                }
+
+                JdbcPayrollLifecycleRepository.RunState current = repository
+                        .loadForUpdate(connection, actor.tenantId(), payrollRunId)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "HRM_PAYROLL_RUN_NOT_FOUND: " + payrollRunId));
+
+                if (current.version() != expectedVersion) {
+                    throw new IllegalStateException(
+                            "HRM_PAYROLL_VERSION_CONFLICT: expected="
+                                    + expectedVersion + ", actual=" + current.version());
+                }
+
+                PayrollLifecycle.requireRecalculationAllowed(current.status());
+
+                JdbcPayrollLifecycleRepository.RunState updated =
+                        repository.recalculate(connection, current);
+
+                Instant occurredAt = Instant.now();
+
+                ObjectNode before = objectMapper.createObjectNode();
+                before.put("status", current.status().name());
+                before.put("version", current.version());
+
+                ObjectNode after = objectMapper.createObjectNode();
+                after.put("status", updated.status().name());
+                after.put("version", updated.version());
+
+                HrAuditRecord audit = new HrAuditRecord(
+                        actor.tenantId(),
+                        actor.actorUserId(),
+                        "HRM.PAYROLL.RECALCULATED",
+                        AGGREGATE_TYPE,
+                        payrollRunId,
+                        null,
+                        current.legalEntityId(),
+                        CLASSIFICATION,
+                        reason,
+                        before,
+                        after,
+                        "SUCCESS",
+                        actor.correlationId(),
+                        actor.requestId(),
+                        occurredAt);
+
+                ObjectNode payload = objectMapper.createObjectNode();
+                payload.put("payrollRunId", payrollRunId.toString());
+                payload.put("status", updated.status().name());
+                payload.put("version", updated.version());
+
+                String eventType = "HRM.PAYROLL.RECALCULATED.v1";
+                DomainEventEnvelope event = new DomainEventEnvelope(
+                        deterministicEventId(actor.tenantId(), eventType, payrollRunId, idempotencyKey),
+                        eventType,
+                        1,
+                        AGGREGATE_TYPE,
+                        payrollRunId,
+                        actor.tenantId(),
+                        null,
+                        actor.actorUserId(),
+                        occurredAt,
+                        actor.correlationId(),
+                        actor.requestId(),
+                        idempotencyKey,
+                        "OPERATIONAL",
+                        payload);
+
+                evidenceWriter.writeEvidence(connection, audit, event);
+
+                TransitionResult result = new TransitionResult(
+                        payrollRunId,
+                        current.status(),
+                        updated.status(),
+                        updated.version(),
+                        false);
+
+                idempotency.complete(
+                        connection,
+                        begin.operationId(),
+                        200,
+                        objectMapper.writeValueAsString(result));
+
+                connection.commit();
+                return result;
+            } catch (Exception failure) {
+                rollbackQuietly(connection);
+                if (failure instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                throw new IllegalStateException(
+                        "HRM_PAYROLL_RECALCULATION_FAILED: " + failure.getMessage(), failure);
+            } finally {
+                try {
+                    connection.setAutoCommit(true);
+                } catch (SQLException ignored) {
+                    // connection close cleanup
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException(
+                    "HRM_PAYROLL_RECALCULATION_FAILED: " + e.getMessage(), e);
+        }
+    }
+
     private static UUID deterministicEventId(
             UUID tenantId, String eventType, UUID payrollRunId, String idempotencyKey) {
         String material = tenantId + "|" + eventType + "|" + payrollRunId + "|" + idempotencyKey;
