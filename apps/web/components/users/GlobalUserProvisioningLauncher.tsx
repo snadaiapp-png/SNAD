@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Button, Input } from "@/components/sds";
 import { Modal } from "@/components/sds/Modal";
@@ -100,27 +100,22 @@ export function GlobalUserProvisioningLauncher({
     reset();
   };
 
-  useEffect(() => {
-    if (!open || !tenantId) return;
-    let cancelled = false;
+  const openProvisioning = async () => {
+    if (!tenantId || busy) return;
+    setOpen(true);
     setContextLoading(true);
+    setProvisioningContext(null);
+    setSelectedRoleIds([]);
     setError(null);
-    usersApi.moduleProvisioningContext(tenantId, moduleContext)
-      .then((context) => {
-        if (cancelled) return;
-        setProvisioningContext(context);
-        setSelectedRoleIds([]);
-      })
-      .catch((caught) => {
-        if (!cancelled) setError(toUserFacingMessage(caught));
-      })
-      .finally(() => {
-        if (!cancelled) setContextLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, tenantId, moduleContext]);
+    try {
+      const context = await usersApi.moduleProvisioningContext(tenantId, moduleContext);
+      setProvisioningContext(context);
+    } catch (caught) {
+      setError(toUserFacingMessage(caught));
+    } finally {
+      setContextLoading(false);
+    }
+  };
 
   const toggleRole = (roleId: string) => {
     setSelectedRoleIds((current) =>
@@ -197,7 +192,7 @@ export function GlobalUserProvisioningLauncher({
     >
       <Button
         className={presentation === "header" ? styles.headerTrigger : styles.trigger}
-        onClick={() => setOpen(true)}
+        onClick={openProvisioning}
         aria-label={messages.create}
       >
         <span className={styles.triggerIcon} aria-hidden="true">
