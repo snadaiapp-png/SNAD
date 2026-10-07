@@ -39,7 +39,7 @@ class UserApplicationAccessProjectionServiceTest {
                 new ApplicationIamRegistration(
                         "FUTURE_LEDGER", "Future Ledger", "دفتر المستقبل", "ACTIVE", "1",
                         Set.of("FUTURE_LEDGER"), Set.of("TENANT"), Set.of("FUTURE_LEDGER.READ"),
-                        Set.of(), Map.of("routeRoots", List.of("future-ledger"))))));
+                        Set.of(), Map.of("routeRoots", List.of("future-ledger")))));
         when(accessRead.knownCapabilities()).thenReturn(Set.of("FUTURE_LEDGER.READ"));
         when(accessRead.effectiveCapabilityCodes(TENANT, USER)).thenReturn(Set.of("FUTURE_LEDGER.READ"));
         when(accessRead.activeRoleGrants(TENANT, USER)).thenReturn(List.of(
@@ -67,7 +67,7 @@ class UserApplicationAccessProjectionServiceTest {
                 new ApplicationIamRegistration(
                         "FUTURE_LEDGER", "Future Ledger", "دفتر المستقبل", "ACTIVE", "1",
                         Set.of("FUTURE_LEDGER"), Set.of("PLANETARY_CLUSTER"), Set.of("FUTURE_LEDGER.READ"),
-                        Set.of(), Map.of("routeRoots", List.of("future-ledger"))))));
+                        Set.of(), Map.of("routeRoots", List.of("future-ledger")))));
         when(accessRead.knownCapabilities()).thenReturn(Set.of("FUTURE_LEDGER.READ"));
         when(accessRead.effectiveCapabilityCodes(TENANT, USER)).thenReturn(Set.of("FUTURE_LEDGER.READ"));
         when(accessRead.activeRoleGrants(TENANT, USER)).thenReturn(List.of());
@@ -91,7 +91,7 @@ class UserApplicationAccessProjectionServiceTest {
                         "FUTURE_LEDGER", "Future Ledger", "دفتر المستقبل", "ACTIVE", "1",
                         Set.of("FUTURE_LEDGER"), Set.of("TENANT"),
                         Set.of("FUTURE_LEDGER.READ", "FUTURE_LEDGER.DOES_NOT_EXIST"),
-                        Set.of(), Map.of("routeRoots", List.of("future-ledger"))))));
+                        Set.of(), Map.of("routeRoots", List.of("future-ledger")))));
         when(accessRead.knownCapabilities()).thenReturn(Set.of("FUTURE_LEDGER.READ"));
         when(accessRead.effectiveCapabilityCodes(TENANT, USER)).thenReturn(Set.of("FUTURE_LEDGER.READ"));
         when(accessRead.activeRoleGrants(TENANT, USER)).thenReturn(List.of());
