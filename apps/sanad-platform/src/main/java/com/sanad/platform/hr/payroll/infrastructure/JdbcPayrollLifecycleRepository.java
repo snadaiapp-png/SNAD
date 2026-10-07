@@ -94,6 +94,40 @@ public class JdbcPayrollLifecycleRepository {
                 current.version() + 1);
     }
 
+    public RunState recalculate(
+            Connection connection,
+            RunState current) throws SQLException {
+
+        String sql = """
+                UPDATE hr_payroll_runs
+                   SET version = version + 1,
+                       updated_at = NOW()
+                 WHERE id = ?
+                   AND tenant_id = ?
+                   AND status = 'CALCULATED'
+                   AND version = ?
+                """;
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setObject(1, current.id());
+            ps.setObject(2, current.tenantId());
+            ps.setLong(3, current.version());
+
+            int updated = ps.executeUpdate();
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "HRM_PAYROLL_VERSION_CONFLICT: payroll run changed concurrently");
+            }
+        }
+
+        return new RunState(
+                current.id(),
+                current.tenantId(),
+                current.legalEntityId(),
+                PayrollLifecycle.CALCULATED,
+                current.version() + 1);
+    }
+
     private void setNullableUuid(PreparedStatement ps, int index, UUID value) throws SQLException {
         if (value == null) {
             ps.setNull(index, Types.OTHER);
