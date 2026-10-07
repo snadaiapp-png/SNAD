@@ -463,7 +463,7 @@ describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
     },
   ];
 
-  it("renders the backend effect and canonical reason on role-derived rows", async () => {
+  it("renders the localized backend effect and canonical reason on role-derived rows", async () => {
     accessApiMock.effectivePermissions.mockResolvedValue([
       { ...effectiveRowsBase[0], effect: "ALLOW", reason: "ROLE_CAPABILITY_MATCH" },
     ]);
@@ -472,7 +472,7 @@ describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
     const surface = await screen.findByTestId("management-user-effective-access");
     // Backend-authoritative effect and reason must be visible without any
     // frontend authorization computation.
-    expect(surface).toHaveTextContent("ALLOW");
+    expect(surface).toHaveTextContent("سماح");
     expect(surface).toHaveTextContent("ROLE_CAPABILITY_MATCH");
   });
 
@@ -489,9 +489,9 @@ describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
     render(<TenantUserDetailPage />);
     await screen.findByText("سالم العتيبي");
     const surface = await screen.findByTestId("management-user-effective-access");
-    expect(surface).toHaveTextContent("DENY");
+    expect(surface).toHaveTextContent("منع");
     expect(surface).toHaveTextContent("EXPLICIT_DIRECT_DENY");
-    expect(surface).toHaveTextContent("OVERRIDE");
+    expect(surface).toHaveTextContent("استثناء مباشر");
   });
 
   it("renders role origin and break-glass provenance exactly as returned by the backend", async () => {
@@ -513,7 +513,7 @@ describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
     await screen.findByText("سالم العتيبي");
     const surface = await screen.findByTestId("management-user-effective-access");
     expect(surface).toHaveTextContent(ROLE_ID);
-    expect(surface).toHaveTextContent("BREAK_GLASS");
+    expect(surface).toHaveTextContent("وصول طارئ");
     expect(surface).toHaveTextContent("EXPLICIT_ALLOW_MATCH");
   });
 
