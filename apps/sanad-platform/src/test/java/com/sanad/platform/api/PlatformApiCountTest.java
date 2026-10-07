@@ -132,7 +132,7 @@ class PlatformApiCountTest {
     void platformPublishesExpectedOperations() throws Exception {
         String body = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         JsonNode paths = objectMapper.readTree(body).path("paths");
-        assertThat(count(paths, "/api/v1/users")).isEqualTo(10);
+        assertThat(count(paths, "/api/v1/users")).isEqualTo(11);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(28);
         assertThat(count(paths, "/api/v1/executive")).isEqualTo(127);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
