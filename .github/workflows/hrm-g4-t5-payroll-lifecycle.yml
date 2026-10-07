@@ -52,6 +52,8 @@ jobs:
           SQL
           sudo -u postgres dropdb --if-exists sanad
           sudo -u postgres createdb -O sanad sanad
+          sudo -u postgres dropdb --if-exists test_migration
+          sudo -u postgres createdb -O sanad test_migration
 
       - name: Run T5 unit and PostgreSQL Direct lifecycle contracts
         working-directory: apps/sanad-platform
