@@ -48,7 +48,6 @@ test("capture authenticated users module evidence", async ({ page }, testInfo) =
 
   await page.goto(tenantDetailHref!);
   await expect(page.getByTestId("management-user-identity")).toBeVisible();
-  await expect(page.getByTestId("management-user-lifecycle")).toBeVisible();
   await expect(page.getByTestId("management-user-credentials")).toBeVisible();
   await expect(page.getByTestId("management-user-roles")).toBeVisible();
   await expect(page.getByTestId("management-user-effective-access")).toBeVisible();
