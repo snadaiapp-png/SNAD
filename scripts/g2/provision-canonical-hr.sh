@@ -12,9 +12,10 @@ done
 
 API_V1="${BASE_URL%/}/api/v1"
 HR_API="${BASE_URL%/}/api/v2/hr"
-G2_EMPLOYMENT_START_DATE="2026-01-01"
-G2_ACTIVE_DATE="2026-01-02"
-G2_MANAGER_LINK_DATE="2026-01-03"
+G2_EFFECTIVE_DATE="${G2_EFFECTIVE_DATE:-$(date -u +%F)}"
+G2_EMPLOYMENT_START_DATE="$G2_EFFECTIVE_DATE"
+G2_ACTIVE_DATE="$G2_EFFECTIVE_DATE"
+G2_MANAGER_LINK_DATE="$G2_EFFECTIVE_DATE"
 
 get_json() {
   local url="$1" label="$2" response
@@ -68,9 +69,10 @@ G2_ORGANIZATION_ID=$(echo "$ORGANIZATIONS" | jq -r '.[] | select(.status == "ACT
 set_output_var G2_ORGANIZATION_ID "$G2_ORGANIZATION_ID"
 
 # Resolve the production Legal Entity from the canonical Organization -> Legal Entity link.
-# This is the bootstrap-safe path: it does not depend on an Employment already existing,
-# does not invent identifiers, and remains tenant-scoped by the authenticated API.
-EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE" "Resolve canonical G2 employer context")
+# Use the deployment-time effective date rather than a historical synthetic date: the
+# production tenant may have a valid ACTIVE Organization↔Legal Entity link that began
+# after the old fixed QA date. This remains bootstrap-safe, tenant-scoped and fail-closed.
+EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE" "Resolve canonical G2 employer context")
 G2_LEGAL_ENTITY_ID=$(echo "$EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
 [ -n "$G2_LEGAL_ENTITY_ID" ] && [ "$G2_LEGAL_ENTITY_ID" != "null" ] || fail "Employer context response has no legalEntityId"
 [[ "$G2_LEGAL_ENTITY_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "Resolved G2 Legal Entity id is not a UUID"
