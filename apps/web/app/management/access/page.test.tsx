@@ -88,7 +88,7 @@ const ROLES = [{
   id: ROLE_ID,
   tenantId: TENANT_ID,
   code: "TENANT_ADMIN",
-  name: "Tenant Admin",
+  name: "مسؤول المستأجر",
   description: "Tenant administrators",
   status: "ACTIVE",
   createdAt: "2026-01-01T00:00:00Z",
@@ -128,7 +128,8 @@ describe("Tenant Roles and Capabilities", () => {
     expect(await screen.findByRole("heading", { name: "إدارة الوصول" })).toBeInTheDocument();
     expect(accessApiMock.listRoles).toHaveBeenCalledWith(TENANT_ID);
     expect(accessApiMock.listCapabilities).toHaveBeenCalledWith();
-    expect(screen.getByText("Tenant Admin")).toBeInTheDocument();
+    expect(screen.getByText("مسؤول المستأجر")).toBeInTheDocument();
+    expect(screen.getByText("عرض المستخدمين")).toBeInTheDocument();
     expect(screen.getByText("USER.READ")).toBeInTheDocument();
     expect(screen.queryByLabelText(/tenant|المستأجر|معرف المستأجر/i, { selector: "input, select, textarea" })).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(TENANT_ID)).not.toBeInTheDocument();
@@ -144,7 +145,7 @@ describe("Tenant Roles and Capabilities", () => {
     cleanup();
     authMock.capabilities = ["ROLE.READ", "CAPABILITY.READ"];
     render(<TenantAccessPage />);
-    expect(await screen.findByText("Tenant Admin")).toBeInTheDocument();
+    expect(await screen.findByText("مسؤول المستأجر")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "إنشاء دور" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "أرشفة الدور" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "إنشاء صلاحية" })).not.toBeInTheDocument();
@@ -157,7 +158,7 @@ describe("Tenant Roles and Capabilities", () => {
     accessApiMock.transitionRole.mockResolvedValue({ ...ROLES[0], status: "ARCHIVED" });
 
     render(<TenantAccessPage />);
-    await screen.findByText("Tenant Admin");
+    await screen.findByText("مسؤول المستأجر");
     await user.click(screen.getByRole("button", { name: "إنشاء دور" }));
     await user.type(screen.getByLabelText("رمز الدور"), "SUPPORT");
     await user.type(screen.getByLabelText("اسم الدور"), "Support");
@@ -169,7 +170,7 @@ describe("Tenant Roles and Capabilities", () => {
       description: null,
     }));
 
-    const roleRow = within(screen.getByText("Tenant Admin").closest("tr") as HTMLElement);
+    const roleRow = within(screen.getByText("مسؤول المستأجر").closest("tr") as HTMLElement);
     await user.click(roleRow.getByRole("button", { name: "أرشفة الدور" }));
     expect(window.confirm).toHaveBeenCalled();
     await waitFor(() => expect(accessApiMock.transitionRole).toHaveBeenCalledWith(TENANT_ID, ROLE_ID, "archive"));
@@ -190,8 +191,8 @@ describe("Tenant Roles and Capabilities", () => {
       .mockResolvedValueOnce([{ id: "grant-1", tenantId: TENANT_ID, roleId: ROLE_ID, capabilityId: CAPABILITY_ID, capabilityCode: "USER.READ", createdAt: "2026-01-01T00:00:00Z" }]);
 
     render(<TenantAccessPage />);
-    const roleRow = within((await screen.findByText("Tenant Admin")).closest("tr") as HTMLElement);
-    await user.click(roleRow.getByRole("button", { name: /Tenant Admin|إدارة صلاحيات الدور/i }));
+    const roleRow = within((await screen.findByText("مسؤول المستأجر")).closest("tr") as HTMLElement);
+    await user.click(roleRow.getByRole("button", { name: /مسؤول المستأجر|إدارة صلاحيات الدور/i }));
 
     await user.click(await screen.findByRole("button", { name: "إرفاق الصلاحية" }));
     await waitFor(() => expect(accessApiMock.attachRoleCapability).toHaveBeenCalledWith(TENANT_ID, ROLE_ID, CAPABILITY_ID));

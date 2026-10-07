@@ -136,6 +136,8 @@ public class CanonicalHrPayrollInputAdapter implements PayrollAuthoritativeInput
                 components,
                 new TimesheetInput(
                         timesheet.id(),
+                        timesheet.periodStart(),
+                        timesheet.periodEnd(),
                         timesheet.totalWorkedMinutes(),
                         timesheet.totalBreakMinutes(),
                         timesheet.version(),

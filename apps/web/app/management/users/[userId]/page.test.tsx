@@ -17,6 +17,19 @@ const { TENANT_ID, USER_ID, ROLE_ID, GRANT_ID, ORGANIZATION_ID, OTHER_TENANT_ID,
     "users.displayName": "الاسم المعروض",
     "users.mobileNumber": "رقم الجوال",
     "users.mobileRegion": "رمز المنطقة",
+    "users.forbidden": "لا تملك صلاحية عرض المستخدمين",
+    "users.activate": "تفعيل",
+    "users.deactivate": "تعطيل",
+    "users.suspend": "إيقاف مؤقت",
+    "users.archive": "أرشفة",
+    "users.actions": "الإجراءات",
+    "users.status": "الحالة",
+    "users.status.ACTIVE": "نشط",
+    "users.status.INACTIVE": "غير نشط",
+    "users.status.INVITED": "مدعو",
+    "users.status.SUSPENDED": "موقوف",
+    "users.status.ARCHIVED": "مؤرشف",
+    "users.close": "إغلاق",
     "management.users.detail.title": "تفاصيل المستخدم",
     "management.users.detail.save": "حفظ التعديلات",
     "management.users.detail.memberships": "عضويات المؤسسات",
@@ -105,6 +118,8 @@ beforeEach(() => {
   accessApiMock.resync.mockResolvedValue([]);
   userFacingErrorMock.toUserFacingMessage.mockImplementation(() => "تعذر تحميل بيانات المستخدم");
   userFacingErrorMock.toUserFacingError.mockImplementation(() => ({ title: "خطأ", message: "تعذر تحميل بيانات المستخدم", kind: "unknown" as const }));
+  authMock.state = "AUTHENTICATED";
+  authMock.user = { id: "actor-1", tenantId: TENANT_ID, email: "admin@example.com", displayName: "Admin", status: "ACTIVE" };
   authMock.capabilities = ["USER.READ", "USER.WRITE", "USER.DELETE", "MEMBERSHIP.READ", "ROLE.READ", "USER.GRANT_ROLE", "USER.REVOKE_ROLE"];
 });
 
@@ -119,6 +134,78 @@ describe("Tenant User Detail", () => {
     expect(tenantAccessApiMock.listUserRoleLinks).toHaveBeenCalledWith(TENANT_ID, USER_ID);
     expect(tenantAccessApiMock.listRoles).toHaveBeenCalledWith(TENANT_ID);
     expect(screen.queryByDisplayValue(TENANT_ID)).not.toBeInTheDocument();
+  });
+
+  it("fails closed without USER.READ and does not fetch user data", async () => {
+    authMock.capabilities = ["USER.WRITE", "USER.DELETE"];
+    render(<TenantUserDetailPage />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("لا تملك صلاحية عرض المستخدمين");
+    expect(usersApiMock.get).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("management-user-identity")).not.toBeInTheDocument();
+  });
+
+  it("executes lifecycle transitions from detail in the authenticated tenant", async () => {
+    const user = userEvent.setup();
+    usersApiMock.transition.mockResolvedValue({ ...USER, status: "SUSPENDED" });
+    render(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "إيقاف مؤقت" }));
+    await waitFor(() => expect(usersApiMock.transition).toHaveBeenCalledWith(TENANT_ID, USER_ID, "suspend"));
+    await waitFor(() => expect(usersApiMock.get).toHaveBeenCalledTimes(2));
+  });
+
+  it("gates archive independently from write lifecycle mutations", async () => {
+    authMock.capabilities = ["USER.READ", "USER.WRITE"];
+    render(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إيقاف مؤقت" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "أرشفة" })).not.toBeInTheDocument();
+  });
+
+  it("clears prior tenant data while a new tenant-scoped request is pending", async () => {
+    const { rerender } = render(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+
+    usersApiMock.get.mockImplementationOnce(() => new Promise(() => undefined));
+    authMock.user = { ...authMock.user, tenantId: OTHER_TENANT_ID };
+    rerender(<TenantUserDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("سالم العتيبي")).not.toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("جارٍ تحميل بيانات المستخدم");
+    });
+  });
+
+  it("does not misrepresent unread memberships or roles as empty data", async () => {
+    authMock.capabilities = ["USER.READ"];
+    render(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+    expect(screen.queryByTestId("management-user-memberships")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("management-user-roles")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("management-user-effective-access")).not.toBeInTheDocument();
+    expect(tenantAccessApiMock.listUserMemberships).not.toHaveBeenCalled();
+    expect(tenantAccessApiMock.listUserRoleLinks).not.toHaveBeenCalled();
+    expect(accessApiMock.effectivePermissions).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late response from a previous tenant scope", async () => {
+    const { rerender } = render(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+
+    let resolveOther!: (value: typeof USER) => void;
+    usersApiMock.get.mockImplementationOnce(() => new Promise((resolve) => { resolveOther = resolve; }));
+    authMock.user = { ...authMock.user, tenantId: OTHER_TENANT_ID };
+    rerender(<TenantUserDetailPage />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("جارٍ تحميل بيانات المستخدم"));
+
+    usersApiMock.get.mockResolvedValueOnce(USER);
+    authMock.user = { ...authMock.user, tenantId: TENANT_ID };
+    rerender(<TenantUserDetailPage />);
+    expect(await screen.findByText("سالم العتيبي")).toBeInTheDocument();
+
+    resolveOther({ ...USER, tenantId: OTHER_TENANT_ID, email: "other@example.com", displayName: "مستخدم مستأجر آخر" });
+    await waitFor(() => expect(screen.queryByText("مستخدم مستأجر آخر")).not.toBeInTheDocument());
+    expect(screen.getByText("سالم العتيبي")).toBeInTheDocument();
   });
 
   it("updates identity only inside the authenticated tenant", async () => {
@@ -340,14 +427,15 @@ describe("Tenant User Detail — Phase 6: Role and scope mutation UX", () => {
     await screen.findByText("سالم العتيبي");
     await userEvent.setup().selectOptions(screen.getByLabelText("الدور"), ROLE_ID);
     expect((screen.getByLabelText("الدور") as HTMLSelectElement).value).toBe(ROLE_ID);
-    // Simulate tenant switch by changing the actor's tenantId.
+    // Simulate tenant switch with a different canonical role set.
+    const otherRoleId = "99999999-9999-4999-8999-999999999999";
+    tenantAccessApiMock.listRoles.mockResolvedValueOnce([
+      { id: otherRoleId, tenantId: OTHER_TENANT_ID, code: "OTHER_TENANT_ADMIN", name: "Other Tenant Admin", description: null, status: "ACTIVE", createdAt: USER.createdAt, updatedAt: USER.updatedAt },
+    ]);
     authMock.user = { ...authMock.user, tenantId: OTHER_TENANT_ID };
     rerender(<TenantUserDetailPage />);
-    // After the tenant switch, the previously selected role id must no longer be selected.
-    await waitFor(() => {
-      const roleSelect = screen.queryByLabelText("الدور") as HTMLSelectElement | null;
-      if (roleSelect) expect(roleSelect.value).not.toBe(ROLE_ID);
-    });
+    await waitFor(() => expect(screen.getByLabelText("الدور")).toHaveValue(otherRoleId));
+    expect(screen.getByLabelText("الدور")).not.toHaveValue(ROLE_ID);
   });
 
   it("does not render any application name in the mutation surface", async () => {
@@ -375,7 +463,7 @@ describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
     },
   ];
 
-  it("renders the backend effect and canonical reason on role-derived rows", async () => {
+  it("renders the localized backend effect and canonical reason on role-derived rows", async () => {
     accessApiMock.effectivePermissions.mockResolvedValue([
       { ...effectiveRowsBase[0], effect: "ALLOW", reason: "ROLE_CAPABILITY_MATCH" },
     ]);
@@ -384,7 +472,7 @@ describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
     const surface = await screen.findByTestId("management-user-effective-access");
     // Backend-authoritative effect and reason must be visible without any
     // frontend authorization computation.
-    expect(surface).toHaveTextContent("ALLOW");
+    expect(surface).toHaveTextContent("سماح");
     expect(surface).toHaveTextContent("ROLE_CAPABILITY_MATCH");
   });
 
@@ -401,9 +489,9 @@ describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
     render(<TenantUserDetailPage />);
     await screen.findByText("سالم العتيبي");
     const surface = await screen.findByTestId("management-user-effective-access");
-    expect(surface).toHaveTextContent("DENY");
+    expect(surface).toHaveTextContent("منع");
     expect(surface).toHaveTextContent("EXPLICIT_DIRECT_DENY");
-    expect(surface).toHaveTextContent("OVERRIDE");
+    expect(surface).toHaveTextContent("استثناء مباشر");
   });
 
   it("renders role origin and break-glass provenance exactly as returned by the backend", async () => {
@@ -425,7 +513,7 @@ describe("Tenant User Detail — Phase 7: Effective access explanation", () => {
     await screen.findByText("سالم العتيبي");
     const surface = await screen.findByTestId("management-user-effective-access");
     expect(surface).toHaveTextContent(ROLE_ID);
-    expect(surface).toHaveTextContent("BREAK_GLASS");
+    expect(surface).toHaveTextContent("وصول طارئ");
     expect(surface).toHaveTextContent("EXPLICIT_ALLOW_MATCH");
   });
 
