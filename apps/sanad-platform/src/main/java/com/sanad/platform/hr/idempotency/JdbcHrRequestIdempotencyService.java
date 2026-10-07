@@ -98,6 +98,74 @@ public class JdbcHrRequestIdempotencyService implements RequestIdempotencyServic
                 + idempotencyKey + " after " + MAX_RECLAIM_ATTEMPTS + " attempts");
     }
 
+    /**
+     * Connection-participating variant for atomic business mutation + evidence.
+     * The caller owns commit/rollback; no detached transaction is opened here.
+     */
+    public IdempotencyBeginResult begin(Connection connection, UUID tenantId, UUID principalId,
+                                        String operation, String idempotencyKey, String requestFingerprint) {
+        Objects.requireNonNull(connection, "connection");
+        Objects.requireNonNull(tenantId, "tenantId");
+        Objects.requireNonNull(principalId, "principalId");
+        requireText(operation, "operation");
+        requireText(idempotencyKey, "idempotencyKey");
+        requireText(requestFingerprint, "requestFingerprint");
+
+        try {
+            setTenantLocal(connection, tenantId);
+            UUID operationId = UUID.randomUUID();
+            for (int attempt = 0; attempt < MAX_RECLAIM_ATTEMPTS; attempt++) {
+                if (insertInFlight(connection, tenantId, principalId, operation,
+                        idempotencyKey, requestFingerprint, operationId)) {
+                    return new IdempotencyBeginResult(operationId, false, null, null);
+                }
+
+                ExistingRow row = readExisting(connection, tenantId, principalId, operation, idempotencyKey);
+                if (row == null) {
+                    continue;
+                }
+                if (row.expired()) {
+                    reclaimExpired(connection, row.id());
+                    continue;
+                }
+                if (row.responseStatus() == null) {
+                    return new IdempotencyBeginResult(row.id(), true, null, null);
+                }
+                if (!row.fingerprint().equals(requestFingerprint)) {
+                    throw new IllegalStateException(
+                            "HRM_IDEMPOTENCY_CONFLICT: idempotency key was already used with a different request fingerprint "
+                                    + "(key=" + idempotencyKey + ")");
+                }
+                return new IdempotencyBeginResult(
+                        row.id(), true, row.responseStatus(), row.responseBody());
+            }
+            throw new IllegalStateException(
+                    "HRM_IDEMPOTENCY_CONFLICT: unable to resolve idempotency boundary for key "
+                            + idempotencyKey + " after " + MAX_RECLAIM_ATTEMPTS + " attempts");
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_IDEMPOTENCY_BEGIN_FAILED: " + e.getMessage(), e);
+        }
+    }
+
+    public void complete(Connection connection, UUID operationId, int statusCode, String responseBody) {
+        Objects.requireNonNull(connection, "connection");
+        Objects.requireNonNull(operationId, "operationId");
+        try (PreparedStatement ps = connection.prepareStatement(COMPLETE_SQL)) {
+            ps.setInt(1, statusCode);
+            ps.setString(2, responseBody);
+            ps.setObject(3, operationId);
+            int updated = ps.executeUpdate();
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "HRM_IDEMPOTENCY_COMPLETE_FAILED: operation " + operationId
+                                + " is not an incomplete operation in the current tenant context (rows="
+                                + updated + ")");
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("HRM_IDEMPOTENCY_COMPLETE_FAILED: " + e.getMessage(), e);
+        }
+    }
+
     @Override
     public void complete(UUID operationId, int statusCode, String responseBody) {
         Objects.requireNonNull(operationId, "operationId");
@@ -161,6 +229,47 @@ public class JdbcHrRequestIdempotencyService implements RequestIdempotencyServic
     }
 
     // ==================== internals ====================
+
+    private boolean insertInFlight(Connection connection, UUID tenantId, UUID principalId,
+                                   String operation, String idempotencyKey, String fingerprint,
+                                   UUID operationId) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(INSERT_SQL)) {
+            ps.setObject(1, operationId);
+            ps.setObject(2, tenantId);
+            ps.setObject(3, principalId);
+            ps.setString(4, operation);
+            ps.setString(5, idempotencyKey);
+            ps.setString(6, fingerprint);
+            return ps.executeUpdate() == 1;
+        }
+    }
+
+    private ExistingRow readExisting(Connection connection, UUID tenantId, UUID principalId,
+                                     String operation, String idempotencyKey) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(SELECT_SQL)) {
+            ps.setObject(1, tenantId);
+            ps.setObject(2, principalId);
+            ps.setString(3, operation);
+            ps.setString(4, idempotencyKey);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next()
+                        ? new ExistingRow(
+                                UUID.fromString(rs.getString("id")),
+                                normalizeFingerprint(rs.getString("request_fingerprint")),
+                                rs.getObject("response_status") == null ? null : rs.getInt("response_status"),
+                                rs.getString("response_body"),
+                                rs.getTimestamp("expires_at").toInstant())
+                        : null;
+            }
+        }
+    }
+
+    private void reclaimExpired(Connection connection, UUID rowId) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(RECLAIM_SQL)) {
+            ps.setObject(1, rowId);
+            ps.executeUpdate();
+        }
+    }
 
     private boolean insertInFlight(UUID tenantId, UUID principalId, String operation,
                                    String idempotencyKey, String fingerprint, UUID operationId) {
@@ -262,6 +371,10 @@ public class JdbcHrRequestIdempotencyService implements RequestIdempotencyServic
                     : (current.getCause() instanceof SQLException se ? se : null);
         }
         return false;
+    }
+
+    private static String normalizeFingerprint(String value) {
+        return value == null ? null : value.trim();
     }
 
     private static void requireText(String value, String field) {
