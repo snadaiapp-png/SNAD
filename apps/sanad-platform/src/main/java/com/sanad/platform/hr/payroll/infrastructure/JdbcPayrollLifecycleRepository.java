@@ -1,6 +1,8 @@
 package com.sanad.platform.hr.payroll.infrastructure;
 
 import com.sanad.platform.hr.payroll.application.PayrollLifecycle;
+import com.sanad.platform.hr.payroll.application.PayrollLifecycleRepository;
+import com.sanad.platform.hr.payroll.application.PayrollLifecycleRepository.RunState;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Connection;
@@ -12,7 +14,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public class JdbcPayrollLifecycleRepository {
+public class JdbcPayrollLifecycleRepository implements PayrollLifecycleRepository {
 
     public Optional<RunState> loadForUpdate(Connection connection, UUID tenantId, UUID runId)
             throws SQLException {
@@ -136,11 +138,4 @@ public class JdbcPayrollLifecycleRepository {
         }
     }
 
-    public record RunState(
-            UUID id,
-            UUID tenantId,
-            UUID legalEntityId,
-            PayrollLifecycle status,
-            long version) {
-    }
 }
