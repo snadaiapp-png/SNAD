@@ -245,7 +245,7 @@ export default function TenantAccessPage() {
                           </td>
                           <td>{statusDisplayName(role.status, locale)}</td>
                           <td className={styles.actions}>
-                            <button type="button" onClick={() => void selectRole(role)} aria-label={`${role.name} — ${t("management.access.manageRoleCapabilities")}`}>
+                            <button type="button" onClick={() => void selectRole(role)} aria-label={`${roleDisplayName(role.code, role.name, locale)} — ${t("management.access.manageRoleCapabilities")}`}>
                               {t("management.access.manageRoleCapabilities")}
                             </button>
                             {canManageRoles && role.status !== "ACTIVE" ? <button type="button" disabled={busy} onClick={() => void transitionRole(role, "activate")}>{t("management.access.activateRole")}</button> : null}
