@@ -16,6 +16,7 @@ import java.util.UUID;
 @Repository
 public class JdbcPayrollLifecycleRepository implements PayrollLifecycleRepository {
 
+    @Override
     public Optional<RunState> loadForUpdate(Connection connection, UUID tenantId, UUID runId)
             throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement("""
@@ -41,6 +42,7 @@ public class JdbcPayrollLifecycleRepository implements PayrollLifecycleRepositor
         }
     }
 
+    @Override
     public RunState transition(
             Connection connection,
             RunState current,
@@ -96,6 +98,7 @@ public class JdbcPayrollLifecycleRepository implements PayrollLifecycleRepositor
                 current.version() + 1);
     }
 
+    @Override
     public RunState recalculate(
             Connection connection,
             RunState current) throws SQLException {
