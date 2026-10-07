@@ -118,6 +118,8 @@ beforeEach(() => {
   accessApiMock.resync.mockResolvedValue([]);
   userFacingErrorMock.toUserFacingMessage.mockImplementation(() => "تعذر تحميل بيانات المستخدم");
   userFacingErrorMock.toUserFacingError.mockImplementation(() => ({ title: "خطأ", message: "تعذر تحميل بيانات المستخدم", kind: "unknown" as const }));
+  authMock.state = "AUTHENTICATED";
+  authMock.user = { id: "actor-1", tenantId: TENANT_ID, email: "admin@example.com", displayName: "Admin", status: "ACTIVE" };
   authMock.capabilities = ["USER.READ", "USER.WRITE", "USER.DELETE", "MEMBERSHIP.READ", "ROLE.READ", "USER.GRANT_ROLE", "USER.REVOKE_ROLE"];
 });
 
