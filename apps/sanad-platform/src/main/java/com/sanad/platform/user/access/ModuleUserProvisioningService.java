@@ -1,6 +1,7 @@
 package com.sanad.platform.user.access;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,7 +53,7 @@ public class ModuleUserProvisioningService {
                    AND status = 'ACTIVE'
                  ORDER BY code
                 """,
-                rs -> roles.put(
+                (RowCallbackHandler) rs -> roles.put(
                         rs.getObject("id", UUID.class),
                         new RoleRow(
                                 rs.getObject("id", UUID.class),
@@ -69,7 +70,7 @@ public class ModuleUserProvisioningService {
                    AND ac.status = 'ACTIVE'
                  ORDER BY rc.role_id, ac.code
                 """,
-                rs -> capabilitiesByRole
+                (RowCallbackHandler) rs -> capabilitiesByRole
                         .computeIfAbsent(rs.getObject("role_id", UUID.class), ignored -> new LinkedHashSet<>())
                         .add(normalizeCode(rs.getString("code"))),
                 tenantId);
