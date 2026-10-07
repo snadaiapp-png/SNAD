@@ -55,12 +55,17 @@ public class LegalEntityService {
      */
     public LegalEntity resolveSingleActiveForOrganization(
             UUID tenantId, UUID organizationId, LocalDate effectiveDate) {
-        List<LegalEntityOrganizationEligibility> links =
-                eligibilityRepository.findActiveForOrganizationOn(tenantId, organizationId, effectiveDate);
-        if (links.size() != 1) {
+        List<UUID> legalEntityIds = eligibilityRepository
+                .findActiveForOrganizationOn(tenantId, organizationId, effectiveDate)
+                .stream()
+                .map(LegalEntityOrganizationEligibility::legalEntityId)
+                .distinct()
+                .toList();
+        if (legalEntityIds.size() != 1) {
             throw new IllegalStateException(
-                    "Employer context must resolve to exactly one active legal entity; found " + links.size());
+                    "Employer context must resolve to exactly one active legal entity; found "
+                            + legalEntityIds.size());
         }
-        return requireActive(tenantId, links.get(0).legalEntityId());
+        return requireActive(tenantId, legalEntityIds.get(0));
     }
 }
