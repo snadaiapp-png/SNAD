@@ -1,0 +1,61 @@
+name: HRM G4 T5 Payroll Lifecycle
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/payroll/**'
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/idempotency/JdbcHrRequestIdempotencyService.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/payroll/PayrollLifecycleTest.java'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/payroll/PayrollLifecyclePostgresTest.java'
+      - '.github/workflows/hrm-g4-t5-payroll-lifecycle.yml'
+  workflow_dispatch:
+
+jobs:
+  focused-lifecycle:
+    runs-on: ubuntu-latest
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/sanad
+      SPRING_DATASOURCE_USERNAME: sanad
+      SPRING_DATASOURCE_PASSWORD: sanad_ci_password
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install PostgreSQL client and server
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-client
+          sudo systemctl start postgresql
+
+      - name: Provision PostgreSQL Direct database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad LOGIN PASSWORD 'sanad_ci_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            ELSE
+              ALTER ROLE sanad WITH LOGIN PASSWORD 'sanad_ci_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            END IF;
+          END
+          $$;
+          SELECT 'role-ready';
+          SQL
+          sudo -u postgres dropdb --if-exists sanad
+          sudo -u postgres createdb -O sanad sanad
+          sudo -u postgres dropdb --if-exists test_migration
+          sudo -u postgres createdb -O sanad test_migration
+
+      - name: Run T5 unit and PostgreSQL Direct lifecycle contracts
+        working-directory: apps/sanad-platform
+        run: |
+          mvn --batch-mode --no-transfer-progress             -Dtest=PayrollLifecycleTest,PayrollLifecyclePostgresTest,HrModuleBoundaryArchitectureTest             -DfailIfNoTests=true test
