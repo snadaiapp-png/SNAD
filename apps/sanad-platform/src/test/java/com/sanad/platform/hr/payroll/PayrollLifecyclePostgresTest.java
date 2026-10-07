@@ -2,14 +2,15 @@ package com.sanad.platform.hr.payroll;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.hr.audit.HrAuthenticatedContext;
+import com.sanad.platform.hr.audit.HrAuditService;
 import com.sanad.platform.hr.audit.HrRedactionGuard;
+import com.sanad.platform.hr.audit.HrTransactionalEvidenceWriter;
 import com.sanad.platform.hr.audit.JdbcHrAuditRepository;
 import com.sanad.platform.hr.idempotency.JdbcHrRequestIdempotencyService;
-import com.sanad.platform.hr.integration.JdbcHrOutboxRepository;
+import com.sanad.platform.hr.integration.JdbcHrEvidenceWriter;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycle;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycleService;
 import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
-import com.sanad.platform.integration.events.DomainEventEnvelope;
 import com.sanad.platform.test.MigrationTestSchemaSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
@@ -22,7 +23,6 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -104,7 +104,7 @@ class PayrollLifecyclePostgresTest {
 
     @Test
     void transitionCommitsMutationAuditOutboxAndIdempotencyAtomicallyAndReplays() throws Exception {
-        PayrollLifecycleService service = service(new JdbcHrOutboxRepository());
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
         HrAuthenticatedContext actor = actor(tenantId);
 
         var first = service.transition(
@@ -147,7 +147,7 @@ class PayrollLifecyclePostgresTest {
 
     @Test
     void staleVersionFailsClosedAndLeavesNoPartialIdempotencyEvidence() throws Exception {
-        PayrollLifecycleService service = service(new JdbcHrOutboxRepository());
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
         HrAuthenticatedContext actor = actor(tenantId);
 
         service.transition(actor, runId, PayrollLifecycle.CALCULATED, 0,
@@ -169,7 +169,7 @@ class PayrollLifecyclePostgresTest {
 
     @Test
     void invalidTransitionRollsBackEverySideEffect() throws Exception {
-        PayrollLifecycleService service = service(new JdbcHrOutboxRepository());
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
 
         assertThatThrownBy(() -> service.transition(
                 actor(tenantId), runId, PayrollLifecycle.APPROVED, 0,
@@ -182,13 +182,15 @@ class PayrollLifecyclePostgresTest {
 
     @Test
     void outboxFailureRollsBackMutationAuditAndIdempotency() throws Exception {
-        JdbcHrOutboxRepository failingOutbox = new JdbcHrOutboxRepository() {
-            @Override
-            public void append(Connection c, DomainEventEnvelope envelope) throws SQLException {
-                throw new SQLException("INJECTED_T5_OUTBOX_FAILURE");
-            }
+        HrAuditService auditService = new HrAuditService(
+                dataSource,
+                new HrRedactionGuard(),
+                new JdbcHrAuditRepository(new HrRedactionGuard()));
+        HrTransactionalEvidenceWriter failingEvidence = (c, audit, event) -> {
+            auditService.appendMutationAudit(c, audit);
+            throw new IllegalStateException("INJECTED_T5_OUTBOX_FAILURE");
         };
-        PayrollLifecycleService service = service(failingOutbox);
+        PayrollLifecycleService service = service(failingEvidence);
 
         assertThatThrownBy(() -> service.transition(
                 actor(tenantId), runId, PayrollLifecycle.CALCULATED, 0,
@@ -201,7 +203,7 @@ class PayrollLifecyclePostgresTest {
 
     @Test
     void foreignTenantCannotObserveOrMutatePayrollRun() throws Exception {
-        PayrollLifecycleService service = service(new JdbcHrOutboxRepository());
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
 
         assertThatThrownBy(() -> service.transition(
                 actor(foreignTenantId), runId, PayrollLifecycle.CALCULATED, 0,
@@ -218,7 +220,7 @@ class PayrollLifecyclePostgresTest {
 
     @Test
     void concurrentSameVersionTransitionsProduceExactlyOneWinner() throws Exception {
-        PayrollLifecycleService service = service(new JdbcHrOutboxRepository());
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
         CountDownLatch start = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(2);
         try {
@@ -271,12 +273,11 @@ class PayrollLifecyclePostgresTest {
         }
     }
 
-    private PayrollLifecycleService service(JdbcHrOutboxRepository outbox) {
+    private PayrollLifecycleService service(HrTransactionalEvidenceWriter evidenceWriter) {
         return new PayrollLifecycleService(
                 dataSource,
                 new JdbcPayrollLifecycleRepository(),
-                new JdbcHrAuditRepository(new HrRedactionGuard()),
-                outbox,
+                evidenceWriter,
                 new JdbcHrRequestIdempotencyService(dataSource),
                 new ObjectMapper());
     }
