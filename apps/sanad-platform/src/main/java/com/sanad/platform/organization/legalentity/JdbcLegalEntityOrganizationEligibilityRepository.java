@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.Date;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,6 +32,34 @@ public class JdbcLegalEntityOrganizationEligibilityRepository implements LegalEn
                 """, Integer.class, tenantId, legalEntityId, organizationId,
                 Date.valueOf(effectiveDate), Date.valueOf(effectiveDate));
         return count != null && count > 0;
+    }
+
+    @Override
+    public List<LegalEntityOrganizationEligibility> findActiveForOrganizationOn(
+            UUID tenantId, UUID organizationId, LocalDate effectiveDate) {
+        return jdbc.query(
+                """
+                SELECT id, tenant_id, organization_id, legal_entity_id, effective_from, effective_to, status, created_at
+                FROM organization_legal_entities
+                WHERE tenant_id = ?
+                  AND organization_id = ?
+                  AND status = 'ACTIVE'
+                  AND effective_from <= ?
+                  AND (effective_to IS NULL OR effective_to >= ?)
+                ORDER BY legal_entity_id
+                """,
+                (rs, rowNum) -> new LegalEntityOrganizationEligibility(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getObject("organization_id", UUID.class),
+                        rs.getObject("legal_entity_id", UUID.class),
+                        rs.getDate("effective_from").toLocalDate(),
+                        rs.getDate("effective_to") != null ? rs.getDate("effective_to").toLocalDate() : null,
+                        rs.getString("status"),
+                        rs.getTimestamp("created_at").toInstant()
+                ),
+                tenantId, organizationId, Date.valueOf(effectiveDate), Date.valueOf(effectiveDate)
+        );
     }
 
     @Override
