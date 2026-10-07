@@ -22,6 +22,34 @@
   font-size: clamp(1.25rem, 2.2vw, 1.6rem);
 }
 
+.userHeadingRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--snad-space-4, 16px);
+  flex-wrap: wrap;
+}
+
+.statusBadge {
+  display: inline-flex;
+  margin-block-start: var(--snad-space-2, 8px);
+  padding: var(--snad-space-1, 4px) var(--snad-space-3, 12px);
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: 999px;
+  background: var(--snad-color-surface-secondary);
+  color: var(--snad-color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.lifecycleActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--snad-space-2, 8px);
+  flex-wrap: wrap;
+}
+
 .root h2 {
   margin-block: 0 0.75rem;
 }
@@ -233,6 +261,19 @@
   .grantGrid > button {
     inline-size: 100%;
     justify-self: stretch;
+  }
+
+  .userHeadingRow {
+    align-items: stretch;
+  }
+
+  .lifecycleActions {
+    inline-size: 100%;
+    justify-content: stretch;
+  }
+
+  .lifecycleActions > button {
+    flex: 1 1 180px;
   }
 
   .roleItem {
