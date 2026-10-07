@@ -3,6 +3,7 @@ package com.sanad.platform.organization.legalentity;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -46,5 +47,20 @@ public class LegalEntityService {
 
     public boolean isOrganizationEligible(UUID tenantId, UUID legalEntityId, UUID organizationId, LocalDate effectiveDate) {
         return eligibilityRepository.isEligibleOn(tenantId, legalEntityId, organizationId, effectiveDate);
+    }
+
+    /**
+     * Resolve exactly one active Legal Entity eligible for an Organization on the effective date.
+     * Fails closed instead of guessing when the employer context is missing or ambiguous.
+     */
+    public LegalEntity resolveSingleActiveForOrganization(
+            UUID tenantId, UUID organizationId, LocalDate effectiveDate) {
+        List<LegalEntityOrganizationEligibility> links =
+                eligibilityRepository.findActiveForOrganizationOn(tenantId, organizationId, effectiveDate);
+        if (links.size() != 1) {
+            throw new IllegalStateException(
+                    "Employer context must resolve to exactly one active legal entity; found " + links.size());
+        }
+        return requireActive(tenantId, links.get(0).legalEntityId());
     }
 }
