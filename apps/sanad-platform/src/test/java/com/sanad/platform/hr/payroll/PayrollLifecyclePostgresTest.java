@@ -9,6 +9,9 @@ import com.sanad.platform.hr.audit.JdbcHrAuditRepository;
 import com.sanad.platform.hr.idempotency.JdbcHrRequestIdempotencyService;
 import com.sanad.platform.hr.integration.JdbcHrEvidenceWriter;
 import com.sanad.platform.hr.integration.JdbcHrOutboxRepository;
+import com.sanad.platform.access.AccessDecisionResponse;
+import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
+import com.sanad.platform.hr.payroll.application.PayrollAuthorizationGuard;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycle;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycleService;
 import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
@@ -505,7 +508,27 @@ class PayrollLifecyclePostgresTest {
                 new JdbcPayrollLifecycleRepository(),
                 evidenceWriter,
                 new JdbcHrRequestIdempotencyService(dataSource),
-                new ObjectMapper());
+                new ObjectMapper(),
+                allowAllPayrollAuthorization());
+    }
+
+    private PayrollAuthorizationGuard allowAllPayrollAuthorization() {
+        CapabilityEvaluationService evaluator = org.mockito.Mockito.mock(CapabilityEvaluationService.class);
+        org.mockito.Mockito.when(evaluator.evaluate(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.isNull()))
+                .thenAnswer(invocation -> new AccessDecisionResponse(
+                        invocation.getArgument(0),
+                        invocation.getArgument(1),
+                        null,
+                        invocation.getArgument(2),
+                        true,
+                        "TEST_EXPLICIT_ALLOW",
+                        null,
+                        "TEST_ROLE"));
+        return new PayrollAuthorizationGuard(evaluator);
     }
 
     private HrAuthenticatedContext actor(UUID tenant) {

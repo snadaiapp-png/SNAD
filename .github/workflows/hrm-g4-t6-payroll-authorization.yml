@@ -1,0 +1,29 @@
+name: HRM G4 T6 Payroll Authorization
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/payroll/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/payroll/PayrollAuthorizationContractTest.java'
+      - 'apps/sanad-platform/src/main/resources/db/migration/**'
+      - '.github/workflows/hrm-g4-t6-payroll-authorization.yml'
+  workflow_dispatch:
+
+jobs:
+  focused-authorization:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run G4-T6 RED authorization contract
+        working-directory: apps/sanad-platform
+        run: |
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest=PayrollAuthorizationContractTest,HrModuleBoundaryArchitectureTest \
+            -DfailIfNoTests=true test
