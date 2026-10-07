@@ -12,9 +12,10 @@ done
 
 API_V1="${BASE_URL%/}/api/v1"
 HR_API="${BASE_URL%/}/api/v2/hr"
-G2_EMPLOYMENT_START_DATE="2026-01-01"
-G2_ACTIVE_DATE="2026-01-02"
-G2_MANAGER_LINK_DATE="2026-01-03"
+G2_EFFECTIVE_DATE="${G2_EFFECTIVE_DATE:-$(date -u +%F)}"
+G2_EMPLOYMENT_START_DATE="$G2_EFFECTIVE_DATE"
+G2_ACTIVE_DATE="$G2_EFFECTIVE_DATE"
+G2_MANAGER_LINK_DATE="$G2_EFFECTIVE_DATE"
 
 get_json() {
   local url="$1" label="$2" response
@@ -75,7 +76,7 @@ EMPLOYER_CONTEXT_BODY=/tmp/g2-employer-context.json
 EMPLOYER_CONTEXT_STATUS=$(curl --silent --show-error \
   -o "$EMPLOYER_CONTEXT_BODY" -w '%{http_code}' \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE") || \
+  "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE") || \
   fail "Employer context lookup transport failure"
 
 if [ "$EMPLOYER_CONTEXT_STATUS" = "200" ]; then
@@ -90,7 +91,7 @@ elif [ "$EMPLOYER_CONTEXT_STATUS" = "409" ]; then
     -o "$BOOTSTRAP_BODY" -w '%{http_code}' \
     -X POST \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
-    "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity/bootstrap?effectiveDate=$G2_EMPLOYMENT_START_DATE") || \
+    "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity/bootstrap?effectiveDate=$G2_EFFECTIVE_DATE") || \
     fail "Employer context bootstrap transport failure"
 
   if [ "$BOOTSTRAP_STATUS" != "200" ]; then
@@ -110,7 +111,7 @@ G2_LEGAL_ENTITY_ID=$(echo "$EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
 set_output_var G2_LEGAL_ENTITY_ID "$G2_LEGAL_ENTITY_ID"
 
 # Final canonical read proves the effective link exists after an optional bootstrap.
-VERIFY_EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EMPLOYMENT_START_DATE" "Verify canonical G2 employer context")
+VERIFY_EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE" "Verify canonical G2 employer context")
 VERIFY_LEGAL_ENTITY_ID=$(echo "$VERIFY_EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
 [ "$VERIFY_LEGAL_ENTITY_ID" = "$G2_LEGAL_ENTITY_ID" ] || fail "Employer context verification returned a different legalEntityId"
 echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK"
