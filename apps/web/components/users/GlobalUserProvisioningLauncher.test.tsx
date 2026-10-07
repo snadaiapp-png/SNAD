@@ -5,7 +5,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authMock, navigationMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
+const { authMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
   authMock: {
     state: "AUTHENTICATED",
     user: {
@@ -16,10 +16,6 @@ const { authMock, navigationMock, usersApiMock, tenantAccessApiMock } = vi.hoist
       status: "ACTIVE",
     },
     capabilities: ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"] as string[],
-  },
-  navigationMock: {
-    pathname: "/hr/employees",
-    push: vi.fn(),
   },
   usersApiMock: {
     list: vi.fn(),
@@ -37,11 +33,6 @@ vi.mock("@/lib/auth/auth-provider", () => ({
     user: authMock.user,
     me: { capabilities: authMock.capabilities },
   }),
-}));
-
-vi.mock("next/navigation", () => ({
-  usePathname: () => navigationMock.pathname,
-  useRouter: () => ({ push: navigationMock.push }),
 }));
 
 vi.mock("@/lib/api/users", () => ({ usersApi: usersApiMock }));
@@ -109,8 +100,7 @@ beforeEach(() => {
     status: "ACTIVE",
   };
   authMock.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
-  navigationMock.pathname = "/hr/employees";
-  navigationMock.push.mockReset();
+  window.history.replaceState({}, "", "/hr/employees");
   usersApiMock.list.mockReset();
   usersApiMock.create.mockReset();
   usersApiMock.moduleProvisioningContext.mockReset();
@@ -150,7 +140,7 @@ describe("GlobalUserProvisioningLauncher", () => {
   });
 
   it("also appears for a newly introduced module route without module-specific registration", () => {
-    navigationMock.pathname = "/future-module/dashboard";
+    window.history.replaceState({}, "", "/future-module/dashboard");
     render(<GlobalUserProvisioningLauncher />);
     expect(screen.getByTestId("global-user-provisioning")).toHaveAttribute(
       "data-module-context",
@@ -159,7 +149,7 @@ describe("GlobalUserProvisioningLauncher", () => {
   });
 
   it("renders as a module-header action with a visible user-plus affordance", () => {
-    navigationMock.pathname = "/crm/overview";
+    window.history.replaceState({}, "", "/crm/overview");
     render(<GlobalUserProvisioningLauncher presentation="header" />);
     const launcher = screen.getByTestId("global-user-provisioning");
     expect(launcher).toHaveAttribute("data-presentation", "header");
@@ -181,7 +171,7 @@ describe("GlobalUserProvisioningLauncher", () => {
   });
 
   it("avoids duplicating the native Users workspace create surface", () => {
-    navigationMock.pathname = "/management/users";
+    window.history.replaceState({}, "", "/management/users");
     render(<GlobalUserProvisioningLauncher />);
     expect(screen.queryByTestId("global-user-provisioning")).not.toBeInTheDocument();
   });
@@ -204,9 +194,8 @@ describe("GlobalUserProvisioningLauncher", () => {
       EXISTING_ID,
       "44444444-4444-4444-8444-444444444444",
     );
-    expect(navigationMock.push).toHaveBeenCalledWith(
-      `/management/users/${EXISTING_ID}?returnTo=%2Fhr%2Femployees`,
-    );
+    expect(window.location.pathname).toBe(`/management/users/${EXISTING_ID}`);
+    expect(window.location.search).toBe("?returnTo=%2Fhr%2Femployees");
   });
 
   it("creates through Users Core only and opens the canonical user record", async () => {
@@ -235,8 +224,7 @@ describe("GlobalUserProvisioningLauncher", () => {
       CREATED_ID,
       "44444444-4444-4444-8444-444444444444",
     );
-    expect(navigationMock.push).toHaveBeenCalledWith(
-      `/management/users/${CREATED_ID}?returnTo=%2Fhr%2Femployees`,
-    );
+    expect(window.location.pathname).toBe(`/management/users/${CREATED_ID}`);
+    expect(window.location.search).toBe("?returnTo=%2Fhr%2Femployees");
   });
 });
