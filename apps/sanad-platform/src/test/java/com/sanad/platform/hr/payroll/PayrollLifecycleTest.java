@@ -36,6 +36,21 @@ class PayrollLifecycleTest {
     }
 
     @Test
+    void cancellationIsGuardedAndTerminal() {
+        assertThat(PayrollLifecycle.DRAFT.canTransitionTo(PayrollLifecycle.CANCELLED)).isTrue();
+        assertThat(PayrollLifecycle.CALCULATED.canTransitionTo(PayrollLifecycle.CANCELLED)).isTrue();
+        assertThat(PayrollLifecycle.REVIEWED.canTransitionTo(PayrollLifecycle.CANCELLED)).isTrue();
+        assertThat(PayrollLifecycle.APPROVED.canTransitionTo(PayrollLifecycle.CANCELLED)).isFalse();
+        assertThat(PayrollLifecycle.EXPORTED.canTransitionTo(PayrollLifecycle.CANCELLED)).isFalse();
+        assertThat(PayrollLifecycle.CANCELLED.allowedTargets()).isEmpty();
+
+        assertThatThrownBy(() -> PayrollLifecycle.requireTransition(
+                PayrollLifecycle.APPROVED, PayrollLifecycle.CANCELLED))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HRM_PAYROLL_LIFECYCLE_INVALID");
+    }
+
+    @Test
     void exportedIsTerminalAndApprovedCannotTransitionBackToCalculated() {
         assertThat(PayrollLifecycle.EXPORTED.allowedTargets()).isEmpty();
         assertThatThrownBy(() -> PayrollLifecycle.requireTransition(
