@@ -12,113 +12,175 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PayrollCalculationEngineTest {
+
+    private static final LocalDate PERIOD_START = LocalDate.of(2026, 9, 1);
+    private static final LocalDate PERIOD_END = LocalDate.of(2026, 9, 30);
 
     private final PayrollCalculationEngine engine = new PayrollCalculationEngine();
 
     @Test
-    void calculates_country_neutral_matrix_with_explicit_policy() {
+    void calculatesCountryNeutralMatrixWithExplicitPolicy() {
         var snapshot = snapshot(List.of(
                 component("BASE_SALARY", "BASE", "1000.0000", null),
                 component("ALLOWANCE", "HOUSING", "200.0000", null),
-                component("ALLOWANCE", "TRANSPORT", null, "10.0000"),
+                component("ALLOWANCE", "UNCONFIGURED", "700.0000", null),
                 component("BENEFIT", "BENEFIT_ONLY", "999.0000", null)
-        ), List.of(unpaidLeave("2.0000")));
+        ), List.of(unpaidLeave("2.0000", PERIOD_START.plusDays(9), PERIOD_START.plusDays(10))));
 
         var policy = new PayrollCalculationEngine.CalculationPolicy(
+                "MONTHLY",
+                List.of(PayrollCalculationEngine.ConfiguredAllowance.fixed("HOUSING")),
                 List.of(
-                        PayrollCalculationEngine.ConfiguredAllowance.fixed("HOUSING"),
-                        PayrollCalculationEngine.ConfiguredAllowance.percentage(
-                                "TRANSPORT", PayrollCalculationEngine.PercentageBasis.BASE)),
-                List.of(
-                        PayrollCalculationEngine.ConfiguredDeduction.fixed("LOAN", new BigDecimal("50.0000")),
+                        PayrollCalculationEngine.ConfiguredDeduction.fixed(
+                                "LOAN_RECOVERY", new BigDecimal("50.0000")),
                         PayrollCalculationEngine.ConfiguredDeduction.percentage(
-                                "SAVINGS", new BigDecimal("5.0000"),
+                                "VOLUNTARY_SAVINGS", new BigDecimal("5.0000"),
                                 PayrollCalculationEngine.PercentageBasis.GROSS)
                 ),
                 new PayrollCalculationEngine.UnpaidLeavePolicy(true, new BigDecimal("40.0000"))
-        );
-
-        var result = engine.calculate(snapshot, policy);
-
-        assertEquals(new BigDecimal("1000.0000"), result.baseAmount());
-        assertEquals(new BigDecimal("1300.0000"), result.grossAmount());
-        assertEquals(new BigDecimal("195.0000"), result.deductionTotal());
-        assertEquals(new BigDecimal("1105.0000"), result.netAmount());
-        assertEquals(List.of("HOUSING", "TRANSPORT"),
-                result.earnings().stream().map(PayrollCalculationEngine.CalculationLine::code).toList());
-        assertEquals(List.of("LOAN", "SAVINGS", "UNPAID_LEAVE"),
-                result.deductions().stream().map(PayrollCalculationEngine.CalculationLine::code).toList());
-    }
-
-    @Test
-    void unpaid_leave_is_not_deducted_unless_policy_explicitly_enables_it() {
-        var snapshot = snapshot(
-                List.of(component("BASE_SALARY", "BASE", "1000.0000", null)),
-                List.of(unpaidLeave("3.0000")));
-
-        var policy = new PayrollCalculationEngine.CalculationPolicy(
-                List.of(),
-                List.of(),
-                PayrollCalculationEngine.UnpaidLeavePolicy.disabled()
-        );
-
-        var result = engine.calculate(snapshot, policy);
-
-        assertEquals(new BigDecimal("0.0000"), result.deductionTotal());
-        assertEquals(new BigDecimal("1000.0000"), result.netAmount());
-    }
-
-    @Test
-    void same_snapshot_and_policy_are_deterministic_and_round_to_four_decimals() {
-        var snapshot = snapshot(List.of(
-                component("BASE_SALARY", "BASE", "999.99995", null),
-                component("ALLOWANCE", "ROUNDING", null, "2.55555")
-        ), List.of());
-
-        var policy = new PayrollCalculationEngine.CalculationPolicy(
-                List.of(PayrollCalculationEngine.ConfiguredAllowance.percentage(
-                        "ROUNDING", PayrollCalculationEngine.PercentageBasis.BASE)),
-                List.of(PayrollCalculationEngine.ConfiguredDeduction.percentage(
-                        "PCT", new BigDecimal("1.11111"),
-                        PayrollCalculationEngine.PercentageBasis.BASE)),
-                PayrollCalculationEngine.UnpaidLeavePolicy.disabled()
         );
 
         var first = engine.calculate(snapshot, policy);
         var second = engine.calculate(snapshot, policy);
 
         assertEquals(first, second);
-        assertEquals(4, first.baseAmount().scale());
-        assertEquals(4, first.grossAmount().scale());
-        assertEquals(4, first.deductionTotal().scale());
-        assertEquals(4, first.netAmount().scale());
+        assertEquals(new BigDecimal("1000.0000"), first.baseAmount());
+        assertEquals(new BigDecimal("200.0000"), first.allowanceTotal());
+        assertEquals(new BigDecimal("1200.0000"), first.grossAmount());
+        assertEquals(new BigDecimal("110.0000"), first.nonStatutoryDeductionTotal());
+        assertEquals(new BigDecimal("80.0000"), first.unpaidLeaveDeduction());
+        assertEquals(new BigDecimal("190.0000"), first.deductionTotal());
+        assertEquals(new BigDecimal("1010.0000"), first.netAmount());
+        assertEquals(List.of("HOUSING"),
+                first.earnings().stream().map(PayrollCalculationEngine.CalculationLine::code).toList());
+        assertEquals(List.of("LOAN_RECOVERY", "UNPAID_LEAVE", "VOLUNTARY_SAVINGS"),
+                first.deductions().stream().map(PayrollCalculationEngine.CalculationLine::code).toList());
     }
 
     @Test
-    void fails_closed_when_base_salary_is_missing_or_percentage_based() {
-        var policy = PayrollCalculationEngine.CalculationPolicy.noAdjustments();
+    void roundsAllMonetaryOutputsToFourDecimalsDeterministically() {
+        var snapshot = snapshot(
+                List.of(component("BASE_SALARY", "BASE", "999.99995", null)),
+                List.of());
 
-        assertThrows(IllegalStateException.class,
+        var policy = new PayrollCalculationEngine.CalculationPolicy(
+                "MONTHLY",
+                List.of(),
+                List.of(PayrollCalculationEngine.ConfiguredDeduction.percentage(
+                        "VOLUNTARY_PLAN", new BigDecimal("1.11111"),
+                        PayrollCalculationEngine.PercentageBasis.BASE)),
+                PayrollCalculationEngine.UnpaidLeavePolicy.disabled()
+        );
+
+        var result = engine.calculate(snapshot, policy);
+
+        assertEquals(new BigDecimal("1000.0000"), result.baseAmount());
+        assertEquals(new BigDecimal("11.1111"), result.deductionTotal());
+        assertEquals(new BigDecimal("988.8889"), result.netAmount());
+        assertEquals(4, result.baseAmount().scale());
+        assertEquals(4, result.grossAmount().scale());
+        assertEquals(4, result.deductionTotal().scale());
+        assertEquals(4, result.netAmount().scale());
+    }
+
+    @Test
+    void failsClosedWhenBaseSalaryIsMissingOrPercentageBased() {
+        var policy = PayrollCalculationEngine.CalculationPolicy.noAdjustments("MONTHLY");
+
+        var missing = assertThrows(IllegalStateException.class,
                 () -> engine.calculate(snapshot(List.of(), List.of()), policy));
+        assertTrue(missing.getMessage().contains("HRM_PAYROLL_BASE_SALARY_INVALID"));
 
-        assertThrows(IllegalStateException.class,
+        var percentage = assertThrows(IllegalStateException.class,
                 () -> engine.calculate(snapshot(List.of(
                         component("BASE_SALARY", "BASE", null, "100.0000")), List.of()), policy));
+        assertTrue(percentage.getMessage().contains("HRM_PAYROLL_BASE_SALARY_INVALID"));
     }
 
     @Test
-    void fails_closed_when_configured_deductions_exceed_gross() {
+    void failsClosedOnPercentageAllowanceBecauseBasisIsNotAuthoritative() {
+        var snapshot = snapshot(List.of(
+                component("BASE_SALARY", "BASE", "1000.0000", null),
+                component("ALLOWANCE", "HOUSING", null, "25.0000")
+        ), List.of());
+
+        var policy = new PayrollCalculationEngine.CalculationPolicy(
+                "MONTHLY",
+                List.of(PayrollCalculationEngine.ConfiguredAllowance.fixed("HOUSING")),
+                List.of(),
+                PayrollCalculationEngine.UnpaidLeavePolicy.disabled());
+
+        var failure = assertThrows(IllegalStateException.class, () -> engine.calculate(snapshot, policy));
+        assertTrue(failure.getMessage().contains("HRM_PAYROLL_ALLOWANCE_BASIS_AMBIGUOUS"));
+    }
+
+    @Test
+    void failsClosedWhenPayFrequencyWouldRequireImplicitConversion() {
+        var snapshot = snapshot(
+                List.of(component("BASE_SALARY", "BASE", "1000.0000", null)),
+                List.of());
+
+        var policy = PayrollCalculationEngine.CalculationPolicy.noAdjustments("BIWEEKLY");
+
+        var failure = assertThrows(IllegalStateException.class, () -> engine.calculate(snapshot, policy));
+        assertTrue(failure.getMessage().contains("HRM_PAYROLL_PAY_FREQUENCY_MISMATCH"));
+    }
+
+    @Test
+    void failsClosedForCrossPeriodUnpaidLeaveInsteadOfRecalculatingLeaveDays() {
+        var snapshot = snapshot(
+                List.of(component("BASE_SALARY", "BASE", "1000.0000", null)),
+                List.of(unpaidLeave("4.0000", PERIOD_START.minusDays(2), PERIOD_START.plusDays(1))));
+
+        var policy = new PayrollCalculationEngine.CalculationPolicy(
+                "MONTHLY",
+                List.of(),
+                List.of(),
+                new PayrollCalculationEngine.UnpaidLeavePolicy(true, new BigDecimal("40.0000")));
+
+        var failure = assertThrows(IllegalStateException.class, () -> engine.calculate(snapshot, policy));
+        assertTrue(failure.getMessage().contains("HRM_PAYROLL_UNPAID_LEAVE_PERIOD_AMBIGUOUS"));
+    }
+
+    @Test
+    void unpaidLeaveIsNotDeductedUnlessPolicyExplicitlyEnablesIt() {
+        var snapshot = snapshot(
+                List.of(component("BASE_SALARY", "BASE", "1000.0000", null)),
+                List.of(unpaidLeave("3.0000", PERIOD_START.plusDays(3), PERIOD_START.plusDays(5))));
+
+        var result = engine.calculate(
+                snapshot,
+                PayrollCalculationEngine.CalculationPolicy.noAdjustments("MONTHLY"));
+
+        assertEquals(new BigDecimal("0.0000"), result.deductionTotal());
+        assertEquals(new BigDecimal("1000.0000"), result.netAmount());
+    }
+
+    @Test
+    void rejectsReservedStatutoryDeductionCodes() {
+        var failure = assertThrows(IllegalArgumentException.class,
+                () -> PayrollCalculationEngine.ConfiguredDeduction.percentage(
+                        "GOSI", new BigDecimal("9.7500"),
+                        PayrollCalculationEngine.PercentageBasis.BASE));
+        assertTrue(failure.getMessage().contains("HRM_PAYROLL_STATUTORY_RULE_NOT_AUTHORIZED"));
+    }
+
+    @Test
+    void failsClosedWhenConfiguredDeductionsExceedGross() {
         var snapshot = snapshot(
                 List.of(component("BASE_SALARY", "BASE", "100.0000", null)), List.of());
         var policy = new PayrollCalculationEngine.CalculationPolicy(
+                "MONTHLY",
                 List.of(),
                 List.of(PayrollCalculationEngine.ConfiguredDeduction.fixed(
                         "RECOVERY", new BigDecimal("101.0000"))),
                 PayrollCalculationEngine.UnpaidLeavePolicy.disabled());
 
-        assertThrows(IllegalStateException.class, () -> engine.calculate(snapshot, policy));
+        var failure = assertThrows(IllegalStateException.class, () -> engine.calculate(snapshot, policy));
+        assertTrue(failure.getMessage().contains("HRM_PAYROLL_NEGATIVE_NET_REJECTED"));
     }
 
     private PayrollAuthoritativeInputPort.PayrollInputSnapshot snapshot(
@@ -143,9 +205,14 @@ class PayrollCalculationEngineTest {
                 components,
                 new PayrollAuthoritativeInputPort.TimesheetInput(
                         UUID.fromString("88888888-8888-4888-8888-888888888888"),
-                        9600, 0, 5, Instant.parse("2026-09-30T12:00:00Z")),
+                        PERIOD_START,
+                        PERIOD_END,
+                        9600,
+                        0,
+                        5,
+                        Instant.parse("2026-10-01T12:00:00Z")),
                 leave,
-                LocalDate.of(2026, 9, 30));
+                PERIOD_END);
     }
 
     private PayrollAuthoritativeInputPort.CompensationComponentInput component(
@@ -158,12 +225,15 @@ class PayrollCalculationEngineTest {
                 percentage == null ? null : new BigDecimal(percentage));
     }
 
-    private PayrollAuthoritativeInputPort.LeaveInput unpaidLeave(String days) {
+    private PayrollAuthoritativeInputPort.LeaveInput unpaidLeave(
+            String days,
+            LocalDate start,
+            LocalDate end) {
         return new PayrollAuthoritativeInputPort.LeaveInput(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
-                LocalDate.of(2026, 9, 10),
-                LocalDate.of(2026, 9, 11),
+                start,
+                end,
                 new BigDecimal(days),
                 false,
                 Instant.parse("2026-09-05T10:00:00Z"));
