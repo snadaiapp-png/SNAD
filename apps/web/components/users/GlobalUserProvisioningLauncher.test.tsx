@@ -15,7 +15,7 @@ const { authMock, navigationMock, usersApiMock } = vi.hoisted(() => ({
       displayName: "Admin",
       status: "ACTIVE",
     },
-    capabilities: ["USER.READ", "USER.CREATE"] as string[],
+    capabilities: ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"] as string[],
   },
   navigationMock: {
     pathname: "/hr/employees",
@@ -24,6 +24,10 @@ const { authMock, navigationMock, usersApiMock } = vi.hoisted(() => ({
   usersApiMock: {
     list: vi.fn(),
     create: vi.fn(),
+    moduleProvisioningContext: vi.fn(),
+  },
+  tenantAccessApiMock: {
+    grantUserRole: vi.fn(),
   },
 }));
 
@@ -41,6 +45,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/api/users", () => ({ usersApi: usersApiMock }));
+vi.mock("@/lib/api/tenant-access", () => ({ tenantAccessApi: tenantAccessApiMock }));
 vi.mock("@/lib/api/user-facing-errors", () => ({
   toUserFacingMessage: () => "تعذر إنشاء المستخدم",
 }));
@@ -103,13 +108,28 @@ beforeEach(() => {
     displayName: "Admin",
     status: "ACTIVE",
   };
-  authMock.capabilities = ["USER.READ", "USER.CREATE"];
+  authMock.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
   navigationMock.pathname = "/hr/employees";
   navigationMock.push.mockReset();
   usersApiMock.list.mockReset();
   usersApiMock.create.mockReset();
+  usersApiMock.moduleProvisioningContext.mockReset();
+  tenantAccessApiMock.grantUserRole.mockReset();
   usersApiMock.list.mockResolvedValue([]);
   usersApiMock.create.mockResolvedValue(userRecord(CREATED_ID, "new@example.com"));
+  usersApiMock.moduleProvisioningContext.mockResolvedValue({
+    applicationCode: "HRM",
+    name: "HRM",
+    localizedName: "الموارد البشرية",
+    supportedScopes: ["TENANT", "ORGANIZATION"],
+    roles: [{
+      roleId: "44444444-4444-4444-8444-444444444444",
+      roleCode: "HR_SPECIALIST",
+      roleName: "HR Specialist",
+      capabilities: ["HRM.EMPLOYEE.VIEW"],
+    }],
+  });
+  tenantAccessApiMock.grantUserRole.mockResolvedValue({});
 });
 
 afterEach(() => cleanup());
@@ -174,10 +194,16 @@ describe("GlobalUserProvisioningLauncher", () => {
     await user.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
     await user.type(screen.getByLabelText("البريد الإلكتروني"), "Existing@Example.com");
     await user.type(screen.getByLabelText("اسم المستخدم"), "existing");
+    await user.click(await screen.findByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
 
     await waitFor(() => expect(usersApiMock.list).toHaveBeenCalledWith(TENANT_ID));
     expect(usersApiMock.create).not.toHaveBeenCalled();
+    expect(tenantAccessApiMock.grantUserRole).toHaveBeenCalledWith(
+      TENANT_ID,
+      EXISTING_ID,
+      "44444444-4444-4444-8444-444444444444",
+    );
     expect(navigationMock.push).toHaveBeenCalledWith(
       `/management/users/${EXISTING_ID}?returnTo=%2Fhr%2Femployees`,
     );
@@ -191,6 +217,7 @@ describe("GlobalUserProvisioningLauncher", () => {
     await user.type(screen.getByLabelText("البريد الإلكتروني"), "new@example.com");
     await user.type(screen.getByLabelText("اسم المستخدم"), "new.user");
     await user.type(screen.getByLabelText("الاسم المعروض"), "New User");
+    await user.click(await screen.findByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
 
     await waitFor(() =>
@@ -202,6 +229,11 @@ describe("GlobalUserProvisioningLauncher", () => {
         mobileRegion: "",
         initialCredential: "12345678",
       }),
+    );
+    expect(tenantAccessApiMock.grantUserRole).toHaveBeenCalledWith(
+      TENANT_ID,
+      CREATED_ID,
+      "44444444-4444-4444-8444-444444444444",
     );
     expect(navigationMock.push).toHaveBeenCalledWith(
       `/management/users/${CREATED_ID}?returnTo=%2Fhr%2Femployees`,
