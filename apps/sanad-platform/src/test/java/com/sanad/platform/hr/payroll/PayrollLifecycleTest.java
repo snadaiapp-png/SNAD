@@ -22,7 +22,21 @@ class PayrollLifecycleTest {
     }
 
     @Test
-    void exportedIsTerminalAndApprovedCannotRecalculate() {
+    void recalculationIsAllowedOnlyWhileCalculated() {
+        assertThat(PayrollLifecycle.CALCULATED.canRecalculate()).isTrue();
+        assertThat(PayrollLifecycle.DRAFT.canRecalculate()).isFalse();
+        assertThat(PayrollLifecycle.REVIEWED.canRecalculate()).isFalse();
+        assertThat(PayrollLifecycle.APPROVED.canRecalculate()).isFalse();
+        assertThat(PayrollLifecycle.EXPORTED.canRecalculate()).isFalse();
+        assertThat(PayrollLifecycle.CANCELLED.canRecalculate()).isFalse();
+
+        assertThatThrownBy(() -> PayrollLifecycle.requireRecalculationAllowed(PayrollLifecycle.APPROVED))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HRM_PAYROLL_RECALCULATION_NOT_ALLOWED");
+    }
+
+    @Test
+    void exportedIsTerminalAndApprovedCannotTransitionBackToCalculated() {
         assertThat(PayrollLifecycle.EXPORTED.allowedTargets()).isEmpty();
         assertThatThrownBy(() -> PayrollLifecycle.requireTransition(
                 PayrollLifecycle.APPROVED, PayrollLifecycle.CALCULATED))
