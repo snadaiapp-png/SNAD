@@ -6,6 +6,7 @@ import com.sanad.platform.hr.audit.HrRedactionGuard;
 import com.sanad.platform.hr.compliance.domain.HrCommandContext;
 import com.sanad.platform.hr.integration.HrDomainEventPublisher;
 import com.sanad.platform.hr.integration.JdbcHrOutboxRepository;
+import com.sanad.platform.integration.events.DomainEventEnvelope;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycleService;
 import com.sanad.platform.hr.payroll.application.PayrollLifecycleService.PayrollRunStatus;
 import com.sanad.platform.hr.payroll.infrastructure.JdbcPayrollLifecycleRepository;
@@ -21,8 +22,12 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -242,6 +247,116 @@ class PayrollLifecyclePostgresTest {
         assertThat(recalculated.version()).isEqualTo(2L);
         assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
                 .isEqualTo(2);
+    }
+
+    @Test
+    void auditFailureRollsBackMutationOutboxAndIdempotencyAdmission() throws Exception {
+        JdbcHrAuditRepository failingAudit = new JdbcHrAuditRepository(new HrRedactionGuard()) {
+            @Override
+            public UUID insertLedgerRow(Connection tx, com.sanad.platform.hr.audit.HrAuditRecord record)
+                    throws SQLException {
+                throw new SQLException("INJECTED_AUDIT_FAILURE");
+            }
+        };
+        PayrollLifecycleService failingService = new PayrollLifecycleService(
+                dataSource,
+                new JdbcPayrollLifecycleRepository(),
+                failingAudit,
+                new HrDomainEventPublisher(
+                        dataSource, new HrRedactionGuard(), new JdbcHrOutboxRepository()),
+                new ObjectMapper());
+
+        assertThatThrownBy(() -> failingService.transition(
+                context(), runId, PayrollRunStatus.CALCULATED, 0L,
+                "audit-failure", "audit-failure"))
+                .hasMessageContaining("HRM_PAYROLL_LIFECYCLE_FAILED");
+
+        assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("DRAFT");
+        assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                .isZero();
+        assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                .isZero();
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE operation_reference = '" + runId + "'"))
+                .isZero();
+    }
+
+    @Test
+    void outboxFailureRollsBackMutationAuditAndIdempotencyAdmission() throws Exception {
+        HrDomainEventPublisher failingPublisher = new HrDomainEventPublisher(
+                dataSource, new HrRedactionGuard(), new JdbcHrOutboxRepository()) {
+            @Override
+            public void publish(Connection tx, DomainEventEnvelope envelope) {
+                throw new IllegalStateException("INJECTED_OUTBOX_FAILURE");
+            }
+        };
+        PayrollLifecycleService failingService = new PayrollLifecycleService(
+                dataSource,
+                new JdbcPayrollLifecycleRepository(),
+                new JdbcHrAuditRepository(new HrRedactionGuard()),
+                failingPublisher,
+                new ObjectMapper());
+
+        assertThatThrownBy(() -> failingService.transition(
+                context(), runId, PayrollRunStatus.CALCULATED, 0L,
+                "outbox-failure", "outbox-failure"))
+                .hasMessageContaining("INJECTED_OUTBOX_FAILURE");
+
+        assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("DRAFT");
+        assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                .isZero();
+        assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                .isZero();
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE operation_reference = '" + runId + "'"))
+                .isZero();
+    }
+
+    @Test
+    void concurrentSameVersionTransitionsAllowExactlyOneWinner() throws Exception {
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            Callable<String> first = () -> {
+                try {
+                    service.transition(
+                            context(), runId, PayrollRunStatus.CALCULATED, 0L,
+                            "concurrent-a", "concurrent-a");
+                    return "SUCCESS";
+                } catch (IllegalStateException e) {
+                    return e.getMessage();
+                }
+            };
+            Callable<String> second = () -> {
+                try {
+                    service.transition(
+                            context(), runId, PayrollRunStatus.CALCULATED, 0L,
+                            "concurrent-b", "concurrent-b");
+                    return "SUCCESS";
+                } catch (IllegalStateException e) {
+                    return e.getMessage();
+                }
+            };
+
+            Future<String> a = pool.submit(first);
+            Future<String> b = pool.submit(second);
+            String ra = a.get();
+            String rb = b.get();
+
+            assertThat(java.util.List.of(ra, rb).stream().filter("SUCCESS"::equals).count())
+                    .isEqualTo(1);
+            assertThat(java.util.List.of(ra, rb).stream()
+                    .filter(v -> v.contains("HRM_PAYROLL_VERSION_CONFLICT")).count())
+                    .isEqualTo(1);
+
+            assertThat(query("SELECT version::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                    .isEqualTo("1");
+            assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                    .isEqualTo(1);
+            assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                    .isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
