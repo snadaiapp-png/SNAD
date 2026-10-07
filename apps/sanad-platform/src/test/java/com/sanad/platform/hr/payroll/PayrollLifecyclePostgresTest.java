@@ -277,7 +277,7 @@ class PayrollLifecyclePostgresTest {
                 .isZero();
         assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
                 .isZero();
-        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE operation_reference = '" + runId + "'"))
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'audit-failure'"))
                 .isZero();
     }
 
@@ -308,7 +308,7 @@ class PayrollLifecyclePostgresTest {
                 .isZero();
         assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
                 .isZero();
-        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE operation_reference = '" + runId + "'"))
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'outbox-failure'"))
                 .isZero();
     }
 
