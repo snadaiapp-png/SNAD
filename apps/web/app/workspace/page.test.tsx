@@ -128,6 +128,8 @@ describe("WorkspacePage", () => {
     expect(screen.getByText(defaultUser.tenantId)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /CRM/ }).length).toBeGreaterThan(0);
     expect(container.querySelector('a[href="/executive"]')).toBeInTheDocument();
+    expect(container.querySelector('a[href="/executive/subscriptions"]')).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-subscriptions")).toBeInTheDocument();
     expect(container.querySelector('a[href="/control-plane"]')).not.toBeInTheDocument();
     expect(authApiMock.me).not.toHaveBeenCalled();
   });

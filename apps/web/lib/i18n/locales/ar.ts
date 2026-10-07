@@ -229,6 +229,8 @@ export const ar: TranslationDictionary = {
   "workspace.sessionActive": "نشطة",
   "workspace.openControlPlane": "فتح مركز الإدارة العليا",
   "workspace.openExecutive": "الإدارة التنفيذية",
+  "workspace.openSubscriptions": "الاشتراكات والفوترة",
+  "workspace.subscriptionsDescription": "إدارة الباقات والاشتراكات والاستحقاقات والاستخدام والفوترة والتجهيز.",
   "workspace.executiveDescription": "إدارة المستأجرين والباقات والاشتراكات والفوترة.",
   "workspace.openSystemHealth": "صحة النظام",
   "workspace.systemHealthDescription": "مراقبة البنية التحتية والتشخيصات وحالة النظام.",
