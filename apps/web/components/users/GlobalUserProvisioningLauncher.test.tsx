@@ -5,7 +5,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authMock, navigationMock, usersApiMock } = vi.hoisted(() => ({
+const { authMock, navigationMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
   authMock: {
     state: "AUTHENTICATED",
     user: {
