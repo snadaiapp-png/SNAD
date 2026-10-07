@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
 import { Button, Input } from "@/components/sds";
 import { Modal } from "@/components/sds/Modal";
 import { useAuth } from "@/lib/auth/auth-provider";
@@ -43,8 +42,8 @@ export function GlobalUserProvisioningLauncher({
   presentation = "floating",
 }: GlobalUserProvisioningLauncherProps = {}) {
   const { state, user, me } = useAuth();
-  const pathname = usePathname();
-  const router = useRouter();
+  const pathname =
+    typeof window === "undefined" ? "/" : window.location.pathname;
   const { t } = useI18n();
   const messages = useMemo(() => usersMessages(t), [t]);
   const capabilities = me?.capabilities ?? [];
@@ -155,7 +154,7 @@ export function GlobalUserProvisioningLauncher({
           await grantSelectedModuleRoles(existing.id);
           setOpen(false);
           reset();
-          router.push(
+          window.location.assign(
             `/management/users/${existing.id}?returnTo=${encodeURIComponent(pathname)}`,
           );
           return;
@@ -173,7 +172,7 @@ export function GlobalUserProvisioningLauncher({
       await grantSelectedModuleRoles(created.id);
       setOpen(false);
       reset();
-      router.push(
+      window.location.assign(
         `/management/users/${created.id}?returnTo=${encodeURIComponent(pathname)}`,
       );
     } catch (caught) {
