@@ -78,9 +78,7 @@ public class ModuleUserProvisioningService {
         for (RoleRow role : roles.values()) {
             Set<String> capabilities = capabilitiesByRole.getOrDefault(role.id(), Set.of());
             if (capabilities.isEmpty()) continue;
-            boolean ownsAtLeastOne = capabilities.stream().anyMatch(capability -> ownedByAny(capability, namespaces));
-            boolean moduleOnly = capabilities.stream().allMatch(capability -> ownedByAny(capability, namespaces));
-            if (ownsAtLeastOne && moduleOnly) {
+            if (isModuleOnlyRole(capabilities, namespaces)) {
                 available.add(new ModuleProvisioningRole(
                         role.id(),
                         role.code(),
@@ -109,6 +107,13 @@ public class ModuleUserProvisioningService {
             }
         }
         return normalizeRouteRoot(registration.applicationCode()).equals(normalizedRoute);
+    }
+
+    static boolean isModuleOnlyRole(Set<String> capabilities, Set<String> namespaces) {
+        if (capabilities == null || capabilities.isEmpty() || namespaces == null || namespaces.isEmpty()) {
+            return false;
+        }
+        return capabilities.stream().allMatch(capability -> ownedByAny(capability, namespaces));
     }
 
     private static boolean ownedByAny(String capability, Set<String> namespaces) {
