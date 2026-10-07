@@ -360,6 +360,114 @@ class PayrollLifecyclePostgresTest {
         }
     }
 
+    @Test
+    void recalculationIsAtomicVersionedIdempotentAndAmountMinimized() throws Exception {
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
+        HrAuthenticatedContext actor = actor(tenantId);
+
+        service.transition(actor, runId, PayrollLifecycle.CALCULATED, 0,
+                "CALCULATE", "key-recalc-seed", "fp-recalc-seed");
+
+        var first = service.recalculate(
+                actor, runId, 1,
+                "RECALCULATE", "key-recalc", "fp-recalc");
+
+        assertThat(first.replayed()).isFalse();
+        assertThat(first.fromStatus()).isEqualTo(PayrollLifecycle.CALCULATED);
+        assertThat(first.toStatus()).isEqualTo(PayrollLifecycle.CALCULATED);
+        assertThat(first.version()).isEqualTo(2);
+        assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("CALCULATED");
+        assertThat(query("SELECT version::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("2");
+        assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                .isEqualTo(2);
+        assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                .isEqualTo(2);
+
+        String payload = query("""
+                SELECT payload::text
+                  FROM hr_domain_event_outbox
+                 WHERE aggregate_id = '""" + runId + """'
+                   AND event_type = 'HRM.PAYROLL.RECALCULATED.v1'
+                """);
+        assertThat(payload)
+                .contains("CALCULATED")
+                .doesNotContain("baseAmount")
+                .doesNotContain("grossAmount")
+                .doesNotContain("netAmount")
+                .doesNotContain("bank");
+
+        var replay = service.recalculate(
+                actor, runId, 1,
+                "RECALCULATE", "key-recalc", "fp-recalc");
+
+        assertThat(replay.replayed()).isTrue();
+        assertThat(replay.version()).isEqualTo(2);
+        assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                .isEqualTo(2);
+        assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                .isEqualTo(2);
+
+        assertThatThrownBy(() -> service.recalculate(
+                actor, runId, 2,
+                "RECALCULATE", "key-recalc", "fp-recalc-different"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HRM_IDEMPOTENCY_CONFLICT");
+    }
+
+    @Test
+    void recalculationFailsClosedAfterReviewAndRollsBackIdempotency() throws Exception {
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
+        HrAuthenticatedContext actor = actor(tenantId);
+
+        service.transition(actor, runId, PayrollLifecycle.CALCULATED, 0,
+                "CALCULATE", "key-review-seed-1", "fp-review-seed-1");
+        service.transition(actor, runId, PayrollLifecycle.REVIEWED, 1,
+                "REVIEW", "key-review-seed-2", "fp-review-seed-2");
+
+        assertThatThrownBy(() -> service.recalculate(
+                actor, runId, 2,
+                "RECALCULATE_AFTER_REVIEW", "key-recalc-denied", "fp-recalc-denied"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HRM_PAYROLL_RECALCULATION_NOT_ALLOWED");
+
+        assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("REVIEWED");
+        assertThat(query("SELECT version::text FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("2");
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'key-recalc-denied'"))
+                .isZero();
+    }
+
+    @Test
+    void cancellationPersistsAtomicallyAndIsTerminal() throws Exception {
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
+        HrAuthenticatedContext actor = actor(tenantId);
+
+        var cancelled = service.transition(
+                actor, runId, PayrollLifecycle.CANCELLED, 0,
+                "CANCEL", "key-cancel", "fp-cancel");
+
+        assertThat(cancelled.toStatus()).isEqualTo(PayrollLifecycle.CANCELLED);
+        assertThat(cancelled.version()).isEqualTo(1);
+        assertThat(query("SELECT status FROM hr_payroll_runs WHERE id = '" + runId + "'"))
+                .isEqualTo("CANCELLED");
+        assertThat(count("SELECT COUNT(*) FROM hr_audit_ledger WHERE resource_id = '" + runId + "'"))
+                .isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox WHERE aggregate_id = '" + runId + "'"))
+                .isEqualTo(1);
+
+        assertThatThrownBy(() -> service.transition(
+                actor, runId, PayrollLifecycle.CALCULATED, 1,
+                "RESURRECT", "key-cancel-resurrect", "fp-cancel-resurrect"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HRM_PAYROLL_LIFECYCLE_INVALID");
+
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'key-cancel-resurrect'"))
+                .isZero();
+    }
+
     private PayrollLifecycleService service(HrTransactionalEvidenceWriter evidenceWriter) {
         return new PayrollLifecycleService(
                 dataSource,
