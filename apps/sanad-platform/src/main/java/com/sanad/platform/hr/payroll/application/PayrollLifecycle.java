@@ -31,6 +31,17 @@ public enum PayrollLifecycle {
         return target != null && allowedTargets().contains(target);
     }
 
+    public boolean canRecalculate() {
+        return this == CALCULATED;
+    }
+
+    public static void requireRecalculationAllowed(PayrollLifecycle current) {
+        if (current == null || !current.canRecalculate()) {
+            throw new IllegalStateException(
+                    "HRM_PAYROLL_RECALCULATION_NOT_ALLOWED: " + String.valueOf(current));
+        }
+    }
+
     public static void requireTransition(PayrollLifecycle current, PayrollLifecycle target) {
         if (current == null || target == null || !current.canTransitionTo(target)) {
             throw new IllegalStateException(
