@@ -76,7 +76,8 @@ function titleCase(value: string): string {
     .replace(/[_-]+/g, " ");
 }
 
-function fallbackLabel(code: string, locale: Locale): string {
+function fallbackLabel(code: string | null | undefined, locale: Locale): string {
+  if (!code?.trim()) return locale === "ar" ? "غير محدد" : "Not specified";
   const tokens = code.split(/[._-]+/).filter(Boolean);
   if (locale === "en") return titleCase(tokens.join(" "));
   return tokens.map((token) => AR_TOKENS[token.toUpperCase()] ?? token).join(" ");
@@ -101,11 +102,12 @@ export function capabilityDisplayName(
   const known = CAPABILITY_LABELS[code.toUpperCase()];
   if (known) return known[locale];
   if (locale === "en" && backendName?.trim()) return backendName.trim();
+  if (locale === "ar" && /^[0-9a-f-]{8,}$/i.test(code)) return `صلاحية ${code}`;
   return fallbackLabel(code, locale);
 }
 
-export function statusDisplayName(status: string, locale: Locale): string {
-  const normalized = status.toUpperCase();
+export function statusDisplayName(status: string | null | undefined, locale: Locale): string {
+  const normalized = status?.toUpperCase() ?? "";
   const labels: Record<string, { ar: string; en: string }> = {
     ACTIVE: { ar: "نشط", en: "Active" },
     INACTIVE: { ar: "غير نشط", en: "Inactive" },
@@ -117,8 +119,8 @@ export function statusDisplayName(status: string, locale: Locale): string {
   return labels[normalized]?.[locale] ?? fallbackLabel(status, locale);
 }
 
-export function scopeDisplayName(scope: string, locale: Locale): string {
-  const normalized = scope.toUpperCase();
+export function scopeDisplayName(scope: string | null | undefined, locale: Locale): string {
+  const normalized = scope?.toUpperCase() ?? "";
   const labels: Record<string, { ar: string; en: string }> = {
     TENANT: { ar: "المستأجر", en: "Tenant" },
     ORGANIZATION: { ar: "المؤسسة", en: "Organization" },
@@ -129,15 +131,15 @@ export function scopeDisplayName(scope: string, locale: Locale): string {
   return labels[normalized]?.[locale] ?? fallbackLabel(scope, locale);
 }
 
-export function effectDisplayName(effect: string, locale: Locale): string {
-  const normalized = effect.toUpperCase();
+export function effectDisplayName(effect: string | null | undefined, locale: Locale): string {
+  const normalized = effect?.toUpperCase() ?? "";
   if (normalized === "ALLOW") return locale === "ar" ? "سماح" : "Allow";
   if (normalized === "DENY") return locale === "ar" ? "منع" : "Deny";
   return fallbackLabel(effect, locale);
 }
 
-export function sourceDisplayName(source: string, locale: Locale): string {
-  const normalized = source.toUpperCase();
+export function sourceDisplayName(source: string | null | undefined, locale: Locale): string {
+  const normalized = source?.toUpperCase() ?? "";
   const labels: Record<string, { ar: string; en: string }> = {
     ROLE: { ar: "دور", en: "Role" },
     OVERRIDE: { ar: "استثناء مباشر", en: "Override" },
