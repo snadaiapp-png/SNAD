@@ -255,7 +255,7 @@ public class JdbcHrRequestIdempotencyService implements RequestIdempotencyServic
                 return rs.next()
                         ? new ExistingRow(
                                 UUID.fromString(rs.getString("id")),
-                                rs.getString("request_fingerprint"),
+                                normalizeFingerprint(rs.getString("request_fingerprint")),
                                 rs.getObject("response_status") == null ? null : rs.getInt("response_status"),
                                 rs.getString("response_body"),
                                 rs.getTimestamp("expires_at").toInstant())
@@ -371,6 +371,10 @@ public class JdbcHrRequestIdempotencyService implements RequestIdempotencyServic
                     : (current.getCause() instanceof SQLException se ? se : null);
         }
         return false;
+    }
+
+    private static String normalizeFingerprint(String value) {
+        return value == null ? null : value.trim();
     }
 
     private static void requireText(String value, String field) {
