@@ -415,6 +415,39 @@ class PayrollLifecyclePostgresTest {
     }
 
     @Test
+    void sameIdempotencyKeyAcrossDifferentActorsDoesNotCollideInOutbox() throws Exception {
+        PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
+        HrAuthenticatedContext firstActor = actor(tenantId);
+        UUID secondActorId = UUID.randomUUID();
+        HrAuthenticatedContext secondActor = new HrAuthenticatedContext(
+                tenantId, secondActorId, UUID.randomUUID(), UUID.randomUUID());
+
+        service.transition(firstActor, runId, PayrollLifecycle.CALCULATED, 0,
+                "CALCULATE", "seed-shared-actor-key", "seed-shared-actor-fp");
+
+        var first = service.recalculate(
+                firstActor, runId, 1,
+                "RECALCULATE_A", "shared-recalc-key", "shared-recalc-fp-a");
+        var second = service.recalculate(
+                secondActor, runId, 2,
+                "RECALCULATE_B", "shared-recalc-key", "shared-recalc-fp-b");
+
+        assertThat(first.replayed()).isFalse();
+        assertThat(second.replayed()).isFalse();
+        assertThat(second.version()).isEqualTo(3);
+        assertThat(count("SELECT COUNT(*) FROM hr_idempotency_records WHERE idempotency_key = 'shared-recalc-key'"))
+                .isEqualTo(2);
+        assertThat(count("SELECT COUNT(*) FROM hr_domain_event_outbox "
+                + "WHERE aggregate_id = '" + runId + "' "
+                + "AND event_type = 'HRM.PAYROLL.RECALCULATED.v1'"))
+                .isEqualTo(2);
+        assertThat(count("SELECT COUNT(DISTINCT event_id) FROM hr_domain_event_outbox "
+                + "WHERE aggregate_id = '" + runId + "' "
+                + "AND event_type = 'HRM.PAYROLL.RECALCULATED.v1'"))
+                .isEqualTo(2);
+    }
+
+    @Test
     void recalculationFailsClosedAfterReviewAndRollsBackIdempotency() throws Exception {
         PayrollLifecycleService service = service(new JdbcHrEvidenceWriter(dataSource));
         HrAuthenticatedContext actor = actor(tenantId);
