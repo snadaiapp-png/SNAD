@@ -1,0 +1,23 @@
+name: HRM G4 T4 Calculation Engine
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/payroll/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/payroll/PayrollCalculationEngineTest.java'
+      - '.github/workflows/hrm-g4-t4-calculation-engine.yml'
+  workflow_dispatch:
+
+jobs:
+  focused-calculation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run deterministic payroll calculation matrix
+        working-directory: apps/sanad-platform
+        run: mvn --batch-mode --no-transfer-progress -Dtest=PayrollCalculationEngineTest -DfailIfNoTests=true test
