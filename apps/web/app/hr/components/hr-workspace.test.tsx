@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HrWorkspace } from "./hr-workspace";
 import { HRM_CAPABILITIES } from "@/lib/auth/capabilities";
@@ -14,6 +14,13 @@ const { useRouterMock } = vi.hoisted(() => ({ useRouterMock: vi.fn() }));
 const { authMock } = vi.hoisted(() => ({
   authMock: {
     state: "AUTHENTICATED",
+    user: {
+      id: "actor-1",
+      tenantId: "11111111-1111-1111-1111-111111111111",
+      email: "operator@example.com",
+      displayName: "موظف التشغيل",
+      status: "ACTIVE",
+    },
     me: {
       capabilities: [] as string[],
       displayName: "موظف التشغيل",
@@ -70,6 +77,11 @@ vi.mock("@/lib/i18n/I18nProvider", async () => {
 
 const FULL_CAPS = Object.values(HRM_CAPABILITIES);
 const NO_HR_CAPS: string[] = [];
+
+beforeEach(() => {
+  authMock.state = "AUTHENTICATED";
+  authMock.me.capabilities = [];
+});
 
 afterEach(() => cleanup());
 
@@ -224,6 +236,20 @@ describe("HrWorkspace navigation", () => {
     expect(screen.getByRole("link", { name: "حضوري" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "سجلات وقتي" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "إجازاتي" })).toBeInTheDocument();
+  });
+
+  it("renders the canonical add-user action in the HR module header when USER.CREATE is granted", () => {
+    authMock.me.capabilities = ["USER.READ", "USER.CREATE"];
+    render(
+      <HrWorkspace capabilities={FULL_CAPS} activeHref="/hr/employees">
+        <p>المحتوى</p>
+      </HrWorkspace>,
+    );
+
+    const action = screen.getByTestId("global-user-provisioning");
+    expect(action).toHaveAttribute("data-presentation", "header");
+    expect(action).toHaveAttribute("data-module-context", "hr");
+    expect(screen.getByRole("button", { name: "إضافة مستخدم" })).toBeInTheDocument();
   });
 
   it("exposes navigation as a labelled landmark and renders children in main", () => {
