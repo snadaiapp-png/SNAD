@@ -116,9 +116,12 @@ class PlatformApiCountTest {
      *  (GET /api/v1/organizations/{organizationId}/legal-entity,
      *  ORGANIZATION.READ-gated, tenant derived from authenticated context) = 1005.
      *  + 1 Users module-local provisioning context
-     *  (GET /api/v1/users/module-provisioning-context, USER.GRANT_ROLE-gated) = 1006. */
-    private static final long EXPECTED_TOTAL_OPS = 1006;
-    private static final long EXPECTED_HRM_V2_OPS = 145;
+     *  (GET /api/v1/users/module-provisioning-context, USER.GRANT_ROLE-gated) = 1006.
+     *  + 10 HRM G4-T8 governed payroll operations under /api/v2/hr/payroll
+     *  (run create/list/get, calculate/recalculate, item list/get, review,
+     *  approve, accounting export) = 1016. */
+    private static final long EXPECTED_TOTAL_OPS = 1016;
+    private static final long EXPECTED_HRM_V2_OPS = 155;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
     private static final long EXPECTED_COMMITTED_CRM_PATHS = 152;
