@@ -54,6 +54,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate governed G2 provisioning contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/g2/provision-canonical-hr.sh
+          python3 tests/ci/test_g2_canonical_hr_script_contract.py
+          echo "G2_PROVISIONING_CONTRACT_GATE=PASS"
+
       - name: Authenticate as Tenant B admin
         shell: bash
         run: |
