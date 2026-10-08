@@ -30,11 +30,7 @@ public class ModuleUserProvisioningService {
     @Transactional(readOnly = true)
     public ModuleProvisioningContext resolve(UUID tenantId, String routeRoot) {
         if (tenantId == null) throw new IllegalArgumentException("tenantId is required");
-        String normalizedRoute = normalizeRouteRoot(routeRoot);
-
-        ApplicationIamRegistration registration = registry.findDiscoverable().stream()
-                .filter(candidate -> matchesRoute(candidate, normalizedRoute))
-                .findFirst()
+        ApplicationIamRegistration registration = registry.findDiscoverableByRouteRoot(routeRoot)
                 .orElseThrow(() -> new IllegalArgumentException("No governed IAM application matches route"));
 
         if (!"ACTIVE".equals(normalizeCode(registration.status()))
@@ -92,22 +88,10 @@ public class ModuleUserProvisioningService {
                 normalizeCode(registration.applicationCode()),
                 registration.name(),
                 registration.localizedName(),
+                namespaces,
+                normalizeSet(registration.declaredCapabilities()),
                 normalizeSet(registration.supportedScopes()),
                 List.copyOf(available));
-    }
-
-    private static boolean matchesRoute(ApplicationIamRegistration registration, String normalizedRoute) {
-        Object routeRoots = registration.compatibilityMetadata() == null
-                ? null
-                : registration.compatibilityMetadata().get("routeRoots");
-        if (routeRoots instanceof Iterable<?> iterable) {
-            for (Object item : iterable) {
-                if (item != null && normalizeRouteRoot(item.toString()).equals(normalizedRoute)) {
-                    return true;
-                }
-            }
-        }
-        return normalizeRouteRoot(registration.applicationCode()).equals(normalizedRoute);
     }
 
     static boolean isModuleOnlyRole(Set<String> capabilities, Set<String> namespaces) {
@@ -138,13 +122,6 @@ public class ModuleUserProvisioningService {
 
     private static String normalizeCode(String value) {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private static String normalizeRouteRoot(String value) {
-        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-        while (normalized.startsWith("/")) normalized = normalized.substring(1);
-        int slash = normalized.indexOf('/');
-        return slash >= 0 ? normalized.substring(0, slash) : normalized;
     }
 
     private record RoleRow(UUID id, String code, String name) {}
