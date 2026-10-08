@@ -75,9 +75,9 @@ test.describe("CRM Import Workflow E2E", () => {
   test("existing imports list loads", async ({ page }) => {
     await waitForCrmReady(page, "/crm/imports");
 
-    // The imports list should load without error.
-    // Wait for network idle to ensure data has been fetched.
-    await page.waitForLoadState("networkidle");
+    // The imports list should load without error. The authenticated CRM shell
+    // is the readiness contract; project-wide IAM discovery may keep background requests active.
+    await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
 
     // Verify no error state is shown.
     const errorElement = page.locator('[role="alert"], [class*="error"]').first();
