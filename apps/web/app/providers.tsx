@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/lib/auth/auth-provider";
 import { TenantContextProvider } from "@/lib/auth/tenant-context";
@@ -27,7 +27,28 @@ function clearCrmRootEntryMarker(): void {
 
 function GlobalModuleAccessFallback() {
   const pathname = usePathname();
-  return <ModuleAccessNavigation routePath={pathname} presentation="floating" />;
+  const { state } = useAuth();
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    if (state !== "AUTHENTICATED") {
+      setEnabled(false);
+      return;
+    }
+
+    // Shared-shell modules already render ModuleAccessNavigation in their
+    // sidebar. Only mount the floating fallback for authenticated legacy
+    // surfaces that have not migrated to SnadModuleShell yet. Starting false
+    // prevents a duplicate background IAM discovery request during bootstrap.
+    const hasSharedModuleShell = Boolean(
+      document.querySelector('[data-snad-module-shell="true"]'),
+    );
+    setEnabled(!hasSharedModuleShell);
+  }, [pathname, state]);
+
+  return enabled
+    ? <ModuleAccessNavigation routePath={pathname} presentation="floating" />
+    : null;
 }
 
 function AuthRouteRecovery({ children }: { children: ReactNode }) {
