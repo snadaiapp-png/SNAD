@@ -71,7 +71,9 @@ export default function TenantUsersPage() {
           usersApi.moduleContext(moduleRouteRoot),
         ]);
         const accessible = new Set(
-          projectedUsers.filter((entry) => entry.effectiveAccess).map((entry) => entry.userId),
+          projectedUsers
+            .filter((entry) => entry.effectiveAccess || entry.assignedRoles.length > 0)
+            .map((entry) => entry.userId),
         );
         setUsers(allUsers.filter((entry) => accessible.has(entry.id)));
         setModuleContext(context);
