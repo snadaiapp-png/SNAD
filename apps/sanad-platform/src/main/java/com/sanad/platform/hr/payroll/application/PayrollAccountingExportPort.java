@@ -46,8 +46,14 @@ public interface PayrollAccountingExportPort {
             Objects.requireNonNull(periodEnd, "periodEnd");
             Objects.requireNonNull(correlationId, "correlationId");
             Objects.requireNonNull(requestId, "requestId");
-            requireText(currencyCode, "currencyCode");
-            requireText(idempotencyKey, "idempotencyKey");
+            if (currencyCode == null || currencyCode.isBlank()) {
+                throw new IllegalArgumentException(
+                        "HRM_PAYROLL_EXPORT_INVALID: currencyCode is required");
+            }
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                throw new IllegalArgumentException(
+                        "HRM_PAYROLL_EXPORT_INVALID: idempotencyKey is required");
+            }
 
             if (periodEnd.isBefore(periodStart)) {
                 throw new IllegalArgumentException("HRM_PAYROLL_EXPORT_PERIOD_INVALID");
@@ -71,15 +77,14 @@ public interface PayrollAccountingExportPort {
     ) {
         public ExportReceipt {
             Objects.requireNonNull(correlationId, "correlationId");
-            requireText(externalReference, "externalReference");
-            requireText(status, "status");
-        }
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(
-                    "HRM_PAYROLL_EXPORT_INVALID: " + field + " is required");
+            if (externalReference == null || externalReference.isBlank()) {
+                throw new IllegalArgumentException(
+                        "HRM_PAYROLL_EXPORT_INVALID: externalReference is required");
+            }
+            if (status == null || status.isBlank()) {
+                throw new IllegalArgumentException(
+                        "HRM_PAYROLL_EXPORT_INVALID: status is required");
+            }
         }
     }
 }
