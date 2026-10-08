@@ -62,7 +62,7 @@ test.describe("CRM-EXEC — Execution Board runtime acceptance", () => {
     const bodyText = (await page.locator("body").innerText()).toLowerCase();
     if (bodyText.includes("لوحة") || bodyText.includes("التنفيذ")) {
       await langToggle.click().catch(() => undefined);
-      await page.waitForLoadState("networkidle");
+      await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
     }
 
     // The sidebar link to /crm/execution must contain the English label.
