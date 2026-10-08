@@ -40,6 +40,16 @@ export function ModuleAccessNavigation({
     let cancelled = false;
     if (!root) return () => { cancelled = true; };
 
+    // Shared-shell modules already render this navigation in their sidebar.
+    // The global floating fallback remains mounted for legacy/future surfaces,
+    // but must not trigger a duplicate authenticated IAM discovery request.
+    if (
+      presentation === "floating" &&
+      document.querySelector('[data-snad-module-shell="true"]')
+    ) {
+      return () => { cancelled = true; };
+    }
+
     usersApi.moduleContext(root)
       .then((value) => {
         if (!cancelled) setResolved({ root, context: value });
@@ -53,7 +63,7 @@ export function ModuleAccessNavigation({
     return () => {
       cancelled = true;
     };
-  }, [root]);
+  }, [presentation, root]);
 
   const context = resolved?.root === root ? resolved.context : null;
   if (!context) return null;
