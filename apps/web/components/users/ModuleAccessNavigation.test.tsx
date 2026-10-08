@@ -5,13 +5,19 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { usersApiMock } = vi.hoisted(() => ({
+const { usersApiMock, authState } = vi.hoisted(() => ({
   usersApiMock: {
     moduleContext: vi.fn(),
+  },
+  authState: {
+    current: "AUTHENTICATED",
   },
 }));
 
 vi.mock("@/lib/api/users", () => ({ usersApi: usersApiMock }));
+vi.mock("@/lib/auth/auth-provider", () => ({
+  useAuth: () => ({ state: authState.current }),
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
     <a href={String(href)} {...props}>{children}</a>
@@ -31,6 +37,7 @@ const context = {
 };
 
 beforeEach(() => {
+  authState.current = "AUTHENTICATED";
   usersApiMock.moduleContext.mockReset();
   usersApiMock.moduleContext.mockResolvedValue(context);
 });
@@ -42,6 +49,35 @@ describe("ModuleAccessNavigation", () => {
     expect(routeRootForModuleAccess("/crm/accounts")).toBe("crm");
     expect(routeRootForModuleAccess("/hr/employees")).toBe("hr");
     expect(routeRootForModuleAccess("/future-ledger/dashboard")).toBe("future-ledger");
+  });
+
+  it.each(["INITIALIZING", "CHECKING_SESSION", "REFRESHING", "REFRESHING_SESSION", "ANONYMOUS"])(
+    "does not issue governed IAM discovery while auth state is %s",
+    async (state) => {
+      authState.current = state;
+      render(<ModuleAccessNavigation routePath="/crm/accounts" presentation="sidebar" />);
+
+      await Promise.resolve();
+      expect(usersApiMock.moduleContext).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("module-access-navigation")).not.toBeInTheDocument();
+    },
+  );
+
+  it("issues exactly one discovery after the session becomes authenticated", async () => {
+    authState.current = "CHECKING_SESSION";
+    const { rerender } = render(
+      <ModuleAccessNavigation routePath="/crm/accounts" presentation="sidebar" />,
+    );
+
+    await Promise.resolve();
+    expect(usersApiMock.moduleContext).not.toHaveBeenCalled();
+
+    authState.current = "AUTHENTICATED";
+    rerender(<ModuleAccessNavigation routePath="/crm/accounts" presentation="sidebar" />);
+
+    await waitFor(() => expect(usersApiMock.moduleContext).toHaveBeenCalledTimes(1));
+    expect(usersApiMock.moduleContext).toHaveBeenCalledWith("crm");
+    expect(await screen.findByTestId("module-access-navigation")).toBeInTheDocument();
   });
 
   it("renders users and permissions links for a governed module", async () => {
