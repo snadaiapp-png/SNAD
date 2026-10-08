@@ -1,6 +1,6 @@
 {
   "generatedFrom": "runtime platform contract export",
-  "hrmV2Operations": 145,
+  "hrmV2Operations": 155,
   "paths": {
     "/api/v2/hr/assignments": {
       "get": "hrAssignmentsList",
@@ -172,6 +172,34 @@
     },
     "/api/v2/hr/org-units/{orgUnitId}/revise": {
       "post": "hrStructureReviseOrgUnit"
+    },
+    "/api/v2/hr/payroll/runs": {
+      "get": "hrPayrollListRuns",
+      "post": "hrPayrollCreateRun"
+    },
+    "/api/v2/hr/payroll/runs/{runId}": {
+      "get": "hrPayrollGetRun"
+    },
+    "/api/v2/hr/payroll/runs/{runId}/approve": {
+      "post": "hrPayrollApprove"
+    },
+    "/api/v2/hr/payroll/runs/{runId}/calculate": {
+      "post": "hrPayrollCalculate"
+    },
+    "/api/v2/hr/payroll/runs/{runId}/export": {
+      "post": "hrPayrollExport"
+    },
+    "/api/v2/hr/payroll/runs/{runId}/items": {
+      "get": "hrPayrollListItems"
+    },
+    "/api/v2/hr/payroll/runs/{runId}/items/{itemId}": {
+      "get": "hrPayrollGetItem"
+    },
+    "/api/v2/hr/payroll/runs/{runId}/recalculate": {
+      "post": "hrPayrollRecalculate"
+    },
+    "/api/v2/hr/payroll/runs/{runId}/review": {
+      "post": "hrPayrollReview"
     },
     "/api/v2/hr/people": {
       "get": "hrPeopleList",
