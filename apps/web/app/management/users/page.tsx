@@ -43,17 +43,12 @@ export default function TenantUsersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-  const [moduleRouteRoot, setModuleRouteRoot] = useState<string | null | undefined>(undefined);
-  const [moduleReturnTo, setModuleReturnTo] = useState<string | null>(null);
+  const moduleParams =
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+  const moduleRouteRoot = moduleParams?.get("module")?.trim().toLowerCase() || null;
+  const moduleReturnTo = moduleParams?.get("returnTo") || null;
   const [moduleContext, setModuleContext] = useState<ModuleProvisioningContext | null>(null);
   const [moduleAccess, setModuleAccess] = useState<Record<string, { assignedRoles: string[]; effectiveCapabilities: string[] }>>({});
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const scopedModule = params.get("module")?.trim().toLowerCase() || null;
-    setModuleRouteRoot(scopedModule);
-    setModuleReturnTo(params.get("returnTo"));
-  }, []);
 
   useEffect(() => {
     if (["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state)) {
@@ -62,7 +57,6 @@ export default function TenantUsersPage() {
   }, [router, state]);
 
   const loadUsers = useCallback(async () => {
-    if (moduleRouteRoot === undefined) return;
     if (!tenantId || !canRead) {
       setLoading(false);
       return;
