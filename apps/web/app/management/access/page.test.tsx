@@ -151,8 +151,8 @@ describe("Tenant Roles and Capabilities", () => {
 
     expect(await screen.findByRole("heading", { name: "إدارة الوصول — إدارة علاقات العملاء" })).toBeInTheDocument();
     expect(usersApiMock.moduleContext).toHaveBeenCalledWith("crm");
-    expect(screen.getByText("CRM Agent")).toBeInTheDocument();
-    expect(screen.queryByText("HR Specialist")).not.toBeInTheDocument();
+    expect(screen.getByText("إدارة علاقات العملاء وكيل")).toBeInTheDocument();
+    expect(screen.queryByText("HR_SPECIALIST")).not.toBeInTheDocument();
     expect(screen.getByText("CRM.ACCOUNT.READ")).toBeInTheDocument();
     expect(screen.queryByText("HRM.EMPLOYEE.VIEW")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "إنشاء دور" })).not.toBeInTheDocument();
