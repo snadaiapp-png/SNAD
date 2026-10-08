@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
 import { ExecutiveShell } from "@/components/shell";
 import { useAuth } from "@/lib/auth/auth-provider";
 import {
@@ -54,6 +55,15 @@ export default function TenantAccessPage() {
   const [roleName, setRoleName] = useState("");
   const [capabilityCode, setCapabilityCode] = useState("");
   const [capabilityName, setCapabilityName] = useState("");
+  const [moduleRouteRoot, setModuleRouteRoot] = useState<string | null | undefined>(undefined);
+  const [moduleReturnTo, setModuleReturnTo] = useState<string | null>(null);
+  const [moduleContext, setModuleContext] = useState<ModuleProvisioningContext | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setModuleRouteRoot(params.get("module")?.trim().toLowerCase() || null);
+    setModuleReturnTo(params.get("returnTo"));
+  }, []);
 
   useEffect(() => {
     if (["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state)) {
@@ -62,6 +72,7 @@ export default function TenantAccessPage() {
   }, [router, state]);
 
   const loadAccess = useCallback(async () => {
+    if (moduleRouteRoot === undefined) return;
     if (!tenantId || !canRead) {
       setLoading(false);
       return;
@@ -69,18 +80,40 @@ export default function TenantAccessPage() {
     setLoading(true);
     setError(null);
     try {
-      const [nextRoles, nextCapabilities] = await Promise.all([
-        tenantAccessApi.listRoles(tenantId),
-        tenantAccessApi.listCapabilities(),
-      ]);
-      setRoles(nextRoles);
-      setRegistry(nextCapabilities);
+      if (moduleRouteRoot) {
+        const [nextRoles, nextCapabilities, context] = await Promise.all([
+          tenantAccessApi.listRoles(tenantId),
+          tenantAccessApi.listCapabilities(),
+          usersApi.moduleContext(moduleRouteRoot),
+        ]);
+        const moduleRoleIds = new Set(context.roles.map((role) => role.roleId));
+        const namespaces = context.capabilityNamespaces.map((namespace) => namespace.toUpperCase());
+        const belongsToModule = (code: string) => {
+          const normalized = code.toUpperCase();
+          return namespaces.some((namespace) =>
+            normalized === namespace || normalized.startsWith(`${namespace}.`),
+          );
+        };
+        setRoles(nextRoles.filter((role) => moduleRoleIds.has(role.id)));
+        setRegistry(nextCapabilities.filter((capability) => belongsToModule(capability.code)));
+        setModuleContext(context);
+        setSelectedRoleId(null);
+        setRoleAccess([]);
+      } else {
+        const [nextRoles, nextCapabilities] = await Promise.all([
+          tenantAccessApi.listRoles(tenantId),
+          tenantAccessApi.listCapabilities(),
+        ]);
+        setRoles(nextRoles);
+        setRegistry(nextCapabilities);
+        setModuleContext(null);
+      }
     } catch (caught) {
       setError(toUserFacingMessage(caught));
     } finally {
       setLoading(false);
     }
-  }, [canRead, tenantId]);
+  }, [canRead, moduleRouteRoot, tenantId]);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
@@ -195,8 +228,19 @@ export default function TenantAccessPage() {
       <section className={styles.root} data-testid="management-access-ready">
         <header className={styles.header}>
           <div>
-            <h1 className={styles.title}>{t("management.access.title")}</h1>
-            <p className={styles.subtitle}>{t("management.access.subtitle")}</p>
+            <h1 className={styles.title}>
+              {moduleContext
+                ? `${t("management.access.title")} — ${moduleContext.localizedName || moduleContext.name}`
+                : t("management.access.title")}
+            </h1>
+            <p className={styles.subtitle}>
+              {moduleContext
+                ? "إدارة أدوار وصلاحيات هذا الموديول فقط. الصلاحيات المركزية وبقية الموديولات غير معروضة هنا."
+                : t("management.access.subtitle")}
+            </p>
+            {moduleContext && moduleReturnTo ? (
+              <a href={moduleReturnTo}>العودة إلى الموديول</a>
+            ) : null}
           </div>
         </header>
 
@@ -211,14 +255,14 @@ export default function TenantAccessPage() {
             <section className={styles.panel} aria-labelledby="tenant-roles-heading">
               <div className={styles.panelHeader}>
                 <h2 id="tenant-roles-heading">{t("management.access.roles")}</h2>
-                {canManageRoles ? (
+                {canManageRoles && !moduleRouteRoot ? (
                   <button className={styles.primaryButton} type="button" onClick={() => setShowRoleForm((value) => !value)}>
                     {t("management.access.createRole")}
                   </button>
                 ) : null}
               </div>
 
-              {showRoleForm && canManageRoles ? (
+              {showRoleForm && canManageRoles && !moduleRouteRoot ? (
                 <form className={styles.form} onSubmit={createRole}>
                   <label>
                     <span>{t("management.access.roleCode")}</span>
@@ -263,14 +307,14 @@ export default function TenantAccessPage() {
             <section className={styles.panel} aria-labelledby="capability-registry-heading">
               <div className={styles.panelHeader}>
                 <h2 id="capability-registry-heading">{t("management.access.capabilities")}</h2>
-                {canManageCapabilities ? (
+                {canManageCapabilities && !moduleRouteRoot ? (
                   <button className={styles.primaryButton} type="button" onClick={() => setShowCapabilityForm((value) => !value)}>
                     {t("management.access.createCapability")}
                   </button>
                 ) : null}
               </div>
 
-              {showCapabilityForm && canManageCapabilities ? (
+              {showCapabilityForm && canManageCapabilities && !moduleRouteRoot ? (
                 <form className={styles.form} onSubmit={createCapability}>
                   <label>
                     <span>{t("management.access.capabilityCode")}</span>
