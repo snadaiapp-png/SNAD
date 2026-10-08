@@ -73,6 +73,7 @@ public class PayrollApiService {
 
     public List<RunView> listRuns(UUID tenantId) {
         try (Connection c=dataSource.getConnection()) {
+            c.setAutoCommit(false);
             setTenant(c,tenantId);
             try (PreparedStatement ps=c.prepareStatement("""
                 SELECT id, legal_entity_id, period_start, period_end, currency_code,
@@ -92,6 +93,7 @@ public class PayrollApiService {
 
     public RunView getRun(UUID tenantId, UUID runId) {
         try(Connection c=dataSource.getConnection()){
+            c.setAutoCommit(false);
             setTenant(c,tenantId);
             try(PreparedStatement ps=c.prepareStatement("""
                 SELECT id, legal_entity_id, period_start, period_end, currency_code,
@@ -110,6 +112,7 @@ public class PayrollApiService {
     public List<ItemView> listItems(UUID tenantId, UUID runId) {
         getRun(tenantId,runId);
         try(Connection c=dataSource.getConnection()){
+            c.setAutoCommit(false);
             setTenant(c,tenantId);
             try(PreparedStatement ps=c.prepareStatement("""
                 SELECT id, employment_id, compensation_package_id, timesheet_id,
@@ -131,6 +134,7 @@ public class PayrollApiService {
     public ItemView getItem(UUID tenantId, UUID runId, UUID itemId) {
         getRun(tenantId,runId);
         try(Connection c=dataSource.getConnection()){
+            c.setAutoCommit(false);
             setTenant(c,tenantId);
             try(PreparedStatement ps=c.prepareStatement("""
                 SELECT id, employment_id, compensation_package_id, timesheet_id,
