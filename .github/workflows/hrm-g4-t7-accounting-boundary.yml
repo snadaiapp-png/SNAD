@@ -1,0 +1,32 @@
+name: HRM G4 T7 Accounting Boundary
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sanad-platform/src/main/java/com/sanad/platform/hr/payroll/**'
+      - 'apps/sanad-platform/src/test/java/com/sanad/platform/hr/payroll/**'
+      - '.github/workflows/hrm-g4-t7-accounting-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-boundary:
+    name: Focused Accounting Boundary Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run G4-T7 focused contract
+        working-directory: apps/sanad-platform
+        run: ./mvnw -B -Dtest=PayrollAccountingExportContractTest test
