@@ -75,7 +75,9 @@ export function ModuleAccessNavigation({
   }, [presentation, root, state]);
 
   const context = resolved?.root === root ? resolved.context : null;
-  if (!context) return null;
+  // Never render previously resolved IAM navigation after the session leaves
+  // AUTHENTICATED; a later authenticated transition will re-resolve context.
+  if (state !== "AUTHENTICATED" || !context) return null;
 
   const moduleName = context.localizedName || context.name || context.applicationCode;
   const usersHref = moduleHref("users", root, routePath);
