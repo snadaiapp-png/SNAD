@@ -55,15 +55,11 @@ export default function TenantAccessPage() {
   const [roleName, setRoleName] = useState("");
   const [capabilityCode, setCapabilityCode] = useState("");
   const [capabilityName, setCapabilityName] = useState("");
-  const [moduleRouteRoot, setModuleRouteRoot] = useState<string | null | undefined>(undefined);
-  const [moduleReturnTo, setModuleReturnTo] = useState<string | null>(null);
+  const moduleParams =
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+  const moduleRouteRoot = moduleParams?.get("module")?.trim().toLowerCase() || null;
+  const moduleReturnTo = moduleParams?.get("returnTo") || null;
   const [moduleContext, setModuleContext] = useState<ModuleProvisioningContext | null>(null);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setModuleRouteRoot(params.get("module")?.trim().toLowerCase() || null);
-    setModuleReturnTo(params.get("returnTo"));
-  }, []);
 
   useEffect(() => {
     if (["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state)) {
@@ -72,7 +68,6 @@ export default function TenantAccessPage() {
   }, [router, state]);
 
   const loadAccess = useCallback(async () => {
-    if (moduleRouteRoot === undefined) return;
     if (!tenantId || !canRead) {
       setLoading(false);
       return;
