@@ -34,21 +34,20 @@ export function ModuleAccessNavigation({
   sidebarSectionLabelClassName,
 }: ModuleAccessNavigationProps) {
   const root = useMemo(() => routeRoot(routePath), [routePath]);
-  const [context, setContext] = useState<ModuleProvisioningContext | null>(null);
+  const [resolved, setResolved] = useState<{ root: string; context: ModuleProvisioningContext | null } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setContext(null);
     if (!root) return () => { cancelled = true; };
 
     usersApi.moduleContext(root)
       .then((value) => {
-        if (!cancelled) setContext(value);
+        if (!cancelled) setResolved({ root, context: value });
       })
       .catch(() => {
         // Fail closed: unregistered routes and unauthorized sessions get no
         // module IAM navigation. Backend authorization remains authoritative.
-        if (!cancelled) setContext(null);
+        if (!cancelled) setResolved({ root, context: null });
       });
 
     return () => {
@@ -56,6 +55,7 @@ export function ModuleAccessNavigation({
     };
   }, [root]);
 
+  const context = resolved?.root === root ? resolved.context : null;
   if (!context) return null;
 
   const moduleName = context.localizedName || context.name || context.applicationCode;
