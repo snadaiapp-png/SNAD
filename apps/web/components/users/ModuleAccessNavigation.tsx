@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
+import { useAuth } from "@/lib/auth/auth-provider";
 import styles from "./ModuleAccessNavigation.module.css";
 
 export interface ModuleAccessNavigationProps {
@@ -33,12 +34,20 @@ export function ModuleAccessNavigation({
   sidebarDividerClassName,
   sidebarSectionLabelClassName,
 }: ModuleAccessNavigationProps) {
+  const { state } = useAuth();
   const root = useMemo(() => routeRoot(routePath), [routePath]);
   const [resolved, setResolved] = useState<{ root: string; context: ModuleProvisioningContext | null } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    if (!root) return () => { cancelled = true; };
+
+    // Protected module IAM discovery must never race session bootstrap/refresh.
+    // Access tokens are intentionally memory-only; after a hard navigation the
+    // AuthProvider must restore the session before any governed IAM call leaves
+    // the browser. This prevents transient 401s and unnecessary refresh churn.
+    if (state !== "AUTHENTICATED" || !root) {
+      return () => { cancelled = true; };
+    }
 
     // Shared-shell modules already render this navigation in their sidebar.
     // The global floating fallback remains mounted for legacy/future surfaces,
@@ -63,7 +72,7 @@ export function ModuleAccessNavigation({
     return () => {
       cancelled = true;
     };
-  }, [presentation, root]);
+  }, [presentation, root, state]);
 
   const context = resolved?.root === root ? resolved.context : null;
   if (!context) return null;
