@@ -19,13 +19,15 @@ interface UserDirectoryProps {
   onQueryChange: (value: string) => void;
   onStatusChange: (value: UserStatus | "ALL") => void;
   onLifecycle: (userId: string, action: UserLifecycleAction) => Promise<void>;
+  moduleAccess?: Record<string, { assignedRoles: string[]; effectiveCapabilities: string[] }>;
+  detailQuery?: string;
 }
 
 function statusLabel(messages: UsersMessages, status: UserStatus): string {
   return messages[`status_${status}` as keyof UsersMessages];
 }
 
-export function UserDirectory({ users, query, status, canWrite, canArchive, busyUserId, messages, onQueryChange, onStatusChange, onLifecycle }: UserDirectoryProps) {
+export function UserDirectory({ users, query, status, canWrite, canArchive, busyUserId, messages, onQueryChange, onStatusChange, onLifecycle, moduleAccess, detailQuery }: UserDirectoryProps) {
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = users.filter((user) => {
     const matchesStatus = status === "ALL" || user.status === status;
@@ -51,15 +53,22 @@ export function UserDirectory({ users, query, status, canWrite, canArchive, busy
       ) : (
         <div className={styles.tableScroll}>
           <table className={styles.table}>
-            <thead><tr><th>{messages.title}</th><th>{messages.status}</th><th>{messages.actions}</th></tr></thead>
+            <thead><tr><th>{messages.title}</th><th>{messages.status}</th>{moduleAccess ? <th>أدوار الموديول</th> : null}<th>{messages.actions}</th></tr></thead>
             <tbody>
               {filtered.map((user) => (
                 <tr key={user.id} data-testid={`tenant-user-${user.id}`}>
                   <td><div className={styles.identity}><span className={styles.name}>{user.displayName || user.email}</span><span className={styles.email}>{user.email}</span></div></td>
                   <td><span className={styles.status}>{statusLabel(messages, user.status)}</span></td>
+                  {moduleAccess ? (
+                    <td>
+                      {(moduleAccess[user.id]?.assignedRoles ?? []).length > 0
+                        ? (moduleAccess[user.id]?.assignedRoles ?? []).join(" · ")
+                        : "—"}
+                    </td>
+                  ) : null}
                   <td>
                     <div className={styles.actions}>
-                      <a className={styles.link} href={`/management/users/${user.id}`}>{messages.open}</a>
+                      <a className={styles.link} href={`/management/users/${user.id}${detailQuery ? `?${detailQuery}` : ""}`}>{messages.open}</a>
                       <UserLifecycleActions status={user.status} canWrite={canWrite} canArchive={canArchive} busy={busyUserId === user.id} messages={messages} onAction={(action) => onLifecycle(user.id, action)} />
                     </div>
                   </td>
