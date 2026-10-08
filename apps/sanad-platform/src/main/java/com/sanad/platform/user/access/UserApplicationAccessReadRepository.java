@@ -32,6 +32,49 @@ public class UserApplicationAccessReadRepository {
     }
 
     @Transactional(readOnly = true)
+    public List<UserAccessResponse> activeRoleGrants(UUID tenantId) {
+        return jdbc.query("""
+                SELECT ura.id, ura.tenant_id, ura.user_id, ura.role_id, r.code AS role_code,
+                       ura.organization_id, ura.status, ura.created_at, ura.updated_at
+                  FROM user_role_assignments ura
+                  JOIN roles r ON r.tenant_id = ura.tenant_id AND r.id = ura.role_id
+                 WHERE ura.tenant_id = :tenantId
+                   AND ura.status = 'ACTIVE' AND r.status = 'ACTIVE'
+                 ORDER BY ura.user_id, r.code, ura.created_at
+                """,
+                new MapSqlParameterSource().addValue("tenantId", tenantId),
+                (rs, rowNum) -> new UserAccessResponse(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getObject("user_id", UUID.class),
+                        rs.getObject("role_id", UUID.class),
+                        rs.getString("role_code"),
+                        rs.getObject("organization_id", UUID.class),
+                        UserGrantStatus.valueOf(rs.getString("status")),
+                        rs.getTimestamp("created_at").toInstant(),
+                        rs.getTimestamp("updated_at").toInstant()));
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserCapabilityOverride> activePermissionOverrides(UUID tenantId) {
+        return jdbc.query("""
+                SELECT upo.user_id, ac.code, upo.effect
+                  FROM user_permission_overrides upo
+                  JOIN access_capabilities ac ON ac.id = upo.capability_id
+                 WHERE upo.tenant_id = :tenantId
+                   AND ac.status = 'ACTIVE'
+                   AND upo.valid_from <= CURRENT_TIMESTAMP
+                   AND (upo.valid_until IS NULL OR upo.valid_until > CURRENT_TIMESTAMP)
+                 ORDER BY upo.user_id, ac.code, upo.effect
+                """,
+                new MapSqlParameterSource().addValue("tenantId", tenantId),
+                (rs, rowNum) -> new UserCapabilityOverride(
+                        rs.getObject("user_id", UUID.class),
+                        rs.getString("code"),
+                        rs.getString("effect")));
+    }
+
+    @Transactional(readOnly = true)
     public List<UserAccessResponse> activeRoleGrants(UUID tenantId, UUID userId) {
         return jdbc.query("""
                 SELECT ura.id, ura.tenant_id, ura.user_id, ura.role_id, r.code AS role_code,
@@ -131,4 +174,5 @@ public class UserApplicationAccessReadRepository {
         allowed.removeAll(denied);
         return allowed;
     }
+    public record UserCapabilityOverride(UUID userId, String capabilityCode, String effect) {}
 }
