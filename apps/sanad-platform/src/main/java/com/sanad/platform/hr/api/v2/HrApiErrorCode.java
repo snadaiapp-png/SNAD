@@ -68,6 +68,24 @@ public enum HrApiErrorCode {
     /** Action requires statutory legal review before it may proceed. */
     HRM_LEGAL_REVIEW_REQUIRED(422),
 
+    /** Payroll run does not exist in the authenticated tenant. */
+    HRM_PAYROLL_RUN_NOT_FOUND(404),
+
+    /** Payroll item does not exist in the authenticated tenant/run. */
+    HRM_PAYROLL_ITEM_NOT_FOUND(404),
+
+    /** Payroll optimistic version check failed. */
+    HRM_PAYROLL_VERSION_CONFLICT(409),
+
+    /** Payroll lifecycle transition is invalid for the current state. */
+    HRM_PAYROLL_LIFECYCLE_INVALID(409),
+
+    /** Payroll recalculation is not allowed in the current state. */
+    HRM_PAYROLL_RECALCULATION_NOT_ALLOWED(409),
+
+    /** Accounting export adapter is unavailable; fail closed. */
+    HRM_PAYROLL_ACCOUNTING_EXPORT_UNAVAILABLE(503),
+
     /** Idempotency key replayed with a different command fingerprint. */
     HRM_IDEMPOTENCY_CONFLICT(409),
 
