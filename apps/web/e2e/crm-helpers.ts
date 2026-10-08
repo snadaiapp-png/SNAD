@@ -35,7 +35,8 @@ export const TENANT_B_PASSWORD = process.env.CRM_TENANT_B_PASSWORD ?? "";
 export async function waitForCrmReady(page: Page, route = "/crm/overview"): Promise<void> {
   await page.goto(route);
   await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
+  // The project-wide IAM navigation performs authenticated background discovery.
+  // The canonical CRM ready marker is the deterministic readiness contract.
 }
 
 /* ============================================================================
