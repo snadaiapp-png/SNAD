@@ -84,7 +84,7 @@ test.describe("CRM-EXEC — Execution Board runtime acceptance", () => {
     if (!bodyText.includes("لوحة") && !bodyText.includes("التنفيذ")) {
       const langToggle = page.locator('button[aria-label*="language" i], button:has-text("العربية"), button:has-text("AR")').first();
       await langToggle.click().catch(() => undefined);
-      await page.waitForLoadState("networkidle");
+      await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
     }
 
     const executionLink = page.locator('a[href="/crm/execution"]').first();
