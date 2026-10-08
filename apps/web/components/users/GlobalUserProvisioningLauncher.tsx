@@ -1,14 +1,12 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { FormEvent, useState } from "react";
 import { Button, Input } from "@/components/sds";
 import { Modal } from "@/components/sds/Modal";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { usersApi } from "@/lib/api/users";
+import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
+import { tenantAccessApi } from "@/lib/api/tenant-access";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
-import { useI18n } from "@/lib/i18n/I18nProvider";
-import { usersMessages } from "@/lib/i18n/users-l10n";
 import styles from "./GlobalUserProvisioningLauncher.module.css";
 
 function createInitialCredential(): string {
@@ -19,21 +17,51 @@ function createInitialCredential(): string {
   return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
 }
 
+function UserPlusGlyph() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" focusable={false}>
+      <circle cx="7.5" cy="6.5" r="3" />
+      <path d="M2.5 16c.7-3 2.5-4.5 5-4.5 1.4 0 2.6.5 3.5 1.4" />
+      <path d="M15 8.5v6M12 11.5h6" />
+    </svg>
+  );
+}
+
 export function moduleContextFromPathname(pathname: string): string {
   const segment = pathname.split("/").filter(Boolean)[0];
   return segment || "workspace";
 }
 
-export function GlobalUserProvisioningLauncher() {
+export interface GlobalUserProvisioningLauncherProps {
+  presentation?: "floating" | "header";
+}
+
+export function GlobalUserProvisioningLauncher({
+  presentation = "floating",
+}: GlobalUserProvisioningLauncherProps = {}) {
   const { state, user, me } = useAuth();
-  const pathname = usePathname();
-  const router = useRouter();
-  const { t } = useI18n();
-  const messages = useMemo(() => usersMessages(t), [t]);
+  const pathname =
+    typeof window === "undefined" ? "/" : window.location.pathname;
+  const messages = {
+    create: "إضافة مستخدم",
+    createTitle: "إضافة مستخدم جديد",
+    subtitle: "إدارة مستخدمي مساحة العمل",
+    close: "إغلاق",
+    cancel: "إلغاء",
+    submitCreate: "إنشاء المستخدم",
+    email: "البريد الإلكتروني",
+    username: "اسم المستخدم",
+    displayName: "الاسم المعروض",
+    mobileNumber: "رقم الجوال",
+    mobileRegion: "رمز المنطقة",
+    initialCredential: "كلمة المرور المؤقتة",
+    initialCredentialHelp: "يستطيع المستخدم تسجيل الدخول بها مرة أولى ثم يجب تغييرها قبل استخدام المنصة.",
+  } as const;
   const capabilities = me?.capabilities ?? [];
   const tenantId = user?.tenantId ?? null;
   const canCreate = capabilities.includes("USER.CREATE");
   const canRead = capabilities.includes("USER.READ");
+  const canGrantRole = capabilities.includes("USER.GRANT_ROLE");
   const moduleContext = moduleContextFromPathname(pathname);
 
   const [open, setOpen] = useState(false);
@@ -45,6 +73,9 @@ export function GlobalUserProvisioningLauncher() {
   const [mobileNumber, setMobileNumber] = useState("");
   const [mobileRegion, setMobileRegion] = useState("");
   const [initialCredential, setInitialCredential] = useState(createInitialCredential);
+  const [provisioningContext, setProvisioningContext] = useState<ModuleProvisioningContext | null>(null);
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
+  const [contextLoading, setContextLoading] = useState(false);
 
   // The management/users workspace already owns its native create surface.
   // Everywhere else, including future route roots, receives this launcher
@@ -53,6 +84,7 @@ export function GlobalUserProvisioningLauncher() {
     state !== "AUTHENTICATED" ||
     !tenantId ||
     !canCreate ||
+    !canGrantRole ||
     pathname === "/management/users" ||
     pathname.startsWith("/management/users/")
   ) {
@@ -66,6 +98,9 @@ export function GlobalUserProvisioningLauncher() {
     setMobileNumber("");
     setMobileRegion("");
     setInitialCredential(createInitialCredential());
+    setProvisioningContext(null);
+    setSelectedRoleIds([]);
+    setContextLoading(false);
     setError(null);
   };
 
@@ -75,9 +110,45 @@ export function GlobalUserProvisioningLauncher() {
     reset();
   };
 
+  const openProvisioning = async () => {
+    if (!tenantId || busy) return;
+    setOpen(true);
+    setContextLoading(true);
+    setProvisioningContext(null);
+    setSelectedRoleIds([]);
+    setError(null);
+    try {
+      const context = await usersApi.moduleProvisioningContext(tenantId, moduleContext);
+      setProvisioningContext(context);
+    } catch (caught) {
+      setError(toUserFacingMessage(caught));
+    } finally {
+      setContextLoading(false);
+    }
+  };
+
+  const toggleRole = (roleId: string) => {
+    setSelectedRoleIds((current) =>
+      current.includes(roleId)
+        ? current.filter((candidate) => candidate !== roleId)
+        : [...current, roleId],
+    );
+  };
+
+  const grantSelectedModuleRoles = async (userId: string) => {
+    if (!tenantId) return;
+    for (const roleId of selectedRoleIds) {
+      await tenantAccessApi.grantUserRole(tenantId, userId, roleId);
+    }
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!tenantId || busy) return;
+    if (!provisioningContext || selectedRoleIds.length === 0) {
+      setError("اختر دورًا واحدًا على الأقل من صلاحيات الموديول.");
+      return;
+    }
 
     setBusy(true);
     setError(null);
@@ -91,9 +162,10 @@ export function GlobalUserProvisioningLauncher() {
           (candidate) => candidate.email.trim().toLowerCase() === normalizedEmail,
         );
         if (existing) {
+          await grantSelectedModuleRoles(existing.id);
           setOpen(false);
           reset();
-          router.push(
+          window.history.pushState({}, "", 
             `/management/users/${existing.id}?returnTo=${encodeURIComponent(pathname)}`,
           );
           return;
@@ -108,9 +180,10 @@ export function GlobalUserProvisioningLauncher() {
         mobileRegion,
         initialCredential,
       });
+      await grantSelectedModuleRoles(created.id);
       setOpen(false);
       reset();
-      router.push(
+      window.history.pushState({}, "", 
         `/management/users/${created.id}?returnTo=${encodeURIComponent(pathname)}`,
       );
     } catch (caught) {
@@ -122,16 +195,20 @@ export function GlobalUserProvisioningLauncher() {
 
   return (
     <div
-      className={styles.launcher}
+      className={presentation === "header" ? styles.headerLauncher : styles.launcher}
       data-testid="global-user-provisioning"
       data-module-context={moduleContext}
+      data-presentation={presentation}
     >
       <Button
-        className={styles.trigger}
-        onClick={() => setOpen(true)}
+        className={presentation === "header" ? styles.headerTrigger : styles.trigger}
+        onClick={openProvisioning}
         aria-label={messages.create}
       >
-        {messages.create}
+        <span className={styles.triggerIcon} aria-hidden="true">
+          <UserPlusGlyph />
+        </span>
+        <span>{messages.create}</span>
       </Button>
 
       <Modal
@@ -170,6 +247,38 @@ export function GlobalUserProvisioningLauncher() {
             onChange={(event) => setInitialCredential(event.target.value)}
           />
           <p className={styles.help}>{messages.initialCredentialHelp}</p>
+
+          <fieldset className={styles.moduleAccess} disabled={contextLoading || busy}>
+            <legend>صلاحيات الموديول</legend>
+            {contextLoading ? (
+              <p className={styles.help}>جارٍ تحميل الأدوار المعتمدة للموديول…</p>
+            ) : provisioningContext ? (
+              <>
+                <p className={styles.help}>
+                  {provisioningContext.localizedName || provisioningContext.name} — يتم إسناد أدوار هذا الموديول فقط، وتبقى الصلاحيات الأساسية في نظام المستخدمين المركزي دون تغيير.
+                </p>
+                {provisioningContext.roles.length === 0 ? (
+                  <div className={styles.alert} role="alert">لا توجد أدوار module-only معتمدة لهذا الموديول.</div>
+                ) : (
+                  <div className={styles.roleList}>
+                    {provisioningContext.roles.map((role) => (
+                      <label key={role.roleId} className={styles.roleOption}>
+                        <input
+                          type="checkbox"
+                          checked={selectedRoleIds.includes(role.roleId)}
+                          onChange={() => toggleRole(role.roleId)}
+                        />
+                        <span>
+                          <strong>{role.roleName}</strong>
+                          <small>{role.capabilities.join(" · ")}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : null}
+          </fieldset>
         </form>
       </Modal>
     </div>

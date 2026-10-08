@@ -15,6 +15,7 @@ public class ApplicationIamRegistryRepository {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
+    private static final TypeReference<java.util.Map<String, Object>> OBJECT_MAP = new TypeReference<>() {};
 
     private final JdbcTemplate jdbc;
 
@@ -27,7 +28,8 @@ public class ApplicationIamRegistryRepository {
         return jdbc.query("""
                 SELECT a.code, a.name, a.localized_name, c.status, c.contract_version,
                        c.capability_namespaces::text, c.supported_scopes::text,
-                       c.declared_capabilities::text
+                       c.declared_capabilities::text, c.role_templates::text,
+                       c.compatibility_metadata::text
                   FROM applications a
                   JOIN application_iam_contracts c ON c.application_code = a.code
                  WHERE a.status = 'ACTIVE'
@@ -40,7 +42,20 @@ public class ApplicationIamRegistryRepository {
                 rs.getString("contract_version"),
                 parseSet(rs.getString("capability_namespaces")),
                 parseSet(rs.getString("supported_scopes")),
-                parseSet(rs.getString("declared_capabilities"))));
+                parseSet(rs.getString("declared_capabilities")),
+                parseSet(rs.getString("role_templates")),
+                parseMap(rs.getString("compatibility_metadata"))));
+    }
+
+    private static java.util.Map<String, Object> parseMap(String json) {
+        if (json == null || json.isBlank()) {
+            return java.util.Map.of();
+        }
+        try {
+            return JSON.readValue(json, OBJECT_MAP);
+        } catch (Exception ignored) {
+            return java.util.Map.of();
+        }
     }
 
     private static Set<String> parseSet(String json) {

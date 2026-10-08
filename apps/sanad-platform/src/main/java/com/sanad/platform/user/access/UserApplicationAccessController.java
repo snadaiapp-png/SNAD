@@ -18,9 +18,13 @@ import java.util.UUID;
 public class UserApplicationAccessController {
 
     private final UserApplicationAccessProjectionService projectionService;
+    private final ModuleUserProvisioningService moduleProvisioningService;
 
-    public UserApplicationAccessController(UserApplicationAccessProjectionService projectionService) {
+    public UserApplicationAccessController(
+            UserApplicationAccessProjectionService projectionService,
+            ModuleUserProvisioningService moduleProvisioningService) {
         this.projectionService = projectionService;
+        this.moduleProvisioningService = moduleProvisioningService;
     }
 
     @GetMapping("/{userId}/application-access")
@@ -34,5 +38,17 @@ public class UserApplicationAccessController {
             throw new AccessDeniedException("Cross-tenant application access read denied");
         }
         return projectionService.project(tenantId, userId);
+    }
+    @GetMapping("/module-provisioning-context")
+    @RequireCapability("USER.GRANT_ROLE")
+    public ModuleProvisioningContext provisioningContext(
+            Authentication authentication,
+            @RequestParam UUID tenantId,
+            @RequestParam String routeRoot) {
+        UUID authenticatedTenant = AccessPrincipalContext.requireTenantId(authentication);
+        if (!authenticatedTenant.equals(tenantId)) {
+            throw new AccessDeniedException("Cross-tenant module provisioning read denied");
+        }
+        return moduleProvisioningService.resolve(tenantId, routeRoot);
     }
 }
