@@ -173,12 +173,23 @@ public class PayrollApiService {
         if(port==null) throw new IllegalStateException(
                 "HRM_PAYROLL_ACCOUNTING_EXPORT_UNAVAILABLE: Accounting adapter is not configured");
 
-        return port.requestExport(new PayrollAccountingExportPort.ExportRequest(
-                actor.tenantId(),runId,run.legalEntityId(),run.periodStart(),run.periodEnd(),
-                run.currencyCode(),run.version(),
-                Objects.requireNonNullElseGet(actor.correlationId(),UUID::randomUUID),
-                Objects.requireNonNullElseGet(actor.requestId(),UUID::randomUUID),
-                idempotencyKey));
+        PayrollAccountingExportPort.ExportReceipt receipt =
+                port.requestExport(new PayrollAccountingExportPort.ExportRequest(
+                        actor.tenantId(),runId,run.legalEntityId(),run.periodStart(),run.periodEnd(),
+                        run.currencyCode(),run.version(),
+                        Objects.requireNonNullElseGet(actor.correlationId(),UUID::randomUUID),
+                        Objects.requireNonNullElseGet(actor.requestId(),UUID::randomUUID),
+                        idempotencyKey));
+
+        lifecycleService.transition(
+                actor,
+                runId,
+                PayrollLifecycle.EXPORTED,
+                expectedVersion,
+                "ACCOUNTING_EXPORT_ACCEPTED",
+                idempotencyKey,
+                "accounting-export|" + runId + "|" + expectedVersion);
+        return receipt;
     }
 
     private static RunView run(ResultSet rs)throws SQLException{
