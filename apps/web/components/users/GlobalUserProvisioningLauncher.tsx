@@ -32,6 +32,11 @@ export function moduleContextFromPathname(pathname: string): string {
   return segment || "workspace";
 }
 
+export function moduleContextFromLocation(pathname: string, search: string): string {
+  const scoped = new URLSearchParams(search).get("module")?.trim().toLowerCase();
+  return scoped || moduleContextFromPathname(pathname);
+}
+
 export interface GlobalUserProvisioningLauncherProps {
   presentation?: "floating" | "header";
 }
@@ -42,6 +47,8 @@ export function GlobalUserProvisioningLauncher({
   const { state, user, me } = useAuth();
   const pathname =
     typeof window === "undefined" ? "/" : window.location.pathname;
+  const search =
+    typeof window === "undefined" ? "" : window.location.search;
   const messages = {
     create: "إضافة مستخدم",
     createTitle: "إضافة مستخدم جديد",
@@ -62,7 +69,10 @@ export function GlobalUserProvisioningLauncher({
   const canCreate = capabilities.includes("USER.CREATE");
   const canRead = capabilities.includes("USER.READ");
   const canGrantRole = capabilities.includes("USER.GRANT_ROLE");
-  const moduleContext = moduleContextFromPathname(pathname);
+  const moduleContext = moduleContextFromLocation(pathname, search);
+  const managementUsersRoute =
+    pathname === "/management/users" || pathname.startsWith("/management/users/");
+  const scopedManagementUsers = managementUsersRoute && Boolean(new URLSearchParams(search).get("module"));
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -85,8 +95,7 @@ export function GlobalUserProvisioningLauncher({
     !tenantId ||
     !canCreate ||
     !canGrantRole ||
-    pathname === "/management/users" ||
-    pathname.startsWith("/management/users/")
+    (managementUsersRoute && !scopedManagementUsers)
   ) {
     return null;
   }
@@ -166,7 +175,7 @@ export function GlobalUserProvisioningLauncher({
           setOpen(false);
           reset();
           window.history.pushState({}, "", 
-            `/management/users/${existing.id}?returnTo=${encodeURIComponent(pathname)}`,
+            `/management/users/${existing.id}?returnTo=${encodeURIComponent(`${pathname}${search}`)}`,
           );
           return;
         }
@@ -184,7 +193,7 @@ export function GlobalUserProvisioningLauncher({
       setOpen(false);
       reset();
       window.history.pushState({}, "", 
-        `/management/users/${created.id}?returnTo=${encodeURIComponent(pathname)}`,
+        `/management/users/${created.id}?returnTo=${encodeURIComponent(`${pathname}${search}`)}`,
       );
     } catch (caught) {
       setError(toUserFacingMessage(caught));
