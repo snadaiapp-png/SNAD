@@ -73,6 +73,7 @@ export const HR_WORKSPACE_LINKS: HrWorkspaceLink[] = [
   { href: "/hr/onboarding", label: "التأهيل", labelMessageId: "hrm.g2.workspace.nav.onboarding", Icon: OnboardingIcon, capabilitiesAny: [HRM_CAPABILITIES.ONBOARDING_PLAN_MANAGE, HRM_CAPABILITIES.ONBOARDING_TASK_COMPLETE, HRM_CAPABILITIES.ONBOARDING_TASK_WAIVE] },
   { href: "/hr/performance/goals", label: "أهداف الأداء", labelMessageId: "hrm.g3.workspace.nav.goals", Icon: GoalsIcon, capabilitiesAny: [HRM_CAPABILITIES.GOAL_SELF_VIEW, HRM_CAPABILITIES.GOAL_TEAM_MANAGE] },
   { href: "/hr/performance/reviews", label: "تقييمات الأداء", labelMessageId: "hrm.g3.workspace.nav.reviews", Icon: ReviewsIcon, capabilitiesAny: [HRM_CAPABILITIES.REVIEW_SELF_VIEW, HRM_CAPABILITIES.REVIEW_TEAM_MANAGE] },
+  { href: "/hr/payroll", label: "مراجعة الرواتب", labelMessageId: "hrm.g4.workspace.nav.payroll", Icon: ReportsIcon, capability: "HRM.PAYROLL.VIEW" },
   // TIME & LEAVE
   { href: "/hr/attendance", label: "حضوري", labelMessageId: "hrm.g2.landing.attendance", Icon: AttendanceIcon, capabilitiesAny: [HRM_CAPABILITIES.ATTENDANCE_SELF_VIEW, HRM_CAPABILITIES.ATTENDANCE_SELF_RECORD] },
   { href: "/hr/timesheets", label: "سجلات وقتي", labelMessageId: "hrm.g2.landing.timesheets", Icon: TimesheetIcon, capabilitiesAny: [HRM_CAPABILITIES.TIMESHEET_SELF_VIEW, HRM_CAPABILITIES.TIMESHEET_SELF_SUBMIT] },
