@@ -8,6 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 
 @Repository
@@ -45,6 +47,38 @@ public class ApplicationIamRegistryRepository {
                 parseSet(rs.getString("declared_capabilities")),
                 parseSet(rs.getString("role_templates")),
                 parseMap(rs.getString("compatibility_metadata"))));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<ApplicationIamRegistration> findDiscoverableByRouteRoot(String routeRoot) {
+        String normalized = normalizeRouteRoot(routeRoot);
+        if (normalized.isBlank()) {
+            return Optional.empty();
+        }
+        return findDiscoverable().stream()
+                .filter(candidate -> matchesRoute(candidate, normalized))
+                .findFirst();
+    }
+
+    static boolean matchesRoute(ApplicationIamRegistration registration, String normalizedRoute) {
+        Object routeRoots = registration.compatibilityMetadata() == null
+                ? null
+                : registration.compatibilityMetadata().get("routeRoots");
+        if (routeRoots instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (item != null && normalizeRouteRoot(item.toString()).equals(normalizedRoute)) {
+                    return true;
+                }
+            }
+        }
+        return normalizeRouteRoot(registration.applicationCode()).equals(normalizedRoute);
+    }
+
+    static String normalizeRouteRoot(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        while (normalized.startsWith("/")) normalized = normalized.substring(1);
+        int slash = normalized.indexOf('/');
+        return slash >= 0 ? normalized.substring(0, slash) : normalized;
     }
 
     private static java.util.Map<String, Object> parseMap(String json) {
