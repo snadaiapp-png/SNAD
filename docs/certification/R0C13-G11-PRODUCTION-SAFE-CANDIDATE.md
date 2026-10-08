@@ -103,3 +103,13 @@ LIVE_PAYMENT_COLLECTION = OFF
 The next authorized action is the canonical SANAD Production Release for the
 exact current main SHA with rollback enabled. No manual Render image mutation is
 authorized as a substitute.
+
+
+## 2026-10-08 release authorization checkpoint
+
+- Base exact main: `ecd315fab44b0bd5a75708af8cd19edfb4588617`
+- Purpose: authorize one canonical production release after the G2 employer-context correction.
+- Authorization marker required on the squash merge commit: `PRODUCTION-RELEASE-AUTHORIZED`
+- Runtime/application changes in this PR: NONE
+- LIVE payment collection: OFF
+- Rollback on failure: REQUIRED
