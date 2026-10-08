@@ -67,3 +67,39 @@ PROTECTED REVIEW
 ```
 
 No manual Render deployment is authorized by this candidate.
+
+
+## 2026-10-08 execution checkpoint
+
+The release path has advanced, but G11 is **not yet closed**.
+
+- G11 implementation/certification PR #1295 was merged.
+- Subscription module discoverability correction PR #1300 was merged.
+- Release infrastructure correction PR #1313 was merged as exact main SHA
+  `f1d7b4ac79cd9644c5dff44480fc973cd3138a19`.
+- Publish Render Backend Image run #432 / `37776339363` succeeded on that exact SHA.
+- Post-Merge Main Verification run #1216 / `37776339495` succeeded on that exact SHA.
+- Stage 07 Artifact Provenance run #5749 / `37776339370` succeeded.
+- Production Operational Smoke run #52 / `37776496693` succeeded.
+- The latest canonical SANAD Production Release remains run #95 /
+  `37707157309`, which failed on older SHA
+  `d73795a2b7f344047df03dc934393656cb0cdb2c` before PR #1313 corrected
+  immutable-image publication.
+- Render service `sanad-backend` still reports live image
+  `ghcr.io/snadaiapp-png/snad-backend:d3ecd3d40cc2804b5d11868eb0d9f96b7d3997eb`.
+
+Therefore the immutable image now exists for the current main SHA, but the canonical
+production release has not yet deployed that SHA to Render.
+
+```text
+CURRENT_MAIN = f1d7b4ac79cd9644c5dff44480fc973cd3138a19
+IMMUTABLE_IMAGE_PUBLICATION = PASS
+POST_MERGE_MAIN_VERIFICATION = PASS
+PRODUCTION_EXACT_SHA = BLOCKED_ON_CANONICAL_RELEASE
+R13_G11 = OPEN
+LIVE_PAYMENT_COLLECTION = OFF
+```
+
+The next authorized action is the canonical SANAD Production Release for the
+exact current main SHA with rollback enabled. No manual Render image mutation is
+authorized as a substitute.
