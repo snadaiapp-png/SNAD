@@ -24,9 +24,14 @@ class UserApplicationAccessControllerTest {
                 "user_id", UUID.randomUUID().toString()));
 
         var controller = new UserApplicationAccessController(
-                mock(UserApplicationAccessProjectionService.class));
+                mock(UserApplicationAccessProjectionService.class),
+                mock(ModuleUserProvisioningService.class));
 
         assertThatThrownBy(() -> controller.list(auth, requestedTenant, userId))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Cross-tenant");
+
+        assertThatThrownBy(() -> controller.provisioningContext(auth, requestedTenant, "hr"))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Cross-tenant");
     }

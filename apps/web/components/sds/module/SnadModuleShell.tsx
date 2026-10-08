@@ -17,6 +17,7 @@
 import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
+import { GlobalUserProvisioningLauncher } from "@/components/users/GlobalUserProvisioningLauncher";
 import styles from "./snad-shell.module.css";
 
 export interface SnadModuleNavItem {
@@ -112,7 +113,7 @@ export function SnadModuleShell({
   );
 
   return (
-    <div className={styles.shell} dir={dir}>
+    <div className={styles.shell} dir={dir} data-snad-module-shell="true">
       <header className={styles.header}>
         <div className={styles.headerLeft}>
           {brandHref ? (
@@ -131,6 +132,7 @@ export function SnadModuleShell({
         </div>
 
         <div className={styles.headerRight}>
+          <GlobalUserProvisioningLauncher presentation="header" />
           {headerTrailing}
           {user ? (
             <span className={styles.headerUser} aria-label={userAriaLabel ?? user}>

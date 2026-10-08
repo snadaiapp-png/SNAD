@@ -113,8 +113,9 @@ class R0C13G02SchemaPostgresTest {
             // V20261003_7 adds the optional tenant-scoped username identity field.
             // V20261005_1 adds the Users Phase 5 dynamic application IAM registry.
             // V20261005_2 adds the forward-only R0C13 G07 operator capability seed.
-            // V20261006_1 adds the Users Phase 7 effective access explanation model and is terminal.
-            assertThat(rs.getString(1)).isEqualTo("20261006.2");
+            // V20261006_1 adds the Users Phase 7 effective access explanation model.
+            // V20261006_2 adds the HRM G4 payroll snapshot; V20261008_1 adds governed module IAM provisioning metadata and is terminal.
+            assertThat(rs.getString(1)).isEqualTo("20261008.1");
         }
     }
 
