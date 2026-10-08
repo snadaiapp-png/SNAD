@@ -7,6 +7,7 @@ import { TenantContextProvider } from "@/lib/auth/tenant-context";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
 import { GlobalUserProvisioningLauncher } from "@/components/users/GlobalUserProvisioningLauncher";
+import { ModuleAccessNavigation } from "@/components/users/ModuleAccessNavigation";
 import { CRM_ROOT_ENTRY_COOKIE } from "../proxy";
 
 // R0C-12 G6-R1: /executive added per the authoritative implementation plan
@@ -22,6 +23,11 @@ function hasCrmRootEntryMarker(): boolean {
 
 function clearCrmRootEntryMarker(): void {
   document.cookie = `${CRM_ROOT_ENTRY_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
+function GlobalModuleAccessFallback() {
+  const pathname = usePathname();
+  return <ModuleAccessNavigation routePath={pathname} presentation="floating" />;
 }
 
 function AuthRouteRecovery({ children }: { children: ReactNode }) {
@@ -65,6 +71,7 @@ export function Providers({ children }: { children: ReactNode }) {
             <TenantContextProvider>
               {children}
               <GlobalUserProvisioningLauncher />
+              <GlobalModuleAccessFallback />
             </TenantContextProvider>
           </AuthRouteRecovery>
         </AuthProvider>
