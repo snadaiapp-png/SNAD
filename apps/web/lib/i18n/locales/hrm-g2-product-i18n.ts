@@ -47,6 +47,7 @@ export const HRM_G2_PRODUCT_I18N_AR: Record<string, string> = {
 
   // === HRM G3 Task 5 — Goals tracking surface ===
   "hrm.g3.workspace.nav.goals": "أهداف الأداء",
+  "hrm.g4.workspace.nav.payroll": "مراجعة الرواتب",
   "hrm.g3.workspace.nav.reviews": "تقييمات الأداء",
   "hrm.g3.goals.eyebrow": "الأداء",
   "hrm.g3.goals.title": "أهداف الأداء",
@@ -175,6 +176,7 @@ export const HRM_G2_PRODUCT_I18N_EN: Record<string, string> = {
 
   // === HRM G3 Task 5 — Goals tracking surface ===
   "hrm.g3.workspace.nav.goals": "Performance goals",
+  "hrm.g4.workspace.nav.payroll": "Payroll review",
   "hrm.g3.workspace.nav.reviews": "Performance reviews",
   "hrm.g3.goals.eyebrow": "Performance",
   "hrm.g3.goals.title": "Performance goals",
