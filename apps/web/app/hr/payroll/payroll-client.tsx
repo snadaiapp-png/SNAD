@@ -190,13 +190,13 @@ export default function PayrollClient() {
   );
 
   if (state !== "AUTHENTICATED") {
-    return <HrWorkspace><p role="status">{t.loading}</p></HrWorkspace>;
+    return <HrWorkspace capabilities={capabilities} activeHref="/hr/payroll"><p role="status">{t.loading}</p></HrWorkspace>;
   }
   if (!canView) {
-    return <HrWorkspace><div role="alert" className={styles.alert}>{t.forbidden} (forbidden)</div></HrWorkspace>;
+    return <HrWorkspace capabilities={capabilities} activeHref="/hr/payroll"><div role="alert" className={styles.alert}>{t.forbidden} (forbidden)</div></HrWorkspace>;
   }
 
-  return <HrWorkspace>
+  return <HrWorkspace capabilities={capabilities} activeHref="/hr/payroll">
     <main className={styles.page} dir={locale === "ar" ? "rtl" : "ltr"}>
       <header className={styles.header}>
         <div><h1>{t.title}</h1><p>{t.subtitle}</p></div>
