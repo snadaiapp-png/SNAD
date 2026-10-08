@@ -1,0 +1,45 @@
+.floating {
+  position: fixed;
+  inset-inline-end: 20px;
+  bottom: 84px;
+  z-index: 45;
+  display: grid;
+  gap: 8px;
+  min-width: 190px;
+  padding: 12px;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-lg, 12px);
+  background: var(--snad-color-surface, #fff);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 12%);
+}
+
+.floatingTitle {
+  font-size: 0.78rem;
+}
+
+.floatingLinks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.floatingLinks a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding-inline: 9px;
+  border: 1px solid var(--snad-color-border-default);
+  border-radius: var(--snad-radius-md, 8px);
+  text-decoration: none;
+  color: inherit;
+  font-weight: 700;
+}
+
+.floatingLinks a:hover {
+  background: var(--snad-color-surface-muted, #f6f3ec);
+}
+
+:global(body:has([data-snad-module-shell="true"])) .floating {
+  display: none;
+}
