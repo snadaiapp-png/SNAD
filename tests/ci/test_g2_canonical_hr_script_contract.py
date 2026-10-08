@@ -13,25 +13,26 @@ class G2CanonicalHrScriptContractTest(unittest.TestCase):
     def setUpClass(cls):
         cls.text = SCRIPT.read_text(encoding="utf-8")
 
-    def test_legal_entity_is_resolved_from_organization_link_not_fabricated(self):
+    def test_legal_entity_prefers_single_canonical_employment_then_bootstrap_fallback(self):
         text = self.text
         self.assertNotIn("auth-smoke-legal-entity", text)
-        self.assertNotIn('EMPLOYER_EMPLOYMENTS=$(get_json "$HR_API/employments"', text)
+        self.assertIn('EMPLOYER_EMPLOYMENTS=$(get_json "$HR_API/employments"', text)
+        self.assertIn('if [ "$LEGAL_ENTITY_COUNT" = "1" ]; then', text)
+        self.assertIn("G2_EMPLOYER_CONTEXT=RESOLVED_FROM_CANONICAL_EMPLOYMENT", text)
+        self.assertIn('elif [ "$LEGAL_ENTITY_COUNT" = "0" ]; then', text)
         self.assertIn(
             '$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE',
             text,
         )
+        self.assertIn("G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK", text)
+
+    def test_employer_context_remains_fail_closed_on_ambiguity(self):
+        text = self.text
         self.assertIn(
-            "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK",
+            'fail "G2 employer context is ambiguous: found $LEGAL_ENTITY_COUNT non-terminal canonical Employment Legal Entities"',
             text,
         )
-        self.assertIn(".legalEntityId", text)
-
-    def test_legal_entity_bootstrap_does_not_require_existing_employment(self):
-        text = self.text
-        bootstrap = text.split("ensure_person() {", 1)[0]
-        self.assertNotIn("$HR_API/employments", bootstrap)
-        self.assertIn("Employer context response has no legalEntityId", bootstrap)
+        self.assertIn("Bootstrap employer context response has no legalEntityId", text)
 
     def test_employer_context_uses_governed_effective_date_not_stale_fixed_date(self):
         text = self.text

@@ -68,16 +68,37 @@ G2_ORGANIZATION_ID=$(echo "$ORGANIZATIONS" | jq -r '.[] | select(.status == "ACT
 [ -n "$G2_ORGANIZATION_ID" ] && [ "$G2_ORGANIZATION_ID" != "null" ] || fail "Active organization has no id"
 set_output_var G2_ORGANIZATION_ID "$G2_ORGANIZATION_ID"
 
-# Resolve the production Legal Entity from the canonical Organization -> Legal Entity link.
-# Use the deployment-time effective date rather than a historical synthetic date: the
-# production tenant may have a valid ACTIVE Organization↔Legal Entity link that began
-# after the old fixed QA date. This remains bootstrap-safe, tenant-scoped and fail-closed.
-EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE" "Resolve canonical G2 employer context")
-G2_LEGAL_ENTITY_ID=$(echo "$EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
-[ -n "$G2_LEGAL_ENTITY_ID" ] && [ "$G2_LEGAL_ENTITY_ID" != "null" ] || fail "Employer context response has no legalEntityId"
+# Resolve the production Legal Entity fail-closed.
+#
+# Prefer the canonical non-terminal Employment graph when it already exists. This is the
+# strongest production authority for the employer actually used by the governed HR data
+# and avoids rejecting a valid tenant merely because one Organization is eligible for
+# multiple active Legal Entities.
+#
+# When no canonical Employment exists yet, fall back to the bootstrap-safe
+# Organization -> Legal Entity resolver. Any ambiguity in either source remains fatal.
+EMPLOYER_EMPLOYMENTS=$(get_json "$HR_API/employments" "Read canonical G2 employer employments")
+LEGAL_ENTITY_IDS=$(echo "$EMPLOYER_EMPLOYMENTS" | jq -r '
+  [.[] | select(.currentStatus != "TERMINATED" and .currentStatus != "VOIDED") | .legalEntityId]
+  | map(select(. != null and . != ""))
+  | unique
+  | .[]')
+LEGAL_ENTITY_COUNT=$(printf '%s\n' "$LEGAL_ENTITY_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+
+if [ "$LEGAL_ENTITY_COUNT" = "1" ]; then
+  G2_LEGAL_ENTITY_ID=$(printf '%s\n' "$LEGAL_ENTITY_IDS" | sed '/^$/d' | head -1)
+  echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_CANONICAL_EMPLOYMENT"
+elif [ "$LEGAL_ENTITY_COUNT" = "0" ]; then
+  EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE" "Resolve bootstrap G2 employer context")
+  G2_LEGAL_ENTITY_ID=$(echo "$EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
+  [ -n "$G2_LEGAL_ENTITY_ID" ] && [ "$G2_LEGAL_ENTITY_ID" != "null" ] || fail "Bootstrap employer context response has no legalEntityId"
+  echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK"
+else
+  fail "G2 employer context is ambiguous: found $LEGAL_ENTITY_COUNT non-terminal canonical Employment Legal Entities"
+fi
+
 [[ "$G2_LEGAL_ENTITY_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "Resolved G2 Legal Entity id is not a UUID"
 set_output_var G2_LEGAL_ENTITY_ID "$G2_LEGAL_ENTITY_ID"
-echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK"
 
 ensure_person() {
   local label="$1" user_id="$2" last_name="$3" out_var="$4"
