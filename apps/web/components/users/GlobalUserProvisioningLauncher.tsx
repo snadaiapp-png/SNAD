@@ -324,7 +324,7 @@ export function GlobalUserProvisioningLauncher({
           <fieldset className={styles.moduleAccess} disabled={contextLoading || busy}>
             <legend>صلاحيات الموديول</legend>
             {contextLoading ? (
-              <p className={styles.help}>جارٍ تحميل الأدوار المعتمدة للموديول…</p>
+              <p className={styles.help}>جارٍ تحميل صلاحيات الموديول…</p>
             ) : provisioningContext ? (
               <>
                 <p className={styles.help}>
