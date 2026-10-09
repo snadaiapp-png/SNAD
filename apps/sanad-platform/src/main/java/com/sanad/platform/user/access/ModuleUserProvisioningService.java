@@ -1,10 +1,14 @@
 package com.sanad.platform.user.access;
 
+import com.sanad.platform.access.override.UserPermissionOverrideService;
+import com.sanad.platform.access.override.dto.CreateOverrideRequest;
+import com.sanad.platform.access.override.dto.OverrideResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -19,12 +23,15 @@ public class ModuleUserProvisioningService {
 
     private final ApplicationIamRegistryRepository registry;
     private final JdbcTemplate jdbc;
+    private final UserPermissionOverrideService overrideService;
 
     public ModuleUserProvisioningService(
             ApplicationIamRegistryRepository registry,
-            JdbcTemplate jdbc) {
+            JdbcTemplate jdbc,
+            UserPermissionOverrideService overrideService) {
         this.registry = registry;
         this.jdbc = jdbc;
+        this.overrideService = overrideService;
     }
 
     @Transactional(readOnly = true)
@@ -111,6 +118,53 @@ public class ModuleUserProvisioningService {
                 Set.copyOf(moduleCapabilities),
                 normalizeSet(registration.supportedScopes()),
                 List.copyOf(available));
+    }
+
+    @Transactional
+    public void grantCapabilities(
+            UUID tenantId,
+            UUID actorUserId,
+            UUID targetUserId,
+            String routeRoot,
+            List<String> capabilityCodes) {
+        if (tenantId == null || actorUserId == null || targetUserId == null) {
+            throw new IllegalArgumentException("subject context is required");
+        }
+        ModuleProvisioningContext context = resolve(tenantId, routeRoot);
+        Set<String> allowed = normalizeSet(context.declaredCapabilities());
+        Set<String> requested = normalizeSet(
+                capabilityCodes == null ? Set.of() : new LinkedHashSet<>(capabilityCodes));
+        if (requested.isEmpty()) {
+            throw new IllegalArgumentException("At least one module capability is required");
+        }
+        if (!allowed.containsAll(requested)) {
+            throw new IllegalArgumentException("Cross-module capability grant denied");
+        }
+
+        Instant now = Instant.now();
+        Set<String> alreadyAllowed = new LinkedHashSet<>();
+        for (OverrideResponse existing : overrideService.list(tenantId, targetUserId)) {
+            if ("ALLOW".equals(normalizeCode(existing.effect()))
+                    && (existing.validUntil() == null || existing.validUntil().isAfter(now))) {
+                alreadyAllowed.add(normalizeCode(existing.capabilityCode()));
+            }
+        }
+
+        for (String capabilityCode : requested) {
+            if (alreadyAllowed.contains(capabilityCode)) continue;
+            overrideService.create(
+                    tenantId,
+                    actorUserId,
+                    new CreateOverrideRequest(
+                            targetUserId,
+                            capabilityCode,
+                            "ALLOW",
+                            "TENANT_ALL",
+                            null,
+                            "Module provisioning: " + ApplicationIamRegistryRepository.normalizeRouteRoot(routeRoot),
+                            null,
+                            null));
+        }
     }
 
     static boolean isModuleOnlyRole(Set<String> capabilities, Set<String> namespaces) {
