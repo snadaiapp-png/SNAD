@@ -73,7 +73,7 @@ describe("HR-G3 final engineering closure reconciliation", () => {
 
   it("reconciles the roadmap G3 group and four legacy G3 rows to DONE", () => {
     expect(Object.fromEntries(HR_GROUP_DATA.map((group) => [group.code, group.status]))).toEqual({
-      G0: "DONE", G1: "DONE", G2: "DONE", G3: "DONE", G4: "NOT_STARTED", G5: "NOT_STARTED",
+      G0: "DONE", G1: "DONE", G2: "DONE", G3: "DONE", G4: "IN_PROGRESS", G5: "NOT_STARTED",
     });
     const g3Tasks = HR_TASKS.filter((task) => task.groupCode === "G3");
     expect(g3Tasks.map((task) => [task.id, task.status])).toEqual([
@@ -81,10 +81,10 @@ describe("HR-G3 final engineering closure reconciliation", () => {
     ]);
   });
 
-  it("recomputes G3 to 100% and HR program progress to 76% (19/25)", async () => {
+  it("recomputes G3 to 100% and HR program progress to 88% (22/25)", async () => {
     const provider = new HrExecutionProvider();
     expect(await provider.getProgress("HR-PROGRAM", "G3")).toMatchObject({ total: 4, done: 4, percentage: 100 });
-    expect(await provider.getProgramProgress("HR-PROGRAM")).toMatchObject({ total: 25, done: 19, percentage: 76 });
+    expect(await provider.getProgramProgress("HR-PROGRAM")).toMatchObject({ total: 25, done: 22, percentage: 88 });
   });
 
   it("keeps legal, Saudi compliance, and production authorization independent", () => {
