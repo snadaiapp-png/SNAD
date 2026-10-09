@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "status_authority": "CURRENT",
-  "as_of": "2026-07-18",
+  "as_of": "2026-10-09",
   "timezone": "Asia/Riyadh",
   "project": "SANAD",
   "decision": "CONDITIONAL_CONTINUE",
@@ -12,7 +12,7 @@
     "limited pilot operation"
   ],
   "temporary_risk_acceptance": {
-    "state": "ACTIVE_FOR_CONTROLLED_SCOPE_ONLY",
+    "state": "SUSPENDED_MISSED_REVIEW_PENDING_REVALIDATION",
     "effective_date": "2026-07-18",
     "accepted_by": "Project Owner",
     "decision_document": "docs/governance/TEMPORARY-RISK-ACCEPTANCE-2026-07-18.md",
@@ -43,20 +43,25 @@
       "confirmed security breach, data loss or tenant-isolation failure",
       "material hosting, identity, security or data-architecture change",
       "pilot scope expands beyond the approved boundary"
-    ]
+    ],
+    "review_due": "2026-08-17",
+    "review_state": "MISSED_NO_RENEWAL_EVIDENCE_FOUND",
+    "current_authority": false,
+    "note": "Historical acceptance retained for audit; Stage 30 does not renew it."
   },
   "authoritative_tracker": {
     "repository": "snadaiapp-png/SNAD",
-    "issue": 516,
-    "document": "docs/governance/UNRESOLVED-RISKS-REPORT-2026-07-17.md",
-    "evidence_document": "docs/governance/EXECUTIVE-REVIEW-REMEDIATION-2026-07-17.md"
+    "issue": 1337,
+    "purpose": "Stage 30 transition baseline and Gate 30.1",
+    "historical_issue": 516,
+    "historical_issue_state": "CLOSED"
   },
   "runtime_snapshot": {
     "frontend": "https://snad-app.vercel.app",
-    "frontend_state": "REACHABLE_AT_LAST_REVIEW",
-    "backend_hosting": "TEMPORARY_DEVELOPMENT_TUNNEL",
-    "authentication_reliability": "APPLICATION_CONTROLS_IMPLEMENTED_PRODUCTION_OBSERVATION_PENDING",
-    "production_readiness": "NOT_ACCEPTED"
+    "frontend_state": "VERIFIED_BY_CURRENT_RELEASE_CHAIN",
+    "backend_hosting": "RENDER_PRODUCTION",
+    "authentication_reliability": "G2_PRODUCTION_IDENTITY_PROVISIONING_PASS",
+    "production_readiness": "R0C13_PRODUCTION_VERIFIED_STAGE30_GOVERNANCE_IN_PROGRESS"
   },
   "closed_findings": {
     "REM-P0-003": "Executor #23 Master Execution Backlog",
@@ -113,6 +118,11 @@
       "closed_at": "2026-07-06",
       "current_authority": false,
       "replacement": "GitHub Issue #516 and this current-status record"
+    },
+    "ISSUE-516": {
+      "state": "CLOSED",
+      "current_authority": false,
+      "replacement": "GitHub Issue #1337 and current-status records"
     }
   },
   "status_rules": {
@@ -122,5 +132,24 @@
     "missing_telemetry_equals_success": false,
     "temporary_risk_acceptance_closes_findings": false,
     "temporary_risk_acceptance_authorizes_broad_go_live": false
+  },
+  "r0c13_closure": {
+    "exact_main_sha": "8c86fb4eb3c40dd1996910bb48b2c4c67f3e7f42",
+    "r13_g11": "CLOSED",
+    "engineering": "CLOSED_PRODUCTION_VERIFIED",
+    "production_release": "#100 SUCCESS",
+    "g2_provisioning": "#21 SUCCESS",
+    "production_operational_smoke": "#70 SUCCESS",
+    "rollback": "NONE",
+    "live_payment_collection": "OFF",
+    "live_payment_authority": "NOT_GRANTED_BY_R0C13_CLOSURE"
+  },
+  "stage_30_transition": {
+    "state": "INITIATED",
+    "tracker_issue": 1337,
+    "gate_30_1": "CHECKLIST_COMPLETE_PENDING_STATUS_RECONCILIATION",
+    "gate_30_2": "NOT_STARTED",
+    "live_payment_collection": "OFF",
+    "billing_activation": "NOT_AUTHORIZED"
   }
 }
