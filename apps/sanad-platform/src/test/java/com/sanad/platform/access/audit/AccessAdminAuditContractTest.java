@@ -26,7 +26,8 @@ class AccessAdminAuditContractTest {
         assertContains("access/relationship/AccessRelationshipService.java",
                 "authorization_change_events", "authorizationVersionService.bump", "PlatformAuditWriter");
         assertContains("security/authorization/AuthorizationMutationCoordinator.java",
-                "authorization_change_events", "versions.bump", "publishEvent");
+                "authorization_change_events", "versions.bump", "projections.rebuild",
+                "capabilityChanged", "publishEvent");
     }
 
     @Test
