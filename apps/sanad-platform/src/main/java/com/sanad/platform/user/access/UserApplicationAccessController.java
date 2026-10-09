@@ -6,6 +6,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -46,6 +48,24 @@ public class UserApplicationAccessController {
             @RequestParam String routeRoot) {
         UUID tenantId = AccessPrincipalContext.requireTenantId(authentication);
         return moduleProvisioningService.resolve(tenantId, routeRoot);
+    }
+
+    @PostMapping("/module-capability-grants")
+    @RequireCapability("USER.GRANT_ROLE")
+    public void grantModuleCapabilities(
+            Authentication authentication,
+            @RequestParam UUID tenantId,
+            @RequestBody ModuleCapabilityGrantRequest request) {
+        UUID authenticatedTenant = AccessPrincipalContext.requireTenantId(authentication);
+        if (!authenticatedTenant.equals(tenantId)) {
+            throw new AccessDeniedException("Cross-tenant module capability grant denied");
+        }
+        moduleProvisioningService.grantCapabilities(
+                tenantId,
+                AccessPrincipalContext.requireUserId(authentication),
+                request.targetUserId(),
+                request.routeRoot(),
+                request.capabilityCodes());
     }
 
     @GetMapping("/module-access-users")
