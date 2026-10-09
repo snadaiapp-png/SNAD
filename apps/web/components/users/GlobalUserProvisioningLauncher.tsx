@@ -210,7 +210,7 @@ export function GlobalUserProvisioningLauncher({
 
   return (
     <div
-      className={presentation === "header" ? styles.headerLauncher : styles.launcher}
+      className={presentation === "header" ? styles.headerLauncher : presentation === "menu" ? styles.menuLauncher : styles.launcher}
       data-testid="global-user-provisioning"
       data-module-context={moduleContext}
       data-presentation={presentation}
