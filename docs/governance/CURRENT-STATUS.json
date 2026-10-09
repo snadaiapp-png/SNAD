@@ -12,7 +12,7 @@
     "limited pilot operation"
   ],
   "temporary_risk_acceptance": {
-    "state": "ACTIVE_FOR_CONTROLLED_SCOPE_ONLY",
+    "state": "SUSPENDED_MISSED_REVIEW_PENDING_REVALIDATION",
     "effective_date": "2026-07-18",
     "accepted_by": "Project Owner",
     "decision_document": "docs/governance/TEMPORARY-RISK-ACCEPTANCE-2026-07-18.md",
@@ -43,7 +43,11 @@
       "confirmed security breach, data loss or tenant-isolation failure",
       "material hosting, identity, security or data-architecture change",
       "pilot scope expands beyond the approved boundary"
-    ]
+    ],
+    "review_due": "2026-08-17",
+    "review_state": "MISSED_NO_RENEWAL_EVIDENCE_FOUND",
+    "current_authority": false,
+    "note": "Historical acceptance retained for audit; Stage 30 does not renew it."
   },
   "authoritative_tracker": {
     "repository": "snadaiapp-png/SNAD",
