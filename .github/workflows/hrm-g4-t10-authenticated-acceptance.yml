@@ -1,0 +1,30 @@
+name: HRM G4 T10 Authenticated Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'apps/web/app/hr/g4-t10-authenticated-acceptance.contract.test.ts'
+      - 'apps/web/e2e/g4-payroll-authenticated.spec.ts'
+      - 'apps/web/playwright-g4-payroll.config.ts'
+      - '.github/workflows/hrm-g4-t10-authenticated-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-red:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - name: G4-T10 RED acceptance contract
+        run: npx vitest run app/hr/g4-t10-authenticated-acceptance.contract.test.ts
