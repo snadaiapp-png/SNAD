@@ -3,6 +3,7 @@ package com.sanad.platform.access.capability;
 import com.sanad.platform.access.AccessConflictException;
 import com.sanad.platform.access.AccessResourceNotFoundException;
 import com.sanad.platform.access.audit.AccessMutationAuditSupport;
+import com.sanad.platform.security.authorization.AuthorizationMutationCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,8 +18,10 @@ import java.util.UUID;
 public class AccessCapabilityService {
     private final AccessCapabilityRepository repository;
     private AccessMutationAuditSupport audit;
+    private AuthorizationMutationCoordinator authChanges;
     public AccessCapabilityService(AccessCapabilityRepository repository) { this.repository = repository; }
     @Autowired(required = false) void setAudit(AccessMutationAuditSupport audit) { this.audit = audit; }
+    @Autowired(required = false) void setAuthChanges(AuthorizationMutationCoordinator authChanges) { this.authChanges = authChanges; }
 
     @Transactional
     public CapabilityResponse create(String code, String name, String description) {
@@ -47,6 +50,9 @@ public class AccessCapabilityService {
         capability.setStatus(Objects.requireNonNull(status, "status must not be null"));
         AccessCapability saved = repository.save(capability);
         audit("CAPABILITY_STATUS_CHANGE", capabilityId, Map.of("status", before), Map.of("status", saved.getStatus().name()));
+        if (!before.equals(saved.getStatus().name()) && authChanges != null) {
+            authChanges.capabilityChanged(capabilityId, "CAPABILITY_STATUS_CHANGED");
+        }
         return CapabilityResponse.from(saved);
     }
     public AccessCapability load(UUID capabilityId) { Objects.requireNonNull(capabilityId); return repository.findById(capabilityId).orElseThrow(() -> new AccessResourceNotFoundException("Capability not found")); }
