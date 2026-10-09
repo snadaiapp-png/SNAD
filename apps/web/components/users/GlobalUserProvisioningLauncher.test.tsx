@@ -21,6 +21,7 @@ const { authMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
     list: vi.fn(),
     create: vi.fn(),
     moduleProvisioningContext: vi.fn(),
+    grantModuleCapabilities: vi.fn(),
   },
   tenantAccessApiMock: {
     grantUserRole: vi.fn(),
@@ -105,6 +106,7 @@ beforeEach(() => {
   usersApiMock.list.mockReset();
   usersApiMock.create.mockReset();
   usersApiMock.moduleProvisioningContext.mockReset();
+  usersApiMock.grantModuleCapabilities.mockReset();
   tenantAccessApiMock.grantUserRole.mockReset();
   usersApiMock.list.mockResolvedValue([]);
   usersApiMock.create.mockResolvedValue(userRecord(CREATED_ID, "new@example.com"));
@@ -123,6 +125,7 @@ beforeEach(() => {
     }],
   });
   tenantAccessApiMock.grantUserRole.mockResolvedValue({});
+  usersApiMock.grantModuleCapabilities.mockResolvedValue(undefined);
 });
 
 afterEach(() => cleanup());
@@ -189,6 +192,27 @@ describe("GlobalUserProvisioningLauncher", () => {
     expect(screen.queryByTestId("global-user-provisioning")).not.toBeInTheDocument();
   });
 
+  it("shows every declared capability for the current module instead of only module-only roles", async () => {
+    usersApiMock.moduleProvisioningContext.mockResolvedValue({
+      applicationCode: "CRM",
+      name: "CRM",
+      localizedName: "إدارة علاقات العملاء",
+      capabilityNamespaces: ["CRM"],
+      declaredCapabilities: ["CRM.ACCOUNT.READ", "CRM.LEAD.WRITE", "CRM.OPPORTUNITY.READ"],
+      supportedScopes: ["TENANT"],
+      roles: [],
+    });
+    window.history.replaceState({}, "", "/crm/overview");
+    const user = userEvent.setup();
+    render(<GlobalUserProvisioningLauncher />);
+    await user.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+
+    expect(await screen.findByText("CRM.ACCOUNT.READ")).toBeInTheDocument();
+    expect(screen.getByText("CRM.LEAD.WRITE")).toBeInTheDocument();
+    expect(screen.getByText("CRM.OPPORTUNITY.READ")).toBeInTheDocument();
+    expect(screen.queryByText("HRM.EMPLOYEE.VIEW")).not.toBeInTheDocument();
+  });
+
   it("reuses an existing tenant user with the same email instead of creating a duplicate", async () => {
     const user = userEvent.setup();
     usersApiMock.list.mockResolvedValue([userRecord(EXISTING_ID, "existing@example.com")]);
@@ -202,11 +226,13 @@ describe("GlobalUserProvisioningLauncher", () => {
 
     await waitFor(() => expect(usersApiMock.list).toHaveBeenCalledWith(TENANT_ID));
     expect(usersApiMock.create).not.toHaveBeenCalled();
-    expect(tenantAccessApiMock.grantUserRole).toHaveBeenCalledWith(
+    expect(usersApiMock.grantModuleCapabilities).toHaveBeenCalledWith(
       TENANT_ID,
       EXISTING_ID,
-      "44444444-4444-4444-8444-444444444444",
+      "hr",
+      ["HRM.EMPLOYEE.VIEW"],
     );
+    expect(tenantAccessApiMock.grantUserRole).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe(`/management/users/${EXISTING_ID}`);
     expect(window.location.search).toBe("?returnTo=%2Fhr%2Femployees");
   });
@@ -232,11 +258,13 @@ describe("GlobalUserProvisioningLauncher", () => {
         initialCredential: "12345678",
       }),
     );
-    expect(tenantAccessApiMock.grantUserRole).toHaveBeenCalledWith(
+    expect(usersApiMock.grantModuleCapabilities).toHaveBeenCalledWith(
       TENANT_ID,
       CREATED_ID,
-      "44444444-4444-4444-8444-444444444444",
+      "hr",
+      ["HRM.EMPLOYEE.VIEW"],
     );
+    expect(tenantAccessApiMock.grantUserRole).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe(`/management/users/${CREATED_ID}`);
     expect(window.location.search).toBe("?returnTo=%2Fhr%2Femployees");
   });

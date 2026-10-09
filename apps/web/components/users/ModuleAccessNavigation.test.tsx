@@ -11,12 +11,16 @@ const { usersApiMock, authState } = vi.hoisted(() => ({
   },
   authState: {
     current: "AUTHENTICATED",
+    capabilities: ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"] as string[],
   },
 }));
 
 vi.mock("@/lib/api/users", () => ({ usersApi: usersApiMock }));
 vi.mock("@/lib/auth/auth-provider", () => ({
-  useAuth: () => ({ state: authState.current }),
+  useAuth: () => ({
+    state: authState.current,
+    me: { capabilities: authState.capabilities },
+  }),
 }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -38,6 +42,7 @@ const context = {
 
 beforeEach(() => {
   authState.current = "AUTHENTICATED";
+  authState.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
   usersApiMock.moduleContext.mockReset();
   usersApiMock.moduleContext.mockResolvedValue(context);
 });
@@ -113,10 +118,19 @@ describe("ModuleAccessNavigation", () => {
     );
   });
 
-  it("fails closed when route is not governed or session lacks authority", async () => {
+  it("keeps shared-shell IAM navigation visible when registry discovery degrades", async () => {
     usersApiMock.moduleContext.mockRejectedValue(new Error("forbidden"));
-    render(<ModuleAccessNavigation routePath="/unknown/page" presentation="sidebar" />);
-    await waitFor(() => expect(usersApiMock.moduleContext).toHaveBeenCalledWith("unknown"));
+    render(<ModuleAccessNavigation routePath="/crm/overview" presentation="sidebar" />);
+    await waitFor(() => expect(usersApiMock.moduleContext).toHaveBeenCalledWith("crm"));
+    const nav = screen.getByTestId("module-access-navigation");
+    expect(nav).toHaveAttribute("data-registry-status", "degraded");
+    expect(screen.getByRole("link", { name: "المستخدمون" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "الصلاحيات" })).toBeInTheDocument();
+  });
+
+  it("still hides IAM navigation when the authenticated subject has no IAM authority", async () => {
+    authState.capabilities = [];
+    render(<ModuleAccessNavigation routePath="/crm/overview" presentation="sidebar" />);
     expect(screen.queryByTestId("module-access-navigation")).not.toBeInTheDocument();
   });
 });

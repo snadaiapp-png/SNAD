@@ -186,6 +186,34 @@ export function createUsersApi(client: ApiClient = apiClient) {
       });
     },
 
+    async grantModuleCapabilities(
+      tenantId: string,
+      targetUserId: string,
+      routeRoot: string,
+      capabilityCodes: string[],
+    ) {
+      const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\/+/, "").split("/")[0];
+      if (!normalizedRouteRoot) {
+        throw new ApiConfigurationError("module route root is required");
+      }
+      if (capabilityCodes.length === 0) {
+        throw new ApiConfigurationError("at least one module capability is required");
+      }
+      return client.post<void, {
+        targetUserId: string;
+        routeRoot: string;
+        capabilityCodes: string[];
+      }>(
+        "/api/v1/users/module-capability-grants",
+        {
+          targetUserId: requireValidUuid(targetUserId, "targetUserId"),
+          routeRoot: normalizedRouteRoot,
+          capabilityCodes,
+        },
+        { query: { tenantId: requireValidUuid(tenantId, "tenantId") } },
+      );
+    },
+
     async moduleContext(routeRoot: string) {
       const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\/+/, "").split("/")[0];
       if (!normalizedRouteRoot) {
