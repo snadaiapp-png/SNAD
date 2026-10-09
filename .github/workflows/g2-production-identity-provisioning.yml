@@ -129,6 +129,7 @@ jobs:
             CAPABILITY.READ \
             USER.GRANT_ROLE \
             ORGANIZATION.READ \
+            ORGANIZATION.WRITE \
             HRM.EMPLOYEE.VIEW \
             HRM.EMPLOYEE.CREATE \
             HRM.EMPLOYEE.UPDATE \

@@ -25,6 +25,14 @@ class G2CanonicalHrScriptContractTest(unittest.TestCase):
             text,
         )
         self.assertIn("G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK", text)
+        self.assertIn('if [ "$ACTIVE_LINK_COUNT" != "0" ]; then', text)
+        self.assertIn(
+            '$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity/bootstrap',
+            text,
+        )
+        self.assertIn('"G2-ACCEPTANCE-LE"', text)
+        self.assertIn('"G2 Acceptance Legal Entity"', text)
+        self.assertIn("G2_EMPLOYER_CONTEXT=BOOTSTRAPPED_EMPLOYER_FOUNDATION", text)
 
     def test_employer_context_remains_fail_closed_on_ambiguity(self):
         text = self.text
@@ -33,6 +41,10 @@ class G2CanonicalHrScriptContractTest(unittest.TestCase):
             text,
         )
         self.assertIn("Bootstrap employer context response has no legalEntityId", text)
+        self.assertIn(
+            'fail "Bootstrap employer context remains ambiguous: found $ACTIVE_LINK_COUNT active Legal Entity links"',
+            text,
+        )
 
     def test_employer_context_uses_governed_effective_date_not_stale_fixed_date(self):
         text = self.text

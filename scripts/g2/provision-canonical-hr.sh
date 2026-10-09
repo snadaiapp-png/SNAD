@@ -89,10 +89,45 @@ if [ "$LEGAL_ENTITY_COUNT" = "1" ]; then
   G2_LEGAL_ENTITY_ID=$(printf '%s\n' "$LEGAL_ENTITY_IDS" | sed '/^$/d' | head -1)
   echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_CANONICAL_EMPLOYMENT"
 elif [ "$LEGAL_ENTITY_COUNT" = "0" ]; then
-  EMPLOYER_CONTEXT=$(get_json "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE" "Resolve bootstrap G2 employer context")
-  G2_LEGAL_ENTITY_ID=$(echo "$EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
-  [ -n "$G2_LEGAL_ENTITY_ID" ] && [ "$G2_LEGAL_ENTITY_ID" != "null" ] || fail "Bootstrap employer context response has no legalEntityId"
-  echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK"
+  EMPLOYER_CONTEXT_BODY=/tmp/g2-employer-context.json
+  EMPLOYER_CONTEXT_STATUS=$(curl --silent --show-error \
+    -o "$EMPLOYER_CONTEXT_BODY" -w '%{http_code}' \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity?effectiveDate=$G2_EFFECTIVE_DATE")
+
+  if [ "$EMPLOYER_CONTEXT_STATUS" = "200" ]; then
+    G2_LEGAL_ENTITY_ID=$(jq -r '.legalEntityId // empty' "$EMPLOYER_CONTEXT_BODY")
+    [ -n "$G2_LEGAL_ENTITY_ID" ] && [ "$G2_LEGAL_ENTITY_ID" != "null" ] || fail "Bootstrap employer context response has no legalEntityId"
+    echo "G2_EMPLOYER_CONTEXT=RESOLVED_FROM_ORGANIZATION_LEGAL_ENTITY_LINK"
+  elif [ "$EMPLOYER_CONTEXT_STATUS" = "409" ]; then
+    EMPLOYER_ERROR_CODE=$(jq -r '.code // empty' "$EMPLOYER_CONTEXT_BODY" 2>/dev/null || true)
+    EMPLOYER_ERROR_MESSAGE=$(jq -r '.message // empty' "$EMPLOYER_CONTEXT_BODY" 2>/dev/null || true)
+    ACTIVE_LINK_COUNT=$(printf '%s' "$EMPLOYER_ERROR_MESSAGE" | sed -n 's/.*found \([0-9][0-9]*\).*/\1/p')
+
+    [ "$EMPLOYER_ERROR_CODE" = "EMPLOYER_CONTEXT_UNRESOLVED" ] || fail "Unexpected employer context error code: $EMPLOYER_ERROR_CODE"
+    [ -n "$ACTIVE_LINK_COUNT" ] || fail "Employer context response did not expose active link count"
+
+    if [ "$ACTIVE_LINK_COUNT" != "0" ]; then
+      fail "Bootstrap employer context remains ambiguous: found $ACTIVE_LINK_COUNT active Legal Entity links"
+    fi
+
+    BOOTSTRAP_PAYLOAD=$(jq -n \
+      --arg code "G2-ACCEPTANCE-LE" \
+      --arg name "G2 Acceptance Legal Entity" \
+      --arg country "SA" \
+      --arg date "$G2_EFFECTIVE_DATE" \
+      '{code:$code,name:$name,registeredCountryCode:$country,statutoryCountryCode:$country,effectiveDate:$date}')
+    EMPLOYER_CONTEXT=$(post_json \
+      "$API_V1/organizations/$G2_ORGANIZATION_ID/legal-entity/bootstrap" \
+      "$BOOTSTRAP_PAYLOAD" \
+      "g2-employer-foundation-v1" \
+      "Bootstrap governed G2 employer foundation")
+    G2_LEGAL_ENTITY_ID=$(echo "$EMPLOYER_CONTEXT" | jq -r '.legalEntityId // empty')
+    [ -n "$G2_LEGAL_ENTITY_ID" ] && [ "$G2_LEGAL_ENTITY_ID" != "null" ] || fail "Employer foundation bootstrap response has no legalEntityId"
+    echo "G2_EMPLOYER_CONTEXT=BOOTSTRAPPED_EMPLOYER_FOUNDATION"
+  else
+    fail "Resolve bootstrap G2 employer context returned unexpected HTTP $EMPLOYER_CONTEXT_STATUS"
+  fi
 else
   fail "G2 employer context is ambiguous: found $LEGAL_ENTITY_COUNT non-terminal canonical Employment Legal Entities"
 fi
