@@ -122,7 +122,7 @@ const SECTION_KEYS = [
 
 const SECTION_LINKS: Record<(typeof SECTION_KEYS)[number], string[]> = {
   "hrm.g2.workspace.nav.section.overview": ["/hr", "/hr/employees", "/hr/org-structure", "/hr/jobs", "/hr/positions", "/hr/assignments", "/hr/compliance"],
-  "hrm.g2.workspace.nav.section.talent": ["/hr/recruitment", "/hr/onboarding", "/hr/performance/goals", "/hr/performance/reviews"],
+  "hrm.g2.workspace.nav.section.talent": ["/hr/recruitment", "/hr/onboarding", "/hr/performance/goals", "/hr/performance/reviews", "/hr/payroll"],
   "hrm.g2.workspace.nav.section.timeLeave": ["/hr/attendance", "/hr/timesheets", "/hr/leave"],
   "hrm.g2.workspace.nav.section.management": ["/hr/team-attendance", "/hr/team-timesheets", "/hr/leave/approvals"],
   "hrm.g2.workspace.nav.section.admin": ["/hr/schedules", "/hr/attendance/admin", "/hr/leave/policies", "/hr/reports/attendance"],
