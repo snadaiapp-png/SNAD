@@ -113,3 +113,8 @@ authorized as a substitute.
 - Runtime/application changes in this PR: NONE
 - LIVE payment collection: OFF
 - Rollback on failure: REQUIRED
+
+
+## 2026-10-09 commit-marker authorization retry
+
+This documentation-only change exists solely to ensure the final production-authorization commit itself carries the canonical marker required by Workflow Y2. No runtime, provider, billing, or payment behavior changes.
