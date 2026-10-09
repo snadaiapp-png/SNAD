@@ -1,21 +1,11 @@
 import type { NextConfig } from "next";
 
-const vercelTargetEnvironment = (
-  process.env.VERCEL_TARGET_ENV ||
-  process.env.VERCEL_ENV ||
-  ""
-).toLowerCase();
-const vercelGitCommitRef = (process.env.VERCEL_GIT_COMMIT_REF || "").trim();
+import { assertVercelProductionRef } from "./lib/security/vercel-release-guard";
 
-if (
-  (vercelTargetEnvironment === "production" || vercelTargetEnvironment === "prod") &&
-  vercelGitCommitRef !== "" &&
-  vercelGitCommitRef !== "main"
-) {
-  throw new Error(
-    `[SNAD_RELEASE_GUARD] Refusing Vercel production build from non-main Git ref: ${vercelGitCommitRef}`,
-  );
-}
+assertVercelProductionRef(
+  process.env.VERCEL_TARGET_ENV || process.env.VERCEL_ENV,
+  process.env.VERCEL_GIT_COMMIT_REF,
+);
 
 const securityHeaders = [
   {
