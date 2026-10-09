@@ -13,9 +13,23 @@ done
 API_V1="${BASE_URL%/}/api/v1"
 HR_API="${BASE_URL%/}/api/v2/hr"
 G2_EFFECTIVE_DATE="${G2_EFFECTIVE_DATE:-$(date -u +%F)}"
-G2_EMPLOYMENT_START_DATE="$G2_EFFECTIVE_DATE"
-G2_ACTIVE_DATE="$G2_EFFECTIVE_DATE"
-G2_MANAGER_LINK_DATE="$G2_EFFECTIVE_DATE"
+
+# Employment status periods are whole-day ranges. The initial DRAFT period
+# starts at employmentStartDate - 1 day, so onboarding and activation cannot
+# share one effective date without violating ck_hr_employment_status_dates.
+# Fresh G2 identities therefore start one governed day before activation.
+G2_EMPLOYMENT_START_DATE="${G2_EMPLOYMENT_START_DATE:-$(date -u -d "$G2_EFFECTIVE_DATE -1 day" +%F)}"
+G2_ACTIVE_DATE="${G2_ACTIVE_DATE:-$G2_EFFECTIVE_DATE}"
+G2_ASSIGNMENT_DATE="${G2_ASSIGNMENT_DATE:-$G2_EFFECTIVE_DATE}"
+G2_MANAGER_LINK_DATE="${G2_MANAGER_LINK_DATE:-$G2_ASSIGNMENT_DATE}"
+
+next_day() {
+  date -u -d "$1 +1 day" +%F
+}
+
+if [[ "$G2_EMPLOYMENT_START_DATE" > "$G2_ACTIVE_DATE" ]] || [ "$G2_EMPLOYMENT_START_DATE" = "$G2_ACTIVE_DATE" ]; then
+  fail "G2_EMPLOYMENT_START_DATE must precede G2_ACTIVE_DATE"
+fi
 
 get_json() {
   local url="$1" label="$2" response
@@ -29,17 +43,28 @@ get_json() {
 }
 
 post_json() {
-  local url="$1" payload="$2" idempotency_key="$3" label="$4" response
+  local url="$1" payload="$2" idempotency_key="$3" label="$4"
+  local body status rc response
   local -a headers=(-H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json")
   if [ -n "$idempotency_key" ]; then
     headers+=(-H "Idempotency-Key: $idempotency_key")
   fi
-  if ! response=$(curl --silent --show-error --fail-with-body \
-      -X POST "$url" "${headers[@]}" -d "$payload"); then
-    echo "::error::$label failed" >&2
-    [ -n "${response:-}" ] && echo "$response" | jq . 2>/dev/null >&2 || true
+
+  body=$(mktemp)
+  rc=0
+  status=$(curl --silent --show-error \
+      -o "$body" -w '%{http_code}' \
+      -X POST "$url" "${headers[@]}" -d "$payload") || rc=$?
+
+  if [ "$rc" -ne 0 ] || [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+    echo "::error::$label failed (HTTP ${status:-000}, curl=$rc)" >&2
+    jq -c '{code:(.code // null),message:(.message // null)}' "$body" 2>/dev/null >&2 || true
+    rm -f "$body"
     exit 1
   fi
+
+  response=$(cat "$body")
+  rm -f "$body"
   printf '%s' "$response"
 }
 
@@ -190,6 +215,7 @@ ensure_person() {
 ensure_active_employment() {
   local label="$1" person_id="$2" employee_number="$3" out_var="$4"
   local employments matches count employment_id employment status version payload result
+  local employment_start onboarding_date minimum_activation_date activation_date actual_employee_number
 
   employments=$(get_json "$HR_API/employments" "List Employments for $label")
   matches=$(echo "$employments" | jq --arg pid "$person_id" --arg le "$G2_LEGAL_ENTITY_ID" \
@@ -214,22 +240,35 @@ ensure_active_employment() {
   employment=$(get_json "$HR_API/employments/$employment_id" "Read $label Employment")
   status=$(echo "$employment" | jq -r '.currentStatus')
   version=$(echo "$employment" | jq -r '.version')
+  employment_start=$(echo "$employment" | jq -r '.employmentStartDate // empty')
+  actual_employee_number=$(echo "$employment" | jq -r '.employeeNumber // empty')
+  [[ "$employment_start" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || fail "$label Employment has no canonical employmentStartDate"
+  [ "$actual_employee_number" = "$employee_number" ] || fail "$label Employment employeeNumber drifted from the deterministic G2 identity"
 
   if [ "$status" = "DRAFT" ]; then
-    payload=$(jq -n --arg d "$G2_EMPLOYMENT_START_DATE" --argjson v "$version" \
+    onboarding_date="$employment_start"
+    payload=$(jq -n --arg d "$onboarding_date" --argjson v "$version" \
       '{effectiveDate:$d,expectedVersion:$v,reasonCode:"G2_QA_PROVISIONING"}')
     post_json "$HR_API/employments/$employment_id/submit-onboarding" "$payload" \
-      "g2-${label,,}-submit-onboarding-v1" "Submit $label onboarding" >/dev/null
+      "g2-${label,,}-submit-onboarding-v2" "Submit $label onboarding" >/dev/null
     employment=$(get_json "$HR_API/employments/$employment_id" "Read $label Employment after onboarding submit")
     status=$(echo "$employment" | jq -r '.currentStatus')
     version=$(echo "$employment" | jq -r '.version')
   fi
 
   if [ "$status" = "PENDING_ONBOARDING" ]; then
-    payload=$(jq -n --arg d "$G2_ACTIVE_DATE" --argjson v "$version" \
+    minimum_activation_date=$(next_day "$employment_start")
+    activation_date="$G2_ACTIVE_DATE"
+    if [[ "$activation_date" < "$minimum_activation_date" ]]; then
+      [ "$version" = "1" ] || fail "$label PENDING_ONBOARDING Employment requires temporal recovery but version=$version is not the deterministic G2 version"
+      activation_date="$minimum_activation_date"
+      echo "G2_TEMPORAL_RECOVERY=SAFE_NEXT_DAY ($label activation=$activation_date)"
+    fi
+
+    payload=$(jq -n --arg d "$activation_date" --argjson v "$version" \
       '{effectiveDate:$d,expectedVersion:$v,reasonCode:"G2_QA_PROVISIONING"}')
     post_json "$HR_API/employments/$employment_id/activate" "$payload" \
-      "g2-${label,,}-activate-v1" "Activate $label Employment" >/dev/null
+      "g2-${label,,}-activate-v2" "Activate $label Employment" >/dev/null
     employment=$(get_json "$HR_API/employments/$employment_id" "Read $label Employment after activation")
     status=$(echo "$employment" | jq -r '.currentStatus')
   fi
@@ -250,10 +289,10 @@ ensure_primary_assignment() {
 
   if [ "$count" = "0" ]; then
     if [ -n "$reports_to_id" ]; then
-      payload=$(jq -n --arg eid "$employment_id" --arg org "$G2_ORGANIZATION_ID" --arg mgr "$reports_to_id" --arg d "$G2_ACTIVE_DATE" \
+      payload=$(jq -n --arg eid "$employment_id" --arg org "$G2_ORGANIZATION_ID" --arg mgr "$reports_to_id" --arg d "$G2_ASSIGNMENT_DATE" \
         '{employmentId:$eid,organizationId:$org,orgUnitId:null,positionId:null,reportsToAssignmentId:$mgr,assignmentType:"PRIMARY",occupancyMode:"NON_OCCUPYING",allocationPercent:100,effectiveFrom:$d,effectiveTo:null}')
     else
-      payload=$(jq -n --arg eid "$employment_id" --arg org "$G2_ORGANIZATION_ID" --arg d "$G2_ACTIVE_DATE" \
+      payload=$(jq -n --arg eid "$employment_id" --arg org "$G2_ORGANIZATION_ID" --arg d "$G2_ASSIGNMENT_DATE" \
         '{employmentId:$eid,organizationId:$org,orgUnitId:null,positionId:null,reportsToAssignmentId:null,assignmentType:"PRIMARY",occupancyMode:"NON_OCCUPYING",allocationPercent:100,effectiveFrom:$d,effectiveTo:null}')
     fi
     result=$(post_json "$HR_API/assignments" "$payload" "g2-${label,,}-primary-assignment-v1" "Create $label PRIMARY Assignment")

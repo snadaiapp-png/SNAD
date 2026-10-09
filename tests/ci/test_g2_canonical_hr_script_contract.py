@@ -49,8 +49,33 @@ class G2CanonicalHrScriptContractTest(unittest.TestCase):
     def test_employer_context_uses_governed_effective_date_not_stale_fixed_date(self):
         text = self.text
         self.assertIn('G2_EFFECTIVE_DATE="${G2_EFFECTIVE_DATE:-$(date -u +%F)}"', text)
-        self.assertIn('G2_EMPLOYMENT_START_DATE="$G2_EFFECTIVE_DATE"', text)
+        self.assertIn(
+            'G2_EMPLOYMENT_START_DATE="${G2_EMPLOYMENT_START_DATE:-$(date -u -d "$G2_EFFECTIVE_DATE -1 day" +%F)}"',
+            text,
+        )
+        self.assertIn('G2_ACTIVE_DATE="${G2_ACTIVE_DATE:-$G2_EFFECTIVE_DATE}"', text)
         self.assertNotIn('G2_EMPLOYMENT_START_DATE="2026-01-01"', text)
+
+    def test_employment_lifecycle_dates_are_separated_and_recovery_is_bounded(self):
+        text = self.text
+        self.assertIn('onboarding_date="$employment_start"', text)
+        self.assertIn('minimum_activation_date=$(next_day "$employment_start")', text)
+        self.assertIn('if [[ "$activation_date" < "$minimum_activation_date" ]]; then', text)
+        self.assertIn('[ "$version" = "1" ] || fail', text)
+        self.assertIn("G2_TEMPORAL_RECOVERY=SAFE_NEXT_DAY", text)
+        self.assertIn('"g2-${label,,}-submit-onboarding-v2"', text)
+        self.assertIn('"g2-${label,,}-activate-v2"', text)
+
+    def test_assignment_effective_date_stays_on_governed_release_date(self):
+        text = self.text
+        self.assertIn('G2_ASSIGNMENT_DATE="${G2_ASSIGNMENT_DATE:-$G2_EFFECTIVE_DATE}"', text)
+        self.assertIn('--arg d "$G2_ASSIGNMENT_DATE"', text)
+
+    def test_post_json_preserves_http_status_and_sanitized_error_envelope(self):
+        text = self.text
+        self.assertIn('-o "$body" -w \'%{http_code}\'', text)
+        self.assertIn('failed (HTTP ${status:-000}, curl=$rc)', text)
+        self.assertIn("jq -c '{code:(.code // null),message:(.message // null)}'", text)
 
     def test_employment_creation_uses_the_resolved_legal_entity(self):
         text = self.text
