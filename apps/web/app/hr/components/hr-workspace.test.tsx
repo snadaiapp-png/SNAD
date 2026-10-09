@@ -239,7 +239,7 @@ describe("HrWorkspace navigation", () => {
     expect(screen.getByRole("link", { name: "إجازاتي" })).toBeInTheDocument();
   });
 
-  it("renders the canonical add-user action in the HR module header when USER.CREATE and USER.GRANT_ROLE are granted", () => {
+  it("renders the canonical add-user action in the HR module function menu when USER.CREATE and USER.GRANT_ROLE are granted", () => {
     authMock.me.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
     render(
       <HrWorkspace capabilities={FULL_CAPS} activeHref="/hr/employees">
@@ -247,10 +247,10 @@ describe("HrWorkspace navigation", () => {
       </HrWorkspace>,
     );
 
-    const action = screen.getByTestId("global-user-provisioning");
-    expect(action).toHaveAttribute("data-presentation", "header");
-    expect(action).toHaveAttribute("data-module-context", "hr");
-    expect(screen.getByRole("button", { name: "إضافة مستخدم" })).toBeInTheDocument();
+    const action = screen.getByTestId("module-user-provisioning-menu-item");
+    expect(action).toBeInTheDocument();
+    expect(action).toHaveAccessibleName("إضافة مستخدم");
+    expect(screen.queryByTestId("global-user-provisioning")).not.toBeInTheDocument();
   });
 
   it("exposes navigation as a labelled landmark and renders children in main", () => {
