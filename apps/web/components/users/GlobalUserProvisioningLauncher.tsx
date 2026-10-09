@@ -349,7 +349,7 @@ export function GlobalUserProvisioningLauncher({
                       ))}
                     </div>
                   )
-                )}
+                }
               </>
             ) : null}
           </fieldset>
