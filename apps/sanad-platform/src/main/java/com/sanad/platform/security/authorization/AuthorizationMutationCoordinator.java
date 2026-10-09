@@ -1,6 +1,7 @@
 package com.sanad.platform.security.authorization;
 
 import com.sanad.platform.access.evaluation.AuthorizationVersionService;
+import com.sanad.platform.access.evaluation.EffectivePermissionProjectionService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -20,13 +21,17 @@ import java.util.UUID;
 @Component
 public class AuthorizationMutationCoordinator {
     private final AuthorizationVersionService versions;
+    private final EffectivePermissionProjectionService projections;
     private final JdbcTemplate jdbc;
     private final ApplicationEventPublisher publisher;
 
     public AuthorizationMutationCoordinator(
-            AuthorizationVersionService versions, JdbcTemplate jdbc,
+            AuthorizationVersionService versions,
+            EffectivePermissionProjectionService projections,
+            JdbcTemplate jdbc,
             ApplicationEventPublisher publisher) {
         this.versions = versions;
+        this.projections = projections;
         this.jdbc = jdbc;
         this.publisher = publisher;
     }
@@ -59,6 +64,11 @@ public class AuthorizationMutationCoordinator {
     }
 
     public void publishOnly(UUID tenantId, UUID userId, String eventType, long authorizationVersion) {
+        // Keep the read/explanation model in the same transaction as the
+        // authorization mutation. The evaluator remains authoritative, while
+        // the UI projection becomes immediately consistent after grant/revoke,
+        // role-capability and override changes.
+        projections.rebuild(tenantId, userId);
         publisher.publishEvent(new AuthorizationChangedEvent(
                 tenantId, userId, eventType, authorizationVersion));
     }
