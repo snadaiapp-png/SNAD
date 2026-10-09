@@ -89,4 +89,26 @@ public class JdbcLegalEntityOrganizationEligibilityRepository implements LegalEn
                 Date.valueOf(effectiveDate), Date.valueOf(effectiveDate)
         ).stream().findFirst();
     }
+    @Override
+    public LegalEntityOrganizationEligibility ensureActive(
+            UUID tenantId, UUID organizationId, UUID legalEntityId, LocalDate effectiveFrom) {
+        Optional<LegalEntityOrganizationEligibility> existing =
+                findActiveOn(tenantId, legalEntityId, organizationId, effectiveFrom);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO organization_legal_entities
+                    (id, tenant_id, organization_id, legal_entity_id,
+                     effective_from, effective_to, status, created_at)
+                VALUES (?, ?, ?, ?, ?, NULL, 'ACTIVE', NOW())
+                """,
+                id, tenantId, organizationId, legalEntityId, Date.valueOf(effectiveFrom));
+
+        return findActiveOn(tenantId, legalEntityId, organizationId, effectiveFrom)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Employer eligibility insert did not become active"));
+    }
 }
