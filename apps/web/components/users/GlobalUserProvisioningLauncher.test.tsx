@@ -5,7 +5,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
+const { authMock, usersApiMock, tenantAccessApiMock, accessApiMock } = vi.hoisted(() => ({
   authMock: {
     state: "AUTHENTICATED",
     user: {
@@ -15,7 +15,7 @@ const { authMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
       displayName: "Admin",
       status: "ACTIVE",
     },
-    capabilities: ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"] as string[],
+    capabilities: ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE", "AUTHORIZATION.OVERRIDE.MANAGE"] as string[],
   },
   usersApiMock: {
     list: vi.fn(),
@@ -24,6 +24,10 @@ const { authMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
   },
   tenantAccessApiMock: {
     grantUserRole: vi.fn(),
+  },
+  accessApiMock: {
+    listOverrides: vi.fn(),
+    createOverride: vi.fn(),
   },
 }));
 
@@ -37,6 +41,10 @@ vi.mock("@/lib/auth/auth-provider", () => ({
 
 vi.mock("@/lib/api/users", () => ({ usersApi: usersApiMock }));
 vi.mock("@/lib/api/tenant-access", () => ({ tenantAccessApi: tenantAccessApiMock }));
+vi.mock("@/lib/api/access-api", () => ({
+  listOverrides: accessApiMock.listOverrides,
+  createOverride: accessApiMock.createOverride,
+}));
 vi.mock("@/lib/api/user-facing-errors", () => ({
   toUserFacingMessage: () => "تعذر إنشاء المستخدم",
 }));
@@ -100,12 +108,14 @@ beforeEach(() => {
     displayName: "Admin",
     status: "ACTIVE",
   };
-  authMock.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
+  authMock.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE", "AUTHORIZATION.OVERRIDE.MANAGE"];
   window.history.replaceState({}, "", "/hr/employees");
   usersApiMock.list.mockReset();
   usersApiMock.create.mockReset();
   usersApiMock.moduleProvisioningContext.mockReset();
   tenantAccessApiMock.grantUserRole.mockReset();
+  accessApiMock.listOverrides.mockReset();
+  accessApiMock.createOverride.mockReset();
   usersApiMock.list.mockResolvedValue([]);
   usersApiMock.create.mockResolvedValue(userRecord(CREATED_ID, "new@example.com"));
   usersApiMock.moduleProvisioningContext.mockResolvedValue({
@@ -123,6 +133,8 @@ beforeEach(() => {
     }],
   });
   tenantAccessApiMock.grantUserRole.mockResolvedValue({});
+  accessApiMock.listOverrides.mockResolvedValue([]);
+  accessApiMock.createOverride.mockResolvedValue({});
 });
 
 afterEach(() => cleanup());
@@ -189,6 +201,27 @@ describe("GlobalUserProvisioningLauncher", () => {
     expect(screen.queryByTestId("global-user-provisioning")).not.toBeInTheDocument();
   });
 
+  it("shows every declared capability for the current module instead of only module-only roles", async () => {
+    usersApiMock.moduleProvisioningContext.mockResolvedValue({
+      applicationCode: "CRM",
+      name: "CRM",
+      localizedName: "إدارة علاقات العملاء",
+      capabilityNamespaces: ["CRM"],
+      declaredCapabilities: ["CRM.ACCOUNT.READ", "CRM.LEAD.WRITE", "CRM.OPPORTUNITY.READ"],
+      supportedScopes: ["TENANT"],
+      roles: [],
+    });
+    window.history.replaceState({}, "", "/crm/overview");
+    const user = userEvent.setup();
+    render(<GlobalUserProvisioningLauncher />);
+    await user.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+
+    expect(await screen.findByText("CRM.ACCOUNT.READ")).toBeInTheDocument();
+    expect(screen.getByText("CRM.LEAD.WRITE")).toBeInTheDocument();
+    expect(screen.getByText("CRM.OPPORTUNITY.READ")).toBeInTheDocument();
+    expect(screen.queryByText("HRM.EMPLOYEE.VIEW")).not.toBeInTheDocument();
+  });
+
   it("reuses an existing tenant user with the same email instead of creating a duplicate", async () => {
     const user = userEvent.setup();
     usersApiMock.list.mockResolvedValue([userRecord(EXISTING_ID, "existing@example.com")]);
@@ -202,11 +235,17 @@ describe("GlobalUserProvisioningLauncher", () => {
 
     await waitFor(() => expect(usersApiMock.list).toHaveBeenCalledWith(TENANT_ID));
     expect(usersApiMock.create).not.toHaveBeenCalled();
-    expect(tenantAccessApiMock.grantUserRole).toHaveBeenCalledWith(
-      TENANT_ID,
-      EXISTING_ID,
-      "44444444-4444-4444-8444-444444444444",
-    );
+    expect(accessApiMock.createOverride).toHaveBeenCalledWith({
+      targetUserId: EXISTING_ID,
+      capabilityCode: "HRM.EMPLOYEE.VIEW",
+      effect: "ALLOW",
+      scopeType: "TENANT_ALL",
+      scopeReference: null,
+      reason: "Module provisioning: hr",
+      validFrom: null,
+      validUntil: null,
+    });
+    expect(tenantAccessApiMock.grantUserRole).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe(`/management/users/${EXISTING_ID}`);
     expect(window.location.search).toBe("?returnTo=%2Fhr%2Femployees");
   });
@@ -232,11 +271,17 @@ describe("GlobalUserProvisioningLauncher", () => {
         initialCredential: "12345678",
       }),
     );
-    expect(tenantAccessApiMock.grantUserRole).toHaveBeenCalledWith(
-      TENANT_ID,
-      CREATED_ID,
-      "44444444-4444-4444-8444-444444444444",
-    );
+    expect(accessApiMock.createOverride).toHaveBeenCalledWith({
+      targetUserId: CREATED_ID,
+      capabilityCode: "HRM.EMPLOYEE.VIEW",
+      effect: "ALLOW",
+      scopeType: "TENANT_ALL",
+      scopeReference: null,
+      reason: "Module provisioning: hr",
+      validFrom: null,
+      validUntil: null,
+    });
+    expect(tenantAccessApiMock.grantUserRole).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe(`/management/users/${CREATED_ID}`);
     expect(window.location.search).toBe("?returnTo=%2Fhr%2Femployees");
   });
