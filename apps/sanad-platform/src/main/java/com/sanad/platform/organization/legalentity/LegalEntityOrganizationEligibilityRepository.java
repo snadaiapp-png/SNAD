@@ -13,4 +13,7 @@ public interface LegalEntityOrganizationEligibilityRepository {
 
     List<LegalEntityOrganizationEligibility> findActiveForOrganizationOn(
             UUID tenantId, UUID organizationId, LocalDate effectiveDate);
+
+    LegalEntityOrganizationEligibility ensureActive(
+            UUID tenantId, UUID organizationId, UUID legalEntityId, LocalDate effectiveFrom);
 }
