@@ -41,6 +41,25 @@ public class ModuleUserProvisioningService {
         }
 
         Set<String> namespaces = normalizeSet(registration.capabilityNamespaces());
+
+        // The registry contract owns namespace boundaries, but the active capability
+        // catalog is authoritative for what can be assigned today. Reading the live
+        // catalog prevents a migration-time declared_capabilities snapshot from
+        // silently hiding capabilities added after the registry seed ran.
+        Set<String> moduleCapabilities = new LinkedHashSet<>();
+        jdbc.query("""
+                SELECT code
+                  FROM access_capabilities
+                 WHERE status = 'ACTIVE'
+                 ORDER BY code
+                """,
+                (RowCallbackHandler) rs -> {
+                    String capability = normalizeCode(rs.getString("code"));
+                    if (ownedByAny(capability, namespaces)) {
+                        moduleCapabilities.add(capability);
+                    }
+                });
+
         Map<UUID, RoleRow> roles = new LinkedHashMap<>();
         jdbc.query("""
                 SELECT id, code, name
@@ -89,7 +108,7 @@ public class ModuleUserProvisioningService {
                 registration.name(),
                 registration.localizedName(),
                 namespaces,
-                normalizeSet(registration.declaredCapabilities()),
+                Set.copyOf(moduleCapabilities),
                 normalizeSet(registration.supportedScopes()),
                 List.copyOf(available));
     }
