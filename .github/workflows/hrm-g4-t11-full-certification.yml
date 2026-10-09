@@ -7,6 +7,9 @@ on:
       - 'scripts/ci/verify_hrm_g4_t11_predecessors.py'
       - '.github/workflows/hrm-g4-t11-full-certification.yml'
       - 'docs/hrm/g4/G4-T11-certification.md'
+      - 'apps/web/next.config.ts'
+      - 'apps/web/lib/security/vercel-release-guard.ts'
+      - 'apps/web/lib/security/vercel-release-guard.test.ts'
   workflow_dispatch:
 
 permissions:
@@ -30,3 +33,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/verify_hrm_g4_t11_predecessors.py
+
+  production-release-guard:
+    name: HRM G4-T11 Production Release Guard Contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - name: Verify production main-only and preview contract
+        run: npx vitest run lib/security/vercel-release-guard.test.ts
