@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { GlobalUserProvisioningLauncher } from "./GlobalUserProvisioningLauncher";
 import styles from "./ModuleAccessNavigation.module.css";
 
 export interface ModuleAccessNavigationProps {
@@ -99,6 +100,12 @@ export function ModuleAccessNavigation({
     <div data-testid="module-access-navigation" data-application-code={context.applicationCode}>
       {sidebarDividerClassName ? <div className={sidebarDividerClassName} /> : null}
       <span className={sidebarSectionLabelClassName}>المستخدمون والصلاحيات</span>
+      <GlobalUserProvisioningLauncher
+        presentation="menu"
+        menuItemClassName={sidebarItemClassName}
+        menuIconClassName={sidebarIconClassName}
+        menuLabelClassName={sidebarLabelClassName}
+      />
       <Link href={usersHref} className={sidebarItemClassName}>
         <span className={sidebarIconClassName}><UsersGlyph /></span>
         <span className={sidebarLabelClassName}>المستخدمون</span>
