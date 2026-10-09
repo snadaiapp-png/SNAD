@@ -42,7 +42,7 @@ public class UserApplicationAccessController {
         return projectionService.project(tenantId, userId);
     }
     @GetMapping("/module-context")
-    @RequireCapability("USER.GRANT_ROLE")
+    @RequireCapability("CAPABILITY.READ")
     public ModuleProvisioningContext moduleContext(
             Authentication authentication,
             @RequestParam String routeRoot) {
@@ -68,6 +68,24 @@ public class UserApplicationAccessController {
                 request.capabilityCodes());
     }
 
+    @PostMapping("/module-capability-overrides")
+    @RequireCapability("AUTHORIZATION.OVERRIDE.MANAGE")
+    public void grantModuleCapabilityOverrides(
+            Authentication authentication,
+            @RequestParam UUID tenantId,
+            @RequestBody ModuleCapabilityGrantRequest request) {
+        UUID authenticatedTenant = AccessPrincipalContext.requireTenantId(authentication);
+        if (!authenticatedTenant.equals(tenantId)) {
+            throw new AccessDeniedException("Cross-tenant module capability override denied");
+        }
+        moduleProvisioningService.grantCapabilities(
+                tenantId,
+                AccessPrincipalContext.requireUserId(authentication),
+                request.targetUserId(),
+                request.routeRoot(),
+                request.capabilityCodes());
+    }
+
     @GetMapping("/module-access-users")
     @RequireCapability("USER.READ")
     public List<ModuleUserAccessProjection> moduleAccessUsers(
@@ -78,7 +96,7 @@ public class UserApplicationAccessController {
     }
 
     @GetMapping("/module-provisioning-context")
-    @RequireCapability("USER.GRANT_ROLE")
+    @RequireCapability("USER.CREATE")
     public ModuleProvisioningContext provisioningContext(
             Authentication authentication,
             @RequestParam UUID tenantId,
