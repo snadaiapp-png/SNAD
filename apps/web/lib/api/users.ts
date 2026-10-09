@@ -220,7 +220,7 @@ export function createUsersApi(client: ApiClient = apiClient) {
       routeRoot: string,
       capabilityCodes: string[],
     ) {
-      const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\\/+/, "").split("/")[0];
+      const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\/+/, "").split("/")[0];
       if (!normalizedRouteRoot) {
         throw new ApiConfigurationError("module route root is required");
       }
