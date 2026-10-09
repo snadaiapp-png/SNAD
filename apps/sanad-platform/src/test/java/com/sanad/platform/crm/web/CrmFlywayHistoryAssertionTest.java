@@ -305,6 +305,7 @@ class CrmFlywayHistoryAssertionTest {
             , "20261006.1"   // Users Phase 7 effective access explanation model
             , "20261006.2"   // HRM G4 payroll snapshot foundation
             , "20261008.1"   // Users module-local IAM provisioning metadata
+            , "20261010.1"   // CRM accounts tenant RLS fail-closed policy
     );
 
 
