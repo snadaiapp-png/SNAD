@@ -1,0 +1,32 @@
+name: HRM G4 T11 Full Certification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/verify_hrm_g4_t11_predecessors.py'
+      - '.github/workflows/hrm-g4-t11-full-certification.yml'
+      - 'docs/hrm/g4/G4-T11-certification.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  predecessor-evidence:
+    name: HRM G4-T11 Exact SHA Predecessor Evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Independently verify T8, T9 and T10 post-merge evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/verify_hrm_g4_t11_predecessors.py
