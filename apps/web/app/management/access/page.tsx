@@ -38,7 +38,7 @@ export default function TenantAccessPage() {
   const canReadRoles = capabilities.includes("ROLE.READ");
   const canReadCapabilities = capabilities.includes("CAPABILITY.READ");
   const canRead = canReadRoles && canReadCapabilities;
-  const canManageRoles = capabilities.includes("ROLE.MANAGE");
+  const canManageRoles = capabilities.includes("ROLE.WRITE");
   const canManageCapabilities = capabilities.includes("CAPABILITY.MANAGE");
 
   const [roles, setRoles] = useState<RoleResponse[]>([]);
