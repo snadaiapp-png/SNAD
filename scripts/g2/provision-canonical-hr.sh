@@ -13,8 +13,22 @@ done
 API_V1="${BASE_URL%/}/api/v1"
 HR_API="${BASE_URL%/}/api/v2/hr"
 G2_EFFECTIVE_DATE="${G2_EFFECTIVE_DATE:-$(date -u +%F)}"
-G2_EMPLOYMENT_START_DATE="$G2_EFFECTIVE_DATE"
+# Employment lifecycle date contract (production root cause 2026-10-09,
+# run 37916770147): the governed HR engine closes the previous status period
+# at effectiveDate.minusDays(1) and ck_hr_employment_status_dates requires
+# effective_to >= effective_from. A same-day submit-onboarding + activate
+# would create a reverse period and fail with HTTP 409. Onboarding and
+# activation therefore remain two distinct deterministic dates:
+#   SUBMIT_ONBOARDING_DATE = G2_EFFECTIVE_DATE - 1 day (G2_ONBOARDING_DATE)
+#   ACTIVATION_DATE        = G2_EFFECTIVE_DATE         (G2_ACTIVE_DATE)
+# Resulting status graph (both periods satisfy the CHECK):
+#   PENDING_ONBOARDING: effective_from = G2_ONBOARDING_DATE
+#                       effective_to   = G2_ACTIVE_DATE - 1 day
+#   ACTIVE:             effective_from = G2_ACTIVE_DATE
+#                       effective_to   = NULL
 G2_ACTIVE_DATE="$G2_EFFECTIVE_DATE"
+G2_ONBOARDING_DATE="$(date -u -d "$G2_EFFECTIVE_DATE - 1 day" +%F)"
+G2_EMPLOYMENT_START_DATE="$G2_ONBOARDING_DATE"
 G2_MANAGER_LINK_DATE="$G2_EFFECTIVE_DATE"
 
 get_json() {
@@ -216,7 +230,7 @@ ensure_active_employment() {
   version=$(echo "$employment" | jq -r '.version')
 
   if [ "$status" = "DRAFT" ]; then
-    payload=$(jq -n --arg d "$G2_EMPLOYMENT_START_DATE" --argjson v "$version" \
+    payload=$(jq -n --arg d "$G2_ONBOARDING_DATE" --argjson v "$version" \
       '{effectiveDate:$d,expectedVersion:$v,reasonCode:"G2_QA_PROVISIONING"}')
     post_json "$HR_API/employments/$employment_id/submit-onboarding" "$payload" \
       "g2-${label,,}-submit-onboarding-v1" "Submit $label onboarding" >/dev/null
