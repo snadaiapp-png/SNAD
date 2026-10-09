@@ -5,7 +5,6 @@ import { Button, Input } from "@/components/sds";
 import { Modal } from "@/components/sds/Modal";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
-import { tenantAccessApi } from "@/lib/api/tenant-access";
 import { createOverride, listOverrides } from "@/lib/api/access-api";
 import { capabilityDisplayName } from "@/lib/i18n/iam-display-l10n";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
@@ -78,6 +77,7 @@ export function GlobalUserProvisioningLauncher({
   const canRead = capabilities.includes("USER.READ");
   const canGrantRole = capabilities.includes("USER.GRANT_ROLE");
   const canManageOverrides = capabilities.includes("AUTHORIZATION.OVERRIDE.MANAGE");
+  const canGrantCapabilities = canGrantRole || canManageOverrides;
   const moduleContext = moduleContextFromLocation(pathname, search);
   const managementUsersRoute =
     pathname === "/management/users" || pathname.startsWith("/management/users/");
@@ -93,7 +93,6 @@ export function GlobalUserProvisioningLauncher({
   const [mobileRegion, setMobileRegion] = useState("");
   const [initialCredential, setInitialCredential] = useState(createInitialCredential);
   const [provisioningContext, setProvisioningContext] = useState<ModuleProvisioningContext | null>(null);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [selectedCapabilityCodes, setSelectedCapabilityCodes] = useState<string[]>([]);
   const [contextLoading, setContextLoading] = useState(false);
 
@@ -104,7 +103,7 @@ export function GlobalUserProvisioningLauncher({
     state !== "AUTHENTICATED" ||
     !tenantId ||
     !canCreate ||
-    (!canManageOverrides && !canGrantRole) ||
+    !canGrantCapabilities ||
     (managementUsersRoute && !scopedManagementUsers)
   ) {
     return null;
@@ -118,7 +117,6 @@ export function GlobalUserProvisioningLauncher({
     setMobileRegion("");
     setInitialCredential(createInitialCredential());
     setProvisioningContext(null);
-    setSelectedRoleIds([]);
     setSelectedCapabilityCodes([]);
     setContextLoading(false);
     setError(null);
@@ -135,7 +133,6 @@ export function GlobalUserProvisioningLauncher({
     setOpen(true);
     setContextLoading(true);
     setProvisioningContext(null);
-    setSelectedRoleIds([]);
     setSelectedCapabilityCodes([]);
     setError(null);
     try {
@@ -148,14 +145,6 @@ export function GlobalUserProvisioningLauncher({
     }
   };
 
-  const toggleRole = (roleId: string) => {
-    setSelectedRoleIds((current) =>
-      current.includes(roleId)
-        ? current.filter((candidate) => candidate !== roleId)
-        : [...current, roleId],
-    );
-  };
-
   const toggleCapability = (capabilityCode: string) => {
     setSelectedCapabilityCodes((current) =>
       current.includes(capabilityCode)
@@ -164,46 +153,47 @@ export function GlobalUserProvisioningLauncher({
     );
   };
 
-  const grantSelectedModuleCapabilities = async (userId: string) => {
-    const existing = await listOverrides(userId);
-    const now = Date.now();
-    const activeAllowed = new Set(
-      existing
-        .filter((override) =>
-          override.effect === "ALLOW" &&
-          (!override.validUntil || Date.parse(override.validUntil) > now),
-        )
-        .map((override) => override.capabilityCode),
-    );
-
-    for (const capabilityCode of selectedCapabilityCodes) {
-      if (activeAllowed.has(capabilityCode)) continue;
-      await createOverride({
-        targetUserId: userId,
-        capabilityCode,
-        effect: "ALLOW",
-        scopeType: "TENANT_ALL",
-        scopeReference: null,
-        reason: `Module provisioning: ${moduleContext}`,
-        validFrom: null,
-        validUntil: null,
-      });
-    }
-  };
-
-  const grantSelectedModuleRoles = async (userId: string) => {
-    if (!tenantId) return;
-    for (const roleId of selectedRoleIds) {
-      await tenantAccessApi.grantUserRole(tenantId, userId, roleId);
-    }
-  };
-
   const grantSelectedModuleAccess = async (userId: string) => {
+    if (!tenantId) return;
+
+    // Platform authorization operators can use the canonical override API
+    // directly. Tenant/module administrators use the governed Users endpoint,
+    // which validates every requested capability against the current module
+    // namespace before creating the same canonical ALLOW grants.
     if (canManageOverrides) {
-      await grantSelectedModuleCapabilities(userId);
+      const existing = await listOverrides(userId);
+      const now = Date.now();
+      const activeAllowed = new Set(
+        existing
+          .filter((override) =>
+            override.effect === "ALLOW" &&
+            (!override.validUntil || Date.parse(override.validUntil) > now),
+          )
+          .map((override) => override.capabilityCode),
+      );
+
+      for (const capabilityCode of selectedCapabilityCodes) {
+        if (activeAllowed.has(capabilityCode)) continue;
+        await createOverride({
+          targetUserId: userId,
+          capabilityCode,
+          effect: "ALLOW",
+          scopeType: "TENANT_ALL",
+          scopeReference: null,
+          reason: `Module provisioning: ${moduleContext}`,
+          validFrom: null,
+          validUntil: null,
+        });
+      }
       return;
     }
-    await grantSelectedModuleRoles(userId);
+
+    await usersApi.grantModuleCapabilities(
+      tenantId,
+      userId,
+      moduleContext,
+      selectedCapabilityCodes,
+    );
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -213,12 +203,8 @@ export function GlobalUserProvisioningLauncher({
       if (!error) setError("تعذر تحميل صلاحيات الموديول. أعد المحاولة.");
       return;
     }
-    if (canManageOverrides && selectedCapabilityCodes.length === 0) {
+    if (selectedCapabilityCodes.length === 0) {
       setError("اختر صلاحية واحدة على الأقل من صلاحيات الموديول.");
-      return;
-    }
-    if (!canManageOverrides && selectedRoleIds.length === 0) {
-      setError("اختر دورًا واحدًا على الأقل من أدوار الموديول.");
       return;
     }
 
@@ -344,8 +330,7 @@ export function GlobalUserProvisioningLauncher({
                 <p className={styles.help}>
                   {provisioningContext.localizedName || provisioningContext.name} — تظهر هنا صلاحيات هذا الموديول فقط، ولا تُعرض صلاحيات الموديولات الأخرى.
                 </p>
-                {canManageOverrides ? (
-                  provisioningContext.declaredCapabilities.length === 0 ? (
+                {provisioningContext.declaredCapabilities.length === 0 ? (
                     <div className={styles.alert} role="alert">لا توجد صلاحيات نشطة مسجلة لهذا الموديول.</div>
                   ) : (
                     <div className={styles.roleList}>
@@ -364,24 +349,6 @@ export function GlobalUserProvisioningLauncher({
                       ))}
                     </div>
                   )
-                ) : provisioningContext.roles.length === 0 ? (
-                  <div className={styles.alert} role="alert">لا توجد أدوار مخصصة حصريًا لهذا الموديول.</div>
-                ) : (
-                  <div className={styles.roleList}>
-                    {provisioningContext.roles.map((role) => (
-                      <label key={role.roleId} className={styles.roleOption}>
-                        <input
-                          type="checkbox"
-                          checked={selectedRoleIds.includes(role.roleId)}
-                          onChange={() => toggleRole(role.roleId)}
-                        />
-                        <span>
-                          <strong>{role.roleName}</strong>
-                          <small>{role.capabilities.join(" · ")}</small>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
                 )}
               </>
             ) : null}
