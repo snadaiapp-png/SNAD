@@ -53,8 +53,7 @@ test.describe("CRM Pipeline + Export E2E", () => {
     await waitForCrmReady(page, "/crm/pipelines");
 
     // The pipelines page should have a create form or list.
-    // Wait for the page to settle.
-    await page.waitForLoadState("networkidle");
+    await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
 
     // Verify the page has meaningful content (not a blank/error page).
     const bodyBox = await page.locator("body").boundingBox();
@@ -76,7 +75,7 @@ test.describe("CRM Pipeline + Export E2E", () => {
 
     // Navigate to pipelines page and verify it appears.
     await waitForCrmReady(page, "/crm/pipelines");
-    await page.waitForLoadState("networkidle");
+    await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
 
     // The pipeline name should be visible on the page.
     await expect(page.locator("body")).toContainText(pipelineName, { timeout: 15_000 });

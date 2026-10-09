@@ -138,7 +138,9 @@ describe("SNAD shared module visual contract — CRM reference consumption", () 
     const hrWorkspace = source("./components/hr-workspace.tsx");
 
     expect(shell).toContain("GlobalUserProvisioningLauncher");
+    expect(shell).toContain("ModuleAccessNavigation");
     expect(shell).toContain('presentation="header"');
+    expect(shell).toContain('presentation="sidebar"');
     expect(shell).toContain('data-snad-module-shell="true"');
     expect(crmShell).toContain("<SnadModuleShell");
     expect(hrWorkspace).toContain("<SnadModuleShell");

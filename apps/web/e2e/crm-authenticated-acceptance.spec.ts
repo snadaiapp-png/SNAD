@@ -117,7 +117,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     // CONSTITUTION §3.6: access tokens are in-memory only — page.goto/reload
     // triggers a silent refresh which fails with 401 in CI, losing the session.
     await page.locator('a[href="/crm/contacts"]').first().click();
-    await page.waitForLoadState("networkidle");
+    await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
     // The contact name should now appear in the refreshed list.
     await expect(page.locator("body")).toContainText(givenName, { timeout: 15_000 });
     // Open the contact detail (the contacts table does not currently expose
@@ -126,7 +126,7 @@ test.describe("CRM Authenticated Acceptance — Tenant A admin happy path", () =
     await contactRow.click();
     // The contact detail page renders — we accept either the detail heading
     // or a graceful redirect back to the list.
-    await page.waitForLoadState("networkidle");
+    await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
     expect(page.url()).toMatch(/\/crm\/(contacts\/[0-9a-fA-F-]{36}|contacts)/);
   });
 

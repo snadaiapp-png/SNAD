@@ -119,8 +119,10 @@ class PlatformApiCountTest {
      *  (GET /api/v1/users/module-provisioning-context, USER.GRANT_ROLE-gated) = 1006.
      *  + 10 HRM G4-T8 governed payroll operations under /api/v2/hr/payroll
      *  (run create/list/get, calculate/recalculate, item list/get, review,
-     *  approve, accounting export) = 1016. */
-    private static final long EXPECTED_TOTAL_OPS = 1016;
+     *  approve, accounting export) = 1016.
+     *  + 2 project-wide module IAM navigation/user projection operations
+     *  (GET /api/v1/users/module-context, GET /api/v1/users/module-access-users) = 1018. */
+    private static final long EXPECTED_TOTAL_OPS = 1018;
     private static final long EXPECTED_HRM_V2_OPS = 155;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -135,7 +137,7 @@ class PlatformApiCountTest {
     void platformPublishesExpectedOperations() throws Exception {
         String body = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         JsonNode paths = objectMapper.readTree(body).path("paths");
-        assertThat(count(paths, "/api/v1/users")).isEqualTo(11);
+        assertThat(count(paths, "/api/v1/users")).isEqualTo(13);
         assertThat(count(paths, "/api/v1/access")).isEqualTo(28);
         assertThat(count(paths, "/api/v1/executive")).isEqualTo(127);
         assertThat(count(paths, "/api/v1/system-health")).isEqualTo(4);
@@ -150,6 +152,8 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/auth/admin-initialize-credential/{userId}", "post")).isTrue();
         assertThat(has(paths, "/api/v1/users/{userId}/application-access", "get")).isTrue();
         assertThat(has(paths, "/api/v1/users/module-provisioning-context", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/users/module-context", "get")).isTrue();
+        assertThat(has(paths, "/api/v1/users/module-access-users", "get")).isTrue();
         assertThat(has(paths, "/api/v1/access/evaluation", "get")).isTrue();
         assertThat(has(paths, "/api/v1/access/effective-permissions", "get")).isTrue();
         assertThat(has(paths, "/api/v1/access/effective-permissions/resync", "post")).isTrue();

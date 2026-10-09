@@ -18,6 +18,7 @@ import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { GlobalUserProvisioningLauncher } from "@/components/users/GlobalUserProvisioningLauncher";
+import { ModuleAccessNavigation } from "@/components/users/ModuleAccessNavigation";
 import styles from "./snad-shell.module.css";
 
 export interface SnadModuleNavItem {
@@ -193,6 +194,15 @@ export function SnadModuleShell({
                 </div>
               ),
             )}
+            <ModuleAccessNavigation
+              routePath={activeHref}
+              presentation="sidebar"
+              sidebarItemClassName={styles.sidebarItem}
+              sidebarIconClassName={styles.sidebarItemIcon}
+              sidebarLabelClassName={styles.sidebarItemLabel}
+              sidebarDividerClassName={styles.sidebarDivider}
+              sidebarSectionLabelClassName={styles.sidebarSectionLabel}
+            />
           </nav>
         </aside>
 

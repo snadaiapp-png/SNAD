@@ -39,6 +39,24 @@ public class UserApplicationAccessController {
         }
         return projectionService.project(tenantId, userId);
     }
+    @GetMapping("/module-context")
+    @RequireCapability("USER.GRANT_ROLE")
+    public ModuleProvisioningContext moduleContext(
+            Authentication authentication,
+            @RequestParam String routeRoot) {
+        UUID tenantId = AccessPrincipalContext.requireTenantId(authentication);
+        return moduleProvisioningService.resolve(tenantId, routeRoot);
+    }
+
+    @GetMapping("/module-access-users")
+    @RequireCapability("USER.READ")
+    public List<ModuleUserAccessProjection> moduleAccessUsers(
+            Authentication authentication,
+            @RequestParam String routeRoot) {
+        UUID tenantId = AccessPrincipalContext.requireTenantId(authentication);
+        return projectionService.projectModuleUsers(tenantId, routeRoot);
+    }
+
     @GetMapping("/module-provisioning-context")
     @RequireCapability("USER.GRANT_ROLE")
     public ModuleProvisioningContext provisioningContext(

@@ -43,6 +43,7 @@ const AR_TOKENS: Record<string, string> = {
   ORG: "المؤسسة",
   HR: "الموارد البشرية",
   CRM: "إدارة علاقات العملاء",
+  AGENT: "وكيل",
   ERP: "تخطيط الموارد",
   ACCOUNTING: "المحاسبة",
   FINANCE: "المالية",

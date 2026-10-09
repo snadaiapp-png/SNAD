@@ -5,7 +5,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { TENANT_ID, ROLE_ID, CAPABILITY_ID, accessApiMock, authMock } = vi.hoisted(() => {
+const { TENANT_ID, ROLE_ID, CAPABILITY_ID, accessApiMock, usersApiMock, authMock } = vi.hoisted(() => {
   const TENANT_ID = "11111111-1111-1111-1111-111111111111";
   const ROLE_ID = "22222222-2222-2222-2222-222222222222";
   const CAPABILITY_ID = "33333333-3333-3333-3333-333333333333";
@@ -13,6 +13,9 @@ const { TENANT_ID, ROLE_ID, CAPABILITY_ID, accessApiMock, authMock } = vi.hoiste
     TENANT_ID,
     ROLE_ID,
     CAPABILITY_ID,
+    usersApiMock: {
+      moduleContext: vi.fn(),
+    },
     accessApiMock: {
       listRoles: vi.fn(),
       createRole: vi.fn(),
@@ -35,6 +38,7 @@ const { TENANT_ID, ROLE_ID, CAPABILITY_ID, accessApiMock, authMock } = vi.hoiste
 });
 
 vi.mock("@/lib/api/tenant-access", () => ({ tenantAccessApi: accessApiMock }));
+vi.mock("@/lib/api/users", () => ({ usersApi: usersApiMock }));
 vi.mock("@/lib/auth/auth-provider", () => ({
   useAuth: () => ({
     state: authMock.state,
@@ -107,6 +111,16 @@ const CAPABILITIES = [{
 
 beforeEach(() => {
   Object.values(accessApiMock).forEach((mock) => mock.mockReset());
+  usersApiMock.moduleContext.mockReset();
+  usersApiMock.moduleContext.mockResolvedValue({
+    applicationCode: "CRM",
+    name: "CRM",
+    localizedName: "إدارة علاقات العملاء",
+    capabilityNamespaces: ["CRM"],
+    declaredCapabilities: ["CRM.ACCOUNT.READ"],
+    supportedScopes: ["TENANT"],
+    roles: [{ roleId: ROLE_ID, roleCode: "CRM_AGENT", roleName: "CRM Agent", capabilities: ["CRM.ACCOUNT.READ"] }],
+  });
   accessApiMock.listRoles.mockResolvedValue(ROLES);
   accessApiMock.listCapabilities.mockResolvedValue(CAPABILITIES);
   accessApiMock.listRoleCapabilities.mockResolvedValue([]);
@@ -114,6 +128,7 @@ beforeEach(() => {
   authMock.user = { id: "actor-1", tenantId: TENANT_ID, email: "admin@example.com", displayName: "Admin", status: "ACTIVE" };
   authMock.capabilities = ["ROLE.READ", "ROLE.MANAGE", "CAPABILITY.READ", "CAPABILITY.MANAGE"];
   vi.spyOn(window, "confirm").mockReturnValue(true);
+  window.history.replaceState({}, "", "/management/access");
 });
 
 afterEach(() => {
@@ -122,6 +137,28 @@ afterEach(() => {
 });
 
 describe("Tenant Roles and Capabilities", () => {
+  it("shows only roles and capabilities owned by the selected module", async () => {
+    const crmRole = { ...ROLES[0], id: ROLE_ID, code: "CRM_AGENT", name: "CRM Agent" };
+    const hrRole = { ...ROLES[0], id: "44444444-4444-4444-8444-444444444444", code: "HR_SPECIALIST", name: "HR Specialist" };
+    const crmCapability = { ...CAPABILITIES[0], id: CAPABILITY_ID, code: "CRM.ACCOUNT.READ", name: "Read CRM accounts" };
+    const hrCapability = { ...CAPABILITIES[0], id: "55555555-5555-4555-8555-555555555555", code: "HRM.EMPLOYEE.VIEW", name: "View employees" };
+
+    accessApiMock.listRoles.mockResolvedValue([crmRole, hrRole]);
+    accessApiMock.listCapabilities.mockResolvedValue([crmCapability, hrCapability]);
+    window.history.replaceState({}, "", "/management/access?module=crm&returnTo=%2Fcrm%2Foverview");
+
+    render(<TenantAccessPage />);
+
+    expect(await screen.findByRole("heading", { name: "إدارة الوصول — إدارة علاقات العملاء" })).toBeInTheDocument();
+    expect(usersApiMock.moduleContext).toHaveBeenCalledWith("crm");
+    expect(screen.getByText("إدارة علاقات العملاء وكيل")).toBeInTheDocument();
+    expect(screen.queryByText("HR_SPECIALIST")).not.toBeInTheDocument();
+    expect(screen.getByText("CRM.ACCOUNT.READ")).toBeInTheDocument();
+    expect(screen.queryByText("HRM.EMPLOYEE.VIEW")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إنشاء دور" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إنشاء صلاحية" })).not.toBeInTheDocument();
+  });
+
   it("loads access data only for the authenticated tenant and exposes no tenant selector", async () => {
     render(<TenantAccessPage />);
 

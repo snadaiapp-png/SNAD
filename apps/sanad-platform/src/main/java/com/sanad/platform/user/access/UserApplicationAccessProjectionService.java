@@ -2,6 +2,7 @@ package com.sanad.platform.user.access;
 
 import com.sanad.platform.access.UserAccessResponse;
 import com.sanad.platform.security.scope.AccessScopeType;
+import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +62,95 @@ public class UserApplicationAccessProjectionService {
                     roleCapabilities));
         }
         result.sort(Comparator.comparing(ApplicationAccessProjection::applicationCode));
+        return List.copyOf(result);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ModuleUserAccessProjection> projectModuleUsers(UUID tenantId, String routeRoot) {
+        if (tenantId == null) {
+            throw new IllegalArgumentException("tenantId is required");
+        }
+
+        ApplicationIamRegistration registration = registry.findDiscoverableByRouteRoot(routeRoot)
+                .orElseThrow(() -> new IllegalArgumentException("No governed IAM application matches route"));
+
+        Set<String> knownCapabilities = normalize(accessRead.knownCapabilities());
+        Set<String> namespaces = normalize(registration.capabilityNamespaces());
+        Set<String> declared = normalize(registration.declaredCapabilities());
+        Set<String> supportedScopes = normalize(registration.supportedScopes());
+        String validationReason = validate(
+                registration,
+                namespaces,
+                declared,
+                supportedScopes,
+                knownCapabilities);
+        if (validationReason != null) {
+            throw new IllegalStateException("Application IAM contract is not projectable: " + validationReason);
+        }
+
+        List<User> tenantUsers = users.findByTenantId(tenantId).stream()
+                .sorted(Comparator.comparing(User::getEmail))
+                .toList();
+
+        List<UserAccessResponse> grants = accessRead.activeRoleGrants(tenantId);
+        Set<UUID> roleIds = new LinkedHashSet<>();
+        Map<UUID, List<UserAccessResponse>> grantsByUser = new java.util.LinkedHashMap<>();
+        for (UserAccessResponse grant : grants) {
+            roleIds.add(grant.roleId());
+            grantsByUser.computeIfAbsent(grant.userId(), ignored -> new ArrayList<>()).add(grant);
+        }
+        Map<UUID, Set<String>> roleCapabilities = accessRead.capabilityCodesByRoleIds(tenantId, roleIds);
+
+        Map<UUID, Set<String>> effectiveByUser = new java.util.LinkedHashMap<>();
+        for (UserAccessResponse grant : grants) {
+            effectiveByUser
+                    .computeIfAbsent(grant.userId(), ignored -> new LinkedHashSet<>())
+                    .addAll(normalize(roleCapabilities.getOrDefault(grant.roleId(), Set.of())));
+        }
+
+        Map<UUID, Set<String>> deniedByUser = new java.util.LinkedHashMap<>();
+        for (UserApplicationAccessReadRepository.UserCapabilityOverride override
+                : accessRead.activePermissionOverrides(tenantId)) {
+            String capability = normalizeCode(override.capabilityCode());
+            if ("DENY".equals(normalizeCode(override.effect()))) {
+                deniedByUser.computeIfAbsent(override.userId(), ignored -> new LinkedHashSet<>())
+                        .add(capability);
+            } else if ("ALLOW".equals(normalizeCode(override.effect()))) {
+                effectiveByUser.computeIfAbsent(override.userId(), ignored -> new LinkedHashSet<>())
+                        .add(capability);
+            }
+        }
+        deniedByUser.forEach((userId, denied) ->
+                effectiveByUser.computeIfAbsent(userId, ignored -> new LinkedHashSet<>()).removeAll(denied));
+
+        List<ModuleUserAccessProjection> result = new ArrayList<>();
+        for (User user : tenantUsers) {
+            List<UserAccessResponse> userGrants = grantsByUser.getOrDefault(user.getId(), List.of());
+            List<String> assignedRoles = userGrants.stream()
+                    .filter(grant -> roleOwnsApplicationCapability(
+                            roleCapabilities.getOrDefault(grant.roleId(), Set.of()), namespaces))
+                    .map(UserAccessResponse::roleCode)
+                    .distinct()
+                    .sorted()
+                    .toList();
+
+            Set<String> matchingEffective = new LinkedHashSet<>();
+            for (String capability : effectiveByUser.getOrDefault(user.getId(), Set.of())) {
+                if (ownedByAnyNamespace(capability, namespaces)) {
+                    matchingEffective.add(normalizeCode(capability));
+                }
+            }
+
+            result.add(new ModuleUserAccessProjection(
+                    user.getId(),
+                    user.getEmail(),
+                    user.getUsername(),
+                    user.getDisplayName(),
+                    user.getStatus().name(),
+                    !matchingEffective.isEmpty(),
+                    assignedRoles,
+                    Set.copyOf(matchingEffective)));
+        }
         return List.copyOf(result);
     }
 

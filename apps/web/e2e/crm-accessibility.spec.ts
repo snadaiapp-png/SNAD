@@ -35,7 +35,8 @@ const TENANT_A_PASSWORD = process.env.CRM_TENANT_A_PASSWORD ?? "";
 async function waitForCrmReady(page: Page, route: string): Promise<void> {
   await page.goto(route);
   await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
+  // Do not require networkidle: shared IAM discovery may keep background
+  // requests active after the CRM shell itself is fully ready.
 }
 
 const CRM_ROUTES_FOR_A11Y = [

@@ -13,6 +13,8 @@ const { TENANT_ID, usersApiMock, authMock } = vi.hoisted(() => {
       list: vi.fn(),
       create: vi.fn(),
       transition: vi.fn(),
+      moduleContext: vi.fn(),
+      listModuleAccessUsers: vi.fn(),
     },
     authMock: {
       state: "AUTHENTICATED",
@@ -103,7 +105,41 @@ beforeEach(() => {
   usersApiMock.list.mockReset();
   usersApiMock.create.mockReset();
   usersApiMock.transition.mockReset();
+  usersApiMock.moduleContext.mockReset();
+  usersApiMock.listModuleAccessUsers.mockReset();
   usersApiMock.list.mockResolvedValue(USERS);
+  usersApiMock.moduleContext.mockResolvedValue({
+    applicationCode: "CRM",
+    name: "CRM",
+    localizedName: "إدارة علاقات العملاء",
+    capabilityNamespaces: ["CRM"],
+    declaredCapabilities: ["CRM.ACCOUNT.READ"],
+    supportedScopes: ["TENANT"],
+    roles: [],
+  });
+  usersApiMock.listModuleAccessUsers.mockResolvedValue([
+    {
+      userId: USERS[0].id,
+      email: USERS[0].email,
+      username: null,
+      displayName: USERS[0].displayName,
+      status: "ACTIVE",
+      effectiveAccess: true,
+      assignedRoles: ["CRM_AGENT"],
+      effectiveCapabilities: ["CRM.ACCOUNT.READ"],
+    },
+    {
+      userId: USERS[1].id,
+      email: USERS[1].email,
+      username: null,
+      displayName: USERS[1].displayName,
+      status: "INVITED",
+      effectiveAccess: false,
+      assignedRoles: [],
+      effectiveCapabilities: [],
+    },
+  ]);
+  window.history.replaceState({}, "", "/management/users");
   authMock.state = "AUTHENTICATED";
   authMock.user = { id: "actor-1", tenantId: TENANT_ID, email: "admin@example.com", displayName: "Admin", status: "ACTIVE" };
   authMock.capabilities = ["USER.READ", "USER.CREATE", "USER.WRITE", "USER.DELETE"];
@@ -112,6 +148,17 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("Tenant User Directory", () => {
+  it("scopes the directory to users with effective access to the selected module", async () => {
+    window.history.replaceState({}, "", "/management/users?module=crm&returnTo=%2Fcrm%2Foverview");
+    render(<TenantUsersPage />);
+
+    expect(await screen.findByRole("heading", { name: "المستخدمون — إدارة علاقات العملاء" })).toBeInTheDocument();
+    expect(usersApiMock.listModuleAccessUsers).toHaveBeenCalledWith("crm");
+    expect(screen.getByText("سالم العتيبي")).toBeInTheDocument();
+    expect(screen.queryByText("نورة القحطاني")).not.toBeInTheDocument();
+    expect(screen.getByText("CRM_AGENT")).toBeInTheDocument();
+  });
+
   it("loads users only for the authenticated tenant and exposes no tenant UUID field", async () => {
     render(<TenantUsersPage />);
 

@@ -6,10 +6,11 @@ import { Button } from "@/components/sds";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
 import { ExecutiveShell } from "@/components/shell";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { usersApi, type UserLifecycleAction, type UserResponse, type UserStatus } from "@/lib/api/users";
+import { usersApi, type ModuleProvisioningContext, type ModuleUserAccessProjection, type UserLifecycleAction, type UserResponse, type UserStatus } from "@/lib/api/users";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { usersMessages } from "@/lib/i18n/users-l10n";
+import { GlobalUserProvisioningLauncher } from "@/components/users/GlobalUserProvisioningLauncher";
 import { UserCreateDialog } from "./_components/UserCreateDialog";
 import { UserDirectory } from "./_components/UserDirectory";
 import styles from "./users.module.css";
@@ -42,6 +43,12 @@ export default function TenantUsersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const moduleParams =
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+  const moduleRouteRoot = moduleParams?.get("module")?.trim().toLowerCase() || null;
+  const moduleReturnTo = moduleParams?.get("returnTo") || null;
+  const [moduleContext, setModuleContext] = useState<ModuleProvisioningContext | null>(null);
+  const [moduleAccess, setModuleAccess] = useState<Record<string, { assignedRoles: string[]; effectiveCapabilities: string[] }>>({});
 
   useEffect(() => {
     if (["ANONYMOUS", "ERROR", "EXPIRED", "CREDENTIAL_ROTATION_REQUIRED"].includes(state)) {
@@ -57,13 +64,39 @@ export default function TenantUsersPage() {
     setLoading(true);
     setError(null);
     try {
-      setUsers(await usersApi.list(tenantId));
+      if (moduleRouteRoot) {
+        const [allUsers, projectedUsers, context] = await Promise.all([
+          usersApi.list(tenantId),
+          usersApi.listModuleAccessUsers(moduleRouteRoot),
+          usersApi.moduleContext(moduleRouteRoot),
+        ]);
+        const accessible = new Set(
+          projectedUsers
+            .filter((entry) => entry.effectiveAccess || entry.assignedRoles.length > 0)
+            .map((entry) => entry.userId),
+        );
+        setUsers(allUsers.filter((entry) => accessible.has(entry.id)));
+        setModuleContext(context);
+        setModuleAccess(Object.fromEntries(
+          projectedUsers.map((entry: ModuleUserAccessProjection) => [
+            entry.userId,
+            {
+              assignedRoles: entry.assignedRoles,
+              effectiveCapabilities: entry.effectiveCapabilities,
+            },
+          ]),
+        ));
+      } else {
+        setUsers(await usersApi.list(tenantId));
+        setModuleContext(null);
+        setModuleAccess({});
+      }
     } catch (caught) {
       setError(toUserFacingMessage(caught));
     } finally {
       setLoading(false);
     }
-  }, [canRead, tenantId]);
+  }, [canRead, moduleRouteRoot, tenantId]);
 
   useEffect(() => {
     if (state !== "AUTHENTICATED") return;
@@ -105,10 +138,23 @@ export default function TenantUsersPage() {
       <section className={styles.root} data-testid="management-users-ready">
         <header className={styles.header}>
           <div className={styles.headingGroup}>
-            <h1 className={styles.title}>{messages.title}</h1>
-            <p className={styles.subtitle}>{messages.subtitle}</p>
+            <h1 className={styles.title}>
+              {moduleContext ? `${messages.title} — ${moduleContext.localizedName || moduleContext.name}` : messages.title}
+            </h1>
+            <p className={styles.subtitle}>
+              {moduleContext
+                ? "إدارة المستخدمين الذين لديهم وصول فعّال لهذا الموديول فقط."
+                : messages.subtitle}
+            </p>
+            {moduleContext && moduleReturnTo ? (
+              <a className={styles.link} href={moduleReturnTo}>العودة إلى الموديول</a>
+            ) : null}
           </div>
-          {canCreate ? <Button onClick={() => setCreateOpen(true)}>{messages.create}</Button> : null}
+          {moduleRouteRoot
+            ? <GlobalUserProvisioningLauncher presentation="header" />
+            : canCreate
+              ? <Button onClick={() => setCreateOpen(true)}>{messages.create}</Button>
+              : null}
         </header>
 
         {!canRead ? (
@@ -133,12 +179,19 @@ export default function TenantUsersPage() {
                 onQueryChange={setQuery}
                 onStatusChange={setStatus}
                 onLifecycle={transitionUser}
+                moduleAccess={moduleRouteRoot ? moduleAccess : undefined}
+                detailQuery={moduleRouteRoot
+                  ? new URLSearchParams({
+                      module: moduleRouteRoot,
+                      ...(moduleReturnTo ? { returnTo: moduleReturnTo } : {}),
+                    }).toString()
+                  : undefined}
               />
             )}
           </div>
         )}
 
-        {canCreate ? (
+        {canCreate && !moduleRouteRoot ? (
           <UserCreateDialog
             open={createOpen}
             busy={creating}

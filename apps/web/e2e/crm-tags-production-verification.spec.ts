@@ -54,7 +54,7 @@ test.describe("CRM Tags Production UI Verification", () => {
   test("D. CRM navigation renders with Tags item", async ({ page }) => {
     await page.goto("/crm/overview");
     await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-    await page.waitForLoadState("networkidle");
+    await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
 
     // Check that CRM navigation is visible
     const sidebar = page.locator("aside[aria-label]");
@@ -68,7 +68,7 @@ test.describe("CRM Tags Production UI Verification", () => {
   test("E. Tags page loads successfully", async ({ page }) => {
     await page.goto("/crm/tags");
     await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-    await page.waitForLoadState("networkidle");
+    await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
 
     // Verify no 401, 403, 404, or 500 errors
     const url = page.url();
@@ -124,7 +124,7 @@ test.describe("CRM Tags Production UI Verification", () => {
     // Navigate to Tags page
     await page.goto("/crm/tags");
     await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-    await page.waitForLoadState("networkidle");
+    await expect(page.locator("#crm-operational-content")).toBeVisible({ timeout: 15_000 });
 
     // Wait for any pending requests
     await page.waitForTimeout(2000);

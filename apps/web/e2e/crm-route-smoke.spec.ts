@@ -88,7 +88,8 @@ function severeErrors(errors: string[]): string[] {
 
 async function waitForCrmShell(page: Page): Promise<void> {
   await page.waitForSelector("#crm-operational-content", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
+  // Route-smoke readiness is the authenticated CRM content marker; global
+  // IAM discovery is intentionally asynchronous and must not gate on networkidle.
 }
 
 test.describe("CRM Route Smoke — strict assertions (authenticated)", () => {

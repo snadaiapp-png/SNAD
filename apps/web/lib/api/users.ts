@@ -97,8 +97,21 @@ export interface ModuleProvisioningContext {
   applicationCode: string;
   name: string;
   localizedName: string | null;
+  capabilityNamespaces: string[];
+  declaredCapabilities: string[];
   supportedScopes: string[];
   roles: ModuleProvisioningRole[];
+}
+
+export interface ModuleUserAccessProjection {
+  userId: string;
+  email: string;
+  username: string | null;
+  displayName: string | null;
+  status: UserStatus;
+  effectiveAccess: boolean;
+  assignedRoles: string[];
+  effectiveCapabilities: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +183,26 @@ export function createUsersApi(client: ApiClient = apiClient) {
           tenantId: requireValidUuid(tenantId, "tenantId"),
           routeRoot: normalizedRouteRoot,
         },
+      });
+    },
+
+    async moduleContext(routeRoot: string) {
+      const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\/+/, "").split("/")[0];
+      if (!normalizedRouteRoot) {
+        throw new ApiConfigurationError("module route root is required");
+      }
+      return client.get<ModuleProvisioningContext>("/api/v1/users/module-context", {
+        query: { routeRoot: normalizedRouteRoot },
+      });
+    },
+
+    async listModuleAccessUsers(routeRoot: string) {
+      const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\/+/, "").split("/")[0];
+      if (!normalizedRouteRoot) {
+        throw new ApiConfigurationError("module route root is required");
+      }
+      return client.get<ModuleUserAccessProjection[]>("/api/v1/users/module-access-users", {
+        query: { routeRoot: normalizedRouteRoot },
       });
     },
 

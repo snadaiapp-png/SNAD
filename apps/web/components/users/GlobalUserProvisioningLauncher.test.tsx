@@ -67,6 +67,7 @@ vi.mock("@/lib/i18n/I18nProvider", () => ({
 
 import {
   GlobalUserProvisioningLauncher,
+  moduleContextFromLocation,
   moduleContextFromPathname,
 } from "./GlobalUserProvisioningLauncher";
 
@@ -111,6 +112,8 @@ beforeEach(() => {
     applicationCode: "HRM",
     name: "HRM",
     localizedName: "الموارد البشرية",
+    capabilityNamespaces: ["HRM", "HR"],
+    declaredCapabilities: ["HRM.EMPLOYEE.VIEW"],
     supportedScopes: ["TENANT", "ORGANIZATION"],
     roles: [{
       roleId: "44444444-4444-4444-8444-444444444444",
@@ -130,6 +133,16 @@ describe("GlobalUserProvisioningLauncher", () => {
     expect(moduleContextFromPathname("/crm/leads")).toBe("crm");
     expect(moduleContextFromPathname("/future-module/records/1")).toBe("future-module");
     expect(moduleContextFromPathname("/")).toBe("workspace");
+    expect(moduleContextFromLocation("/management/users", "?module=crm")).toBe("crm");
+  });
+
+  it("keeps module provisioning available on the module-scoped central users route", () => {
+    window.history.replaceState({}, "", "/management/users?module=crm&returnTo=%2Fcrm%2Foverview");
+    render(<GlobalUserProvisioningLauncher presentation="header" />);
+    expect(screen.getByTestId("global-user-provisioning")).toHaveAttribute(
+      "data-module-context",
+      "crm",
+    );
   });
 
   it("is automatically available inside an authenticated module with USER.CREATE", () => {

@@ -228,7 +228,8 @@ test.describe("G2 Employee Journey @mobile", () => {
     await loginThroughUi(page, "employee");
     await page.goto(`${BASE_URL}/hr/attendance`);
     await expect(page.locator("h1").first()).toBeVisible();
-    await page.waitForLoadState("networkidle");
+    // Global module IAM navigation performs authenticated background discovery;
+    // readiness is defined by the rendered HR surface, not network quiescence.
 
     const clockInBtn = page.getByTestId("attendance-clock-in");
     const clockOutBtn = page.getByTestId("attendance-clock-out");
