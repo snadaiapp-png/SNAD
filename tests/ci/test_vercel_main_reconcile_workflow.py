@@ -32,6 +32,14 @@ def test_broken_vercel_curl_token_pattern_is_absent():
     assert 'vercel@latest curl "$PRODUCTION_WEB_BASE_URL/api/system/release"' not in text
 
 
+def test_vercel_reconcile_supplies_verified_main_git_identity_to_local_production_build():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "VERCEL_GIT_COMMIT_REF: main" in text
+    assert "VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}" in text
+    assert "Verify immutable current main" in text
+
+
 def test_vercel_reconcile_deploys_the_verified_prebuilt_artifact():
     text = WORKFLOW.read_text(encoding="utf-8")
 
