@@ -32,7 +32,7 @@ const { TENANT_ID, ROLE_ID, CAPABILITY_ID, accessApiMock, usersApiMock, authMock
     authMock: {
       state: "AUTHENTICATED",
       user: { id: "actor-1", tenantId: TENANT_ID, email: "admin@example.com", displayName: "Admin", status: "ACTIVE" },
-      capabilities: ["ROLE.READ", "ROLE.MANAGE", "CAPABILITY.READ", "CAPABILITY.MANAGE"] as string[],
+      capabilities: ["ROLE.READ", "ROLE.WRITE", "CAPABILITY.READ", "CAPABILITY.MANAGE"] as string[],
     },
   };
 });
@@ -126,7 +126,7 @@ beforeEach(() => {
   accessApiMock.listRoleCapabilities.mockResolvedValue([]);
   authMock.state = "AUTHENTICATED";
   authMock.user = { id: "actor-1", tenantId: TENANT_ID, email: "admin@example.com", displayName: "Admin", status: "ACTIVE" };
-  authMock.capabilities = ["ROLE.READ", "ROLE.MANAGE", "CAPABILITY.READ", "CAPABILITY.MANAGE"];
+  authMock.capabilities = ["ROLE.READ", "ROLE.WRITE", "CAPABILITY.READ", "CAPABILITY.MANAGE"];
   vi.spyOn(window, "confirm").mockReturnValue(true);
   window.history.replaceState({}, "", "/management/access");
 });
