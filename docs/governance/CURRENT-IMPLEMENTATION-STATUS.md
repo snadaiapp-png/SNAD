@@ -63,19 +63,21 @@ Stage 30 begins with customer-selection governance only. Gate 30.2 activation ap
 | Area | Current state | Decision |
 |---|---|---|
 | Frontend | Vercel application at `https://snad-app.vercel.app` | Reachable at last executive review |
-| Backend hosting | Temporary development tunnel | Open; temporarily accepted for controlled development and limited pilot only |
-| BFF/authentication | Application controls and hourly synthetic implemented | Open pending production observation and REM-P0-001; temporarily accepted for controlled scope |
-| Commercial production | Critical gates remain open | Not approved |
+| Backend hosting | Render production (`sanad-backend`) | Verified by current R0C13 production release chain |
+| BFF/authentication | Production identity provisioning and operational smoke passed on transition SHA | Stage 30 governance proceeds without granting live-payment authority |
+| Commercial production | R0C13 engineering production-verified; Stage 30 governance in progress | Broad commercial go-live remains NOT_APPROVED; live payment collection OFF |
 
 Historical Render, Supabase, stage-release and provider observations remain valid only for their stated date and SHA.
 
 ## 5. Historical residual-risk baseline carried forward pending revalidation
 
-The Project Owner accepted the six remaining findings temporarily on 2026-07-18 under:
+The Project Owner accepted six findings temporarily on 2026-07-18 under:
 
 `docs/governance/TEMPORARY-RISK-ACCEPTANCE-2026-07-18.md`
 
-The acceptance applies only to:
+The supporting review register shows the mandatory 2026-08-17 review remained pending. Under its own fail-closed rule, a missed review suspends that temporary acceptance. This Stage 30 reconciliation does not silently renew it.
+
+The historical acceptance applied only to:
 
 - controlled development;
 - verification and remediation;
@@ -88,7 +90,7 @@ It does not authorize:
 - enterprise-production-ready claims;
 - closure or severity reduction of any accepted finding.
 
-The acceptance must be reviewed every 30 days and expires automatically when broad commercial-go-live review begins, when the review interval is missed, after a related SEV0/SEV1 incident, after confirmed breach/data loss/tenant-isolation failure, after material architecture change, or after pilot expansion beyond the approved boundary.
+Current classification: `SUSPENDED / HISTORICAL_PENDING_REVALIDATION`. Any new risk acceptance requires a fresh explicit owner decision; it cannot be inferred from the 2026-07-18 record.
 
 ## 6. Closed findings
 
