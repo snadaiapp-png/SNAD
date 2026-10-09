@@ -130,6 +130,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The Git ref is not populated by 'vercel build --prod' in CI.
+          # Derive it only from the already verified exact main checkout.
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$GITHUB_SHA" || {
+            echo "::error::VERCEL_RECONCILE_NOT_CURRENT_MAIN"
+            exit 1
+          }
+          export VERCEL_GIT_COMMIT_REF="${GITHUB_REF#refs/heads/}"
+          test "$VERCEL_GIT_COMMIT_REF" = "main"
           rm -rf .vercel/output
           npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN" 2>&1 | tee "$RUNNER_TEMP/vercel-build.log"
 
