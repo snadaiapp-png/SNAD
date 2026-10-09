@@ -1,0 +1,112 @@
+name: HRM G4-T12 Explicit Vercel Preview
+
+# Canonical production deployment remains solely with vercel-main-production-reconcile.
+# This manual preview workflow does not rely on automatic Vercel Git routing.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Open same-repository PR to preview'
+        required: true
+        type: string
+      expected_head_sha:
+        description: 'Full immutable PR head SHA'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  preview:
+    name: G4-T12 Exact-Head Vercel CLI Preview
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      EXPECTED_SHA: ${{ inputs.expected_head_sha }}
+    steps:
+      - name: Verify immutable open same-repo PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          python3 - <<'PY'
+          import json, os, urllib.request
+          repository = os.environ["GITHUB_REPOSITORY"]
+          number = os.environ["PR_NUMBER"]
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repository}/pulls/{number}",
+              headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                       "Accept": "application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(req, timeout=15) as response:
+              pr = json.load(response)
+          assert pr["state"] == "open" and not pr["draft"], "PR_NOT_READY"
+          assert pr["base"]["ref"] == "main", "BASE_NOT_MAIN"
+          assert pr["head"]["repo"]["full_name"] == repository, "FORK_DISALLOWED"
+          assert pr["head"]["sha"] == os.environ["EXPECTED_SHA"], "EXACT_HEAD_MISMATCH"
+          assert pr["number"] == 1331, "NOT_G4_T12_PR"
+          assert pr["head"]["ref"] == "cert/hrm-g4-t12-final-closure", "WRONG_CERT_BRANCH"
+          print("G4_T12_EXACT_HEAD_AUTHORIZED_FOR_PREVIEW")
+          PY
+
+      - name: Checkout exact authorized PR SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_head_sha }}
+          persist-credentials: false
+
+      - name: Verify immutable checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_ORG_ID"
+          test -n "$VERCEL_PROJECT_ID"
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Pull preview build configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest pull --yes --environment=preview --token="$VERCEL_TOKEN"
+
+      - name: Build immutable preview artifact (never production)
+        shell: bash
+        env:
+          VERCEL_ENV: preview
+          VERCEL_TARGET_ENV: preview
+        run: |
+          set -euo pipefail
+          export VERCEL_GIT_COMMIT_REF="cert/hrm-g4-t12-final-closure"
+          test "$VERCEL_GIT_COMMIT_REF" != "main"
+          npx --yes vercel@latest build --token="$VERCEL_TOKEN"
+
+      - name: Deploy preview artifact without --prod
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest deploy --prebuilt --yes --token="$VERCEL_TOKEN" | tee "$RUNNER_TEMP/g4-t12-preview-url.txt"
+
+      - name: Record preview evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Exact PR SHA: $EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Preview URL: $(tail -n 1 "$RUNNER_TEMP/g4-t12-preview-url.txt")" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target: preview (no --prod)" >> "$GITHUB_STEP_SUMMARY"
