@@ -5,7 +5,6 @@ import { Button, Input } from "@/components/sds";
 import { Modal } from "@/components/sds/Modal";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
-import { createOverride, listOverrides } from "@/lib/api/access-api";
 import { capabilityDisplayName } from "@/lib/i18n/iam-display-l10n";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
 import styles from "./GlobalUserProvisioningLauncher.module.css";
@@ -156,35 +155,17 @@ export function GlobalUserProvisioningLauncher({
   const grantSelectedModuleAccess = async (userId: string) => {
     if (!tenantId) return;
 
-    // Platform authorization operators can use the canonical override API
-    // directly. Tenant/module administrators use the governed Users endpoint,
-    // which validates every requested capability against the current module
-    // namespace before creating the same canonical ALLOW grants.
+    // Keep each permission batch inside one backend transaction. Platform
+    // authorization operators use the override-authorized endpoint; tenant
+    // administrators use the USER.GRANT_ROLE endpoint. Both validate module
+    // namespace ownership server-side before mutating authorization state.
     if (canManageOverrides) {
-      const existing = await listOverrides(userId);
-      const now = Date.now();
-      const activeAllowed = new Set(
-        existing
-          .filter((override) =>
-            override.effect === "ALLOW" &&
-            (!override.validUntil || Date.parse(override.validUntil) > now),
-          )
-          .map((override) => override.capabilityCode),
+      await usersApi.grantModuleCapabilityOverrides(
+        tenantId,
+        userId,
+        moduleContext,
+        selectedCapabilityCodes,
       );
-
-      for (const capabilityCode of selectedCapabilityCodes) {
-        if (activeAllowed.has(capabilityCode)) continue;
-        await createOverride({
-          targetUserId: userId,
-          capabilityCode,
-          effect: "ALLOW",
-          scopeType: "TENANT_ALL",
-          scopeReference: null,
-          reason: `Module provisioning: ${moduleContext}`,
-          validFrom: null,
-          validUntil: null,
-        });
-      }
       return;
     }
 
