@@ -261,6 +261,10 @@ jobs:
               RAISE EXCEPTION 'G4 acceptance payroll capability catalog incomplete';
             END IF;
           END $do$;
+          -- RLS is FORCE-enabled. Each tenant's grants must be written inside
+          -- a transaction with a transaction-local tenant context.
+          BEGIN;
+          SELECT set_config('app.tenant_id', :'tenant', true);
           INSERT INTO role_capabilities(id,tenant_id,role_id,capability_id,created_at)
           SELECT gen_random_uuid(),r.tenant_id,r.id,c.id,NOW()
           FROM roles r CROSS JOIN access_capabilities c
@@ -280,6 +284,7 @@ jobs:
             AND NOT EXISTS(SELECT 1 FROM access_scope_grants g
               WHERE g.tenant_id=r.tenant_id AND g.role_id=r.id AND g.capability_id=c.id
                 AND g.scope_type='TENANT' AND g.status='ACTIVE');
+          COMMIT;
           SQL
           done
 
