@@ -139,6 +139,26 @@ public class EffectivePermissionProjectionService {
         return list(tenantId, userId);
     }
 
+    /**
+     * Returns a projection aligned with the subject's authoritative
+     * authorization_version. This self-heals rows created before runtime
+     * propagation was introduced and closes any missed-event gap fail-safe.
+     */
+    @Transactional
+    public List<EffectivePermissionRow> listCurrent(UUID tenantId, UUID userId) {
+        requireSubject(tenantId, userId);
+        scope(tenantId);
+        long currentVersion = authorizationVersionService.current(tenantId, userId);
+        Long projectedVersion = jdbc.queryForObject(
+                "SELECT MAX(authorization_version) FROM effective_permission_projection "
+                        + "WHERE tenant_id = ? AND user_id = ?",
+                Long.class, tenantId, userId);
+        if (projectedVersion == null || projectedVersion.longValue() != currentVersion) {
+            return rebuild(tenantId, userId);
+        }
+        return list(tenantId, userId);
+    }
+
     @Transactional(readOnly = true)
     public List<EffectivePermissionRow> list(UUID tenantId, UUID userId) {
         requireSubject(tenantId, userId);
