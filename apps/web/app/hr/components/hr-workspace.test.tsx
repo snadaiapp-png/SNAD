@@ -270,7 +270,9 @@ describe("HrWorkspace navigation", () => {
     await waitFor(() => expect(usersApiMock.moduleContext).toHaveBeenCalledWith("hr"));
     const action = await screen.findByTestId("module-user-provisioning-menu-item");
     expect(action).toHaveAccessibleName("إضافة مستخدم");
-    expect(screen.queryByTestId("global-user-provisioning")).not.toBeInTheDocument();
+    const launcher = screen.getByTestId("global-user-provisioning");
+    expect(launcher).toHaveAttribute("data-presentation", "menu");
+    expect(launcher).toHaveAttribute("data-module-context", "hr");
   });
 
   it("exposes navigation as a labelled landmark and renders children in main", () => {
