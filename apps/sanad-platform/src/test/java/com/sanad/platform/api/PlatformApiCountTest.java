@@ -121,8 +121,11 @@ class PlatformApiCountTest {
      *  (run create/list/get, calculate/recalculate, item list/get, review,
      *  approve, accounting export) = 1016.
      *  + 2 project-wide module IAM navigation/user projection operations
-     *  (GET /api/v1/users/module-context, GET /api/v1/users/module-access-users) = 1018. */
-    private static final long EXPECTED_TOTAL_OPS = 1018;
+     *  (GET /api/v1/users/module-context, GET /api/v1/users/module-access-users) = 1018.
+     *  + 1 governed employer-foundation bootstrap command
+     *  (POST /api/v1/organizations/{organizationId}/legal-entity/bootstrap,
+     *  ORGANIZATION.WRITE-gated, authenticated tenant scoped, zero-only and idempotent) = 1019. */
+    private static final long EXPECTED_TOTAL_OPS = 1019;
     private static final long EXPECTED_HRM_V2_OPS = 155;
     private static final long EXPECTED_OWNERSHIP_PATHS = 28;
     private static final long EXPECTED_OWNERSHIP_OPS = 38;
@@ -186,6 +189,7 @@ class PlatformApiCountTest {
         assertThat(has(paths, "/api/v1/workflows/catalog/modules", "get")).isTrue();
         assertThat(has(paths, "/api/v1/workflows/definitions/y2", "post")).isTrue();
         assertThat(has(paths, "/api/v1/billing/provider/webhook", "post")).isTrue();
+        assertThat(has(paths, "/api/v1/organizations/{organizationId}/legal-entity/bootstrap", "post")).isTrue();
         assertThat(has(paths, "/api/v1/crm/dashboard", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/customer-360", "get")).isTrue();
         assertThat(has(paths, "/api/v1/crm/accounts/{accountId}/master", "get")).isTrue();
