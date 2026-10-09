@@ -6,6 +6,8 @@ import { Modal } from "@/components/sds/Modal";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
 import { tenantAccessApi } from "@/lib/api/tenant-access";
+import { createOverride, listOverrides } from "@/lib/api/access-api";
+import { capabilityDisplayName } from "@/lib/i18n/iam-display-l10n";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
 import styles from "./GlobalUserProvisioningLauncher.module.css";
 
@@ -75,6 +77,7 @@ export function GlobalUserProvisioningLauncher({
   const canCreate = capabilities.includes("USER.CREATE");
   const canRead = capabilities.includes("USER.READ");
   const canGrantRole = capabilities.includes("USER.GRANT_ROLE");
+  const canManageOverrides = capabilities.includes("AUTHORIZATION.OVERRIDE.MANAGE");
   const moduleContext = moduleContextFromLocation(pathname, search);
   const managementUsersRoute =
     pathname === "/management/users" || pathname.startsWith("/management/users/");
@@ -91,6 +94,7 @@ export function GlobalUserProvisioningLauncher({
   const [initialCredential, setInitialCredential] = useState(createInitialCredential);
   const [provisioningContext, setProvisioningContext] = useState<ModuleProvisioningContext | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
+  const [selectedCapabilityCodes, setSelectedCapabilityCodes] = useState<string[]>([]);
   const [contextLoading, setContextLoading] = useState(false);
 
   // The management/users workspace already owns its native create surface.
@@ -100,7 +104,7 @@ export function GlobalUserProvisioningLauncher({
     state !== "AUTHENTICATED" ||
     !tenantId ||
     !canCreate ||
-    !canGrantRole ||
+    (!canManageOverrides && !canGrantRole) ||
     (managementUsersRoute && !scopedManagementUsers)
   ) {
     return null;
@@ -115,6 +119,7 @@ export function GlobalUserProvisioningLauncher({
     setInitialCredential(createInitialCredential());
     setProvisioningContext(null);
     setSelectedRoleIds([]);
+    setSelectedCapabilityCodes([]);
     setContextLoading(false);
     setError(null);
   };
@@ -131,6 +136,7 @@ export function GlobalUserProvisioningLauncher({
     setContextLoading(true);
     setProvisioningContext(null);
     setSelectedRoleIds([]);
+    setSelectedCapabilityCodes([]);
     setError(null);
     try {
       const context = await usersApi.moduleProvisioningContext(tenantId, moduleContext);
@@ -150,6 +156,41 @@ export function GlobalUserProvisioningLauncher({
     );
   };
 
+  const toggleCapability = (capabilityCode: string) => {
+    setSelectedCapabilityCodes((current) =>
+      current.includes(capabilityCode)
+        ? current.filter((candidate) => candidate !== capabilityCode)
+        : [...current, capabilityCode],
+    );
+  };
+
+  const grantSelectedModuleCapabilities = async (userId: string) => {
+    const existing = await listOverrides(userId);
+    const now = Date.now();
+    const activeAllowed = new Set(
+      existing
+        .filter((override) =>
+          override.effect === "ALLOW" &&
+          (!override.validUntil || Date.parse(override.validUntil) > now),
+        )
+        .map((override) => override.capabilityCode),
+    );
+
+    for (const capabilityCode of selectedCapabilityCodes) {
+      if (activeAllowed.has(capabilityCode)) continue;
+      await createOverride({
+        targetUserId: userId,
+        capabilityCode,
+        effect: "ALLOW",
+        scopeType: "TENANT_ALL",
+        scopeReference: null,
+        reason: `Module provisioning: ${moduleContext}`,
+        validFrom: null,
+        validUntil: null,
+      });
+    }
+  };
+
   const grantSelectedModuleRoles = async (userId: string) => {
     if (!tenantId) return;
     for (const roleId of selectedRoleIds) {
@@ -157,11 +198,27 @@ export function GlobalUserProvisioningLauncher({
     }
   };
 
+  const grantSelectedModuleAccess = async (userId: string) => {
+    if (canManageOverrides) {
+      await grantSelectedModuleCapabilities(userId);
+      return;
+    }
+    await grantSelectedModuleRoles(userId);
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!tenantId || busy) return;
-    if (!provisioningContext || selectedRoleIds.length === 0) {
-      setError("اختر دورًا واحدًا على الأقل من صلاحيات الموديول.");
+    if (!provisioningContext) {
+      if (!error) setError("تعذر تحميل صلاحيات الموديول. أعد المحاولة.");
+      return;
+    }
+    if (canManageOverrides && selectedCapabilityCodes.length === 0) {
+      setError("اختر صلاحية واحدة على الأقل من صلاحيات الموديول.");
+      return;
+    }
+    if (!canManageOverrides && selectedRoleIds.length === 0) {
+      setError("اختر دورًا واحدًا على الأقل من أدوار الموديول.");
       return;
     }
 
@@ -177,7 +234,7 @@ export function GlobalUserProvisioningLauncher({
           (candidate) => candidate.email.trim().toLowerCase() === normalizedEmail,
         );
         if (existing) {
-          await grantSelectedModuleRoles(existing.id);
+          await grantSelectedModuleAccess(existing.id);
           setOpen(false);
           reset();
           window.history.pushState({}, "", 
@@ -195,7 +252,7 @@ export function GlobalUserProvisioningLauncher({
         mobileRegion,
         initialCredential,
       });
-      await grantSelectedModuleRoles(created.id);
+      await grantSelectedModuleAccess(created.id);
       setOpen(false);
       reset();
       window.history.pushState({}, "", 
@@ -253,7 +310,7 @@ export function GlobalUserProvisioningLauncher({
             <Button variant="secondary" disabled={busy} onClick={close}>
               {messages.cancel}
             </Button>
-            <Button type="submit" form="global-user-provisioning-form" loading={busy}>
+            <Button type="submit" form="global-user-provisioning-form" loading={busy} disabled={busy || contextLoading || !provisioningContext}>
               {messages.submitCreate}
             </Button>
           </div>
@@ -285,10 +342,30 @@ export function GlobalUserProvisioningLauncher({
             ) : provisioningContext ? (
               <>
                 <p className={styles.help}>
-                  {provisioningContext.localizedName || provisioningContext.name} — يتم إسناد أدوار هذا الموديول فقط، وتبقى الصلاحيات الأساسية في نظام المستخدمين المركزي دون تغيير.
+                  {provisioningContext.localizedName || provisioningContext.name} — تظهر هنا صلاحيات هذا الموديول فقط، ولا تُعرض صلاحيات الموديولات الأخرى.
                 </p>
-                {provisioningContext.roles.length === 0 ? (
-                  <div className={styles.alert} role="alert">لا توجد أدوار module-only معتمدة لهذا الموديول.</div>
+                {canManageOverrides ? (
+                  provisioningContext.declaredCapabilities.length === 0 ? (
+                    <div className={styles.alert} role="alert">لا توجد صلاحيات نشطة مسجلة لهذا الموديول.</div>
+                  ) : (
+                    <div className={styles.roleList}>
+                      {provisioningContext.declaredCapabilities.map((capabilityCode) => (
+                        <label key={capabilityCode} className={styles.roleOption}>
+                          <input
+                            type="checkbox"
+                            checked={selectedCapabilityCodes.includes(capabilityCode)}
+                            onChange={() => toggleCapability(capabilityCode)}
+                          />
+                          <span>
+                            <strong>{capabilityDisplayName(capabilityCode, null, "ar")}</strong>
+                            <small>{capabilityCode}</small>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )
+                ) : provisioningContext.roles.length === 0 ? (
+                  <div className={styles.alert} role="alert">لا توجد أدوار مخصصة حصريًا لهذا الموديول.</div>
                 ) : (
                   <div className={styles.roleList}>
                     {provisioningContext.roles.map((role) => (
