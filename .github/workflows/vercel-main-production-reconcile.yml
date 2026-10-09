@@ -25,6 +25,12 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       PRODUCTION_WEB_BASE_URL: ${{ vars.WEB_PRODUCTION_BASE_URL || 'https://snad-app.vercel.app' }}
+      # The reconcile workflow performs a local `vercel build --prod` from an
+      # exact main checkout. Vercel's local build does not inject Git metadata,
+      # so declare the already-verified branch/SHA explicitly for the production
+      # release guard and release identity.
+      VERCEL_GIT_COMMIT_REF: main
+      VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
 
     steps:
       - name: Checkout exact main SHA
