@@ -1,0 +1,376 @@
+name: HRM G4 T10 Authenticated Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/app/hr/g4-t10-authenticated-acceptance.contract.test.ts'
+      - 'apps/web/e2e/g4-payroll-authenticated.spec.ts'
+      - 'apps/web/playwright-g4-payroll.config.ts'
+      - '.github/workflows/hrm-g4-t10-authenticated-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g4-t10-authenticated-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-red:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - name: G4-T10 acceptance source contract
+        run: npx vitest run app/hr/g4-t10-authenticated-acceptance.contract.test.ts
+  g4-t10-authenticated-acceptance:
+    name: G4-T10 Payroll Authenticated Acceptance (PostgreSQL Direct + Spring Boot + Next.js + Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_g3
+      DATABASE_USERNAME: sanad_g3
+      DATABASE_NAME: sanad_g3
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_FLYWAY_OUT_OF_ORDER: 'true'
+      FLYWAY_ENABLED: 'true'
+      FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      JPA_DDL_AUTO: validate
+      SERVER_PORT: '8080'
+      JWT_ISSUER: sanad-platform-ci
+      JWT_ACCESS_TOKEN_TTL: 60m
+      REFRESH_TOKEN_TTL: 720h
+      COOKIE_SECURE: 'false'
+      COOKIE_SAME_SITE: lax
+      BOOTSTRAP_ENABLED: 'false'
+      SANAD_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001
+      SECURITY_NOTIFICATION_PROVIDER: disabled
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3001
+      BACKEND_API_BASE_URL: http://127.0.0.1:8080
+      E2E_EMPLOYEE_EMAIL: g3-employee@g3-acceptance.example
+      E2E_MANAGER_EMAIL: g3-manager@g3-acceptance.example
+      E2E_UNAUTHORIZED_EMAIL: g3-unauthorized@g3-acceptance.example
+      G4_OPERATOR_EMAIL: g3-employee@g3-acceptance.example
+      G4_FOREIGN_EMAIL: g4-foreign-employee@g4-foreign-acceptance.example
+      G4_LEGAL_ENTITY_ID: 44444444-4444-4444-8444-444444444446
+    defaults:
+      run:
+        working-directory: apps/sanad-platform
+
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify checkout identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$CANDIDATE_SHA" || {
+            echo "::error::EXACT_HEAD_MISMATCH expected=$CANDIDATE_SHA actual=$ACTUAL_SHA"
+            exit 1
+          }
+          echo "candidate_sha=$CANDIDATE_SHA"
+
+      - name: Generate ephemeral per-run credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_CRED="$(openssl rand -hex 24)"
+          E2E_CRED="$(openssl rand -hex 24)"
+          echo "::add-mask::$DB_CRED"
+          echo "::add-mask::$E2E_CRED"
+          echo "DATABASE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "SPRING_DATASOURCE_PASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "PGPASSWORD=$DB_CRED" >> "$GITHUB_ENV"
+          echo "G3_E2E_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "E2E_EMPLOYEE_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "E2E_MANAGER_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "E2E_UNAUTHORIZED_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "G4_OPERATOR_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+          echo "G4_FOREIGN_PASSWORD=$E2E_CRED" >> "$GITHUB_ENV"
+
+      - name: Start host-native PostgreSQL
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null 2>&1
+          sudo systemctl start postgresql
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432
+
+      - name: Provision least-privilege application role and isolated database
+        shell: bash
+        env:
+          DB_CRED: ${{ env.DATABASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql \
+            -v ON_ERROR_STOP=1 \
+            -v db_credential="$DB_CRED" <<'SQL'
+          SELECT format(
+            'CREATE ROLE sanad_g3 WITH LOGIN PASSWORD %L',
+            :'db_credential'
+          )
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g3'
+          )
+          \gexec
+
+          SELECT format(
+            'ALTER ROLE sanad_g3 WITH LOGIN PASSWORD %L',
+            :'db_credential'
+          )
+          WHERE EXISTS (
+            SELECT 1 FROM pg_roles WHERE rolname = 'sanad_g3'
+          )
+          \gexec
+
+          ALTER ROLE sanad_g3
+            NOSUPERUSER
+            NOCREATEDB
+            NOCREATEROLE
+            NOBYPASSRLS;
+
+          SELECT 'CREATE DATABASE sanad_g3 OWNER sanad_g3'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pg_database WHERE datname = 'sanad_g3'
+          )
+          \gexec
+
+          ALTER DATABASE sanad_g3 OWNER TO sanad_g3;
+          GRANT CONNECT ON DATABASE postgres TO sanad_g3;
+
+          \c sanad_g3
+          GRANT USAGE, CREATE ON SCHEMA public TO sanad_g3;
+          SQL
+
+          PGPASSWORD="$DB_CRED" psql \
+            -h 127.0.0.1 \
+            -U sanad_g3 \
+            -d sanad_g3 \
+            -v ON_ERROR_STOP=1 \
+            -Atc "SELECT current_database() || '|' || current_user"
+
+          ROLE_FLAGS="$(sudo -u postgres psql -Atc "SELECT rolsuper || '|' || rolcreatedb || '|' || rolcreaterole || '|' || rolbypassrls FROM pg_roles WHERE rolname = 'sanad_g3'")"
+          test "$ROLE_FLAGS" = "false|false|false|false" || {
+            echo "::error::G3 database role is not least-privilege: $ROLE_FLAGS"
+            exit 1
+          }
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build backend JAR
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -DskipTests clean package
+
+      - name: Apply Flyway migrations
+        run: |
+          set -euo pipefail
+          mvn -B -ntp flyway:migrate \
+            -Dflyway.url="${DATABASE_URL}" \
+            -Dflyway.user="${DATABASE_USERNAME}" \
+            -Dflyway.password="${DATABASE_PASSWORD}" \
+            -Dflyway.locations=classpath:db/migration,classpath:db/vendor/postgresql \
+            -Dflyway.baselineOnMigrate=true \
+            -Dflyway.outOfOrder=true \
+            -Dflyway.validateOnMigrate=false
+
+      - name: Execute G3 acceptance seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v g3_e2e_password="$G3_E2E_PASSWORD" \
+            -v ON_ERROR_STOP=1 \
+            -f src/test/resources/sql/g3-acceptance-seed.sql \
+            2>&1 | tee "$RUNNER_TEMP/g3-seed.log"
+
+      - name: Provision isolated foreign tenant from governed acceptance seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("src/test/resources/sql/g3-acceptance-seed.sql").read_text()
+          foreign = (source.replace("44444444-", "55555555-")
+                           .replace("g3-", "g4-foreign-")
+                           .replace("G3-", "G4-FOREIGN-")
+                           .replace("G3_", "G4_FOREIGN_"))
+          Path("target/g4-foreign-seed.sql").write_text(foreign)
+          PY
+          PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -v g3_e2e_password="$G3_E2E_PASSWORD" -v ON_ERROR_STOP=1 \
+            -f target/g4-foreign-seed.sql
+
+      - name: Provision authenticated payroll capabilities in both isolated tenants
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tenant in 44444444-4444-4444-8444-444444444441 55555555-5555-5555-8555-555555555541; do
+            role=G3_EMPLOYEE
+            if [[ "$tenant" == 5555* ]]; then role=G4_FOREIGN_EMPLOYEE; fi
+            PGPASSWORD="$DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+              -v ON_ERROR_STOP=1 -v tenant="$tenant" -v role="$role" <<'SQL'
+          -- Isolated G4 acceptance catalog: canonical capability codes, no broad
+          -- role bypass. Production catalog ownership is checked separately.
+          INSERT INTO access_capabilities
+            (id, code, name, description, status, created_at, updated_at)
+          SELECT gen_random_uuid(), cap.code, cap.name, cap.description,
+            'ACTIVE', NOW(), NOW()
+          FROM (VALUES
+            ('HRM.PAYROLL.VIEW','View Payroll','View tenant payroll runs and items'),
+            ('HRM.PAYROLL.CALCULATE','Calculate Payroll','Create and calculate payroll runs'),
+            ('HRM.PAYROLL.REVIEW','Review Payroll','Review calculated payroll runs'),
+            ('HRM.PAYROLL.APPROVE','Approve Payroll','Approve reviewed payroll runs'),
+            ('HRM.PAYROLL.EXPORT','Export Payroll','Request export through accounting boundary')
+          ) AS cap(code,name,description)
+          WHERE NOT EXISTS (SELECT 1 FROM access_capabilities existing
+            WHERE existing.code = cap.code);
+          DO $do$
+          BEGIN
+            IF (SELECT COUNT(*) FROM access_capabilities WHERE code IN (
+              'HRM.PAYROLL.VIEW','HRM.PAYROLL.CALCULATE','HRM.PAYROLL.REVIEW',
+              'HRM.PAYROLL.APPROVE','HRM.PAYROLL.EXPORT')) <> 5 THEN
+              RAISE EXCEPTION 'G4 acceptance payroll capability catalog incomplete';
+            END IF;
+          END $do$;
+          -- RLS is FORCE-enabled. Each tenant's grants must be written inside
+          -- a transaction with a transaction-local tenant context.
+          BEGIN;
+          SELECT set_config('app.tenant_id', :'tenant', true);
+          INSERT INTO role_capabilities(id,tenant_id,role_id,capability_id,created_at)
+          SELECT gen_random_uuid(),r.tenant_id,r.id,c.id,NOW()
+          FROM roles r CROSS JOIN access_capabilities c
+          WHERE r.tenant_id = :'tenant'::uuid AND r.code = :'role'
+            AND c.code IN ('HRM.PAYROLL.VIEW','HRM.PAYROLL.CALCULATE',
+              'HRM.PAYROLL.REVIEW','HRM.PAYROLL.APPROVE','HRM.PAYROLL.EXPORT')
+            AND NOT EXISTS(SELECT 1 FROM role_capabilities rc
+              WHERE rc.tenant_id=r.tenant_id AND rc.role_id=r.id AND rc.capability_id=c.id);
+          INSERT INTO access_scope_grants
+             (id,tenant_id,role_id,capability_id,scope_type,is_direct_exception,reason,status,created_at)
+          SELECT gen_random_uuid(),r.tenant_id,r.id,c.id,'TENANT',FALSE,
+             'G4-T10 isolated authenticated acceptance','ACTIVE',NOW()
+          FROM roles r CROSS JOIN access_capabilities c
+          WHERE r.tenant_id = :'tenant'::uuid AND r.code = :'role'
+            AND c.code IN ('HRM.PAYROLL.VIEW','HRM.PAYROLL.CALCULATE',
+              'HRM.PAYROLL.REVIEW','HRM.PAYROLL.APPROVE','HRM.PAYROLL.EXPORT')
+            AND NOT EXISTS(SELECT 1 FROM access_scope_grants g
+              WHERE g.tenant_id=r.tenant_id AND g.role_id=r.id AND g.capability_id=c.id
+                AND g.scope_type='TENANT' AND g.status='ACTIVE');
+          COMMIT;
+          SQL
+          done
+
+      - name: Start Spring Boot backend
+        run: |
+          set -euo pipefail
+          nohup java -jar target/*.jar \
+            --spring.datasource.url="${DATABASE_URL}" \
+            --spring.datasource.username="${DATABASE_USERNAME}" \
+            --spring.datasource.password="${DATABASE_PASSWORD}" \
+            --spring.profiles.active=local \
+            --server.port=8080 \
+            --sanad.rls.enabled=true \
+            --flyway.enabled=false \
+            > backend.log 2>&1 &
+          echo "Backend PID: $!"
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8080/actuator/health >/dev/null 2>&1; then
+              echo "Backend is UP"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:8080/actuator/health || { echo "::error::Backend failed to start"; tail -100 backend.log; exit 1; }
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Next.js frontend
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Start Next.js frontend
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          PORT=3001 nohup npm start > frontend.log 2>&1 &
+          echo "Frontend PID: $!"
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3001 >/dev/null 2>&1; then
+              echo "Frontend is UP"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Verify G4-T10 dedicated test discovery
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npx playwright test --config=playwright-g4-payroll.config.ts --list | grep 'authenticated payroll operator'
+
+      - name: Run real G4-T10 payroll authenticated acceptance
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npx playwright test --config=playwright-g4-payroll.config.ts
+
+      - name: Upload artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g4-t10-authenticated-acceptance
+          path: |
+            apps/web/playwright-g4-payroll-report/
+            apps/web/test-results/
+            apps/sanad-platform/backend.log
+            apps/web/frontend.log
+            ${{ runner.temp }}/g3-seed.log
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: |
+          set +e
+          pkill -f "java -jar.*sanad" 2>/dev/null || true
+          pkill -f "next start" 2>/dev/null || true
