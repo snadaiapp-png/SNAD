@@ -323,30 +323,17 @@ jobs:
             sleep 2
           done
 
-      - name: Verify Playwright routing
+      - name: Verify G4-T10 dedicated test discovery
         working-directory: apps/web
         run: |
           set -euo pipefail
-          echo "=== Generic config should show 0 G3 specs ==="
-          GENERIC_COUNT=$(npx playwright test --config=playwright.standard.config.ts --list 2>/dev/null | grep -c "g3-authenticated" || true)
-          echo "GENERIC_G3_SPEC_COUNT=$GENERIC_COUNT"
-          if [ "$GENERIC_COUNT" != "0" ]; then
-            echo "::error::G3 spec found in generic config — must be excluded"
-            exit 1
-          fi
-          echo "=== Dedicated config should show exactly 4 G3 journeys ==="
-          DEDICATED_COUNT=$(npx playwright test --config=playwright-g3.config.ts --list 2>/dev/null | grep -c "g3-authenticated" || true)
-          echo "DEDICATED_G3_SPEC_COUNT=$DEDICATED_COUNT"
-          if [ "$DEDICATED_COUNT" != "4" ]; then
-            echo "::error::Dedicated G3 config must expose exactly 4 journeys; found $DEDICATED_COUNT"
-            exit 1
-          fi
+          npx playwright test --config=playwright-g4-payroll.config.ts --list | grep 'authenticated payroll operator'
 
-      - name: Run G3 authenticated acceptance
+      - name: Run real G4-T10 payroll authenticated acceptance
         working-directory: apps/web
         run: |
           set -euo pipefail
-          npx playwright test --config=playwright-g3.config.ts
+          npx playwright test --config=playwright-g4-payroll.config.ts
 
       - name: Upload artifacts (always)
         if: always()
