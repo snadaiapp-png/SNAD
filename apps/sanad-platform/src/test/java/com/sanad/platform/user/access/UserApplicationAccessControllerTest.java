@@ -3,10 +3,12 @@ package com.sanad.platform.user.access;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import com.sanad.platform.security.authorization.RequireCapability;
 
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
@@ -34,5 +36,26 @@ class UserApplicationAccessControllerTest {
         assertThatThrownBy(() -> controller.provisioningContext(auth, requestedTenant, "hr"))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Cross-tenant");
+    }
+
+    @Test
+    void moduleContextReadAndProvisioningUsePurposeSpecificCanonicalCapabilities() throws Exception {
+        RequireCapability readContext = UserApplicationAccessController.class
+                .getMethod("moduleContext", org.springframework.security.core.Authentication.class, String.class)
+                .getAnnotation(RequireCapability.class);
+        RequireCapability provisionContext = UserApplicationAccessController.class
+                .getMethod("provisioningContext", org.springframework.security.core.Authentication.class, UUID.class, String.class)
+                .getAnnotation(RequireCapability.class);
+        RequireCapability tenantGrant = UserApplicationAccessController.class
+                .getMethod("grantModuleCapabilities", org.springframework.security.core.Authentication.class, UUID.class, ModuleCapabilityGrantRequest.class)
+                .getAnnotation(RequireCapability.class);
+        RequireCapability overrideGrant = UserApplicationAccessController.class
+                .getMethod("grantModuleCapabilityOverrides", org.springframework.security.core.Authentication.class, UUID.class, ModuleCapabilityGrantRequest.class)
+                .getAnnotation(RequireCapability.class);
+
+        assertThat(readContext.value()).isEqualTo("CAPABILITY.READ");
+        assertThat(provisionContext.value()).isEqualTo("USER.CREATE");
+        assertThat(tenantGrant.value()).isEqualTo("USER.GRANT_ROLE");
+        assertThat(overrideGrant.value()).isEqualTo("AUTHORIZATION.OVERRIDE.MANAGE");
     }
 }

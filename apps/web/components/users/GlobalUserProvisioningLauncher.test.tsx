@@ -22,6 +22,7 @@ const { authMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
     create: vi.fn(),
     moduleProvisioningContext: vi.fn(),
     grantModuleCapabilities: vi.fn(),
+    grantModuleCapabilityOverrides: vi.fn(),
   },
   tenantAccessApiMock: {
     grantUserRole: vi.fn(),
@@ -107,6 +108,7 @@ beforeEach(() => {
   usersApiMock.create.mockReset();
   usersApiMock.moduleProvisioningContext.mockReset();
   usersApiMock.grantModuleCapabilities.mockReset();
+  usersApiMock.grantModuleCapabilityOverrides.mockReset();
   tenantAccessApiMock.grantUserRole.mockReset();
   usersApiMock.list.mockResolvedValue([]);
   usersApiMock.create.mockResolvedValue(userRecord(CREATED_ID, "new@example.com"));
@@ -126,6 +128,7 @@ beforeEach(() => {
   });
   tenantAccessApiMock.grantUserRole.mockResolvedValue({});
   usersApiMock.grantModuleCapabilities.mockResolvedValue(undefined);
+  usersApiMock.grantModuleCapabilityOverrides.mockResolvedValue(undefined);
 });
 
 afterEach(() => cleanup());
@@ -235,6 +238,27 @@ describe("GlobalUserProvisioningLauncher", () => {
     expect(tenantAccessApiMock.grantUserRole).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe(`/management/users/${EXISTING_ID}`);
     expect(window.location.search).toBe("?returnTo=%2Fhr%2Femployees");
+  });
+
+  it("uses one governed backend batch for platform override operators", async () => {
+    const user = userEvent.setup();
+    authMock.capabilities = ["USER.READ", "USER.CREATE", "AUTHORIZATION.OVERRIDE.MANAGE"];
+
+    render(<GlobalUserProvisioningLauncher />);
+    await user.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+    await user.type(screen.getByLabelText("البريد الإلكتروني"), "override@example.com");
+    await user.type(screen.getByLabelText("اسم المستخدم"), "override.user");
+    await user.click(await screen.findByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
+
+    await waitFor(() => expect(usersApiMock.create).toHaveBeenCalled());
+    expect(usersApiMock.grantModuleCapabilityOverrides).toHaveBeenCalledWith(
+      TENANT_ID,
+      CREATED_ID,
+      "hr",
+      ["HRM.EMPLOYEE.VIEW"],
+    );
+    expect(usersApiMock.grantModuleCapabilities).not.toHaveBeenCalled();
   });
 
   it("creates through Users Core only and opens the canonical user record", async () => {
