@@ -7,7 +7,7 @@ import urllib.request
 
 REPO = "snadaiapp-png/SNAD"
 PREDECESSORS = {
-    "G4-T8 Payroll API": ("db4a220950e0d7c682263534c4f1e224c13622b8", ["focused-vitest", "Build Next.js Web"]),
+    "G4-T8 Payroll API": ("db4a220950e0d7c682263534c4f1e224c13622b8", ["JOB F — Final evidence aggregation", "JOB C — PostgreSQL Direct integration", "JOB D — HRM focused security/RLS"]),
     "G4-T9 Payroll Review UI": ("e6511a7bc1496086fa0f1fbc2c47383f516f7c2f", ["focused-vitest", "Build Next.js Web", "Full-stack HRM human preview"]),
     "G4-T10 Authenticated Acceptance": ("c43bd6e11c590ff49b7547de174e9024a1531b78", ["Build Next.js Web", "Full-stack HRM human preview"]),
 }
