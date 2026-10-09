@@ -349,3 +349,21 @@ Only the canonical production path is authorized:
 Final closure additionally requires read-only verification that production `flyway_schema_history` has zero failed rows, contains the authorized forward sequence, excludes the retired retroactive versions, and that normal Flyway operation remains `outOfOrder=false`.
 
 No manual Render deployment, direct production DDL, Flyway history mutation, `flyway repair`, out-of-order migration execution, force push, branch-protection bypass, credential mutation, or entitlement fabrication is authorized.
+
+
+## Users & Permissions production backend parity incident — 2026-10-09
+
+- Current certified main: `33f1b0528e2617a1e5effde5b6d76e21a6246d8f`
+- Vercel production reconcile run `37923495212`: PASS
+- Live Vercel deployment: `dpl_EU5jKrMG3mYK2rzgGWTrazwgASPF`
+- Live Render backend image observed during the incident:
+  `ghcr.io/snadaiapp-png/snad-backend:d3ecd3d40cc2804b5d11868eb0d9f96b7d3997eb`
+- Published exact-main backend image:
+  `ghcr.io/snadaiapp-png/snad-backend:33f1b0528e2617a1e5effde5b6d76e21a6246d8f`
+- Image publication run `37923494964`: PASS
+- Runtime evidence shows repeated HTTP 400 MethodArgumentTypeMismatchException for
+  `/api/v1/users/module-context`, `/api/v1/users/module-access-users`, and
+  `/api/v1/users/module-provisioning-context`.
+- This release-control update changes no runtime code, database migration, or RBAC semantics.
+- Deployment, if approved and merged under repository rules, must use the existing canonical
+  production release workflow with rollback enabled.
