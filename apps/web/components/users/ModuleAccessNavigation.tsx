@@ -35,7 +35,7 @@ export function ModuleAccessNavigation({
   sidebarDividerClassName,
   sidebarSectionLabelClassName,
 }: ModuleAccessNavigationProps) {
-  const { state } = useAuth();
+  const { state, me } = useAuth();
   const root = useMemo(() => routeRoot(routePath), [routePath]);
   const [resolved, setResolved] = useState<{ root: string; context: ModuleProvisioningContext | null } | null>(null);
 
@@ -76,11 +76,28 @@ export function ModuleAccessNavigation({
   }, [presentation, root, state]);
 
   const context = resolved?.root === root ? resolved.context : null;
-  // Never render previously resolved IAM navigation after the session leaves
-  // AUTHENTICATED; a later authenticated transition will re-resolve context.
-  if (state !== "AUTHENTICATED" || !context) return null;
+  const capabilities = me?.capabilities ?? [];
+  const canReadUsers = capabilities.includes("USER.READ");
+  const canManageAccess =
+    capabilities.includes("USER.GRANT_ROLE") ||
+    capabilities.includes("AUTHORIZATION.OVERRIDE.MANAGE");
+  const canCreateUsers = capabilities.includes("USER.CREATE") && canManageAccess;
 
-  const moduleName = context.localizedName || context.name || context.applicationCode;
+  // Shared-shell navigation is a stable administrative surface. Registry discovery
+  // enriches the module label/application code, but a transient 401/5xx or a stale
+  // registry row must never make Users & Permissions disappear from CRM/HR/etc.
+  // Backend authorization remains authoritative on every destination/action.
+  if (
+    state !== "AUTHENTICATED" ||
+    !root ||
+    (!canReadUsers && !canManageAccess && !canCreateUsers)
+  ) return null;
+
+  // The floating legacy fallback still requires a governed module registration.
+  if (presentation === "floating" && !context) return null;
+
+  const moduleName =
+    context?.localizedName || context?.name || context?.applicationCode || root.toUpperCase();
   const usersHref = moduleHref("users", root, routePath);
   const accessHref = moduleHref("access", root, routePath);
 
@@ -97,23 +114,33 @@ export function ModuleAccessNavigation({
   }
 
   return (
-    <div data-testid="module-access-navigation" data-application-code={context.applicationCode}>
+    <div
+      data-testid="module-access-navigation"
+      data-application-code={context?.applicationCode ?? root.toUpperCase()}
+      data-registry-status={context ? "resolved" : "degraded"}
+    >
       {sidebarDividerClassName ? <div className={sidebarDividerClassName} /> : null}
       <span className={sidebarSectionLabelClassName}>المستخدمون والصلاحيات</span>
-      <GlobalUserProvisioningLauncher
-        presentation="menu"
-        menuItemClassName={sidebarItemClassName}
-        menuIconClassName={sidebarIconClassName}
-        menuLabelClassName={sidebarLabelClassName}
-      />
-      <Link href={usersHref} className={sidebarItemClassName}>
-        <span className={sidebarIconClassName}><UsersGlyph /></span>
-        <span className={sidebarLabelClassName}>المستخدمون</span>
-      </Link>
-      <Link href={accessHref} className={sidebarItemClassName}>
-        <span className={sidebarIconClassName}><ShieldGlyph /></span>
-        <span className={sidebarLabelClassName}>الصلاحيات</span>
-      </Link>
+      {canCreateUsers ? (
+        <GlobalUserProvisioningLauncher
+          presentation="menu"
+          menuItemClassName={sidebarItemClassName}
+          menuIconClassName={sidebarIconClassName}
+          menuLabelClassName={sidebarLabelClassName}
+        />
+      ) : null}
+      {canReadUsers ? (
+        <Link href={usersHref} className={sidebarItemClassName}>
+          <span className={sidebarIconClassName}><UsersGlyph /></span>
+          <span className={sidebarLabelClassName}>المستخدمون</span>
+        </Link>
+      ) : null}
+      {canManageAccess ? (
+        <Link href={accessHref} className={sidebarItemClassName}>
+          <span className={sidebarIconClassName}><ShieldGlyph /></span>
+          <span className={sidebarLabelClassName}>الصلاحيات</span>
+        </Link>
+      ) : null}
     </div>
   );
 }
