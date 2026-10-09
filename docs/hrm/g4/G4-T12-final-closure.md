@@ -21,29 +21,27 @@ Source: [exact commit checks](https://github.com/snadaiapp-png/SNAD/commit/33f1b
 - Production readiness probes: `/hr/performance/goals` and `/hr/performance/reviews` each HTTP 200.
 - Production evidence covers the verified release SHA and these observed gates; it does not imply all HRM payroll operational journeys or country statutory compliance are certified.
 
-## G4-T12 mandatory exit gates
+## Current exact-main certification evidence (2026-10-09)
 
-Authoritative plan: `docs/superpowers/plans/2026-10-06-hrm-g4-payroll-integration-implementation.md`.
+Release SHA: `b3579096a28e5d1dc01ced5e314846f1e9e0e29f` (PR [#1336](https://github.com/snadaiapp-png/SNAD/pull/1336), protected merge). [Post-merge workflow](https://github.com/snadaiapp-png/SNAD/actions/runs/37976964734) on this exact SHA:
 
-| Gate | Evidence | State |
-|---|---|---|
-| T11 protected merge | PR #1323, merge SHA `39c7c460...` | VERIFIED |
-| Production reconcile when authorized | PR #1329, release SHA `33f1b052...`, live identity proof | VERIFIED |
-| Post-Merge Main Verification JOB A — frontend | Independent exact-SHA A–F run, artifact | **UNVERIFIED** |
-| JOB B — backend compile | Independent exact-SHA A–F run, artifact | **UNVERIFIED** |
-| JOB C — PostgreSQL Direct full integration | Host-native PostgreSQL / Maven proof, exact-SHA run | **UNVERIFIED** |
-| JOB D — HRM focused security/RLS | Tenant isolation, capability-denial tests, exact-SHA run | **UNVERIFIED** |
-| JOB E — security/governance scans | Independent exact-SHA report | **UNVERIFIED** |
-| JOB F — final evidence aggregation | Collect-all validator, immutable evidence manifest | **UNVERIFIED** |
+- JOB A — Frontend verification: **SUCCESS**
+- JOB B — Backend compile: **SUCCESS**
+- JOB C — PostgreSQL Direct integration: **SUCCESS**
+- JOB D — HRM focused security/RLS: **SUCCESS**
+- JOB E — Security & governance scans: **SUCCESS**
+- JOB F — Final evidence aggregation: **SUCCESS**; log states `RESULT: PASS — all evidence invariants satisfied` and `PMV_FINAL_GATE=PASS`.
+- [Vercel production reconcile](https://github.com/snadaiapp-png/SNAD/actions/runs/37976964783/job/113977590913): **SUCCESS**, deployment `dpl_BhqkWnWALP8fxsY8AmmumEjTf1EQ`, target `production`, `READY`, production alias SHA exactly `b3579096a28e5d1dc01ced5e314846f1e9e0e29f`.
+- Dashboard roadmap reconciliation: PR #1336 merged; legacy G4 tasks are DONE and group is **IN_PROGRESS pending final closure**. User-visible screenshot shows HR program progress 88% (22/25).
 
-**Evidence limitation:** GitHub's available commit-associated workflow-run lookup returned no independent `Post-Merge Main Verification` A–F workflow run for the inspected T11 merge SHA `39c7c460...` or current release SHA `33f1b052...`. General green checks, pre-merge tests and the production deploy **must not** be substituted for these six explicit gates. Do not assert that these gates failed: the current condition is evidence missing/unverified.
+## Closure blockers that must not be concealed
 
-## Closure authority and next action
+- The **G4-T12 certificate PR #1331 is still OPEN**, not merged; its exact-head Vercel Git status is **FAILURE** due to a misrouted Production deployment from the certification branch. Its green GitHub checks and approvals do not override the failed deployment status. Preserve `SNAD_RELEASE_GUARD`; Preview-only Vercel CLI is a separately governed path and its run has not been shown successful.
+- The HR workspace has a payroll page at `/hr/payroll`, but its navigation link is conditional on the user's `HRM.PAYROLL.VIEW` capability. The user's current session has not been independently shown to include that capability. Verify role assignments and effective capability propagation with real authorized and unauthorized users before declaring operational closure; do not grant payroll visibility universally or bypass backend RBAC.
+- Confirm authenticated payroll page, create/calculate/review/approve/export capability boundaries, tenant isolation and backend wiring against the deployed production release (or explicitly scope the closure to engineering only, not operational certification).
+- This certificate is **evidence assembled, not final approval**. Amend it only after proof for outstanding requirements, fresh exact-head checks, independent review and protected merge.
 
-1. Locate and independently attest a completed exact-SHA `Post-Merge Main Verification` JOB A–F run on a qualifying merge/release SHA, or execute the authorized canonical run without inventing test outcomes. Maintain PostgreSQL Direct only (no Docker/Testcontainers).
-2. Gather artifact manifest and JOB F validator result, including PostgreSQL Direct, HRM security/RLS and tenant-isolation proofs. Require zero failed mandatory gates.
-3. Review evidence on the certificate's final exact PR head; obtain independent approval and protected squash merge.
-4. Only after an authoritative exact-SHA evidence set may the closure record be amended to `HRM_G4_ENGINEERING = CLOSED`.
+**Closure state remains `HRM_G4_ENGINEERING = PENDING_FINAL_APPROVAL`**. Do not mark G4 DONE in the product dashboard until a genuine engineering closure certificate is merged; Saudi statutory payroll remains disabled.
 
 ## Explicitly separate statutory authority
 
