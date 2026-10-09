@@ -63,6 +63,27 @@ public class AuthorizationMutationCoordinator {
         }
     }
 
+    @Transactional
+    public void capabilityChanged(UUID capabilityId, String eventType) {
+        if (capabilityId == null) {
+            throw new IllegalArgumentException("capabilityId is required");
+        }
+        List<SubjectRef> subjects = jdbc.query(
+                "SELECT DISTINCT ura.tenant_id, ura.user_id "
+                        + "FROM user_role_assignments ura "
+                        + "JOIN role_capabilities rc "
+                        + "ON rc.tenant_id = ura.tenant_id AND rc.role_id = ura.role_id "
+                        + "WHERE rc.capability_id = ? AND ura.status = 'ACTIVE'",
+                (rs, rowNum) -> new SubjectRef(
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getObject("user_id", UUID.class)),
+                capabilityId);
+        for (SubjectRef subject : subjects) {
+            subjectChanged(subject.tenantId(), subject.userId(), eventType,
+                    "ACCESS_CAPABILITY", capabilityId);
+        }
+    }
+
     public void publishOnly(UUID tenantId, UUID userId, String eventType, long authorizationVersion) {
         // Keep the read/explanation model in the same transaction as the
         // authorization mutation. The evaluator remains authoritative, while
@@ -77,6 +98,8 @@ public class AuthorizationMutationCoordinator {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
                 String.class, tenantId.toString());
     }
+
+    private record SubjectRef(UUID tenantId, UUID userId) {}
 
     private static UUID actorUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
