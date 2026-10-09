@@ -374,6 +374,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [scopedAuthApi]);
 
+  useEffect(() => {
+    if (state !== "AUTHENTICATED") return;
+
+    let cancelled = false;
+    const syncAuthorizationContext = async () => {
+      try {
+        const next = await scopedAuthApi.me();
+        if (!cancelled) setMe(next);
+      } catch {
+        // Keep the active session usable on transient refresh failures.
+        // Backend authorization remains authoritative for every command.
+      }
+    };
+    const onFocus = () => { void syncAuthorizationContext(); };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void syncAuthorizationContext();
+    };
+    const interval = window.setInterval(() => {
+      void syncAuthorizationContext();
+    }, 30_000);
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [scopedAuthApi, state]);
+
   const changeCredential = useCallback(async (currentPassword: string, newPassword: string) => {
     const email = lastLoginEmail || user?.email || "";
     const tenantId = user?.tenantId;

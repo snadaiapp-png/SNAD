@@ -1,6 +1,7 @@
 package com.sanad.platform.security.authorization;
 
 import com.sanad.platform.access.evaluation.AuthorizationVersionService;
+import com.sanad.platform.access.evaluation.EffectivePermissionProjectionService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -20,13 +21,17 @@ import java.util.UUID;
 @Component
 public class AuthorizationMutationCoordinator {
     private final AuthorizationVersionService versions;
+    private final EffectivePermissionProjectionService projections;
     private final JdbcTemplate jdbc;
     private final ApplicationEventPublisher publisher;
 
     public AuthorizationMutationCoordinator(
-            AuthorizationVersionService versions, JdbcTemplate jdbc,
+            AuthorizationVersionService versions,
+            EffectivePermissionProjectionService projections,
+            JdbcTemplate jdbc,
             ApplicationEventPublisher publisher) {
         this.versions = versions;
+        this.projections = projections;
         this.jdbc = jdbc;
         this.publisher = publisher;
     }
@@ -58,7 +63,33 @@ public class AuthorizationMutationCoordinator {
         }
     }
 
+    @Transactional
+    public void capabilityChanged(UUID capabilityId, String eventType) {
+        if (capabilityId == null) {
+            throw new IllegalArgumentException("capabilityId is required");
+        }
+        List<SubjectRef> subjects = jdbc.query(
+                "SELECT DISTINCT ura.tenant_id, ura.user_id "
+                        + "FROM user_role_assignments ura "
+                        + "JOIN role_capabilities rc "
+                        + "ON rc.tenant_id = ura.tenant_id AND rc.role_id = ura.role_id "
+                        + "WHERE rc.capability_id = ? AND ura.status = 'ACTIVE'",
+                (rs, rowNum) -> new SubjectRef(
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getObject("user_id", UUID.class)),
+                capabilityId);
+        for (SubjectRef subject : subjects) {
+            subjectChanged(subject.tenantId(), subject.userId(), eventType,
+                    "ACCESS_CAPABILITY", capabilityId);
+        }
+    }
+
     public void publishOnly(UUID tenantId, UUID userId, String eventType, long authorizationVersion) {
+        // Keep the read/explanation model in the same transaction as the
+        // authorization mutation. The evaluator remains authoritative, while
+        // the UI projection becomes immediately consistent after grant/revoke,
+        // role-capability and override changes.
+        projections.rebuild(tenantId, userId);
         publisher.publishEvent(new AuthorizationChangedEvent(
                 tenantId, userId, eventType, authorizationVersion));
     }
@@ -67,6 +98,8 @@ public class AuthorizationMutationCoordinator {
         jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
                 String.class, tenantId.toString());
     }
+
+    private record SubjectRef(UUID tenantId, UUID userId) {}
 
     private static UUID actorUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();

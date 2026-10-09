@@ -38,11 +38,17 @@ export function moduleContextFromLocation(pathname: string, search: string): str
 }
 
 export interface GlobalUserProvisioningLauncherProps {
-  presentation?: "floating" | "header";
+  presentation?: "floating" | "header" | "menu";
+  menuItemClassName?: string;
+  menuIconClassName?: string;
+  menuLabelClassName?: string;
 }
 
 export function GlobalUserProvisioningLauncher({
   presentation = "floating",
+  menuItemClassName,
+  menuIconClassName,
+  menuLabelClassName,
 }: GlobalUserProvisioningLauncherProps = {}) {
   const { state, user, me } = useAuth();
   const pathname =
@@ -204,21 +210,36 @@ export function GlobalUserProvisioningLauncher({
 
   return (
     <div
-      className={presentation === "header" ? styles.headerLauncher : styles.launcher}
+      className={presentation === "header" ? styles.headerLauncher : presentation === "menu" ? styles.menuLauncher : styles.launcher}
       data-testid="global-user-provisioning"
       data-module-context={moduleContext}
       data-presentation={presentation}
     >
-      <Button
-        className={presentation === "header" ? styles.headerTrigger : styles.trigger}
-        onClick={openProvisioning}
-        aria-label={messages.create}
-      >
-        <span className={styles.triggerIcon} aria-hidden="true">
-          <UserPlusGlyph />
-        </span>
-        <span>{messages.create}</span>
-      </Button>
+      {presentation === "menu" ? (
+        <button
+          type="button"
+          className={menuItemClassName}
+          onClick={openProvisioning}
+          aria-label={messages.create}
+          data-testid="module-user-provisioning-menu-item"
+        >
+          <span className={menuIconClassName} aria-hidden="true">
+            <UserPlusGlyph />
+          </span>
+          <span className={menuLabelClassName}>{messages.create}</span>
+        </button>
+      ) : (
+        <Button
+          className={presentation === "header" ? styles.headerTrigger : styles.trigger}
+          onClick={openProvisioning}
+          aria-label={messages.create}
+        >
+          <span className={styles.triggerIcon} aria-hidden="true">
+            <UserPlusGlyph />
+          </span>
+          <span>{messages.create}</span>
+        </Button>
+      )}
 
       <Modal
         isOpen={open}

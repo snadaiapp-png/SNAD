@@ -56,6 +56,10 @@
   align-items: center;
 }
 
+.menuLauncher {
+  display: contents;
+}
+
 .headerTrigger {
   min-height: 36px;
   gap: var(--snad-space-2, 8px);

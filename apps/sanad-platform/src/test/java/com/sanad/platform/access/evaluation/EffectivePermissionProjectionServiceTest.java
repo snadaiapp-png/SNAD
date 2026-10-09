@@ -23,6 +23,8 @@ class EffectivePermissionProjectionServiceTest {
                 .getMethod("rebuild", UUID.class, UUID.class)).isNotNull();
         assertThat(EffectivePermissionProjectionService.class
                 .getMethod("list", UUID.class, UUID.class)).isNotNull();
+        assertThat(EffectivePermissionProjectionService.class
+                .getMethod("listCurrent", UUID.class, UUID.class)).isNotNull();
         assertThat(SubjectRelationshipRepository.class
                 .getMethod("hasRelationship", UUID.class, UUID.class,
                         String.class, String.class, UUID.class)).isNotNull();

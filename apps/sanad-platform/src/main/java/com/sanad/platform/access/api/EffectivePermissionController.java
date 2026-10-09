@@ -27,7 +27,7 @@ public class EffectivePermissionController {
     @GetMapping
     public ResponseEntity<List<EffectivePermissionProjectionService.EffectivePermissionRow>> list(
             Authentication authentication, @RequestParam UUID userId) {
-        return ResponseEntity.ok(service.list(
+        return ResponseEntity.ok(service.listCurrent(
                 AccessPrincipalContext.requireTenantId(authentication), userId));
     }
 

@@ -17,7 +17,6 @@
 import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
 import { AuthLoadingState } from "@/components/auth/auth-loading-state";
-import { GlobalUserProvisioningLauncher } from "@/components/users/GlobalUserProvisioningLauncher";
 import { ModuleAccessNavigation } from "@/components/users/ModuleAccessNavigation";
 import styles from "./snad-shell.module.css";
 
@@ -133,7 +132,6 @@ export function SnadModuleShell({
         </div>
 
         <div className={styles.headerRight}>
-          <GlobalUserProvisioningLauncher presentation="header" />
           {headerTrailing}
           {user ? (
             <span className={styles.headerUser} aria-label={userAriaLabel ?? user}>

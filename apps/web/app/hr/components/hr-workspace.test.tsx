@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,6 +34,16 @@ const { authMock } = vi.hoisted(() => ({
 // which consumes the auth session for the persistent header identity.
 vi.mock("@/lib/auth/auth-provider", () => ({
   useAuth: () => authMock,
+}));
+
+const { usersApiMock } = vi.hoisted(() => ({
+  usersApiMock: {
+    moduleContext: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/api/users", () => ({
+  usersApi: usersApiMock,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -81,6 +91,16 @@ const NO_HR_CAPS: string[] = [];
 beforeEach(() => {
   authMock.state = "AUTHENTICATED";
   authMock.me.capabilities = [];
+  usersApiMock.moduleContext.mockReset();
+  usersApiMock.moduleContext.mockResolvedValue({
+    applicationCode: "HRM",
+    name: "HRM",
+    localizedName: "الموارد البشرية",
+    capabilityNamespaces: ["HR"],
+    declaredCapabilities: [],
+    supportedScopes: ["TENANT"],
+    roles: [],
+  });
   window.history.replaceState({}, "", "/hr");
 });
 
@@ -239,7 +259,7 @@ describe("HrWorkspace navigation", () => {
     expect(screen.getByRole("link", { name: "إجازاتي" })).toBeInTheDocument();
   });
 
-  it("renders the canonical add-user action in the HR module header when USER.CREATE and USER.GRANT_ROLE are granted", () => {
+  it("renders the canonical add-user action in the HR module function menu when USER.CREATE and USER.GRANT_ROLE are granted", async () => {
     authMock.me.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
     render(
       <HrWorkspace capabilities={FULL_CAPS} activeHref="/hr/employees">
@@ -247,10 +267,12 @@ describe("HrWorkspace navigation", () => {
       </HrWorkspace>,
     );
 
-    const action = screen.getByTestId("global-user-provisioning");
-    expect(action).toHaveAttribute("data-presentation", "header");
-    expect(action).toHaveAttribute("data-module-context", "hr");
-    expect(screen.getByRole("button", { name: "إضافة مستخدم" })).toBeInTheDocument();
+    await waitFor(() => expect(usersApiMock.moduleContext).toHaveBeenCalledWith("hr"));
+    const action = await screen.findByTestId("module-user-provisioning-menu-item");
+    expect(action).toHaveAccessibleName("إضافة مستخدم");
+    const launcher = screen.getByTestId("global-user-provisioning");
+    expect(launcher).toHaveAttribute("data-presentation", "menu");
+    expect(launcher).toHaveAttribute("data-module-context", "hr");
   });
 
   it("exposes navigation as a labelled landmark and renders children in main", () => {
