@@ -2,6 +2,7 @@ package com.sanad.platform.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -177,7 +178,7 @@ public class GlobalDiagnosticExceptionHandler {
         if (status == null) status = HttpStatus.INTERNAL_SERVER_ERROR;
         if (status.is5xxServerError()) {
             // Unexpected server-side ResponseStatusException → log at ERROR with correlationId
-            String correlationId = UUID.randomUUID().toString();
+            String correlationId = correlationId(null);
             log.error("ResponseStatusException 5xx: correlationId={} type={} message={}",
                     correlationId, e.getClass().getName(), e.getMessage(), e);
             Map<String, Object> body = safeBody(status, "An unexpected error occurred", correlationId);
@@ -236,7 +237,7 @@ public class GlobalDiagnosticExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleUnhandled(Exception e) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = correlationId(null);
         log.error("Unhandled exception: correlationId={} type={} message={}",
                 correlationId, e.getClass().getName(), e.getMessage(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(safeBody(
@@ -251,14 +252,21 @@ public class GlobalDiagnosticExceptionHandler {
      * supplied. The message is sanitised — never exposes internal details.
      */
     private Map<String, Object> safeBody(HttpStatus status, String message, String correlationId) {
-        if (correlationId == null || correlationId.isBlank()) {
-            correlationId = UUID.randomUUID().toString();
-        }
+        correlationId = correlationId(correlationId);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", status.value());
         body.put("error", status.getReasonPhrase());
         body.put("message", message != null ? message : "No details available");
         body.put("correlationId", correlationId);
         return body;
+    }
+
+    private static String correlationId(String supplied) {
+        if (supplied != null && !supplied.isBlank()) return supplied;
+        String correlationId = MDC.get("correlation_id");
+        if (correlationId != null && !correlationId.isBlank()) return correlationId;
+        String requestId = MDC.get("request_id");
+        if (requestId != null && !requestId.isBlank()) return requestId;
+        return UUID.randomUUID().toString();
     }
 }

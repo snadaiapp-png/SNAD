@@ -302,7 +302,7 @@ class TestRepositoryFalsePositiveAllowlist(unittest.TestCase):
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 56),
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 61),
         ("generic-password", "scripts/production/scp-smoke-identity-reconcile.sh", 93),
-        ("database-url-password", "apps/sanad-platform/src/test/java/com/sanad/platform/config/GlobalDiagnosticExceptionHandlerSecurityTest.java", 263),
+        ("database-url-password", "apps/sanad-platform/src/test/java/com/sanad/platform/config/GlobalDiagnosticExceptionHandlerSecurityTest.java", 270),
     ]
 
     def _entries(self):
