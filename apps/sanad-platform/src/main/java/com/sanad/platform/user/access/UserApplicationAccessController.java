@@ -2,6 +2,8 @@ package com.sanad.platform.user.access;
 
 import com.sanad.platform.access.api.AccessPrincipalContext;
 import com.sanad.platform.security.authorization.RequireCapability;
+import com.sanad.platform.user.dto.UserResponse;
+import jakarta.validation.Valid;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,12 +23,15 @@ public class UserApplicationAccessController {
 
     private final UserApplicationAccessProjectionService projectionService;
     private final ModuleUserProvisioningService moduleProvisioningService;
+    private final ModuleUserCreationService moduleUserCreationService;
 
     public UserApplicationAccessController(
             UserApplicationAccessProjectionService projectionService,
-            ModuleUserProvisioningService moduleProvisioningService) {
+            ModuleUserProvisioningService moduleProvisioningService,
+            ModuleUserCreationService moduleUserCreationService) {
         this.projectionService = projectionService;
         this.moduleProvisioningService = moduleProvisioningService;
+        this.moduleUserCreationService = moduleUserCreationService;
     }
 
     @GetMapping("/{userId}/application-access")
@@ -48,6 +53,38 @@ public class UserApplicationAccessController {
             @RequestParam String routeRoot) {
         UUID tenantId = AccessPrincipalContext.requireTenantId(authentication);
         return moduleProvisioningService.resolve(tenantId, routeRoot);
+    }
+
+    @PostMapping("/module-user-provisioning")
+    @RequireCapability("USER.GRANT_ROLE")
+    public UserResponse provisionModuleUser(
+            Authentication authentication,
+            @RequestParam UUID tenantId,
+            @Valid @RequestBody ModuleUserProvisionRequest request) {
+        UUID authenticatedTenant = AccessPrincipalContext.requireTenantId(authentication);
+        if (!authenticatedTenant.equals(tenantId)) {
+            throw new AccessDeniedException("Cross-tenant module user provisioning denied");
+        }
+        return moduleUserCreationService.provision(
+                tenantId,
+                AccessPrincipalContext.requireUserId(authentication),
+                request);
+    }
+
+    @PostMapping("/module-user-provisioning-overrides")
+    @RequireCapability("AUTHORIZATION.OVERRIDE.MANAGE")
+    public UserResponse provisionModuleUserWithOverrides(
+            Authentication authentication,
+            @RequestParam UUID tenantId,
+            @Valid @RequestBody ModuleUserProvisionRequest request) {
+        UUID authenticatedTenant = AccessPrincipalContext.requireTenantId(authentication);
+        if (!authenticatedTenant.equals(tenantId)) {
+            throw new AccessDeniedException("Cross-tenant module user override provisioning denied");
+        }
+        return moduleUserCreationService.provision(
+                tenantId,
+                AccessPrincipalContext.requireUserId(authentication),
+                request);
     }
 
     @PostMapping("/module-capability-grants")
