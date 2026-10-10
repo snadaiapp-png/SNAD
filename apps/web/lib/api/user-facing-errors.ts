@@ -11,6 +11,7 @@
  */
 import {
   ApiConfigurationError,
+  ApiInputValidationError,
   ApiTimeoutError,
   ApiNetworkError,
   ApiHttpError,
@@ -44,6 +45,15 @@ export function toUserFacingError(err: unknown): UserFacingError {
 
   if (err instanceof ApiClientCancellation) {
     return { title: "تم إلغاء الطلب", message: "تم إلغاء العملية قبل اكتمالها.", kind: "cancellation" };
+  }
+  if (err instanceof ApiInputValidationError) {
+    return {
+      title: "بيانات غير صالحة",
+      message: isSafeUserMessage(err.message)
+        ? err.message
+        : "راجع البيانات المدخلة وأعد المحاولة.",
+      kind: "validation",
+    };
   }
   if (err instanceof ApiConfigurationError) {
     return {

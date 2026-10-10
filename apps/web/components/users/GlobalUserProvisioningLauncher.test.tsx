@@ -261,6 +261,24 @@ describe("GlobalUserProvisioningLauncher", () => {
     expect(usersApiMock.grantModuleCapabilities).not.toHaveBeenCalled();
   });
 
+  it("normalizes a Saudi local mobile before calling Users Core", async () => {
+    const user = userEvent.setup();
+
+    render(<GlobalUserProvisioningLauncher />);
+    await user.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+    await user.type(screen.getByLabelText("البريد الإلكتروني"), "mobile@example.com");
+    await user.type(screen.getByLabelText("اسم المستخدم"), "mobile.user");
+    await user.type(screen.getByLabelText("رقم الجوال"), "0551234567");
+    await user.click(await screen.findByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
+
+    await waitFor(() => expect(usersApiMock.create).toHaveBeenCalled());
+    expect(usersApiMock.create).toHaveBeenCalledWith(TENANT_ID, expect.objectContaining({
+      mobileNumber: "+966551234567",
+      mobileRegion: "SA",
+    }));
+  });
+
   it("creates through Users Core only and opens the canonical user record", async () => {
     const user = userEvent.setup();
 
@@ -277,8 +295,8 @@ describe("GlobalUserProvisioningLauncher", () => {
         email: "new@example.com",
         username: "new.user",
         displayName: "New User",
-        mobileNumber: "",
-        mobileRegion: "",
+        mobileNumber: null,
+        mobileRegion: null,
         initialCredential: "12345678",
       }),
     );

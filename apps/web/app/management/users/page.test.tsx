@@ -237,11 +237,30 @@ describe("Tenant User Directory", () => {
       email: "new@example.com",
       username: "new.user",
       displayName: "مستخدم جديد",
-      mobileNumber: "",
-      mobileRegion: "",
+      mobileNumber: null,
+      mobileRegion: null,
       initialCredential: "12345678",
     }));
     await waitFor(() => expect(usersApiMock.list).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps entered values visible when user creation fails", async () => {
+    const user = userEvent.setup();
+    usersApiMock.create.mockRejectedValue(new Error("backend failure"));
+
+    render(<TenantUsersPage />);
+    await screen.findByText("سالم العتيبي");
+    await user.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+    await user.type(screen.getByLabelText("البريد الإلكتروني"), "failed@example.com");
+    await user.type(screen.getByLabelText("اسم المستخدم"), "failed.user");
+    await user.type(screen.getByLabelText("رقم الجوال"), "0551234567");
+    await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
+
+    await waitFor(() => expect(usersApiMock.create).toHaveBeenCalled());
+    expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("failed@example.com");
+    expect(screen.getByLabelText("اسم المستخدم")).toHaveValue("failed.user");
+    expect(screen.getByLabelText("رقم الجوال")).toHaveValue("0551234567");
+    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل المستخدمين");
   });
 
   it("gates lifecycle controls by capability and refreshes after a transition", async () => {

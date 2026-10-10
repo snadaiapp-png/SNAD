@@ -20,11 +20,13 @@
 
 import { apiClient, ApiClient } from "./client";
 import { ApiConfigurationError } from "./errors";
+import { requireValidUuid } from "./validation";
 import {
-  requireValidUuid,
-  requireValidEmail,
-  requireValidDisplayName,
-} from "./validation";
+  normalizeUserCreationInput,
+  normalizeMobileNumberForUser,
+  normalizeMobileRegionForUser,
+  normalizeUsernameForUser,
+} from "@/lib/users/user-create-validation";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,33 +119,6 @@ export interface ModuleUserAccessProjection {
 // ---------------------------------------------------------------------------
 // Validation helpers
 // ---------------------------------------------------------------------------
-
-function normalizeMobileNumber(value?: string | null): string | null {
-  const normalized = value?.trim() ?? "";
-  if (!normalized) return null;
-  if (!/^\+[1-9][0-9]{7,14}$/.test(normalized)) {
-    throw new ApiConfigurationError("رقم الجوال يجب أن يكون بصيغة E.164");
-  }
-  return normalized;
-}
-
-function normalizeMobileRegion(value?: string | null): string | null {
-  const normalized = value?.trim().toUpperCase() ?? "";
-  if (!normalized) return null;
-  if (!/^[A-Z]{2}$/.test(normalized)) {
-    throw new ApiConfigurationError("رمز المنطقة يجب أن يتكون من حرفين");
-  }
-  return normalized;
-}
-
-function requireValidInitialCredential(value?: string | null): string | undefined {
-  if (value == null) return undefined;
-  if (!value.trim()) return undefined;
-  if (value.length < 8 || value.length > 256) {
-    throw new ApiConfigurationError("كلمة المرور المؤقتة يجب أن تكون بين 8 و256 حرفًا");
-  }
-  return value;
-}
 
 function requireValidLifecycleAction(action: string): UserLifecycleAction {
   const allowed: UserLifecycleAction[] = ["activate", "deactivate", "suspend", "archive"];
@@ -286,20 +261,18 @@ export function createUsersApi(client: ApiClient = apiClient) {
       tenantId: string,
       input: { email: string; username?: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential?: string | null; status?: UserStatus }
     ) {
+      const normalized = normalizeUserCreationInput(input);
       const body: CreateUserRequest = {
-        email: requireValidEmail(input.email),
-        displayName: requireValidDisplayName(input.displayName ?? null),
+        email: normalized.email,
+        displayName: normalized.displayName,
       };
-      if (input.username !== undefined) {
-        body.username = input.username?.trim().toLowerCase() || null;
+      if (input.username !== undefined) body.username = normalized.username;
+      if (input.mobileNumber !== undefined) body.mobileNumber = normalized.mobileNumber;
+      if (input.mobileRegion !== undefined) body.mobileRegion = normalized.mobileRegion;
+      if (normalized.initialCredential !== undefined) {
+        body.initialCredential = normalized.initialCredential;
       }
-      if (input.mobileNumber !== undefined) body.mobileNumber = normalizeMobileNumber(input.mobileNumber);
-      if (input.mobileRegion !== undefined) body.mobileRegion = normalizeMobileRegion(input.mobileRegion);
-      const initialCredential = requireValidInitialCredential(input.initialCredential);
-      if (initialCredential !== undefined) body.initialCredential = initialCredential;
-      if (input.status !== undefined) {
-        body.status = input.status;
-      }
+      if (input.status !== undefined) body.status = input.status;
       return client.post<UserResponse, CreateUserRequest>(
         "/api/v1/users",
         body,
@@ -318,15 +291,25 @@ export function createUsersApi(client: ApiClient = apiClient) {
       userId: string,
       input: { email: string; username?: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null }
     ) {
+      const normalizedRegion = input.mobileRegion === undefined
+        ? undefined
+        : normalizeMobileRegionForUser(input.mobileRegion);
+      const normalizedProfile = normalizeUserCreationInput({
+        email: input.email,
+        username: input.username,
+        displayName: input.displayName,
+      });
       const body: UpdateUserRequest = {
-        email: requireValidEmail(input.email),
-        displayName: requireValidDisplayName(input.displayName ?? null),
+        email: normalizedProfile.email,
+        displayName: normalizedProfile.displayName,
       };
       if (input.username !== undefined) {
-        body.username = input.username?.trim().toLowerCase() || null;
+        body.username = normalizeUsernameForUser(input.username);
       }
-      if (input.mobileNumber !== undefined) body.mobileNumber = normalizeMobileNumber(input.mobileNumber);
-      if (input.mobileRegion !== undefined) body.mobileRegion = normalizeMobileRegion(input.mobileRegion);
+      if (input.mobileRegion !== undefined) body.mobileRegion = normalizedRegion ?? null;
+      if (input.mobileNumber !== undefined) {
+        body.mobileNumber = normalizeMobileNumberForUser(input.mobileNumber, normalizedRegion ?? null);
+      }
       return client.put<UserResponse, UpdateUserRequest>(
         `/api/v1/users/${requireValidUuid(userId, "userId")}`,
         body,

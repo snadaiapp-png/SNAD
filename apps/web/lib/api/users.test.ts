@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { usersApi, createUsersApi } from "./users";
-import { ApiConfigurationError, ApiHttpError } from "./errors";
+import { ApiConfigurationError, ApiHttpError, ApiInputValidationError } from "./errors";
 import type { ApiErrorDetails } from "./types";
 
 // Mock the apiClient module
@@ -156,12 +156,12 @@ describe("usersApi — create", () => {
     });
   });
 
-  it("rejects a bootstrap credential shorter than eight characters", async () => {
+  it("rejects a bootstrap credential shorter than eight characters as user input validation", async () => {
     await expect(usersApi.create(VALID_TENANT, {
       email: "new@example.com",
       displayName: "New User",
       initialCredential: "short",
-    })).rejects.toThrow(ApiConfigurationError);
+    })).rejects.toThrow(ApiInputValidationError);
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 
@@ -170,6 +170,30 @@ describe("usersApi — create", () => {
     await usersApi.create(VALID_TENANT, { email: "new@example.com", displayName: "New", mobileNumber: "  +966500000000  ", mobileRegion: " sa " });
     const [, body] = vi.mocked(apiClient.post).mock.calls[0];
     expect(body).toMatchObject({ mobileNumber: "+966500000000", mobileRegion: "SA" });
+  });
+
+  it("normalizes Saudi local mobile input to E.164", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
+    await usersApi.create(VALID_TENANT, {
+      email: "new@example.com",
+      username: "new.user",
+      displayName: "New",
+      mobileNumber: "0551234567",
+      mobileRegion: "SA",
+    });
+    const [, body] = vi.mocked(apiClient.post).mock.calls[0];
+    expect(body).toMatchObject({ mobileNumber: "+966551234567", mobileRegion: "SA" });
+  });
+
+  it("rejects numeric region codes before transport", async () => {
+    await expect(usersApi.create(VALID_TENANT, {
+      email: "new@example.com",
+      username: "new.user",
+      displayName: "New",
+      mobileNumber: "0551234567",
+      mobileRegion: "01",
+    })).rejects.toMatchObject({ field: "mobileRegion" });
+    expect(apiClient.post).not.toHaveBeenCalled();
   });
 
   it("trims displayName and converts empty to null", async () => {
@@ -186,17 +210,17 @@ describe("usersApi — create", () => {
     expect(body).not.toHaveProperty("status");
   });
 
-  it("rejects invalid email", async () => {
-    await expect(usersApi.create(VALID_TENANT, { email: "not-an-email", displayName: null })).rejects.toThrow(ApiConfigurationError);
+  it("rejects invalid email as user input validation", async () => {
+    await expect(usersApi.create(VALID_TENANT, { email: "not-an-email", displayName: null })).rejects.toThrow(ApiInputValidationError);
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 
-  it("rejects empty email", async () => {
-    await expect(usersApi.create(VALID_TENANT, { email: "", displayName: null })).rejects.toThrow(ApiConfigurationError);
+  it("rejects empty email as user input validation", async () => {
+    await expect(usersApi.create(VALID_TENANT, { email: "", displayName: null })).rejects.toThrow(ApiInputValidationError);
   });
 
-  it("rejects displayName exceeding max length", async () => {
-    await expect(usersApi.create(VALID_TENANT, { email: "new@example.com", displayName: "a".repeat(201) })).rejects.toThrow(ApiConfigurationError);
+  it("rejects displayName exceeding max length as user input validation", async () => {
+    await expect(usersApi.create(VALID_TENANT, { email: "new@example.com", displayName: "a".repeat(201) })).rejects.toThrow(ApiInputValidationError);
   });
 
   it("propagates ApiHttpError on 409 (duplicate email)", async () => {

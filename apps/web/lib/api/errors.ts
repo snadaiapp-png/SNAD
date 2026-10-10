@@ -35,6 +35,24 @@ export class ApiConfigurationError extends ApiClientError {
   readonly code = "API_CONFIGURATION_ERROR";
 }
 
+export type ApiInputField =
+  | "email"
+  | "username"
+  | "displayName"
+  | "mobileNumber"
+  | "mobileRegion"
+  | "initialCredential";
+
+export class ApiInputValidationError extends ApiClientError {
+  readonly code = "API_INPUT_VALIDATION_ERROR";
+  readonly field: ApiInputField;
+
+  constructor(field: ApiInputField, message: string, cause?: unknown) {
+    super(message, cause);
+    this.field = field;
+  }
+}
+
 export class ApiTimeoutError extends ApiClientError {
   readonly code = "API_TIMEOUT_ERROR";
   readonly timeoutMs: number;
@@ -87,6 +105,7 @@ export function isApiTimeoutError(err: unknown): err is ApiTimeoutError { return
 export function isApiNetworkError(err: unknown): err is ApiNetworkError { return err instanceof ApiNetworkError; }
 export function isApiHttpError(err: unknown): err is ApiHttpError { return err instanceof ApiHttpError; }
 export function isApiConfigurationError(err: unknown): err is ApiConfigurationError { return err instanceof ApiConfigurationError; }
+export function isApiInputValidationError(err: unknown): err is ApiInputValidationError { return err instanceof ApiInputValidationError; }
 export function isApiResponseParseError(err: unknown): err is ApiResponseParseError { return err instanceof ApiResponseParseError; }
 export function isApiRequestSerializationError(err: unknown): err is ApiRequestSerializationError { return err instanceof ApiRequestSerializationError; }
 
