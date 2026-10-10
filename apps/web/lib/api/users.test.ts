@@ -88,6 +88,85 @@ describe("usersApi — list", () => {
   });
 });
 
+describe("usersApi — atomic module provisioning", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("normalizes Saudi-local contact data inside the atomic tenant-admin request", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
+
+    await usersApi.provisionModuleUser(
+      VALID_TENANT,
+      "/CRM/overview",
+      ["CRM.ACCOUNT.READ"],
+      {
+        email: " New.User@Example.com ",
+        username: "New.User",
+        displayName: " New User ",
+        mobileNumber: "0551234567",
+        mobileRegion: "sa",
+        initialCredential: TEST_BOOTSTRAP_CREDENTIAL,
+      },
+    );
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/api/v1/users/module-user-provisioning",
+      {
+        user: {
+          email: "new.user@example.com",
+          username: "new.user",
+          displayName: "New User",
+          mobileNumber: "+966551234567",
+          mobileRegion: "SA",
+          initialCredential: TEST_BOOTSTRAP_CREDENTIAL,
+        },
+        routeRoot: "crm",
+        capabilityCodes: ["CRM.ACCOUNT.READ"],
+      },
+      { query: { tenantId: VALID_TENANT } },
+    );
+  });
+
+  it("uses the override-authorized atomic endpoint for platform operators", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(makeUser() as never);
+
+    await usersApi.provisionModuleUserWithOverrides(
+      VALID_TENANT,
+      "hr",
+      ["HRM.EMPLOYEE.VIEW"],
+      {
+        email: "override@example.com",
+        username: "override.user",
+        displayName: "Override User",
+      },
+    );
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/api/v1/users/module-user-provisioning-overrides",
+      {
+        user: {
+          email: "override@example.com",
+          username: "override.user",
+          displayName: "Override User",
+        },
+        routeRoot: "hr",
+        capabilityCodes: ["HRM.EMPLOYEE.VIEW"],
+      },
+      { query: { tenantId: VALID_TENANT } },
+    );
+  });
+
+  it("fails before transport when no module capability is selected", async () => {
+    await expect(usersApi.provisionModuleUser(
+      VALID_TENANT,
+      "crm",
+      [],
+      { email: "user@example.com", username: "user.test" },
+    )).rejects.toThrow(ApiConfigurationError);
+
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+});
+
 describe("usersApi — get", () => {
   beforeEach(() => vi.clearAllMocks());
 

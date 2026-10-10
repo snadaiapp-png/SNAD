@@ -128,6 +128,32 @@ function requireValidLifecycleAction(action: string): UserLifecycleAction {
   return action as UserLifecycleAction;
 }
 
+type UserCreationInput = {
+  email: string;
+  username?: string | null;
+  displayName?: string | null;
+  mobileNumber?: string | null;
+  mobileRegion?: string | null;
+  initialCredential?: string | null;
+  status?: UserStatus;
+};
+
+function normalizeCreateUserBody(input: UserCreationInput): CreateUserRequest {
+  const normalized = normalizeUserCreationInput(input);
+  const body: CreateUserRequest = {
+    email: normalized.email,
+    displayName: normalized.displayName,
+  };
+  if (input.username !== undefined) body.username = normalized.username;
+  if (input.mobileNumber !== undefined) body.mobileNumber = normalized.mobileNumber;
+  if (input.mobileRegion !== undefined) body.mobileRegion = normalized.mobileRegion;
+  if (normalized.initialCredential !== undefined) {
+    body.initialCredential = normalized.initialCredential;
+  }
+  if (input.status !== undefined) body.status = input.status;
+  return body;
+}
+
 // ---------------------------------------------------------------------------
 // API factory + singleton
 // ---------------------------------------------------------------------------
@@ -159,6 +185,62 @@ export function createUsersApi(client: ApiClient = apiClient) {
           routeRoot: normalizedRouteRoot,
         },
       });
+    },
+
+    async provisionModuleUser(
+      tenantId: string,
+      routeRoot: string,
+      capabilityCodes: string[],
+      input: UserCreationInput,
+    ) {
+      const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\/+/, "").split("/")[0];
+      if (!normalizedRouteRoot) {
+        throw new ApiConfigurationError("module route root is required");
+      }
+      if (capabilityCodes.length === 0) {
+        throw new ApiConfigurationError("at least one module capability is required");
+      }
+      return client.post<UserResponse, {
+        user: CreateUserRequest;
+        routeRoot: string;
+        capabilityCodes: string[];
+      }>(
+        "/api/v1/users/module-user-provisioning",
+        {
+          user: normalizeCreateUserBody(input),
+          routeRoot: normalizedRouteRoot,
+          capabilityCodes,
+        },
+        { query: { tenantId: requireValidUuid(tenantId, "tenantId") } },
+      );
+    },
+
+    async provisionModuleUserWithOverrides(
+      tenantId: string,
+      routeRoot: string,
+      capabilityCodes: string[],
+      input: UserCreationInput,
+    ) {
+      const normalizedRouteRoot = routeRoot.trim().toLowerCase().replace(/^\/+/, "").split("/")[0];
+      if (!normalizedRouteRoot) {
+        throw new ApiConfigurationError("module route root is required");
+      }
+      if (capabilityCodes.length === 0) {
+        throw new ApiConfigurationError("at least one module capability is required");
+      }
+      return client.post<UserResponse, {
+        user: CreateUserRequest;
+        routeRoot: string;
+        capabilityCodes: string[];
+      }>(
+        "/api/v1/users/module-user-provisioning-overrides",
+        {
+          user: normalizeCreateUserBody(input),
+          routeRoot: normalizedRouteRoot,
+          capabilityCodes,
+        },
+        { query: { tenantId: requireValidUuid(tenantId, "tenantId") } },
+      );
     },
 
     async grantModuleCapabilities(
@@ -259,23 +341,11 @@ export function createUsersApi(client: ApiClient = apiClient) {
      */
     async create(
       tenantId: string,
-      input: { email: string; username?: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential?: string | null; status?: UserStatus }
+      input: UserCreationInput
     ) {
-      const normalized = normalizeUserCreationInput(input);
-      const body: CreateUserRequest = {
-        email: normalized.email,
-        displayName: normalized.displayName,
-      };
-      if (input.username !== undefined) body.username = normalized.username;
-      if (input.mobileNumber !== undefined) body.mobileNumber = normalized.mobileNumber;
-      if (input.mobileRegion !== undefined) body.mobileRegion = normalized.mobileRegion;
-      if (normalized.initialCredential !== undefined) {
-        body.initialCredential = normalized.initialCredential;
-      }
-      if (input.status !== undefined) body.status = input.status;
       return client.post<UserResponse, CreateUserRequest>(
         "/api/v1/users",
-        body,
+        normalizeCreateUserBody(input),
         { query: { tenantId: requireValidUuid(tenantId, "tenantId") } }
       );
     },

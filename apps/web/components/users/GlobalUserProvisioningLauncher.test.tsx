@@ -20,6 +20,8 @@ const { authMock, usersApiMock, tenantAccessApiMock } = vi.hoisted(() => ({
   usersApiMock: {
     list: vi.fn(),
     create: vi.fn(),
+    provisionModuleUser: vi.fn(),
+    provisionModuleUserWithOverrides: vi.fn(),
     moduleProvisioningContext: vi.fn(),
     grantModuleCapabilities: vi.fn(),
     grantModuleCapabilityOverrides: vi.fn(),
@@ -106,12 +108,16 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/hr/employees");
   usersApiMock.list.mockReset();
   usersApiMock.create.mockReset();
+  usersApiMock.provisionModuleUser.mockReset();
+  usersApiMock.provisionModuleUserWithOverrides.mockReset();
   usersApiMock.moduleProvisioningContext.mockReset();
   usersApiMock.grantModuleCapabilities.mockReset();
   usersApiMock.grantModuleCapabilityOverrides.mockReset();
   tenantAccessApiMock.grantUserRole.mockReset();
   usersApiMock.list.mockResolvedValue([]);
   usersApiMock.create.mockResolvedValue(userRecord(CREATED_ID, "new@example.com"));
+  usersApiMock.provisionModuleUser.mockResolvedValue(userRecord(CREATED_ID, "new@example.com"));
+  usersApiMock.provisionModuleUserWithOverrides.mockResolvedValue(userRecord(CREATED_ID, "new@example.com"));
   usersApiMock.moduleProvisioningContext.mockResolvedValue({
     applicationCode: "HRM",
     name: "HRM",
@@ -251,17 +257,22 @@ describe("GlobalUserProvisioningLauncher", () => {
     await user.click(await screen.findByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
 
-    await waitFor(() => expect(usersApiMock.create).toHaveBeenCalled());
-    expect(usersApiMock.grantModuleCapabilityOverrides).toHaveBeenCalledWith(
+    await waitFor(() => expect(usersApiMock.provisionModuleUserWithOverrides).toHaveBeenCalled());
+    expect(usersApiMock.provisionModuleUserWithOverrides).toHaveBeenCalledWith(
       TENANT_ID,
-      CREATED_ID,
       "hr",
       ["HRM.EMPLOYEE.VIEW"],
+      expect.objectContaining({
+        email: "override@example.com",
+        username: "override.user",
+      }),
     );
+    expect(usersApiMock.create).not.toHaveBeenCalled();
+    expect(usersApiMock.grantModuleCapabilityOverrides).not.toHaveBeenCalled();
     expect(usersApiMock.grantModuleCapabilities).not.toHaveBeenCalled();
   });
 
-  it("normalizes a Saudi local mobile before calling Users Core", async () => {
+  it("routes Saudi-local mobile input through the atomic provisioning API", async () => {
     const user = userEvent.setup();
 
     render(<GlobalUserProvisioningLauncher />);
@@ -272,14 +283,19 @@ describe("GlobalUserProvisioningLauncher", () => {
     await user.click(await screen.findByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
 
-    await waitFor(() => expect(usersApiMock.create).toHaveBeenCalled());
-    expect(usersApiMock.create).toHaveBeenCalledWith(TENANT_ID, expect.objectContaining({
-      mobileNumber: "+966551234567",
-      mobileRegion: "SA",
-    }));
+    await waitFor(() => expect(usersApiMock.provisionModuleUser).toHaveBeenCalled());
+    expect(usersApiMock.provisionModuleUser).toHaveBeenCalledWith(
+      TENANT_ID,
+      "hr",
+      ["HRM.EMPLOYEE.VIEW"],
+      expect.objectContaining({
+        mobileNumber: "0551234567",
+        mobileRegion: "SA",
+      }),
+    );
   });
 
-  it("creates through Users Core only and opens the canonical user record", async () => {
+  it("creates and grants atomically then opens the canonical user record", async () => {
     const user = userEvent.setup();
 
     render(<GlobalUserProvisioningLauncher />);
@@ -291,21 +307,22 @@ describe("GlobalUserProvisioningLauncher", () => {
     await user.click(screen.getByRole("button", { name: "إنشاء المستخدم" }));
 
     await waitFor(() =>
-      expect(usersApiMock.create).toHaveBeenCalledWith(TENANT_ID, {
-        email: "new@example.com",
-        username: "new.user",
-        displayName: "New User",
-        mobileNumber: null,
-        mobileRegion: null,
-        initialCredential: "12345678",
-      }),
+      expect(usersApiMock.provisionModuleUser).toHaveBeenCalledWith(
+        TENANT_ID,
+        "hr",
+        ["HRM.EMPLOYEE.VIEW"],
+        {
+          email: "new@example.com",
+          username: "new.user",
+          displayName: "New User",
+          mobileNumber: "",
+          mobileRegion: "SA",
+          initialCredential: "12345678",
+        },
+      ),
     );
-    expect(usersApiMock.grantModuleCapabilities).toHaveBeenCalledWith(
-      TENANT_ID,
-      CREATED_ID,
-      "hr",
-      ["HRM.EMPLOYEE.VIEW"],
-    );
+    expect(usersApiMock.create).not.toHaveBeenCalled();
+    expect(usersApiMock.grantModuleCapabilities).not.toHaveBeenCalled();
     expect(tenantAccessApiMock.grantUserRole).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe(`/management/users/${CREATED_ID}`);
     expect(window.location.search).toBe("?returnTo=%2Fhr%2Femployees");

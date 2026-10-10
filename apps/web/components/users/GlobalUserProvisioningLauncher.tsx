@@ -6,7 +6,6 @@ import { Modal } from "@/components/sds/Modal";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
 import { ApiInputValidationError, type ApiInputField } from "@/lib/api/errors";
-import { normalizeUserCreationInput } from "@/lib/users/user-create-validation";
 import { capabilityDisplayName } from "@/lib/i18n/iam-display-l10n";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
 import styles from "./GlobalUserProvisioningLauncher.module.css";
@@ -229,23 +228,43 @@ export function GlobalUserProvisioningLauncher({
         }
       }
 
-      const normalizedInput = normalizeUserCreationInput({
+      const createInput = {
         email,
         username,
         displayName,
         mobileNumber,
         mobileRegion,
         initialCredential,
-      });
-      const created = await usersApi.create(tenantId, normalizedInput);
-      await grantSelectedModuleAccess(created.id);
+      };
+      const created = canManageOverrides
+        ? await usersApi.provisionModuleUserWithOverrides(
+            tenantId,
+            moduleContext,
+            selectedCapabilityCodes,
+            createInput,
+          )
+        : await usersApi.provisionModuleUser(
+            tenantId,
+            moduleContext,
+            selectedCapabilityCodes,
+            createInput,
+          );
       setOpen(false);
       reset();
       window.history.pushState({}, "", 
         `/management/users/${created.id}?returnTo=${encodeURIComponent(`${pathname}${search}`)}`,
       );
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      const message = toUserFacingMessage(caught);
+      setError(message);
+      if (caught instanceof ApiInputValidationError) {
+        setFieldErrors({ [caught.field]: message });
+        requestAnimationFrame(() => {
+          document.getElementById(`global-user-${caught.field}`)?.focus();
+        });
+      } else {
+        requestAnimationFrame(() => errorRef.current?.scrollIntoView({ block: "nearest" }));
+      }
     } finally {
       setBusy(false);
     }

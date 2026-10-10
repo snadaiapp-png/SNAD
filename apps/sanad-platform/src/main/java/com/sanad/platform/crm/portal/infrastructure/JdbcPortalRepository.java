@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +55,7 @@ public class JdbcPortalRepository implements PortalRepository {
                 .addValue("c", customerId)
                 .addValue("name", profile.displayName())
                 .addValue("phone", profile.phone())
-                .addValue("now", Instant.now());
+                .addValue("now", Timestamp.from(Instant.now()));
         jdbc.update(
                 "UPDATE crm_contacts SET display_name = :name, primary_phone = :phone, updated_at = :now " +
                 "WHERE tenant_id = :t AND id = :c", params);
@@ -94,7 +95,7 @@ public class JdbcPortalRepository implements PortalRepository {
                 .addValue("description", ticket.description())
                 .addValue("status", "OPEN")
                 .addValue("priority", ticket.priority())
-                .addValue("now", now);
+                .addValue("now", Timestamp.from(now));
         jdbc.update(
                 "INSERT INTO crm_cases (id, tenant_id, customer_id, subject, description, status, priority, created_at, updated_at) " +
                 "VALUES (:id, :t, :c, :subject, :description, :status, :priority, :now, :now)", params);
