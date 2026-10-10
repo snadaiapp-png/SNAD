@@ -282,8 +282,8 @@ class HrApiV2AuthorizationTest {
                 .isEqualTo("1");
         assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
                 + "JOIN access_capabilities c ON c.id=rc.capability_id "
-                + "WHERE c.code LIKE 'HRM.PAYROLL.%'"))
-                .as("no tenant role may inherit payroll capabilities")
+                + "WHERE c.code='HRM.PAYROLL.VIEW'"))
+                .as("no tenant role may inherit the owner-only payroll VIEW capability")
                 .isEqualTo("0");
         assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
                 + "JOIN access_capabilities c ON c.id=u.capability_id "
