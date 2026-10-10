@@ -7,8 +7,8 @@ name: FINAL — ControlPlane Bootstrap API
 #
 # Steps:
 # 1. Set CONTROL_PLANE_BOOTSTRAP_ENABLED=true
-# 2. Set CONTROL_PLANE_ADMIN_EMAIL=admin@snad.ai
-# 3. Set CONTROL_PLANE_ADMIN_PASSWORD=SNad@2026
+# 2. Load CONTROL_PLANE_ADMIN_EMAIL from protected GitHub secret
+# 3. Load CONTROL_PLANE_ADMIN_PASSWORD from protected GitHub secret
 # 4. Suspend+Resume to restart with new env vars
 # 5. Wait for health
 # 6. Call POST /api/v1/internal/control-plane/bootstrap-admin
@@ -41,6 +41,8 @@ jobs:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           BACKEND_ID: srv-d8ragqkm0tmc73bviqq0
           CONTROL_PLANE_TENANT_ID: ${{ secrets.CONTROL_PLANE_TENANT_ID }}
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
         run: |
           set -euo pipefail
           set_var() {
@@ -57,8 +59,10 @@ jobs:
 
           echo "=== Setting ControlPlane bootstrap env vars ==="
           set_var "CONTROL_PLANE_BOOTSTRAP_ENABLED" "true"
-          set_var "CONTROL_PLANE_ADMIN_EMAIL" "admin@snad.ai"
-          set_var "CONTROL_PLANE_ADMIN_PASSWORD" "SNad@2026"
+          test -n "$CONTROL_PLANE_ADMIN_EMAIL" || { echo "::error::CONTROL_PLANE_ADMIN_EMAIL secret is required"; exit 1; }
+          test -n "$CONTROL_PLANE_ADMIN_PASSWORD" || { echo "::error::CONTROL_PLANE_ADMIN_PASSWORD secret is required"; exit 1; }
+          set_var "CONTROL_PLANE_ADMIN_EMAIL" "$CONTROL_PLANE_ADMIN_EMAIL"
+          set_var "CONTROL_PLANE_ADMIN_PASSWORD" "$CONTROL_PLANE_ADMIN_PASSWORD"
           set_var "CONTROL_PLANE_TENANT_ID" "$CONTROL_PLANE_TENANT_ID"
           set_var "BOOTSTRAP_ENABLED" "false"
           set_var "FLYWAY_ENABLED" "false"
@@ -122,12 +126,17 @@ jobs:
           echo "bootstrap_success=false" >> "$GITHUB_ENV"
 
       - name: Test login
+        env:
+          CONTROL_PLANE_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+          CONTROL_PLANE_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
         run: |
+          set -euo pipefail
           echo "=== Login test ==="
           for i in 1 2 3 4 5; do
+            LOGIN_PAYLOAD=$(jq -cn --arg email "$CONTROL_PLANE_ADMIN_EMAIL" --arg password "$CONTROL_PLANE_ADMIN_PASSWORD" '{email:$email,password:$password}')
             RESULT=$(curl -sS --max-time 30 -X POST "https://sanad-backend-mcrj.onrender.com/api/v1/auth/login" \
               -H "Content-Type: application/json" \
-              -d '{"email":"admin@snad.ai","password":"SNad@2026"}' \
+              --data "$LOGIN_PAYLOAD" \
               -w "\n%{http_code}" 2>/dev/null || echo "timeout\n000")
             CODE=$(echo "$RESULT" | tail -1)
             echo "  Login $i: HTTP $CODE"

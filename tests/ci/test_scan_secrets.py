@@ -97,6 +97,69 @@ class TestSecretScanner(unittest.TestCase):
         findings, _, _ = self._scan()
         self.assertGreater(len([f for f in findings if f['ruleId'] == 'generic-password']), 0)
 
+    def test_production_workflow_yaml_password_literal_detected(self):
+        workflow = (
+            "jobs:\n"
+            "  deploy:\n"
+            "    environment: Production\n"
+            "    env:\n"
+            "      ADMIN_PASSWORD: " + "Unsafe" + "Literal123!\n"
+        )
+        self._create_file(".github/workflows/prod.yml", workflow)
+        findings, _, _ = self._scan()
+        self.assertGreater(
+            len([f for f in findings if f["ruleId"] == "prod-password-yaml"]),
+            0,
+        )
+
+    def test_production_workflow_secret_indirection_passes(self):
+        workflow = (
+            "jobs:\n"
+            "  deploy:\n"
+            "    environment: Production\n"
+            "    env:\n"
+            "      ADMIN_PASSWORD: $" + "{{ secrets.ADMIN_PASSWORD }}\n"
+        )
+        self._create_file(".github/workflows/prod.yml", workflow)
+        findings, _, _ = self._scan()
+        self.assertEqual(
+            len([f for f in findings if f["ruleId"].startswith("prod-password-")]),
+            0,
+        )
+
+    def test_production_script_unquoted_password_literal_detected(self):
+        self._create_file(
+            "scripts/production/install.sh",
+            "DATABASE_PASSWORD=" + "Unsafe" + "Literal123!\n",
+        )
+        findings, _, _ = self._scan()
+        self.assertGreater(
+            len([f for f in findings if f["ruleId"] == "prod-password-shell"]),
+            0,
+        )
+
+    def test_production_script_env_indirection_passes(self):
+        self._create_file(
+            "scripts/production/install.sh",
+            'DATABASE_PASSWORD="$DATABASE_PASSWORD"\\n',
+        )
+        findings, _, _ = self._scan()
+        self.assertEqual(
+            len([f for f in findings if f["ruleId"].startswith("prod-password-")]),
+            0,
+        )
+
+    def test_non_production_fixture_password_literal_not_scoped(self):
+        self._create_file(
+            "tests/fixture.yml",
+            "ADMIN_PASSWORD: " + "Fixture" + "Only123!\n",
+        )
+        findings, _, _ = self._scan()
+        self.assertEqual(
+            len([f for f in findings if f["ruleId"].startswith("prod-password-")]),
+            0,
+        )
+
     def test_secret_redacted_in_findings(self):
         self._create_file("secret.txt", f"token: {_GHP}")
         findings, _, _ = self._scan()
