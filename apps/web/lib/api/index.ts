@@ -14,6 +14,7 @@ export { ApiClient, apiClient, ApiClientCancellation } from "./client";
 export {
   ApiClientError,
   ApiConfigurationError,
+  ApiInputValidationError,
   ApiTimeoutError,
   ApiNetworkError,
   ApiHttpError,
@@ -24,9 +25,11 @@ export {
   isApiNetworkError,
   isApiHttpError,
   isApiConfigurationError,
+  isApiInputValidationError,
   isApiResponseParseError,
   isApiRequestSerializationError,
 } from "./errors";
+export type { ApiInputField } from "./errors";
 export { checkBackendIntegration } from "./health";
 export type {
   HttpMethod,
