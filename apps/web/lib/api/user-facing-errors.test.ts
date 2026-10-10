@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiHttpError, ApiNetworkError, ApiTimeoutError } from "./errors";
+import { ApiHttpError, ApiInputValidationError, ApiNetworkError, ApiTimeoutError } from "./errors";
 import { toUserFacingError } from "./user-facing-errors";
 import type { ApiErrorDetails } from "./types";
 
@@ -87,6 +87,17 @@ describe("toUserFacingError", () => {
     expect(result.title).toBe("تعذر الوصول إلى بوابة الدخول");
     expect(result.kind).toBe("network");
     expect(result.message).toContain("لم يتم التحقق");
+  });
+
+  it("classifies local form validation as validation, not API configuration", () => {
+    const result = toUserFacingError(new ApiInputValidationError(
+      "mobileRegion",
+      "رمز الدولة يجب أن يتكون من حرفين وفق ISO، مثل SA",
+    ));
+
+    expect(result.kind).toBe("validation");
+    expect(result.title).toBe("بيانات غير صالحة");
+    expect(result.message).toContain("SA");
   });
 
   it("passes through safe Arabic validation messages but not server details", () => {
