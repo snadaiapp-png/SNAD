@@ -5,12 +5,14 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import com.sanad.platform.security.authorization.RequireCapability;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class UserApplicationAccessControllerTest {
 
@@ -25,10 +27,11 @@ class UserApplicationAccessControllerTest {
                 "tenant_id", authenticatedTenant.toString(),
                 "user_id", UUID.randomUUID().toString()));
 
+        var moduleUserCreation = mock(ModuleUserCreationService.class);
         var controller = new UserApplicationAccessController(
                 mock(UserApplicationAccessProjectionService.class),
                 mock(ModuleUserProvisioningService.class),
-                mock(ModuleUserCreationService.class));
+                moduleUserCreation);
 
         assertThatThrownBy(() -> controller.list(auth, requestedTenant, userId))
                 .isInstanceOf(AccessDeniedException.class)
@@ -37,6 +40,22 @@ class UserApplicationAccessControllerTest {
         assertThatThrownBy(() -> controller.provisioningContext(auth, requestedTenant, "hr"))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Cross-tenant");
+
+        var request = new ModuleUserProvisionRequest(
+                new com.sanad.platform.user.dto.CreateUserRequest(
+                        "new@example.com", "new.user", "New User",
+                        com.sanad.platform.user.domain.UserStatus.ACTIVE),
+                "hr",
+                List.of("HRM.EMPLOYEE.VIEW"));
+
+        assertThatThrownBy(() -> controller.provisionModuleUser(auth, requestedTenant, request))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Cross-tenant");
+        assertThatThrownBy(() -> controller.provisionModuleUserWithOverrides(auth, requestedTenant, request))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Cross-tenant");
+
+        verifyNoInteractions(moduleUserCreation);
     }
 
     @Test
