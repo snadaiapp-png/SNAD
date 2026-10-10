@@ -325,7 +325,6 @@ export function GlobalUserProvisioningLauncher({
             error={fieldErrors.mobileRegion}
             value={mobileRegion}
             maxLength={2}
-            pattern="[A-Za-z]{2}"
             autoCapitalize="characters"
             onChange={(event) => { setMobileRegion(event.target.value.toUpperCase()); setFieldErrors((current) => ({ ...current, mobileRegion: undefined })); }}
           />
