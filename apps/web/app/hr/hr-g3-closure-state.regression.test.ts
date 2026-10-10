@@ -73,7 +73,7 @@ describe("HR-G3 final engineering closure reconciliation", () => {
 
   it("reconciles the roadmap G3 group and four legacy G3 rows to DONE", () => {
     expect(Object.fromEntries(HR_GROUP_DATA.map((group) => [group.code, group.status]))).toEqual({
-      G0: "DONE", G1: "DONE", G2: "DONE", G3: "DONE", G4: "IN_PROGRESS", G5: "NOT_STARTED",
+      G0: "DONE", G1: "DONE", G2: "DONE", G3: "DONE", G4: "DONE", G5: "NOT_STARTED",
     });
     const g3Tasks = HR_TASKS.filter((task) => task.groupCode === "G3");
     expect(g3Tasks.map((task) => [task.id, task.status])).toEqual([
