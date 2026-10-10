@@ -1,6 +1,7 @@
 package com.sanad.platform.security.rls;
 
 import com.sanad.platform.test.MigrationTestSchemaSupport;
+import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -9,16 +10,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.UUID;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import com.sanad.platform.crm.integration.Crm009TestEnvironment;
 
 /**
  * CRM-018 — Row-Level Security tenant isolation verification.
@@ -72,6 +70,8 @@ class CrmRlsTenantIsolationPostgresTest {
     // cluster, so one pre-provisioned role can serve both RLS test classes.
     // See .github/workflows/ci.yml lines 181-185 for the bootstrap CREATE ROLE.
     private static final String RLS_USER = "crm_contact_rls_test_user";
+    // Fixed credential belongs only to the disposable PostgreSQL Direct test fixture.
+    // Preserve the audited scanner fingerprint for SANAD-SC-023.
     private static final String RLS_PASSWORD = "rls_contact_test_pass";
 
     @BeforeEach
@@ -279,6 +279,131 @@ class CrmRlsTenantIsolationPostgresTest {
                     .as("SET LOCAL must reset to fail-closed after transaction commit")
                     .isZero();
             conn.commit();
+        }
+    }
+
+
+    @Test
+    void noTenantContextRejectsAccountInsert() throws SQLException {
+        UUID tenantA = tenantId("rls-a");
+        try (Connection conn = rawConnection()) {
+            conn.setAutoCommit(false);
+            assertThatThrownBy(() -> insertAccount(conn, tenantA, "No Context Account"))
+                    .as("INSERT must fail closed without app.tenant_id")
+                    .isInstanceOf(SQLException.class);
+            conn.rollback();
+        }
+    }
+
+    @Test
+    void crossTenantAccountUpdateAffectsZeroRows() throws SQLException {
+        UUID tenantA = tenantId("rls-a");
+        UUID tenantB = tenantId("rls-b");
+        seedAccount(tenantB, "Protected B Account");
+        try (Connection conn = rawConnection()) {
+            conn.setAutoCommit(false);
+            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            try (var ps = conn.prepareStatement(
+                    "UPDATE crm_accounts SET display_name = ? WHERE tenant_id = ? AND display_name = ?")) {
+                ps.setString(1, "Compromised B Account");
+                ps.setObject(2, tenantB);
+                ps.setString(3, "Protected B Account");
+                assertThat(ps.executeUpdate()).as("A cannot modify B").isZero();
+            }
+            conn.rollback();
+        }
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND display_name = ?",
+                Long.class, tenantB, "Protected B Account")).isEqualTo(1L);
+    }
+
+    @Test
+    void noTenantContextAccountUpdateAffectsZeroRows() throws SQLException {
+        UUID tenantA = tenantId("rls-a");
+        seedAccount(tenantA, "Protected A Account");
+        try (Connection conn = rawConnection()) {
+            conn.setAutoCommit(false);
+            try (var ps = conn.prepareStatement(
+                    "UPDATE crm_accounts SET display_name = ? WHERE tenant_id = ?")) {
+                ps.setString(1, "Unscoped Mutation");
+                ps.setObject(2, tenantA);
+                assertThat(ps.executeUpdate()).as("UPDATE without tenant context must fail closed").isZero();
+            }
+            conn.rollback();
+        }
+    }
+
+    @Test
+    void crossTenantAccountDeleteAffectsZeroRows() throws SQLException {
+        UUID tenantA = tenantId("rls-a");
+        UUID tenantB = tenantId("rls-b");
+        seedAccount(tenantB, "Protected B Delete");
+        try (Connection conn = rawConnection()) {
+            conn.setAutoCommit(false);
+            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            try (var ps = conn.prepareStatement(
+                    "DELETE FROM crm_accounts WHERE tenant_id = ? AND display_name = ?")) {
+                ps.setObject(1, tenantB);
+                ps.setString(2, "Protected B Delete");
+                assertThat(ps.executeUpdate()).as("A cannot delete B").isZero();
+            }
+            conn.rollback();
+        }
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = ? AND display_name = ?",
+                Long.class, tenantB, "Protected B Delete")).isEqualTo(1L);
+    }
+
+    @Test
+    void sameTenantAccountUpdateSucceeds() throws SQLException {
+        UUID tenantA = tenantId("rls-a");
+        seedAccount(tenantA, "Own A Account");
+        try (Connection conn = rawConnection()) {
+            conn.setAutoCommit(false);
+            conn.createStatement().execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+            try (var ps = conn.prepareStatement(
+                    "UPDATE crm_accounts SET display_name = ? WHERE tenant_id = ? AND display_name = ?")) {
+                ps.setString(1, "Own A Account Updated");
+                ps.setObject(2, tenantA);
+                ps.setString(3, "Own A Account");
+                assertThat(ps.executeUpdate()).as("A can update own account").isEqualTo(1);
+            }
+            conn.rollback();
+        }
+    }
+
+    @Test
+    void noTenantContextAccountDeleteAffectsZeroRows() throws SQLException {
+        UUID tenantA = tenantId("rls-a");
+        seedAccount(tenantA, "Protected A Delete");
+        try (Connection conn = rawConnection()) {
+            conn.setAutoCommit(false);
+            try (var ps = conn.prepareStatement(
+                    "DELETE FROM crm_accounts WHERE tenant_id = ? AND display_name = ?")) {
+                ps.setObject(1, tenantA);
+                ps.setString(2, "Protected A Delete");
+                assertThat(ps.executeUpdate()).as("DELETE without tenant context must fail closed").isZero();
+            }
+            conn.rollback();
+        }
+    }
+
+    @Test
+    void rlsExecutionRoleMustNotBypassPolicies() throws SQLException {
+        try (Connection conn = rawConnection();
+                var ps = conn.prepareStatement("""
+                        SELECT r.rolsuper, r.rolbypassrls,
+                               pg_get_userbyid(c.relowner) = current_user AS is_owner
+                        FROM pg_roles r
+                        CROSS JOIN pg_class c
+                        WHERE r.rolname = current_user
+                          AND c.oid = 'public.crm_accounts'::regclass
+                        """);
+                var rs = ps.executeQuery()) {
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getBoolean(1)).as("RLS test role is not superuser").isFalse();
+            assertThat(rs.getBoolean(2)).as("RLS test role has no BYPASSRLS").isFalse();
+            assertThat(rs.getBoolean(3)).as("RLS test role is not table owner").isFalse();
         }
     }
 
