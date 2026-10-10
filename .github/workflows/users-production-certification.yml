@@ -116,9 +116,36 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          readiness_status=$(curl --silent --show-error --output /tmp/users-cert-readiness.json --write-out '%{http_code}' --max-time 30 "${PRODUCTION_BASE_URL%/}/actuator/health/readiness" || true)
-          test "$readiness_status" = "200"
-          jq -e '.status == "UP"' /tmp/users-cert-readiness.json >/dev/null
+          # Render free instances may cold-start for >120s. Retry with a hard 240s deadline.
+          readiness_url="${PRODUCTION_BASE_URL%/}/actuator/health/readiness"
+          deadline=$((SECONDS + 240))
+          attempt=0
+          ready=false
+          while (( SECONDS < deadline )); do
+            attempt=$((attempt + 1))
+            remaining=$((deadline - SECONDS))
+            max_time=$((remaining < 10 ? remaining : 10))
+            (( max_time > 0 )) || break
+            readiness_status=$(curl --silent --show-error \
+              --output /tmp/users-cert-readiness.json \
+              --write-out '%{http_code}' --connect-timeout 5 --max-time "$max_time" \
+              "$readiness_url") || readiness_status="000"
+            if [ "$readiness_status" = "200" ] && \
+               jq -e '.status == "UP"' /tmp/users-cert-readiness.json >/dev/null 2>&1; then
+              ready=true
+              echo "READINESS=UP attempt=$attempt elapsed_seconds=$((240 - (deadline - SECONDS))) http_status=$readiness_status"
+              break
+            fi
+            echo "Readiness pending attempt=$attempt elapsed_seconds=$((240 - (deadline - SECONDS))) http_status=$readiness_status"
+            remaining=$((deadline - SECONDS))
+            (( remaining > 0 )) || break
+            sleep $((remaining < 5 ? remaining : 5))
+          done
+          if [ "$ready" != true ]; then
+            echo "::error::Backend readiness not UP within 240 seconds (last_http_status=${readiness_status:-000}; attempts=$attempt)"
+            exit 1
+          fi
+          # Fail-closed: preserve all existing unauthenticated security assertions.
           bash scripts/production/verify-auth-contract.sh
 
       - name: Verify web production lineage without runtime drift
