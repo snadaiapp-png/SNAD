@@ -46,7 +46,7 @@ jobs:
           out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'stage30-db-connection.env'
           fields = {'PGHOST':u.hostname, 'PGPORT':str(u.port or 5432),
                     'PGDATABASE':u.path.lstrip('/'), 'PGSSLMODE':'require'}
-          out.write_text(''.join(f'export {key}={shlex.quote(value)}\\n' for key,value in fields.items()), encoding='utf-8')
+          out.write_text(''.join(f'export {key}={shlex.quote(value)}\n' for key,value in fields.items()), encoding='utf-8')
           out.chmod(0o600)
           PY
           conn_env="$RUNNER_TEMP/stage30-db-connection.env"
