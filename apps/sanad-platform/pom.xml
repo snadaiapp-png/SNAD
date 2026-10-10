@@ -217,6 +217,26 @@
 
     <build>
         <plugins>
+            <!-- Pin the CI Flyway CLI plugin to the version resolved by the Spring Boot BOM.
+                 The PostgreSQL database module and JDBC driver must be on the plugin classpath,
+                 not only on the application's runtime classpath. No lifecycle execution is bound. -->
+            <plugin>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-maven-plugin</artifactId>
+                <version>11.7.2</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.flywaydb</groupId>
+                        <artifactId>flyway-database-postgresql</artifactId>
+                        <version>11.7.2</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.postgresql</groupId>
+                        <artifactId>postgresql</artifactId>
+                        <version>${postgresql.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
             <!-- maven-compiler-plugin: intentionally NOT declared here. -->
             <!-- spring-boot-starter-parent binds version 3.14.0,        -->
             <!-- parameters=true, and release=${java.version} (Java 17),  -->
