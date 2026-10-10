@@ -66,8 +66,13 @@ jobs:
             SELECT rolbypassrls, rolsuper INTO bypass, privileged FROM pg_roles WHERE rolname = u;
             SELECT pg_get_userbyid(relowner) INTO owner_role FROM pg_class
               WHERE oid='public.crm_accounts'::regclass;
-            IF bypass OR privileged OR u=owner_role THEN
-              RAISE EXCEPTION 'CRM RLS ineffective for configured runtime role (owner/bypass/superuser)';
+            -- Sanitized classification only: no DB URL, password or login identifier.
+            RAISE NOTICE 'P0 role class: sanad=%, postgres=%, owner=%, bypass=%, superuser=%',
+              (u = 'sanad'), (u = 'postgres'), (u = owner_role),
+              COALESCE(bypass, true), COALESCE(privileged, true);
+            IF bypass IS DISTINCT FROM FALSE OR privileged IS DISTINCT FROM FALSE
+               OR owner_role IS NULL OR u = owner_role THEN
+              RAISE EXCEPTION 'CRM RLS ineffective for configured runtime role (owner/bypass/superuser/unknown)';
             END IF;
             IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.crm_accounts'::regclass AND relrowsecurity) THEN
               RAISE EXCEPTION 'crm_accounts row security is not enabled';
