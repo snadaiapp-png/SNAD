@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { Button, Input } from "@/components/sds";
 import { Modal } from "@/components/sds/Modal";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { usersApi, type ModuleProvisioningContext } from "@/lib/api/users";
+import { ApiInputValidationError, type ApiInputField } from "@/lib/api/errors";
+import { normalizeUserCreationInput } from "@/lib/users/user-create-validation";
 import { capabilityDisplayName } from "@/lib/i18n/iam-display-l10n";
 import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
 import styles from "./GlobalUserProvisioningLauncher.module.css";
@@ -66,7 +68,9 @@ export function GlobalUserProvisioningLauncher({
     username: "اسم المستخدم",
     displayName: "الاسم المعروض",
     mobileNumber: "رقم الجوال",
-    mobileRegion: "رمز المنطقة",
+    mobileNumberHint: "يمكن إدخال الرقم السعودي محليًا 05XXXXXXXX أو دوليًا +9665XXXXXXXX.",
+    mobileRegion: "رمز الدولة (ISO)",
+    mobileRegionHint: "مثال: SA للسعودية.",
     initialCredential: "كلمة المرور المؤقتة",
     initialCredentialHelp: "يستطيع المستخدم تسجيل الدخول بها مرة أولى ثم يجب تغييرها قبل استخدام المنصة.",
   } as const;
@@ -89,11 +93,13 @@ export function GlobalUserProvisioningLauncher({
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
-  const [mobileRegion, setMobileRegion] = useState("");
+  const [mobileRegion, setMobileRegion] = useState("SA");
   const [initialCredential, setInitialCredential] = useState(createInitialCredential);
   const [provisioningContext, setProvisioningContext] = useState<ModuleProvisioningContext | null>(null);
   const [selectedCapabilityCodes, setSelectedCapabilityCodes] = useState<string[]>([]);
   const [contextLoading, setContextLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ApiInputField, string>>>({});
+  const errorRef = useRef<HTMLDivElement | null>(null);
 
   // The management/users workspace already owns its native create surface.
   // Everywhere else, including future route roots, receives this launcher
@@ -113,12 +119,13 @@ export function GlobalUserProvisioningLauncher({
     setUsername("");
     setDisplayName("");
     setMobileNumber("");
-    setMobileRegion("");
+    setMobileRegion("SA");
     setInitialCredential(createInitialCredential());
     setProvisioningContext(null);
     setSelectedCapabilityCodes([]);
     setContextLoading(false);
     setError(null);
+    setFieldErrors({});
   };
 
   const close = () => {
@@ -134,11 +141,21 @@ export function GlobalUserProvisioningLauncher({
     setProvisioningContext(null);
     setSelectedCapabilityCodes([]);
     setError(null);
+    setFieldErrors({});
     try {
       const context = await usersApi.moduleProvisioningContext(tenantId, moduleContext);
       setProvisioningContext(context);
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      const message = toUserFacingMessage(caught);
+      setError(message);
+      if (caught instanceof ApiInputValidationError) {
+        setFieldErrors({ [caught.field]: message });
+        requestAnimationFrame(() => {
+          document.getElementById(`global-user-${caught.field}`)?.focus();
+        });
+      } else {
+        requestAnimationFrame(() => errorRef.current?.scrollIntoView({ block: "nearest" }));
+      }
     } finally {
       setContextLoading(false);
     }
@@ -191,6 +208,7 @@ export function GlobalUserProvisioningLauncher({
 
     setBusy(true);
     setError(null);
+    setFieldErrors({});
     try {
       const normalizedEmail = email.trim().toLowerCase();
 
@@ -204,14 +222,14 @@ export function GlobalUserProvisioningLauncher({
           await grantSelectedModuleAccess(existing.id);
           setOpen(false);
           reset();
-          window.history.pushState({}, "", 
+          window.history.pushState({}, "",
             `/management/users/${existing.id}?returnTo=${encodeURIComponent(`${pathname}${search}`)}`,
           );
           return;
         }
       }
 
-      const created = await usersApi.create(tenantId, {
+      const normalizedInput = normalizeUserCreationInput({
         email,
         username,
         displayName,
@@ -219,6 +237,7 @@ export function GlobalUserProvisioningLauncher({
         mobileRegion,
         initialCredential,
       });
+      const created = await usersApi.create(tenantId, normalizedInput);
       await grantSelectedModuleAccess(created.id);
       setOpen(false);
       reset();
@@ -284,12 +303,32 @@ export function GlobalUserProvisioningLauncher({
         }
       >
         <form id="global-user-provisioning-form" className={styles.form} onSubmit={submit}>
-          {error ? <div className={styles.alert} role="alert">{error}</div> : null}
-          <Input type="email" label={messages.email} required value={email} onChange={(event) => setEmail(event.target.value)} />
-          <Input label={messages.username} required value={username} onChange={(event) => setUsername(event.target.value)} />
-          <Input label={messages.displayName} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-          <Input label={messages.mobileNumber} value={mobileNumber} onChange={(event) => setMobileNumber(event.target.value)} />
-          <Input label={messages.mobileRegion} value={mobileRegion} maxLength={2} onChange={(event) => setMobileRegion(event.target.value)} />
+          {error ? <div ref={errorRef} className={styles.alert} role="alert" tabIndex={-1}>{error}</div> : null}
+          <Input id="global-user-email" type="email" label={messages.email} required maxLength={255} error={fieldErrors.email} value={email} onChange={(event) => { setEmail(event.target.value); setFieldErrors((current) => ({ ...current, email: undefined })); }} />
+          <Input id="global-user-username" label={messages.username} required minLength={3} maxLength={100} error={fieldErrors.username} value={username} onChange={(event) => { setUsername(event.target.value); setFieldErrors((current) => ({ ...current, username: undefined })); }} />
+          <Input id="global-user-displayName" label={messages.displayName} maxLength={200} error={fieldErrors.displayName} value={displayName} onChange={(event) => { setDisplayName(event.target.value); setFieldErrors((current) => ({ ...current, displayName: undefined })); }} />
+          <Input
+            id="global-user-mobileNumber"
+            type="tel"
+            inputMode="tel"
+            label={messages.mobileNumber}
+            hint={messages.mobileNumberHint}
+            error={fieldErrors.mobileNumber}
+            placeholder="05XXXXXXXX"
+            value={mobileNumber}
+            onChange={(event) => { setMobileNumber(event.target.value); setFieldErrors((current) => ({ ...current, mobileNumber: undefined })); }}
+          />
+          <Input
+            id="global-user-mobileRegion"
+            label={messages.mobileRegion}
+            hint={messages.mobileRegionHint}
+            error={fieldErrors.mobileRegion}
+            value={mobileRegion}
+            maxLength={2}
+            pattern="[A-Za-z]{2}"
+            autoCapitalize="characters"
+            onChange={(event) => { setMobileRegion(event.target.value.toUpperCase()); setFieldErrors((current) => ({ ...current, mobileRegion: undefined })); }}
+          />
           <Input
             type="password"
             label={messages.initialCredential}
@@ -297,8 +336,10 @@ export function GlobalUserProvisioningLauncher({
             minLength={8}
             maxLength={256}
             autoComplete="new-password"
+            id="global-user-initialCredential"
+            error={fieldErrors.initialCredential}
             value={initialCredential}
-            onChange={(event) => setInitialCredential(event.target.value)}
+            onChange={(event) => { setInitialCredential(event.target.value); setFieldErrors((current) => ({ ...current, initialCredential: undefined })); }}
           />
           <p className={styles.help}>{messages.initialCredentialHelp}</p>
 
