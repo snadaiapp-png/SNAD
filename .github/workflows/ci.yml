@@ -236,6 +236,48 @@ jobs:
           CRM_CUSTOM_FIELD_ENCRYPTION_KEY: ${{ env.CRM_CUSTOM_FIELD_ENCRYPTION_KEY }}
         run: mvn test -B -ntp -Dsurefire.useFile=false
 
+      - name: Forensic Surefire failure summary
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import xml.etree.ElementTree as ET
+
+          root = pathlib.Path("target/surefire-reports")
+          out = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+          records = []
+          scanned = 0
+          for file in sorted(root.glob("TEST-*.xml")):
+              scanned += 1
+              try:
+                  tree = ET.parse(file)
+                  for case in tree.iter("testcase"):
+                      for result in case:
+                          if result.tag not in ("failure", "error"):
+                              continue
+                          name = case.attrib.get("classname", "?") + "." + case.attrib.get("name", "?")
+                          message = result.attrib.get("message", "")
+                          trace = (result.text or "").strip()
+                          detail = (message or trace.splitlines()[0] if trace else "No exception details")
+                          records.append((result.tag, name, detail[:320]))
+              except ET.ParseError as exc:
+                  records.append(("xml-error", file.name, str(exc)[:320]))
+          with out.open("a", encoding="utf-8") as report:
+              report.write("\n## Maven Surefire forensic failures\n")
+              report.write(f"Scanned {scanned} XML reports; failure/error records: {len(records)}\n\n")
+              for kind, name, detail in records[:35]:
+                  report.write(f"- **{kind}** \`{name}\`: {detail.replace(chr(10), ' ') }\n")
+              if len(records) > 35:
+                  report.write(f"\nTruncated list: {len(records) - 35} more failures in uploaded reports.\n")
+              if not records:
+                  report.write("No failing testcase XML found; inspect Maven process failure, fork crash, or workflow logs.\n")
+          print(f"FORENSIC_SUREFIRE_REPORTS={scanned} FAILURES={len(records)}")
+          for kind, name, detail in records[:20]:
+              print(f"FORENSIC {kind} {name}: {detail[:240]}")
+          PY
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
