@@ -16,8 +16,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  pr-static-validation:
+    name: G1 PR static validation (no production secrets)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Python syntax validation
+        run: python -m py_compile scripts/security/g1_postgres_live_rls_cert.py
+
   g1-rls:
     name: Live PostgreSQL read-only tenant isolation
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 12
@@ -31,12 +44,15 @@ jobs:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Verify exact checkout and required secrets
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$GITHUB_SHA" || { echo "::error::G1 requires exact current main"; exit 1; }
           for key in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD AUTH_SMOKE_TENANT_A_ID AUTH_SMOKE_TENANT_B_ID; do
             test -n "${!key:-}" || { echo "::error::Missing required G1 secret: $key"; exit 1; }
           done
