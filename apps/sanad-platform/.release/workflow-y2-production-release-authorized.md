@@ -367,3 +367,26 @@ No manual Render deployment, direct production DDL, Flyway history mutation, `fl
 - This release-control update changes no runtime code, database migration, or RBAC semantics.
 - Deployment, if approved and merged under repository rules, must use the existing canonical
   production release workflow with rollback enabled.
+
+
+## Users & Permissions backend parity production authorization — 2026-10-10
+
+- Current protected main SHA: `91ca493b3bff2ff3cd4e8b194fd33d0fdf51cde7`
+- Source remediation PR: `#1339` — module permission actionability and IAM contract integrity
+- Source remediation merge SHA: `98b922ac7219a8308d3bbf1321db446bcb1e71cf`
+- Vercel production already contains the Users/IAM frontend remediation from PR #1339.
+- Live Render backend is still on the older image `ghcr.io/snadaiapp-png/snad-backend:8c86fb4eb3c40dd1996910bb48b2c4c67f3e7f42`.
+- This release-control PR changes no runtime application logic, database migration, or IAM semantics.
+- Purpose: authorize canonical backend promotion so Render reaches current protected main, which contains PR #1339.
+- Owner production authorization: `GRANTED_EXPLICITLY_2026-10-10`.
+- Independent human review with repository write access: `REQUIRED`.
+- Exact-head required checks: `REQUIRED_PASS`.
+- Rollback on failure: `REQUIRED=true`.
+
+The protected squash merge MUST contain the exact immutable marker `PRODUCTION-RELEASE-AUTHORIZED`.
+
+Only the canonical path is authorized:
+
+`Publish Render Backend Image` → `Workflow Y2 Production Release Orchestrator` → `SANAD Production Release` → exact-image Render verification → readiness → Flyway invariants → security boundary → SCP/Control Plane checks → G2 production identity/visual smoke → rollback on failure.
+
+No manual Render deployment, direct production DDL, Flyway repair/history mutation, out-of-order migration execution, force push, branch-protection bypass, or security-control weakening is authorized.
