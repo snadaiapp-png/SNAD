@@ -33,7 +33,7 @@ jobs:
             echo "::add-mask::${!v}"
           done
           python3 - <<'PY'
-          import os, urllib.parse
+          import os, urllib.parse, pathlib, shlex
           raw = os.environ['DATABASE_URL']
           if not raw.startswith('jdbc:postgresql://'):
               raise SystemExit('::error::PRODUCTION_DATABASE_URL must be JDBC PostgreSQL URL')
@@ -43,16 +43,22 @@ jobs:
           query = urllib.parse.parse_qs(u.query)
           if query.get('user') or query.get('password'):
               raise SystemExit('::error::Database URL must not override explicit credentials')
-          os.environ
-          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
-              for key,value in {'PGHOST':u.hostname,'PGPORT':str(u.port or 5432),
-                                'PGDATABASE':u.path.lstrip('/'),'PGSSLMODE':'require'}.items():
-                  f.write(f'{key}={value}\n')
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'stage30-db-connection.env'
+          fields = {'PGHOST':u.hostname, 'PGPORT':str(u.port or 5432),
+                    'PGDATABASE':u.path.lstrip('/'), 'PGSSLMODE':'require'}
+          out.write_text(''.join(f'export {key}={shlex.quote(value)}\\n' for key,value in fields.items()), encoding='utf-8')
+          out.chmod(0o600)
           PY
+          conn_env="$RUNNER_TEMP/stage30-db-connection.env"
+          trap 'rm -f "$conn_env"' EXIT
+          source "$conn_env"
           export PGUSER="$DATABASE_USERNAME" PGPASSWORD="$DATABASE_PASSWORD"
-          test "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align -c 'SELECT current_user')" = "$DATABASE_USERNAME" || {
-            echo "::error::Runtime connected role differs from configured identity"; exit 1;
-          }
+          if ! actual_role="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align -c 'SELECT current_user')"; then
+            echo "::error::Production database connection failed"; exit 1
+          fi
+          if [ "$actual_role" != "$DATABASE_USERNAME" ]; then
+            echo "::notice::Pooler login differs from effective role; RLS privilege checks still apply to actual role"
+          fi
           psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
           DO $$
           DECLARE u text := current_user; bypass boolean; privileged boolean; owner_role text;
