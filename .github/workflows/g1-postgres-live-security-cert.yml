@@ -1,0 +1,78 @@
+name: G1 PostgreSQL Direct Security Certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/security/g1_postgres_live_rls_cert.py'
+      - '.github/workflows/g1-postgres-live-security-cert.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-postgres-live-security-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pr-static-validation:
+    name: G1 PR static validation (no production secrets)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Python syntax validation
+        run: python -m py_compile scripts/security/g1_postgres_live_rls_cert.py
+
+  g1-rls:
+    name: Live PostgreSQL read-only tenant isolation
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 12
+    env:
+      SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+      SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+      SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD || secrets.PRODUCTION_DATABASE_PASSWORD }}
+      AUTH_SMOKE_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
+      AUTH_SMOKE_TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify exact checkout and required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$GITHUB_SHA" || { echo "::error::G1 requires exact current main"; exit 1; }
+          for key in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD AUTH_SMOKE_TENANT_A_ID AUTH_SMOKE_TENANT_B_ID; do
+            test -n "${!key:-}" || { echo "::error::Missing required G1 secret: $key"; exit 1; }
+          done
+          echo "::add-mask::$SPRING_DATASOURCE_URL"
+          echo "::add-mask::$SPRING_DATASOURCE_USERNAME"
+          echo "::add-mask::$AUTH_SMOKE_TENANT_A_ID"
+          echo "::add-mask::$AUTH_SMOKE_TENANT_B_ID"
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned PostgreSQL driver
+        run: python -m pip install --disable-pip-version-check 'psycopg[binary]==3.2.10'
+      - name: Assert actual sanad role and tenant A/B row isolation (READ ONLY)
+        shell: bash
+        run: python scripts/security/g1_postgres_live_rls_cert.py
+      - name: Upload sanitized G1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-postgres-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: g1-postgres-rls-evidence.json
+          if-no-files-found: warn
