@@ -1,6 +1,9 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { ApiInputValidationError, type ApiInputField } from "@/lib/api/errors";
+import { toUserFacingMessage } from "@/lib/api/user-facing-errors";
+import { normalizeUserCreationInput } from "@/lib/users/user-create-validation";
 import { Button, Input } from "@/components/sds";
 import { Modal } from "@/components/sds/Modal";
 import type { UsersMessages } from "@/lib/i18n/users-l10n";
@@ -10,7 +13,8 @@ interface UserCreateDialogProps {
   busy: boolean;
   messages: UsersMessages;
   onClose: () => void;
-  onSubmit: (input: { email: string; username: string; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential: string }) => Promise<void>;
+  error?: string | null;
+  onSubmit: (input: { email: string; username: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential?: string }) => Promise<boolean>;
 }
 
 function createInitialCredential(): string {
@@ -23,23 +27,48 @@ function createInitialCredential(): string {
   return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
 }
 
-export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: UserCreateDialogProps) {
+export function UserCreateDialog({ open, busy, messages, onClose, error, onSubmit }: UserCreateDialogProps) {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
-  const [mobileRegion, setMobileRegion] = useState("");
+  const [mobileRegion, setMobileRegion] = useState("SA");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ApiInputField, string>>>({});
   const [initialCredential, setInitialCredential] = useState(createInitialCredential);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSubmit({ email, username, displayName, mobileNumber, mobileRegion, initialCredential });
-    setEmail("");
-    setUsername("");
-    setDisplayName("");
-    setMobileNumber("");
-    setMobileRegion("");
-    setInitialCredential(createInitialCredential());
+    setLocalError(null);
+    setFieldErrors({});
+    try {
+      const normalized = normalizeUserCreationInput({
+        email,
+        username,
+        displayName,
+        mobileNumber,
+        mobileRegion,
+        initialCredential,
+      });
+      const created = await onSubmit(normalized);
+      if (!created) return;
+
+      setEmail("");
+      setUsername("");
+      setDisplayName("");
+      setMobileNumber("");
+      setMobileRegion("SA");
+      setInitialCredential(createInitialCredential());
+    } catch (caught) {
+      const message = toUserFacingMessage(caught);
+      setLocalError(message);
+      if (caught instanceof ApiInputValidationError) {
+        setFieldErrors({ [caught.field]: message });
+        requestAnimationFrame(() => {
+          document.getElementById(`tenant-user-${caught.field}`)?.focus();
+        });
+      }
+    }
   };
 
   return (
@@ -57,11 +86,12 @@ export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: Us
     >
       <form id="tenant-user-create-form" onSubmit={submit}>
         <div style={{ display: "grid", gap: "var(--snad-space-4, 16px)" }}>
-          <Input type="email" label={messages.email} required value={email} onChange={(event) => setEmail(event.target.value)} />
-          <Input label={messages.username} required value={username} onChange={(event) => setUsername(event.target.value)} />
-          <Input label={messages.displayName} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-          <Input label={messages.mobileNumber} value={mobileNumber} onChange={(event) => setMobileNumber(event.target.value)} />
-          <Input label={messages.mobileRegion} value={mobileRegion} maxLength={2} onChange={(event) => setMobileRegion(event.target.value)} />
+          {localError || error ? <div role="alert" tabIndex={-1}>{localError || error}</div> : null}
+          <Input id="tenant-user-email" type="email" label={messages.email} required maxLength={255} error={fieldErrors.email} value={email} onChange={(event) => { setEmail(event.target.value); setFieldErrors((current) => ({ ...current, email: undefined })); }} />
+          <Input id="tenant-user-username" label={messages.username} required minLength={3} maxLength={100} error={fieldErrors.username} value={username} onChange={(event) => { setUsername(event.target.value); setFieldErrors((current) => ({ ...current, username: undefined })); }} />
+          <Input id="tenant-user-displayName" label={messages.displayName} maxLength={200} error={fieldErrors.displayName} value={displayName} onChange={(event) => { setDisplayName(event.target.value); setFieldErrors((current) => ({ ...current, displayName: undefined })); }} />
+          <Input id="tenant-user-mobileNumber" type="tel" inputMode="tel" label={messages.mobileNumber} hint={messages.mobileNumberHint} error={fieldErrors.mobileNumber} placeholder="05XXXXXXXX" value={mobileNumber} onChange={(event) => { setMobileNumber(event.target.value); setFieldErrors((current) => ({ ...current, mobileNumber: undefined })); }} />
+          <Input id="tenant-user-mobileRegion" label={messages.mobileRegion} hint={messages.mobileRegionHint} error={fieldErrors.mobileRegion} value={mobileRegion} maxLength={2} pattern="[A-Za-z]{2}" autoCapitalize="characters" onChange={(event) => { setMobileRegion(event.target.value.toUpperCase()); setFieldErrors((current) => ({ ...current, mobileRegion: undefined })); }} />
           <Input
             type="password"
             label={messages.initialCredential}
@@ -69,8 +99,10 @@ export function UserCreateDialog({ open, busy, messages, onClose, onSubmit }: Us
             minLength={8}
             maxLength={256}
             autoComplete="new-password"
+            id="tenant-user-initialCredential"
+            error={fieldErrors.initialCredential}
             value={initialCredential}
-            onChange={(event) => setInitialCredential(event.target.value)}
+            onChange={(event) => { setInitialCredential(event.target.value); setFieldErrors((current) => ({ ...current, initialCredential: undefined })); }}
           />
           <p>{messages.initialCredentialHelp}</p>
         </div>
