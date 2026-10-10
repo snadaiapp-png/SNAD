@@ -1,10 +1,13 @@
 package com.sanad.platform.user.access;
 
+import com.sanad.platform.access.AccessDecisionResponse;
+import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.dto.CreateUserRequest;
 import com.sanad.platform.user.dto.UserResponse;
 import com.sanad.platform.user.service.UserService;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -40,7 +43,8 @@ class ModuleUserCreationServiceTest {
     void validatesModuleCapabilitiesBeforeCreatingUser() {
         UserService users = mock(UserService.class);
         ModuleUserProvisioningService moduleProvisioning = mock(ModuleUserProvisioningService.class);
-        ModuleUserCreationService service = new ModuleUserCreationService(users, moduleProvisioning);
+        CapabilityEvaluationService evaluator = allowedEvaluator();
+        ModuleUserCreationService service = new ModuleUserCreationService(users, moduleProvisioning, evaluator);
 
         when(moduleProvisioning.resolve(TENANT_ID, "crm")).thenReturn(context("CRM.ACCOUNT.READ"));
 
@@ -60,7 +64,8 @@ class ModuleUserCreationServiceTest {
     void createsUserAndGrantsCapabilitiesThroughOneTransactionalServiceBoundary() {
         UserService users = mock(UserService.class);
         ModuleUserProvisioningService moduleProvisioning = mock(ModuleUserProvisioningService.class);
-        ModuleUserCreationService service = new ModuleUserCreationService(users, moduleProvisioning);
+        CapabilityEvaluationService evaluator = allowedEvaluator();
+        ModuleUserCreationService service = new ModuleUserCreationService(users, moduleProvisioning, evaluator);
 
         when(moduleProvisioning.resolve(TENANT_ID, "crm")).thenReturn(
                 context("CRM.ACCOUNT.READ", "CRM.ACCOUNT.WRITE"));
@@ -88,6 +93,38 @@ class ModuleUserCreationServiceTest {
                 CREATED_ID,
                 "crm",
                 List.of("CRM.ACCOUNT.WRITE", "CRM.ACCOUNT.READ"));
+    }
+
+    @Test
+    void refusesAtomicCreationWhenActorLacksUserCreateEvenIfGrantEndpointGatePassed() {
+        UserService users = mock(UserService.class);
+        ModuleUserProvisioningService moduleProvisioning = mock(ModuleUserProvisioningService.class);
+        CapabilityEvaluationService evaluator = mock(CapabilityEvaluationService.class);
+        when(evaluator.evaluate(TENANT_ID, ACTOR_ID, "USER.CREATE", null))
+                .thenReturn(new AccessDecisionResponse(
+                        TENANT_ID, ACTOR_ID, null, "USER.CREATE", false,
+                        "NO_MATCHING_ACTIVE_ROLE", null, null));
+
+        ModuleUserCreationService service =
+                new ModuleUserCreationService(users, moduleProvisioning, evaluator);
+        ModuleUserProvisionRequest request = new ModuleUserProvisionRequest(
+                createUserRequest(), "crm", List.of("CRM.ACCOUNT.READ"));
+
+        assertThatThrownBy(() -> service.provision(TENANT_ID, ACTOR_ID, request))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("USER.CREATE");
+
+        verify(users, never()).createUser(TENANT_ID, request.user());
+        verify(moduleProvisioning, never()).resolve(TENANT_ID, "crm");
+    }
+
+    private static CapabilityEvaluationService allowedEvaluator() {
+        CapabilityEvaluationService evaluator = mock(CapabilityEvaluationService.class);
+        when(evaluator.evaluate(TENANT_ID, ACTOR_ID, "USER.CREATE", null))
+                .thenReturn(new AccessDecisionResponse(
+                        TENANT_ID, ACTOR_ID, null, "USER.CREATE", true,
+                        "ROLE_CAPABILITY_MATCH", null, null));
+        return evaluator;
     }
 
     private static CreateUserRequest createUserRequest() {
