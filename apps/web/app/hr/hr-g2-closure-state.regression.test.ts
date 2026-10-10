@@ -77,7 +77,7 @@ describe("HR-G2 final engineering closure reconciliation", () => {
 
   it("preserves certified G2 while allowing independently certified G3 to advance", () => {
     expect(Object.fromEntries(HR_GROUP_DATA.map((group) => [group.code, group.status]))).toEqual({
-      G0: "DONE", G1: "DONE", G2: "DONE", G3: "DONE", G4: "IN_PROGRESS", G5: "NOT_STARTED",
+      G0: "DONE", G1: "DONE", G2: "DONE", G3: "DONE", G4: "DONE", G5: "NOT_STARTED",
     });
   });
 
