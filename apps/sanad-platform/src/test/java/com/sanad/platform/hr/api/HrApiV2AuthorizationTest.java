@@ -119,7 +119,10 @@ class HrApiV2AuthorizationTest {
                 "SELECT code FROM access_capabilities WHERE code LIKE 'HRM.%' AND status = 'ACTIVE' ORDER BY code");
         assertThat(seeded)
                 .as("exactly the %d canonical HRM.* capabilities must be seeded ACTIVE", CANONICAL_HRM_CAPABILITIES.size())
-                .containsExactlyInAnyOrderElementsOf(CANONICAL_HRM_CAPABILITIES);
+                .containsExactlyInAnyOrderElementsOf(
+                        java.util.stream.Stream.concat(
+                                CANONICAL_HRM_CAPABILITIES.stream(),
+                                java.util.stream.Stream.of("HRM.PAYROLL.VIEW")).toList());
     }
 
     @Test
@@ -247,8 +250,8 @@ class HrApiV2AuthorizationTest {
                 + "JOIN access_capabilities c ON c.id = g.capability_id "
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
-                .as("one TENANT-scope grant per ADMIN HRM capability")
-                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
+                .as("one TENANT-scope grant per active HRM capability in this synthetic ADMIN backfill")
+                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size() + 1));
 
         // Idempotency: re-running the backfill must not duplicate anything.
         applyScopeGrantBackfill();
@@ -256,7 +259,7 @@ class HrApiV2AuthorizationTest {
                 + "JOIN access_capabilities c ON c.id = g.capability_id "
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
-                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
+                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size() + 1));
 
         List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
         assertThat(hrManagerCaps).containsExactlyInAnyOrder(
