@@ -545,7 +545,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION),
                         MigrationVersion.fromVersion(HR_G4_PAYROLL_SNAPSHOT_VERSION),
                         MigrationVersion.fromVersion(USERS_MODULE_IAM_PROVISIONING_VERSION),
-                        MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION));
+                        MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -779,7 +780,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION),
                         MigrationVersion.fromVersion(HR_G4_PAYROLL_SNAPSHOT_VERSION),
                         MigrationVersion.fromVersion(USERS_MODULE_IAM_PROVISIONING_VERSION),
-                        MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION));
+                        MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);
