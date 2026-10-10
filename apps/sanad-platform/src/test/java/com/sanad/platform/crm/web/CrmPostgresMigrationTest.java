@@ -249,7 +249,7 @@ class CrmPostgresMigrationTest {
     private static final String HR_G4_PAYROLL_SNAPSHOT_VERSION = "20261006.2";
     private static final String USERS_MODULE_IAM_PROVISIONING_VERSION = "20261008.1";
     private static final String CRM_ACCOUNTS_RLS_HARDENING_VERSION = "20261010.1";
-    private static final String LATEST_MIGRATION_VERSION = CRM_ACCOUNTS_RLS_HARDENING_VERSION;
+    private static final String LATEST_MIGRATION_VERSION = "20261010.99";
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -545,7 +545,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION),
                         MigrationVersion.fromVersion(HR_G4_PAYROLL_SNAPSHOT_VERSION),
                         MigrationVersion.fromVersion(USERS_MODULE_IAM_PROVISIONING_VERSION),
-                        MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION));
+                        MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
         assertCompletedSchema(jdbc);
@@ -779,7 +780,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(USERS_PHASE7_EFFECTIVE_ACCESS_EXPLANATION_VERSION),
                         MigrationVersion.fromVersion(HR_G4_PAYROLL_SNAPSHOT_VERSION),
                         MigrationVersion.fromVersion(USERS_MODULE_IAM_PROVISIONING_VERSION),
-                        MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION));
+                        MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();
         assertCompletedSchema(jdbc);

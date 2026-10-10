@@ -119,7 +119,10 @@ class HrApiV2AuthorizationTest {
                 "SELECT code FROM access_capabilities WHERE code LIKE 'HRM.%' AND status = 'ACTIVE' ORDER BY code");
         assertThat(seeded)
                 .as("exactly the %d canonical HRM.* capabilities must be seeded ACTIVE", CANONICAL_HRM_CAPABILITIES.size())
-                .containsExactlyInAnyOrderElementsOf(CANONICAL_HRM_CAPABILITIES);
+                .containsExactlyInAnyOrderElementsOf(
+                        java.util.stream.Stream.concat(
+                                CANONICAL_HRM_CAPABILITIES.stream(),
+                                java.util.stream.Stream.of("HRM.PAYROLL.VIEW")).toList());
     }
 
     @Test
@@ -224,12 +227,12 @@ class HrApiV2AuthorizationTest {
         grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.WRITE");
         grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.ARCHIVE");
 
-        // Runtime provisioning grants every ACTIVE capability to ADMIN
-        // (RegistrationProvisioner semantics) — replicate, then apply the
+        // Runtime provisioning excludes privileged HRM.PAYROLL.* capabilities
+        // from ADMIN (RegistrationProvisioner semantics) — replicate, then apply the
         // migration's scope-grant backfill logic and verify idempotency.
         executeUpdate("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) "
                         + "SELECT gen_random_uuid(), ?, ?, c.id, NOW() FROM access_capabilities c "
-                        + "WHERE c.status = 'ACTIVE' "
+                        + "WHERE c.status = 'ACTIVE' AND c.code NOT LIKE 'HRM.PAYROLL.%' "
                         + "AND NOT EXISTS (SELECT 1 FROM role_capabilities rc WHERE rc.tenant_id = ? "
                         + "AND rc.role_id = ? AND rc.capability_id = c.id)",
                 ps -> {
@@ -241,13 +244,14 @@ class HrApiV2AuthorizationTest {
         applyScopeGrantBackfill();
 
         List<String> adminCaps = roleCapabilities(tenantId, adminRoleId);
+        assertThat(adminCaps).doesNotContain("HRM.PAYROLL.VIEW");
         assertThat(adminCaps).as("ADMIN must hold the full canonical HRM capability set")
                 .containsAll(CANONICAL_HRM_CAPABILITIES);
         assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
                 + "JOIN access_capabilities c ON c.id = g.capability_id "
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
-                .as("one TENANT-scope grant per ADMIN HRM capability")
+                .as("one TENANT-scope grant per active HRM capability in this synthetic ADMIN backfill")
                 .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
 
         // Idempotency: re-running the backfill must not duplicate anything.
@@ -261,6 +265,60 @@ class HrApiV2AuthorizationTest {
         List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
         assertThat(hrManagerCaps).containsExactlyInAnyOrder(
                 "HR.EMPLOYEE.READ", "HR.EMPLOYEE.WRITE", "HR.EMPLOYEE.ARCHIVE");
+    }
+
+    @Test
+    void payrollViewIsDirectOwnerOnlyAndNeverRoleInherited() throws Exception {
+        UUID controlTenant = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID canonicalOwner = UUID.fromString("00000000-0000-0000-0000-000000000010");
+        setTenant(controlTenant);
+        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                + "JOIN access_capabilities c ON c.id=u.capability_id "
+                + "WHERE c.code='HRM.PAYROLL.VIEW' AND u.effect='ALLOW' "
+                + "AND u.tenant_id='" + controlTenant + "' AND u.user_id='" + canonicalOwner + "' "
+                + "AND u.scope_type='TENANT_ALL' AND u.valid_from<=NOW() "
+                + "AND (u.valid_until IS NULL OR u.valid_until>NOW())"))
+                .as("the verified platform owner must have one effective direct payroll VIEW grant")
+                .isEqualTo("1");
+        assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
+                + "JOIN access_capabilities c ON c.id=rc.capability_id "
+                + "WHERE c.code='HRM.PAYROLL.VIEW'"))
+                .as("no tenant role may inherit the owner-only payroll VIEW capability")
+                .isEqualTo("0");
+        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                + "JOIN access_capabilities c ON c.id=u.capability_id "
+                + "WHERE c.code LIKE 'HRM.PAYROLL.%' AND u.effect='ALLOW' "
+                + "AND (u.user_id <> '" + canonicalOwner + "' OR u.tenant_id <> '" + controlTenant + "')"))
+                .as("no other user or tenant may receive the privileged direct grant")
+                .isEqualTo("0");
+        UUID otherTenant = UUID.randomUUID();
+        insertTenant(otherTenant);
+        setTenant(otherTenant);
+        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                + "JOIN access_capabilities c ON c.id=u.capability_id "
+                + "WHERE c.code='HRM.PAYROLL.VIEW' AND u.effect='ALLOW'"))
+                .as("the owner direct payroll grant must not cross the tenant RLS boundary")
+                .isEqualTo("0");
+    }
+
+    @Test
+    void payrollMutationsHaveNoImplicitRoleOrDirectOwnerGrant() throws Exception {
+        UUID controlTenant = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID canonicalOwner = UUID.fromString("00000000-0000-0000-0000-000000000010");
+        setTenant(controlTenant);
+        assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
+                + "JOIN access_capabilities c ON c.id=rc.capability_id "
+                + "WHERE c.code LIKE 'HRM.PAYROLL.%' AND c.code <> 'HRM.PAYROLL.VIEW'"))
+                .as("payroll mutations and export must not be inherited by any role")
+                .isEqualTo("0");
+        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                + "JOIN access_capabilities c ON c.id=u.capability_id "
+                + "WHERE u.tenant_id='" + controlTenant + "' AND u.user_id='" + canonicalOwner + "' "
+                + "AND u.effect='ALLOW' AND c.code LIKE 'HRM.PAYROLL.%' "
+                + "AND c.code <> 'HRM.PAYROLL.VIEW' "
+                + "AND u.valid_from<=NOW() AND (u.valid_until IS NULL OR u.valid_until>NOW())"))
+                .as("the owner VIEW exception must not enable any payroll mutation or export")
+                .isEqualTo("0");
     }
 
     // ==================== fixtures / plumbing ====================
