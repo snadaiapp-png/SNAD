@@ -1,0 +1,81 @@
+name: Stage 30 P0 Database Runtime Identity Gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage30-p0-database-identity
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    name: Protected DB identity and CRM RLS configuration
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Verify production-secret identity (read-only; fail closed)
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_USERNAME: ${{ secrets.PRODUCTION_DATABASE_USERNAME }}
+          DATABASE_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD; do
+            if [ -z "${!v:-}" ]; then echo "::error::Missing required secret $v"; exit 1; fi
+            echo "::add-mask::${!v}"
+          done
+          python3 - <<'PY'
+          import os, urllib.parse
+          raw = os.environ['DATABASE_URL']
+          if not raw.startswith('jdbc:postgresql://'):
+              raise SystemExit('::error::PRODUCTION_DATABASE_URL must be JDBC PostgreSQL URL')
+          u = urllib.parse.urlsplit(raw[5:])
+          if not u.hostname or not u.path or not u.path.strip('/'):
+              raise SystemExit('::error::Database host or name missing')
+          query = urllib.parse.parse_qs(u.query)
+          if query.get('user') or query.get('password'):
+              raise SystemExit('::error::Database URL must not override explicit credentials')
+          os.environ
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+              for key,value in {'PGHOST':u.hostname,'PGPORT':str(u.port or 5432),
+                                'PGDATABASE':u.path.lstrip('/'),'PGSSLMODE':'require'}.items():
+                  f.write(f'{key}={value}\n')
+          PY
+          export PGUSER="$DATABASE_USERNAME" PGPASSWORD="$DATABASE_PASSWORD"
+          test "$(psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align -c 'SELECT current_user')" = "$DATABASE_USERNAME" || {
+            echo "::error::Runtime connected role differs from configured identity"; exit 1;
+          }
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
+          DO $$
+          DECLARE u text := current_user; bypass boolean; privileged boolean; owner_role text;
+          BEGIN
+            SELECT rolbypassrls, rolsuper INTO bypass, privileged FROM pg_roles WHERE rolname = u;
+            SELECT pg_get_userbyid(relowner) INTO owner_role FROM pg_class
+              WHERE oid='public.crm_accounts'::regclass;
+            IF bypass OR privileged OR u=owner_role THEN
+              RAISE EXCEPTION 'CRM RLS ineffective for configured runtime role (owner/bypass/superuser)';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.crm_accounts'::regclass AND relrowsecurity) THEN
+              RAISE EXCEPTION 'crm_accounts row security is not enabled';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_policies
+              WHERE schemaname='public' AND tablename='crm_accounts'
+                AND policyname='tenant_isolation'
+                AND qual LIKE '%current_setting%'
+                AND with_check LIKE '%current_setting%'
+            ) THEN
+              RAISE EXCEPTION 'crm_accounts strict USING/WITH CHECK policy missing';
+            END IF;
+          END $$;
+          SELECT 'RUNTIME_ROLE_RLS_GATE_PASS' AS result;
+          SQL
+          echo "Protected database role and CRM RLS configuration checks passed."
