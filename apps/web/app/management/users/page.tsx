@@ -38,6 +38,7 @@ export default function TenantUsersPage() {
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<UserStatus | "ALL">("ALL");
   const [createOpen, setCreateOpen] = useState(false);
@@ -108,14 +109,15 @@ export default function TenantUsersPage() {
 
   const createUser = async (input: { email: string; username: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential?: string }) => {
     setCreating(true);
-    setError(null);
+    setCreateError(null);
     try {
       await usersApi.create(tenantId, input);
       setCreateOpen(false);
+      setCreateError(null);
       await loadUsers();
       return true;
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      setCreateError(toUserFacingMessage(caught));
       return false;
     } finally {
       setCreating(false);
@@ -155,7 +157,7 @@ export default function TenantUsersPage() {
           {moduleRouteRoot
             ? <GlobalUserProvisioningLauncher presentation="header" />
             : canCreate
-              ? <Button onClick={() => setCreateOpen(true)}>{messages.create}</Button>
+              ? <Button onClick={() => { setCreateError(null); setCreateOpen(true); }}>{messages.create}</Button>
               : null}
         </header>
 
@@ -198,8 +200,8 @@ export default function TenantUsersPage() {
             open={createOpen}
             busy={creating}
             messages={messages}
-            error={error}
-            onClose={() => setCreateOpen(false)}
+            error={createError}
+            onClose={() => { setCreateOpen(false); setCreateError(null); }}
             onSubmit={createUser}
           />
         ) : null}
