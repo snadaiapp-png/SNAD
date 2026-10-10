@@ -27,10 +27,16 @@ def main():
     parsed = urlparse(raw.removeprefix("jdbc:"))
     if parsed.scheme != "postgresql" or not parsed.hostname:
         raise ValueError("Invalid PostgreSQL URL")
-    if "supabase.com" not in parsed.hostname:
-        raise ValueError("G1 requires the configured Supabase project")
+    host = parsed.hostname.lower()
+    project_ref = "tkbrvupemreqabwzdpyq"
+    check("supabase_endpoint", host == "db." + project_ref + ".supabase.co"
+          or host.endswith(".pooler.supabase.com"))
     user = os.environ["SPRING_DATASOURCE_USERNAME"]
-    check("least_privilege_secret_user", user == "sanad")
+    if host.endswith(".pooler.supabase.com"):
+        # Supavisor login names are qualified; PostgreSQL current_user is not.
+        check("least_privilege_secret_user", user == "sanad." + project_ref)
+    else:
+        check("least_privilege_secret_user", user == "sanad")
     tenant_a = UUID(os.environ["AUTH_SMOKE_TENANT_A_ID"])
     tenant_b = UUID(os.environ["AUTH_SMOKE_TENANT_B_ID"])
     check("distinct_tenants", tenant_a != tenant_b and tenant_a != CONTROL and tenant_b != CONTROL)
