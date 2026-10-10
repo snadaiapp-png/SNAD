@@ -1,0 +1,31 @@
+name: Repository Gitlink Integrity
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitlink-integrity:
+    name: Reject orphan gitlinks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependency
+        run: pip install pytest -q
+
+      - name: Verify gitlink metadata integrity
+        run: python3 -m pytest tests/ci/test_repository_gitlinks.py -q
