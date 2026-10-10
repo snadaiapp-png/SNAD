@@ -322,7 +322,7 @@ export const HR_GROUP_DATA = [
     titleEn: "Payroll Integration",
     purposeAr: "ربط بيانات الموظفين والوقت والحضور بنظام الرواتب.",
     purposeEn: "Integrate employee data, time, and attendance with the payroll system.",
-    // Engineering-only G4 closure: T12 PR #1331, PMV A-F and exact-main production reconcile certified.
+    // Engineering-only G4 closure: T12 pull request 1331, PMV A-F and exact-main production reconcile certified.
     // Production payroll-role smoke, operational/legal certification remain separate and pending.
     status: "DONE" as GroupStatus,
     dependencies: ["G2", "G3"],
