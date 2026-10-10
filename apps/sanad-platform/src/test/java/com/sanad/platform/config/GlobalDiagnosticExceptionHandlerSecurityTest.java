@@ -1,6 +1,6 @@
 package com.sanad.platform.config;
 
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;\nimport org.junit.jupiter.api.Test;\nimport org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -36,6 +36,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GlobalDiagnosticExceptionHandlerSecurityTest {
 
     private final GlobalDiagnosticExceptionHandler handler = new GlobalDiagnosticExceptionHandler();
+
+    @AfterEach
+    void clearMdc() {
+        MDC.clear();
+    }
 
     // ===== HTTP semantics tests =====
 
