@@ -247,20 +247,6 @@ class GlobalDiagnosticExceptionHandlerSecurityTest {
     }
 
     @Test
-    void genericException_reusesRequestCorrelationIdFromMdc() {
-        String requestId = "5d3b6e27-6a22-45b8-9a05-be3c7f6bfb3e";
-        org.slf4j.MDC.put("correlation_id", requestId);
-        try {
-            ResponseEntity<Map<String, Object>> response =
-                    handler.handleUnhandled(new RuntimeException("boom"));
-            assertThat(response.getBody()).isNotNull();
-            assertThat(response.getBody().get("correlationId")).isEqualTo(requestId);
-        } finally {
-            org.slf4j.MDC.clear();
-        }
-    }
-
-    @Test
     void nullMessage_exception_doesNotLeakNullIndicator() {
         RuntimeException ex = new RuntimeException(); // null message
         ResponseEntity<Map<String, Object>> response = handler.handleUnhandled(ex);
@@ -282,4 +268,19 @@ class GlobalDiagnosticExceptionHandlerSecurityTest {
         assertThat(bodyJson).doesNotContain("prod-db.internal.snad.io");
         assertThat(bodyJson).doesNotContain("5432/snad");
     }
+    @Test
+    void genericException_reusesRequestCorrelationIdFromMdc() {
+        String requestId = "5d3b6e27-6a22-45b8-9a05-be3c7f6bfb3e";
+        org.slf4j.MDC.put("correlation_id", requestId);
+        try {
+            ResponseEntity<Map<String, Object>> response =
+                    handler.handleUnhandled(new RuntimeException("boom"));
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().get("correlationId")).isEqualTo(requestId);
+        } finally {
+            org.slf4j.MDC.clear();
+        }
+    }
+
+
 }
