@@ -1,9 +1,9 @@
 name: SNAD Master Release Orchestrator
 
 on:
+  # Legacy orchestrator must not auto-deploy Vercel on every push.
   workflow_dispatch:
-  push:
-    branches: [main]
+
 
 permissions:
   contents: write
