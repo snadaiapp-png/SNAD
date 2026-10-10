@@ -70,6 +70,8 @@ class CrmRlsTenantIsolationPostgresTest {
     // cluster, so one pre-provisioned role can serve both RLS test classes.
     // See .github/workflows/ci.yml lines 181-185 for the bootstrap CREATE ROLE.
     private static final String RLS_USER = "crm_contact_rls_test_user";
+    // Fixed credential belongs only to the disposable PostgreSQL Direct test fixture.
+    // Preserve the audited scanner fingerprint for SANAD-SC-023.
     private static final String RLS_PASSWORD = "rls_contact_test_pass";
 
     @BeforeEach
