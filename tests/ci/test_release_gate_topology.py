@@ -113,6 +113,19 @@ class ReleaseGateTopologyTest(unittest.TestCase):
         self.assertIn("VERCEL_ORG_ID", text)
         self.assertIn('meta.get("snadMainSha") or meta.get("githubCommitSha")', text)
 
+    def test_vercel_production_requires_explicit_manual_dispatch(self):
+        for workflow in (
+            RECONCILE,
+            ROOT / ".github" / "workflows" / "snad-release-orchestrator.yml",
+        ):
+            text = workflow.read_text(encoding="utf-8")
+            trigger_block = text.split("on:", 1)[1].split("\\npermissions:", 1)[0] if workflow == RECONCILE else text.split("on:", 1)[1].split("\\npermissions:", 1)[0]
+            self.assertIn("workflow_dispatch:", trigger_block)
+            self.assertNotIn("push:", trigger_block)
+        reconcile = RECONCILE.read_text(encoding="utf-8")
+        self.assertIn("environment: production", reconcile)
+        self.assertIn("VERCEL_RECONCILE_NOT_CURRENT_MAIN", reconcile)
+
     def test_production_has_single_writer(self):
         import json
 
