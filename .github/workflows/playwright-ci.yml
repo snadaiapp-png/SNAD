@@ -299,7 +299,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mvn --batch-mode --no-transfer-progress flyway:migrate \
+          mvn --batch-mode --no-transfer-progress --update-snapshots org.flywaydb:flyway-maven-plugin:11.7.2:migrate \
             -Dflyway.url="$DATABASE_URL" \
             -Dflyway.user="$DATABASE_USERNAME" \
             -Dflyway.password="$DATABASE_PASSWORD" \
@@ -558,7 +558,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mvn --batch-mode --no-transfer-progress flyway:migrate \
+          mvn --batch-mode --no-transfer-progress --update-snapshots org.flywaydb:flyway-maven-plugin:11.7.2:migrate \
             -Dflyway.url="$DATABASE_URL" \
             -Dflyway.user="$DATABASE_USERNAME" \
             -Dflyway.password="$DATABASE_PASSWORD" \
