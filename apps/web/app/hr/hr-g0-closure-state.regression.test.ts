@@ -53,7 +53,7 @@ describe("HR-G0 closure state reconciliation", () => {
 
   it("keeps later HR phases isolated after independently certified G3 closure", () => {
     // G1, G2, and G3 are independently reconciled by their own closure blocks
-    // and regressions. G4 implementation is now underway; G5 remains untouched.
+    // and regressions. G4 engineering is DONE; G4 production-role smoke remains pending, G5 untouched.
     const g1 = HR_GROUP_DATA.find((g) => g.code === "G1");
     expect(g1?.status).toBe(HR_G1_CLOSURE.implementation);
 
@@ -63,7 +63,7 @@ describe("HR-G0 closure state reconciliation", () => {
     const g3 = HR_GROUP_DATA.find((g) => g.code === "G3");
     expect(g3?.status).toBe("DONE");
 
-    expect(HR_GROUP_DATA.find((g) => g.code === "G4")?.status).toBe("IN_PROGRESS");
+    expect(HR_GROUP_DATA.find((g) => g.code === "G4")?.status).toBe("DONE");
     expect(HR_GROUP_DATA.find((g) => g.code === "G5")?.status).toBe("NOT_STARTED");
   });
 
