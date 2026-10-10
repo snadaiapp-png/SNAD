@@ -255,7 +255,16 @@ export function GlobalUserProvisioningLauncher({
         `/management/users/${created.id}?returnTo=${encodeURIComponent(`${pathname}${search}`)}`,
       );
     } catch (caught) {
-      setError(toUserFacingMessage(caught));
+      const message = toUserFacingMessage(caught);
+      setError(message);
+      if (caught instanceof ApiInputValidationError) {
+        setFieldErrors({ [caught.field]: message });
+        requestAnimationFrame(() => {
+          document.getElementById(`global-user-${caught.field}`)?.focus();
+        });
+      } else {
+        requestAnimationFrame(() => errorRef.current?.scrollIntoView({ block: "nearest" }));
+      }
     } finally {
       setBusy(false);
     }
