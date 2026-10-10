@@ -227,12 +227,12 @@ class HrApiV2AuthorizationTest {
         grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.WRITE");
         grant(tenantId, hrManagerRoleId, "HR.EMPLOYEE.ARCHIVE");
 
-        // Runtime provisioning grants every ACTIVE capability to ADMIN
-        // (RegistrationProvisioner semantics) — replicate, then apply the
+        // Runtime provisioning excludes privileged HRM.PAYROLL.* capabilities
+        // from ADMIN (RegistrationProvisioner semantics) — replicate, then apply the
         // migration's scope-grant backfill logic and verify idempotency.
         executeUpdate("INSERT INTO role_capabilities (id, tenant_id, role_id, capability_id, created_at) "
                         + "SELECT gen_random_uuid(), ?, ?, c.id, NOW() FROM access_capabilities c "
-                        + "WHERE c.status = 'ACTIVE' "
+                        + "WHERE c.status = 'ACTIVE' AND c.code NOT LIKE 'HRM.PAYROLL.%' "
                         + "AND NOT EXISTS (SELECT 1 FROM role_capabilities rc WHERE rc.tenant_id = ? "
                         + "AND rc.role_id = ? AND rc.capability_id = c.id)",
                 ps -> {
@@ -244,6 +244,7 @@ class HrApiV2AuthorizationTest {
         applyScopeGrantBackfill();
 
         List<String> adminCaps = roleCapabilities(tenantId, adminRoleId);
+        assertThat(adminCaps).doesNotContain("HRM.PAYROLL.VIEW");
         assertThat(adminCaps).as("ADMIN must hold the full canonical HRM capability set")
                 .containsAll(CANONICAL_HRM_CAPABILITIES);
         assertThat(queryScalar("SELECT COUNT(*) FROM access_scope_grants g "
@@ -251,7 +252,7 @@ class HrApiV2AuthorizationTest {
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
                 .as("one TENANT-scope grant per active HRM capability in this synthetic ADMIN backfill")
-                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size() + 1));
+                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
 
         // Idempotency: re-running the backfill must not duplicate anything.
         applyScopeGrantBackfill();
