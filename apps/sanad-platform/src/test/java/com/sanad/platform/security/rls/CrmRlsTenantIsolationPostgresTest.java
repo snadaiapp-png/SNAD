@@ -34,8 +34,8 @@ import com.sanad.platform.crm.integration.Crm009TestEnvironment;
  *   <tr><td>SELECT cross tenant</td><td>set to A</td><td>❌ 0 rows</td></tr>
  *   <tr><td>INSERT same tenant</td><td>set to A</td><td>✅ succeeds</td></tr>
  *   <tr><td>INSERT cross tenant</td><td>set to A</td><td>❌ blocked</td></tr>
- *   <tr><td>No context (fallback)</td><td>unset</td><td>✅ all rows</td></tr>
- *   <tr><td>SET LOCAL resets</td><td>after commit</td><td>✅ all rows</td></tr>
+ *   <tr><td>No context (fallback)</td><td>unset</td><td>❌ zero rows</td></tr>
+ *   <tr><td>SET LOCAL resets</td><td>after commit</td><td>❌ zero rows</td></tr>
  * </table>
  */
 class CrmRlsTenantIsolationPostgresTest {
@@ -237,7 +237,7 @@ class CrmRlsTenantIsolationPostgresTest {
     }
 
     @Test
-    void withoutTenantContextAllRowsVisible() throws SQLException {
+    void withoutTenantContextNoRowsVisible() throws SQLException {
         UUID tenantA = tenantId("rls-a");
         UUID tenantB = tenantId("rls-b");
         seedAccount(tenantA, "Account A");
@@ -245,11 +245,11 @@ class CrmRlsTenantIsolationPostgresTest {
 
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            // Do NOT set app.tenant_id — fallback should be permissive
+            // Do NOT set app.tenant_id — fail closed
             Long allVisible = countAccounts(conn);
             assertThat(allVisible)
-                    .as("Without tenant context, RLS should be permissive (fallback mode)")
-                    .isGreaterThanOrEqualTo(2L);
+                    .as("Without tenant context, CRM accounts must fail closed")
+                    .isZero();
 
             conn.commit();
         }
@@ -273,11 +273,11 @@ class CrmRlsTenantIsolationPostgresTest {
         // Transaction 2: same connection pool semantics — SET LOCAL must have reset
         try (Connection conn = rawConnection()) {
             conn.setAutoCommit(false);
-            // No SET LOCAL here — should see all rows (permissive fallback)
+            // No SET LOCAL here — must not see any CRM accounts
             Long allVisible = countAccounts(conn);
             assertThat(allVisible)
-                    .as("SET LOCAL must reset after transaction commit")
-                    .isGreaterThanOrEqualTo(2L);
+                    .as("SET LOCAL must reset to fail-closed after transaction commit")
+                    .isZero();
             conn.commit();
         }
     }
