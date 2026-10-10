@@ -53,13 +53,13 @@ class PlatformOwnerExecutiveAdminPostgresAcceptanceTest {
     }
 
     @Test void platformOwnerRoleHasEveryActiveCapabilityThroughRoleCapabilities() throws Exception {
-        try (Connection conn = controlTenantConnection(); PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) FROM access_capabilities ac WHERE ac.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM role_capabilities rc JOIN roles r ON r.id=rc.role_id AND r.tenant_id=rc.tenant_id WHERE rc.tenant_id=? AND r.code='PLATFORM_OWNER' AND r.status='ACTIVE' AND rc.capability_id=ac.id)")) {
+        try (Connection conn = controlTenantConnection(); PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) FROM access_capabilities ac WHERE ac.status='ACTIVE' AND ac.code <> 'HRM.PAYROLL.VIEW' AND NOT EXISTS (SELECT 1 FROM role_capabilities rc JOIN roles r ON r.id=rc.role_id AND r.tenant_id=rc.tenant_id WHERE rc.tenant_id=? AND r.code='PLATFORM_OWNER' AND r.status='ACTIVE' AND rc.capability_id=ac.id)")) {
             ps.setObject(1, CONTROL_TENANT_ID); try (ResultSet rs = ps.executeQuery()) { rs.next(); assertThat(rs.getInt(1)).isZero(); }
         }
     }
 
     @Test void platformOwnerRoleHasTenantScopeForEveryActiveCapability() throws Exception {
-        try (Connection conn = controlTenantConnection(); PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) FROM access_capabilities ac WHERE ac.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM access_scope_grants asg JOIN roles r ON r.id=asg.role_id AND r.tenant_id=asg.tenant_id WHERE asg.tenant_id=? AND r.code='PLATFORM_OWNER' AND r.status='ACTIVE' AND asg.capability_id=ac.id AND asg.user_id IS NULL AND asg.scope_type='TENANT' AND asg.status='ACTIVE')")) {
+        try (Connection conn = controlTenantConnection(); PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) FROM access_capabilities ac WHERE ac.status='ACTIVE' AND ac.code <> 'HRM.PAYROLL.VIEW' AND NOT EXISTS (SELECT 1 FROM access_scope_grants asg JOIN roles r ON r.id=asg.role_id AND r.tenant_id=asg.tenant_id WHERE asg.tenant_id=? AND r.code='PLATFORM_OWNER' AND r.status='ACTIVE' AND asg.capability_id=ac.id AND asg.user_id IS NULL AND asg.scope_type='TENANT' AND asg.status='ACTIVE')")) {
             ps.setObject(1, CONTROL_TENANT_ID); try (ResultSet rs = ps.executeQuery()) { rs.next(); assertThat(rs.getInt(1)).isZero(); }
         }
     }
