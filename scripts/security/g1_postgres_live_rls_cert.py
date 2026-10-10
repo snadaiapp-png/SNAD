@@ -49,6 +49,11 @@ def main():
             ).fetchone()
             check("runtime_role_is_sanad", current_user == "sanad")
             check("runtime_cannot_bypass_rls", not bypass and not superuser)
+            for tenant, label in ((tenant_a, "A"), (tenant_b, "B"), (CONTROL, "CONTROL")):
+                tenant_count = conn.execute(
+                    "SELECT count(*) FROM public.tenants WHERE id=%s AND status='ACTIVE'",
+                    (tenant,)).fetchone()[0]
+                check("tenant_" + label + "_exists_active", tenant_count == 1)
             for table in TABLES:
                 enabled, forced = conn.execute(
                     "SELECT c.relrowsecurity, c.relforcerowsecurity FROM pg_class c "
