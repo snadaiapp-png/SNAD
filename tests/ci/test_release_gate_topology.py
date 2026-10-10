@@ -119,7 +119,7 @@ class ReleaseGateTopologyTest(unittest.TestCase):
             ROOT / ".github" / "workflows" / "snad-release-orchestrator.yml",
         ):
             text = workflow.read_text(encoding="utf-8")
-            trigger_block = text.split("on:", 1)[1].split("\\npermissions:", 1)[0] if workflow == RECONCILE else text.split("on:", 1)[1].split("\\npermissions:", 1)[0]
+            trigger_block = text.partition("permissions:")[0]
             self.assertIn("workflow_dispatch:", trigger_block)
             self.assertNotIn("push:", trigger_block)
         reconcile = RECONCILE.read_text(encoding="utf-8")
