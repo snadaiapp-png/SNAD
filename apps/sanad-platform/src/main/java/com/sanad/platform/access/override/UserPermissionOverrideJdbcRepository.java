@@ -5,9 +5,10 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -54,9 +55,18 @@ public class UserPermissionOverrideJdbcRepository implements UserPermissionOverr
             if (override.getScopeReference() == null) ps.setNull(7, Types.OTHER);
             else ps.setObject(7, override.getScopeReference());
             ps.setString(8, override.getReason());
-            ps.setTimestamp(9, Timestamp.from(override.getValidFrom()));
-            if (override.getValidUntil() == null) ps.setNull(10, Types.TIMESTAMP_WITH_TIMEZONE);
-            else ps.setTimestamp(10, Timestamp.from(override.getValidUntil()));
+            ps.setObject(
+                    9,
+                    OffsetDateTime.ofInstant(override.getValidFrom(), ZoneOffset.UTC),
+                    Types.TIMESTAMP_WITH_TIMEZONE);
+            if (override.getValidUntil() == null) {
+                ps.setNull(10, Types.TIMESTAMP_WITH_TIMEZONE);
+            } else {
+                ps.setObject(
+                        10,
+                        OffsetDateTime.ofInstant(override.getValidUntil(), ZoneOffset.UTC),
+                        Types.TIMESTAMP_WITH_TIMEZONE);
+            }
             ps.setObject(11, override.getCreatedBy());
             ps.setInt(12, override.getVersion());
             return ps;
