@@ -5,6 +5,8 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -37,14 +39,28 @@ public class UserPermissionOverrideJdbcRepository implements UserPermissionOverr
 
     @Override
     public UserPermissionOverride insert(UserPermissionOverride override) {
-        jdbc.update("INSERT INTO user_permission_overrides "
-                        + "(id, tenant_id, user_id, capability_id, effect, scope_type, scope_reference, "
-                        + "reason, valid_from, valid_until, created_by, created_at, updated_at, version) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)",
-                override.getId(), override.getTenantId(), override.getUserId(),
-                override.getCapabilityId(), override.getEffect(), override.getScopeType(),
-                override.getScopeReference(), override.getReason(), override.getValidFrom(),
-                override.getValidUntil(), override.getCreatedBy(), override.getVersion());
+        jdbc.update(con -> {
+            var ps = con.prepareStatement(
+                    "INSERT INTO user_permission_overrides "
+                            + "(id, tenant_id, user_id, capability_id, effect, scope_type, scope_reference, "
+                            + "reason, valid_from, valid_until, created_by, created_at, updated_at, version) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)");
+            ps.setObject(1, override.getId());
+            ps.setObject(2, override.getTenantId());
+            ps.setObject(3, override.getUserId());
+            ps.setObject(4, override.getCapabilityId());
+            ps.setString(5, override.getEffect());
+            ps.setString(6, override.getScopeType());
+            if (override.getScopeReference() == null) ps.setNull(7, Types.OTHER);
+            else ps.setObject(7, override.getScopeReference());
+            ps.setString(8, override.getReason());
+            ps.setTimestamp(9, Timestamp.from(override.getValidFrom()));
+            if (override.getValidUntil() == null) ps.setNull(10, Types.TIMESTAMP_WITH_TIMEZONE);
+            else ps.setTimestamp(10, Timestamp.from(override.getValidUntil()));
+            ps.setObject(11, override.getCreatedBy());
+            ps.setInt(12, override.getVersion());
+            return ps;
+        });
         return override;
     }
 
