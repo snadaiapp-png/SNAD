@@ -27,7 +27,8 @@ class UserApplicationAccessControllerTest {
 
         var controller = new UserApplicationAccessController(
                 mock(UserApplicationAccessProjectionService.class),
-                mock(ModuleUserProvisioningService.class));
+                mock(ModuleUserProvisioningService.class),
+                mock(ModuleUserCreationService.class));
 
         assertThatThrownBy(() -> controller.list(auth, requestedTenant, userId))
                 .isInstanceOf(AccessDeniedException.class)
@@ -52,10 +53,18 @@ class UserApplicationAccessControllerTest {
         RequireCapability overrideGrant = UserApplicationAccessController.class
                 .getMethod("grantModuleCapabilityOverrides", org.springframework.security.core.Authentication.class, UUID.class, ModuleCapabilityGrantRequest.class)
                 .getAnnotation(RequireCapability.class);
+        RequireCapability atomicTenantProvision = UserApplicationAccessController.class
+                .getMethod("provisionModuleUser", org.springframework.security.core.Authentication.class, UUID.class, ModuleUserProvisionRequest.class)
+                .getAnnotation(RequireCapability.class);
+        RequireCapability atomicOverrideProvision = UserApplicationAccessController.class
+                .getMethod("provisionModuleUserWithOverrides", org.springframework.security.core.Authentication.class, UUID.class, ModuleUserProvisionRequest.class)
+                .getAnnotation(RequireCapability.class);
 
         assertThat(readContext.value()).isEqualTo("CAPABILITY.READ");
         assertThat(provisionContext.value()).isEqualTo("USER.CREATE");
         assertThat(tenantGrant.value()).isEqualTo("USER.GRANT_ROLE");
         assertThat(overrideGrant.value()).isEqualTo("AUTHORIZATION.OVERRIDE.MANAGE");
+        assertThat(atomicTenantProvision.value()).isEqualTo("USER.GRANT_ROLE");
+        assertThat(atomicOverrideProvision.value()).isEqualTo("AUTHORIZATION.OVERRIDE.MANAGE");
     }
 }
