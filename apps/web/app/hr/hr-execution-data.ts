@@ -322,8 +322,7 @@ export const HR_GROUP_DATA = [
     titleEn: "Payroll Integration",
     purposeAr: "ربط بيانات الموظفين والوقت والحضور بنظام الرواتب.",
     purposeEn: "Integrate employee data, time, and attendance with the payroll system.",
-    // T1-T10 implemented and merged; T12 engineering closure not yet certified.
-    status: "IN_PROGRESS" as GroupStatus,
+    // Engineering-only G4 closure: T12 PR #1331, PMV A-F and exact-main production reconcile certified.\n    // Production payroll-role smoke, operational/legal certification remain separate and pending.\n    status: "DONE" as GroupStatus,
     dependencies: ["G2", "G3"],
     canParallelizeWith: [],
     stageReport: null,
