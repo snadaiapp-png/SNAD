@@ -87,7 +87,10 @@ public final class RegistrationProvisioner {
                 tenant.getId(), "ADMIN", "Administrator", "Tenant-wide administrative access"));
         grants.save(new UserRoleGrant(tenant.getId(), administrator.getId(), adminRole.getId(), null));
         UUID roleId = adminRole.getId();
-        capabilities.findByStatusOrderByCodeAsc(CapabilityStatus.ACTIVE)
+        // Payroll permissions are privileged and must never be inherited from the
+        // global ACTIVE catalog by newly provisioned tenant administrators.
+        capabilities.findByStatusOrderByCodeAsc(CapabilityStatus.ACTIVE).stream()
+                .filter(capability -> !capability.getCode().startsWith("HRM.PAYROLL."))
                 .forEach(capability -> roleCapabilities.save(new RoleCapability(
                         tenant.getId(), roleId, capability.getId())));
 
