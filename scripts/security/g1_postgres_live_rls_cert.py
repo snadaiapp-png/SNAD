@@ -73,7 +73,7 @@ def main():
             # Canonical owner invariant is read-only; no password, token or personal record is exported.
             conn.execute("SELECT set_config('app.tenant_id', %s, true)", (str(CONTROL),))
             owner = conn.execute(
-                "SELECT count(*) FROM public.users WHERE id=%s AND tenant_id=%s AND account_status='ACTIVE'",
+                "SELECT count(*) FROM public.users WHERE id=%s AND tenant_id=%s AND status='ACTIVE'",
                 (OWNER, CONTROL)).fetchone()[0]
             check("canonical_owner_active_in_control_tenant", owner == 1)
     results["result"] = "PASS"
