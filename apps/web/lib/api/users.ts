@@ -264,14 +264,14 @@ export function createUsersApi(client: ApiClient = apiClient) {
       const normalized = normalizeUserCreationInput(input);
       const body: CreateUserRequest = {
         email: normalized.email,
-        username: normalized.username,
         displayName: normalized.displayName,
-        mobileNumber: normalized.mobileNumber,
-        mobileRegion: normalized.mobileRegion,
-        ...(normalized.initialCredential !== undefined
-          ? { initialCredential: normalized.initialCredential }
-          : {}),
       };
+      if (input.username !== undefined) body.username = normalized.username;
+      if (input.mobileNumber !== undefined) body.mobileNumber = normalized.mobileNumber;
+      if (input.mobileRegion !== undefined) body.mobileRegion = normalized.mobileRegion;
+      if (normalized.initialCredential !== undefined) {
+        body.initialCredential = normalized.initialCredential;
+      }
       if (input.status !== undefined) body.status = input.status;
       return client.post<UserResponse, CreateUserRequest>(
         "/api/v1/users",
@@ -294,17 +294,14 @@ export function createUsersApi(client: ApiClient = apiClient) {
       const normalizedRegion = input.mobileRegion === undefined
         ? undefined
         : normalizeMobileRegionForUser(input.mobileRegion);
+      const normalizedProfile = normalizeUserCreationInput({
+        email: input.email,
+        username: input.username,
+        displayName: input.displayName,
+      });
       const body: UpdateUserRequest = {
-        email: normalizeUserCreationInput({
-          email: input.email,
-          username: input.username,
-          displayName: input.displayName,
-        }).email,
-        displayName: normalizeUserCreationInput({
-          email: input.email,
-          username: input.username,
-          displayName: input.displayName,
-        }).displayName,
+        email: normalizedProfile.email,
+        displayName: normalizedProfile.displayName,
       };
       if (input.username !== undefined) {
         body.username = normalizeUsernameForUser(input.username);
