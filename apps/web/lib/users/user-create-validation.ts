@@ -106,8 +106,9 @@ export function normalizeUserCreationInput(input: UserCreationDraft): Normalized
     requireValidDisplayName(input.displayName ?? null),
   );
   const username = normalizeUsernameForUser(input.username);
-  const mobileRegion = normalizeMobileRegionForUser(input.mobileRegion);
-  const mobileNumber = normalizeMobileNumberForUser(input.mobileNumber, mobileRegion);
+  const normalizedRegion = normalizeMobileRegionForUser(input.mobileRegion);
+  const mobileNumber = normalizeMobileNumberForUser(input.mobileNumber, normalizedRegion);
+  const mobileRegion = mobileNumber ? normalizedRegion : null;
   const initialCredential = normalizeInitialCredentialForUser(input.initialCredential);
 
   return {
