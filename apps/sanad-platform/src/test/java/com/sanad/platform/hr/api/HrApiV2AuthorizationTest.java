@@ -260,7 +260,7 @@ class HrApiV2AuthorizationTest {
                 + "JOIN access_capabilities c ON c.id = g.capability_id "
                 + "WHERE g.tenant_id = '" + tenantId + "' AND g.role_id = '" + adminRoleId + "' "
                 + "AND g.scope_type = 'TENANT' AND c.code LIKE 'HRM.%' AND g.status = 'ACTIVE'"))
-                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size() + 1));
+                .isEqualTo(Integer.toString(CANONICAL_HRM_CAPABILITIES.size()));
 
         List<String> hrManagerCaps = roleCapabilities(tenantId, hrManagerRoleId);
         assertThat(hrManagerCaps).containsExactlyInAnyOrder(
