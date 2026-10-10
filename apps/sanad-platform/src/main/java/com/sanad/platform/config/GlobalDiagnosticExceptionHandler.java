@@ -2,6 +2,7 @@ package com.sanad.platform.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -177,7 +178,7 @@ public class GlobalDiagnosticExceptionHandler {
         if (status == null) status = HttpStatus.INTERNAL_SERVER_ERROR;
         if (status.is5xxServerError()) {
             // Unexpected server-side ResponseStatusException → log at ERROR with correlationId
-            String correlationId = UUID.randomUUID().toString();
+            String correlationId = correlationId();
             log.error("ResponseStatusException 5xx: correlationId={} type={} message={}",
                     correlationId, e.getClass().getName(), e.getMessage(), e);
             Map<String, Object> body = safeBody(status, "An unexpected error occurred", correlationId);
@@ -236,7 +237,7 @@ public class GlobalDiagnosticExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleUnhandled(Exception e) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = correlationId();
         log.error("Unhandled exception: correlationId={} type={} message={}",
                 correlationId, e.getClass().getName(), e.getMessage(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(safeBody(
@@ -250,9 +251,19 @@ public class GlobalDiagnosticExceptionHandler {
      * message, correlationId. The correlationId is generated if not
      * supplied. The message is sanitised — never exposes internal details.
      */
+    private String correlationId() {
+        String correlationId = MDC.get("correlation_id");
+        if (correlationId == null || correlationId.isBlank()) {
+            correlationId = MDC.get("request_id");
+        }
+        return correlationId == null || correlationId.isBlank()
+                ? UUID.randomUUID().toString()
+                : correlationId;
+    }
+
     private Map<String, Object> safeBody(HttpStatus status, String message, String correlationId) {
         if (correlationId == null || correlationId.isBlank()) {
-            correlationId = UUID.randomUUID().toString();
+            correlationId = correlationId();
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", status.value());
