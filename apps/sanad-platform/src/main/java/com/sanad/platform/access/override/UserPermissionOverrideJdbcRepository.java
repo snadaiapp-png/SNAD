@@ -1,6 +1,6 @@
 package com.sanad.platform.access.override;
 
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.sanad.platform.shared.jdbc.PostgresTemporalBinding;\nimport org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
@@ -55,18 +55,8 @@ public class UserPermissionOverrideJdbcRepository implements UserPermissionOverr
             if (override.getScopeReference() == null) ps.setNull(7, Types.OTHER);
             else ps.setObject(7, override.getScopeReference());
             ps.setString(8, override.getReason());
-            ps.setObject(
-                    9,
-                    OffsetDateTime.ofInstant(override.getValidFrom(), ZoneOffset.UTC),
-                    Types.TIMESTAMP_WITH_TIMEZONE);
-            if (override.getValidUntil() == null) {
-                ps.setNull(10, Types.TIMESTAMP_WITH_TIMEZONE);
-            } else {
-                ps.setObject(
-                        10,
-                        OffsetDateTime.ofInstant(override.getValidUntil(), ZoneOffset.UTC),
-                        Types.TIMESTAMP_WITH_TIMEZONE);
-            }
+            PostgresTemporalBinding.setTimestamptz(ps, 9, override.getValidFrom());
+            PostgresTemporalBinding.setTimestamptz(ps, 10, override.getValidUntil());
             ps.setObject(11, override.getCreatedBy());
             ps.setInt(12, override.getVersion());
             return ps;
