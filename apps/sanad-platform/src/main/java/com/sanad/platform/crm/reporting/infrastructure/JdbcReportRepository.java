@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -27,8 +28,8 @@ public class JdbcReportRepository implements ReportRepository {
     public List<Map<String, Object>> getLeadCountsByStatus(UUID tenantId, Instant dateFrom, Instant dateTo) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("t", tenantId)
-                .addValue("dateFrom", dateFrom)
-                .addValue("dateTo", dateTo);
+                .addValue("dateFrom", timestamp(dateFrom))
+                .addValue("dateTo", timestamp(dateTo));
         return jdbc.queryForList(
                 "SELECT status, COUNT(*) as count FROM crm_leads " +
                 "WHERE tenant_id = :t AND created_at BETWEEN :dateFrom AND :dateTo " +
@@ -39,8 +40,8 @@ public class JdbcReportRepository implements ReportRepository {
     public List<Map<String, Object>> getOpportunityCountsByStage(UUID tenantId, Instant dateFrom, Instant dateTo) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("t", tenantId)
-                .addValue("dateFrom", dateFrom)
-                .addValue("dateTo", dateTo);
+                .addValue("dateFrom", timestamp(dateFrom))
+                .addValue("dateTo", timestamp(dateTo));
         return jdbc.queryForList(
                 "SELECT ps.name as stage_name, COUNT(*) as count, SUM(o.amount) as total_amount " +
                 "FROM crm_opportunities o " +
@@ -53,8 +54,8 @@ public class JdbcReportRepository implements ReportRepository {
     public List<Map<String, Object>> getActivityCountsByType(UUID tenantId, Instant dateFrom, Instant dateTo) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("t", tenantId)
-                .addValue("dateFrom", dateFrom)
-                .addValue("dateTo", dateTo);
+                .addValue("dateFrom", timestamp(dateFrom))
+                .addValue("dateTo", timestamp(dateTo));
         return jdbc.queryForList(
                 "SELECT activity_type, status, COUNT(*) as count " +
                 "FROM crm_activities " +
@@ -66,8 +67,8 @@ public class JdbcReportRepository implements ReportRepository {
     public List<Map<String, Object>> getEmailEngagementMetrics(UUID tenantId, Instant dateFrom, Instant dateTo) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("t", tenantId)
-                .addValue("dateFrom", dateFrom)
-                .addValue("dateTo", dateTo);
+                .addValue("dateFrom", timestamp(dateFrom))
+                .addValue("dateTo", timestamp(dateTo));
         return jdbc.queryForList(
                 "SELECT status, COUNT(*) as count " +
                 "FROM crm_email_logs " +
@@ -79,8 +80,8 @@ public class JdbcReportRepository implements ReportRepository {
     public List<Map<String, Object>> getConversionFunnel(UUID tenantId, Instant dateFrom, Instant dateTo) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("t", tenantId)
-                .addValue("dateFrom", dateFrom)
-                .addValue("dateTo", dateTo);
+                .addValue("dateFrom", timestamp(dateFrom))
+                .addValue("dateTo", timestamp(dateTo));
         return jdbc.queryForList(
                 "SELECT " +
                 "  (SELECT COUNT(*) FROM crm_leads WHERE tenant_id = :t AND created_at BETWEEN :dateFrom AND :dateTo) as total_leads, " +
@@ -93,8 +94,8 @@ public class JdbcReportRepository implements ReportRepository {
     public List<Map<String, Object>> getSalesForecast(UUID tenantId, Instant dateFrom, Instant dateTo) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("t", tenantId)
-                .addValue("dateFrom", dateFrom)
-                .addValue("dateTo", dateTo);
+                .addValue("dateFrom", timestamp(dateFrom))
+                .addValue("dateTo", timestamp(dateTo));
         return jdbc.queryForList(
                 "SELECT " +
                 "  ps.name as stage_name, " +
@@ -113,8 +114,8 @@ public class JdbcReportRepository implements ReportRepository {
     public Map<String, Object> getSummaryStats(UUID tenantId, Instant dateFrom, Instant dateTo) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("t", tenantId)
-                .addValue("dateFrom", dateFrom)
-                .addValue("dateTo", dateTo);
+                .addValue("dateFrom", timestamp(dateFrom))
+                .addValue("dateTo", timestamp(dateTo));
         return jdbc.queryForMap(
                 "SELECT " +
                 "  (SELECT COUNT(*) FROM crm_accounts WHERE tenant_id = :t) as total_accounts, " +
@@ -124,4 +125,8 @@ public class JdbcReportRepository implements ReportRepository {
                 "  (SELECT COALESCE(SUM(amount), 0) FROM crm_opportunities WHERE tenant_id = :t AND status = 'OPEN') as pipeline_value, " +
                 "  (SELECT COUNT(*) FROM crm_activities WHERE tenant_id = :t AND status IN ('OPEN', 'IN_PROGRESS')) as pending_activities", params);
     }
+    private static Timestamp timestamp(Instant value) {
+        return value == null ? null : Timestamp.from(value);
+    }
+
 }

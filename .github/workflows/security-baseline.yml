@@ -150,6 +150,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+
+  backend-jdbc-temporal-safety:
+    name: Backend JDBC Temporal Safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run JDBC temporal guard regression tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests.ci.test_jdbc_temporal_bindings -v
+      - name: Enforce repository-wide temporal binding contract
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/check_jdbc_temporal_bindings.py
+
   frontend-production-audit:
     name: Frontend Production Dependency Audit
     runs-on: ubuntu-latest
@@ -231,6 +249,7 @@ jobs:
     needs:
       - secret-scan
       - supplemental-secret-policy
+      - backend-jdbc-temporal-safety
       - frontend-production-audit
       - backend-container-hardening
       - workflow-security-policy
@@ -243,6 +262,7 @@ jobs:
             echo '- Current-tree secret scan: PASSED'
             echo '- Supplemental secret policy + regression tests: PASSED'
             echo '- Synthetic negative control (AWS AKIA canary): DETECTED'
+            echo '- JDBC temporal binding guard (all backend modules): PASSED'
             echo '- Frontend production dependency audit: PASSED'
             echo '- Backend non-root runtime: PASSED'
             echo '- Backend health-check configuration: PASSED'

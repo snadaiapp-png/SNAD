@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -292,7 +293,7 @@ public class ConflictService {
             conflictId, tenantId, deviceId, userId,
             entityType, entityId, clientVersion, clientPayload.toString(),
             serverVersion, serverPayload.toString(),
-            conflictType, conflictClass, retentionExpiry
+            conflictType, conflictClass, Timestamp.from(retentionExpiry)
         );
 
         return conflictId;
