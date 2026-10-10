@@ -1,8 +1,8 @@
 name: Vercel Main Production Reconcile
 
 on:
-  push:
-    branches: [main]
+  # Production deployment is explicitly initiated by an authorized operator.
+  # Protected environment approval and exact-main SHA checks remain mandatory.
   workflow_dispatch:
 
 permissions:
