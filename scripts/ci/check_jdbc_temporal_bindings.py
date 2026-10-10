@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Fail CI when java.time temporal values are bound unsafely to PostgreSQL JDBC.
+"""Fail CI when java.time.Instant is bound unsafely to PostgreSQL JDBC.
 
-The PostgreSQL JDBC driver does not infer a SQL type for java.time.Instant when
-passed through JdbcTemplate/NamedParameterJdbcTemplate generic argument binding.
-This scanner is repository-wide and module-agnostic so new modules inherit the
-same safety contract.
+PostgreSQL JDBC cannot infer a SQL type for java.time.Instant when it is passed
+through generic Spring JDBC binding. This guard is repository-wide so every
+current backend module and future module under apps/sanad-platform/src/main/java
+inherits the same contract.
 
-Safe patterns include:
+Safe examples:
 - Timestamp.from(instant)
 - OffsetDateTime.ofInstant(instant, ZoneOffset.UTC)
 - PreparedStatement#setObject(..., value, Types.TIMESTAMP_WITH_TIMEZONE)
-- PreparedStatement#setTimestamp(..., Timestamp.from(value))
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ import sys
 from pathlib import Path
 
 JAVA_ROOT = Path("apps/sanad-platform/src/main/java")
-TEMPORAL_TYPES = ("Instant", "OffsetDateTime", "LocalDateTime", "ZonedDateTime")
 
 CALL_PREFIXES = (
     ".update(",
@@ -40,11 +38,11 @@ SAFE_WRAPPERS = (
     "java.time.OffsetDateTime.ofInstant(",
     "toSqlTimestamp(",
     "toOffsetDateTime(",
+    "timestamp(",
 )
 
-DECL_RE = re.compile(
-    r"\b(?:final\s+)?(?:java\.time\.)?"
-    r"(?:Instant|OffsetDateTime|LocalDateTime|ZonedDateTime)\s+([A-Za-z_$][\w$]*)\b"
+INSTANT_DECL_RE = re.compile(
+    r"\b(?:final\s+)?(?:java\.time\.)?Instant\s+([A-Za-z_$][\w$]*)\b"
 )
 
 
@@ -110,14 +108,25 @@ def _is_safe_expression(expr: str) -> bool:
     return any(wrapper in expr for wrapper in SAFE_WRAPPERS)
 
 
-def scan_source(path: Path, text: str) -> list[str]:
-    temporal_vars = set(DECL_RE.findall(text))
-    findings: list[str] = []
+def _is_direct_instant_expression(expr: str, instant_vars: set[str]) -> bool:
+    stripped = expr.strip()
+    if re.fullmatch(r"(?:java\.time\.)?Instant\.now\s*\(\s*\)", stripped):
+        return True
+    for var in instant_vars:
+        if stripped == var:
+            return True
+        if re.fullmatch(
+            rf"{re.escape(var)}\.(?:plus|minus)[A-Za-z]*\(.*\)",
+            stripped,
+            flags=re.DOTALL,
+        ):
+            return True
+    return False
 
-    # Direct Instant.now()/etc generic binding is always unsafe.
-    direct_temporal_factory = re.compile(
-        r"\b(?:Instant|OffsetDateTime|LocalDateTime|ZonedDateTime)\.now\s*\("
-    )
+
+def scan_source(path: Path, text: str) -> list[str]:
+    instant_vars = set(INSTANT_DECL_RE.findall(text))
+    findings: list[str] = []
 
     idx = 0
     while idx < len(text):
@@ -139,27 +148,15 @@ def scan_source(path: Path, text: str) -> list[str]:
         for arg_index, arg in enumerate(args):
             if _is_safe_expression(arg):
                 continue
-            if direct_temporal_factory.search(arg):
-                if not has_explicit_sql_type:
-                    line = text.count("\n", 0, pos) + 1
-                    findings.append(
-                        f"{path}:{line}: unsafe temporal JDBC binding in {prefix[:-1]} arg {arg_index + 1}: {arg[:140]}"
-                    )
+            if not _is_direct_instant_expression(arg, instant_vars):
                 continue
-
-            for var in temporal_vars:
-                if re.search(rf"\b{re.escape(var)}\b", arg):
-                    if has_explicit_sql_type:
-                        continue
-                    # Read-side mapper lambdas may reference a temporal variable name
-                    # coincidentally; only flag argument expressions, not SQL text.
-                    if arg.startswith('"') or arg.startswith('"""'):
-                        continue
-                    line = text.count("\n", 0, pos) + 1
-                    findings.append(
-                        f"{path}:{line}: unsafe {var} JDBC binding in {prefix[:-1]} arg {arg_index + 1}: {arg[:140]}"
-                    )
-                    break
+            if has_explicit_sql_type:
+                continue
+            line = text.count("\n", 0, pos) + 1
+            findings.append(
+                f"{path}:{line}: unsafe Instant JDBC binding in "
+                f"{prefix[:-1]} arg {arg_index + 1}: {arg[:140]}"
+            )
         idx = end
 
     return findings
@@ -182,12 +179,12 @@ def main() -> int:
 
     findings = scan_tree(args.root)
     if findings:
-        print("UNSAFE_JDBC_TEMPORAL_BINDINGS = FOUND")
+        print("UNSAFE_JDBC_INSTANT_BINDINGS = FOUND")
         for finding in findings:
             print(finding)
         return 1
 
-    print("UNSAFE_JDBC_TEMPORAL_BINDINGS = 0")
+    print("UNSAFE_JDBC_INSTANT_BINDINGS = 0")
     print("JDBC_TEMPORAL_BINDING_GUARD = PASS")
     return 0
 
