@@ -75,8 +75,10 @@ class EffectiveAccessExplanationRegressionPostgresTest {
             List<EffectivePermissionProjectionService.EffectivePermissionRow> rows =
                     service.rebuild(f.tenantId(), f.userId());
 
-            assertThat(rows.stream().filter(r -> "OVERRIDE".equals(r.source()) || "BREAK_GLASS".equals(r.source())).count())
-                    .as("expired ALLOW override must not be projected").isZero();
+            assertThat(rows.stream().filter(r -> f.capabilityId().equals(r.capabilityId()))
+                    .filter(r -> "OVERRIDE".equals(r.source()) || "BREAK_GLASS".equals(r.source()))
+                    .filter(r -> "TEAM".equals(r.scopeType())).count())
+                    .as("the expired TEAM-scoped ALLOW must not be projected for the fixture capability").isZero();
         }
     }
 

@@ -115,7 +115,7 @@ class R0C13G02SchemaPostgresTest {
             // V20261005_2 adds the forward-only R0C13 G07 operator capability seed.
             // V20261006_1 adds the Users Phase 7 effective access explanation model.
             // V20261006_2 adds the HRM G4 payroll snapshot; V20261008_1 adds governed module IAM provisioning metadata and is followed by CRM account RLS hardening V20261010_1.
-            assertThat(rs.getString(1)).isEqualTo("20261010.1");
+            assertThat(rs.getString(1)).isEqualTo("20261010.99");
         }
     }
 
