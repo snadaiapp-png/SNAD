@@ -106,15 +106,17 @@ export default function TenantUsersPage() {
   if (TRANSIENT_AUTH_STATES.has(state)) return <AuthLoadingState phase="session" />;
   if (state !== "AUTHENTICATED" || !tenantId) return <AuthLoadingState phase="workspace" />;
 
-  const createUser = async (input: { email: string; username: string; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential: string }) => {
+  const createUser = async (input: { email: string; username: string | null; displayName?: string | null; mobileNumber?: string | null; mobileRegion?: string | null; initialCredential?: string }) => {
     setCreating(true);
     setError(null);
     try {
       await usersApi.create(tenantId, input);
       setCreateOpen(false);
       await loadUsers();
+      return true;
     } catch (caught) {
       setError(toUserFacingMessage(caught));
+      return false;
     } finally {
       setCreating(false);
     }
@@ -196,6 +198,7 @@ export default function TenantUsersPage() {
             open={createOpen}
             busy={creating}
             messages={messages}
+            error={error}
             onClose={() => setCreateOpen(false)}
             onSubmit={createUser}
           />
