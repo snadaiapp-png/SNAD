@@ -301,6 +301,26 @@ class HrApiV2AuthorizationTest {
                 .isEqualTo("0");
     }
 
+    @Test
+    void payrollMutationsHaveNoImplicitRoleOrDirectOwnerGrant() throws Exception {
+        UUID controlTenant = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID canonicalOwner = UUID.fromString("00000000-0000-0000-0000-000000000010");
+        setTenant(controlTenant);
+        assertThat(queryScalar("SELECT COUNT(*) FROM role_capabilities rc "
+                + "JOIN access_capabilities c ON c.id=rc.capability_id "
+                + "WHERE c.code LIKE 'HRM.PAYROLL.%' AND c.code <> 'HRM.PAYROLL.VIEW'"))
+                .as("payroll mutations and export must not be inherited by any role")
+                .isEqualTo("0");
+        assertThat(queryScalar("SELECT COUNT(*) FROM user_permission_overrides u "
+                + "JOIN access_capabilities c ON c.id=u.capability_id "
+                + "WHERE u.tenant_id='" + controlTenant + "' AND u.user_id='" + canonicalOwner + "' "
+                + "AND u.effect='ALLOW' AND c.code LIKE 'HRM.PAYROLL.%' "
+                + "AND c.code <> 'HRM.PAYROLL.VIEW' "
+                + "AND u.valid_from<=NOW() AND (u.valid_until IS NULL OR u.valid_until>NOW())"))
+                .as("the owner VIEW exception must not enable any payroll mutation or export")
+                .isEqualTo("0");
+    }
+
     // ==================== fixtures / plumbing ====================
 
     /** Mirrors the V20260904_3 ADMIN scope-grant backfill statement (same SQL contract). */
