@@ -57,7 +57,14 @@ jobs:
             echo "::error::Production database connection failed"; exit 1
           fi
           if [ "$actual_role" != "$DATABASE_USERNAME" ]; then
-            echo "::notice::Pooler login differs from effective role; RLS privilege checks still apply to actual role"
+            echo "::notice::Pooler login differs from effective role; verifying strict application role"
+          fi
+          # Fail before policy inspection if the authenticated session maps to an
+          # owner/admin account. A pooler login may be "sanad.<project-ref>",
+          # but the effective current_user MUST be the restricted role "sanad".
+          if [ "$actual_role" != "sanad" ]; then
+            echo "::error::Protected connection does not map to the approved restricted application role (sanad). Correct GitHub Production credentials and independently verify Render runtime identity; never weaken RLS."
+            exit 1
           fi
           psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
           DO $$
@@ -70,6 +77,9 @@ jobs:
             RAISE NOTICE 'P0 role class: sanad=%, postgres=%, owner=%, bypass=%, superuser=%',
               (u = 'sanad'), (u = 'postgres'), (u = owner_role),
               COALESCE(bypass, true), COALESCE(privileged, true);
+            IF u <> 'sanad' THEN
+              RAISE EXCEPTION 'Unexpected effective role: approved application role required';
+            END IF;
             IF bypass IS DISTINCT FROM FALSE OR privileged IS DISTINCT FROM FALSE
                OR owner_role IS NULL OR u = owner_role THEN
               RAISE EXCEPTION 'CRM RLS ineffective for configured runtime role (owner/bypass/superuser/unknown)';
