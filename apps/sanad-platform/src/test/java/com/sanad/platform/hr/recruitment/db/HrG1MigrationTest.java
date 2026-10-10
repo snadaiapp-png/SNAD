@@ -41,7 +41,7 @@ class HrG1MigrationTest {
     static final String G1_SEED_VERSION = "20260918.4";
     // Users Phase 5 occupies 20261005.1; R0C13 G07 seeds 20261005.2; Users Phase 7 uses 20261006.1;
     // HRM G4 payroll snapshot uses 20261006.2; module-local Users IAM provisioning metadata at 20261008.1; CRM account RLS hardening heads at 20261010.1.
-    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261010.1";
+    static final String REPOSITORY_LEDGER_HEAD_VERSION = "20261010.99";
 
     static final List<String> HR_G1_TABLES = List.of(
             "hr_job_openings",
