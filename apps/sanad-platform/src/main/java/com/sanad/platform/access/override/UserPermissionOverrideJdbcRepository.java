@@ -1,6 +1,7 @@
 package com.sanad.platform.access.override;
 
-import com.sanad.platform.shared.jdbc.PostgresTemporalBinding;\nimport org.springframework.jdbc.core.JdbcTemplate;
+import com.sanad.platform.shared.jdbc.PostgresTemporalBinding;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
