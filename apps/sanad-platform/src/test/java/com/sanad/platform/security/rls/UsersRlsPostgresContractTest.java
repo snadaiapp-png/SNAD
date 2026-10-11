@@ -65,6 +65,20 @@ class UsersRlsPostgresContractTest {
     }
 
     @Test
+    @DisplayName("users RLS policy must fail closed when tenant GUC is absent")
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    void usersWithoutTenantContextAreInvisible() {
+        // A fresh transaction-local empty GUC is not a valid tenant UUID.
+        // The eventual production policy must deny, not widen scope.
+        jdbc.execute("SELECT set_config('app.tenant_id', '', true)");
+        Long visible = jdbc.queryForObject(
+                "SELECT count(*) FROM public.users", Long.class);
+        assertThat(visible)
+                .as("No authenticated tenant context must expose zero users")
+                .isZero();
+    }
+
+    @Test
     @DisplayName("sanad runtime must not bypass table row security")
     void restrictedRuntimeHasNoBypassPrivilege() {
         Boolean bypass = jdbc.queryForObject(
