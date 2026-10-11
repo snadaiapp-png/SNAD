@@ -11,7 +11,7 @@ const { usersApiMock, authState } = vi.hoisted(() => ({
   },
   authState: {
     current: "AUTHENTICATED",
-    capabilities: ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"] as string[],
+    capabilities: ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE", "CAPABILITY.READ"] as string[],
   },
 }));
 
@@ -42,7 +42,7 @@ const context = {
 
 beforeEach(() => {
   authState.current = "AUTHENTICATED";
-  authState.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
+  authState.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE", "CAPABILITY.READ"];
   usersApiMock.moduleContext.mockReset();
   usersApiMock.moduleContext.mockResolvedValue(context);
 });
@@ -124,6 +124,16 @@ describe("ModuleAccessNavigation", () => {
     await waitFor(() => expect(usersApiMock.moduleContext).toHaveBeenCalledWith("crm"));
     const nav = screen.getByTestId("module-access-navigation");
     expect(nav).toHaveAttribute("data-registry-status", "degraded");
+    expect(screen.getByRole("link", { name: "المستخدمون" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "الصلاحيات" })).toBeInTheDocument();
+  });
+
+  it("does not call registry discovery without CAPABILITY.READ while retaining permitted links", async () => {
+    authState.capabilities = ["USER.READ", "USER.CREATE", "USER.GRANT_ROLE"];
+    render(<ModuleAccessNavigation routePath="/crm/overview" presentation="sidebar" />);
+    await Promise.resolve();
+    expect(usersApiMock.moduleContext).not.toHaveBeenCalled();
+    expect(screen.getByTestId("module-access-navigation")).toHaveAttribute("data-registry-status", "degraded");
     expect(screen.getByRole("link", { name: "المستخدمون" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "الصلاحيات" })).toBeInTheDocument();
   });
