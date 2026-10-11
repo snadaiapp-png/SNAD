@@ -22,6 +22,15 @@ public class AmbiguousTenantException extends RuntimeException {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * UUID-only alternative for G1 pre-auth discovery. No User entities
+     * cross the RLS boundary.
+     */
+    public AmbiguousTenantException(String message, java.util.Collection<UUID> tenantIds) {
+        super(message);
+        this.tenantIds = tenantIds.stream().distinct().toList();
+    }
+
     public List<UUID> getTenantIds() {
         return tenantIds;
     }
