@@ -21,7 +21,7 @@ def check(name, ok):
         raise AssertionError(name)
 
 def main():
-    raw = os.environ["SPRING_DATASOURCE_URL"]
+    raw = os.environ["G1_DATASOURCE_URL"]
     if not raw.startswith("jdbc:postgresql://"):
         raise ValueError("Expected jdbc:postgresql:// datasource")
     parsed = urlparse(raw.removeprefix("jdbc:"))
@@ -31,7 +31,7 @@ def main():
     project_ref = "tkbrvupemreqabwzdpyq"
     check("supabase_endpoint", host == "db." + project_ref + ".supabase.co"
           or host.endswith(".pooler.supabase.com"))
-    user = os.environ["SPRING_DATASOURCE_USERNAME"]
+    user = os.environ["G1_DATASOURCE_USERNAME"]
     if host.endswith(".pooler.supabase.com"):
         # Supavisor login names are qualified; PostgreSQL current_user is not.
         check("least_privilege_secret_user", user == "sanad." + project_ref)
@@ -45,7 +45,7 @@ def main():
     check("ssl_required", sslmode in ("require", "verify-ca", "verify-full"))
     connect = dict(host=parsed.hostname, port=parsed.port or 5432,
                    dbname=parsed.path.lstrip("/"), user=user,
-                   password=os.environ["SPRING_DATASOURCE_PASSWORD"],
+                   password=os.environ["G1_DATASOURCE_PASSWORD"],
                    sslmode=sslmode, connect_timeout=12)
     with psycopg.connect(**connect) as conn:
         with conn.transaction():

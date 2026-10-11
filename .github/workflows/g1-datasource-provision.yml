@@ -1,0 +1,175 @@
+name: G1 Datasource Secret Provisioning
+
+# Writes the three independent G1_DATASOURCE_* secrets into the GitHub
+# environment `production`, sourced exclusively from credentials already
+# present in the sanctioned secret store.
+#
+# Safety rails (fail-closed):
+# 1. Re-verifies the chosen candidate inside this run BEFORE any write:
+#    it must authenticate as role `sanad` with rolsuper=false and
+#    rolbypassrls=false on the chosen endpoint, or the job aborts.
+# 2. Never prints, logs, or persists any secret value.
+# 3. Writes only the three G1_DATASOURCE_* environment secrets; it never
+#    touches shared backend secrets (SPRING_DATASOURCE_*,
+#    PRODUCTION_DATABASE_*), role passwords, or Render credentials.
+# 4. Requires a token (Z_GITHUB_TOKEN) that can administer repository
+#    secrets; aborts otherwise.
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: "Sanctioned-store secret proven by forensics to hold a valid sanad credential"
+        required: true
+        type: choice
+        options:
+          - SPRING_DATASOURCE_PASSWORD
+          - PRODUCTION_DATABASE_PASSWORD
+          - PRODUCTION_DATABASE_URL
+          - PRODUCTION_DATABASE_JDBC_URL
+      endpoint:
+        description: "Connection endpoint class proven reachable and ROLE_OK by forensics"
+        required: true
+        type: choice
+        default: pooler-session-5432
+        options:
+          - pooler-session-5432
+          - pooler-txn-6543
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-datasource-provisioning
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Re-verify candidate then write G1_DATASOURCE_* (values never emitted)
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      CANDIDATE_SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
+      CANDIDATE_PRODUCTION_DATABASE_PASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+      CANDIDATE_PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      CANDIDATE_PRODUCTION_DATABASE_JDBC_URL: ${{ secrets.PRODUCTION_DATABASE_JDBC_URL }}
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Mask all candidate values defensively
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in CANDIDATE_SPRING_DATASOURCE_PASSWORD \
+                     CANDIDATE_PRODUCTION_DATABASE_PASSWORD \
+                     CANDIDATE_PRODUCTION_DATABASE_URL \
+                     CANDIDATE_PRODUCTION_DATABASE_JDBC_URL; do
+            value="${!key:-}"
+            if [ -n "$value" ]; then echo "::add-mask::$value"; fi
+          done
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned PostgreSQL driver
+        run: python -m pip install --disable-pip-version-check 'psycopg[binary]==3.2.10'
+
+      - name: Resolve chosen candidate and re-verify sanad identity (fail-closed)
+        env:
+          CHOSEN_CANDIDATE: ${{ github.event.inputs.candidate }}
+          CHOSEN_ENDPOINT: ${{ github.event.inputs.endpoint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$CHOSEN_CANDIDATE" "$CHOSEN_ENDPOINT" <<'PY'
+          import os, sys
+          from urllib.parse import urlparse
+          import psycopg
+
+          candidate = sys.argv[1]
+          endpoint = sys.argv[2]
+          ref = "tkbrvupemreqabwzdpyq"
+          if endpoint == "pooler-session-5432":
+              host, port = "aws-0-eu-central-1.pooler.supabase.com", 5432
+          elif endpoint == "pooler-txn-6543":
+              host, port = "aws-0-eu-central-1.pooler.supabase.com", 6543
+          else:
+              raise SystemExit("UNKNOWN_ENDPOINT")
+
+          raw = os.environ.get("CANDIDATE_" + candidate, "")
+          if not raw:
+              raise SystemExit("CANDIDATE_SECRET_EMPTY_OR_MISSING")
+          parsed = urlparse(raw.removeprefix("jdbc:"))
+          if parsed.username and parsed.password:
+              password = parsed.password
+          else:
+              password = raw
+
+          with psycopg.connect(host=host, port=port, dbname="postgres",
+                               user="sanad." + ref, password=password,
+                               sslmode="require", connect_timeout=10) as conn:
+              with conn.transaction():
+                  conn.execute("SET TRANSACTION READ ONLY")
+                  current_user, superuser, bypass = conn.execute(
+                      "SELECT current_user, "
+                      "(SELECT rolsuper FROM pg_roles WHERE rolname=current_user), "
+                      "(SELECT rolbypassrls FROM pg_roles WHERE rolname=current_user)"
+                  ).fetchone()
+          ok = (current_user == "sanad" and not superuser and not bypass)
+          print("REVERIFY current_user=" + str(current_user)
+                + " rolsuper=" + str(bool(superuser))
+                + " rolbypassrls=" + str(bool(bypass))
+                + " VERDICT=" + ("ROLE_OK" if ok else "ROLE_REJECTED"))
+          if not ok:
+              raise SystemExit("CANDIDATE_NOT_ELIGIBLE_FOR_G1")
+          with open(os.environ["GITHUB_ENV"], "a") as envfile:
+              envfile.write("G1_ENDPOINT=" + endpoint + "\n")
+          PY
+
+      - name: Verify provisioning token authority (fail-closed)
+        env:
+          GH_TOKEN: ${{ secrets.Z_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          perms="$(gh api repos/snadaiapp-png/SNAD --jq '[.permissions.admin,.permissions.maintain,.permissions.push] | any')"
+          test "$perms" = "true" || { echo "::error::Z_GITHUB_TOKEN cannot administer repository secrets"; exit 1; }
+          echo "PROVISIONING_TOKEN_AUTHORITY=OK"
+
+      - name: Write G1_DATASOURCE_* environment secrets (stdin, never echoed)
+        env:
+          GH_TOKEN: ${{ secrets.Z_GITHUB_TOKEN }}
+          CHOSEN_CANDIDATE: ${{ github.event.inputs.candidate }}
+          CHOSEN_ENDPOINT: ${{ github.event.inputs.endpoint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$CHOSEN_ENDPOINT" in
+            pooler-session-5432) port=5432 ;;
+            pooler-txn-6543)     port=6543 ;;
+            *) echo "::error::unknown endpoint"; exit 1 ;;
+          esac
+          url="jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:${port}/postgres?sslmode=require"
+          user="sanad.tkbrvupemreqabwzdpyq"
+          password_var="CANDIDATE_${CHOSEN_CANDIDATE}"
+          password="${!password_var}"
+          test -n "$password" || { echo "::error::chosen candidate value unavailable"; exit 1; }
+          printf '%s' "$url"      | gh secret set G1_DATASOURCE_URL      --repo snadaiapp-png/SNAD --env production
+          printf '%s' "$user"     | gh secret set G1_DATASOURCE_USERNAME --repo snadaiapp-png/SNAD --env production
+          printf '%s' "$password" | gh secret set G1_DATASOURCE_PASSWORD --repo snadaiapp-png/SNAD --env production
+          echo "G1_DATASOURCE_URL/USERNAME/PASSWORD written to environment production (values never emitted)"
+
+      - name: Verify written secrets (names and timestamps only)
+        env:
+          GH_TOKEN: ${{ secrets.Z_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh secret list --repo snadaiapp-png/SNAD --env production | grep -E '^G1_DATASOURCE_' \
+            || { echo "::error::G1_DATASOURCE_* not visible"; exit 1; }

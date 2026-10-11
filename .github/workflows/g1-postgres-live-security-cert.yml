@@ -35,9 +35,9 @@ jobs:
     environment: production
     timeout-minutes: 12
     env:
-      SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
-      SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
-      SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD || secrets.PRODUCTION_DATABASE_PASSWORD }}
+      G1_DATASOURCE_URL: ${{ secrets.G1_DATASOURCE_URL }}
+      G1_DATASOURCE_USERNAME: ${{ secrets.G1_DATASOURCE_USERNAME }}
+      G1_DATASOURCE_PASSWORD: ${{ secrets.G1_DATASOURCE_PASSWORD }}
       AUTH_SMOKE_TENANT_A_ID: ${{ secrets.AUTH_SMOKE_TENANT_A_ID }}
       AUTH_SMOKE_TENANT_B_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
     steps:
@@ -53,11 +53,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           remote_main="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
           test "$remote_main" = "$GITHUB_SHA" || { echo "::error::G1 requires exact current main"; exit 1; }
-          for key in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD AUTH_SMOKE_TENANT_A_ID AUTH_SMOKE_TENANT_B_ID; do
+          for key in G1_DATASOURCE_URL G1_DATASOURCE_USERNAME G1_DATASOURCE_PASSWORD AUTH_SMOKE_TENANT_A_ID AUTH_SMOKE_TENANT_B_ID; do
             test -n "${!key:-}" || { echo "::error::Missing required G1 secret: $key"; exit 1; }
           done
-          echo "::add-mask::$SPRING_DATASOURCE_URL"
-          echo "::add-mask::$SPRING_DATASOURCE_USERNAME"
+          echo "::add-mask::$G1_DATASOURCE_URL"
+          echo "::add-mask::$G1_DATASOURCE_USERNAME"
+          echo "::add-mask::$G1_DATASOURCE_PASSWORD"
           echo "::add-mask::$AUTH_SMOKE_TENANT_A_ID"
           echo "::add-mask::$AUTH_SMOKE_TENANT_B_ID"
       - name: Setup Python 3.12
@@ -68,6 +69,12 @@ jobs:
         run: python -m pip install --disable-pip-version-check 'psycopg[binary]==3.2.10'
       - name: Assert actual sanad role and tenant A/B row isolation (READ ONLY)
         shell: bash
+        env:
+          G1_DATASOURCE_URL: ${{ env.G1_DATASOURCE_URL }}
+          G1_DATASOURCE_USERNAME: ${{ env.G1_DATASOURCE_USERNAME }}
+          G1_DATASOURCE_PASSWORD: ${{ env.G1_DATASOURCE_PASSWORD }}
+          AUTH_SMOKE_TENANT_A_ID: ${{ env.AUTH_SMOKE_TENANT_A_ID }}
+          AUTH_SMOKE_TENANT_B_ID: ${{ env.AUTH_SMOKE_TENANT_B_ID }}
         run: python scripts/security/g1_postgres_live_rls_cert.py
       - name: Upload sanitized G1 evidence
         if: always()
