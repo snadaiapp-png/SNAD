@@ -76,6 +76,7 @@ public class AuthService {
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private PlatformAuditWriter credentialAuditWriter;
     private TenantRlsTransactionContext loginTenantRlsContext;
+    private PreAuthTenantResolver preAuthTenantResolver;
 
     @Autowired
     public AuthService(
@@ -131,6 +132,11 @@ public class AuthService {
     @Autowired
     void setLoginTenantRlsContext(TenantRlsTransactionContext context) {
         this.loginTenantRlsContext = context;
+    }
+
+    @Autowired
+    void setPreAuthTenantResolver(PreAuthTenantResolver resolver) {
+        this.preAuthTenantResolver = resolver;
     }
 
     /**
@@ -210,21 +216,26 @@ public class AuthService {
                     ? userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail).orElse(null)
                     : userRepository.findByTenantIdAndUsername(request.getTenantId(), normalizedUsername).orElse(null);
         } else {
-            List<User> users = emailLogin
-                    ? userRepository.findAllByEmail(normalizedEmail)
-                    : userRepository.findAllByUsername(normalizedUsername);
-            if (users.isEmpty()) {
+            // Resolve tenant IDs only through the audited pre-auth function.
+            // Never retrieve unscoped User entities.
+            List<UUID> tenants = requirePreAuthTenantResolver().resolve(
+                    emailLogin ? "email" : "username", normalizedIdentifier);
+            if (tenants.isEmpty()) {
                 user = null;
-            } else if (users.size() == 1) {
-                user = users.get(0);
+            } else if (tenants.size() == 1) {
+                UUID tenantId = tenants.get(0);
+                applyTrustedUserScope(tenantId);
+                user = emailLogin
+                        ? userRepository.findByTenantIdAndEmail(tenantId, normalizedEmail).orElse(null)
+                        : userRepository.findByTenantIdAndUsername(tenantId, normalizedUsername).orElse(null);
             } else {
-                log.warn("Login ambiguous: identifierType={} found in {} tenants",
-                        emailLogin ? "email" : "username", users.size());
+                log.warn("Login ambiguous: identifierType={} tenant matches={}",
+                        emailLogin ? "email" : "username", tenants.size());
                 throw new AmbiguousTenantException(
                         emailLogin
                                 ? "البريد الإلكتروني موجود في عدة مستأجرين"
                                 : "اسم المستخدم موجود في عدة مستأجرين",
-                        users);
+                        tenants);
             }
         }
 
@@ -298,6 +309,13 @@ public class AuthService {
     /** Scope a transaction to a tenant already derived from authenticated identity
      *  or validated server-side credential state. Never use with raw request input
      *  without separately validating the requested operation. */
+    private PreAuthTenantResolver requirePreAuthTenantResolver() {
+        if (preAuthTenantResolver == null) {
+            throw new IllegalStateException("G1 pre-auth tenant resolver is not configured");
+        }
+        return preAuthTenantResolver;
+    }
+
     private void applyTrustedUserScope(UUID tenantId) {
         if (loginTenantRlsContext != null) {
             loginTenantRlsContext.applyForCurrentTransaction(tenantId);
@@ -574,16 +592,20 @@ public class AuthService {
         // than one tenant. Recovery must never guess which tenant identity to
         // mutate. Keep the public response generic by returning null for both
         // missing/inactive and ambiguous matches.
-        List<User> activeUsers = userRepository.findAllByEmail(normalizedEmail).stream()
-                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
-                .toList();
-        if (activeUsers.size() != 1) {
-            log.info("Password reset request not actionable for email={} activeMatches={}",
-                    normalizedEmail, activeUsers.size());
+        List<UUID> candidateTenants = requirePreAuthTenantResolver()
+                .resolve("email", normalizedEmail);
+        if (candidateTenants.size() != 1) {
+            log.info("Password reset request not actionable: tenant matches={}",
+                    candidateTenants.size());
             return null;
         }
-
-        User user = activeUsers.get(0);
+        UUID candidateTenant = candidateTenants.get(0);
+        applyTrustedUserScope(candidateTenant);
+        User user = userRepository.findByTenantIdAndEmail(candidateTenant, normalizedEmail)
+                .orElse(null);
+        if (user == null || user.getStatus() != UserStatus.ACTIVE) {
+            return null;
+        }
 
         // Revoke any existing active reset tokens for this user
         passwordResetTokenRepository.revokeAllActive(user.getTenantId(), user.getId());
