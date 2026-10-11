@@ -30,11 +30,19 @@ jobs:
       # users-production-certification run 38067506345 (2026-10-10, main).
       G4_OWNER_PASSWORD: ${{ secrets.CANONICAL_OWNER_PASSWORD }}
       # Same-tenant unauthorized topology by construction; the certification
-      # binding check fails closed if the non-admin account is not a member
-      # of the canonical control tenant.
+      # binding check fails closed if the account is not a member of the
+      # canonical control tenant.
+      # CONTROL_PLANE_NON_ADMIN_* was disproven live (G4 cert run
+      # 38185924731: login with canonical tenant returned non-200).
+      # CONTROL_PLANE_ADMIN_* is proven to authenticate against live
+      # production with the canonical control tenant (production-release
+      # run 38139783957 SCP contract smoke, 2026-10-11) and holds no
+      # HRM.PAYROLL capability — the sole HRM.PAYROLL.VIEW grant is the
+      # canonical-owner override migration V20261010_99. The certification
+      # still fails closed on every capability assertion.
       G4_UNAUTHORIZED_TENANT_ID: ${{ secrets.G4_OWNER_TENANT_ID }}
-      G4_UNAUTHORIZED_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
-      G4_UNAUTHORIZED_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
+      G4_UNAUTHORIZED_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+      G4_UNAUTHORIZED_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
       # Foreign-tenant account proven against live production:
       # auth-tenant-production-acceptance run 38171646006 (2026-10-11, main).
       G4_FOREIGN_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
