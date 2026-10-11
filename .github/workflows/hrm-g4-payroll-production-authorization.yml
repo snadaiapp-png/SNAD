@@ -1,0 +1,58 @@
+name: HRM G4 Payroll Production Authorization Certification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hrm-g4-production-authorization
+  cancel-in-progress: false
+
+jobs:
+  certified-production-access:
+    name: Exact-HEAD authenticated payroll RBAC and tenant isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: Production
+    env:
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      G4_OWNER_TENANT_ID: ${{ secrets.G4_OWNER_TENANT_ID }}
+      G4_OWNER_EMAIL: ${{ secrets.G4_OWNER_EMAIL }}
+      G4_OWNER_PASSWORD: ${{ secrets.G4_OWNER_PASSWORD }}
+      G4_UNAUTHORIZED_TENANT_ID: ${{ secrets.G4_UNAUTHORIZED_TENANT_ID }}
+      G4_UNAUTHORIZED_EMAIL: ${{ secrets.G4_UNAUTHORIZED_EMAIL }}
+      G4_UNAUTHORIZED_PASSWORD: ${{ secrets.G4_UNAUTHORIZED_PASSWORD }}
+      G4_FOREIGN_TENANT_ID: ${{ secrets.G4_FOREIGN_TENANT_ID }}
+      G4_FOREIGN_EMAIL: ${{ secrets.G4_FOREIGN_EMAIL }}
+      G4_FOREIGN_PASSWORD: ${{ secrets.G4_FOREIGN_PASSWORD }}
+    steps:
+      - name: Checkout exact current main
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require exact main and protected test credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || { echo "::error::main only"; exit 1; }
+          git_sha="$(git rev-parse HEAD)"
+          remote_sha="$(git ls-remote https://github.com/${GITHUB_REPOSITORY}.git refs/heads/main | cut -f1)"
+          test "$git_sha" = "$remote_sha" || { echo "::error::stale exact HEAD"; exit 1; }
+          for key in PRODUCTION_BASE_URL G4_OWNER_TENANT_ID G4_OWNER_EMAIL G4_OWNER_PASSWORD G4_UNAUTHORIZED_TENANT_ID G4_UNAUTHORIZED_EMAIL G4_UNAUTHORIZED_PASSWORD G4_FOREIGN_TENANT_ID G4_FOREIGN_EMAIL G4_FOREIGN_PASSWORD; do
+            test -n "${!key:-}" || { echo "::error::Missing protected production secret: $key"; exit 1; }
+          done
+          [[ "$PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::HTTPS production URL required"; exit 1; }
+          echo "Exact main and protected secrets: PASS"
+      - name: Authenticated G4 read access and safe negative mutation contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/production/verify-g4-payroll-authorization.py
+      - name: Certification scope and outcome
+        if: success()
+        run: |
+          echo "G4 production API RBAC, tenant binding, cross-tenant and mutation-denial checks: PASS"
+          echo "Browser UI acceptance and release/governance approval remain separate gates."
+          echo "P0 SECURITY HOLD remains ACTIVE; live payments must remain DISABLED."
