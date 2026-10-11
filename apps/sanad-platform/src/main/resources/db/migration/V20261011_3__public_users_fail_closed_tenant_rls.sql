@@ -21,11 +21,23 @@ END $$;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users FORCE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS users_tenant_isolation ON public.users;
-CREATE POLICY users_tenant_isolation ON public.users
-  AS PERMISSIVE FOR ALL TO sanad
-  USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
-  WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
+-- CI uses ephemeral PostgreSQL databases without the production runtime role.
+-- Do not create a privileged role in Flyway or widen a tenant policy to PUBLIC.
+-- In that environment, ENABLE/FORCE RLS with zero applicable policies remains
+-- fail-closed. Production must provision the restricted sanad role before cutover.
+DO $policy$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+    DROP POLICY IF EXISTS users_tenant_isolation ON public.users;
+    CREATE POLICY users_tenant_isolation ON public.users
+      AS PERMISSIVE FOR ALL TO sanad
+      USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
+      WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
+  ELSE
+    RAISE NOTICE 'Runtime role sanad absent: public.users RLS remains default-deny';
+  END IF;
+END
+$policy$;
 
 -- Intentional fail-closed: missing tenant context returns no rows and denies writes.
 -- No special exemption for unauthenticated authentication/bootstrap flows.
