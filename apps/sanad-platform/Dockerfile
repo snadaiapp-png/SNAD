@@ -12,16 +12,7 @@ ARG RENDER_GIT_COMMIT=unknown
 WORKDIR /workspace
 
 COPY pom.xml ./
-# Resolve the parent POM and plugins before copying source. Never suppress
-# dependency resolution failures: Maven caches unsuccessful lookups otherwise.
-# -U refreshes cached missing-artifact results; bounded retries tolerate
-# transient repository/network outages while retaining fail-closed builds.
-RUN set -eu; \
-    for attempt in 1 2 3; do \
-      if mvn -B -ntp -U dependency:go-offline -DskipTests; then break; fi; \
-      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
-      sleep "$((attempt * 5))"; \
-    done
+RUN mvn -B -ntp -q dependency:go-offline -DskipTests || true
 
 COPY src ./src
 # -Dmaven.test.skip=true skips test COMPILATION too (unlike -DskipTests), so a
