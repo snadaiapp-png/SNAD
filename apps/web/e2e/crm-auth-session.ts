@@ -33,7 +33,7 @@ function configuredTenantId(email: string): string | undefined {
   // ambiguity checks or accept a tenant selected by an untrusted response.
   const usersFixtures = [
     ["USERS_CONTROL_EMAIL", "USERS_CONTROL_TENANT_ID"],
-    ["USERS_PHASE8_ADMIN_EMAIL", "USERS_CONTROL_TENANT_ID"],
+    ["USERS_PHASE8_ADMIN_EMAIL", "USERS_TENANT_ID"],
     ["USERS_TENANT_EMAIL", "USERS_TENANT_ID"],
   ] as const;
   for (const [emailKey, tenantKey] of usersFixtures) {
