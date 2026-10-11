@@ -17,6 +17,7 @@ import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.tenant.domain.Tenant;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.domain.UserStatus;
 import com.sanad.platform.user.repository.UserRepository;
@@ -29,6 +30,12 @@ import java.util.UUID;
 public final class RegistrationProvisioner {
 
     private final TenantRepository tenants;
+    private TenantRlsTransactionContext registrationTenantRlsContext;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRegistrationTenantRlsContext(TenantRlsTransactionContext context) {
+        this.registrationTenantRlsContext = context;
+    }
     private final OrganizationRepository organizations;
     private final UserRepository users;
     private final OrganizationMembershipRepository memberships;
@@ -72,6 +79,12 @@ public final class RegistrationProvisioner {
         Organization organization = organizations.save(new Organization(
                 tenant, organizationName, "Primary organization", OrganizationStatus.ACTIVE));
 
+        // This tenant ID is freshly created by the backend, not supplied by
+        // an anonymous caller. Scope the current write transaction before the
+        // first insert into users when users RLS is eventually enabled.
+        if (registrationTenantRlsContext != null) {
+            registrationTenantRlsContext.applyForCurrentTransaction(tenant.getId());
+        }
         User administrator = new User(tenant.getId(), email, displayName, UserStatus.ACTIVE);
         administrator.setMobileNumber(mobileNumber);
         administrator.setMobileRegion(regionCode);
