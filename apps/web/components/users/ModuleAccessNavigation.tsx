@@ -36,6 +36,7 @@ export function ModuleAccessNavigation({
   sidebarSectionLabelClassName,
 }: ModuleAccessNavigationProps) {
   const { state, me } = useAuth();
+  const canDiscoverModuleContext = me?.capabilities?.includes("CAPABILITY.READ") ?? false;
   const root = useMemo(() => routeRoot(routePath), [routePath]);
   const [resolved, setResolved] = useState<{ root: string; context: ModuleProvisioningContext | null } | null>(null);
 
@@ -46,7 +47,7 @@ export function ModuleAccessNavigation({
     // Access tokens are intentionally memory-only; after a hard navigation the
     // AuthProvider must restore the session before any governed IAM call leaves
     // the browser. This prevents transient 401s and unnecessary refresh churn.
-    if (state !== "AUTHENTICATED" || !root) {
+    if (state !== "AUTHENTICATED" || !root || !canDiscoverModuleContext) {
       return () => { cancelled = true; };
     }
 
@@ -73,7 +74,7 @@ export function ModuleAccessNavigation({
     return () => {
       cancelled = true;
     };
-  }, [presentation, root, state]);
+  }, [canDiscoverModuleContext, presentation, root, state]);
 
   const context = resolved?.root === root ? resolved.context : null;
   const capabilities = me?.capabilities ?? [];
