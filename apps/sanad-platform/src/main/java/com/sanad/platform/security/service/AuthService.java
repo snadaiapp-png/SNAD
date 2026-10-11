@@ -253,6 +253,13 @@ public class AuthService {
         return issueTokens(user);
     }
 
+    /** Scope only a tenant already resolved from a verified credential or token. */
+    private void applyTrustedTenantScope(UUID tenantId) {
+        if (tenantRlsTransactionContext != null) {
+            tenantRlsTransactionContext.applyForCurrentTransaction(tenantId);
+        }
+    }
+
     private void requireLoginEligibleTenant(UUID tenantId) {
         if (tenantRepository == null) {
             // Legacy direct-instantiation tests only. Production must always
@@ -367,6 +374,7 @@ public class AuthService {
             throw new InvalidCredentialsException("رمز التحديث منتهي الصلاحية");
         }
 
+        applyTrustedTenantScope(refreshToken.getTenantId());
         User user = userRepository.findByTenantIdAndId(
                         refreshToken.getTenantId(), refreshToken.getUserId())
                 .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
@@ -426,6 +434,7 @@ public class AuthService {
         int revoked = refreshTokenRepository.revokeAllActive(tenantId, userId);
 
         // Increment session version to invalidate all outstanding access tokens
+        applyTrustedTenantScope(tenantId);
         userRepository.findByTenantIdAndId(tenantId, userId).ifPresent(user -> {
             user.incrementSessionVersion();
             userRepository.save(user);
@@ -640,6 +649,8 @@ public class AuthService {
             throw new InvalidResetTokenException("رمز إعادة التعيين غير صالح أو منتهي الصلاحية");
         }
 
+        // Tenant comes from the validated persisted reset token, not a client parameter.
+        applyTrustedTenantScope(resetToken.getTenantId());
         // Load user
         User user = userRepository.findByTenantIdAndId(resetToken.getTenantId(), resetToken.getUserId())
                 .orElseThrow(() -> new InvalidResetTokenException("المستخدم غير موجود"));
