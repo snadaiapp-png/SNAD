@@ -1,0 +1,63 @@
+name: G4 Source Secret Verification and Conditional Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "verify_only | verify_and_provision"
+        required: true
+        default: "verify_only"
+      owner_tenant_candidate:
+        description: "Pinned owner tenant UUID from the execution order"
+        required: true
+        default: "00000000-0000-0000-0000-000000000001"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g4-source-verification
+  cancel-in-progress: false
+
+jobs:
+  verify-and-bootstrap:
+    name: Read-only source probes and in-memory provisioning
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Production
+    env:
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      VERIFY_MODE: ${{ github.event.inputs.mode }}
+      OWNER_TENANT_CANDIDATE: ${{ github.event.inputs.owner_tenant_candidate }}
+      SOURCE_OWNER_EMAIL: ${{ secrets.SANAD_ADMIN_EMAIL }}
+      SOURCE_OWNER_PASSWORD: ${{ secrets.CANONICAL_OWNER_PASSWORD }}
+      SOURCE_UNAUTH_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
+      SOURCE_UNAUTH_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
+      SOURCE_FOREIGN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      SOURCE_FOREIGN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
+      SOURCE_FOREIGN_TENANT: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      EXISTING_OWNER_TENANT: ${{ secrets.G4_OWNER_TENANT_ID }}
+      BOOTSTRAP_GH_TOKEN: ${{ secrets.G4_BOOTSTRAP_PAT }}
+    steps:
+      - name: Checkout pipeline commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Preflight protected inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in PRODUCTION_BASE_URL VERIFY_MODE OWNER_TENANT_CANDIDATE SOURCE_OWNER_EMAIL SOURCE_OWNER_PASSWORD SOURCE_UNAUTH_EMAIL SOURCE_UNAUTH_PASSWORD SOURCE_FOREIGN_EMAIL SOURCE_FOREIGN_PASSWORD SOURCE_FOREIGN_TENANT; do
+            test -n "${!key:-}" || { echo "::error::Missing required input/secret: $key"; exit 1; }
+          done
+          [[ "$VERIFY_MODE" == "verify_only" || "$VERIFY_MODE" == "verify_and_provision" ]] || { echo "::error::Invalid mode: $VERIFY_MODE"; exit 1; }
+          [[ "$OWNER_TENANT_CANDIDATE" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Owner tenant candidate must be a UUID"; exit 1; }
+          [[ "$PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::HTTPS production URL required"; exit 1; }
+          echo "Preflight: all protected inputs present"
+
+      - name: Verify G4 source credentials and conditionally provision
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/production/g4_source_verify.py
