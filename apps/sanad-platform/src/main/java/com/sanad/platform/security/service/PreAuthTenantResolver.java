@@ -1,6 +1,7 @@
 package com.sanad.platform.security.service;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -28,9 +29,17 @@ public final class PreAuthTenantResolver {
         if (normalizedIdentifier == null || normalizedIdentifier.isBlank()) {
             throw new IllegalArgumentException("Missing login identifier");
         }
-        return jdbc.query(
-            "SELECT tenant_id FROM public.g1_resolve_login_tenants(?, ?)",
-            (rs, rowNum) -> rs.getObject(1, UUID.class),
-            kind, normalizedIdentifier);
+        try {
+            return jdbc.query(
+                "SELECT tenant_id FROM public.g1_resolve_login_tenants(?, ?)",
+                (rs, rowNum) -> rs.getObject(1, UUID.class),
+                kind, normalizedIdentifier);
+        } catch (DataAccessException exception) {
+            // Preserve the cause in server-side diagnostics, but never log
+            // the identifier, SQL parameters, or password material.
+            throw new IllegalStateException(
+                "G1_PREAUTH_DATABASE_CONTRACT_UNAVAILABLE: review isolated database migration and EXECUTE privileges",
+                exception);
+        }
     }
 }
