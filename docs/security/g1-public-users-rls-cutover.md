@@ -15,3 +15,18 @@ Forward-only Flyway migration enables **ENABLE + FORCE** RLS on `public.users`, 
 
 ## Stop conditions
 Any user-login disruption, missing trusted tenant context, bypass privilege, policy mismatch, or unverified rollback => **NO GO**. Do not merge/deploy to production until cleared.
+
+## Verified root cause — 2026-10-11 (PR 1380 CI)
+
+**Do not merge:** exact-head CI on `4efbcaa752ba2d9db354f5649c7a886d35528a83` passed Flyway but G2 seed failed at `g2-acceptance-seed.sql:246` with `new row violates row-level security policy for table "users"` ([run 38164483142](https://github.com/snadaiapp-png/SNAD/actions/runs/38164483142)). Platform IAM ([run 38164483155](https://github.com/snadaiapp-png/SNAD/actions/runs/38164483155)) reproduced user INSERT denial and session invalidation failures. CI-only bypasses or permissive PUBLIC policies are prohibited.
+
+**Source-level auth blocker:** `apps/sanad-platform/src/main/java/com/sanad/platform/security/service/AuthService.java` permits `LoginRequest.tenantId == null` and calls `userRepository.findAllByEmail(...)` / `findAllByUsername(...)` across tenants. This pre-auth global discovery cannot be satisfied by a simple single-tenant `app.tenant_id` transaction GUC. A change to users RLS alone will either deny this legitimate login path or leak cross-tenant data. Migration must not reach production while this contract exists without a separately reviewed safe discovery solution.
+
+**Required forward implementation, in order:**
+1. Define authenticated tenant selection/discovery preserving the existing ambiguous-tenant behavior without unrestricted user table reads or tenant enumeration. Threat-model timing, error responses, reset flows and rate limiting.
+2. Enforce trusted transaction-local tenant context for all post-discovery `users` reads/writes, including login last-login update, refresh/session checks, password reset, user bootstrap, management and service-to-service calls. Verify connection pool reuse cannot carry another tenant's GUC.
+3. Separate migration/fixture seed identity from runtime `sanad` and cover forced-RLS behavior; do not disable RLS in tests or silently elevate application credentials.
+4. Prove positive email/username login with and without explicit tenant ID, multi-tenant ambiguity, wrong tenant, control-plane bootstrap, token refresh/revocation, password reset, user CRUD, A/B isolation and missing-context deny in PostgreSQL Direct with actual least-privilege credentials.
+5. Re-run all exact-head CI and G1 live read-only certification only after independent Security/DBA approval, with payments disabled throughout.
+
+**Status:** BLOCKED / P0 HOLD / NOT PRODUCTION READY. Preview deployment is not production certification.
