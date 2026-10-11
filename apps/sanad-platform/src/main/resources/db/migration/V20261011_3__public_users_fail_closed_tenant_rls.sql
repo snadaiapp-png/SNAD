@@ -21,20 +21,28 @@ END $$;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users FORCE ROW LEVEL SECURITY;
 
--- CI uses ephemeral PostgreSQL databases without the production runtime role.
--- Do not create a privileged role in Flyway or widen a tenant policy to PUBLIC.
--- In that environment, ENABLE/FORCE RLS with zero applicable policies remains
--- fail-closed. Production must provision the restricted sanad role before cutover.
+-- Every policy has the same strict tenant predicate: no missing-context read
+-- and no cross-tenant write. CI databases may omit the production sanad role.
+-- In those databases only, bind the policy to the current migration/test role;
+-- NEVER grant to PUBLIC, create a BYPASSRLS role, or bypass FORCE RLS.
+-- Production runtime must provision the restricted sanad role before cutover.
 DO $policy$
 BEGIN
+  DROP POLICY IF EXISTS users_tenant_isolation ON public.users;
+
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-    DROP POLICY IF EXISTS users_tenant_isolation ON public.users;
     CREATE POLICY users_tenant_isolation ON public.users
       AS PERMISSIVE FOR ALL TO sanad
       USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
       WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
   ELSE
-    RAISE NOTICE 'Runtime role sanad absent: public.users RLS remains default-deny';
+    EXECUTE format(
+      'CREATE POLICY users_tenant_isolation ON public.users AS PERMISSIVE FOR ALL TO %I '
+      || 'USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), '''')) '
+      || 'WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))',
+      current_user
+    );
+    RAISE NOTICE 'sanad role absent: strict tenant policy bound to migration/test role %', current_user;
   END IF;
 END
 $policy$;
