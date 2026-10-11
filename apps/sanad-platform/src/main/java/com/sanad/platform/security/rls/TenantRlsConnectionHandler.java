@@ -1,6 +1,7 @@
 package com.sanad.platform.security.rls;
 
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -48,6 +49,10 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
         }
         try {
             return method.invoke(delegate, args);
+        } catch (InvocationTargetException exception) {
+            // Reflective JDBC delegation must preserve checked SQLException,
+            // rather than exposing UndeclaredThrowableException to callers.
+            throw exception.getCause();
         } finally {
             // SET LOCAL ends at commit/rollback. A pooled logical connection
             // may participate in another transaction after either boundary.
