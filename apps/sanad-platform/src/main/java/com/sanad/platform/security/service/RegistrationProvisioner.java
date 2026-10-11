@@ -32,7 +32,7 @@ public final class RegistrationProvisioner {
     private final TenantRepository tenants;
     private TenantRlsTransactionContext registrationTenantRlsContext;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @org.springframework.beans.factory.annotation.Autowired
     void setRegistrationTenantRlsContext(TenantRlsTransactionContext context) {
         this.registrationTenantRlsContext = context;
     }
