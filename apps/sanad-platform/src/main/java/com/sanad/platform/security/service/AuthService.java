@@ -295,6 +295,15 @@ public class AuthService {
         }
     }
 
+    /** Scope a transaction to a tenant already derived from authenticated identity
+     *  or validated server-side credential state. Never use with raw request input
+     *  without separately validating the requested operation. */
+    private void applyTrustedUserScope(UUID tenantId) {
+        if (loginTenantRlsContext != null) {
+            loginTenantRlsContext.applyForCurrentTransaction(tenantId);
+        }
+    }
+
     private void recordLoginFailure(String[] rateLimitKeys, String normalizedIdentifier) {
         if (rateLimitKeys != null) {
             for (String key : rateLimitKeys) {
@@ -368,6 +377,7 @@ public class AuthService {
             throw new InvalidCredentialsException("رمز التحديث منتهي الصلاحية");
         }
 
+        applyTrustedUserScope(refreshToken.getTenantId());
         User user = userRepository.findByTenantIdAndId(
                         refreshToken.getTenantId(), refreshToken.getUserId())
                 .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
@@ -427,6 +437,7 @@ public class AuthService {
         int revoked = refreshTokenRepository.revokeAllActive(tenantId, userId);
 
         // Increment session version to invalidate all outstanding access tokens
+        applyTrustedUserScope(tenantId);
         userRepository.findByTenantIdAndId(tenantId, userId).ifPresent(user -> {
             user.incrementSessionVersion();
             userRepository.save(user);
@@ -459,6 +470,7 @@ public class AuthService {
             throw new IllegalArgumentException("Initial credential must be between 8 and 256 characters");
         }
 
+        applyTrustedUserScope(tenantId);
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new InvalidCredentialsException("???????? ??? ?????"));
 
@@ -641,6 +653,9 @@ public class AuthService {
             throw new InvalidResetTokenException("رمز إعادة التعيين غير صالح أو منتهي الصلاحية");
         }
 
+        // The tenant scope is obtained from the validated recovery token,
+        // never from unauthenticated request parameters.
+        applyTrustedUserScope(resetToken.getTenantId());
         // Load user
         User user = userRepository.findByTenantIdAndId(resetToken.getTenantId(), resetToken.getUserId())
                 .orElseThrow(() -> new InvalidResetTokenException("المستخدم غير موجود"));
