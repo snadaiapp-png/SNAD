@@ -25,6 +25,7 @@ import com.sanad.platform.security.exception.LoginRateLimitException;
 import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
 import com.sanad.platform.security.filter.SessionVersionCache;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.security.ratelimit.LoginRateLimiter;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
@@ -74,6 +75,7 @@ public class AuthService {
     private final SubscriptionResolutionService subscriptionResolution;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private PlatformAuditWriter credentialAuditWriter;
+    private TenantRlsTransactionContext loginTenantRlsContext;
 
     @Autowired
     public AuthService(
@@ -118,6 +120,17 @@ public class AuthService {
     @Autowired(required = false)
     void setCredentialAuditWriter(PlatformAuditWriter credentialAuditWriter) {
         this.credentialAuditWriter = credentialAuditWriter;
+    }
+
+    /**
+     * Pre-authentication tenant scoping for explicitly tenant-qualified login.
+     * The caller-provided tenant UUID is only a lookup scope, NOT proof of access:
+     * password verification and account/tenant eligibility still apply.
+     * Tenantless login requires a separate reviewed pre-auth resolver.
+     */
+    @Autowired(required = false)
+    void setLoginTenantRlsContext(TenantRlsTransactionContext context) {
+        this.loginTenantRlsContext = context;
     }
 
     /**
@@ -188,6 +201,11 @@ public class AuthService {
         // tenant-scoped and may legitimately exist in more than one tenant.
         User user;
         if (request.getTenantId() != null) {
+            // SET LOCAL on the same Spring-managed transaction before any users
+            // query. No privilege escalation; tenantId remains untrusted as auth.
+            if (loginTenantRlsContext != null) {
+                loginTenantRlsContext.applyForCurrentTransaction(request.getTenantId());
+            }
             user = emailLogin
                     ? userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail).orElse(null)
                     : userRepository.findByTenantIdAndUsername(request.getTenantId(), normalizedUsername).orElse(null);
