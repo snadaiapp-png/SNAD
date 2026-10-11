@@ -51,6 +51,7 @@ class CredentialAdministrationPhase7AuditBehaviorTest {
     private PasswordEncoder passwordEncoder;
     private PlatformAuditWriter audit;
     private AuthService service;
+    private PreAuthTenantResolver resolver;
 
     @BeforeEach
     void setUp() {
@@ -64,6 +65,8 @@ class CredentialAdministrationPhase7AuditBehaviorTest {
                 mock(JwtTokenProvider.class), passwordEncoder, new SecurityProperties(),
                 mock(LoginRateLimiter.class), mock(SessionVersionCache.class));
         service.setCredentialAuditWriter(audit);
+        resolver = mock(PreAuthTenantResolver.class);
+        service.setPreAuthTenantResolver(resolver);
     }
 
     @Test
@@ -104,7 +107,9 @@ class CredentialAdministrationPhase7AuditBehaviorTest {
         when(user.getStatus()).thenReturn(UserStatus.ACTIVE);
         when(user.getId()).thenReturn(USER_ID);
         when(user.getTenantId()).thenReturn(TENANT_ID);
-        when(userRepository.findAllByEmail("solo@example.com")).thenReturn(List.of(user));
+        when(resolver.resolve("email", "solo@example.com")).thenReturn(List.of(TENANT_ID));
+        when(userRepository.findByTenantIdAndEmail(TENANT_ID, "solo@example.com"))
+                .thenReturn(Optional.of(user));
 
         String rawToken = service.initiatePasswordReset(
                 new ForgotPasswordRequest("solo@example.com"), "127.0.0.1");
@@ -127,7 +132,8 @@ class CredentialAdministrationPhase7AuditBehaviorTest {
     void ambiguousOrInactiveResetRequestEmitsNoIssuanceAudit() {
         User first = activeUserOnTenant(TENANT_ID);
         User second = activeUserOnTenant(UUID.fromString("77777777-7777-7777-7777-777777777777"));
-        when(userRepository.findAllByEmail("shared@example.com")).thenReturn(List.of(first, second));
+        when(resolver.resolve("email", "shared@example.com"))
+                .thenReturn(List.of(first.getTenantId(), second.getTenantId()));
 
         String token = service.initiatePasswordReset(
                 new ForgotPasswordRequest("shared@example.com"), "127.0.0.1");
