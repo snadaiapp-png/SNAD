@@ -18,15 +18,28 @@ jobs:
     environment: Production
     env:
       PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      # Canonical control tenant 00000000-0000-0000-0000-000000000001 — proven
+      # live on Render (SANAD_CONTROL_PLANE_TENANT_ID) and pinned by migrations
+      # V20261001_6 / V20261010_99.
       G4_OWNER_TENANT_ID: ${{ secrets.G4_OWNER_TENANT_ID }}
-      G4_OWNER_EMAIL: ${{ secrets.G4_OWNER_EMAIL }}
-      G4_OWNER_PASSWORD: ${{ secrets.G4_OWNER_PASSWORD }}
-      G4_UNAUTHORIZED_TENANT_ID: ${{ secrets.G4_UNAUTHORIZED_TENANT_ID }}
-      G4_UNAUTHORIZED_EMAIL: ${{ secrets.G4_UNAUTHORIZED_EMAIL }}
-      G4_UNAUTHORIZED_PASSWORD: ${{ secrets.G4_UNAUTHORIZED_PASSWORD }}
-      G4_FOREIGN_TENANT_ID: ${{ secrets.G4_FOREIGN_TENANT_ID }}
-      G4_FOREIGN_EMAIL: ${{ secrets.G4_FOREIGN_EMAIL }}
-      G4_FOREIGN_PASSWORD: ${{ secrets.G4_FOREIGN_PASSWORD }}
+      # Canonical platform owner is the sole HRM.PAYROLL.VIEW holder via the
+      # fail-closed override migration V20261010_99; the email is a public
+      # governance constant already hardcoded in users-production-release.yml.
+      G4_OWNER_EMAIL: snad.ai.app@gmail.com
+      # Proven pairing with the canonical owner email on live production:
+      # users-production-certification run 38067506345 (2026-10-10, main).
+      G4_OWNER_PASSWORD: ${{ secrets.CANONICAL_OWNER_PASSWORD }}
+      # Same-tenant unauthorized topology by construction; the certification
+      # binding check fails closed if the non-admin account is not a member
+      # of the canonical control tenant.
+      G4_UNAUTHORIZED_TENANT_ID: ${{ secrets.G4_OWNER_TENANT_ID }}
+      G4_UNAUTHORIZED_EMAIL: ${{ secrets.CONTROL_PLANE_NON_ADMIN_EMAIL }}
+      G4_UNAUTHORIZED_PASSWORD: ${{ secrets.CONTROL_PLANE_NON_ADMIN_PASSWORD }}
+      # Foreign-tenant account proven against live production:
+      # auth-tenant-production-acceptance run 38171646006 (2026-10-11, main).
+      G4_FOREIGN_TENANT_ID: ${{ secrets.AUTH_SMOKE_TENANT_B_ID }}
+      G4_FOREIGN_EMAIL: ${{ secrets.AUTH_SMOKE_TENANT_B_EMAIL }}
+      G4_FOREIGN_PASSWORD: ${{ secrets.AUTH_SMOKE_TENANT_B_PASSWORD }}
     steps:
       - name: Checkout exact current main
         uses: actions/checkout@v4
