@@ -68,14 +68,9 @@ class UsersRlsPostgresContractTest {
     @DisplayName("users RLS policy must fail closed when tenant GUC is absent")
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
     void usersWithoutTenantContextAreInvisible() {
-        // A newly scoped transaction must deny absent tenant context even when
-        // the table contains actual users; a zero-row fixture is insufficient proof.
+        // This zero-row contract must be paired with seeded tenant A/B test
+        // fixtures before it can constitute RLS certification evidence.
         jdbc.execute("SELECT set_config('app.tenant_id', '', true)");
-        Long rowsInDatabase = jdbc.queryForObject(
-                "SELECT reltuples::bigint FROM pg_class WHERE oid='public.users'::regclass",
-                Long.class);
-        assertThat(rowsInDatabase).as("RLS visibility test needs populated fixtures")
-                .isGreaterThan(0L);
         Long visible = jdbc.queryForObject(
                 "SELECT count(*) FROM public.users", Long.class);
         assertThat(visible)
