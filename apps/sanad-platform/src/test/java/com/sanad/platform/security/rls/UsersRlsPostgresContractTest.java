@@ -110,6 +110,28 @@ class UsersRlsPostgresContractTest {
     }
 
     @Test
+    @DisplayName("pre-auth resolver must be security-definer with a fixed search path")
+    void preAuthResolverHasHardenedExecutionBoundary() {
+        Boolean hardened = jdbc.queryForObject("""
+                SELECT p.prosecdef
+                       AND EXISTS (
+                           SELECT 1 FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg
+                           WHERE cfg = 'search_path=pg_catalog'
+                       )
+                       AND NOT owner.rolcanlogin
+                       AND NOT owner.rolsuper
+                  FROM pg_proc p
+                  JOIN pg_namespace ns ON ns.oid = p.pronamespace
+                  JOIN pg_roles owner ON owner.oid = p.proowner
+                 WHERE ns.nspname='public'
+                   AND p.oid = to_regprocedure('public.g1_resolve_login_tenants(text,text)')
+                """, Boolean.class);
+        assertThat(hardened)
+                .as("Resolver must have pinned search_path and controlled NOLOGIN, non-superuser owner")
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("sanad runtime must not bypass table row security")
     void restrictedRuntimeHasNoBypassPrivilege() {
         Boolean bypass = jdbc.queryForObject(
