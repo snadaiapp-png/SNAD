@@ -129,6 +129,36 @@ class TenantRlsConnectionHandlerTest {
         verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
     }
 
+    @Test
+    void resetsTenantBindingAfterCommitForPooledConnectionReuse() throws Exception {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        when(delegate.getAutoCommit()).thenReturn(false);
+        proxy = wrap();
+
+        setSecurityContext(tenantA);
+        proxy.prepareStatement("SELECT 1");
+        proxy.commit();
+
+        setSecurityContext(tenantB);
+        proxy.prepareStatement("SELECT 1");
+
+        verify(statement).execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+        verify(statement).execute("SET LOCAL app.tenant_id = '" + tenantB + "'");
+    }
+
+    @Test
+    void rejectsTenantSwitchWithinSingleTransaction() throws Exception {
+        when(delegate.getAutoCommit()).thenReturn(false);
+        proxy = wrap();
+        setSecurityContext(UUID.randomUUID());
+        proxy.createStatement();
+
+        setSecurityContext(UUID.randomUUID());
+        org.junit.jupiter.api.Assertions.assertThrows(java.sql.SQLException.class,
+                () -> proxy.prepareStatement("SELECT 1"));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private void setSecurityContext(UUID tenantId) {
