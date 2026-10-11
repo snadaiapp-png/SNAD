@@ -128,7 +128,7 @@ public class AuthService {
      * password verification and account/tenant eligibility still apply.
      * Tenantless login requires a separate reviewed pre-auth resolver.
      */
-    @Autowired(required = false)
+    @Autowired
     void setLoginTenantRlsContext(TenantRlsTransactionContext context) {
         this.loginTenantRlsContext = context;
     }
