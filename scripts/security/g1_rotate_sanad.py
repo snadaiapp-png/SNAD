@@ -234,7 +234,7 @@ def verify_via_staged_config(new_password):
 
 def main():
     confirmation = os.environ.get("G1_CONFIRMATION", "")
-    check("confirmation_gate", confirmation == "ROTATE_SANAD_PASSWORD")
+    check("confirmation_gate", confirmation == "ROTATE_SANAD_ROLE_ACCESS")
 
     new_password = os.environ.get("G1_DATASOURCE_PASSWORD", "")
     check("new_password_present", bool(new_password))
