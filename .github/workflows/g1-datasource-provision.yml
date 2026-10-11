@@ -35,6 +35,15 @@ on:
         options:
           - pooler-session-5432
           - pooler-txn-6543
+  # On pull requests, the candidate+endpoint choice is read from the
+  # commit-pinned file .github/g1-provision.choice (auditable in the PR
+  # diff). The workflow only fires when that file or this definition
+  # changes, so no provisioning happens on unrelated PR pushes.
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/g1-provision.choice'
+      - '.github/workflows/g1-datasource-provision.yml'
 
 permissions:
   contents: read
@@ -80,10 +89,35 @@ jobs:
       - name: Install pinned PostgreSQL driver
         run: python -m pip install --disable-pip-version-check 'psycopg[binary]==3.2.10'
 
+      - name: Resolve choice source (dispatch inputs or commit-pinned file)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${CHOSEN_CANDIDATE:-}" ]; then
+            echo "G1_CHOICE_CANDIDATE=$CHOSEN_CANDIDATE" >> "$GITHUB_ENV"
+            echo "G1_CHOICE_ENDPOINT=$CHOSEN_ENDPOINT" >> "$GITHUB_ENV"
+            echo "CHOICE_SOURCE=workflow_dispatch_inputs"
+          else
+            test -f .github/g1-provision.choice || { echo "::error::no choice source (inputs empty and .github/g1-provision.choice missing)"; exit 1; }
+            cand="$(sed -n 's/^CANDIDATE=//p' .github/g1-provision.choice | head -1)"
+            ep="$(sed -n 's/^ENDPOINT=//p' .github/g1-provision.choice | head -1)"
+            case "$cand" in
+              SPRING_DATASOURCE_PASSWORD|PRODUCTION_DATABASE_PASSWORD|PRODUCTION_DATABASE_URL|PRODUCTION_DATABASE_JDBC_URL) ;;
+              *) echo "::error::invalid candidate in choice file"; exit 1 ;;
+            esac
+            case "$ep" in
+              pooler-session-5432|pooler-txn-6543) ;;
+              *) echo "::error::invalid endpoint in choice file"; exit 1 ;;
+            esac
+            echo "G1_CHOICE_CANDIDATE=$cand" >> "$GITHUB_ENV"
+            echo "G1_CHOICE_ENDPOINT=$ep" >> "$GITHUB_ENV"
+            echo "CHOICE_SOURCE=commit_pinned_file"
+          fi
+
       - name: Resolve chosen candidate and re-verify sanad identity (fail-closed)
         env:
-          CHOSEN_CANDIDATE: ${{ github.event.inputs.candidate }}
-          CHOSEN_ENDPOINT: ${{ github.event.inputs.endpoint }}
+          CHOSEN_CANDIDATE: ${{ env.G1_CHOICE_CANDIDATE }}
+          CHOSEN_ENDPOINT: ${{ env.G1_CHOICE_ENDPOINT }}
         shell: bash
         run: |
           set -euo pipefail
@@ -145,8 +179,8 @@ jobs:
       - name: Write G1_DATASOURCE_* environment secrets (stdin, never echoed)
         env:
           GH_TOKEN: ${{ secrets.Z_GITHUB_TOKEN }}
-          CHOSEN_CANDIDATE: ${{ github.event.inputs.candidate }}
-          CHOSEN_ENDPOINT: ${{ github.event.inputs.endpoint }}
+          CHOSEN_CANDIDATE: ${{ env.G1_CHOICE_CANDIDATE }}
+          CHOSEN_ENDPOINT: ${{ env.G1_CHOICE_ENDPOINT }}
         shell: bash
         run: |
           set -euo pipefail

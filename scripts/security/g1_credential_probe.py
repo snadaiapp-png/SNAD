@@ -148,7 +148,7 @@ def main():
     token = os.environ.get("SUPABASE_ACCESS_TOKEN")
     if token:
         probe_api = os.popen(
-            "curl -s -o /tmp/sb_project.json -w '%{http_code}' "
+            "curl -s --max-time 20 -o /tmp/sb_project.json -w '%{http_code}' "
             "-H 'Authorization: Bearer $SUPABASE_ACCESS_TOKEN' "
             "-H 'Accept: application/json' "
             "https://api.supabase.com/v1/projects/" + PROJECT_REF
