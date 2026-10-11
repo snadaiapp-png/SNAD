@@ -26,6 +26,7 @@ import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
 import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.security.ratelimit.LoginRateLimiter;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
@@ -74,6 +75,7 @@ public class AuthService {
     private final SubscriptionResolutionService subscriptionResolution;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private PlatformAuditWriter credentialAuditWriter;
+    private TenantRlsTransactionContext tenantRlsTransactionContext;
 
     @Autowired
     public AuthService(
@@ -112,6 +114,12 @@ public class AuthService {
         this.resetRequestCache = Caffeine.newBuilder()
                 .expireAfterWrite(1, TimeUnit.HOURS)
                 .build();
+    }
+
+    /** Explicit tenant login must bind RLS before reading public.users. */
+    @Autowired(required = false)
+    void setTenantRlsTransactionContext(TenantRlsTransactionContext context) {
+        this.tenantRlsTransactionContext = context;
     }
 
     /** Optional Phase 7 audit writer for credential administration events. */
@@ -182,6 +190,15 @@ public class AuthService {
                 throw new LoginRateLimitException(
                         "تم تجاوز عدد محاولات الدخول المسموح بها. حاول لاحقًا.");
             }
+        }
+
+        // Explicit tenant login is a pre-auth request: SecurityContextHolder
+        // cannot supply an authenticated tenant yet. Apply its scoped GUC in
+        // this transaction before touching the FORCE-RLS users table. Tenant
+        // identifiers are only scopes, never evidence of authorization;
+        // password, tenant status and subscription checks still apply.
+        if (request.getTenantId() != null && tenantRlsTransactionContext != null) {
+            tenantRlsTransactionContext.applyForCurrentTransaction(request.getTenantId());
         }
 
         // Resolve through the canonical tenant user repository. Username is
