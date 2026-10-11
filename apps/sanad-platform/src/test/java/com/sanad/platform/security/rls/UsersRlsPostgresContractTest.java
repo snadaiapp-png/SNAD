@@ -79,6 +79,37 @@ class UsersRlsPostgresContractTest {
     }
 
     @Test
+    @DisplayName("pre-auth resolution function must exist before releasing AuthService")
+    void preAuthResolverIsInstalled() {
+        String signature = jdbc.queryForObject(
+                "SELECT to_regprocedure('public.g1_resolve_login_tenants(text,text)')::text",
+                String.class);
+        assertThat(signature)
+                .as("AuthService must not reference an uninstalled pre-auth resolver")
+                .isNotBlank();
+    }
+
+    @Test
+    @DisplayName("pre-auth discovery must not grant execute to PUBLIC")
+    void preAuthResolverHasNoPublicExecute() {
+        Long publicExecuteGrants = jdbc.queryForObject("""
+                SELECT count(*)
+                FROM pg_proc p
+                JOIN pg_namespace n ON n.oid = p.pronamespace
+                CROSS JOIN LATERAL aclexplode(COALESCE(
+                    p.proacl, acldefault('f', p.proowner))) acl
+                WHERE n.nspname = 'public'
+                  AND p.proname = 'g1_resolve_login_tenants'
+                  AND pg_get_function_identity_arguments(p.oid) = 'p_kind text, p_identifier text'
+                  AND acl.grantee = 0
+                  AND acl.privilege_type = 'EXECUTE'
+                """, Long.class);
+        assertThat(publicExecuteGrants)
+                .as("PUBLIC must never receive access to pre-auth tenant discovery")
+                .isZero();
+    }
+
+    @Test
     @DisplayName("sanad runtime must not bypass table row security")
     void restrictedRuntimeHasNoBypassPrivilege() {
         Boolean bypass = jdbc.queryForObject(
