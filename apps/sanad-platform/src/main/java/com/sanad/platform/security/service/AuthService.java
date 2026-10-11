@@ -467,6 +467,9 @@ public class AuthService {
             throw new IllegalArgumentException("Initial credential must be between 8 and 256 characters");
         }
 
+        // Tenant authorization is enforced by the caller; never read users
+        // without a transaction-local tenant RLS scope.
+        applyTrustedTenantScope(tenantId);
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new InvalidCredentialsException("???????? ??? ?????"));
 
@@ -512,6 +515,7 @@ public class AuthService {
     /** Rotates the authenticated account credential and terminates existing refresh sessions. */
     @Transactional
     public void changeCredential(UUID tenantId, UUID userId, ChangeCredentialRequest request) {
+        applyTrustedTenantScope(tenantId);
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
 
