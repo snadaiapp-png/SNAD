@@ -27,7 +27,7 @@ type Step = {
 
 async function tokenFor(request: APIRequestContext, email: string) {
   const response = await request.post(`${API}/api/v1/auth/login`, {
-    data: { email, password: PASSWORD },
+    data: { email, password: PASSWORD, tenantId: "aaaaaaa1-0000-4000-8000-000000000001" },
   });
   expect(response.status(), `real login must succeed for ${email}`).toBe(200);
   const body = await response.json() as { accessToken?: string };
