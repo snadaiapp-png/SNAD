@@ -59,6 +59,8 @@ class AccountV2HttpIntegrationTest {
         UUID userId = UUID.randomUUID();
         jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (:id, 'Test Tenant', 'test-" + tenantId.toString().substring(0, 8) + "', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 new MapSqlParameterSource("id", tenantId));
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id. This test is @Transactional.
+        jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (:id, :tenantId, :email, 'Test Owner', 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 new MapSqlParameterSource("id", userId).addValue("tenantId", tenantId).addValue("email", "owner-" + userId.toString().substring(0, 8) + "@test.example"));
         seedAccountCapabilities(tenantId, userId);
