@@ -25,9 +25,15 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-      DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
-      DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
-      DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+      # DB trio sourced from G1_DATASOURCE_* — the ONLY credentials proven live
+      # (g1-sanad-credential-rotation 3x success 2026-10-11; G1 cert run 38171936686
+      # authenticated and reached RLS assertions with this trio).
+      # The SPRING_DATASOURCE_* / PRODUCTION_DATABASE_PASSWORD trio predates the
+      # Oct-11 sanad rotation and FAILED live auth (restoration run 38253095398,
+      # fail-closed gate — no writes performed).
+      DB_URL: ${{ secrets.G1_DATASOURCE_URL }}
+      DB_USER: ${{ secrets.G1_DATASOURCE_USERNAME }}
+      DB_PASS: ${{ secrets.G1_DATASOURCE_PASSWORD }}
       CP_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
       CP_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
       CP_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
@@ -54,11 +60,11 @@ jobs:
           export PGPASSWORD="$DB_PASS"
           PGURL="postgresql://${HOST}:${PORT}/${DBNAME}?sslmode=require"
           echo "Proving auth against ${HOST}:${PORT}/${DBNAME} (values not printed)"
-          AUTHCHECK="$(psql "$PGURL" -U "$DB_USER" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' 2>&1 | tail -1)"
-          test "$AUTHCHECK" = "1" || { echo "::error::DB credential proof failed: ${AUTHCHECK:0:120}"; exit 1; }
+          AUTHCHECK="$(psql "$PGURL" -U "$DB_USER" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' 2>&1 | tail -1)" || true
+          test "$AUTHCHECK" = "1" || { echo "::error::DB credential proof failed: ${AUTHCHECK:0:160}"; exit 1; }
           echo "DB_AUTH_PROVEN=YES"
           ENC_ROWS="$(psql "$PGURL" -U "$DB_USER" -v ON_ERROR_STOP=1 -tAc \
-            "SELECT count(*) FROM crm_custom_field_values WHERE value_text LIKE 'enc:v1:%'" 2>&1 | tail -1)"
+            "SELECT count(*) FROM crm_custom_field_values WHERE value_text LIKE 'enc:v1:%'" 2>&1 | tail -1)" || true
           echo "ENC_ROWS_SCAN=${ENC_ROWS}"
           case "$ENC_ROWS" in
             ''|*[!0-9]*) echo "::error::enc rows scan failed: ${ENC_ROWS:0:120}"; exit 1;;
