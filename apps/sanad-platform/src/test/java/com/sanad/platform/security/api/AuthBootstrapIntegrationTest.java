@@ -59,9 +59,12 @@ class AuthBootstrapIntegrationTest {
                 tenant.getId(), "VIEWER", "Viewer", "Read-only access"));
         roleGrantRepository.save(new UserRoleGrant(tenant.getId(), user.getId(), viewer.getId(), null));
 
+        LoginRequest loginRequest = new LoginRequest(email, password);
+        loginRequest.setTenantId(tenant.getId());
+
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new LoginRequest(email, password))))
+                        .content(objectMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.refreshToken").doesNotExist())
