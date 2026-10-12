@@ -197,6 +197,7 @@ class ApiRegressionSuiteTest {
 
             // Login with new password works
             LoginRequest newLogin = new LoginRequest(testEmail, newPassword);
+            newLogin.setTenantId(tenantId);
             MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(newLogin)))
@@ -214,6 +215,7 @@ class ApiRegressionSuiteTest {
         @DisplayName("Invalid credentials return 401")
         void invalidCredentials() throws Exception {
             LoginRequest request = new LoginRequest(testEmail, "WrongPassword");
+            request.setTenantId(tenantId);
             mockMvc.perform(post("/api/v1/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
@@ -320,6 +322,7 @@ class ApiRegressionSuiteTest {
 
     private String loginAndGetToken() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
