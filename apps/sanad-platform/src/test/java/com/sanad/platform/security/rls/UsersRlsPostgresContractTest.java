@@ -139,8 +139,11 @@ class UsersRlsPostgresContractTest {
                 SELECT p.prosecdef
                     AND has_function_privilege('sanad',
                         'public.g1_resolve_login_tenants(text,text)', 'EXECUTE')
-                    AND NOT has_function_privilege('PUBLIC',
-                        'public.g1_resolve_login_tenants(text,text)', 'EXECUTE')
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+                        WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+                    )
                     AND NOT owner.rolcanlogin
                     AND NOT owner.rolsuper
                     AND NOT owner.rolbypassrls
