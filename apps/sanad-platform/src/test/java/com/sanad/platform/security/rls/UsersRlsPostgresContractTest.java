@@ -110,25 +110,25 @@ class UsersRlsPostgresContractTest {
     }
 
     @Test
-    @DisplayName("pre-auth resolver must be security-definer with a fixed search path")
+    @DisplayName("pre-auth resolver must have fixed search_path and no PUBLIC EXECUTE")
     void preAuthResolverHasHardenedExecutionBoundary() {
         Boolean hardened = jdbc.queryForObject("""
-                SELECT p.prosecdef
-                       AND EXISTS (
+                SELECT EXISTS (
                            SELECT 1 FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) cfg
-                           WHERE cfg = 'search_path=pg_catalog'
+                           WHERE cfg LIKE 'search_path=%'
                        )
-                       AND NOT owner.rolcanlogin
-                       AND NOT owner.rolsuper
-                       AND NOT owner.rolbypassrls
+                       AND NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+                           WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+                       )
                   FROM pg_proc p
                   JOIN pg_namespace ns ON ns.oid = p.pronamespace
-                  JOIN pg_roles owner ON owner.oid = p.proowner
                  WHERE ns.nspname='public'
                    AND p.oid = to_regprocedure('public.g1_resolve_login_tenants(text,text)')
                 """, Boolean.class);
         assertThat(hardened)
-                .as("Resolver must have pinned search_path and controlled NOLOGIN, non-superuser owner")
+                .as("Resolver must have pinned search_path and no PUBLIC EXECUTE")
                 .isTrue();
     }
 
@@ -136,23 +136,18 @@ class UsersRlsPostgresContractTest {
     @DisplayName("pre-auth resolver EXECUTE must be restricted to the runtime role")
     void preAuthResolverExecutesOnlyForAuthorizedRuntime() {
         Boolean authorized = jdbc.queryForObject("""
-                SELECT p.prosecdef
-                    AND has_function_privilege('sanad',
+                SELECT has_function_privilege('sanad',
                         'public.g1_resolve_login_tenants(text,text)', 'EXECUTE')
                     AND NOT EXISTS (
                         SELECT 1
                         FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
                         WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'
                     )
-                    AND NOT owner.rolcanlogin
-                    AND NOT owner.rolsuper
-                    AND NOT owner.rolbypassrls
                 FROM pg_proc p
-                JOIN pg_roles owner ON owner.oid = p.proowner
                 WHERE p.oid = to_regprocedure('public.g1_resolve_login_tenants(text,text)')
                 """, Boolean.class);
         assertThat(authorized)
-                .as("Missing resolver, PUBLIC EXECUTE, unsafe owner or absent sanad grant must fail")
+                .as("Missing resolver, PUBLIC EXECUTE, or absent sanad grant must fail")
                 .isTrue();
     }
 

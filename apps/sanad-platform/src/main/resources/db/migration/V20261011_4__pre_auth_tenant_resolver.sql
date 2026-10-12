@@ -1,150 +1,134 @@
--- G1 pre-authentication tenant discovery function.
+-- G1 pre-authentication tenant discovery — DEDICATED LOOKUP TABLE design.
 --
--- CORRECTIVE VERSION (P0-02 redesign): eliminates BYPASSRLS from the
--- pre-auth design. The function owner now has a narrow column-level GRANT
--- (tenant_id, email, username only) + a permissive SELECT policy. No
--- BYPASSRLS privilege is granted anywhere.
+-- DESIGN (G1-R04 security redesign — eliminates BYPASSRLS + CREATEROLE):
+-- Instead of a SECURITY DEFINER function that reads public.users directly
+-- (which requires BYPASSRLS or a broad permissive policy), this migration
+-- creates a SEPARATE lookup table (login_tenant_index) that is NOT subject
+-- to RLS. A trigger on public.users keeps the index in sync.
 --
--- Security invariants (Phase 4.2 of P0-01 cross-PR remediation):
---   1. Owner is a NOLOGIN role WITHOUT BYPASSRLS — narrowly scoped to
---      OWN this function only. It cannot log in, cannot create databases,
---      cannot create roles, is not a superuser, and does NOT bypass RLS.
---   2. Fixed search_path = pg_catalog prevents search_path injection.
---      Function body fully qualifies public.users.
---   3. REVOKE ALL FROM PUBLIC; GRANT EXECUTE only to sanad. The function
---      is callable only by the application runtime role (or roles that
---      inherit sanad via GRANT).
---   4. Returns ONLY tenant_id UUIDs. No password hashes, no emails, no
---      usernames, no User entity fields. The caller cannot use this
---      function to harvest user records.
---   5. LIMIT 101 bounds enumeration. The 101st row signals ambiguity to
---      the caller without disclosing the actual count.
---   6. STABLE — read-only, no side effects, no writes.
---   7. No dynamic SQL in the function body. The only EXECUTE is for the
---      idempotent CREATE ROLE of the function owner (necessary because
---      CREATE ROLE cannot appear directly in a PL/pgSQL DO block).
+-- The pre-auth function reads from login_tenant_index (no RLS to bypass).
+-- No BYPASSRLS, no CREATEROLE, no column GRANT on public.users, no broad
+-- permissive policy, no role membership issues.
 --
--- ACCESS PATH (how the function reads public.users under FORCE RLS):
---   a. Function is SECURITY DEFINER owned by sanad_preauth_owner.
---   b. sanad_preauth_owner has GRANT SELECT (tenant_id, email, username)
---      on public.users — column-level privilege restricts to 3 columns.
---   c. sanad_preauth_owner has a permissive SELECT policy
---      (users_preauth_owner_discovery) — allows all rows.
---   d. Combined: sanad_preauth_owner can read (tenant_id, email, username)
---      for all rows, but NOT password_hash or other sensitive columns.
---   e. The function's SQL text returns only tenant_id — the caller gets
---      only tenant IDs, never email/username/password_hash.
+-- Security advantages:
+--   1. No CREATEROLE needed — the migration doesn't create any roles.
+--   2. No BYPASSRLS — no role has BYPASSRLS for this function.
+--   3. No column GRANT on public.users — the function doesn't read public.users.
+--   4. No broad permissive policy — login_tenant_index has NO RLS.
+--   5. No role membership/inheritance issues — no GRANT between roles.
+--   6. login_tenant_index stores only (kind, identifier, tenant_id) —
+--      no password_hash, no email (the identifier IS the email/username,
+--      but the function returns only tenant_id).
+--   7. The function is SECURITY INVOKER — uses the caller's (sanad)
+--      privileges. sanad has SELECT on login_tenant_index (no RLS).
+--   8. The sync trigger is SECURITY DEFINER owned by the migration runner
+--      (table owner). It uses NEW (the trigger row) — doesn't need to
+--      SELECT from public.users.
 --
--- This is BETTER than BYPASSRLS (which would allow reading ALL columns
--- on ALL tables). The function owner cannot read password hashes, and
--- cannot bypass RLS on other tables.
---
--- Precondition: checks for the sanad role (WITHOUT the rolcanlogin check
--- that was in the original V20261011_4). The sanad role may be LOGIN (as
--- in ci.yml's provisioning) or NOLOGIN (as in g3-authenticated-acceptance
--- provisioning). Both are acceptable — the function only needs sanad to
--- exist as a non-superuser, non-bypassRLS role to receive the EXECUTE GRANT.
+-- Backfill:
+--   Seed migrations that insert users BEFORE V20261011_4 runs will NOT
+--   have their data in login_tenant_index (the trigger doesn't exist yet).
+--   For CI, this is acceptable — test fixtures insert users AFTER Flyway
+--   completes (the trigger fires). For production, a separate backfill
+--   step (run as superuser) is needed before enabling the pre-auth flow.
 
--- Fail closed if the sanad runtime role is not yet provisioned. This
--- matches V20261011_3's check (without the rolcanlogin requirement that
--- was incorrectly added in the original V20261011_4).
+-- Precondition: sanad role must exist (for GRANT SELECT on the lookup table).
+-- This matches V20261011_3's check (no rolcanlogin requirement).
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_roles WHERE rolname = 'sanad'
       AND NOT rolsuper AND NOT rolbypassrls
   ) THEN
-    RAISE EXCEPTION 'G1_PREAUTH_OWNER_PRECONDITION: provision restricted sanad role before pre-auth resolver';
+    RAISE EXCEPTION 'G1_PREAUTH_LOOKUP_PRECONDITION: provision restricted sanad role before pre-auth resolver';
   END IF;
 END $$;
 
--- Provision the NOLOGIN function owner. This role exists ONLY to own
--- this function. It is NOLOGIN (cannot be logged into) and does NOT
--- have BYPASSRLS — the function reads public.users via a column-level
--- GRANT + permissive SELECT policy, not via RLS bypass.
-DO $$
+-- Create the lookup table. NO RLS — this is a pre-auth discovery table
+-- that needs to be readable across all tenants (the function returns only
+-- tenant_id UUIDs, not user records).
+CREATE TABLE IF NOT EXISTS public.login_tenant_index (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    kind text NOT NULL CHECK (kind IN ('email', 'username')),
+    identifier text NOT NULL,
+    tenant_id uuid NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (kind, identifier, tenant_id)
+);
+
+-- Index for fast lookup by (kind, identifier).
+CREATE INDEX IF NOT EXISTS idx_login_tenant_index_lookup
+  ON public.login_tenant_index (kind, identifier);
+
+-- Grant SELECT to sanad (the application runtime role).
+-- sanad can read ALL rows from login_tenant_index (no RLS on this table).
+-- This is intentional — pre-auth discovery needs to find tenant IDs across
+-- all tenants. The function returns only tenant_id (not identifier).
+GRANT SELECT ON public.login_tenant_index TO sanad;
+
+-- Sync trigger function: keeps login_tenant_index in sync with public.users.
+-- SECURITY DEFINER because the trigger fires on public.users (which has
+-- FORCE RLS). The trigger function gets NEW/OLD from the trigger event —
+-- it does NOT need to SELECT from public.users. It only INSERTs/DELETEs
+-- into login_tenant_index (which has no RLS).
+CREATE OR REPLACE FUNCTION public.sync_login_tenant_index() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad_preauth_owner') THEN
-    EXECUTE 'CREATE ROLE sanad_preauth_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS';
+  IF (TG_OP = 'DELETE') THEN
+    DELETE FROM public.login_tenant_index
+    WHERE tenant_id = OLD.tenant_id
+      AND identifier IN (OLD.email, OLD.username);
+    RETURN OLD;
   END IF;
-END $$;
-ALTER ROLE sanad_preauth_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
--- Sanity: confirm the function owner is correctly scoped. Fail closed if
--- the ALTER did not take effect (e.g., due to a role conflict).
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_roles WHERE rolname = 'sanad_preauth_owner'
-      AND NOT rolsuper
-      AND NOT rolcreatedb
-      AND NOT rolcreaterole
-      AND NOT rolcanlogin
-      AND NOT rolbypassrls
-  ) THEN
-    RAISE EXCEPTION 'G1_PREAUTH_OWNER_CONTRACT_VIOLATION: sanad_preauth_owner must be NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS';
+  -- INSERT or UPDATE: remove old entries, insert new ones.
+  DELETE FROM public.login_tenant_index
+  WHERE tenant_id = NEW.tenant_id
+    AND identifier IN (OLD.email, OLD.username, NEW.email, NEW.username);
+
+  INSERT INTO public.login_tenant_index (kind, identifier, tenant_id)
+  VALUES ('email', NEW.email, NEW.tenant_id)
+  ON CONFLICT (kind, identifier, tenant_id) DO NOTHING;
+
+  IF NEW.username IS NOT NULL AND NEW.username != NEW.email THEN
+    INSERT INTO public.login_tenant_index (kind, identifier, tenant_id)
+    VALUES ('username', NEW.username, NEW.tenant_id)
+    ON CONFLICT (kind, identifier, tenant_id) DO NOTHING;
   END IF;
-END $$;
 
--- Revoke any prior broad SELECT grant on public.users from
--- sanad_preauth_owner (in case a prior version of this migration granted
--- all columns). Then grant ONLY the 3 columns needed for pre-auth
--- discovery: tenant_id, email, username. password_hash and other
--- sensitive columns are NOT granted.
-REVOKE SELECT ON public.users FROM sanad_preauth_owner;
-GRANT SELECT (tenant_id, email, username) ON public.users TO sanad_preauth_owner;
+  RETURN NEW;
+END;
+$$;
 
--- Permissive SELECT policy for the function owner. This allows the
--- function (which executes as sanad_preauth_owner via SECURITY DEFINER)
--- to read all rows from public.users — necessary for cross-tenant
--- pre-auth discovery. The column-level GRANT above restricts WHICH
--- columns are readable; this policy restricts WHICH ROWS are visible
--- (all rows, in this case).
---
--- PostgreSQL does NOT support `CREATE POLICY IF NOT EXISTS`. Use a
--- conditional DO block with EXECUTE for idempotent policy creation.
--- This avoids syntax errors and handles re-runs gracefully.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'public'
-      AND tablename = 'users'
-      AND policyname = 'users_preauth_owner_discovery'
-  ) THEN
-    EXECUTE 'CREATE POLICY users_preauth_owner_discovery ON public.users AS PERMISSIVE FOR SELECT TO sanad_preauth_owner USING (true)';
-  END IF;
-END $$;
+-- The trigger function needs INSERT/DELETE on login_tenant_index.
+-- The function owner (migration runner = table owner) has these by default.
+-- Also grant to sanad in case the trigger fires in a sanad-context.
+GRANT INSERT, DELETE ON public.login_tenant_index TO sanad;
 
--- The function itself. SECURITY DEFINER means the function executes as
--- sanad_preauth_owner (the owner), not as the caller. The caller (sanad)
--- therefore gains the ability to read tenant_id across all tenants, but
--- ONLY through this function — direct SELECT from public.users by sanad
--- still enforces the users_tenant_isolation policy (because sanad does
--- NOT have the users_preauth_owner_discovery policy; only
--- sanad_preauth_owner does).
+-- Attach trigger to public.users. Fires AFTER INSERT/UPDATE/DELETE.
+DROP TRIGGER IF EXISTS users_sync_login_tenant_index ON public.users;
+CREATE TRIGGER users_sync_login_tenant_index
+  AFTER INSERT OR UPDATE OR DELETE ON public.users
+  FOR EACH ROW EXECUTE FUNCTION public.sync_login_tenant_index();
+
+-- The pre-auth function. SECURITY INVOKER — uses the caller's privileges.
+-- The caller (sanad) has SELECT on login_tenant_index (no RLS on this table).
+-- Returns only tenant_id UUIDs — no password_hash, no email, no username.
 CREATE OR REPLACE FUNCTION public.g1_resolve_login_tenants(
     p_kind text, p_identifier text
 ) RETURNS TABLE(tenant_id uuid)
-LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = pg_catalog
+LANGUAGE sql STABLE SECURITY INVOKER
+SET search_path = pg_catalog, public
 AS $$
-    SELECT DISTINCT u.tenant_id
-      FROM public.users AS u
-     WHERE (p_kind = 'email' AND u.email = p_identifier)
-        OR (p_kind = 'username' AND u.username = p_identifier)
-     ORDER BY u.tenant_id
+    SELECT DISTINCT tenant_id
+      FROM public.login_tenant_index
+     WHERE kind = p_kind AND identifier = p_identifier
+     ORDER BY tenant_id
      LIMIT 101
 $$;
 
--- Re-assert the function owner. CREATE OR REPLACE preserves the existing
--- owner if the function already exists; this ALTER is a no-op on first
--- run and a safety belt on subsequent re-runs.
-ALTER FUNCTION public.g1_resolve_login_tenants(text, text) OWNER TO sanad_preauth_owner;
-
--- Lock down EXECUTE privileges. Default PostgreSQL grants EXECUTE on
--- functions to PUBLIC; this migration revokes that default and grants
--- EXECUTE only to sanad. No other role can call this function.
+-- Lock down EXECUTE privileges. Only sanad can call the function.
 REVOKE ALL ON FUNCTION public.g1_resolve_login_tenants(text, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.g1_resolve_login_tenants(text, text) FROM sanad;
 GRANT EXECUTE ON FUNCTION public.g1_resolve_login_tenants(text, text) TO sanad;
