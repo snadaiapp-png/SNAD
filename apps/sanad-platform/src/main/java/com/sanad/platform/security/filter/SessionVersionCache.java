@@ -49,7 +49,7 @@ public class SessionVersionCache {
 
     /** Isolated unit-test constructor; production wiring uses the transaction-aware constructor. */
     public SessionVersionCache(UserRepository userRepository) {
-        this(userRepository, null, null);
+        this(userRepository, (TransactionTemplate) null, null);
     }
 
     @Autowired
