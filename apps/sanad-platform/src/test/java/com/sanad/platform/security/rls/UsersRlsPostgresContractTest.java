@@ -28,12 +28,12 @@ class UsersRlsPostgresContractTest {
     @DisplayName("public.users must enforce database-level row security")
     void usersTableHasRlsEnabled() {
         Boolean enabled = jdbc.queryForObject(
-                "SELECT c.relrowsecurity FROM pg_class c " +
+                "SELECT c.relrowsecurity AND c.relforcerowsecurity FROM pg_class c " +
                 "JOIN pg_namespace n ON n.oid=c.relnamespace " +
                 "WHERE n.nspname='public' AND c.relname='users' AND c.relkind='r'",
                 Boolean.class);
         assertThat(enabled)
-                .as("G1 users_rls_enabled — do not pass with application filtering alone")
+                .as("G1 users ENABLE and FORCE RLS — application filtering is insufficient")
                 .isTrue();
     }
 
@@ -100,7 +100,7 @@ class UsersRlsPostgresContractTest {
                     p.proacl, acldefault('f', p.proowner))) acl
                 WHERE n.nspname = 'public'
                   AND p.proname = 'g1_resolve_login_tenants'
-                  AND pg_get_function_identity_arguments(p.oid) = 'p_kind text, p_identifier text'
+                  AND p.oid = to_regprocedure('public.g1_resolve_login_tenants(text,text)')
                   AND acl.grantee = 0
                   AND acl.privilege_type = 'EXECUTE'
                 """, Long.class);
@@ -120,6 +120,7 @@ class UsersRlsPostgresContractTest {
                        )
                        AND NOT owner.rolcanlogin
                        AND NOT owner.rolsuper
+                       AND NOT owner.rolbypassrls
                   FROM pg_proc p
                   JOIN pg_namespace ns ON ns.oid = p.pronamespace
                   JOIN pg_roles owner ON owner.oid = p.proowner
@@ -129,6 +130,45 @@ class UsersRlsPostgresContractTest {
         assertThat(hardened)
                 .as("Resolver must have pinned search_path and controlled NOLOGIN, non-superuser owner")
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("pre-auth resolver EXECUTE must be restricted to the runtime role")
+    void preAuthResolverExecutesOnlyForAuthorizedRuntime() {
+        Boolean authorized = jdbc.queryForObject("""
+                SELECT p.prosecdef
+                    AND has_function_privilege('sanad',
+                        'public.g1_resolve_login_tenants(text,text)', 'EXECUTE')
+                    AND NOT has_function_privilege('PUBLIC',
+                        'public.g1_resolve_login_tenants(text,text)', 'EXECUTE')
+                    AND NOT owner.rolcanlogin
+                    AND NOT owner.rolsuper
+                    AND NOT owner.rolbypassrls
+                FROM pg_proc p
+                JOIN pg_roles owner ON owner.oid = p.proowner
+                WHERE p.oid = to_regprocedure('public.g1_resolve_login_tenants(text,text)')
+                """, Boolean.class);
+        assertThat(authorized)
+                .as("Missing resolver, PUBLIC EXECUTE, unsafe owner or absent sanad grant must fail")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("users RLS must have an enforced tenant-aware policy for runtime")
+    void runtimeUsersPolicyMustBeTenantScoped() {
+        Long matching = jdbc.queryForObject("""
+                SELECT count(*)
+                FROM pg_policies
+                WHERE schemaname = 'public'
+                  AND tablename = 'users'
+                  AND cmd = 'ALL'
+                  AND 'sanad' = ANY(roles)
+                  AND qual LIKE '%app.tenant_id%'
+                  AND with_check LIKE '%app.tenant_id%'
+                """, Long.class);
+        assertThat(matching)
+                .as("Runtime users policy must constrain reads and writes to a tenant")
+                .isGreaterThan(0L);
     }
 
     @Test
