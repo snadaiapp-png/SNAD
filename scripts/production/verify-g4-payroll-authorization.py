@@ -5,6 +5,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+import socket
 
 ROOT = os.environ["PRODUCTION_BASE_URL"].rstrip("/")
 PAYROLL = "/api/v2/hr/payroll"
@@ -26,6 +27,10 @@ def request(method, path, token=None, data=None):
             return response.status, response.read(2_000_000)
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read(2_000_000)
+    except (TimeoutError, socket.timeout):
+        raise RuntimeError('AUTH_BACKEND_READ_TIMEOUT') from None
+    except urllib.error.URLError:
+        raise RuntimeError('AUTH_BACKEND_CONNECTIVITY_FAILURE') from None
 
 
 def parse(payload):
@@ -44,7 +49,18 @@ def login(label):
     password = os.environ[f"G4_{label}_PASSWORD"]
     tenant_id = os.environ[f"G4_{label}_TENANT_ID"]
     status, body = request("POST", "/api/v1/auth/login", data={"email":email,"password":password,"tenantId":tenant_id})
-    check(status == 200, label + " authenticated login")
+    if status != 200:
+        # Never log payload, email, password, token, or account identifier.
+        category = (
+            "INVALID_OR_UNAUTHORIZED_CREDENTIALS" if status in (400, 401, 403)
+            else "TENANT_SELECTION_CONFLICT" if status == 409
+            else "RATE_LIMITED" if status == 429
+            else "BACKEND_FAILURE" if 500 <= status <= 599
+            else "UNEXPECTED_HTTP_STATUS"
+        )
+        print(f"FAIL: {label} authenticated login HTTP={status} class={category}", flush=True)
+        sys.exit(1)
+    check(True, label + " authenticated login")
     data = parse(body)
     token = data.get("accessToken")
     user = data.get("user", {})
