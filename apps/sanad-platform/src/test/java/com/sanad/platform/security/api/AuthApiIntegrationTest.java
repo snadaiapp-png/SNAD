@@ -176,7 +176,6 @@ class AuthApiIntegrationTest {
         // With email-only login, the user is found by email regardless of tenant.
         // This test now verifies that email-only login works (returns 200, not 401).
         LoginRequest request = new LoginRequest(testEmail, testPassword);
-        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
