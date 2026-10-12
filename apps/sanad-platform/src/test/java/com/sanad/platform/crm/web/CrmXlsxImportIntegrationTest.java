@@ -80,12 +80,13 @@ class CrmXlsxImportIntegrationTest {
                     "crm_custom_field_definitions")) {
                 jdbc.update("DELETE FROM " + table + " WHERE tenant_id = ?", tenantId);
             }
+            // Delete users and related under RLS (app.tenant_id is set)
+            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
+            jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
         });
-        // Non-RLS tables can be cleaned without GUC.
-        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
-        jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+        // Delete tenant (no RLS on tenants table — users already deleted above)
         jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
     }
 

@@ -84,14 +84,16 @@ class CrmImportAndCustomFieldIntegrationTest {
                         "crm_custom_field_definitions")) {
                     jdbc.update("DELETE FROM " + table + " WHERE tenant_id = ?", tenant);
                 }
+                // Delete users and related under RLS (app.tenant_id is set)
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenant);
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenant);
             });
         }
         // Non-RLS tables can be cleaned in one statement without GUC.
         Object[] tenants = {tenantA, tenantB};
-        jdbc.update("DELETE FROM role_capabilities WHERE tenant_id IN (?,?)", tenants);
-        jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id IN (?,?)", tenants);
-        jdbc.update("DELETE FROM roles WHERE tenant_id IN (?,?)", tenants);
-        jdbc.update("DELETE FROM users WHERE tenant_id IN (?,?)", tenants);
+        // Delete tenants (no RLS on tenants table — users already deleted above)
         jdbc.update("DELETE FROM tenants WHERE id IN (?,?)", tenants);
     }
 
