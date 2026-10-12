@@ -10,6 +10,7 @@ import com.sanad.platform.access.role.Role;
 import com.sanad.platform.access.role.RoleCapability;
 import com.sanad.platform.access.role.RoleCapabilityRepository;
 import com.sanad.platform.access.role.RoleRepository;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.organization.membership.repository.OrganizationMembershipRepository;
 import com.sanad.platform.organization.repository.OrganizationRepository;
 import com.sanad.platform.security.dto.AuthResponse;
@@ -33,11 +34,14 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -73,6 +77,8 @@ class AuthApiIntegrationTest {
     @Autowired private UserRoleGrantRepository userRoleGrantRepository;
     @Autowired private AccessCapabilityRepository accessCapabilityRepository;
     @Autowired private RoleCapabilityRepository roleCapabilityRepository;
+    @Autowired private TransactionTemplate transactionTemplate;
+    @Autowired private TenantRlsTransactionContext tenantRlsTransactionContext;
 
     private UUID tenantId;
     private String testEmail;
@@ -415,6 +421,85 @@ class AuthApiIntegrationTest {
         mockMvc.perform(get("/api/v1/auth/me")
                         .header("Authorization", "Bearer invalid.jwt.token"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * Inserts a user_permission_overrides row on the test thread. The table is
+     * FORCE-RLS protected with a fail-closed tenant policy, so the insert runs
+     * inside a transaction with the trusted tenant GUC applied — the same
+     * mechanism production code uses (TenantRlsTransactionContext).
+     */
+    private void insertOverrideRow(UUID capId, String effect, String scopeType,
+                                   String validFromExpr, String validUntilExpr) {
+        String sql = """
+                        INSERT INTO user_permission_overrides (id, tenant_id, user_id, capability_id, effect,
+                                                               scope_type, scope_reference, reason,
+                                                               valid_from, valid_until, created_by,
+                                                               created_at, updated_at, version)
+                        VALUES (?, ?, ?, ?, ?, ?, NULL, 'integration fixture override',
+                        """
+                + validFromExpr + ", " + validUntilExpr + ", ?, NOW(), NOW(), 0)";
+        transactionTemplate.executeWithoutResult(status -> {
+            tenantRlsTransactionContext.applyForCurrentTransaction(tenantId);
+            jdbc.update(sql,
+                    UUID.randomUUID(), tenantId, userId, capId, effect, scopeType, userId);
+        });
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/auth/me — active ALLOW override appears in effective capabilities")
+    void me_capabilities_unionActiveAllowOverride() throws Exception {
+        String capCode = "ME.TEST." + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        UUID capId = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+                        VALUES (?, ?, 'Me Allow Override Fixture', 'integration fixture', 'ACTIVE', NOW(), NOW())
+                        """,
+                capId, capCode);
+        insertOverrideRow(capId, "ALLOW", "TENANT_ALL", "NOW()", "NULL");
+
+        AuthResponse loginResponse = loginAndGetAccessToken();
+        mockMvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization", "Bearer " + loginResponse.getAccessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.capabilities", hasItem(capCode)))
+                // role-derived capabilities remain in the same effective list
+                .andExpect(jsonPath("$.capabilities", hasItem("USER.READ")));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/auth/me — active DENY override removes role capability from effective capabilities")
+    void me_capabilities_excludeActiveDenyOverride() throws Exception {
+        UUID userReadCapId = accessCapabilityRepository.findByCode("USER.READ")
+                .orElseThrow(() -> new IllegalStateException("USER.READ fixture capability missing")).getId();
+        // DENY rows are capability-wide by DB CHECK — scope fields must be NULL.
+        insertOverrideRow(userReadCapId, "DENY", null, "NOW()", "NULL");
+
+        AuthResponse loginResponse = loginAndGetAccessToken();
+        mockMvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization", "Bearer " + loginResponse.getAccessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.capabilities", not(hasItem("USER.READ"))));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/auth/me — expired ALLOW override is not advertised")
+    void me_capabilities_excludeExpiredAllowOverride() throws Exception {
+        String capCode = "ME.TEST." + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        UUID capId = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO access_capabilities (id, code, name, description, status, created_at, updated_at)
+                        VALUES (?, ?, 'Me Expired Override Fixture', 'integration fixture', 'ACTIVE', NOW(), NOW())
+                        """,
+                capId, capCode);
+        insertOverrideRow(capId, "ALLOW", "TENANT_ALL",
+                "NOW() - INTERVAL '2 days'", "NOW() - INTERVAL '1 day'");
+
+        AuthResponse loginResponse = loginAndGetAccessToken();
+        mockMvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization", "Bearer " + loginResponse.getAccessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.capabilities", not(hasItem(capCode))));
     }
 
     // ------------------------------------------------------------

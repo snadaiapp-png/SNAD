@@ -34,6 +34,27 @@ public interface UserPermissionOverrideRepository {
     boolean expire(UUID tenantId, UUID id);
 
     /**
+     * Introspection read for identity surfaces (auth {@code /me} and login
+     * bootstrap): effects of all in-window overrides for one subject joined
+     * to their capability codes. Only overrides whose validity window covers
+     * NOW and whose capability is ACTIVE are returned; DENY rows are included
+     * so callers can mirror the decision pipeline's explicit-deny dominance.
+     * This is a coarse view for display/bootstrap only — authoritative
+     * enforcement remains the scope-aware, fail-closed decision pipeline.
+     */
+    List<OverrideCapabilityEffect> findActiveCapabilityEffects(UUID tenantId, UUID userId);
+
+    /**
+     * One joined {@code user_permission_overrides}/{@code access_capabilities}
+     * projection for introspection.
+     *
+     * @param effect "ALLOW" or "DENY"
+     * @param code   canonical capability code (e.g. {@code HRM.PAYROLL.VIEW})
+     */
+    record OverrideCapabilityEffect(String effect, String code) {
+    }
+
+    /**
      * One {@code user_permission_overrides} row.
      *
      * @param effect "ALLOW" or "DENY" (DENY is capability-wide by DB CHECK:

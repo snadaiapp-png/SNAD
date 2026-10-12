@@ -106,6 +106,21 @@ public class UserPermissionOverrideJdbcRepository implements UserPermissionOverr
         return updated > 0;
     }
 
+    @Override
+    public List<OverrideCapabilityEffect> findActiveCapabilityEffects(UUID tenantId, UUID userId) {
+        return jdbc.query(
+                "SELECT o.effect, c.code "
+                        + "FROM user_permission_overrides o "
+                        + "JOIN access_capabilities c ON c.id = o.capability_id "
+                        + "WHERE o.tenant_id = ? AND o.user_id = ? "
+                        + "AND (o.valid_from IS NULL OR o.valid_from <= NOW()) "
+                        + "AND (o.valid_until IS NULL OR o.valid_until > NOW()) "
+                        + "AND c.status = 'ACTIVE' "
+                        + "ORDER BY c.code, o.effect",
+                (rs, rowNum) -> new OverrideCapabilityEffect(rs.getString("effect"), rs.getString("code")),
+                tenantId, userId);
+    }
+
     private static ActiveOverride map(ResultSet rs) throws SQLException {
         return new ActiveOverride(
                 rs.getObject("id", UUID.class),

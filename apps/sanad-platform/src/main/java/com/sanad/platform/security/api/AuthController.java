@@ -22,6 +22,7 @@ import com.sanad.platform.security.dto.ResetPasswordRequest;
 import com.sanad.platform.security.notification.PasswordRecoveryNotificationCoordinator;
 import com.sanad.platform.security.ratelimit.LoginRateLimitKeys;
 import com.sanad.platform.security.service.AuthService;
+import com.sanad.platform.security.service.EffectiveCapabilityService;
 import com.sanad.platform.security.service.LoginDestinationResolver;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.repository.UserRepository;
@@ -65,6 +66,7 @@ public class AuthController {
     private final UserRoleGrantRepository roleGrantRepository;
     private final RoleRepository roleRepository;
     private final RoleCapabilityRepository roleCapabilityRepository;
+    private final EffectiveCapabilityService effectiveCapabilityService;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private final Environment environment;
     private final PasswordRecoveryNotificationCoordinator recoveryNotifications;
@@ -78,6 +80,7 @@ public class AuthController {
             UserRoleGrantRepository roleGrantRepository,
             RoleRepository roleRepository,
             RoleCapabilityRepository roleCapabilityRepository,
+            EffectiveCapabilityService effectiveCapabilityService,
             ControlPlaneAccessGuard controlPlaneAccessGuard,
             Environment environment,
             PasswordRecoveryNotificationCoordinator recoveryNotifications,
@@ -90,6 +93,7 @@ public class AuthController {
         this.roleGrantRepository = roleGrantRepository;
         this.roleRepository = roleRepository;
         this.roleCapabilityRepository = roleCapabilityRepository;
+        this.effectiveCapabilityService = effectiveCapabilityService;
         this.controlPlaneAccessGuard = controlPlaneAccessGuard;
         this.environment = environment;
         this.recoveryNotifications = recoveryNotifications;
@@ -356,12 +360,18 @@ public class AuthController {
         java.util.Set<UUID> roleIds = grants.stream()
                 .map(UserRoleGrant::getRoleId)
                 .collect(java.util.stream.Collectors.toSet());
-        if (!roleIds.isEmpty()) {
-            List<String> caps = roleCapabilityRepository.findCapabilityCodesByTenantIdAndRoleIds(tenantId, roleIds);
-            response.setCapabilities(caps);
-        } else {
-            response.setCapabilities(java.util.Collections.emptyList());
-        }
+
+        // Effective introspection view (role capabilities UNION active ALLOW
+        // overrides MINUS active DENY overrides), resolved inside a read-only
+        // transaction with the tenant RLS GUC applied. Mirrors the decision
+        // pipeline semantics so /me and the login bootstrap advertise what
+        // enforcement would actually grant — e.g. the canonical owner's
+        // HRM.PAYROLL.VIEW grant is a user_permission_overrides row
+        // (V20261010_99), not a role capability. Enforcement itself remains
+        // scope-aware and fail-closed in the decision pipeline; this list
+        // never expands access.
+        response.setCapabilities(
+                effectiveCapabilityService.effectiveCapabilityCodes(tenantId, userId, roleIds));
 
         return response;
     }
