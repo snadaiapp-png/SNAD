@@ -407,7 +407,6 @@ class TokenRevocationIntegrationTest {
     private LoginResult loginAndExtractTokens() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
         request.setTenantId(tenantId);
-            loginRequest.setTenantId(tenantId);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
