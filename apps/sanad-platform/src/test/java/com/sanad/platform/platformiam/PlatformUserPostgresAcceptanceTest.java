@@ -96,9 +96,9 @@ class PlatformUserPostgresAcceptanceTest {
 
         assertThat(created.userId()).isNotEqualTo(foreignUserId);
         assertThat(created.email()).isEqualTo(email.toLowerCase());
-        assertThat(jdbc.queryForObject(
+        assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE id=? AND tenant_id=?",
-                Integer.class, created.userId(), CONTROL_TENANT)).isEqualTo(1);
+                Integer.class, created.userId(), CONTROL_TENANT))).isEqualTo(1);
         assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM platform_memberships WHERE control_tenant_id=? AND user_id=?",
                 Integer.class, CONTROL_TENANT, created.userId()))).isEqualTo(1);
