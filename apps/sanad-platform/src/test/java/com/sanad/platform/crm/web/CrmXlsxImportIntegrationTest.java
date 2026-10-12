@@ -43,10 +43,20 @@ class CrmXlsxImportIntegrationTest {
         tenantId = UUID.randomUUID();
         userId = UUID.randomUUID();
         java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
-        jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
-                tenantId, "xlsx-" + tenantId.toString().substring(0, 8), "XLSX Tenant", now, now);
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
-                userId, tenantId, userId + "@example.test", "XLSX User", now, now);
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on
+        // the same connection. Wrap seed in a TransactionTemplate to
+        // ensure set_config and INSERT use the same transaction-bound
+        // connection (the test is not @Transactional).
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.executeWithoutResult(status -> {
+            jdbc.update("INSERT INTO tenants (id,subdomain,name,status,locale,timezone,currency_code,created_at,updated_at) VALUES (?,?,?,'ACTIVE','ar-SA','Asia/Riyadh','SAR',?,?)",
+                    tenantId, "xlsx-" + tenantId.toString().substring(0, 8), "XLSX Tenant", now, now);
+            jdbc.queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)",
+                    userId, tenantId, userId + "@example.test", "XLSX User", now, now);
+        });
     }
 
     @AfterEach

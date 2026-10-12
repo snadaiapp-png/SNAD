@@ -208,6 +208,12 @@ class CrmApiIntegrationTest {
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
+        // same transaction-bound connection. This test is @Transactional,
+        // so set_config(..., true) is transaction-local.
+        jdbc.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)", id, tenantId, email, "CRM Test User", ts, ts);
     }
 
