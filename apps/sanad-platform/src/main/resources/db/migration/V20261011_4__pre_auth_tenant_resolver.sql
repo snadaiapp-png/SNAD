@@ -100,9 +100,21 @@ GRANT SELECT (tenant_id, email, username) ON public.users TO sanad_preauth_owner
 -- pre-auth discovery. The column-level GRANT above restricts WHICH
 -- columns are readable; this policy restricts WHICH ROWS are visible
 -- (all rows, in this case).
-CREATE POLICY IF NOT EXISTS users_preauth_owner_discovery ON public.users
-  AS PERMISSIVE FOR SELECT TO sanad_preauth_owner
-  USING (true);
+--
+-- PostgreSQL does NOT support `CREATE POLICY IF NOT EXISTS`. Use a
+-- conditional DO block with EXECUTE for idempotent policy creation.
+-- This avoids syntax errors and handles re-runs gracefully.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'users'
+      AND policyname = 'users_preauth_owner_discovery'
+  ) THEN
+    EXECUTE 'CREATE POLICY users_preauth_owner_discovery ON public.users AS PERMISSIVE FOR SELECT TO sanad_preauth_owner USING (true)';
+  END IF;
+END $$;
 
 -- The function itself. SECURITY DEFINER means the function executes as
 -- sanad_preauth_owner (the owner), not as the caller. The caller (sanad)
