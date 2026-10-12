@@ -203,9 +203,10 @@ jobs:
                    SECURITY_NOTIFICATION_PROVIDER SECURITY_NOTIFICATION_RESEND_API_KEY SERVER_PORT \
                    SHUTDOWN_TIMEOUT SNAD_SECURITY_G2_RECONCILIATION_ENABLED \
                    SANAD_UAC_MODE SANAD_UAC_PIPELINE_ENABLED \
-                   SPRING_DATASOURCE_PASSWORD SPRING_DATASOURCE_USERNAME SPRING_FLYWAY_OUT_OF_ORDER \
+                   SPRING_DATASOURCE_PASSWORD SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME \
+                   SPRING_FLYWAY_OUT_OF_ORDER \
                    SPRING_FLYWAY_PASSWORD SPRING_FLYWAY_URL SPRING_FLYWAY_USER SPRING_PROFILES_ACTIVE; do
             grep -qx "$k" /tmp/keys.txt || { echo "::error::key still missing: $k"; exit 1; }
           done
-          echo "ENV_RESTORE_COMPLETE=YES (49 keys expected)"
-          test "$COUNT" -eq 49 || { echo "::error::expected 49 keys, got $COUNT"; exit 1; }
+          echo "ENV_RESTORE_COMPLETE=YES (50 keys expected)"
+          test "$COUNT" -eq 50 || { echo "::error::expected 50 keys, got $COUNT"; exit 1; }
