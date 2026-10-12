@@ -1,6 +1,7 @@
 package com.sanad.platform.security.rls;
 
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -32,7 +33,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 final class TenantRlsConnectionHandler implements InvocationHandler {
 
     private final Connection delegate;
-    private boolean tenantApplied = false;
+    private UUID tenantAppliedFor = null;
 
     TenantRlsConnectionHandler(Connection delegate) {
         this.delegate = delegate;
@@ -46,7 +47,20 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
         if (isStatementCreation(name)) {
             ensureTenantContext();
         }
-        return method.invoke(delegate, args);
+        try {
+            return method.invoke(delegate, args);
+        } catch (InvocationTargetException exception) {
+            // Reflective JDBC delegation must preserve checked SQLException,
+            // rather than exposing UndeclaredThrowableException to callers.
+            throw exception.getCause();
+        } finally {
+            // SET LOCAL ends at commit/rollback. A pooled logical connection
+            // may participate in another transaction after either boundary.
+            if ("commit".equals(name) || "rollback".equals(name)
+                    || "close".equals(name) || "setAutoCommit".equals(name)) {
+                tenantAppliedFor = null;
+            }
+        }
     }
 
     private boolean isStatementCreation(String methodName) {
@@ -57,15 +71,18 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     }
 
     private void ensureTenantContext() throws SQLException {
-        if (tenantApplied) {
-            return;
-        }
         // Only apply within an explicit transaction — SET LOCAL has no effect
         // (and would error) in autocommit mode.
         if (delegate.getAutoCommit()) {
             return;
         }
         UUID tenantId = currentTenantId();
+        if (tenantAppliedFor != null) {
+            if (!tenantAppliedFor.equals(tenantId)) {
+                throw new SQLException("Tenant identity changed inside an active RLS transaction");
+            }
+            return;
+        }
         if (tenantId == null) {
             return;
         }
@@ -76,7 +93,7 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
             // supplied raw input at this layer.
             stmt.execute("SET LOCAL app.tenant_id = '" + tenantId.toString() + "'");
         }
-        tenantApplied = true;
+        tenantAppliedFor = tenantId;
     }
 
     /**
