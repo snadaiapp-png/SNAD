@@ -41,6 +41,10 @@ export default defineConfig({
     // Production G3 certification requires governed Production QA identities
     // and must run only through playwright-g3-production.config.ts.
     "**/g3-production-readonly.spec.ts",
+    // G4 production UI acceptance performs real logins against live production
+    // with protected credentials and must run only through
+    // playwright-g4-production-ui.config.ts in the dedicated dispatch workflow.
+    "**/g4-payroll-production-ui-acceptance.spec.ts",
     // Read-oriented authenticated G2 visual proof owns a separate role/device stack.
     "**/g2-visual.spec.ts",
     // Users Module closure owns a dedicated authenticated PostgreSQL Direct stack.
