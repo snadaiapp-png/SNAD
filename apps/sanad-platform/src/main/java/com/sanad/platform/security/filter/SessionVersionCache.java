@@ -3,6 +3,10 @@ package com.sanad.platform.security.filter;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.sanad.platform.user.repository.UserRepository;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -37,12 +41,29 @@ public class SessionVersionCache {
     static final long TTL_SECONDS = 5L;
 
     private final UserRepository userRepository;
+    private final TransactionTemplate transactionTemplate;
+    private final TenantRlsTransactionContext rlsContext;
     private final Cache<Key, Long> cache;
 
     private record Key(UUID tenantId, UUID userId) { }
 
+    /** Isolated unit-test constructor; production wiring uses the transaction-aware constructor. */
     public SessionVersionCache(UserRepository userRepository) {
+        this(userRepository, null, null);
+    }
+
+    @Autowired
+    public SessionVersionCache(UserRepository userRepository,
+            PlatformTransactionManager transactionManager,
+            TenantRlsTransactionContext rlsContext) {
+        this(userRepository, new TransactionTemplate(transactionManager), rlsContext);
+    }
+
+    private SessionVersionCache(UserRepository userRepository,
+            TransactionTemplate transactionTemplate, TenantRlsTransactionContext rlsContext) {
         this.userRepository = userRepository;
+        this.transactionTemplate = transactionTemplate;
+        this.rlsContext = rlsContext;
         this.cache = Caffeine.newBuilder()
                 .expireAfterWrite(TTL_SECONDS, TimeUnit.SECONDS)
                 .maximumSize(50_000)
@@ -56,8 +77,22 @@ public class SessionVersionCache {
      * @return the session version, or {@code null} if the user no longer exists
      */
     public Long get(UUID tenantId, UUID userId) {
-        return cache.get(new Key(tenantId, userId),
-                k -> userRepository.findSessionVersionByTenantIdAndId(k.tenantId(), k.userId()));
+        if (tenantId == null || userId == null) {
+            throw new IllegalArgumentException("Session-version lookup requires tenant and user identity");
+        }
+        return cache.get(new Key(tenantId, userId), k -> {
+            if (transactionTemplate == null || rlsContext == null) {
+                // Unit tests without a database transaction.
+                return userRepository.findSessionVersionByTenantIdAndId(k.tenantId(), k.userId());
+            }
+            // JWT tenant and user have already been verified by the caller.
+            // Bind the RLS GUC on the same transaction/connection as the lookup;
+            // never use connection-global tenant state or bypass privileges.
+            return transactionTemplate.execute(status -> {
+                rlsContext.applyForCurrentTransaction(k.tenantId());
+                return userRepository.findSessionVersionByTenantIdAndId(k.tenantId(), k.userId());
+            });
+        });
     }
 
     /**
