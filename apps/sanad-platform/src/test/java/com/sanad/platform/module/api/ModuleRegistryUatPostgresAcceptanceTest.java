@@ -253,11 +253,42 @@ class ModuleRegistryUatPostgresAcceptanceTest {
             jdbc.update("DELETE FROM user_role_assignments WHERE role_id = ?", roleId);
             jdbc.update("DELETE FROM roles WHERE id = ?", roleId);
         }
+        // Under FORCE RLS (V20261011_3), DELETE FROM users requires
+        // app.tenant_id to be set on the same connection. Use a
+        // ConnectionCallback to ensure set_config and DELETE execute
+        // on the same JDBC connection.
         for (UUID tenantId : createdTenants) {
-            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
-            jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+            jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) con -> {
+                try (var stmt = con.createStatement()) {
+                    stmt.execute(
+                        "SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
+                    try (var ps = con.prepareStatement(
+                        "DELETE FROM user_role_assignments WHERE tenant_id = ?")) {
+                        ps.setObject(1, tenantId);
+                        ps.executeUpdate();
+                    }
+                    try (var ps = con.prepareStatement(
+                        "DELETE FROM role_capabilities WHERE tenant_id = ?")) {
+                        ps.setObject(1, tenantId);
+                        ps.executeUpdate();
+                    }
+                    try (var ps = con.prepareStatement(
+                        "DELETE FROM roles WHERE tenant_id = ?")) {
+                        ps.setObject(1, tenantId);
+                        ps.executeUpdate();
+                    }
+                    try (var ps = con.prepareStatement(
+                        "DELETE FROM users WHERE tenant_id = ?")) {
+                        ps.setObject(1, tenantId);
+                        ps.executeUpdate();
+                    }
+                    stmt.execute("SELECT set_config('app.tenant_id', '', false)");
+                }
+                return null;
+            });
+        }
+        // Delete tenants (no RLS on tenants table — FK constraint now satisfied)
+        for (UUID tenantId : createdTenants) {
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
         }
         createdAuditRows.clear();
