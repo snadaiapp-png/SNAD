@@ -163,6 +163,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — non-existent user returns 401")
     void login_nonExistentUser_returns401() throws Exception {
         LoginRequest request = new LoginRequest("nobody@example.com", testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -213,6 +214,7 @@ class AuthApiIntegrationTest {
         userRepository.save(nopassUser);
 
         LoginRequest request = new LoginRequest(nopassEmail, "anyPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -252,7 +254,6 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — login with optional tenantId returns 200")
     void login_withOptionalTenantId_returns200() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
-        request.setTenantId(tenantId);
         request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
