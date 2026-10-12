@@ -66,6 +66,32 @@ jobs:
           done
           [[ "$PRODUCTION_BASE_URL" == https://* ]] || { echo "::error::HTTPS production URL required"; exit 1; }
           echo "Exact main and protected secrets: PASS"
+      - name: Wait for stable Backend readiness before authenticating
+        shell: bash
+        run: |
+          set -euo pipefail
+          # At most 150 seconds; require three consecutive independent UP probes.
+          # A restart or intermittent failure resets the stability counter.
+          url="${PRODUCTION_BASE_URL%/}/actuator/health/readiness"
+          consecutive=0
+          for attempt in $(seq 1 30); do
+            status=$(curl --silent --show-error --output "$RUNNER_TEMP/g4-readiness.json" \
+              --write-out '%{http_code}' --connect-timeout 3 --max-time 4 "$url") || status="NETWORK_ERROR"
+            if [ "$status" = "200" ] && jq -e '.status == "UP"' "$RUNNER_TEMP/g4-readiness.json" >/dev/null 2>&1; then
+              consecutive=$((consecutive + 1))
+              echo "READINESS_UP streak=$consecutive/3 attempt=$attempt"
+              if [ "$consecutive" -ge 3 ]; then
+                echo "G4_BACKEND_READINESS=PASS"
+                exit 0
+              fi
+            else
+              consecutive=0
+              echo "READINESS_NOT_STABLE attempt=$attempt http=$status"
+            fi
+            if [ "$attempt" -lt 30 ]; then sleep 5; fi
+          done
+          echo "::error::G4_BACKEND_READINESS_TIMEOUT — stable HTTP 200/status UP not achieved within bounded readiness window"
+          exit 1
       - name: Authenticated G4 read access and safe negative mutation contracts
         shell: bash
         run: |
