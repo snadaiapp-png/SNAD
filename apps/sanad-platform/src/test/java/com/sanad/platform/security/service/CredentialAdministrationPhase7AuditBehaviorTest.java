@@ -132,8 +132,10 @@ class CredentialAdministrationPhase7AuditBehaviorTest {
     void ambiguousOrInactiveResetRequestEmitsNoIssuanceAudit() {
         User first = activeUserOnTenant(TENANT_ID);
         User second = activeUserOnTenant(UUID.fromString("77777777-7777-7777-7777-777777777777"));
+        UUID firstTenant = first.getTenantId();
+        UUID secondTenant = second.getTenantId();
         when(resolver.resolve("email", "shared@example.com"))
-                .thenReturn(List.of(first.getTenantId(), second.getTenantId()));
+                .thenReturn(List.of(firstTenant, secondTenant));
 
         String token = service.initiatePasswordReset(
                 new ForgotPasswordRequest("shared@example.com"), "127.0.0.1");
