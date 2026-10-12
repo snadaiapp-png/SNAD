@@ -1,0 +1,205 @@
+name: G4 INCIDENT — Render env restoration (surgical, no deploy)
+
+# Recovery for the 2026-10-12 full-list env PUT accident (53 -> 2 keys).
+# Contract (mirrors hotfix-render-env-recovery.yml, Sep-04 canonical run 33893684752):
+#   - Individual per-key PUTs ONLY (never a full-list replace).
+#   - Every write verified by read-back.
+#   - Live DB credential proof BEFORE any DB-family write (fail-closed).
+#   - CRM encryption key only restored after proving zero enc:v1: rows.
+#   - Fresh JWT/service-auth rotations per documented Aug/Sep-2026 precedent.
+#   - NO deploy, NO suspend, NO restart in this workflow.
+#   - Secret values masked, never printed.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    name: Restore Render env (per-key, verified)
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 12
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      DB_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+      DB_USER: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+      DB_PASS: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
+      CP_ADMIN_EMAIL: ${{ secrets.CONTROL_PLANE_ADMIN_EMAIL }}
+      CP_ADMIN_PASSWORD: ${{ secrets.CONTROL_PLANE_ADMIN_PASSWORD }}
+      CP_BOOTSTRAP_TOKEN: ${{ secrets.CONTROL_PLANE_BOOTSTRAP_TOKEN }}
+      RESEND_KEY: ${{ secrets.RESEND_API_KEY }}
+      CONTROL_TENANT_ID: "00000000-0000-0000-0000-000000000001"
+    steps:
+      - name: Verify required secrets present
+        run: |
+          set -euo pipefail
+          for name in RENDER_API_KEY RENDER_SERVICE_ID DB_URL DB_USER DB_PASS \
+                      CP_ADMIN_EMAIL CP_ADMIN_PASSWORD CP_BOOTSTRAP_TOKEN RESEND_KEY; do
+            test -n "${!name:-}" || { echo "::error::$name is empty"; exit 1; }
+          done
+          [[ "$RENDER_SERVICE_ID" == srv-* ]]
+          echo "SECRETS_PRESENT=YES"
+
+      - name: Prove live DB credentials and scan for encrypted rows (read-only)
+        id: dbproof
+        run: |
+          set -euo pipefail
+          HOST="$(printf '%s' "$DB_URL" | sed -E 's#jdbc:postgresql://##; s#[:/].*##')"
+          PORT="$(printf '%s' "$DB_URL" | sed -E 's#.*:([0-9]+)/.*#\1#')"
+          DBNAME="$(printf '%s' "$DB_URL" | sed -E 's#.*/([a-zA-Z0-9_]+)\?.*#\1#')"
+          export PGPASSWORD="$DB_PASS"
+          PGURL="postgresql://${HOST}:${PORT}/${DBNAME}?sslmode=require"
+          echo "Proving auth against ${HOST}:${PORT}/${DBNAME} (values not printed)"
+          AUTHCHECK="$(psql "$PGURL" -U "$DB_USER" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' 2>&1 | tail -1)"
+          test "$AUTHCHECK" = "1" || { echo "::error::DB credential proof failed: ${AUTHCHECK:0:120}"; exit 1; }
+          echo "DB_AUTH_PROVEN=YES"
+          ENC_ROWS="$(psql "$PGURL" -U "$DB_USER" -v ON_ERROR_STOP=1 -tAc \
+            "SELECT count(*) FROM crm_custom_field_values WHERE value_text LIKE 'enc:v1:%'" 2>&1 | tail -1)"
+          echo "ENC_ROWS_SCAN=${ENC_ROWS}"
+          case "$ENC_ROWS" in
+            ''|*[!0-9]*) echo "::error::enc rows scan failed: ${ENC_ROWS:0:120}"; exit 1;;
+          esac
+          echo "enc_rows=${ENC_ROWS}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate fresh rotations (masked)
+        id: fresh
+        run: |
+          set -euo pipefail
+          JWT="$(openssl rand -hex 32)"
+          SVC="$(openssl rand -hex 32)"
+          ENC="$(openssl rand -base64 32)"
+          test "$(printf '%s' "$ENC" | base64 -d | wc -c)" -eq 32 || { echo "::error::enc key not 32 bytes"; exit 1; }
+          for v in "$JWT" "$SVC" "$ENC"; do echo "::add-mask::$v"; done
+          echo "jwt=$JWT" >> "$GITHUB_OUTPUT"
+          echo "svc=$SVC" >> "$GITHUB_OUTPUT"
+          echo "enc=$ENC" >> "$GITHUB_OUTPUT"
+          echo "FRESH_SECRETS_GENERATED=YES (masked)"
+
+      - name: Restore env vars (per-key PUT + read-back verify)
+        env:
+          JWT: ${{ steps.fresh.outputs.jwt }}
+          SVC: ${{ steps.fresh.outputs.svc }}
+          ENC: ${{ steps.fresh.outputs.enc }}
+          ENC_ROWS: ${{ steps.dbproof.outputs.enc_rows }}
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+
+          set_and_verify() {
+            local key="$1" val="$2" vtype="${3:-plain}"
+            if [ "$vtype" = "secret" ]; then
+              jq -n --arg value "$val" '{value:$value, type:"SECRET"}' > /tmp/body.json
+            else
+              jq -n --arg value "$val" '{value:$value}' > /tmp/body.json
+            fi
+            local code
+            code=$(curl -sS -o /tmp/put.json -w '%{http_code}' --max-time 45 -X PUT \
+              -H "$AUTH" -H 'Accept: application/json' -H 'Content-Type: application/json' \
+              --data @/tmp/body.json "$BASE/env-vars/$key")
+            case "$code" in 200|201) ;; *) echo "::error::PUT $key failed HTTP $code"; cat /tmp/put.json; exit 1;; esac
+            local back
+            back=$(curl -sS --max-time 45 -H "$AUTH" -H 'Accept: application/json' "$BASE/env-vars/$key" \
+              | jq -r '(.envVar // .).value // empty')
+            test "$back" = "$val" || { echo "::error::read-back mismatch for $key"; exit 1; }
+            echo "  OK $key (len=${#val}, verified)"
+          }
+
+          echo "=== Static values (render.yaml / Sep-04 contract / ops evidence) ==="
+          set_and_verify "APPLICATION_BASE_URL"            "https://snad-app.vercel.app"
+          set_and_verify "BOOTSTRAP_ENABLED"               "false"
+          set_and_verify "CONTROL_PLANE_BOOTSTRAP_ENABLED" "false"
+          set_and_verify "DATABASE_DRIVER"                 "org.postgresql.Driver"
+          set_and_verify "FLYWAY_BASELINE_ON_MIGRATE"      "false"
+          set_and_verify "FLYWAY_ENABLED"                  "true"
+          set_and_verify "FLYWAY_LOCATIONS"                "classpath:db/migration,classpath:db/vendor/{vendor}"
+          set_and_verify "FLYWAY_OUT_OF_ORDER"             "false"
+          set_and_verify "FLYWAY_VALIDATE_ON_MIGRATE"      "true"
+          set_and_verify "JPA_DDL_AUTO"                    "validate"
+          set_and_verify "LAZY_INIT"                       "true"
+          set_and_verify "LOG_LEVEL_ROOT"                  "WARN"
+          set_and_verify "LOG_LEVEL_SANAD"                 "INFO"
+          set_and_verify "MANAGEMENT_ENDPOINTS"            "health"
+          set_and_verify "SANAD_AI_GATEWAY_BASE_URL"       "https://sanad-backend-mcrj.onrender.com"
+          set_and_verify "SANAD_CONTROL_PLANE_TENANT_ID"   "$CONTROL_TENANT_ID"
+          set_and_verify "SANAD_CORS_ALLOWED_ORIGINS"      "https://snad-app.vercel.app"
+          set_and_verify "SANAD_WORKFLOW_ENGINE_BASE_URL"  "https://sanad-backend-mcrj.onrender.com"
+          set_and_verify "SECURITY_NOTIFICATION_ENDPOINT"  "https://snad-app.vercel.app/api/email-proxy"
+          set_and_verify "SECURITY_NOTIFICATION_FROM"      "no-reply@snad.ai"
+          set_and_verify "SECURITY_NOTIFICATION_PROVIDER"  "resend"
+          set_and_verify "SERVER_PORT"                     "8080"
+          set_and_verify "SHUTDOWN_TIMEOUT"                "30s"
+          set_and_verify "SNAD_SECURITY_G2_RECONCILIATION_ENABLED" "false"
+          set_and_verify "SPRING_PROFILES_ACTIVE"          "prod"
+          set_and_verify "SPRING_FLYWAY_OUT_OF_ORDER"      "false"
+          set_and_verify "DATABASE_POOL_MAX"               "5"
+          set_and_verify "DATABASE_POOL_MIN"               "1"
+          set_and_verify "DATABASE_POOL_TIMEOUT"           "30000"
+          set_and_verify "CONTROL_PLANE_TENANT_ID"         "$CONTROL_TENANT_ID"
+
+          echo "=== DB family (proven live this run) ==="
+          set_and_verify "DATABASE_URL"               "$DB_URL"  "secret"
+          set_and_verify "DATABASE_USERNAME"          "$DB_USER" "secret"
+          set_and_verify "DATABASE_PASSWORD"          "$DB_PASS" "secret"
+          set_and_verify "SPRING_DATASOURCE_URL"      "$DB_URL"  "secret"
+          set_and_verify "SPRING_DATASOURCE_USERNAME" "$DB_USER" "secret"
+          set_and_verify "SPRING_DATASOURCE_PASSWORD" "$DB_PASS" "secret"
+          set_and_verify "SPRING_FLYWAY_URL"          "$DB_URL"  "secret"
+          set_and_verify "SPRING_FLYWAY_USER"         "$DB_USER" "secret"
+          set_and_verify "SPRING_FLYWAY_PASSWORD"     "$DB_PASS" "secret"
+
+          echo "=== Control plane / notification / self ==="
+          set_and_verify "CONTROL_PLANE_ADMIN_EMAIL"           "$CP_ADMIN_EMAIL"      "secret"
+          set_and_verify "CONTROL_PLANE_ADMIN_PASSWORD"        "$CP_ADMIN_PASSWORD"   "secret"
+          set_and_verify "CONTROL_PLANE_BOOTSTRAP_TOKEN"       "$CP_BOOTSTRAP_TOKEN"  "secret"
+          set_and_verify "SECURITY_NOTIFICATION_RESEND_API_KEY" "$RESEND_KEY"         "secret"
+          set_and_verify "RENDER_API_KEY"                      "$RENDER_API_KEY"      "secret"
+          set_and_verify "RENDER_SERVICE_ID"                   "$RENDER_SERVICE_ID"   "secret"
+
+          echo "=== Fresh rotations (documented precedent) ==="
+          set_and_verify "JWT_SECRET"                    "$JWT" "secret"
+          set_and_verify "SANAD_SERVICE_AUTH_JWT_SECRET" "$SVC" "secret"
+          if [ "$ENC_ROWS" = "0" ]; then
+            set_and_verify "CRM_CUSTOM_FIELD_ENCRYPTION_KEY" "$ENC" "secret"
+            echo "CRM_KEY_FRESH_SET=YES (zero enc:v1 rows proven)"
+          else
+            echo "::warning::enc:v1 rows exist (${ENC_ROWS}) — CRM key NOT rotated; operator must supply original"
+          fi
+          echo "ALL_PUTS_VERIFIED=YES"
+
+      - name: Prove complete environment (pagination-safe, keys only)
+        run: |
+          set -euo pipefail
+          AUTH="Authorization: Bearer ${RENDER_API_KEY}"
+          BASE="https://api.render.com/v1/services/${RENDER_SERVICE_ID}"
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            -H "$AUTH" -H 'Accept: application/json' \
+            "$BASE/env-vars?limit=100" > /tmp/env-full.json
+          COUNT=$(jq 'length' /tmp/env-full.json)
+          test "$COUNT" -lt 100 || { echo "::error::pagination not exhausted"; exit 1; }
+          jq -r '[.[]? | (.envVar // .)] | sort_by(.key) | .[].key' /tmp/env-full.json | tee /tmp/keys.txt
+          echo "TOTAL_KEYS=$COUNT"
+          for k in APPLICATION_BASE_URL BOOTSTRAP_ENABLED CONTROL_PLANE_ADMIN_EMAIL \
+                   CONTROL_PLANE_ADMIN_PASSWORD CONTROL_PLANE_BOOTSTRAP_ENABLED \
+                   CONTROL_PLANE_BOOTSTRAP_TOKEN CONTROL_PLANE_TENANT_ID \
+                   CRM_CUSTOM_FIELD_ENCRYPTION_KEY DATABASE_DRIVER DATABASE_PASSWORD \
+                   DATABASE_POOL_MAX DATABASE_POOL_MIN DATABASE_POOL_TIMEOUT DATABASE_URL \
+                   DATABASE_USERNAME FLYWAY_BASELINE_ON_MIGRATE FLYWAY_ENABLED FLYWAY_LOCATIONS \
+                   FLYWAY_OUT_OF_ORDER FLYWAY_VALIDATE_ON_MIGRATE JPA_DDL_AUTO JWT_SECRET LAZY_INIT \
+                   LOG_LEVEL_ROOT LOG_LEVEL_SANAD MANAGEMENT_ENDPOINTS SANAD_AI_GATEWAY_BASE_URL \
+                   SANAD_CONTROL_PLANE_TENANT_ID SANAD_CORS_ALLOWED_ORIGINS \
+                   SANAD_SERVICE_AUTH_JWT_SECRET SANAD_WORKFLOW_ENGINE_BASE_URL RENDER_API_KEY \
+                   RENDER_SERVICE_ID SECURITY_NOTIFICATION_ENDPOINT SECURITY_NOTIFICATION_FROM \
+                   SECURITY_NOTIFICATION_PROVIDER SECURITY_NOTIFICATION_RESEND_API_KEY SERVER_PORT \
+                   SHUTDOWN_TIMEOUT SNAD_SECURITY_G2_RECONCILIATION_ENABLED \
+                   SANAD_UAC_MODE SANAD_UAC_PIPELINE_ENABLED \
+                   SPRING_DATASOURCE_PASSWORD SPRING_DATASOURCE_USERNAME SPRING_FLYWAY_OUT_OF_ORDER \
+                   SPRING_FLYWAY_PASSWORD SPRING_FLYWAY_URL SPRING_FLYWAY_USER SPRING_PROFILES_ACTIVE; do
+            grep -qx "$k" /tmp/keys.txt || { echo "::error::key still missing: $k"; exit 1; }
+          done
+          echo "ENV_RESTORE_COMPLETE=YES (49 keys expected)"
+          test "$COUNT" -eq 49 || { echo "::error::expected 49 keys, got $COUNT"; exit 1; }
