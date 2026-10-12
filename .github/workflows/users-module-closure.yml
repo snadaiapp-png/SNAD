@@ -154,6 +154,25 @@ jobs:
           WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'users_module_closure')
           \gexec
           ALTER ROLE users_module_closure NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+          -- G1: provision the restricted policy role BEFORE Flyway on this
+          -- disposable PostgreSQL Direct runner. The application login role
+          -- inherits its tenant-scoped policy; no RLS bypass is granted.
+          SELECT 'CREATE ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')
+          \gexec
+          ALTER ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT sanad TO users_module_closure;
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_roles WHERE rolname = 'sanad'
+                AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcanlogin
+            ) OR NOT pg_has_role('users_module_closure', 'sanad', 'USAGE') THEN
+              RAISE EXCEPTION 'G1 runtime policy role missing or not inherited by users_module_closure';
+            END IF;
+          END $$;
+
           SELECT 'CREATE DATABASE users_module_closure OWNER users_module_closure'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'users_module_closure')
           \gexec
