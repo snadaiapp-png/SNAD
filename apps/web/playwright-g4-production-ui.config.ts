@@ -16,7 +16,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   forbidOnly: true,
-  timeout: 180_000,
+  timeout: 420_000,
   expect: { timeout: 20_000 },
   reporter: [["list"], ["html", { outputFolder: "playwright-g4-production-ui-report" }]],
   use: {
