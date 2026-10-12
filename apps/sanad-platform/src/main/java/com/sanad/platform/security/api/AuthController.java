@@ -23,6 +23,7 @@ import com.sanad.platform.security.notification.PasswordRecoveryNotificationCoor
 import com.sanad.platform.security.ratelimit.LoginRateLimitKeys;
 import com.sanad.platform.security.service.AuthService;
 import com.sanad.platform.security.service.LoginDestinationResolver;
+import com.sanad.platform.user.access.UserApplicationAccessReadRepository;
 import com.sanad.platform.user.domain.User;
 import com.sanad.platform.user.repository.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -65,6 +66,7 @@ public class AuthController {
     private final UserRoleGrantRepository roleGrantRepository;
     private final RoleRepository roleRepository;
     private final RoleCapabilityRepository roleCapabilityRepository;
+    private final UserApplicationAccessReadRepository accessReadRepository;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private final Environment environment;
     private final PasswordRecoveryNotificationCoordinator recoveryNotifications;
@@ -78,6 +80,7 @@ public class AuthController {
             UserRoleGrantRepository roleGrantRepository,
             RoleRepository roleRepository,
             RoleCapabilityRepository roleCapabilityRepository,
+            UserApplicationAccessReadRepository accessReadRepository,
             ControlPlaneAccessGuard controlPlaneAccessGuard,
             Environment environment,
             PasswordRecoveryNotificationCoordinator recoveryNotifications,
@@ -90,6 +93,7 @@ public class AuthController {
         this.roleGrantRepository = roleGrantRepository;
         this.roleRepository = roleRepository;
         this.roleCapabilityRepository = roleCapabilityRepository;
+        this.accessReadRepository = accessReadRepository;
         this.controlPlaneAccessGuard = controlPlaneAccessGuard;
         this.environment = environment;
         this.recoveryNotifications = recoveryNotifications;
@@ -352,16 +356,12 @@ public class AuthController {
                     grant.getId(), grant.getRoleId(), roleCode, grant.getOrganizationId(), grant.getStatus().name());
         }).collect(Collectors.toList()));
 
-        // Resolve all capabilities for the user's roles (batch query)
-        java.util.Set<UUID> roleIds = grants.stream()
-                .map(UserRoleGrant::getRoleId)
-                .collect(java.util.stream.Collectors.toSet());
-        if (!roleIds.isEmpty()) {
-            List<String> caps = roleCapabilityRepository.findCapabilityCodesByTenantIdAndRoleIds(tenantId, roleIds);
-            response.setCapabilities(caps);
-        } else {
-            response.setCapabilities(java.util.Collections.emptyList());
-        }
+        // Use the canonical tenant-scoped effective access projection, not only
+        // role grants: direct ALLOW overrides must be included and an active
+        // DENY must remain authoritative (including over role-based grants).
+        // This applies equally to /me and login/refresh bootstrap responses.
+        response.setCapabilities(accessReadRepository.effectiveCapabilityCodes(tenantId, userId)
+                .stream().sorted().toList());
 
         return response;
     }
