@@ -67,7 +67,18 @@ class CustomerMasterMergeIntegrationTest {
             jdbc.update("UPDATE crm_accounts SET merged_into_account_id=NULL,parent_account_id=NULL WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM crm_accounts WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM users WHERE tenant_id=:tenantId", tenant);
+            // Users, roles have FORCE RLS — delete inside a transaction
+            // with app.tenant_id set.
+            transactions.executeWithoutResult(txStatus -> {
+                jdbc.getJdbcTemplate().queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                MapSqlParameterSource t = p().addValue("tenantId", tenantId);
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id=:tenantId", t);
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id=:tenantId", t);
+                jdbc.update("DELETE FROM roles WHERE tenant_id=:tenantId", t);
+                jdbc.update("DELETE FROM users WHERE tenant_id=:tenantId", t);
+            });
             jdbc.update("DELETE FROM tenants WHERE id=:tenantId", tenant);
         }
         tenantIds.clear();

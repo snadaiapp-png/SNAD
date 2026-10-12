@@ -68,13 +68,23 @@ class CustomerMasterHttpIntegrationTest {
                     "crm_account_merge_history", "crm_activities",
                     "crm_opportunities", "crm_opportunity_stage_history",
                     "crm_contacts", "crm_leads", "crm_accounts"));
+            // Users, roles, assignments have FORCE RLS — delete inside
+            // a transaction with app.tenant_id set (same pattern as
+            // RlsTestSupport.deleteTenantRows but for non-CRM tables).
+            transactions.executeWithoutResult(txStatus -> {
+                jdbc.getJdbcTemplate().queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                MapSqlParameterSource p = new MapSqlParameterSource("t", tenantId);
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t", p);
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t", p);
+                jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p);
+                jdbc.update("DELETE FROM users WHERE tenant_id = :t", p);
+            });
+            // Non-RLS tables can be cleaned without GUC.
             MapSqlParameterSource p = new MapSqlParameterSource("t", tenantId);
-            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t", p);
-            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t", p);
-            jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p);
             jdbc.update("DELETE FROM crm_idempotency_records WHERE tenant_id = :t", p);
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id = :t", p);
-            jdbc.update("DELETE FROM users WHERE tenant_id = :t", p);
             jdbc.update("DELETE FROM tenants WHERE id = :t", p);
         }
         tenantIds.clear();
