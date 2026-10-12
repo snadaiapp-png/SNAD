@@ -6,6 +6,7 @@ import sys
 import urllib.error
 import urllib.request
 import socket
+import uuid
 
 ROOT = os.environ["PRODUCTION_BASE_URL"].rstrip("/")
 PAYROLL = "/api/v2/hr/payroll"
@@ -84,15 +85,44 @@ def main():
     status, runs_body = request("GET", PAYROLL + "/runs", token=owner_token)
     check(status == 200, "owner payroll list HTTP 200")
     runs = parse(runs_body)
-    check(isinstance(runs, list) and len(runs) > 0 and bool(runs[0].get("id")), "existing owner payroll run required for non-destructive negative probes")
-    run_id = runs[0]["id"]
+    check(isinstance(runs, list), "owner payroll list is a JSON array")
+
+    # Non-destructive negative probes.
+    #
+    # The certified production topology is intentionally dormant: V20261010_99
+    # grants the canonical owner ONLY HRM.PAYROLL.VIEW and no production actor
+    # holds any payroll mutation capability (proven live above), so no payroll
+    # run may exist yet and none may be created through governed channels.
+    #
+    # Denial is enforced BEFORE any run data is touched: every payroll endpoint
+    # is @RequireCapability-gated at the controller boundary, and transition()
+    # calls authorizationGuard.requireTransition(...) before loadForUpdate(...),
+    # so the probes are state-independent for any syntactically valid run
+    # identifier. A real run is used when one exists; otherwise a random UUID
+    # exercises the identical pre-data denial path.
+    #
+    # expectedVersion is kept validation-clean for @PositiveOrZero (the prior
+    # -1 sentinel failed bean validation with HTTP 400 before the capability
+    # gate) and always exceeds any real version by a wide margin, so even a
+    # hypothetical gate bypass aborts on version conflict instead of mutating.
+    if isinstance(runs, list) and len(runs) > 0 and runs[0].get("id"):
+        run_id = str(runs[0]["id"])
+        try:
+            safe_version = int(runs[0].get("version") or 0) + 1_000_000
+        except (TypeError, ValueError):
+            safe_version = 1_000_000
+        print("G4_NEGATIVE_PROBE_MODE=REAL_RUN", flush=True)
+    else:
+        run_id = str(uuid.uuid4())
+        safe_version = 1_000_000
+        print("G4_NEGATIVE_PROBE_MODE=SYNTHETIC_RUN_ID (dormant certified topology)", flush=True)
     # No payroll record or identifier is emitted to workflow logs.
     status, _ = request("GET", PAYROLL + "/runs", token=denied_token)
     check(status == 403, "unauthorized same-tenant payroll list HTTP 403")
     status, _ = request("GET", PAYROLL + "/runs/" + run_id, token=foreign_token)
     check(status in (403,404), "cross-tenant payroll run denied")
     for action in ("calculate","review","approve","export"):
-        data = {"expectedVersion": -1} if action == "export" else {"expectedVersion": -1, "reason": "SECURITY_NEGATIVE_PROBE"}
+        data = {"expectedVersion": safe_version} if action == "export" else {"expectedVersion": safe_version, "reason": "SECURITY_NEGATIVE_PROBE"}
         status, _ = request("POST", PAYROLL + "/runs/" + run_id + "/" + action, token=owner_token, data=data)
         check(status == 403, "view-only owner cannot " + action)
         status, _ = request("POST", PAYROLL + "/runs/" + run_id + "/" + action, token=denied_token, data=data)
