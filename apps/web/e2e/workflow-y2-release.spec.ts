@@ -916,6 +916,16 @@ const WORKFLOW_TABS = [
 ];
 
 test("P13 — real application: authenticated Arabic RTL, full operational IA, accessibility", async ({ page }) => {
+  // Bind the real BFF login request to the deterministic Workflow E2E tenant.
+  // The negative password assertion stays enforced by the actual backend.
+  await page.route("**/api/platform/api/v1/auth/login", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    await route.continue({
+      headers: { ...route.request().headers(), "content-type": "application/json" },
+      postData: JSON.stringify({ ...body, tenantId: WF_TENANT_A_ID }),
+    });
+  });
   // Authenticate through the actual frontend session mechanism (BFF login).
   await page.goto(`${BASE_URL}/`, { waitUntil: "domcontentloaded" });
   await page.locator("#login-email").waitFor({ state: "visible", timeout: 30_000 });
@@ -923,8 +933,13 @@ test("P13 — real application: authenticated Arabic RTL, full operational IA, a
   // Visible error state on failed credentials (before the real login).
   await page.locator("#login-email").fill(ACTORS.DESIGNER);
   await page.locator("#login-password").fill("definitely-wrong-password");
+  const rejectedLogin = page.waitForResponse((response) =>
+    response.request().method() === "POST" && response.url().includes("/api/platform/api/v1/auth/login"));
   await page.getByRole("button", { name: /دخول|login|تسجيل/i }).first().click();
+  const rejectedResponse = await rejectedLogin;
+  expect(rejectedResponse.status(), "wrong password must be rejected by the real backend").toBe(401);
   await page.locator('[role="alert"]').first().waitFor({ state: "visible", timeout: 15_000 });
+  await expect(page.locator("#login-email"), "failed auth must restore editable form state").toBeEnabled();
 
   // Keyboard activation for the primary interaction: Enter submits the form.
   // A failed authentication attempt may reset the controlled login fields,
