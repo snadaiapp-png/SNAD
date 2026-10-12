@@ -202,10 +202,10 @@ jobs:
           -- inherits its tenant-scoped policy; no RLS bypass is granted.
           SELECT 'CREATE ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS'
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad')
-          \\gexec
+          \gexec
           ALTER ROLE sanad NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
           GRANT sanad TO sanad_g3;
-          DO $
+          DO $$
           BEGIN
             IF NOT EXISTS (
               SELECT 1 FROM pg_roles WHERE rolname = 'sanad'
@@ -213,7 +213,7 @@ jobs:
             ) OR NOT pg_has_role('sanad_g3', 'sanad', 'USAGE') THEN
               RAISE EXCEPTION 'G1 runtime policy role missing or not inherited by sanad_g3';
             END IF;
-          END $;
+          END $$;
 
           SELECT 'CREATE DATABASE sanad_g3 OWNER sanad_g3'
           WHERE NOT EXISTS (
