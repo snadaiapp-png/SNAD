@@ -21,29 +21,21 @@ END $$;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users FORCE ROW LEVEL SECURITY;
 
--- Every policy has the same strict tenant predicate: no missing-context read
--- and no cross-tenant write. CI databases may omit the production sanad role.
--- In those databases only, bind the policy to the current migration/test role;
--- NEVER grant to PUBLIC, create a BYPASSRLS role, or bypass FORCE RLS.
--- Production runtime must provision the restricted sanad role before cutover.
+-- Fail closed if the restricted runtime role was not provisioned. A policy
+-- granted to the migration owner would be a misleading green CI result and
+-- must never substitute for testing as the actual application role.
 DO $policy$
 BEGIN
-  DROP POLICY IF EXISTS users_tenant_isolation ON public.users;
-
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
-    CREATE POLICY users_tenant_isolation ON public.users
-      AS PERMISSIVE FOR ALL TO sanad
-      USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
-      WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
-  ELSE
-    EXECUTE format(
-      'CREATE POLICY users_tenant_isolation ON public.users AS PERMISSIVE FOR ALL TO %I '
-      || 'USING (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), '''')) '
-      || 'WITH CHECK (tenant_id::text = NULLIF(current_setting(''app.tenant_id'', true), ''''))',
-      current_user
-    );
-    RAISE NOTICE 'sanad role absent: strict tenant policy bound to migration/test role %', current_user;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad'
+                 AND NOT rolsuper AND NOT rolbypassrls) THEN
+    RAISE EXCEPTION 'G1_RLS_RUNTIME_ROLE_UNAVAILABLE: provision restricted sanad role before users RLS migration';
   END IF;
+
+  DROP POLICY IF EXISTS users_tenant_isolation ON public.users;
+  CREATE POLICY users_tenant_isolation ON public.users
+    AS PERMISSIVE FOR ALL TO sanad
+    USING (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''))
+    WITH CHECK (tenant_id::text = NULLIF(current_setting('app.tenant_id', true), ''));
 END
 $policy$;
 
