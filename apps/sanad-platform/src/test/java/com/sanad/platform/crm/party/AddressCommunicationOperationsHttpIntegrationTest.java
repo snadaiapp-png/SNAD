@@ -47,6 +47,7 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     @Test
     void searchesAndExportsArabicAddressesWithinTenant() throws Exception {
@@ -101,8 +102,14 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void importIsRowIsolatedAndPersistsFrameworkJobAndErrors() throws Exception {
-        Fixture fixture = fixture("crm007-import");
-        UUID accountId = account(fixture, "Import Customer");
+        // This scenario intentionally suspends the test transaction so that
+        // each HTTP request owns its production-equivalent transaction.
+        // Seed fixture identity + account atomically on one tenant-scoped
+        // JDBC transaction: SET LOCAL otherwise expires in autocommit mode.
+        org.springframework.transaction.support.TransactionTemplate setupTx =
+                new org.springframework.transaction.support.TransactionTemplate(txManager);
+        Fixture fixture = setupTx.execute(status -> fixture("crm007-import"));
+        UUID accountId = setupTx.execute(status -> account(fixture, "Import Customer"));
         String payload = """
                 {"rows":[
                   {"ownerType":"ACCOUNT","ownerId":"%s","address":{
