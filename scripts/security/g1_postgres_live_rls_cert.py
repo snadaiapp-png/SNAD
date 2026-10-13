@@ -47,25 +47,41 @@ def main():
                    dbname=parsed.path.lstrip("/"), user=user,
                    password=os.environ["G1_DATASOURCE_PASSWORD"],
                    sslmode=sslmode, connect_timeout=12)
+    # Sanitized evidence only: never emit URL, password, or tenant IDs.
+    results["connection"] = {
+        "host": host, "database": parsed.path.lstrip("/"),
+        "configured_login": user, "sslmode": sslmode,
+    }
     with psycopg.connect(**connect) as conn:
         with conn.transaction():
             conn.execute("SET TRANSACTION READ ONLY")
             current_user, bypass, superuser = conn.execute(
                 "SELECT current_user, r.rolbypassrls, r.rolsuper FROM pg_roles r WHERE r.rolname=current_user"
             ).fetchone()
+            results["connection"]["effective_current_user"] = current_user
             check("runtime_role_is_sanad", current_user == "sanad")
             check("runtime_cannot_bypass_rls", not bypass and not superuser)
+            results["catalog"] = {}
             for tenant, label in ((tenant_a, "A"), (tenant_b, "B"), (CONTROL, "CONTROL")):
                 tenant_count = conn.execute(
                     "SELECT count(*) FROM public.tenants WHERE id=%s AND status='ACTIVE'",
                     (tenant,)).fetchone()[0]
                 check("tenant_" + label + "_exists_active", tenant_count == 1)
             for table in TABLES:
-                enabled, forced = conn.execute(
-                    "SELECT c.relrowsecurity, c.relforcerowsecurity FROM pg_class c "
-                    "JOIN pg_namespace n ON n.oid=c.relnamespace "
+                relation = conn.execute(
+                    "SELECT c.relrowsecurity, c.relforcerowsecurity, pg_get_userbyid(c.relowner), c.relkind "
+                    "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
                     "WHERE n.nspname='public' AND c.relname=%s AND c.relkind IN ('r','p')",
                     (table,)).fetchone()
+                if relation is None:
+                    results["catalog"][table] = {"exists": False}
+                    check(table + "_exists_in_public", False)
+                    continue
+                enabled, forced, owner_name, relkind = relation
+                results["catalog"][table] = {
+                    "exists": True, "rls_enabled": bool(enabled),
+                    "force_rls": bool(forced), "owner": owner_name, "relkind": relkind,
+                }
                 check(table + "_rls_enabled", enabled)
                 # Table-owner exemption is checked by role + ownership rather than FORCE alone.
                 is_owner = conn.execute(
