@@ -252,6 +252,30 @@ jobs:
             -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
             -v ON_ERROR_STOP=1 -Atqc 'SELECT current_database(), current_user'
 
+      - name: Provision and verify restricted sanad runtime role before Flyway
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This role is required by V20261011_3. It is a restricted policy
+          # principal in the isolated runner cluster, not a migration owner.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $role$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            END IF;
+          END $role$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          SQL
+          contract="$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
+          test "$contract" = "true|false|false|false|false|false" || {
+            echo "::error::G1_RESTRICTED_ROLE_CONTRACT_FAILED"
+            exit 1
+          }
+          echo 'G1_RESTRICTED_RUNTIME_ROLE_PRESENT=YES'
+          # Does not assert full G1 isolation certification: the CI application
+          # session still uses its dedicated per-job acceptance database role.
+
       - name: Generate isolated CI credentials
         shell: bash
         run: |
@@ -525,6 +549,30 @@ jobs:
           role_contract="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_subscription_test'")"
           echo "SUBSCRIPTION_ACCEPTANCE_ROLE_CONTRACT=$role_contract"
           test "$role_contract" = "false|false|false|false"
+
+      - name: Provision and verify restricted sanad runtime role before Flyway
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This role is required by V20261011_3. It is a restricted policy
+          # principal in the isolated runner cluster, not a migration owner.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $role$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sanad') THEN
+              CREATE ROLE sanad LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            END IF;
+          END $role$;
+          ALTER ROLE sanad NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+          SQL
+          contract="$(sudo -u postgres psql -Atqc "SELECT rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad'")"
+          test "$contract" = "true|false|false|false|false|false" || {
+            echo "::error::G1_RESTRICTED_ROLE_CONTRACT_FAILED"
+            exit 1
+          }
+          echo 'G1_RESTRICTED_RUNTIME_ROLE_PRESENT=YES'
+          # Does not assert full G1 isolation certification: the CI application
+          # session still uses its dedicated per-job acceptance database role.
 
       - name: Generate isolated CI credentials
         shell: bash
