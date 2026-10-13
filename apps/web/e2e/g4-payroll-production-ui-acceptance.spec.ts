@@ -107,28 +107,30 @@ async function login(page: Page, email: string, password: string): Promise<Login
  * issue the call within 90s does a bounded browser-session request (same
  * cookie jar, Bearer like the app's own client) serve as fallback.
  */
-async function appIdentity(
-  page: Page,
-  accessToken: string,
-  navigate: () => Promise<void>,
-): Promise<Identity> {
+async function appIdentity(page: Page, accessToken: string, destination: string): Promise<Identity> {
+  // Navigation must commit within a short independent budget: never wait for
+  // background resources or BFF responses to reach the browser load event.
   const appCall = page.waitForResponse(
     res => res.request().method() === "GET" && res.url().includes(ME_PATH),
-    { timeout: 90_000 },
-  );
-  await navigate();
+    { timeout: 35_000 },
+  ).then(response => response, () => null);
   try {
-    const response = await appCall;
+    await page.goto(destination, { waitUntil: "commit", timeout: 25_000 });
+  } catch {
+    throw new Error("G4_BROWSER_NAVIGATION_FAILED: protected route did not commit within 25s");
+  }
+  const response = await appCall;
+  if (response) {
     expect(response.status(), "application /auth/me response is OK").toBe(200);
     return { body: (await response.json()) as MeBody, source: "application-navigation" };
-  } catch {
-    const response = await page.request.get(ME, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      timeout: API_PROBE_TIMEOUT,
-    });
-    expect(response.status(), "fallback /auth/me via browser session").toBe(200);
-    return { body: (await response.json()) as MeBody, source: "browser-session-request" };
   }
+  // Bounded same-session fallback only when no application identity call was seen.
+  const fallback = await page.request.get(ME, {
+    headers: { Authorization: "Bearer " + accessToken },
+    timeout: API_PROBE_TIMEOUT,
+  });
+  expect(fallback.status(), "fallback /auth/me via browser session").toBe(200);
+  return { body: (await fallback.json()) as MeBody, source: "browser-session-request" };
 }
 
 test.describe.configure({ mode: "serial" });
@@ -143,7 +145,7 @@ test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, 
   ownerUserId = loginData.user.id;
 
   // Identity + effective permissions through the application's own /auth/me.
-  const identity = await appIdentity(page, loginData.accessToken, () => page.goto("/hr/payroll"));
+  const identity = await appIdentity(page, loginData.accessToken, "/hr/payroll");
   expect(identity.body.id, "/auth/me user.id matches the login session").toBe(ownerUserId);
   expect(identity.body.tenantId, "/auth/me tenant binding is canonical").toBe(ownerTenantId);
   expect(identity.body.capabilities, "owner effective capabilities include HRM.PAYROLL.VIEW")
@@ -191,7 +193,7 @@ test("G4 UI B - unauthorized same-tenant user: no VIEW capability, no payroll li
   expect(loginData.user.id, "unauthorized identity is distinct from the owner").not.toBe(ownerUserId);
   expect(loginData.user.tenantId, "unauthorized user is inside the owner tenant").toBe(required("G4_OWNER_TENANT_ID"));
 
-  const identity = await appIdentity(page, loginData.accessToken, () => page.goto("/hr/payroll"));
+  const identity = await appIdentity(page, loginData.accessToken, "/hr/payroll");
   expect(identity.body.tenantId).toBe(required("G4_OWNER_TENANT_ID"));
   expect(identity.body.capabilities, "unauthorized user must lack HRM.PAYROLL.VIEW").not.toContain("HRM.PAYROLL.VIEW");
 
@@ -216,7 +218,7 @@ test("G4 UI C - foreign tenant: distinct tenant, forbidden surface, URL manipula
   expect(loginData.user.tenantId, "foreign tenant differs from the owner tenant").not.toBe(ownerTenant);
   expect(loginData.user.tenantId, "foreign identity binds its own tenant").toBe(required("G4_FOREIGN_TENANT_ID"));
 
-  const identity = await appIdentity(page, loginData.accessToken, () => page.goto("/hr/payroll"));
+  const identity = await appIdentity(page, loginData.accessToken, "/hr/payroll");
   expect(identity.body.tenantId).toBe(required("G4_FOREIGN_TENANT_ID"));
   expect(identity.body.capabilities, "foreign user must lack HRM.PAYROLL.VIEW").not.toContain("HRM.PAYROLL.VIEW");
 
