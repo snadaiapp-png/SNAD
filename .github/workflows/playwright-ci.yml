@@ -517,6 +517,16 @@ jobs:
             -Dtest=CrmApiIntegrationTest,CommunicationPolicyHttpIntegrationTest,AddressCommunicationOperationsHttpIntegrationTest,AccountUseCasesIntegrationTest \
             -Dsurefire.failIfNoSpecifiedTests=true test
 
+      - name: G1 authentication and tenant RLS regression (PostgreSQL Direct)
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep security checks real: no skipped tests or relaxed assertions.
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest=AuthApiIntegrationTest,TenantRlsConnectionHandlerTest \
+            -Dsurefire.failIfNoSpecifiedTests=true test
+
       - name: Upload G1 CRM Java Surefire evidence
         if: always()
         uses: actions/upload-artifact@v4
