@@ -254,6 +254,9 @@ class CrmService {
                 .toList();
     }
 
+    // The owner validation queries FORCE-RLS users; perform it under the
+    // authenticated tenant's transaction-local RLS context.
+    @Transactional
     Map<String, Object> createOpportunity(Authentication authentication,
                                           CreateOpportunityRequest request) {
         UUID tenantId = tenantId(authentication);
