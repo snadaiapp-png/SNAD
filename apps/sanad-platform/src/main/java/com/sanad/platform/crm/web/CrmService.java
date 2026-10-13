@@ -325,6 +325,8 @@ class CrmService {
         return toOpportunityRow(moved);
     }
 
+    // Owner/related record validation queries tenant-scoped RLS tables.
+    @Transactional
     Map<String, Object> createActivity(Authentication authentication, CreateActivityRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
