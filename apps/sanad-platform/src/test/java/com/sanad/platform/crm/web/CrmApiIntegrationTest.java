@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sanad.platform.security.SecurityPermitAllTestConfig;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -15,7 +16,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,33 +36,74 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Import(SecurityPermitAllTestConfig.class)
 @ActiveProfiles("local")
-@Transactional
 class CrmApiIntegrationTest {
-    private static final UUID TENANT_A = UUID.fromString("10000000-0000-0000-0000-000000000001");
-    private static final UUID TENANT_B = UUID.fromString("10000000-0000-0000-0000-000000000002");
-    private static final UUID USER_A = UUID.fromString("20000000-0000-0000-0000-000000000001");
-    private static final UUID USER_B = UUID.fromString("20000000-0000-0000-0000-000000000002");
-    private static final UUID ROLE_A = UUID.fromString("30000000-0000-0000-0000-000000000001");
-    private static final UUID ROLE_B = UUID.fromString("30000000-0000-0000-0000-000000000002");
+    private static final UUID TENANT_A = UUID.randomUUID();
+    private static final UUID TENANT_B = UUID.randomUUID();
+    private static final UUID USER_A = UUID.randomUUID();
+    private static final UUID USER_B = UUID.randomUUID();
+    private static final UUID ROLE_A = UUID.randomUUID();
+    private static final UUID ROLE_B = UUID.randomUUID();
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
 
+    // No test-managed transaction may span requests made as different tenants.
+    // Each committed fixture is scoped to one tenant and one database transaction.
     @BeforeEach
     void seedIdentityAndCapabilities() {
-        Instant now = Instant.now();
-        seedTenant(TENANT_A, "crm-a", "CRM Tenant A", now);
-        seedTenant(TENANT_B, "crm-b", "CRM Tenant B", now);
-        seedUser(USER_A, TENANT_A, "crm-a@example.test", now);
-        seedUser(USER_B, TENANT_B, "crm-b@example.test", now);
-        seedRole(ROLE_A, TENANT_A, now);
-        seedRole(ROLE_B, TENANT_B, now);
-        seedRoleAssignment(TENANT_A, ROLE_A, USER_A, now);
-        seedRoleAssignment(TENANT_B, ROLE_B, USER_B, now);
-        grantCrmCapabilities(TENANT_A, ROLE_A, now);
-        grantCrmCapabilities(TENANT_B, ROLE_B, now);
+        seedIdentity(TENANT_A, USER_A, ROLE_A, "crm-a", "CRM Tenant A", "crm-a@example.test");
+        seedIdentity(TENANT_B, USER_B, ROLE_B, "crm-b", "CRM Tenant B", "crm-b@example.test");
     }
+
+    private void inTenantTransaction(UUID tenantId, Runnable action) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            action.run();
+        });
+    }
+
+    private void seedIdentity(UUID tenantId, UUID userId, UUID roleId,
+                              String subdomainPrefix, String name, String email) {
+        inTenantTransaction(tenantId, () -> {
+            Instant now = Instant.now();
+            seedTenant(tenantId, subdomainPrefix + "-" + tenantId, name, now);
+            seedUser(userId, tenantId, email.replace("@", "+" + userId + "@"), now);
+            seedRole(roleId, tenantId, now);
+            seedRoleAssignment(tenantId, roleId, userId, now);
+            grantCrmCapabilities(tenantId, roleId, now);
+        });
+    }
+
+    // Scoped FK-safe cleanup; never TRUNCATE, CASCADE, or delete another tenant's data.
+    @AfterEach
+    void cleanupIdentityAndCrmData() {
+        for (UUID tenantId : List.of(TENANT_A, TENANT_B)) {
+            inTenantTransaction(tenantId, () -> {
+                for (String table : CRM_CHILD_TABLES) {
+                    jdbc.update("DELETE FROM " + table + " WHERE tenant_id = ?", tenantId);
+                }
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
+                jdbc.update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+            });
+            jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
+        }
+    }
+
+    private static final List<String> CRM_CHILD_TABLES = List.of(
+            "crm_contact_relationship_history", "crm_contact_account_relationships",
+            "crm_contact_relationship_roles", "crm_contact_lookup_index",
+            "crm_contact_ownership_history", "crm_phone_numbers",
+            "crm_communication_methods", "crm_party_addresses",
+            "crm_opportunity_stage_history", "crm_leads", "crm_opportunities",
+            "crm_pipeline_stages", "crm_pipelines", "crm_tasks", "crm_notes",
+            "crm_tag_assignments", "crm_tags", "crm_activities",
+            "crm_timeline_events", "crm_audit_logs", "crm_event_outbox",
+            "crm_custom_field_values", "crm_contacts", "crm_accounts");
 
     @Test
     void executesCompleteCrmLifecycleAgainstApplicationTables() throws Exception {
@@ -165,8 +208,10 @@ class CrmApiIntegrationTest {
                 .andExpect(jsonPath("$.contacts").value(2))
                 .andExpect(jsonPath("$.openOpportunities").value(0));
 
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, TENANT_A)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=?", Long.class, TENANT_A)).isGreaterThanOrEqualTo(8);
+        inTenantTransaction(TENANT_A, () -> {
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, TENANT_A)).isEqualTo(2);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=?", Long.class, TENANT_A)).isGreaterThanOrEqualTo(8);
+        });
     }
 
     @Test
@@ -208,12 +253,6 @@ class CrmApiIntegrationTest {
 
     private void seedUser(UUID id, UUID tenantId, String email, Instant now) {
         java.sql.Timestamp ts = java.sql.Timestamp.from(now);
-        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
-        // same transaction-bound connection. This test is @Transactional,
-        // so set_config(..., true) is transaction-local.
-        jdbc.queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,created_at,updated_at) VALUES (?,?,?,?,'ACTIVE',?,?)", id, tenantId, email, "CRM Test User", ts, ts);
     }
 
