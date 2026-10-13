@@ -176,7 +176,7 @@ class AddressCommunicationOperationsHttpIntegrationTest {
                     "crm_contact_relationship_history", "crm_contact_account_relationships",
                     "crm_contact_relationship_roles", "crm_contact_lookup_index",
                     "crm_contact_ownership_history", "crm_phone_numbers",
-                    "crm_communication_methods", "crm_party_addresses",
+                    "crm_communication_methods", "crm_party_address_history", "crm_party_addresses",
                     "crm_opportunity_stage_history", "crm_leads", "crm_opportunities",
                     "crm_pipeline_stages", "crm_pipelines", "crm_tasks", "crm_notes",
                     "crm_tag_assignments", "crm_tags", "crm_activities",
