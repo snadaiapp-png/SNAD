@@ -3,12 +3,18 @@ package com.sanad.platform.crm.party;
 import com.sanad.platform.crm.error.CrmContractException;
 import com.sanad.platform.crm.party.application.AccountUseCases;
 import com.sanad.platform.crm.party.domain.AccountRepository.*;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,6 +38,42 @@ class AccountUseCasesIntegrationTest {
     @Autowired
     org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc;
 
+    @Autowired
+    PlatformTransactionManager txManager;
+
+    /** Tenants created in REQUIRES_NEW transactions (committed, not rolled back by @Transactional). */
+    private final Set<UUID> committedTenants = new HashSet<>();
+
+    @AfterEach
+    void cleanupCommittedTenants() {
+        com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        for (UUID tenantId : committedTenants) {
+            TransactionTemplate tx = new TransactionTemplate(txManager);
+            tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            tx.executeWithoutResult(status -> {
+                jdbc.getJdbcTemplate().queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                jdbc.update("DELETE FROM crm_timeline_events WHERE tenant_id = :t",
+                        new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId));
+                jdbc.update("DELETE FROM crm_accounts WHERE tenant_id = :t",
+                        new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId));
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t",
+                        new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId));
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t",
+                        new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId));
+                jdbc.update("DELETE FROM roles WHERE tenant_id = :t",
+                        new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId));
+                jdbc.update("DELETE FROM users WHERE tenant_id = :t",
+                        new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId));
+            });
+            // Delete tenant (no RLS on tenants table)
+            jdbc.update("DELETE FROM tenants WHERE id = :t",
+                    new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId));
+        }
+        committedTenants.clear();
+    }
+
     private UUID seedTenantAndOwner() {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -48,23 +90,35 @@ class AccountUseCasesIntegrationTest {
     }
 
     /**
-     * Seeds a second tenant + owner WITHOUT changing the SecurityContext.
-     * Uses set_config directly to set app.tenant_id for the INSERT.
-     * This avoids triggering TenantRlsConnectionHandler's identity change
-     * detection when creating cross-tenant test data in the same transaction.
+     * Seeds a second tenant + owner in a SEPARATE transaction (REQUIRES_NEW).
+     * This ensures:
+     *   1. A new JDBC connection with a fresh TenantRlsConnectionHandler
+     *      (tenantAppliedFor=null) — no identity conflict with the outer
+     *      transaction's tenant.
+     *   2. The SecurityContext is set to the new tenant INSIDE the new
+     *      transaction, matching app.tenant_id — no discrepancy between
+     *      authenticated identity and RLS context.
+     *   3. After the new transaction commits, the SecurityContext is
+     *      cleared to prevent leakage back to the outer transaction.
+     *   4. The committed tenant is tracked for cleanup in @AfterEach.
      */
     private UUID seedTenantAndOwnerNoContextChange() {
-        UUID tenantId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
-        // Use set_config directly — does NOT change SecurityContext,
-        // so TenantRlsConnectionHandler doesn't detect a tenant switch.
-        jdbc.getJdbcTemplate().queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
-        jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (:id, 'Test Tenant', 'test-" + tenantId.toString().substring(0, 8) + "', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", tenantId));
-        jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (:id, :tenantId, :email, 'Test Owner', 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", userId).addValue("tenantId", tenantId).addValue("email", "owner-" + userId.toString().substring(0, 8) + "@test.example"));
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        UUID tenantId = tx.execute(status -> {
+            UUID tid = UUID.randomUUID();
+            UUID uid = UUID.randomUUID();
+            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tid, uid);
+            jdbc.update("INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at) VALUES (:id, 'Test Tenant', 'test-" + tid.toString().substring(0, 8) + "', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", tid));
+            jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (:id, :tenantId, :email, 'Test Owner', 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", uid).addValue("tenantId", tid).addValue("email", "owner-" + uid.toString().substring(0, 8) + "@test.example"));
+            return tid;
+        });
+        // Clear SecurityContext after the new transaction to prevent
+        // leakage back to the outer transaction's connection.
+        com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        committedTenants.add(tenantId);
         return tenantId;
     }
 
