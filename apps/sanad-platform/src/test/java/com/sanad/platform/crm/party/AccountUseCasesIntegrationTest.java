@@ -103,6 +103,9 @@ class AccountUseCasesIntegrationTest {
      *   4. The committed tenant is tracked for cleanup in @AfterEach.
      */
     private UUID seedTenantAndOwnerNoContextChange() {
+        // Save original SecurityContext (tenantA) BEFORE the REQUIRES_NEW
+        // transaction changes it to tenantB.
+        var savedAuth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         TransactionTemplate tx = new TransactionTemplate(txManager);
         tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         UUID tenantId = tx.execute(status -> {
@@ -115,9 +118,10 @@ class AccountUseCasesIntegrationTest {
                     new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", uid).addValue("tenantId", tid).addValue("email", "owner-" + uid.toString().substring(0, 8) + "@test.example"));
             return tid;
         });
-        // Clear SecurityContext after the new transaction to prevent
-        // leakage back to the outer transaction's connection.
-        com.sanad.platform.crm.test.RlsTestSupport.clearSecurityContext();
+        // RESTORE original SecurityContext (tenantA) so the outer
+        // transaction's handler sees the SAME tenant for all subsequent
+        // queries — no "Tenant identity changed" throw.
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(savedAuth);
         committedTenants.add(tenantId);
         return tenantId;
     }
