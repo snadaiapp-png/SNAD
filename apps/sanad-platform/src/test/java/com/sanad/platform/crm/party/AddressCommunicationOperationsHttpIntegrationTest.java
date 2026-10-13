@@ -3,6 +3,7 @@ package com.sanad.platform.crm.party;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -48,11 +49,18 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
+    private Fixture independentSearchFixture;
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void searchesAndExportsArabicAddressesWithinTenant() throws Exception {
-        Fixture fixture = fixture("crm007-search");
-        UUID accountId = account(fixture, "شركة البحث");
+        // No enclosing test transaction: real MockMvc requests must independently
+        // bind RLS tenant identity rather than changing an active fixture transaction.
+        org.springframework.transaction.support.TransactionTemplate setup =
+                new org.springframework.transaction.support.TransactionTemplate(txManager);
+        Fixture fixture = setup.execute(status -> fixture("crm007-search"));
+        independentSearchFixture = fixture;
+        UUID accountId = setup.execute(status -> account(fixture, "شركة البحث"));
         createAddress(fixture, accountId, "مقر طريق الملك فهد", "الرياض");
 
         mockMvc.perform(get("/api/v2/crm/addresses/search")
@@ -152,6 +160,37 @@ class AddressCommunicationOperationsHttpIntegrationTest {
                 p().addValue("tenantId", fixture.tenantId()).addValue("accountId", accountId), Long.class);
         assertThat(errors).isOne();
         assertThat(rows).isOne();
+    }
+
+    @AfterEach
+    void cleanupIndependentSearchFixture() {
+        Fixture owned = independentSearchFixture;
+        if (owned == null) return;
+        UUID tenantId = owned.tenantId();
+        org.springframework.transaction.support.TransactionTemplate cleanup =
+                new org.springframework.transaction.support.TransactionTemplate(txManager);
+        cleanup.executeWithoutResult(status -> {
+            jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            for (String table : List.of(
+                    "crm_contact_relationship_history", "crm_contact_account_relationships",
+                    "crm_contact_relationship_roles", "crm_contact_lookup_index",
+                    "crm_contact_ownership_history", "crm_phone_numbers",
+                    "crm_communication_methods", "crm_party_addresses",
+                    "crm_opportunity_stage_history", "crm_leads", "crm_opportunities",
+                    "crm_pipeline_stages", "crm_pipelines", "crm_tasks", "crm_notes",
+                    "crm_tag_assignments", "crm_tags", "crm_activities",
+                    "crm_timeline_events", "crm_audit_logs", "crm_event_outbox",
+                    "crm_custom_field_values", "crm_contacts", "crm_accounts")) {
+                jdbc.getJdbcTemplate().update("DELETE FROM " + table + " WHERE tenant_id = ?", tenantId);
+            }
+            jdbc.getJdbcTemplate().update("DELETE FROM user_role_assignments WHERE tenant_id = ?", tenantId);
+            jdbc.getJdbcTemplate().update("DELETE FROM role_capabilities WHERE tenant_id = ?", tenantId);
+            jdbc.getJdbcTemplate().update("DELETE FROM roles WHERE tenant_id = ?", tenantId);
+            jdbc.getJdbcTemplate().update("DELETE FROM users WHERE tenant_id = ?", tenantId);
+        });
+        jdbc.getJdbcTemplate().update("DELETE FROM tenants WHERE id = ?", tenantId);
+        independentSearchFixture = null;
     }
 
     private void createAddress(Fixture fixture, UUID accountId, String line1, String city) throws Exception {
