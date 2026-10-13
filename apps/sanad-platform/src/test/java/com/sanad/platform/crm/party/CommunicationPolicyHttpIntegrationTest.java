@@ -36,10 +36,17 @@ class CommunicationPolicyHttpIntegrationTest {
     @Autowired PlatformTransactionManager transactionManager;
 
     private <T> T underTenant(UUID tenant, java.util.function.Supplier<T> action) {
-        return new TransactionTemplate(transactionManager).execute(status -> {
-            jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
-            return action.get();
-        });
+        org.springframework.security.core.context.SecurityContext previous =
+                org.springframework.security.core.context.SecurityContextHolder.getContext();
+        try {
+            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenant, tenant);
+            return new TransactionTemplate(transactionManager).execute(status -> {
+                jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
+                return action.get();
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.setContext(previous);
+        }
     }
 
     @Test
