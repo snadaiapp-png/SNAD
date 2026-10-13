@@ -58,6 +58,7 @@ interface MeBody {
 
 interface LoginResult {
   accessToken: string;
+  capabilities?: string[];
   user: { id: string; tenantId: string; email: string; status: string };
 }
 
@@ -90,6 +91,7 @@ async function login(page: Page, email: string, password: string): Promise<Login
   const data = await response.json() as LoginResult;
   expect(data.accessToken).toBeTruthy();
   expect(data.user.status).toBe("ACTIVE");
+  console.log('G4_SAFE_AUTH_LOGIN_CAP_PRESENT=' + String(Array.isArray(data.capabilities) && data.capabilities.includes('HRM.PAYROLL.VIEW')));
   await page.waitForURL(url => url.pathname.startsWith("/workspace"), { timeout: 45_000 });
   // An authenticated route unmounts the password form. Checking absence is
   // bounded and does not trigger Playwright's auto-wait for a removed locator.
@@ -112,7 +114,9 @@ async function appIdentity(page: Page, accessToken: string): Promise<Identity> {
     timeout: API_PROBE_TIMEOUT,
   });
   expect(response.status(), 'authenticated browser-session /auth/me').toBe(200);
-  return { body: (await response.json()) as MeBody, source: 'browser-session-request' };
+  const body = (await response.json()) as MeBody;
+  console.log('G4_SAFE_BROWSER_ME_CAP_PRESENT=' + String(Array.isArray(body.capabilities) && body.capabilities.includes('HRM.PAYROLL.VIEW')));
+  return { body, source: 'browser-session-request' };
 }
 
 async function openPayroll(page: Page, viaVisibleLink: boolean): Promise<void> {
@@ -122,7 +126,15 @@ async function openPayroll(page: Page, viaVisibleLink: boolean): Promise<void> {
     await page.goto('/hr', { waitUntil: 'commit', timeout: 25_000 });
     await page.waitForURL(url => url.pathname === '/hr', { timeout: 25_000 });
     const link = page.locator('a[href="/hr/payroll"]');
-    await expect(link, 'owner payroll link inside HR navigation').toBeVisible({ timeout: 20_000 });
+    const hrNavPresent = await page.getByRole('navigation').count();
+    console.log('G4_SAFE_HR_NAV_PRESENT=' + String(hrNavPresent > 0));
+    try {
+      await expect(link, 'owner payroll link inside HR navigation').toBeVisible({ timeout: 20_000 });
+    } catch (error) {
+      console.log('G4_SAFE_HR_PAYROLL_LINK_PRESENT=false');
+      throw error;
+    }
+    console.log('G4_SAFE_HR_PAYROLL_LINK_PRESENT=true');
     await link.click({ noWaitAfter: true, timeout: 20_000 });
   } else {
     // Address-bar-equivalent access attempt for identities with no link.
