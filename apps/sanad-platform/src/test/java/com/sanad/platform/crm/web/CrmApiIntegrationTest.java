@@ -234,8 +234,14 @@ class CrmApiIntegrationTest {
     }
 
     private JsonNode perform(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request, int expected) throws Exception {
-        String body = mockMvc.perform(request).andExpect(status().is(expected))
-                .andReturn().getResponse().getContentAsString();
+        var result = mockMvc.perform(request).andReturn();
+        int actual = result.getResponse().getStatus();
+        if (actual != expected) {
+            throw new AssertionError("CRM API expected HTTP " + expected + " but received " + actual
+                    + "; response=" + result.getResponse().getContentAsString()
+                    + "; resolvedException=" + result.getResolvedException());
+        }
+        String body = result.getResponse().getContentAsString();
         return body.isBlank() ? objectMapper.nullNode() : objectMapper.readTree(body);
     }
 
