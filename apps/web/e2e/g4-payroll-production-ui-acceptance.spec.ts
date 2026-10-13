@@ -90,13 +90,10 @@ async function login(page: Page, email: string, password: string): Promise<Login
   const data = await response.json() as LoginResult;
   expect(data.accessToken).toBeTruthy();
   expect(data.user.status).toBe("ACTIVE");
-  try {
-    await page.waitForURL(url => url.pathname.startsWith("/workspace"), { timeout: 45_000 });
-  } finally {
-    // Never leave the plaintext password in the DOM: failure evidence is
-    // captured after test teardown, so a cleared field cannot leak.
-    await page.locator("#login-password").fill("").catch(() => {});
-  }
+  await page.waitForURL(url => url.pathname.startsWith("/workspace"), { timeout: 45_000 });
+  // An authenticated route unmounts the password form. Checking absence is
+  // bounded and does not trigger Playwright's auto-wait for a removed locator.
+  await expect(page.locator("#login-password")).toHaveCount(0, { timeout: 5_000 });
   return data;
 }
 
