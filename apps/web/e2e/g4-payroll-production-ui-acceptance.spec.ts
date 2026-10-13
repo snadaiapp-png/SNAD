@@ -95,7 +95,7 @@ async function login(page: Page, email: string, password: string): Promise<Login
   } finally {
     // Never leave the plaintext password in the DOM: failure evidence is
     // captured after test teardown, so a cleared field cannot leak.
-    await page.locator("#login-password").fill("").catch(() => {});
+    // After navigation the login form is unmounted. Never wait for its locator.
   }
   return data;
 }
