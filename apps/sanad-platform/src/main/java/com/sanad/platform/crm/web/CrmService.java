@@ -26,6 +26,7 @@ import com.sanad.platform.crm.query.domain.TimelineProjectionRepository.Timeline
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Timestamp;
@@ -157,6 +158,9 @@ class CrmService {
                 .toList();
     }
 
+    // validateOwner reads FORCE-RLS users: bind the authenticated tenant
+    // to the same transaction before checking owner membership.
+    @Transactional
     Map<String, Object> createLead(Authentication authentication, CreateLeadRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
