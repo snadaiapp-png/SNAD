@@ -205,7 +205,8 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/login — suspended user returns 401")
     void login_suspendedUser_returns401() throws Exception {
-        User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
+        User user = inTenantTransaction(tenantId,
+                () -> userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow());
         user.setStatus(UserStatus.SUSPENDED);
         inTenantTransaction(tenantId, () -> userRepository.saveAndFlush(user));
 
@@ -318,7 +319,7 @@ class AuthApiIntegrationTest {
         UUID tenant2Id = tenantRepository.save(tenant2).getId();
         User user2 = new User(tenant2Id, testEmail, "Duplicate User", UserStatus.ACTIVE);
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
-        userRepository.save(user2);
+        inTenantTransaction(tenant2Id, () -> userRepository.saveAndFlush(user2));
 
         // Login WITH explicit tenantId should succeed
         LoginRequest request = new LoginRequest(testEmail, testPassword);
@@ -392,9 +393,10 @@ class AuthApiIntegrationTest {
         LoginResult loginResult = loginAndExtractCookie();
 
         // Suspend the user
-        User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
+        User user = inTenantTransaction(tenantId,
+                () -> userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow());
         user.setStatus(UserStatus.SUSPENDED);
-        userRepository.save(user);
+        inTenantTransaction(tenantId, () -> userRepository.saveAndFlush(user));
 
         // Attempt refresh — should fail with 401
         RefreshRequest refreshRequest = new RefreshRequest(loginResult.refreshTokenValue);
