@@ -20,9 +20,9 @@ import { test, expect, type Page } from "@playwright/test";
  *     certified topology and no CALCULATE grant may be fabricated for testing.
  *
  * Run 38321705462 root-cause fixes (evidence-keeping, assertion-identical):
- *   - Identity is proven through the application's OWN /auth/me response,
- *     captured on the real navigation path the UI itself depends on; a
- *     browser-session request (same cookie jar) is only a bounded fallback.
+ *   - Identity is checked first via authenticated browser-session /auth/me;
+ *     protected UI navigation is then verified separately with real DOM
+ *     assertions. No standalone request context or mocked response.
  *   - API probes use the browser context's request (real session) with an
  *     explicit 30s bound — the BFF grants auth paths a 125s upstream budget,
  *     which starved the former 180s test timeout on cold Render starts.
