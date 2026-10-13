@@ -273,6 +273,19 @@ jobs:
             exit 1
           }
           echo 'G1_RESTRICTED_RUNTIME_ROLE_PRESENT=YES'
+          # PostgreSQL 16+: policy role membership is inheritable without
+          # permitting SET ROLE. The CI login remains non-superuser/NOBYPASSRLS.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT sanad TO sanad_test WITH INHERIT TRUE, SET FALSE;
+          SQL
+          inherited="$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad_test', 'sanad', 'USAGE')::text")"
+          test "$inherited" = true || {
+            echo "::error::G1_RLS_POLICY_ROLE_NOT_INHERITED"
+            exit 1
+          }
+          role_guard="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_test'")"
+          test "$role_guard" = 'false|false'
+          echo 'G1_RLS_POLICY_ROLE_INHERITED=YES'
           # Does not assert full G1 isolation certification: the CI application
           # session still uses its dedicated per-job acceptance database role.
 
@@ -571,6 +584,19 @@ jobs:
             exit 1
           }
           echo 'G1_RESTRICTED_RUNTIME_ROLE_PRESENT=YES'
+          # PostgreSQL 16+: policy role membership is inheritable without
+          # permitting SET ROLE. The CI login remains non-superuser/NOBYPASSRLS.
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT sanad TO sanad_subscription_test WITH INHERIT TRUE, SET FALSE;
+          SQL
+          inherited="$(sudo -u postgres psql -Atqc "SELECT pg_has_role('sanad_subscription_test', 'sanad', 'USAGE')::text")"
+          test "$inherited" = true || {
+            echo "::error::G1_RLS_POLICY_ROLE_NOT_INHERITED"
+            exit 1
+          }
+          role_guard="$(sudo -u postgres psql -Atqc "SELECT rolsuper::text || '|' || rolbypassrls::text FROM pg_roles WHERE rolname='sanad_subscription_test'")"
+          test "$role_guard" = 'false|false'
+          echo 'G1_RLS_POLICY_ROLE_INHERITED=YES'
           # Does not assert full G1 isolation certification: the CI application
           # session still uses its dedicated per-job acceptance database role.
 
