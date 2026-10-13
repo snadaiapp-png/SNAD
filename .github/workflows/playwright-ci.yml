@@ -362,14 +362,57 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f src/test/resources/sql/crm-acceptance-subscription-seed.sql
 
-      - name: Verify seeded identities
+      - name: Verify seeded identities under tenant-scoped RLS
         shell: bash
         run: |
           set -euo pipefail
-          count="$(PGPASSWORD="$DATABASE_PASSWORD" psql \
-            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" -Atc \
-            "SELECT COUNT(*) FROM users WHERE email IN ('tenant-a-admin@snad-crm-acceptance.example','tenant-b-admin@snad-crm-acceptance.example','tenant-a-readonly@snad-crm-acceptance.example','tenant-a-lead-writer@snad-crm-acceptance.example','tenant-a-import-reader@snad-crm-acceptance.example')")"
-          test "$count" = '5'
+          # Verify using the restricted CI login, not the postgres owner.
+          # Each transaction has exactly one tenant-local context.
+          PGPASSWORD="$DATABASE_PASSWORD" psql \
+            -h 127.0.0.1 -U "$DATABASE_USERNAME" -d "$DATABASE_NAME" \
+            -X -v ON_ERROR_STOP=1 -At <<'SQL'
+          BEGIN;
+          SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', true);
+          DO $check$
+          DECLARE own_count integer; foreign_count integer;
+          BEGIN
+            SELECT count(*) INTO own_count FROM users WHERE
+              email IN ('tenant-a-admin@snad-crm-acceptance.example',
+                        'tenant-a-readonly@snad-crm-acceptance.example',
+                        'tenant-a-lead-writer@snad-crm-acceptance.example',
+                        'tenant-a-import-reader@snad-crm-acceptance.example');
+            SELECT count(*) INTO foreign_count FROM users
+              WHERE email='tenant-b-admin@snad-crm-acceptance.example';
+            IF own_count <> 4 OR foreign_count <> 0 THEN
+              RAISE EXCEPTION 'G1_SEED_TENANT_A_ISOLATION_FAILED own=%, foreign=%', own_count, foreign_count;
+            END IF;
+          END $check$;
+          COMMIT;
+          BEGIN;
+          SELECT set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', true);
+          DO $check$
+          DECLARE own_count integer; foreign_count integer;
+          BEGIN
+            SELECT count(*) INTO own_count FROM users
+              WHERE email='tenant-b-admin@snad-crm-acceptance.example';
+            SELECT count(*) INTO foreign_count FROM users
+              WHERE email LIKE 'tenant-a-%@snad-crm-acceptance.example';
+            IF own_count <> 1 OR foreign_count <> 0 THEN
+              RAISE EXCEPTION 'G1_SEED_TENANT_B_ISOLATION_FAILED own=%, foreign=%', own_count, foreign_count;
+            END IF;
+          END $check$;
+          COMMIT;
+          BEGIN;
+          SELECT set_config('app.tenant_id', '', true);
+          DO $check$
+          BEGIN
+            IF (SELECT count(*) FROM users) <> 0 THEN
+              RAISE EXCEPTION 'G1_SEED_FAIL_CLOSED_MISSING_CONTEXT';
+            END IF;
+          END $check$;
+          ROLLBACK;
+          SQL
+          echo 'G1_SEEDED_USERS_RLS_ISOLATION=PASS'
 
       - name: Start Spring Boot backend
         id: backend
