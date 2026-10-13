@@ -117,8 +117,12 @@ async function appIdentity(page: Page, accessToken: string): Promise<Identity> {
 
 async function openPayroll(page: Page, viaVisibleLink: boolean): Promise<void> {
   if (viaVisibleLink) {
+    // The payroll link belongs to the HR module shell, not /workspace.
+    // Enter the real HR module first, then assert its capability-gated link.
+    await page.goto('/hr', { waitUntil: 'commit', timeout: 25_000 });
+    await page.waitForURL(url => url.pathname === '/hr', { timeout: 25_000 });
     const link = page.locator('a[href="/hr/payroll"]');
-    await expect(link, 'owner navigation link exists').toBeVisible({ timeout: 20_000 });
+    await expect(link, 'owner payroll link inside HR navigation').toBeVisible({ timeout: 20_000 });
     await link.click({ noWaitAfter: true, timeout: 20_000 });
   } else {
     // Address-bar-equivalent access attempt for identities with no link.
@@ -140,11 +144,11 @@ test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, 
 
   // Identity + effective permissions through the application's own /auth/me.
   const identity = await appIdentity(page, loginData.accessToken);
-  await openPayroll(page, true);
   expect(identity.body.id, "/auth/me user.id matches the login session").toBe(ownerUserId);
   expect(identity.body.tenantId, "/auth/me tenant binding is canonical").toBe(ownerTenantId);
   expect(identity.body.capabilities, "owner effective capabilities include HRM.PAYROLL.VIEW")
     .toContain("HRM.PAYROLL.VIEW");
+  await openPayroll(page, true);
 
   // Payroll surface through the real browser session.
   await expect(page.getByRole("heading", { name: "Payroll review" })).toBeVisible();
