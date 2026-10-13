@@ -163,6 +163,14 @@ class AddressCommunicationOperationsHttpIntegrationTest {
                                 {"addressType":"OFFICE","line1":"%s","city":"%s","countryCode":"SA",
                                  "primaryAddress":true,"verified":false}
                                 """.formatted(line1, city)))
+                .andDo(result -> {
+                    if (result.getResponse().getStatus() != 201) {
+                        throw new AssertionError("CRM address creation HTTP "
+                                + result.getResponse().getStatus() + "; response="
+                                + result.getResponse().getContentAsString()
+                                + "; resolvedException=" + result.getResolvedException());
+                    }
+                })
                 .andExpect(status().isCreated());
     }
 
