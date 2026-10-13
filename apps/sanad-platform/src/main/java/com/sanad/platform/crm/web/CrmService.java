@@ -125,6 +125,8 @@ class CrmService {
         return toAccountRow(accountUseCases.archive(tenantId, actorId, accountId, current.version()));
     }
 
+    // FORCE-RLS users owner validation and contact creation must share a tenant-bound transaction.
+    @Transactional
     Map<String, Object> createContact(Authentication authentication, CreateContactRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
