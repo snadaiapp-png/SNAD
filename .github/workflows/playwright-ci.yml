@@ -506,6 +506,26 @@ jobs:
           kill ${{ steps.frontend.outputs.pid }} 2>/dev/null || true
           kill ${{ steps.backend.outputs.pid }} 2>/dev/null || true
 
+      - name: G1 CRM Java integration regression (PostgreSQL Direct)
+        working-directory: apps/sanad-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Run after the E2E backend has stopped; uses the same isolated
+          # host-native PostgreSQL server and restricted non-BYPASSRLS login.
+          mvn --batch-mode --no-transfer-progress \
+            -Dtest=CrmApiIntegrationTest,CommunicationPolicyHttpIntegrationTest,AddressCommunicationOperationsHttpIntegrationTest,AccountUseCasesIntegrationTest \
+            -Dsurefire.failIfNoSpecifiedTests=true test
+
+      - name: Upload G1 CRM Java Surefire evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-crm-java-surefire-${{ github.run_id }}
+          path: apps/sanad-platform/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Upload CRM acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
