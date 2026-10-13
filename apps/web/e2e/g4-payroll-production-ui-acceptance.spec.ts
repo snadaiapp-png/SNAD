@@ -18,11 +18,23 @@ import { test, expect, type Page } from "@playwright/test";
  *     explicitly sanitized success captures of data-free states.
  *   - This spec performs ZERO payroll mutations: production holds the dormant
  *     certified topology and no CALCULATE grant may be fabricated for testing.
+ *
+ * Run 38321705462 root-cause fixes (evidence-keeping, assertion-identical):
+ *   - Identity is proven through the application's OWN /auth/me response,
+ *     captured on the real navigation path the UI itself depends on; a
+ *     browser-session request (same cookie jar) is only a bounded fallback.
+ *   - API probes use the browser context's request (real session) with an
+ *     explicit 30s bound — the BFF grants auth paths a 125s upstream budget,
+ *     which starved the former 180s test timeout on cold Render starts.
+ *   - Locale is pinned to English via localStorage exactly like the proven
+ *     G3 session helper (production default locale is Arabic).
  */
 
 const WEB = process.env.PLAYWRIGHT_BASE_URL ?? "";
-const ME = `${WEB}/api/platform/api/v1/auth/me`;
+const ME_PATH = "/api/platform/api/v1/auth/me";
+const ME = `${WEB}${ME_PATH}`;
 const PAYROLL_API = `${WEB}/api/platform/api/v2/hr/payroll`;
+const API_PROBE_TIMEOUT = 30_000;
 
 const REQUIRED = [
   "PLAYWRIGHT_BASE_URL",
@@ -49,11 +61,24 @@ interface LoginResult {
   user: { id: string; tenantId: string; email: string; status: string };
 }
 
+interface Identity {
+  body: MeBody;
+  source: "application-navigation" | "browser-session-request";
+}
+
 let ownerUserId = "";
 let ownerTenantId = "";
 let ownerRunIds: string[] = [];
 
 async function login(page: Page, email: string, password: string): Promise<LoginResult> {
+  // Deterministic English locale exactly like the proven G3 session helper;
+  // production renders Arabic by default and the assertions below pin the
+  // English copy for evidence stability.
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("snad.locale")) {
+      localStorage.setItem("snad.locale", "en");
+    }
+  });
   await page.goto("/");
   await page.locator("#login-email").fill(email);
   await page.locator("#login-password").fill(password);
@@ -75,9 +100,40 @@ async function login(page: Page, email: string, password: string): Promise<Login
   return data;
 }
 
+/**
+ * Proves identity through the application's own /auth/me call on a real
+ * navigation — the exact identity chain the UI depends on. The response is
+ * captured (never intercepted or altered); only if the application does not
+ * issue the call within 90s does a bounded browser-session request (same
+ * cookie jar, Bearer like the app's own client) serve as fallback.
+ */
+async function appIdentity(
+  page: Page,
+  accessToken: string,
+  navigate: () => Promise<void>,
+): Promise<Identity> {
+  const appCall = page.waitForResponse(
+    res => res.request().method() === "GET" && res.url().includes(ME_PATH),
+    { timeout: 90_000 },
+  );
+  await navigate();
+  try {
+    const response = await appCall;
+    expect(response.status(), "application /auth/me response is OK").toBe(200);
+    return { body: (await response.json()) as MeBody, source: "application-navigation" };
+  } catch {
+    const response = await page.request.get(ME, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: API_PROBE_TIMEOUT,
+    });
+    expect(response.status(), "fallback /auth/me via browser session").toBe(200);
+    return { body: (await response.json()) as MeBody, source: "browser-session-request" };
+  }
+}
+
 test.describe.configure({ mode: "serial" });
 
-test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, payroll surface, no forbidden, no unauthorized tools", async ({ page, request }, testInfo) => {
+test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, payroll surface, no forbidden, no unauthorized tools", async ({ page }, testInfo) => {
   for (const name of REQUIRED) required(name);
   ownerTenantId = required("G4_OWNER_TENANT_ID");
 
@@ -86,17 +142,14 @@ test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, 
   expect(loginData.user.tenantId, "owner binds the canonical control tenant").toBe(ownerTenantId);
   ownerUserId = loginData.user.id;
 
-  // Identity + effective permissions through the BFF /auth/me contract.
-  const meResponse = await request.get(ME, { headers: { Authorization: `Bearer ${loginData.accessToken}` } });
-  expect(meResponse.status(), "owner /auth/me is readable through the BFF").toBe(200);
-  const meBody = await meResponse.json() as MeBody;
-  expect(meBody.id, "/auth/me user.id matches the login session").toBe(ownerUserId);
-  expect(meBody.tenantId, "/auth/me tenant binding is canonical").toBe(ownerTenantId);
-  expect(meBody.capabilities, "owner effective capabilities include HRM.PAYROLL.VIEW")
+  // Identity + effective permissions through the application's own /auth/me.
+  const identity = await appIdentity(page, loginData.accessToken, () => page.goto("/hr/payroll"));
+  expect(identity.body.id, "/auth/me user.id matches the login session").toBe(ownerUserId);
+  expect(identity.body.tenantId, "/auth/me tenant binding is canonical").toBe(ownerTenantId);
+  expect(identity.body.capabilities, "owner effective capabilities include HRM.PAYROLL.VIEW")
     .toContain("HRM.PAYROLL.VIEW");
 
   // Payroll surface through the real browser session.
-  await page.goto("/hr/payroll");
   await expect(page.getByRole("heading", { name: "Payroll review" })).toBeVisible();
   await expect(page.locator('a[href="/hr/payroll"]'), "payroll link is present in navigation").toBeVisible();
   await expect(page.locator('[role="alert"]')).not.toContainText(/forbidden/i);
@@ -121,7 +174,10 @@ test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, 
   } else {
     // Runs exist: keep evidence sanitized (header only, no payroll rows) and
     // resolve owner run ids through the API (never scraped from UI text).
-    const runIds = await request.get(`${PAYROLL_API}/runs`, { headers: { Authorization: `Bearer ${loginData.accessToken}` } });
+    const runIds = await page.request.get(`${PAYROLL_API}/runs`, {
+      headers: { Authorization: `Bearer ${loginData.accessToken}` },
+      timeout: API_PROBE_TIMEOUT,
+    });
     expect(runIds.status(), "owner payroll list HTTP 200").toBe(200);
     const list = await runIds.json() as Array<{ id: string }>;
     ownerRunIds = Array.isArray(list) ? list.map(run => run.id).filter(Boolean) : [];
@@ -130,23 +186,23 @@ test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, 
   }
 });
 
-test("G4 UI B - unauthorized same-tenant user: no VIEW capability, no payroll link, forbidden surface, backend read denial", async ({ page, request }, testInfo) => {
+test("G4 UI B - unauthorized same-tenant user: no VIEW capability, no payroll link, forbidden surface, backend read denial", async ({ page }, testInfo) => {
   const loginData = await login(page, required("G4_UNAUTHORIZED_EMAIL"), required("G4_UNAUTHORIZED_PASSWORD"));
   expect(loginData.user.id, "unauthorized identity is distinct from the owner").not.toBe(ownerUserId);
   expect(loginData.user.tenantId, "unauthorized user is inside the owner tenant").toBe(required("G4_OWNER_TENANT_ID"));
 
-  const meResponse = await request.get(ME, { headers: { Authorization: `Bearer ${loginData.accessToken}` } });
-  expect(meResponse.status()).toBe(200);
-  const meBody = await meResponse.json() as MeBody;
-  expect(meBody.tenantId).toBe(required("G4_OWNER_TENANT_ID"));
-  expect(meBody.capabilities, "unauthorized user must lack HRM.PAYROLL.VIEW").not.toContain("HRM.PAYROLL.VIEW");
+  const identity = await appIdentity(page, loginData.accessToken, () => page.goto("/hr/payroll"));
+  expect(identity.body.tenantId).toBe(required("G4_OWNER_TENANT_ID"));
+  expect(identity.body.capabilities, "unauthorized user must lack HRM.PAYROLL.VIEW").not.toContain("HRM.PAYROLL.VIEW");
 
-  await page.goto("/hr/payroll");
   await expect(page.locator('[role="alert"]')).toContainText(/forbidden/i);
   await expect(page.locator('a[href="/hr/payroll"]'), "no payroll link in navigation").toHaveCount(0);
 
   // Denial is enforced by the backend, not by interface hiding alone.
-  const denied = await request.get(`${PAYROLL_API}/runs`, { headers: { Authorization: `Bearer ${loginData.accessToken}` } });
+  const denied = await page.request.get(`${PAYROLL_API}/runs`, {
+    headers: { Authorization: `Bearer ${loginData.accessToken}` },
+    timeout: API_PROBE_TIMEOUT,
+  });
   expect(denied.status(), "backend denies payroll reads for this user").toBe(403);
 
   // Forbidden surface is data-free: safe full-page evidence.
@@ -154,19 +210,16 @@ test("G4 UI B - unauthorized same-tenant user: no VIEW capability, no payroll li
   testInfo.attach("g4-ui-unauthorized-forbidden", { path: testInfo.outputPath("g4-ui-unauthorized-forbidden.png"), contentType: "image/png" });
 });
 
-test("G4 UI C - foreign tenant: distinct tenant, forbidden surface, URL manipulation grants nothing, cross-tenant API denied", async ({ page, request }, testInfo) => {
+test("G4 UI C - foreign tenant: distinct tenant, forbidden surface, URL manipulation grants nothing, cross-tenant API denied", async ({ page }, testInfo) => {
   const ownerTenant = required("G4_OWNER_TENANT_ID");
   const loginData = await login(page, required("G4_FOREIGN_EMAIL"), required("G4_FOREIGN_PASSWORD"));
   expect(loginData.user.tenantId, "foreign tenant differs from the owner tenant").not.toBe(ownerTenant);
   expect(loginData.user.tenantId, "foreign identity binds its own tenant").toBe(required("G4_FOREIGN_TENANT_ID"));
 
-  const meResponse = await request.get(ME, { headers: { Authorization: `Bearer ${loginData.accessToken}` } });
-  expect(meResponse.status()).toBe(200);
-  const meBody = await meResponse.json() as MeBody;
-  expect(meBody.tenantId).toBe(required("G4_FOREIGN_TENANT_ID"));
-  expect(meBody.capabilities, "foreign user must lack HRM.PAYROLL.VIEW").not.toContain("HRM.PAYROLL.VIEW");
+  const identity = await appIdentity(page, loginData.accessToken, () => page.goto("/hr/payroll"));
+  expect(identity.body.tenantId).toBe(required("G4_FOREIGN_TENANT_ID"));
+  expect(identity.body.capabilities, "foreign user must lack HRM.PAYROLL.VIEW").not.toContain("HRM.PAYROLL.VIEW");
 
-  await page.goto("/hr/payroll");
   await expect(page.locator('[role="alert"]')).toContainText(/forbidden/i);
 
   // URL and query-parameter manipulation must not grant any additional reach.
@@ -178,10 +231,16 @@ test("G4 UI C - foreign tenant: distinct tenant, forbidden surface, URL manipula
   // a real owner run id (when one exists) or a synthetic UUID still denied.
   const candidates = ownerRunIds.length > 0 ? [ownerRunIds[0]] : [crypto.randomUUID()];
   for (const candidate of candidates) {
-    const cross = await request.get(`${PAYROLL_API}/runs/${candidate}`, { headers: { Authorization: `Bearer ${loginData.accessToken}` } });
+    const cross = await page.request.get(`${PAYROLL_API}/runs/${candidate}`, {
+      headers: { Authorization: `Bearer ${loginData.accessToken}` },
+      timeout: API_PROBE_TIMEOUT,
+    });
     expect([403, 404]).toContain(cross.status());
   }
-  const listDenied = await request.get(`${PAYROLL_API}/runs`, { headers: { Authorization: `Bearer ${loginData.accessToken}` } });
+  const listDenied = await page.request.get(`${PAYROLL_API}/runs`, {
+    headers: { Authorization: `Bearer ${loginData.accessToken}` },
+    timeout: API_PROBE_TIMEOUT,
+  });
   expect(listDenied.status(), "foreign user payroll list denied").toBe(403);
 
   // Forbidden surface is data-free: safe full-page evidence.
