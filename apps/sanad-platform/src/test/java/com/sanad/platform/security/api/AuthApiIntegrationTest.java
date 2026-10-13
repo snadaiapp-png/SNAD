@@ -35,6 +35,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import java.util.function.Supplier;
 
 import java.util.UUID;
 
@@ -62,6 +65,7 @@ class AuthApiIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private TenantRepository tenantRepository;
     @Autowired private UserRepository userRepository;
@@ -94,11 +98,12 @@ class AuthApiIntegrationTest {
         testPassword = UUID.randomUUID().toString();
         User user = new User(tenantId, testEmail, "Test User", UserStatus.ACTIVE);
         user.setPasswordHash(passwordEncoder.encode(testPassword));
-        userId = userRepository.save(user).getId();
+        userId = inTenantTransaction(tenantId, () -> userRepository.saveAndFlush(user).getId());
         seedLoginEligibleSubscription(tenantId);
 
         // Grant VIEWER role with USER.READ capability to test user
         // (V14 seeds roles for existing tenants only; test tenants are new)
+        inTenantTransaction(tenantId, () -> {
         Role viewerRole = roleRepository.findByTenantIdAndCode(tenantId, "VIEWER")
                 .orElseGet(() -> roleRepository.save(new Role(
                         tenantId, "VIEWER", "Viewer", "Read-only access")));
@@ -112,6 +117,18 @@ class AuthApiIntegrationTest {
         }
         UserRoleGrant grant = new UserRoleGrant(tenantId, userId, viewerRole.getId(), null);
         userRoleGrantRepository.save(grant);
+        return null;
+        });
+    }
+
+    private <T> T inTenantTransaction(UUID scope, Supplier<T> work) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            // The transaction-local RLS context must be installed BEFORE any
+            // ORM flush on the same transaction-bound connection.
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, scope.toString());
+            return work.get();
+        });
     }
 
     // ------------------------------------------------------------
@@ -190,7 +207,7 @@ class AuthApiIntegrationTest {
     void login_suspendedUser_returns401() throws Exception {
         User user = userRepository.findByTenantIdAndEmail(tenantId, testEmail).orElseThrow();
         user.setStatus(UserStatus.SUSPENDED);
-        userRepository.save(user);
+        inTenantTransaction(tenantId, () -> userRepository.saveAndFlush(user));
 
         LoginRequest request = new LoginRequest(testEmail, testPassword);
         request.setTenantId(tenantId);
@@ -211,7 +228,7 @@ class AuthApiIntegrationTest {
         // Mirrors the testuser-<uuid> pattern used by setUp().
         String nopassEmail = "nopass-" + UUID.randomUUID() + "@example.com";
         User nopassUser = new User(tenantId, nopassEmail, "No Pass User", UserStatus.ACTIVE);
-        userRepository.save(nopassUser);
+        inTenantTransaction(tenantId, () -> userRepository.saveAndFlush(nopassUser));
 
         LoginRequest request = new LoginRequest(nopassEmail, "anyPassword");
         request.setTenantId(tenantId);
@@ -276,7 +293,7 @@ class AuthApiIntegrationTest {
         UUID tenant2Id = tenantRepository.save(tenant2).getId();
         User user2 = new User(tenant2Id, testEmail, "Duplicate User", UserStatus.ACTIVE);
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
-        userRepository.save(user2);
+        inTenantTransaction(tenant2Id, () -> userRepository.saveAndFlush(user2));
 
         // Login without tenantId should return 409
         LoginRequest request = new LoginRequest(testEmail, testPassword);
