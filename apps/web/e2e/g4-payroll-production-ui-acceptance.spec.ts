@@ -71,7 +71,7 @@ let ownerUserId = "";
 let ownerTenantId = "";
 let ownerRunIds: string[] = [];
 
-async function login(page: Page, email: string, password: string): Promise<LoginResult> {
+async function login(page: Page, email: string, password: string, tenantId: string): Promise<LoginResult> {
   // Deterministic English locale exactly like the proven G3 session helper;
   // production renders Arabic by default and the assertions below pin the
   // English copy for evidence stability.
@@ -81,6 +81,7 @@ async function login(page: Page, email: string, password: string): Promise<Login
     }
   });
   await page.goto("/");
+  await page.locator("#login-tenant-id").fill(tenantId);
   await page.locator("#login-email").fill(email);
   await page.locator("#login-password").fill(password);
   const responsePromise = page.waitForResponse(res =>
@@ -149,7 +150,7 @@ test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, 
   for (const name of REQUIRED) required(name);
   ownerTenantId = required("G4_OWNER_TENANT_ID");
 
-  const loginData = await login(page, required("G4_OWNER_EMAIL"), required("G4_OWNER_PASSWORD"));
+  const loginData = await login(page, required("G4_OWNER_EMAIL"), required("G4_OWNER_PASSWORD"), required("G4_OWNER_TENANT_ID"));
   expect(loginData.user.id, "owner user.id is present").toBeTruthy();
   expect(loginData.user.tenantId, "owner binds the canonical control tenant").toBe(ownerTenantId);
   ownerUserId = loginData.user.id;
@@ -200,7 +201,7 @@ test("G4 UI A - canonical owner: /auth/me identity, effective HRM.PAYROLL.VIEW, 
 });
 
 test("G4 UI B - unauthorized same-tenant user: no VIEW capability, no payroll link, forbidden surface, backend read denial", async ({ page }, testInfo) => {
-  const loginData = await login(page, required("G4_UNAUTHORIZED_EMAIL"), required("G4_UNAUTHORIZED_PASSWORD"));
+  const loginData = await login(page, required("G4_UNAUTHORIZED_EMAIL"), required("G4_UNAUTHORIZED_PASSWORD"), required("G4_OWNER_TENANT_ID"));
   expect(loginData.user.id, "unauthorized identity is distinct from the owner").not.toBe(ownerUserId);
   expect(loginData.user.tenantId, "unauthorized user is inside the owner tenant").toBe(required("G4_OWNER_TENANT_ID"));
 
@@ -226,7 +227,7 @@ test("G4 UI B - unauthorized same-tenant user: no VIEW capability, no payroll li
 
 test("G4 UI C - foreign tenant: distinct tenant, forbidden surface, URL manipulation grants nothing, cross-tenant API denied", async ({ page }, testInfo) => {
   const ownerTenant = required("G4_OWNER_TENANT_ID");
-  const loginData = await login(page, required("G4_FOREIGN_EMAIL"), required("G4_FOREIGN_PASSWORD"));
+  const loginData = await login(page, required("G4_FOREIGN_EMAIL"), required("G4_FOREIGN_PASSWORD"), required("G4_FOREIGN_TENANT_ID"));
   expect(loginData.user.tenantId, "foreign tenant differs from the owner tenant").not.toBe(ownerTenant);
   expect(loginData.user.tenantId, "foreign identity binds its own tenant").toBe(required("G4_FOREIGN_TENANT_ID"));
 
