@@ -172,7 +172,7 @@ class CrmApiIntegrationTest {
                 .andExpect(jsonPath("$.contacts").value(2))
                 .andExpect(jsonPath("$.openOpportunities").value(0));
 
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, tenantA)).isEqualTo(2);
+        assertThat(countAccounts(tenantA)).isEqualTo(2);
         assertThat(countTimelineEvents(tenantA)).isGreaterThanOrEqualTo(8);
     }
 
@@ -235,6 +235,15 @@ class CrmApiIntegrationTest {
             jdbc.update("INSERT INTO role_capabilities (id,tenant_id,role_id,capability_id,created_at) VALUES (?,?,?,?,?)", UUID.randomUUID(), tenantId, roleId, capabilityId, ts);
         }
     }
+    private long countAccounts(UUID tenantId) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+            Long count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, tenantId);
+            return count == null ? 0L : count;
+        });
+    }
+
     private long countTimelineEvents(UUID tenantId) {
         return new TransactionTemplate(transactionManager).execute(status -> {
             jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
