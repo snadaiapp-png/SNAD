@@ -45,7 +45,7 @@ test.describe("SNAD Login v3 visual acceptance", () => {
       .evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
     expect(headlineSize).toBeLessThanOrEqual(48);
 
-    for (const selector of ["#login-email", "#login-password"]) {
+    for (const selector of ["#login-tenant-id", "#login-email", "#login-password"]) {
       const metrics = await page.locator(selector).evaluate((node) => {
         const style = getComputedStyle(node);
         const rect = node.getBoundingClientRect();
@@ -76,6 +76,7 @@ test.describe("SNAD Login v3 visual acceptance", () => {
     await page.setViewportSize({ width: 360, height: 640 });
     await page.goto("/", { waitUntil: "domcontentloaded" });
 
+    await expect(page.locator("#login-tenant-id")).toBeVisible();
     await expect(page.locator("#login-email")).toBeVisible();
     await expect(page.locator("#login-password")).toBeVisible();
     await expect(page.locator('button[type="submit"]')).toBeVisible();
@@ -125,6 +126,7 @@ test.describe("SNAD Login v3 visual acceptance", () => {
 
   test("keeps technical inputs LTR while document direction follows locale", async ({ page }, testInfo) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("#login-tenant-id")).toHaveAttribute("dir", "ltr");
     await expect(page.locator("#login-email")).toHaveAttribute("dir", "ltr");
     await expect(page.locator("#login-password")).toHaveAttribute("dir", "ltr");
     await expect(page.locator("html")).toHaveAttribute(
