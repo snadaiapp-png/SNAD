@@ -29,7 +29,7 @@ describe("createAuthApi", () => {
     });
     const api = createAuthApi(client);
 
-    const result = await api.login({ email: "test@example.com", password: "pass123" });
+    const result = await api.login({ email: "test@example.com", password: "pass123", tenantId: "11111111-1111-4111-8111-111111111111" });
     expect(result.accessToken).toBe("test-access-token");
     expect(result.user.email).toBe("test@example.com");
   });
