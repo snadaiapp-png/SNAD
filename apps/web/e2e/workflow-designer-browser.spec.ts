@@ -27,7 +27,7 @@ type Step = {
 
 async function tokenFor(request: APIRequestContext, email: string) {
   const response = await request.post(`${API}/api/v1/auth/login`, {
-    data: { email, password: PASSWORD },
+    data: { email, password: PASSWORD, tenantId: "aaaaaaa1-0000-4000-8000-000000000001" },
   });
   expect(response.status(), `real login must succeed for ${email}`).toBe(200);
   const body = await response.json() as { accessToken?: string };
@@ -150,6 +150,16 @@ async function seedY2Draft(request: APIRequestContext) {
 }
 
 async function loginThroughUi(page: import("@playwright/test").Page) {
+  // Preserve the real BFF/browser login flow while binding this seeded test
+  // account to the tenant used by WorkflowE2eBootstrapConfig.
+  await page.route("**/api/platform/api/v1/auth/login", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const data = route.request().postDataJSON() as Record<string, unknown>;
+    await route.continue({
+      headers: { ...route.request().headers(), "content-type": "application/json" },
+      postData: JSON.stringify({ ...data, tenantId: "aaaaaaa1-0000-4000-8000-000000000001" }),
+    });
+  });
   await page.goto(`${BASE_URL}/`, { waitUntil: "domcontentloaded" });
   await page.locator("#login-email").waitFor({ state: "visible", timeout: 30_000 });
   await page.locator("#login-email").fill(DESIGNER);

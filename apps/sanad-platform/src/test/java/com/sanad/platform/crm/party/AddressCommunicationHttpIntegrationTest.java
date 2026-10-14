@@ -260,6 +260,8 @@ class AddressCommunicationHttpIntegrationTest {
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id.
+        jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, false)", String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'CRM-007 User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)

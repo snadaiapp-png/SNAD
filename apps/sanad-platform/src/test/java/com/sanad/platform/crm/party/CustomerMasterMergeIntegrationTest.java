@@ -67,7 +67,18 @@ class CustomerMasterMergeIntegrationTest {
             jdbc.update("UPDATE crm_accounts SET merged_into_account_id=NULL,parent_account_id=NULL WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM crm_accounts WHERE tenant_id=:tenantId", tenant);
             jdbc.update("DELETE FROM platform_audit_logs WHERE target_tenant_id=:tenantId", tenant);
-            jdbc.update("DELETE FROM users WHERE tenant_id=:tenantId", tenant);
+            // Users, roles have FORCE RLS — delete inside a transaction
+            // with app.tenant_id set.
+            transactions.executeWithoutResult(txStatus -> {
+                jdbc.getJdbcTemplate().queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenantId.toString());
+                MapSqlParameterSource t = p().addValue("tenantId", tenantId);
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id=:tenantId", t);
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id=:tenantId", t);
+                jdbc.update("DELETE FROM roles WHERE tenant_id=:tenantId", t);
+                jdbc.update("DELETE FROM users WHERE tenant_id=:tenantId", t);
+            });
             jdbc.update("DELETE FROM tenants WHERE id=:tenantId", tenant);
         }
         tenantIds.clear();
@@ -203,11 +214,18 @@ class CustomerMasterMergeIntegrationTest {
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:email,'CRM Merge User','ACTIVE','dummy',:now,:now)",
-                p().addValue("id", userId).addValue("tenantId", tenantId)
-                        .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
-                        .addValue("now", java.sql.Timestamp.from(now)));
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
+        // same transaction-bound connection. Wrap in TransactionTemplate.
+        transactions.executeWithoutResult(status -> {
+            jdbc.getJdbcTemplate().queryForObject(
+                    "SELECT set_config('app.tenant_id', ?, true)",
+                    String.class, tenantId.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,:email,'CRM Merge User','ACTIVE','dummy',:now,:now)",
+                    p().addValue("id", userId).addValue("tenantId", tenantId)
+                            .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test")
+                            .addValue("now", java.sql.Timestamp.from(now)));
+        });
         tenantIds.add(tenantId);
         return new Fixture(tenantId, userId);
     }

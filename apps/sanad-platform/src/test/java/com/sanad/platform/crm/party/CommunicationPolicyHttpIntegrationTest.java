@@ -56,6 +56,12 @@ class CommunicationPolicyHttpIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.emailUniqueWithinOwner").value(false));
 
+        // Restore SecurityContext after MockMvc — Spring's test framework
+        // clears SecurityContextHolder after each MockMvc request, but the
+        // outer @Transactional connection still has tenantAppliedFor set.
+        // Without restoration, the handler throws "Tenant identity changed".
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(first.tenantId(), first.userId());
+
         Boolean firstValue = jdbc.queryForObject(
                 "SELECT email_unique_within_owner FROM crm_communication_policies WHERE tenant_id=:tenantId",
                 p().addValue("tenantId", first.tenantId()), Boolean.class);
@@ -80,6 +86,8 @@ class CommunicationPolicyHttpIntegrationTest {
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
+        // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the same transaction-bound connection.
+        jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'Policy User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)

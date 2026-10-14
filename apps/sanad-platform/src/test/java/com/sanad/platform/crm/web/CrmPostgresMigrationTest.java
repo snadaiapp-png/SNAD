@@ -249,7 +249,10 @@ class CrmPostgresMigrationTest {
     private static final String HR_G4_PAYROLL_SNAPSHOT_VERSION = "20261006.2";
     private static final String USERS_MODULE_IAM_PROVISIONING_VERSION = "20261008.1";
     private static final String CRM_ACCOUNTS_RLS_HARDENING_VERSION = "20261010.1";
-    private static final String LATEST_MIGRATION_VERSION = "20261010.99";
+    private static final String HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION = "20261010.99";
+    private static final String PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION = "20261011.3";
+    private static final String PRE_AUTH_TENANT_RESOLVER_VERSION = "20261011.4";
+    private static final String LATEST_MIGRATION_VERSION = PRE_AUTH_TENANT_RESOLVER_VERSION;
 
     private static final List<String> CRM_CORE_TABLES = List.of(
             "crm_accounts", "crm_contacts", "crm_leads", "crm_pipelines",
@@ -546,6 +549,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G4_PAYROLL_SNAPSHOT_VERSION),
                         MigrationVersion.fromVersion(USERS_MODULE_IAM_PROVISIONING_VERSION),
                         MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION),
+                        MigrationVersion.fromVersion(PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         upgrade.migrate();
         upgrade.validate();
@@ -781,6 +786,8 @@ class CrmPostgresMigrationTest {
                         MigrationVersion.fromVersion(HR_G4_PAYROLL_SNAPSHOT_VERSION),
                         MigrationVersion.fromVersion(USERS_MODULE_IAM_PROVISIONING_VERSION),
                         MigrationVersion.fromVersion(CRM_ACCOUNTS_RLS_HARDENING_VERSION),
+                        MigrationVersion.fromVersion(HRM_G4_CANONICAL_OWNER_PAYROLL_VIEW_VERSION),
+                        MigrationVersion.fromVersion(PUBLIC_USERS_FAIL_CLOSED_TENANT_RLS_VERSION),
                         MigrationVersion.fromVersion(LATEST_MIGRATION_VERSION));
         completion.migrate();
         completion.validate();

@@ -82,6 +82,9 @@ class CustomerMasterSecurityIntegrationTest {
                         .content("{\"reason\":\"Cross-tenant isolation proof\"}"))
                 .andExpect(status().isNotFound());
 
+        // Restore SecurityContext after MockMvc — Spring clears it after each request.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantA.tenantId(), tenantA.userId());
+
         String sourceStatus = jdbc.queryForObject(
                 "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", tenantA.tenantId()).addValue("id", source), String.class);
@@ -101,6 +104,11 @@ class CustomerMasterSecurityIntegrationTest {
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
+        // This @Transactional fixture must set the trusted tenant context on the
+        // same transaction-bound JDBC connection before writing FORCE-RLS users.
+        jdbc.getJdbcTemplate().queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'CRM Security User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)

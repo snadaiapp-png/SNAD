@@ -2,9 +2,11 @@ package com.sanad.platform.subscription.rbac;
 
 import com.sanad.platform.access.AccessDecisionResponse;
 import com.sanad.platform.access.evaluation.CapabilityEvaluationService;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -70,7 +72,9 @@ class ControlPlaneAccessServiceJwtDetailsTest {
     @BeforeEach
     void setUp() {
         evaluationService = mock(CapabilityEvaluationService.class);
-        accessService = new ControlPlaneAccessService(evaluationService, null);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        TenantRlsTransactionContext tenantRlsContext = mock(TenantRlsTransactionContext.class);
+        accessService = new ControlPlaneAccessService(evaluationService, jdbc, tenantRlsContext);
     }
 
     /** Builds an authentication exactly like the production JwtAuthenticationFilter does. */
