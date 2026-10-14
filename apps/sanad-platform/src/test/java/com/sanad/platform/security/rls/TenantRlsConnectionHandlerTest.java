@@ -75,7 +75,7 @@ class TenantRlsConnectionHandlerTest {
     }
 
     @Test
-    void doesNotApplySetLocalWhenNoTenantContext() throws Exception {
+    void failsClosedWhenNoTenantContext() throws Exception {
         // No security context set
         when(delegate.getAutoCommit()).thenReturn(false);
 
@@ -86,7 +86,7 @@ class TenantRlsConnectionHandlerTest {
     }
 
     @Test
-    void doesNotApplySetLocalWhenUnauthenticated() throws Exception {
+    void failsClosedWhenUnauthenticated() throws Exception {
         Authentication unauthenticated = new UsernamePasswordAuthenticationToken(
                 "user", "creds"); // isAuthenticated() = false until granted authorities
         SecurityContextHolder.getContext().setAuthentication(unauthenticated);
@@ -95,7 +95,7 @@ class TenantRlsConnectionHandlerTest {
         proxy = wrap();
         proxy.createStatement();
 
-        verify(statement, times(1)).execute("SET LOCAL app.tenant_id = '00000000-0000-0000-0000-000000000000'");
+        verify(statement, times(1)).execute("SET LOCAL app.tenant_id = ''");
     }
 
     @Test
@@ -114,7 +114,7 @@ class TenantRlsConnectionHandlerTest {
     }
 
     @Test
-    void doesNotApplySetLocalWhenTenantIdInvalid() throws Exception {
+    void failsClosedWhenTenantIdInvalid() throws Exception {
         // Set a malformed tenant_id in the details map
         Map<String, Object> details = Map.of("tenant_id", "not-a-uuid");
         UsernamePasswordAuthenticationToken auth =
