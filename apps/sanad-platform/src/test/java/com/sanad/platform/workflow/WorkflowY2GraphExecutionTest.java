@@ -67,21 +67,6 @@ class WorkflowY2GraphExecutionTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Y2 Graph Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "y2-graph-" + tenantId.toString().substring(0, 8), now, now);
-        // === DIAGNOSTIC Cat B ===
-        try {
-          jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
-            var st = conn.createStatement();
-            var rs1 = st.executeQuery("SELECT pg_backend_pid()"); rs1.next();
-            String pid1 = rs1.getString(1);
-            var rs2 = st.executeQuery("SELECT current_setting('app.tenant_id', true)"); rs2.next();
-            String ctx1 = rs2.getString(1);
-            System.out.println("DIAG_B_BEFORE: pid=" + pid1 + " ctx=" + ctx1 + " autoCommit=" + conn.getAutoCommit());
-            return null;
-          });
-        } catch (Exception e) {
-          System.out.println("DIAG_B_EX: " + e.getMessage());
-        }
-        // === END DIAG ===
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Y2 Graph User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "y2-graph-" + userId.toString().substring(0, 8) + "@test", now, now);
