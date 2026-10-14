@@ -82,6 +82,9 @@ class CustomerMasterSecurityIntegrationTest {
                         .content("{\"reason\":\"Cross-tenant isolation proof\"}"))
                 .andExpect(status().isNotFound());
 
+        // Restore SecurityContext after MockMvc — Spring clears it after each request.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantA.tenantId(), tenantA.userId());
+
         String sourceStatus = jdbc.queryForObject(
                 "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", tenantA.tenantId()).addValue("id", source), String.class);

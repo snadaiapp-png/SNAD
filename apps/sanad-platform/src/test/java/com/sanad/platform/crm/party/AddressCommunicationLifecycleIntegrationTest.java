@@ -116,6 +116,7 @@ class AddressCommunicationLifecycleIntegrationTest {
                                 """.formatted(line1, primary)))
                 .andExpect(status().isCreated()).andReturn();
         JsonNode data = mapper.readTree(result.getResponse().getContentAsString()).path("data");
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
         return UUID.fromString(data.path("id").asText());
     }
 
@@ -129,6 +130,7 @@ class AddressCommunicationLifecycleIntegrationTest {
                                  "privacyClassification":"INTERNAL","usagePurpose":"GENERAL"}
                                 """.formatted(value, preferred)))
                 .andExpect(status().isCreated()).andReturn();
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
         return UUID.fromString(mapper.readTree(result.getResponse().getContentAsString())
                 .path("data").path("id").asText());
     }

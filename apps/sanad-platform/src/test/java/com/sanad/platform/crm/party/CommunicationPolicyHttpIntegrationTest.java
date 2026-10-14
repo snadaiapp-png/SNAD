@@ -56,6 +56,12 @@ class CommunicationPolicyHttpIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.emailUniqueWithinOwner").value(false));
 
+        // Restore SecurityContext after MockMvc — Spring's test framework
+        // clears SecurityContextHolder after each MockMvc request, but the
+        // outer @Transactional connection still has tenantAppliedFor set.
+        // Without restoration, the handler throws "Tenant identity changed".
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(first.tenantId(), first.userId());
+
         Boolean firstValue = jdbc.queryForObject(
                 "SELECT email_unique_within_owner FROM crm_communication_policies WHERE tenant_id=:tenantId",
                 p().addValue("tenantId", first.tenantId()), Boolean.class);

@@ -165,6 +165,9 @@ class CrmApiIntegrationTest {
                 .andExpect(jsonPath("$.contacts").value(2))
                 .andExpect(jsonPath("$.openOpportunities").value(0));
 
+        // Restore SecurityContext after MockMvc — Spring clears it after each request.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
+
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_accounts WHERE tenant_id=?", Long.class, TENANT_A)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_timeline_events WHERE tenant_id=?", Long.class, TENANT_A)).isGreaterThanOrEqualTo(8);
     }
@@ -177,6 +180,12 @@ class CrmApiIntegrationTest {
                 .content("""
                         {"displayName":"Private A","accountType":"BUSINESS","primaryCurrencyCode":"SAR"}
                         """), 201);
+        // Restore SecurityContext after MockMvc perform() — the handler on the
+        // outer @Transactional connection has tenantAppliedFor=TENANT_A, but
+        // Spring clears SecurityContext after each MockMvc request. Without
+        // restoration, the next MockMvc request sets TENANT_B identity, which
+        // the handler rejects as "Tenant identity changed" → HTTP 500 instead of 404.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
 
         mockMvc.perform(get("/api/v1/crm/accounts/{id}", account.path("id").asText())
                         .with(authentication(auth(TENANT_B, USER_B))))

@@ -100,7 +100,7 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     }
 
     @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @Transactional
     void importIsRowIsolatedAndPersistsFrameworkJobAndErrors() throws Exception {
         Fixture fixture = fixture("crm007-import");
         UUID accountId = account(fixture, "Import Customer");
