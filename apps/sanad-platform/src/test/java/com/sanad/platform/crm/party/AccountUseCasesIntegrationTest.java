@@ -81,16 +81,14 @@ class AccountUseCasesIntegrationTest {
 
     /**
      * Seeds a second tenant + owner in a SEPARATE transaction (REQUIRES_NEW).
-     * Returns tenantId directly — the test does NOT need to query for the
-     * userId (avoids EmptyResultDataAccessException from RLS blocking the
-     * query under the outer transaction's GUC).
-     *
-     * SecurityContext is saved before REQUIRES_NEW and restored after,
-     * so the outer transaction's handler sees the same tenant identity.
+     * Returns both tenantId AND userId so the test does NOT need to query
+     * for the userId under the outer transaction's GUC (which is tenantA),
+     * avoiding EmptyResultDataAccessException.
      */
-    private UUID seedSecondTenantAndOwner() {
+    private UUID[] seedSecondTenantAndOwnerWithUser() {
         var savedAuth = org.springframework.security.core.context.SecurityContextHolder
                 .getContext().getAuthentication();
+        UUID[] result = new UUID[2];
         new TransactionTemplate(txManager) {{
             setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         }}.executeWithoutResult(status -> {
@@ -102,12 +100,12 @@ class AccountUseCasesIntegrationTest {
             jdbc.update("INSERT INTO users (id, tenant_id, email, display_name, status, password_hash, created_at, updated_at) VALUES (:id, :tenantId, :email, 'Test Owner', 'ACTIVE', 'dummy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                     new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", uid).addValue("tenantId", tid).addValue("email", "owner-" + uid.toString().substring(0, 8) + "@test.example"));
             committedTenants.add(tid);
+            result[0] = tid;
+            result[1] = uid;
         });
-        // Restore the original SecurityContext (tenantA) so the outer
-        // transaction's handler sees the same tenant identity.
         org.springframework.security.core.context.SecurityContextHolder
                 .getContext().setAuthentication(savedAuth);
-        return committedTenants.get(committedTenants.size() - 1);
+        return result;
     }
 
     @Test
@@ -210,7 +208,7 @@ class AccountUseCasesIntegrationTest {
         UUID actorA = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantA), UUID.class);
         AccountRecord created = accountUseCases.create(tenantA, actorA, new CreateAccountCommand("Tenant A Acct", "BUSINESS", actorA, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
-        UUID tenantB = seedSecondTenantAndOwner();
+        UUID[] tb = seedSecondTenantAndOwnerWithUser(); UUID tenantB = tb[0]; UUID actorB = tb[1];
         assertThrows(CrmContractException.class, () -> accountUseCases.getById(tenantB, created.id()));
     }
 
@@ -367,7 +365,7 @@ class AccountUseCasesIntegrationTest {
         UUID actorA = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantA), UUID.class);
         AccountRecord created = accountUseCases.create(tenantA, actorA, new CreateAccountCommand("Cross Update", "BUSINESS", actorA, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
-        UUID tenantB = seedSecondTenantAndOwner();
+        UUID[] tb = seedSecondTenantAndOwnerWithUser(); UUID tenantB = tb[0]; UUID actorB = tb[1];
         assertThrows(CrmContractException.class, () ->
                 accountUseCases.update(tenantB, UUID.randomUUID(), created.id(),
                         new UpdateAccountCommand("Hacked", null, null, null, null, null, null), 0L));
@@ -380,7 +378,7 @@ class AccountUseCasesIntegrationTest {
         UUID actorA = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantA), UUID.class);
         AccountRecord created = accountUseCases.create(tenantA, actorA, new CreateAccountCommand("Cross Archive", "BUSINESS", actorA, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
-        UUID tenantB = seedSecondTenantAndOwner();
+        UUID[] tb = seedSecondTenantAndOwnerWithUser(); UUID tenantB = tb[0]; UUID actorB = tb[1];
         assertThrows(CrmContractException.class, () ->
                 accountUseCases.archive(tenantB, UUID.randomUUID(), created.id(), 0L));
     }
@@ -392,7 +390,7 @@ class AccountUseCasesIntegrationTest {
         UUID actorA = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantA), UUID.class);
         accountUseCases.create(tenantA, actorA, new CreateAccountCommand("Tenant A Only", "BUSINESS", actorA, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
-        UUID tenantB = seedSecondTenantAndOwner();
+        UUID[] tb = seedSecondTenantAndOwnerWithUser(); UUID tenantB = tb[0]; UUID actorB = tb[1];
         var listB = accountUseCases.list(tenantB, 50, null);
         assertFalse(listB.stream().anyMatch(a -> "Tenant A Only".equals(a.displayName())));
     }
@@ -403,9 +401,7 @@ class AccountUseCasesIntegrationTest {
         UUID tenantA = seedTenantAndOwner();
         UUID actorA = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantA), UUID.class);
-        UUID tenantB = seedSecondTenantAndOwner();
-        UUID actorB = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantB), UUID.class);
+        UUID[] tb = seedSecondTenantAndOwnerWithUser(); UUID tenantB = tb[0]; UUID actorB = tb[1];
         // Creating an account in tenant A with an owner from tenant B must fail validation.
         CrmContractException ex = assertThrows(CrmContractException.class, () ->
                 accountUseCases.create(tenantA, actorA, new CreateAccountCommand(
@@ -421,9 +417,7 @@ class AccountUseCasesIntegrationTest {
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantA), UUID.class);
         AccountRecord parentInA = accountUseCases.create(tenantA, actorA,
                 new CreateAccountCommand("Parent A", "BUSINESS", actorA, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
-        UUID tenantB = seedSecondTenantAndOwner();
-        UUID actorB = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantB), UUID.class);
+        UUID[] tb = seedSecondTenantAndOwnerWithUser(); UUID tenantB = tb[0]; UUID actorB = tb[1];
         // Creating an account in tenant B with a parent from tenant A must fail.
         assertThrows(CrmContractException.class, () ->
                 accountUseCases.create(tenantB, actorB, new CreateAccountCommand(
@@ -439,7 +433,7 @@ class AccountUseCasesIntegrationTest {
         AccountRecord created = accountUseCases.create(tenantA, actorA,
                 new CreateAccountCommand("Cross Restore", "BUSINESS", actorA, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
         AccountRecord archived = accountUseCases.archive(tenantA, actorA, created.id(), created.version());
-        UUID tenantB = seedSecondTenantAndOwner();
+        UUID[] tb = seedSecondTenantAndOwnerWithUser(); UUID tenantB = tb[0]; UUID actorB = tb[1];
         assertThrows(CrmContractException.class, () ->
                 accountUseCases.restore(tenantB, UUID.randomUUID(), created.id(), archived.version()));
     }
