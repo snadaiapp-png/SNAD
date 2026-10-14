@@ -25,14 +25,18 @@ import org.springframework.security.core.context.SecurityContextHolder;
  *   <li>A tenant id is present in the {@link SecurityContextHolder}.</li>
  * </ul>
  *
- * <p>If either condition is false the proxy is a transparent pass-through,
- * preserving full backward compatibility for non-transactional reads and
- * background jobs that intentionally operate across tenants.</p>
+ * <p>When no trusted tenant context exists, the handler installs a sentinel
+ * tenant UUID so tenant predicates fail closed. Autocommit uses a session GUC
+ * that is reset before the pooled connection is returned. A real tenant may
+ * replace the sentinel once during bootstrap, but a real tenant cannot switch
+ * to another tenant on the same borrowed connection.</p>
  */
 final class TenantRlsConnectionHandler implements InvocationHandler {
 
     private final Connection delegate;
-    private UUID appliedTenantId;\n    private static final UUID FAIL_CLOSED_TENANT = new UUID(0L, 0L);
+    private UUID appliedTenantId;
+    private boolean sessionScoped;
+    private static final UUID FAIL_CLOSED_TENANT = new UUID(0L, 0L);
 
     TenantRlsConnectionHandler(Connection delegate) {
         this.delegate = delegate;
