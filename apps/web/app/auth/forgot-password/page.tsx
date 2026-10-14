@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { authApi } from "@/lib/api/auth";
 
 /**
@@ -14,6 +14,12 @@ import { authApi } from "@/lib/api/auth";
  */
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
+  const [tenantId, setTenantId] = useState("");
+
+  useEffect(() => {
+    const requestedTenantId = new URLSearchParams(window.location.search).get("tenantId")?.trim();
+    if (requestedTenantId) setTenantId(current => current || requestedTenantId);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +38,11 @@ export default function ForgotPasswordPage() {
       setError("صيغة البريد الإلكتروني غير صالحة.");
       return;
     }
+    const normalizedTenantId = tenantId.trim();
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(normalizedTenantId)) {
+      setError("أدخل معرّف المنشأة الصحيح (UUID).");
+      return;
+    }
 
     setBusy(true);
     setSubmitted(false);
@@ -39,7 +50,7 @@ export default function ForgotPasswordPage() {
     setResetUrl(null);
 
     try {
-      const response = await authApi.forgotPassword({ email: normalizedEmail });
+      const response = await authApi.forgotPassword({ email: normalizedEmail, tenantId: normalizedTenantId });
       setSubmitted(true);
       if (response?.resetUrl) {
         setResetUrl(response.resetUrl);
@@ -103,6 +114,22 @@ export default function ForgotPasswordPage() {
                 {error}
               </div>
             )}
+            <label htmlFor="forgot-tenant-id" className="snad-reset-label">
+              معرّف المنشأة (Tenant ID)
+            </label>
+            <input
+              id="forgot-tenant-id"
+              name="tenantId"
+              type="text"
+              autoComplete="off"
+              dir="ltr"
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              required
+              value={tenantId}
+              onChange={(e) => setTenantId(e.target.value)}
+              className="snad-reset-input"
+              disabled={busy}
+            />
             <label htmlFor="forgot-email" className="snad-reset-label">
               البريد الإلكتروني
             </label>

@@ -122,6 +122,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — valid credentials returns 200 with access token; refresh token in cookie only")
     void login_validCredentials_returnsTokens() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -148,6 +149,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — wrong password returns 401")
     void login_wrongPassword_returns401() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, "WrongPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -161,6 +163,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — non-existent user returns 401")
     void login_nonExistentUser_returns401() throws Exception {
         LoginRequest request = new LoginRequest("nobody@example.com", testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -169,11 +172,11 @@ class AuthApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/login — email-only login finds user across tenants")
-    void login_wrongTenant_returns401() throws Exception {
-        // With email-only login, the user is found by email regardless of tenant.
-        // This test now verifies that email-only login works (returns 200, not 401).
+    @DisplayName("POST /api/v1/auth/login — explicit tenant scope returns 200")
+    void login_withExplicitTenantId_returns200() throws Exception {
+        // The supplied tenant ID scopes the lookup but does not replace password verification.
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -190,6 +193,7 @@ class AuthApiIntegrationTest {
         userRepository.save(user);
 
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -210,6 +214,7 @@ class AuthApiIntegrationTest {
         userRepository.save(nopassUser);
 
         LoginRequest request = new LoginRequest(nopassEmail, "anyPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -232,6 +237,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — no password in response body or headers")
     void login_noPasswordInResponse() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -259,8 +265,8 @@ class AuthApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/login — duplicate email across tenants returns 409 with tenantIds")
-    void login_duplicateEmailAcrossTenants_returns409() throws Exception {
+    @DisplayName("POST /api/v1/auth/login — tenantless duplicate identifier fails closed")
+    void login_tenantlessDuplicateEmail_returns401() throws Exception {
         // Create a second tenant with the same email
         Tenant tenant2 = new Tenant(
                 "Second Tenant",
@@ -272,15 +278,13 @@ class AuthApiIntegrationTest {
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
         userRepository.save(user2);
 
-        // Login without tenantId should return 409
+        // Tenantless login must fail before querying users
         LoginRequest request = new LoginRequest(testEmail, testPassword);
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.tenantIds").isArray())
-                .andExpect(jsonPath("$.tenantIds.length()").value(2));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("بيانات الدخول غير صحيحة"));
     }
 
     @Test
@@ -520,6 +524,7 @@ class AuthApiIntegrationTest {
 
     private LoginResult loginAndExtractCookie() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

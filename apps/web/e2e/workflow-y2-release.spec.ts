@@ -13,6 +13,11 @@ import AxeBuilder from "@axe-core/playwright";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
 const API = process.env.SANAD_BACKEND_BASE_URL ?? "http://127.0.0.1:8080";
 const E2E_PASSWORD = process.env.WF_E2E_PASSWORD ?? "WfE2eTest!2026";
+const TENANT_A_ID = process.env.WF_E2E_TENANT_A_ID ?? "aaaaaaa1-0000-4000-8000-000000000001";
+const TENANT_B_ID = process.env.WF_E2E_TENANT_B_ID ?? "bbbbbbb1-0000-4000-8000-000000000001";
+function tenantIdFor(email: string): string {
+  return email === ACTORS.TENANT_B_EMPLOYEE ? TENANT_B_ID : TENANT_A_ID;
+}
 
 /* ════════════════ Multi-actor fixture (task §9) ════════════════ */
 
@@ -41,7 +46,7 @@ const tokenCache = new Map<string, string>();
 
 async function loginAs(request: APIRequestContext, email: string, password = E2E_PASSWORD): Promise<string> {
   const res = await request.post(`${API}/api/v1/auth/login`, {
-    data: { email, password },
+    data: { email, password, tenantId: tenantIdFor(email) },
   });
   const status = res.status();
   if (status !== 200) {
@@ -79,7 +84,7 @@ async function getAs(request: APIRequestContext, email: string, path: string): P
 
 /** One-shot login used when the test must prove authentication itself. */
 async function rawLogin(request: APIRequestContext, email: string, password = E2E_PASSWORD) {
-  return request.post(`${API}/api/v1/auth/login`, { data: { email, password } });
+  return request.post(`${API}/api/v1/auth/login`, { data: { email, password, tenantId: tenantIdFor(email) } });
 }
 
 /* ════════════════ Fixture registry: employee + tenant ids ════════════════ */
@@ -914,6 +919,7 @@ test("P13 — real application: authenticated Arabic RTL, full operational IA, a
   await page.locator("#login-email").waitFor({ state: "visible", timeout: 30_000 });
 
   // Visible error state on failed credentials (before the real login).
+  await page.locator("#login-tenant-id").fill(TENANT_A_ID);
   await page.locator("#login-email").fill(ACTORS.DESIGNER);
   await page.locator("#login-password").fill("definitely-wrong-password");
   await page.getByRole("button", { name: /دخول|login|تسجيل/i }).first().click();

@@ -37,6 +37,7 @@ jobs:
       SANAD_AI_GATEWAY_BASE_URL: 'http://localhost:8081'
       PERF_TEST_ADMIN_EMAIL: perf-admin@sanad.local
       PERF_TEST_ADMIN_PASSWORD: CiOnlyPerfAdmin!2026
+      PERF_TEST_TENANT_ID: 40000000-0000-4000-8000-000000000001
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/sanad_perf
       SPRING_DATASOURCE_USERNAME: sanad_perf
       SPRING_DATASOURCE_PASSWORD: sanad_perf_pass
@@ -146,6 +147,7 @@ jobs:
           BASE_URL=http://localhost:8080 \
           PERF_TEST_ADMIN_EMAIL="$PERF_TEST_ADMIN_EMAIL" \
           PERF_TEST_ADMIN_PASSWORD="$PERF_TEST_ADMIN_PASSWORD" \
+          PERF_TEST_TENANT_ID="$PERF_TEST_TENANT_ID" \
           OUTPUT_FILE="$PWD/performance/results/crm-perf-baseline.json" \
           k6 run \
             --summary-export="$PWD/performance/results/crm-perf-summary.json" \

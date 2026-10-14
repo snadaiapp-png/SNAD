@@ -2,7 +2,7 @@
  * R2-I auth tests — real login / single-flight refresh / logout
  *
  * Contract under test (backend verified):
- *   POST /api/v1/auth/login   {email, password} → body {accessToken,...}
+ *   POST /api/v1/auth/login   {email, password, tenantId} → body {accessToken,...}
  *                             + X-SANAD-Refresh-Token response header
  *   POST /api/v1/auth/refresh X-SANAD-Refresh-Token header + {refreshToken} body
  *                             → rotation via X-SANAD-Refresh-Token header
@@ -72,7 +72,7 @@ describe('R2-I auth (TokenManager)', () => {
   });
 
   describe('login stores tokens', () => {
-    test('POSTs {email, password} and persists access (memory) + refresh (SecureStore)', async () => {
+    test('POSTs tenant-scoped credentials and persists access (memory) + refresh (SecureStore)', async () => {
       const tm = new TokenManager();
       fetchMock.mockResolvedValueOnce(
         mockResponse({
@@ -85,7 +85,7 @@ describe('R2-I auth (TokenManager)', () => {
         })
       );
 
-      await tm.login('user@sanad.example', 'secret');
+      await tm.login('user@sanad.example', 'secret', '11111111-1111-4111-8111-111111111111');
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -94,6 +94,7 @@ describe('R2-I auth (TokenManager)', () => {
       expect(JSON.parse(init.body as string)).toEqual({
         email: 'user@sanad.example',
         password: 'secret',
+        tenantId: '11111111-1111-4111-8111-111111111111',
       });
 
       // Access token held in memory only
@@ -108,7 +109,7 @@ describe('R2-I auth (TokenManager)', () => {
       const tm = new TokenManager();
       fetchMock.mockResolvedValueOnce(mockResponse({ status: 401, body: {} }));
 
-      await expect(tm.login('user@sanad.example', 'wrong')).rejects.toThrow(
+      await expect(tm.login('user@sanad.example', 'wrong', '11111111-1111-4111-8111-111111111111')).rejects.toThrow(
         /Invalid email or password/
       );
       expect(tm.getAccessToken()).toBeNull();
@@ -119,7 +120,7 @@ describe('R2-I auth (TokenManager)', () => {
       const tm = new TokenManager();
       fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
-      await expect(tm.login('user@sanad.example', 'secret')).rejects.toThrow(/network error/i);
+      await expect(tm.login('user@sanad.example', 'secret', '11111111-1111-4111-8111-111111111111')).rejects.toThrow(/network error/i);
       expect(setItemAsync).not.toHaveBeenCalled();
     });
   });

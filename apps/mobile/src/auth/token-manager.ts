@@ -178,13 +178,16 @@ export class TokenManager {
    * The response body carries {accessToken, expiresAt, ...}; the refresh
    * token arrives ONLY in the X-SANAD-Refresh-Token response header.
    */
-  async login(email: string, password: string): Promise<void> {
+  async login(email: string, password: string, tenantId: string): Promise<void> {
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(tenantId.trim())) {
+      throw new TokenManagerError('TENANT_SCOPE_REQUIRED', 'Enter a valid tenant ID before signing in.');
+    }
     let response: Response;
     try {
       response = await fetch(`${getApiBaseUrl()}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, tenantId: tenantId.trim() }),
       });
     } catch {
       throw new TokenManagerError('NETWORK', 'Sign-in failed — network error.');

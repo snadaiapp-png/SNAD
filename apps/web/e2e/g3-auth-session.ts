@@ -31,15 +31,17 @@ const NORMAL_LOGIN_DESTINATION = "/workspace";
 function requireCredentials(role: "employee" | "manager" | "unauthorized"): {
   email: string;
   password: string;
+  tenantId: string;
 } {
   const email = process.env[`E2E_${role.toUpperCase()}_EMAIL`];
   const password = process.env[`E2E_${role.toUpperCase()}_PASSWORD`];
-  if (!email || !password) {
+  const tenantId = process.env[`E2E_${role.toUpperCase()}_TENANT_ID`] ?? "44444444-4444-4444-8444-444444444441";
+  if (!email || !password || !tenantId) {
     throw new Error(
-      `G3 E2E FAIL-CLOSED: E2E_${role.toUpperCase()}_EMAIL and E2E_${role.toUpperCase()}_PASSWORD must be provisioned`
+      `G3 E2E FAIL-CLOSED: E2E_${role.toUpperCase()}_EMAIL, PASSWORD and TENANT_ID must be provisioned`
     );
   }
-  return { email, password };
+  return { email, password, tenantId };
 }
 
 export function roleEmail(role: "employee" | "manager" | "unauthorized"): string {
@@ -50,7 +52,7 @@ export async function loginThroughUi(
   page: Page,
   role: "employee" | "manager" | "unauthorized"
 ): Promise<G3LoginResponse> {
-  const { email, password } = requireCredentials(role);
+  const { email, password, tenantId } = requireCredentials(role);
 
   await page.addInitScript(() => {
     if (!localStorage.getItem("snad.locale")) {
@@ -59,6 +61,7 @@ export async function loginThroughUi(
   });
 
   await page.goto("/");
+  await page.locator("#login-tenant-id").fill(tenantId);
   await page.locator("#login-email").fill(email);
   await page.locator("#login-password").fill(password);
 

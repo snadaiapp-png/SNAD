@@ -134,7 +134,7 @@ function Test-AdminLogin {
     )
 
     try {
-        $loginBody = @{ email = $Email; password = $Password } | ConvertTo-Json -Compress
+        $loginBody = @{ email = $Email; password = $Password; tenantId = $script:TenantId } | ConvertTo-Json -Compress
         $loginResponse = Invoke-RestMethod `
             -Method Post `
             -Uri "$LocalBaseUrl/api/v1/auth/login" `
@@ -189,6 +189,12 @@ $tenantLine = Get-Content $EnvFile | Where-Object { $_ -match '^SANAD_CONTROL_PL
 if (-not $tenantLine) {
     throw "SANAD_CONTROL_PLANE_TENANT_ID is missing from $EnvFile"
 }
+$script:TenantId = ($tenantLine -split '=', 2)[1].Trim()
+$parsedTenantId = [guid]::Empty
+if (-not [guid]::TryParse($script:TenantId, [ref]$parsedTenantId)) {
+    throw "SANAD_CONTROL_PLANE_TENANT_ID in $EnvFile is not a valid UUID"
+}
+$script:TenantId = $parsedTenantId.ToString()
 
 Write-Host "SANAD Control Plane administrator reset" -ForegroundColor Cyan
 Write-Host "Account: $AdminEmail" -ForegroundColor White

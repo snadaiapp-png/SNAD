@@ -99,7 +99,9 @@ class RefreshTokenConcurrencyPostgresTest {
 
     @Test
     void concurrentReuseInvalidatesTheIssuedFamily() throws Exception {
-        AuthResponse login = authService.login(new LoginRequest(email, credential));
+        LoginRequest loginRequest = new LoginRequest(email, credential);
+        loginRequest.setTenantId(tenantId);
+        AuthResponse login = authService.login(loginRequest);
         String refreshValue = login.getRefreshToken();
 
         ExecutorService executor = Executors.newFixedThreadPool(2);

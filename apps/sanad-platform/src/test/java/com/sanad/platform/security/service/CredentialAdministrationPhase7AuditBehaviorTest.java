@@ -104,10 +104,11 @@ class CredentialAdministrationPhase7AuditBehaviorTest {
         when(user.getStatus()).thenReturn(UserStatus.ACTIVE);
         when(user.getId()).thenReturn(USER_ID);
         when(user.getTenantId()).thenReturn(TENANT_ID);
-        when(userRepository.findAllByEmail("solo@example.com")).thenReturn(List.of(user));
+        when(userRepository.findByTenantIdAndEmail(TENANT_ID, "solo@example.com"))
+                .thenReturn(Optional.of(user));
 
         String rawToken = service.initiatePasswordReset(
-                new ForgotPasswordRequest("solo@example.com"), "127.0.0.1");
+                new ForgotPasswordRequest("solo@example.com", TENANT_ID), "127.0.0.1");
 
         assertThat(rawToken).as("actionable issuance returns the raw token for delivery").isNotBlank();
         ArgumentCaptor<Object> after = ArgumentCaptor.forClass(Object.class);
@@ -127,10 +128,11 @@ class CredentialAdministrationPhase7AuditBehaviorTest {
     void ambiguousOrInactiveResetRequestEmitsNoIssuanceAudit() {
         User first = activeUserOnTenant(TENANT_ID);
         User second = activeUserOnTenant(UUID.fromString("77777777-7777-7777-7777-777777777777"));
-        when(userRepository.findAllByEmail("shared@example.com")).thenReturn(List.of(first, second));
+        when(userRepository.findByTenantIdAndEmail(TENANT_ID, "shared@example.com"))
+                .thenReturn(Optional.empty());
 
         String token = service.initiatePasswordReset(
-                new ForgotPasswordRequest("shared@example.com"), "127.0.0.1");
+                new ForgotPasswordRequest("shared@example.com", TENANT_ID), "127.0.0.1");
 
         assertThat(token).isNull();
         verify(audit, never()).writeSuccess(any(), any(), any(), anyString(), any(), any(),

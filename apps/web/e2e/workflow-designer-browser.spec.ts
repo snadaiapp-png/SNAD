@@ -4,6 +4,7 @@ import AxeBuilder from "@axe-core/playwright";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
 const API = process.env.SANAD_BACKEND_BASE_URL ?? "http://127.0.0.1:8080";
 const PASSWORD = process.env.WF_E2E_PASSWORD ?? "WfE2eTest!2026";
+const TENANT_ID = process.env.WF_E2E_TENANT_A_ID ?? "aaaaaaa1-0000-4000-8000-000000000001";
 
 const DESIGNER = "wf-e2e-designer@snad-e2e.example";
 const PUBLISHER = "wf-e2e-publisher@snad-e2e.example";
@@ -27,7 +28,7 @@ type Step = {
 
 async function tokenFor(request: APIRequestContext, email: string) {
   const response = await request.post(`${API}/api/v1/auth/login`, {
-    data: { email, password: PASSWORD },
+    data: { email, password: PASSWORD, tenantId: TENANT_ID },
   });
   expect(response.status(), `real login must succeed for ${email}`).toBe(200);
   const body = await response.json() as { accessToken?: string };
@@ -152,6 +153,7 @@ async function seedY2Draft(request: APIRequestContext) {
 async function loginThroughUi(page: import("@playwright/test").Page) {
   await page.goto(`${BASE_URL}/`, { waitUntil: "domcontentloaded" });
   await page.locator("#login-email").waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator("#login-tenant-id").fill(TENANT_ID);
   await page.locator("#login-email").fill(DESIGNER);
   await page.locator("#login-password").fill(PASSWORD);
   await page.locator("#login-password").press("Enter");

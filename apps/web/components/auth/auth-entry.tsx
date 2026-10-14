@@ -51,10 +51,10 @@ export function AuthEntry() {
     router.replace(destination);
   }, [availableDestinations, defaultDestination, router, state]);
 
-  const handleLogin = async (email: string, password: string) => {
+  const handleLogin = async (email: string, password: string, tenantId: string) => {
     const requested = safeReturnUrl(readReturnUrl(), AUTH_PREFETCH_DESTINATIONS);
     router.prefetch(requested ?? "/crm");
-    await login({ email, password, tenantId: requestedTenantId() });
+    await login({ email, password, tenantId: tenantId || requestedTenantId() || "" });
   };
 
   if (state === "CHECKING_SESSION") return <AuthLoadingState phase="session" />;

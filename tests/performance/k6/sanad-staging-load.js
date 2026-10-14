@@ -22,6 +22,7 @@ import { Rate } from 'k6/metrics';
 const BASE_URL = __ENV.STAGING_BASE_URL || 'https://staging-backend.example.com';
 const TENANT_A_EMAIL = __ENV.TENANT_A_EMAIL || 'test-tenant-a@example.com';
 const TENANT_A_PASSWORD = __ENV.TENANT_A_PASSWORD || 'change-me';
+const TENANT_A_ID = __ENV.TENANT_A_ID || '';
 
 // Custom metrics
 const authFailureRate = new Rate('auth_failures');
@@ -46,10 +47,13 @@ export const options = {
 };
 
 // Login helper — extracts access token from body and refresh token from header
-function login(email, password) {
+function login(email, password, tenantId) {
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(tenantId)) {
+    throw new Error('TENANT_A_ID must be set to the staging tenant UUID');
+  }
   const response = http.post(
     `${BASE_URL}/api/v1/auth/login`,
-    JSON.stringify({ email, password }),
+    JSON.stringify({ email, password, tenantId }),
     {
       headers: { 'Content-Type': 'application/json' },
     }
@@ -106,7 +110,7 @@ export default function () {
   });
 
   // 2. Login
-  const session = login(TENANT_A_EMAIL, TENANT_A_PASSWORD);
+  const session = login(TENANT_A_EMAIL, TENANT_A_PASSWORD, TENANT_A_ID);
   if (!session || !session.accessToken) {
     sleep(1);
     return;

@@ -18,7 +18,6 @@ import com.sanad.platform.security.dto.LoginRequest;
 import com.sanad.platform.security.dto.RefreshRequest;
 import com.sanad.platform.security.dto.ResetPasswordRequest;
 import com.sanad.platform.security.exception.AccountInactiveException;
-import com.sanad.platform.security.exception.AmbiguousTenantException;
 import com.sanad.platform.security.exception.InvalidCredentialsException;
 import com.sanad.platform.security.exception.InvalidResetTokenException;
 import com.sanad.platform.security.exception.LoginRateLimitException;
@@ -155,6 +154,19 @@ public class AuthService {
      */
     @Transactional
     public AuthResponse login(LoginRequest request, String[] rateLimitKeys) {
+        // Request tenantId only scopes the lookup; it does not grant access.
+        // The password and tenant eligibility checks below remain authoritative.
+        if (request == null || request.getTenantId() == null) {
+            log.warn("Login rejected before database lookup: tenantId is required");
+            throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
+        }
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(request.getTenantId())) {
+            return loginWithinTenantScope(request, rateLimitKeys);
+        }
+    }
+
+    private AuthResponse loginWithinTenantScope(LoginRequest request, String[] rateLimitKeys) {
         String normalizedEmail = normalizeLoginEmail(request.getEmail());
         String normalizedUsername = normalizeLoginUsername(request.getUsername());
         boolean emailLogin = normalizedEmail != null;
@@ -184,31 +196,9 @@ public class AuthService {
             }
         }
 
-        // Resolve through the canonical tenant user repository. Username is
-        // tenant-scoped and may legitimately exist in more than one tenant.
-        User user;
-        if (request.getTenantId() != null) {
-            user = emailLogin
-                    ? userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail).orElse(null)
-                    : userRepository.findByTenantIdAndUsername(request.getTenantId(), normalizedUsername).orElse(null);
-        } else {
-            List<User> users = emailLogin
-                    ? userRepository.findAllByEmail(normalizedEmail)
-                    : userRepository.findAllByUsername(normalizedUsername);
-            if (users.isEmpty()) {
-                user = null;
-            } else if (users.size() == 1) {
-                user = users.get(0);
-            } else {
-                log.warn("Login ambiguous: identifierType={} found in {} tenants",
-                        emailLogin ? "email" : "username", users.size());
-                throw new AmbiguousTenantException(
-                        emailLogin
-                                ? "البريد الإلكتروني موجود في عدة مستأجرين"
-                                : "اسم المستخدم موجود في عدة مستأجرين",
-                        users);
-            }
-        }
+        User user = emailLogin
+                ? userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail).orElse(null)
+                : userRepository.findByTenantIdAndUsername(request.getTenantId(), normalizedUsername).orElse(null);
 
         if (user == null) {
             recordLoginFailure(rateLimitKeys, normalizedIdentifier);
@@ -234,6 +224,7 @@ public class AuthService {
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
         return issueTokens(user);
+    
     }
 
     private void requireLoginEligibleTenant(UUID tenantId) {
@@ -332,6 +323,8 @@ public class AuthService {
         }
 
         RefreshToken refreshToken = tokenOpt.get();
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(refreshToken.getTenantId())) {
         if (refreshToken.getStatus() == RefreshTokenStatus.USED) {
             log.warn("Refresh replay detected for userId={} tenantId={}",
                     refreshToken.getUserId(), refreshToken.getTenantId());
@@ -402,6 +395,7 @@ public class AuthService {
                         user.getEmail(),
                         user.getDisplayName(),
                         user.getStatus().name()));
+        }
     }
 
     @Transactional
@@ -539,21 +533,22 @@ public class AuthService {
         }
         resetRequestCache.put(rateLimitKey, (count == null ? 0 : count) + 1);
 
-        // Resolve only an unambiguous ACTIVE account. Email is tenant-scoped in
-        // SANAD, so the same normalized email may legitimately exist in more
-        // than one tenant. Recovery must never guess which tenant identity to
-        // mutate. Keep the public response generic by returning null for both
-        // missing/inactive and ambiguous matches.
-        List<User> activeUsers = userRepository.findAllByEmail(normalizedEmail).stream()
-                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
-                .toList();
-        if (activeUsers.size() != 1) {
-            log.info("Password reset request not actionable for email={} activeMatches={}",
-                    normalizedEmail, activeUsers.size());
+        // Password recovery must be tenant-scoped before reading public.users.
+        // Missing tenant scope returns the same generic no-op result as an
+        // unknown/inactive account to avoid account enumeration.
+        if (request.getTenantId() == null) {
+            log.info("Password reset request not actionable without tenant scope");
             return null;
         }
-
-        User user = activeUsers.get(0);
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(request.getTenantId())) {
+            User user = userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail)
+                    .filter(candidate -> candidate.getStatus() == UserStatus.ACTIVE)
+                    .orElse(null);
+            if (user == null) {
+                log.info("Password reset request not actionable for tenant-scoped identifier");
+                return null;
+            }
 
         // Revoke any existing active reset tokens for this user
         passwordResetTokenRepository.revokeAllActive(user.getTenantId(), user.getId());
@@ -593,6 +588,7 @@ public class AuthService {
         // Return the raw token value so the controller can include it in the response
         // (In production, this would be sent via email instead)
         return rawTokenValue;
+        }
     }
 
     /**
@@ -611,6 +607,8 @@ public class AuthService {
         }
 
         PasswordResetToken resetToken = tokenOpt.get();
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(resetToken.getTenantId())) {
 
         if (!resetToken.isUsable()) {
             // Mark as expired if it's past TTL
@@ -649,6 +647,7 @@ public class AuthService {
 
         log.info("AUDIT: Password reset completed for userId={} tenantId={} email={}",
                 user.getId(), user.getTenantId(), user.getEmail());
+        }
     }
 
     // =========================================================================

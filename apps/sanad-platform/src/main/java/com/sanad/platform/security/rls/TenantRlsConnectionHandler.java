@@ -10,29 +10,32 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
- * Dynamic-proxy invocation handler that lazily applies
- * {@code SET LOCAL app.tenant_id = '<uuid>'} to the underlying physical
- * connection the first time a statement is created within a transaction.
+ * Dynamic-proxy invocation handler that lazily applies a trusted tenant GUC
+ * before SQL executes. Transactional calls use {@code SET LOCAL}; autocommit
+ * calls use a session setting that is reset before the connection is returned.
  *
  * <p>The {@code SET LOCAL} scoping ensures the GUC is scoped to the current
  * transaction and automatically resets on commit/rollback — safe for
  * connection-pool reuse.</p>
  *
- * <h3>Activation conditions</h3>
+ * <h3>Fail-closed behavior</h3>
  * <ul>
- *   <li>{@code autoCommit == false} — we are inside a Spring
- *       {@code @Transactional} boundary (the primary CRM data-access path).</li>
- *   <li>A tenant id is present in the {@link SecurityContextHolder}.</li>
+ *   <li>Transactions use {@code SET LOCAL}, which resets at commit/rollback.</li>
+ *   <li>Autocommit uses a session GUC that must be reset before the connection
+ *       is returned to the pool.</li>
+ *   <li>Missing or invalid tenant context maps to a reserved zero UUID, keeping
+ *       UUID casts valid while matching no real tenant.</li>
  * </ul>
  *
- * <p>If either condition is false the proxy is a transparent pass-through,
- * preserving full backward compatibility for non-transactional reads and
- * background jobs that intentionally operate across tenants.</p>
+ * <p>A real tenant may replace the sentinel once during bootstrap, but a real
+ * tenant cannot switch to another tenant on the same borrowed connection.</p>
  */
 final class TenantRlsConnectionHandler implements InvocationHandler {
 
     private final Connection delegate;
-    private boolean tenantApplied = false;
+    private UUID appliedTenantId;
+    private boolean sessionScoped;
+    private static final UUID FAIL_CLOSED_TENANT = new UUID(0L, 0L);
 
     TenantRlsConnectionHandler(Connection delegate) {
         this.delegate = delegate;
@@ -41,6 +44,37 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         String name = method.getName();
+        // Session-level GUCs are used only for autocommit operations and must
+        // be cleared before a pooled physical connection is returned.
+        if ("close".equals(name) && sessionScoped) {
+            SQLException resetFailure = null;
+            try (var stmt = delegate.createStatement()) {
+                stmt.execute("RESET app.tenant_id");
+            } catch (SQLException e) {
+                resetFailure = e;
+                try {
+                    delegate.abort(Runnable::run);
+                } catch (SQLException abortFailure) {
+                    e.addSuppressed(abortFailure);
+                }
+            } finally {
+                sessionScoped = false;
+                appliedTenantId = null;
+            }
+            try {
+                delegate.close();
+            } catch (SQLException closeFailure) {
+                if (resetFailure != null) {
+                    resetFailure.addSuppressed(closeFailure);
+                } else {
+                    throw closeFailure;
+                }
+            }
+            if (resetFailure != null) {
+                throw resetFailure;
+            }
+            return null;
+        }
         // Intercept statement-creation entry points to guarantee the GUC is
         // set before any SQL reaches the engine.
         if (isStatementCreation(name)) {
@@ -57,26 +91,45 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     }
 
     private void ensureTenantContext() throws SQLException {
-        if (tenantApplied) {
+        boolean autoCommit = delegate.getAutoCommit();
+        UUID requestedTenantId = currentTenantId();
+        if (FAIL_CLOSED_TENANT.equals(requestedTenantId)) {
+            throw new SQLException("Reserved fail-closed tenant UUID cannot be used as an identity");
+        }
+        UUID effectiveTenantId = requestedTenantId == null ? FAIL_CLOSED_TENANT : requestedTenantId;
+        // Use the reserved zero UUID as a syntactically valid, non-tenant scope.
+        // An empty GUC is not safe here: existing migration SQL casts current_setting(...)
+        // directly to UUID and would fail during application startup. Policies must still
+        // compare tenant_id to this value; zero UUID is forbidden for real tenant scopes.
+        String tenantSettingValue = effectiveTenantId.toString();
+
+        if (!autoCommit && sessionScoped) {
+            // Remove any prior autocommit scope before transaction-local scope
+            // is installed; otherwise the old session value would reappear at
+            // commit/rollback.
+            try (var stmt = delegate.createStatement()) {
+                stmt.execute("RESET app.tenant_id");
+            }
+            sessionScoped = false;
+            appliedTenantId = null;
+        }
+
+        if (effectiveTenantId.equals(appliedTenantId)) {
             return;
         }
-        // Only apply within an explicit transaction — SET LOCAL has no effect
-        // (and would error) in autocommit mode.
-        if (delegate.getAutoCommit()) {
-            return;
+        if (appliedTenantId != null && !appliedTenantId.equals(FAIL_CLOSED_TENANT)) {
+            // Never switch between real tenants on one borrowed connection.
+            throw new SQLException("Refusing tenant context switch on an active connection");
         }
-        UUID tenantId = currentTenantId();
-        if (tenantId == null) {
-            return;
-        }
+
+        String scopeCommand = autoCommit ? "SET app.tenant_id = '" : "SET LOCAL app.tenant_id = '";
         try (var stmt = delegate.createStatement()) {
-            // Parameterised SET LOCAL is not supported by PostgreSQL for GUC
-            // assignment, but the value is a well-formed UUID read directly
-            // from the validated JWT via the security context — never user-
-            // supplied raw input at this layer.
-            stmt.execute("SET LOCAL app.tenant_id = '" + tenantId.toString() + "'");
+            // Always install a valid UUID. Missing identity maps to the reserved zero UUID,
+            // so direct UUID casts remain valid while tenant predicates match no real tenant.
+            stmt.execute(scopeCommand + tenantSettingValue + "'");
         }
-        tenantApplied = true;
+        appliedTenantId = effectiveTenantId;
+        sessionScoped = autoCommit;
     }
 
     /**
@@ -88,6 +141,10 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
      * {@code JwtAuthenticationFilter} after JWT validation.</p>
      */
     private static UUID currentTenantId() {
+        UUID explicitScope = TenantRlsExecutionContext.currentTenantId();
+        if (explicitScope != null) {
+            return explicitScope;
+        }
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
             return null;

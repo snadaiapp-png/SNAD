@@ -69,10 +69,10 @@ describe("LoginForm", () => {
     expect(container.querySelector('img[src="/assets/brand/snad-logo-official-wordmark.png"]')).not.toBeNull();
   });
 
-  it("does not render a tenant UUID field", () => {
+  it("renders a required tenant UUID field", () => {
     renderLoginForm();
-    expect(screen.queryByText(/tenant/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/مستأجر/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Tenant ID/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Tenant ID/i)).toBeRequired();
   });
 
   it("validates required email", async () => {
@@ -104,6 +104,7 @@ describe("LoginForm", () => {
   it("clears the password validation error on the first corrective keystroke", async () => {
     const user = userEvent.setup();
     renderLoginForm();
+    await user.type(screen.getByLabelText(/Tenant ID/i), "11111111-1111-4111-8111-111111111111");
     await user.type(screen.getByPlaceholderText("name@company.com"), "user@snad.app");
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     expect(screen.getByText("كلمة المرور مطلوبة.")).toBeInTheDocument();
@@ -114,20 +115,22 @@ describe("LoginForm", () => {
   it("normalizes email to trimmed lowercase before calling login", async () => {
     const user = userEvent.setup();
     renderLoginForm();
+    await user.type(screen.getByLabelText(/Tenant ID/i), "11111111-1111-4111-8111-111111111111");
     await user.type(screen.getByPlaceholderText("name@company.com"), "  Test@Example.COM  ");
     await user.type(screen.getByPlaceholderText("••••••••"), "Password123!");
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
-    expect(onLoginMock).toHaveBeenCalledWith("test@example.com", "Password123!");
+    expect(onLoginMock).toHaveBeenCalledWith("test@example.com", "Password123!", "11111111-1111-4111-8111-111111111111");
   });
 
   it("calls onLogin with the correct values", async () => {
     const user = userEvent.setup();
     renderLoginForm();
+    await user.type(screen.getByLabelText(/Tenant ID/i), "11111111-1111-4111-8111-111111111111");
     await user.type(screen.getByPlaceholderText("name@company.com"), "user@snad.app");
     await user.type(screen.getByPlaceholderText("••••••••"), "SecretPass1!");
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     expect(onLoginMock).toHaveBeenCalledTimes(1);
-    expect(onLoginMock).toHaveBeenCalledWith("user@snad.app", "SecretPass1!");
+    expect(onLoginMock).toHaveBeenCalledWith("user@snad.app", "SecretPass1!", "11111111-1111-4111-8111-111111111111");
   });
 
   it("disables the submit button while authenticating", () => {
