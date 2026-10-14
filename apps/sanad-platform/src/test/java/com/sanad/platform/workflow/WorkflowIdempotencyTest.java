@@ -88,6 +88,14 @@ class WorkflowIdempotencyTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-idem-" + tenantId.toString().substring(0, 8), now, now);
+        // Under FORCE ROW LEVEL SECURITY on public.users (V20261011_3),
+        // INSERT INTO users requires the connection's app.tenant_id GUC to
+        // match the row's tenant_id. Without set_config, the WITH CHECK
+        // clause of users_tenant_isolation rejects the INSERT with
+        // "new row violates row-level security policy for table users".
+        // set_config(name, value, is_local=true) scopes the GUC to the
+        // current transaction so all subsequent fixture INSERTs see it.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
         for (var uid : List.of(userId, approverId)) {
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                     + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
