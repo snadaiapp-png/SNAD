@@ -135,10 +135,17 @@ class WorkflowR2TenantIsolationTest {
           System.out.println("DIAG_A_EX: " + e.getMessage());
         }
         // === END DIAG ===
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
-                        + "created_at,updated_at) VALUES (?, ?, ?, 'R2 Iso', 'ACTIVE', 'dummy', ?, ?)",
-                user, tenant, "r2-iso-" + user.toString().substring(0, 8) + "@test", now, now);
+        // FIXED: ConnectionCallback ensures set_config + INSERT on same connection
+        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) conn -> {
+            var st = conn.createStatement();
+            st.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
+            var ps = conn.prepareStatement("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?, ?, ?, 'R2 Iso', 'ACTIVE', 'dummy', NOW(), NOW())");
+            ps.setObject(1, user);
+            ps.setObject(2, tenant);
+            ps.setString(3, "r2-iso-" + user.toString().substring(0, 8) + "@test");
+            ps.executeUpdate();
+            return null;
+        });
         createdTenants.add(tenant);
         return new TenantFixture(tenant, user);
     }
