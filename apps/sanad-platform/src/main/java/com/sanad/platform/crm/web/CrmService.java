@@ -26,6 +26,7 @@ import com.sanad.platform.crm.query.domain.TimelineProjectionRepository.Timeline
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Timestamp;
@@ -124,6 +125,8 @@ class CrmService {
         return toAccountRow(accountUseCases.archive(tenantId, actorId, accountId, current.version()));
     }
 
+    // FORCE-RLS users owner validation and contact creation must share a tenant-bound transaction.
+    @Transactional
     Map<String, Object> createContact(Authentication authentication, CreateContactRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -157,6 +160,9 @@ class CrmService {
                 .toList();
     }
 
+    // validateOwner reads FORCE-RLS users: bind the authenticated tenant
+    // to the same transaction before checking owner membership.
+    @Transactional
     Map<String, Object> createLead(Authentication authentication, CreateLeadRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);
@@ -250,6 +256,9 @@ class CrmService {
                 .toList();
     }
 
+    // The owner validation queries FORCE-RLS users; perform it under the
+    // authenticated tenant's transaction-local RLS context.
+    @Transactional
     Map<String, Object> createOpportunity(Authentication authentication,
                                           CreateOpportunityRequest request) {
         UUID tenantId = tenantId(authentication);
@@ -318,6 +327,8 @@ class CrmService {
         return toOpportunityRow(moved);
     }
 
+    // Owner/related record validation queries tenant-scoped RLS tables.
+    @Transactional
     Map<String, Object> createActivity(Authentication authentication, CreateActivityRequest request) {
         UUID tenantId = tenantId(authentication);
         UUID actorId = userId(authentication);

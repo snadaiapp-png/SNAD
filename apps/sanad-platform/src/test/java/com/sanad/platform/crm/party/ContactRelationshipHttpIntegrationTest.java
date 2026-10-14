@@ -489,13 +489,25 @@ class ContactRelationshipHttpIntegrationTest {
                             p().addValue("t", tenantId));
                 }
             });
-            // Identity tables are not RLS-protected; plain scoped deletes.
-            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t",
-                    p().addValue("t", tenantId));
-            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t",
-                    p().addValue("t", tenantId));
-            jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p().addValue("t", tenantId));
-            jdbc.update("DELETE FROM users WHERE tenant_id = :t", p().addValue("t", tenantId));
+            // public.users is FORCE-RLS protected. Delete identity rows in a
+            // matching tenant-scoped transaction, not an unauthenticated
+            // autocommit connection (which silently deletes zero users).
+            org.springframework.security.core.context.SecurityContext prior =
+                    org.springframework.security.core.context.SecurityContextHolder.getContext();
+            try {
+                RlsTestSupport.setSecurityContext(tenantId, tenantId);
+                tenantQuery(tenantId, () -> {
+                    jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t",
+                            p().addValue("t", tenantId));
+                    jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t",
+                            p().addValue("t", tenantId));
+                    jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p().addValue("t", tenantId));
+                    jdbc.update("DELETE FROM users WHERE tenant_id = :t", p().addValue("t", tenantId));
+                    return null;
+                });
+            } finally {
+                org.springframework.security.core.context.SecurityContextHolder.setContext(prior);
+            }
             jdbc.update("DELETE FROM tenants WHERE id = :t", p().addValue("t", tenantId));
         }
         createdTenantIds.clear();

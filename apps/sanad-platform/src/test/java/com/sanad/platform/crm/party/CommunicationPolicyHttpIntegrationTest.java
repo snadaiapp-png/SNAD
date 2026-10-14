@@ -11,7 +11,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -29,10 +30,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
-@Transactional
 class CommunicationPolicyHttpIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
+
+    private <T> T underTenant(UUID tenant, java.util.function.Supplier<T> action) {
+        org.springframework.security.core.context.SecurityContext previous =
+                org.springframework.security.core.context.SecurityContextHolder.getContext();
+        try {
+            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenant, tenant);
+            return new TransactionTemplate(transactionManager).execute(status -> {
+                jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
+                return action.get();
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.setContext(previous);
+        }
+    }
 
     @Test
     void readsDefaultsAndUpdatesOnlyAuthenticatedTenantWithAudit() throws Exception {
@@ -56,12 +71,12 @@ class CommunicationPolicyHttpIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.emailUniqueWithinOwner").value(false));
 
-        Boolean firstValue = jdbc.queryForObject(
+        Boolean firstValue = underTenant(first.tenantId(), () -> jdbc.queryForObject(
                 "SELECT email_unique_within_owner FROM crm_communication_policies WHERE tenant_id=:tenantId",
-                p().addValue("tenantId", first.tenantId()), Boolean.class);
-        Long secondRows = jdbc.queryForObject(
+                p().addValue("tenantId", first.tenantId()), Boolean.class));
+        Long secondRows = underTenant(second.tenantId(), () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crm_communication_policies WHERE tenant_id=:tenantId",
-                p().addValue("tenantId", second.tenantId()), Long.class);
+                p().addValue("tenantId", second.tenantId()), Long.class));
         Long auditRows = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM platform_audit_logs WHERE target_tenant_id=:tenantId " +
                         "AND action='UPDATE_COMMUNICATION_POLICY'",
@@ -72,6 +87,10 @@ class CommunicationPolicyHttpIntegrationTest {
     }
 
     private Fixture fixture(String key) {
+        return new TransactionTemplate(transactionManager).execute(status -> insertFixture(key));
+    }
+
+    private Fixture insertFixture(String key) {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
