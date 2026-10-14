@@ -4,6 +4,7 @@ set -euo pipefail
 BASE_URL="${PRODUCTION_BASE_URL:?PRODUCTION_BASE_URL required}"
 ADMIN_EMAIL="${CP_SMOKE_EMAIL:?CP_SMOKE_EMAIL required}"
 ADMIN_PASSWORD="${CP_SMOKE_PASSWORD:?CP_SMOKE_PASSWORD required}"
+ADMIN_TENANT_ID="${CONTROL_PLANE_TENANT_ID:?CONTROL_PLANE_TENANT_ID required}"
 TEST_DOMAIN="${CONTROL_PLANE_TEST_EMAIL_DOMAIN:-smoke-test.invalid}"
 
 echo "=== SNAD Control Plane Provisioning Smoke ==="
@@ -12,9 +13,11 @@ echo ""
 
 # Step 1: Login
 echo "1. Login..."
+LOGIN_PAYLOAD="$(jq -n --arg email "$ADMIN_EMAIL" --arg password "$ADMIN_PASSWORD" --arg tenantId "$ADMIN_TENANT_ID" \
+  '{email:$email,password:$password,tenantId:$tenantId}')"
 LOGIN_RESP=$(curl -sS --max-time 30 -X POST "${BASE_URL}/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}")
+  --data "$LOGIN_PAYLOAD")
 TOKEN=$(echo "${LOGIN_RESP}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null || echo "")
 if [ -z "${TOKEN}" ]; then
   echo "   FAIL: Login failed"
