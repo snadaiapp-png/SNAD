@@ -95,7 +95,6 @@ describe('R2-I auth (TokenManager)', () => {
         email: 'user@sanad.example',
         password: 'secret',
         tenantId: '11111111-1111-4111-8111-111111111111',
-        tenantId: '11111111-1111-4111-8111-111111111111',
       });
 
       // Access token held in memory only
