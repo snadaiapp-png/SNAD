@@ -22,8 +22,8 @@ public final class TenantRlsExecutionContext {
     }
 
     public static Scope open(UUID tenantId) {
-        if (tenantId == null) {
-            throw new IllegalArgumentException("tenant scope must not be null");
+        if (tenantId == null || new UUID(0L, 0L).equals(tenantId)) {
+            throw new IllegalArgumentException("tenant scope must be a non-reserved UUID");
         }
         UUID current = TENANT.get();
         if (current != null && !current.equals(tenantId)) {
