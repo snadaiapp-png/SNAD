@@ -108,7 +108,7 @@ class WorkflowR2TenantIsolationTest {
         // FIXED: TransactionTemplate ensures set_config + INSERT on same connection,
         // is_local=true (transaction-scoped), parameterized SQL, no pool leakage.
         tx.executeWithoutResult(txStatus -> {
-            jdbc.execute("SELECT set_config('app.tenant_id', ?, true)", tenant.toString());
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
             jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                     + "VALUES (?, ?, ?, 'R2 Iso', 'ACTIVE', 'dummy', NOW(), NOW())",
                     user, tenant, "r2-iso-" + user.toString().substring(0, 8) + "@test");
