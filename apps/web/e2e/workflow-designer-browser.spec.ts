@@ -153,6 +153,7 @@ async function seedY2Draft(request: APIRequestContext) {
 async function loginThroughUi(page: import("@playwright/test").Page) {
   await page.goto(`${BASE_URL}/`, { waitUntil: "domcontentloaded" });
   await page.locator("#login-email").waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator("#login-tenant-id").fill(TENANT_ID);
   await page.locator("#login-email").fill(DESIGNER);
   await page.locator("#login-password").fill(PASSWORD);
   await page.locator("#login-password").press("Enter");
