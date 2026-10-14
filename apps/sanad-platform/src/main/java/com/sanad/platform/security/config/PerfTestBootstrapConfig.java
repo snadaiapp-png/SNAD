@@ -133,6 +133,16 @@ public class PerfTestBootstrapConfig {
             return;
         }
 
+        // Under FORCE ROW LEVEL SECURITY on public.users (V20261011_3),
+        // INSERT INTO users requires app.tenant_id to match the row's tenant_id.
+        // The TenantRlsConnectionHandler normally derives the tenant id from
+        // the SecurityContextHolder, but this seed runs at ApplicationContext
+        // startup (no authenticated user), so the handler skips setting the
+        // GUC. We set it explicitly here, transaction-scoped (is_local=true),
+        // because seedEnvironment is invoked from a TransactionTemplate
+        // boundary in perfTestEnvironmentSeeder.
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + TENANT_ID + "', true)");
+
         jdbc.update("""
                 INSERT INTO tenants (id, name, subdomain, status, created_at, updated_at)
                 VALUES (?, 'Perf Test Tenant', 'perf-test', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
