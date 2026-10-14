@@ -178,18 +178,23 @@ class TenantRlsTransactionContextPostgresTest {
             }
         });
 
-        // No scope installs an empty GUC; nullif() makes the policy evaluate
-        // to NULL (deny), rather than interpreting an unset GUC permissively.
-        tx.executeWithoutResult(status ->
-                assertThat(jdbc.queryForObject("SELECT count(*) FROM g1_auth_rls_probe", Long.class))
-                        .isZero());
+        // No scope installs the reserved zero UUID. It is syntactically valid for
+        // policies/migrations that cast current_setting directly to UUID, but cannot
+        // match either known tenant fixture. The probe must return no rows.
+        tx.executeWithoutResult(status -> {
+            assertThat(jdbc.queryForObject("SELECT current_setting('app.tenant_id', true)", String.class))
+                    .isEqualTo("00000000-0000-0000-0000-000000000000");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM g1_auth_rls_probe", Long.class))
+                    .isZero();
+        });
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
             try (TenantRlsExecutionContext.Scope ignored = TenantRlsExecutionContext.open(tenantA)) {
                 jdbc.update("INSERT INTO g1_auth_rls_probe(id, tenant_id, payload) VALUES (?, ?, ?)",
                         UUID.randomUUID(), tenantB, "cross-tenant-write");
             }
-        })).isNotNull();
+        })).isInstanceOf(org.springframework.dao.DataAccessException.class)
+                .hasMessageContaining("row-level security");
     }
 
     private UUID seedTenant() {
