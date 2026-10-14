@@ -75,6 +75,37 @@ class TenantRlsConnectionHandlerTest {
     }
 
     @Test
+    void refusesTenantSwitchOnOneActiveTransactionConnection() throws Exception {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        setSecurityContext(tenantA);
+        when(delegate.getAutoCommit()).thenReturn(false);
+        proxy = wrap();
+
+        proxy.createStatement();
+        setSecurityContext(tenantB);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(proxy::createStatement)
+                .isInstanceOf(java.lang.reflect.UndeclaredThrowableException.class)
+                .hasRootCauseInstanceOf(java.sql.SQLException.class);
+        verify(statement, times(1)).execute("SET LOCAL app.tenant_id = '" + tenantA + "'");
+    }
+
+    @Test
+    void resetsAutocommitTenantScopeBeforeReturningConnection() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        setSecurityContext(tenantId);
+        when(delegate.getAutoCommit()).thenReturn(true);
+        proxy = wrap();
+
+        proxy.createStatement();
+        verify(statement, times(1)).execute("SET app.tenant_id = '" + tenantId + "'");
+        proxy.close();
+        verify(statement, times(1)).execute("RESET app.tenant_id");
+        verify(delegate, times(1)).close();
+    }
+
+    @Test
     void failsClosedWhenNoTenantContext() throws Exception {
         // No security context set
         when(delegate.getAutoCommit()).thenReturn(false);
