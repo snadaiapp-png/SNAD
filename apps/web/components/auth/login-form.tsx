@@ -34,11 +34,13 @@ export function LoginForm({
   onRetrySession,
 }: LoginFormProps) {
   const [email, setEmail] = useState("");
-  const [tenantId, setTenantId] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("tenantId")?.trim() ?? "";
-  });
+  const [tenantId, setTenantId] = useState("");
   const [tenantIdError, setTenantIdError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const requestedTenantId = new URLSearchParams(window.location.search).get("tenantId")?.trim();
+    if (requestedTenantId && !tenantId) setTenantId(requestedTenantId);
+  }, [tenantId]);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
