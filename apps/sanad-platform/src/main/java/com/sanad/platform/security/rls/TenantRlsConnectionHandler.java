@@ -41,6 +41,37 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         String name = method.getName();
+        // Session-level GUCs are used only for autocommit operations and must
+        // be cleared before a pooled physical connection is returned.
+        if ("close".equals(name) && sessionScoped) {
+            SQLException resetFailure = null;
+            try (var stmt = delegate.createStatement()) {
+                stmt.execute("RESET app.tenant_id");
+            } catch (SQLException e) {
+                resetFailure = e;
+                try {
+                    delegate.abort(Runnable::run);
+                } catch (SQLException abortFailure) {
+                    e.addSuppressed(abortFailure);
+                }
+            } finally {
+                sessionScoped = false;
+                appliedTenantId = null;
+            }
+            try {
+                delegate.close();
+            } catch (SQLException closeFailure) {
+                if (resetFailure != null) {
+                    resetFailure.addSuppressed(closeFailure);
+                } else {
+                    throw closeFailure;
+                }
+            }
+            if (resetFailure != null) {
+                throw resetFailure;
+            }
+            return null;
+        }
         // Intercept statement-creation entry points to guarantee the GUC is
         // set before any SQL reaches the engine.
         if (isStatementCreation(name)) {
@@ -57,33 +88,37 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     }
 
     private void ensureTenantContext() throws SQLException {
-        // SET LOCAL only has transaction lifetime. Autocommit operations are
-        // not silently claimed as protected by this transaction-scoped hook;
-        // RLS policies for those paths must independently fail closed when the
-        // GUC is absent. Production RLS activation remains gated on those tests.
-        if (delegate.getAutoCommit()) {
-            return;
-        }
-
+        boolean autoCommit = delegate.getAutoCommit();
         UUID requestedTenantId = currentTenantId();
         UUID effectiveTenantId = requestedTenantId == null ? FAIL_CLOSED_TENANT : requestedTenantId;
+
+        if (!autoCommit && sessionScoped) {
+            // Remove any prior autocommit scope before transaction-local scope
+            // is installed; otherwise the old session value would reappear at
+            // commit/rollback.
+            try (var stmt = delegate.createStatement()) {
+                stmt.execute("RESET app.tenant_id");
+            }
+            sessionScoped = false;
+            appliedTenantId = null;
+        }
 
         if (effectiveTenantId.equals(appliedTenantId)) {
             return;
         }
-        if (appliedTenantId != null
-                && !appliedTenantId.equals(FAIL_CLOSED_TENANT)) {
-            // Never switch between real tenants on one active transaction.
-            throw new SQLException("Refusing tenant context switch inside an active transaction");
+        if (appliedTenantId != null && !appliedTenantId.equals(FAIL_CLOSED_TENANT)) {
+            // Never switch between real tenants on one borrowed connection.
+            throw new SQLException("Refusing tenant context switch on an active connection");
         }
 
+        String scopeCommand = autoCommit ? "SET app.tenant_id = '" : "SET LOCAL app.tenant_id = '";
         try (var stmt = delegate.createStatement()) {
-            // The fail-closed sentinel is deliberately a valid UUID that no
-            // tenant may own. RLS predicates comparing tenant_id to this value
-            // expose no tenant rows when the request has no trusted scope.
-            stmt.execute("SET LOCAL app.tenant_id = '" + effectiveTenantId + "'");
+            // The sentinel is a valid UUID that no tenant may own. It makes
+            // tenant predicates fail closed when no trusted tenant is present.
+            stmt.execute(scopeCommand + effectiveTenantId + "'");
         }
         appliedTenantId = effectiveTenantId;
+        sessionScoped = autoCommit;
     }
 
     /**
