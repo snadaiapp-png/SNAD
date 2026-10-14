@@ -2,6 +2,12 @@ package com.sanad.platform.crm.party;
 
 import com.sanad.platform.crm.concurrency.ETagService;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.context.transaction.BeforeTransaction;
+import org.springframework.test.context.transaction.AfterTransaction;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
+import com.sanad.platform.crm.test.RlsTestSupport;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -33,6 +39,73 @@ class CustomerMasterSecurityIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ETagService etags;
+    @Autowired PlatformTransactionManager transactionManager;
+
+    private UUID foreignTenantId;
+    private UUID foreignUserId;
+    private UUID foreignAccountId;
+
+    // Seed the foreign record before Spring opens the test-managed transaction.
+    // The test transaction must never change tenant identity after its first SQL.
+    @BeforeTransaction
+    void prepareForeignMergeTarget() {
+        foreignTenantId = UUID.randomUUID();
+        foreignUserId = UUID.randomUUID();
+        foreignAccountId = UUID.randomUUID();
+        var previous = org.springframework.security.core.context.SecurityContextHolder.getContext();
+        try {
+            RlsTestSupport.setSecurityContext(foreignTenantId, foreignUserId);
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Instant now = Instant.now();
+                jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
+                        p().addValue("id", foreignTenantId).addValue("name", "merge-foreign")
+                                .addValue("subdomain", "merge-" + foreignTenantId.toString().substring(0, 8))
+                                .addValue("now", java.sql.Timestamp.from(now)));
+                jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (:id,:tenantId,:email,'CRM Security User','ACTIVE','dummy',:now,:now)",
+                        p().addValue("id", foreignUserId).addValue("tenantId", foreignTenantId)
+                                .addValue("email", "merge-" + foreignUserId.toString().substring(0, 8) + "@example.test")
+                                .addValue("now", java.sql.Timestamp.from(now)));
+                jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type,lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id,created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,'Foreign B','foreign b','BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM005_SECURITY_TEST',:owner,:owner,:owner,:now,:now)",
+                        p().addValue("id", foreignAccountId).addValue("tenantId", foreignTenantId)
+                                .addValue("owner", foreignUserId).addValue("now", java.sql.Timestamp.from(now)));
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.setContext(previous);
+        }
+    }
+
+    @AfterTransaction
+    void removeForeignMergeTarget() {
+        if (foreignTenantId == null) return;
+        var previous = org.springframework.security.core.context.SecurityContextHolder.getContext();
+        try {
+            RlsTestSupport.setSecurityContext(foreignTenantId, foreignUserId);
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                jdbc.update("DELETE FROM crm_accounts WHERE tenant_id=:t AND id=:id",
+                        p().addValue("t", foreignTenantId).addValue("id", foreignAccountId));
+                jdbc.update("DELETE FROM users WHERE tenant_id=:t AND id=:id",
+                        p().addValue("t", foreignTenantId).addValue("id", foreignUserId));
+                jdbc.update("DELETE FROM tenants WHERE id=:t", p().addValue("t", foreignTenantId));
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.setContext(previous);
+            foreignTenantId = null; foreignUserId = null; foreignAccountId = null;
+        }
+    }
+
+    private String foreignAccountStatus() {
+        var previous = org.springframework.security.core.context.SecurityContextHolder.getContext();
+        try {
+            RlsTestSupport.setSecurityContext(foreignTenantId, foreignUserId);
+            TransactionTemplate tx = new TransactionTemplate(transactionManager);
+            tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            return tx.execute(status -> jdbc.queryForObject(
+                    "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
+                    p().addValue("tenantId", foreignTenantId).addValue("id", foreignAccountId), String.class));
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.setContext(previous);
+        }
+    }
 
     @Test
     void unauthenticatedCustomerMasterRequestReturns401() throws Exception {
@@ -69,9 +142,8 @@ class CustomerMasterSecurityIntegrationTest {
     @Test
     void crossTenantMergeIsDeniedWithoutChangingEitherRecord() throws Exception {
         Fixture tenantA = fixture("merge-a", true);
-        Fixture tenantB = fixture("merge-b", true);
         UUID source = account(tenantA, "Source A");
-        UUID foreignTarget = account(tenantB, "Foreign B");
+        UUID foreignTarget = foreignAccountId;
 
         mockMvc.perform(post("/api/v1/crm/accounts/{source}/merge/{target}", source, foreignTarget)
                         .with(authentication(auth(tenantA)))
@@ -85,9 +157,7 @@ class CustomerMasterSecurityIntegrationTest {
         String sourceStatus = jdbc.queryForObject(
                 "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", tenantA.tenantId()).addValue("id", source), String.class);
-        String targetStatus = jdbc.queryForObject(
-                "SELECT lifecycle_status FROM crm_accounts WHERE tenant_id=:tenantId AND id=:id",
-                p().addValue("tenantId", tenantB.tenantId()).addValue("id", foreignTarget), String.class);
+        String targetStatus = foreignAccountStatus();
         org.assertj.core.api.Assertions.assertThat(sourceStatus).isEqualTo("ACTIVE");
         org.assertj.core.api.Assertions.assertThat(targetStatus).isEqualTo("ACTIVE");
     }
