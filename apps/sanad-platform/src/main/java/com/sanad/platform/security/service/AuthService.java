@@ -323,6 +323,8 @@ public class AuthService {
         }
 
         RefreshToken refreshToken = tokenOpt.get();
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(refreshToken.getTenantId())) {
         if (refreshToken.getStatus() == RefreshTokenStatus.USED) {
             log.warn("Refresh replay detected for userId={} tenantId={}",
                     refreshToken.getUserId(), refreshToken.getTenantId());
@@ -393,6 +395,7 @@ public class AuthService {
                         user.getEmail(),
                         user.getDisplayName(),
                         user.getStatus().name()));
+        }
     }
 
     @Transactional
@@ -604,6 +607,8 @@ public class AuthService {
         }
 
         PasswordResetToken resetToken = tokenOpt.get();
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(resetToken.getTenantId())) {
 
         if (!resetToken.isUsable()) {
             // Mark as expired if it's past TTL
@@ -642,6 +647,7 @@ public class AuthService {
 
         log.info("AUDIT: Password reset completed for userId={} tenantId={} email={}",
                 user.getId(), user.getTenantId(), user.getEmail());
+        }
     }
 
     // =========================================================================
