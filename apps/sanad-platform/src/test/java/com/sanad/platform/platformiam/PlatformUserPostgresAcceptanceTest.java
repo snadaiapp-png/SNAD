@@ -64,12 +64,20 @@ class PlatformUserPostgresAcceptanceTest {
                     jdbc.update("DELETE FROM refresh_tokens WHERE user_id = ?", userId);
                     jdbc.update("DELETE FROM user_role_assignments WHERE user_id = ?", userId);
                     jdbc.update("DELETE FROM platform_memberships WHERE user_id = ?", userId);
-                    jdbc.update("DELETE FROM users WHERE id = ?", userId);
+                    // Users are tenant-isolated under FORCE RLS; foreign fixture identities
+                    // are removed in their originating tenant transaction below.
+                    jdbc.update("DELETE FROM users WHERE id = ? AND tenant_id = ?", userId, CONTROL_TENANT);
                 }
                 return null;
             });
         }
         for (UUID tenantId : createdTenants) {
+            inTenantTransaction(tenantId, () -> {
+                for (UUID userId : createdUsers) {
+                    jdbc.update("DELETE FROM users WHERE id = ? AND tenant_id = ?", userId, tenantId);
+                }
+                return null;
+            });
             jdbc.update("DELETE FROM tenants WHERE id = ?", tenantId);
         }
         createdUsers.clear();
@@ -88,18 +96,18 @@ class PlatformUserPostgresAcceptanceTest {
 
         assertThat(created.userId()).isNotEqualTo(foreignUserId);
         assertThat(created.email()).isEqualTo(email.toLowerCase());
-        assertThat(jdbc.queryForObject(
+        assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE id=? AND tenant_id=?",
-                Integer.class, created.userId(), CONTROL_TENANT)).isEqualTo(1);
+                Integer.class, created.userId(), CONTROL_TENANT))).isEqualTo(1);
         assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM platform_memberships WHERE control_tenant_id=? AND user_id=?",
                 Integer.class, CONTROL_TENANT, created.userId()))).isEqualTo(1);
         assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM platform_memberships WHERE control_tenant_id=? AND user_id=?",
                 Integer.class, CONTROL_TENANT, foreignUserId))).isZero();
-        assertThat(jdbc.queryForObject(
+        assertThat(inTenantTransaction(tenantB, () -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE id=? AND tenant_id=? AND email=?",
-                Integer.class, foreignUserId, tenantB, email)).isEqualTo(1);
+                Integer.class, foreignUserId, tenantB, email))).isEqualTo(1);
     }
 
     @Test
@@ -208,23 +216,29 @@ class PlatformUserPostgresAcceptanceTest {
     private UUID seedUser(UUID tenantId, String email, String displayName) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("""
+        inTenantTransaction(tenantId, () -> {
+            jdbc.update("""
                 INSERT INTO users (
                     id, tenant_id, email, display_name, status,
                     password_hash, must_change_password, platform_admin,
                     session_version, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, 'ACTIVE', NULL, false, false, 0, ?, ?)
                 """, id, tenantId, email, displayName, Timestamp.from(now), Timestamp.from(now));
+            return null;
+        });
         createdUsers.add(id);
         return id;
     }
 
     private <T> T inControlTenantTransaction(Supplier<T> work) {
+        return inTenantTransaction(CONTROL_TENANT, work);
+    }
+
+    private <T> T inTenantTransaction(UUID tenantId, Supplier<T> work) {
         return new TransactionTemplate(transactionManager).execute(status -> {
             jdbc.queryForObject(
                     "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class,
-                    CONTROL_TENANT_ID);
+                    String.class, tenantId.toString());
             return work.get();
         });
     }

@@ -95,9 +95,9 @@ class PlatformSessionInvalidationPostgresAcceptanceTest {
         assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT status FROM platform_memberships WHERE control_tenant_id=? AND user_id=?",
                 String.class, CONTROL_TENANT, userId))).isEqualTo(target.name());
-        assertThat(jdbc.queryForObject(
+        assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT session_version FROM users WHERE tenant_id=? AND id=?",
-                Long.class, CONTROL_TENANT, userId)).isEqualTo(1L);
+                Long.class, CONTROL_TENANT, userId))).isEqualTo(1L);
         assertThat(inControlTenantTransaction(() -> jdbc.queryForObject(
                 "SELECT COUNT(*) FROM refresh_tokens WHERE tenant_id=? AND user_id=? AND status='ACTIVE'",
                 Integer.class, CONTROL_TENANT, userId))).isZero();

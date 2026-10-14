@@ -124,16 +124,24 @@ class ModuleRegistryUatPostgresAcceptanceTest {
         // so random fixture cleanup stays intact with zero accumulation.
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
     private UUID seedUser(UUID tenantId, String email) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.update("""
-                INSERT INTO users (id, tenant_id, email, display_name, status,
-                                   password_hash, must_change_password, platform_admin,
-                                   session_version, created_at, updated_at)
-                VALUES (?, ?, ?, 'UAT Acceptance User', 'ACTIVE', 'seed-no-login',
-                        false, false, 0, ?, ?)
-                """, id, tenantId, email, Timestamp.from(now), Timestamp.from(now));
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+            jdbc.update("""
+                    INSERT INTO users (id, tenant_id, email, display_name, status,
+                                       password_hash, must_change_password, platform_admin,
+                                       session_version, created_at, updated_at)
+                    VALUES (?, ?, ?, 'UAT Acceptance User', 'ACTIVE', 'seed-no-login',
+                            false, false, 0, ?, ?)
+                    """, id, tenantId, email, Timestamp.from(now), Timestamp.from(now));
+                    });
         createdUsers.add(id);
         return id;
     }

@@ -26,6 +26,7 @@ import com.sanad.platform.security.exception.PasswordResetRateLimitException;
 import com.sanad.platform.security.exception.RefreshTokenReplayException;
 import com.sanad.platform.security.filter.SessionVersionCache;
 import com.sanad.platform.security.ratelimit.LoginRateLimiter;
+import com.sanad.platform.security.rls.TenantRlsTransactionContext;
 import com.sanad.platform.tenant.domain.TenantStatus;
 import com.sanad.platform.tenant.repository.TenantRepository;
 import com.sanad.platform.subscription.lifecycle.SubscriptionResolutionService;
@@ -74,6 +75,7 @@ public class AuthService {
     private final SubscriptionResolutionService subscriptionResolution;
     private final ControlPlaneAccessGuard controlPlaneAccessGuard;
     private PlatformAuditWriter credentialAuditWriter;
+    private TenantRlsTransactionContext tenantRlsTransactionContext;
 
     @Autowired
     public AuthService(
@@ -112,6 +114,12 @@ public class AuthService {
         this.resetRequestCache = Caffeine.newBuilder()
                 .expireAfterWrite(1, TimeUnit.HOURS)
                 .build();
+    }
+
+    /** Explicit tenant login must bind RLS before reading public.users. */
+    @Autowired(required = false)
+    void setTenantRlsTransactionContext(TenantRlsTransactionContext context) {
+        this.tenantRlsTransactionContext = context;
     }
 
     /** Optional Phase 7 audit writer for credential administration events. */
@@ -184,6 +192,15 @@ public class AuthService {
             }
         }
 
+        // Explicit tenant login is a pre-auth request: SecurityContextHolder
+        // cannot supply an authenticated tenant yet. Apply its scoped GUC in
+        // this transaction before touching the FORCE-RLS users table. Tenant
+        // identifiers are only scopes, never evidence of authorization;
+        // password, tenant status and subscription checks still apply.
+        if (request.getTenantId() != null && tenantRlsTransactionContext != null) {
+            tenantRlsTransactionContext.applyForCurrentTransaction(request.getTenantId());
+        }
+
         // Resolve through the canonical tenant user repository. Username is
         // tenant-scoped and may legitimately exist in more than one tenant.
         User user;
@@ -234,6 +251,13 @@ public class AuthService {
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
         return issueTokens(user);
+    }
+
+    /** Scope only a tenant already resolved from a verified credential or token. */
+    private void applyTrustedTenantScope(UUID tenantId) {
+        if (tenantRlsTransactionContext != null) {
+            tenantRlsTransactionContext.applyForCurrentTransaction(tenantId);
+        }
     }
 
     private void requireLoginEligibleTenant(UUID tenantId) {
@@ -350,6 +374,7 @@ public class AuthService {
             throw new InvalidCredentialsException("رمز التحديث منتهي الصلاحية");
         }
 
+        applyTrustedTenantScope(refreshToken.getTenantId());
         User user = userRepository.findByTenantIdAndId(
                         refreshToken.getTenantId(), refreshToken.getUserId())
                 .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
@@ -409,6 +434,7 @@ public class AuthService {
         int revoked = refreshTokenRepository.revokeAllActive(tenantId, userId);
 
         // Increment session version to invalidate all outstanding access tokens
+        applyTrustedTenantScope(tenantId);
         userRepository.findByTenantIdAndId(tenantId, userId).ifPresent(user -> {
             user.incrementSessionVersion();
             userRepository.save(user);
@@ -441,6 +467,9 @@ public class AuthService {
             throw new IllegalArgumentException("Initial credential must be between 8 and 256 characters");
         }
 
+        // Tenant authorization is enforced by the caller; never read users
+        // without a transaction-local tenant RLS scope.
+        applyTrustedTenantScope(tenantId);
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new InvalidCredentialsException("???????? ??? ?????"));
 
@@ -486,6 +515,7 @@ public class AuthService {
     /** Rotates the authenticated account credential and terminates existing refresh sessions. */
     @Transactional
     public void changeCredential(UUID tenantId, UUID userId, ChangeCredentialRequest request) {
+        applyTrustedTenantScope(tenantId);
         User user = userRepository.findByTenantIdAndId(tenantId, userId)
                 .orElseThrow(() -> new InvalidCredentialsException("المستخدم غير موجود"));
 
@@ -623,6 +653,8 @@ public class AuthService {
             throw new InvalidResetTokenException("رمز إعادة التعيين غير صالح أو منتهي الصلاحية");
         }
 
+        // Tenant comes from the validated persisted reset token, not a client parameter.
+        applyTrustedTenantScope(resetToken.getTenantId());
         // Load user
         User user = userRepository.findByTenantIdAndId(resetToken.getTenantId(), resetToken.getUserId())
                 .orElseThrow(() -> new InvalidResetTokenException("المستخدم غير موجود"));
