@@ -103,10 +103,13 @@ class WorkflowNotificationDedupRaceTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)", tenant, "T15Dedup-" + tag,
                 "t15-dedup-" + tag + "-" + tenant.toString().substring(0, 8), now, now);
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
-                        + "created_at,updated_at) VALUES (?, ?, ?, 'Dedup User', 'ACTIVE', 'dummy', ?, ?)",
-                user, tenant, "t15-dedup-" + user.toString().substring(0, 8) + "@test", now, now);
+        // FIXED: TransactionTemplate — set_config + INSERT on same connection
+        tx.executeWithoutResult(txStatus -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenant.toString());
+            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
+                    + "VALUES (?, ?, ?, 'Dedup User', 'ACTIVE', 'dummy', ?, ?)",
+                    user, tenant, "t15-dedup-" + user.toString().substring(0, 8) + "@test", now, now);
+        });
         jdbc.update("""
                 INSERT INTO workflow_definitions (
                     id, tenant_id, definition_family_id, code, name, module, version, status,
