@@ -18,19 +18,17 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * transaction and automatically resets on commit/rollback — safe for
  * connection-pool reuse.</p>
  *
- * <h3>Activation conditions</h3>
+ * <h3>Fail-closed behavior</h3>
  * <ul>
- *   <li>{@code autoCommit == false} — we are inside a Spring
- *       {@code @Transactional} boundary (the primary CRM data-access path).</li>
- *   <li>A tenant id is present in the {@link SecurityContextHolder}.</li>
+ *   <li>Transactions use {@code SET LOCAL}, which resets at commit/rollback.</li>
+ *   <li>Autocommit uses a session GUC that must be reset before the connection
+ *       is returned to the pool.</li>
+ *   <li>Missing or invalid tenant context maps to a reserved zero UUID, keeping
+ *       UUID casts valid while matching no real tenant.</li>
  * </ul>
  *
- * <p>When no trusted tenant context exists, the handler installs an empty tenant GUC
- * so policies using {@code nullif(current_setting('app.tenant_id', true), '')}
- * fail closed. Autocommit uses a session GUC
- * that is reset before the pooled connection is returned. A real tenant may
- * replace the sentinel once during bootstrap, but a real tenant cannot switch
- * to another tenant on the same borrowed connection.</p>
+ * <p>A real tenant may replace the sentinel once during bootstrap, but a real
+ * tenant cannot switch to another tenant on the same borrowed connection.</p>
  */
 final class TenantRlsConnectionHandler implements InvocationHandler {
 
