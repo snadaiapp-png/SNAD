@@ -8,6 +8,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -29,6 +31,9 @@ class AccountUseCasesIntegrationTest {
 
     @Autowired
     org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     private UUID seedTenantAndOwner() {
         UUID tenantId = UUID.randomUUID();
@@ -194,8 +199,7 @@ class AccountUseCasesIntegrationTest {
         UUID actorId = jdbc.queryForObject("SELECT id FROM users WHERE tenant_id = :t LIMIT 1",
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId), UUID.class);
         AccountRecord created = accountUseCases.create(tenantId, actorId, new CreateAccountCommand("Timeline Test", "BUSINESS", actorId, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
-        Integer count = jdbc.queryForObject("SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid AND event_type = 'crm.account.created'",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId).addValue("sid", created.id()), Integer.class);
+        long count = timelineCount(tenantId, created.id(), "crm.account.created");
         assertNotNull(count);
         assertTrue(count > 0, "Timeline row should exist after create");
     }
@@ -249,8 +253,7 @@ class AccountUseCasesIntegrationTest {
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId), UUID.class);
         AccountRecord created = accountUseCases.create(tenantId, actorId, new CreateAccountCommand("Timeline Update", "BUSINESS", actorId, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
         accountUseCases.update(tenantId, actorId, created.id(), new UpdateAccountCommand("Updated", null, null, null, null, null, null), created.version());
-        Integer count = jdbc.queryForObject("SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid AND event_type = 'crm.account.updated'",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId).addValue("sid", created.id()), Integer.class);
+        long count = timelineCount(tenantId, created.id(), "crm.account.updated");
         assertNotNull(count);
         assertTrue(count > 0, "Timeline UPDATE row should exist");
     }
@@ -263,8 +266,7 @@ class AccountUseCasesIntegrationTest {
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId), UUID.class);
         AccountRecord created = accountUseCases.create(tenantId, actorId, new CreateAccountCommand("Timeline Archive", "BUSINESS", actorId, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
         accountUseCases.archive(tenantId, actorId, created.id(), created.version());
-        Integer count = jdbc.queryForObject("SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid AND event_type = 'crm.account.archived'",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId).addValue("sid", created.id()), Integer.class);
+        long count = timelineCount(tenantId, created.id(), "crm.account.archived");
         assertNotNull(count);
         assertTrue(count > 0, "Timeline ARCHIVE row should exist");
     }
@@ -415,23 +417,14 @@ class AccountUseCasesIntegrationTest {
                 new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId), UUID.class);
         AccountRecord created = accountUseCases.create(tenantId, actorId,
                 new CreateAccountCommand("Rollback Timeline", "BUSINESS", actorId, null, "SAR", "ar-SA", "Asia/Riyadh", "TEST"));
-        long baseline = jdbc.queryForObject(
-                "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId)
-                        .addValue("sid", created.id()), Long.class);
+        long baseline = timelineCount(tenantId, created.id(), null);
         assertThrows(CrmContractException.class, () ->
                 accountUseCases.update(tenantId, actorId, created.id(),
                         new UpdateAccountCommand("Should Rollback", null, null, null, null, null, null),
                         created.version() + 999L));
-        long updatedTimeline = jdbc.queryForObject(
-                "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid AND event_type = 'crm.account.updated'",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId)
-                        .addValue("sid", created.id()), Long.class);
+        long updatedTimeline = timelineCount(tenantId, created.id(), "crm.account.updated");
         assertEquals(0L, updatedTimeline, "Failed update must not persist an updated timeline row");
-        long totalAfter = jdbc.queryForObject(
-                "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId)
-                        .addValue("sid", created.id()), Long.class);
+        long totalAfter = timelineCount(tenantId, created.id(), null);
         assertEquals(baseline, totalAfter, "Failed update must not change timeline row count");
     }
 
@@ -480,4 +473,20 @@ class AccountUseCasesIntegrationTest {
                 "When no X-Correlation-ID header is supplied, audit correlation_id must be a UUID");
     }
 
+    /**
+     * Query FORCE-RLS timeline rows with a transaction-local tenant identity.
+     * Auto-commit reads cannot retain SET LOCAL app.tenant_id.
+     */
+    private long timelineCount(UUID tenantId, UUID subjectId, String eventType) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            var parameters = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId.toString())
+                    .addValue("sid", subjectId);
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)", parameters, String.class);
+            String sql = "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid"
+                    + (eventType == null ? "" : " AND event_type = :eventType");
+            if (eventType != null) parameters.addValue("eventType", eventType);
+            Long count = jdbc.queryForObject(sql, parameters, Long.class);
+            return count == null ? 0L : count;
+        });
+    }
 }
