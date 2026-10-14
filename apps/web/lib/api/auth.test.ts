@@ -21,7 +21,7 @@ describe("createAuthApi", () => {
     return client;
   }
 
-  it("login sends email and password to /api/v1/auth/login", async () => {
+  it("login sends tenant-scoped credentials to /api/v1/auth/login", async () => {
     const client = mockClient(200, {
       accessToken: "test-access-token",
       expiresAt: "2099-01-01T00:00:00Z",
@@ -34,7 +34,7 @@ describe("createAuthApi", () => {
     expect(result.user.email).toBe("test@example.com");
   });
 
-  it("login throws AmbiguousTenantError on 409 with tenantIds", async () => {
+  it("login maps a server 409 response to AmbiguousTenantError", async () => {
     const client = mockClient(409, {
       timestamp: "2024-01-01T00:00:00Z",
       status: 409,
@@ -45,11 +45,11 @@ describe("createAuthApi", () => {
     });
     const api = createAuthApi(client);
 
-    await expect(api.login({ email: "test@example.com", password: "pass123" }))
+    await expect(api.login({ email: "test@example.com", password: "pass123", tenantId: "11111111-1111-4111-8111-111111111111" }))
       .rejects.toThrow(AmbiguousTenantError);
 
     try {
-      await api.login({ email: "test@example.com", password: "pass123" });
+      await api.login({ email: "test@example.com", password: "pass123", tenantId: "11111111-1111-4111-8111-111111111111" });
     } catch (err) {
       expect(err).toBeInstanceOf(AmbiguousTenantError);
       const ate = err as AmbiguousTenantError;
@@ -67,7 +67,7 @@ describe("createAuthApi", () => {
     });
     const api = createAuthApi(client);
 
-    await expect(api.login({ email: "test@example.com", password: "wrong" }))
+    await expect(api.login({ email: "test@example.com", password: "wrong", tenantId: "11111111-1111-4111-8111-111111111111" }))
       .rejects.toThrow(ApiHttpError);
   });
 
