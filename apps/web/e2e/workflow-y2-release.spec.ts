@@ -919,6 +919,7 @@ test("P13 — real application: authenticated Arabic RTL, full operational IA, a
   await page.locator("#login-email").waitFor({ state: "visible", timeout: 30_000 });
 
   // Visible error state on failed credentials (before the real login).
+  await page.locator("#login-tenant-id").fill(TENANT_A_ID);
   await page.locator("#login-email").fill(ACTORS.DESIGNER);
   await page.locator("#login-password").fill("definitely-wrong-password");
   await page.getByRole("button", { name: /دخول|login|تسجيل/i }).first().click();
