@@ -150,10 +150,11 @@ class TenantRlsTransactionContextPostgresTest {
 
         // The probe table is self-contained: use distinct fixture UUIDs so
         // the test does not depend on or mutate the public.tenants catalog.
-        UUID tenantA = UUID.randomUUID();
-        UUID tenantB = UUID.randomUUID();
-        UUID rowA = UUID.randomUUID();
-        UUID rowB = UUID.randomUUID();
+        // Deterministic, isolated fixture identities make the A/B proof reproducible.
+        UUID tenantA = UUID.fromString("10000000-0000-4000-8000-000000000001");
+        UUID tenantB = UUID.fromString("20000000-0000-4000-8000-000000000002");
+        UUID rowA = UUID.fromString("a0000000-0000-4000-8000-000000000001");
+        UUID rowB = UUID.fromString("b0000000-0000-4000-8000-000000000002");
 
         tx.executeWithoutResult(status -> {
             try (TenantRlsExecutionContext.Scope ignored = TenantRlsExecutionContext.open(tenantA)) {
