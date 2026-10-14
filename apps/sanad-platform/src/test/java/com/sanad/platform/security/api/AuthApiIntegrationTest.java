@@ -122,6 +122,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — valid credentials returns 200 with access token; refresh token in cookie only")
     void login_validCredentials_returnsTokens() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -148,6 +149,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — wrong password returns 401")
     void login_wrongPassword_returns401() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, "WrongPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -174,6 +176,7 @@ class AuthApiIntegrationTest {
         // With email-only login, the user is found by email regardless of tenant.
         // This test now verifies that email-only login works (returns 200, not 401).
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -190,6 +193,7 @@ class AuthApiIntegrationTest {
         userRepository.save(user);
 
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -210,6 +214,7 @@ class AuthApiIntegrationTest {
         userRepository.save(nopassUser);
 
         LoginRequest request = new LoginRequest(nopassEmail, "anyPassword");
+        request.setTenantId(tenantId);
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -232,6 +237,7 @@ class AuthApiIntegrationTest {
     @DisplayName("POST /api/v1/auth/login — no password in response body or headers")
     void login_noPasswordInResponse() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -272,15 +278,13 @@ class AuthApiIntegrationTest {
         user2.setPasswordHash(passwordEncoder.encode(testPassword));
         userRepository.save(user2);
 
-        // Login without tenantId should return 409
+        // Tenantless login must fail before querying users
         LoginRequest request = new LoginRequest(testEmail, testPassword);
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.tenantIds").isArray())
-                .andExpect(jsonPath("$.tenantIds.length()").value(2));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("بيانات الدخول غير صحيحة"));
     }
 
     @Test
@@ -520,6 +524,7 @@ class AuthApiIntegrationTest {
 
     private LoginResult loginAndExtractCookie() throws Exception {
         LoginRequest request = new LoginRequest(testEmail, testPassword);
+        request.setTenantId(tenantId);
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
