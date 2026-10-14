@@ -99,63 +99,38 @@ class AddressCommunicationOperationsHttpIntegrationTest {
         assertThat(visible).contains("private@example.test");
     }
 
-    private final Fixture[] fixtureRef = new Fixture[1];
-    private final UUID[] accountIdRef = new UUID[1];
-
     @Test
     @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.NEVER)
     void importIsRowIsolatedAndPersistsFrameworkJobAndErrors() throws Exception {
-        // Create ALL fixture data (tenant + user + account) in a single
-        // REQUIRES_NEW transaction. This ensures:
-        // 1. The tenant is committed before crm_accounts INSERT (fk_crm_accounts_tenant)
-        // 2. The fixture data survives the import's internal error handling
-        // 3. set_config and INSERT share the same connection
-        Fixture fixture;
-        UUID accountId;
+        // Keep tenant, user, roles, role grants, account and their FK parents
+        // inside one committed REQUIRES_NEW transaction. fixture()'s nested
+        // TransactionTemplate uses REQUIRED and therefore joins this transaction.
+        Fixture[] fixtureHolder = new Fixture[1];
+        UUID[] accountHolder = new UUID[1];
         var savedAuth = org.springframework.security.core.context.SecurityContextHolder
                 .getContext().getAuthentication();
-        new org.springframework.transaction.support.TransactionTemplate(txManager) {{
-            setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        }}.executeWithoutResult(txStatus -> {
-            // Inline fixture creation — can't call fixture() because it
-            // uses class-level @Transactional context.
-            UUID tenantId = UUID.randomUUID();
-            UUID userId = UUID.randomUUID();
-            UUID roleId = UUID.randomUUID();
-            Instant now = Instant.now();
-            com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(tenantId, userId);
-            jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
-                    "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
-                    p().addValue("id", tenantId).addValue("name", "crm007-import")
-                            .addValue("subdomain", "crm007-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
-            jdbc.getJdbcTemplate().queryForObject(
-                    "SELECT set_config('app.tenant_id', ?, true)",
-                    String.class, tenantId.toString());
-            jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
-                    "VALUES (:id,:tenantId,:email,'CRM-007 Ops User','ACTIVE','dummy',:now,:now)",
-                    p().addValue("id", userId).addValue("tenantId", tenantId)
-                            .addValue("email", "crm007-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
-            jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
-                    "VALUES (:id,:tenantId,:code,'CRM-007 Ops','CRM-007 ops tests','ACTIVE',:now,:now)",
-                    p().addValue("id", roleId).addValue("tenantId", tenantId)
-                            .addValue("code", "CRM007_OPS_" + "crm007".toUpperCase().replace('-', '_')).addValue("now", java.sql.Timestamp.from(now)));
-            // Create the account
-            UUID acctId = UUID.randomUUID();
-            jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
-                    "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
-                    "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
-                    "'BUSINESS','ACTIVE','SAR','ar-SA','Asia/Riyadh','CRM007_OPS',:owner,:owner,:owner,:now,:now)",
-                    p().addValue("id", acctId).addValue("tenantId", tenantId).addValue("name", "Import Customer")
-                            .addValue("normalized", "import customer").addValue("owner", userId).addValue("now", java.sql.Timestamp.from(now)));
-            // Store for use outside REQUIRES_NEW
-            fixtureRef[0] = new Fixture(tenantId, userId);
-            accountIdRef[0] = acctId;
-        });
-        fixture = fixtureRef[0];
-        accountId = accountIdRef[0];
-        // Restore SecurityContext after REQUIRES_NEW
-        org.springframework.security.core.context.SecurityContextHolder
-                .getContext().setAuthentication(savedAuth);
+        try {
+            new org.springframework.transaction.support.TransactionTemplate(txManager) {{
+                setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            }}.executeWithoutResult(txStatus -> {
+                Fixture fixture = fixture("crm007-import");
+                com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(
+                        fixture.tenantId(), fixture.userId());
+                UUID accountId = account(fixture, "Import Customer");
+                fixtureHolder[0] = fixture;
+                accountHolder[0] = accountId;
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder
+                    .getContext().setAuthentication(savedAuth);
+        }
+        Fixture fixture = fixtureHolder[0];
+        UUID accountId = accountHolder[0];
+        if (fixture == null || accountId == null) {
+            throw new IllegalStateException("REQUIRES_NEW fixture transaction did not produce fixture/account");
+        }
+        // The fixture transaction has committed; restore tenant context for
+        // subsequent JDBC assertions while MockMvc authenticates the request itself.
         com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(fixture.tenantId(), fixture.userId());
 
         String payload = """
