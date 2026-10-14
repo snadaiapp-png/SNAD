@@ -67,9 +67,9 @@ class TenantRlsConnectionHandlerTest {
         proxy = wrap();
         proxy.createStatement();
 
-        // Autocommit uses a session-level fail-closed sentinel because SET LOCAL
+        // Autocommit uses a syntactically valid reserved UUID as a fail-closed sentinel because SET LOCAL
         // would not protect the statement. It must be reset before pool return.
-        verify(statement, times(1)).execute("SET app.tenant_id = ''");
+        verify(statement, times(1)).execute("SET app.tenant_id = '00000000-0000-0000-0000-000000000000'");
         proxy.close();
         verify(statement, times(1)).execute("RESET app.tenant_id");
     }
@@ -113,7 +113,7 @@ class TenantRlsConnectionHandlerTest {
         proxy = wrap();
         proxy.createStatement();
 
-        verify(statement, times(1)).execute("SET LOCAL app.tenant_id = ''");
+        verify(statement, times(1)).execute("SET LOCAL app.tenant_id = '00000000-0000-0000-0000-000000000000'");
     }
 
     @Test
@@ -126,7 +126,7 @@ class TenantRlsConnectionHandlerTest {
         proxy = wrap();
         proxy.createStatement();
 
-        verify(statement, times(1)).execute("SET LOCAL app.tenant_id = ''");
+        verify(statement, times(1)).execute("SET LOCAL app.tenant_id = '00000000-0000-0000-0000-000000000000'");
     }
 
     @Test
