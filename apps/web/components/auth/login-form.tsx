@@ -19,7 +19,7 @@ function AuthenticatingLabel({ pending, delayed }: { pending: string; delayed: s
 }
 
 interface LoginFormProps {
-  onLogin: (email: string, password: string) => Promise<void>;
+  onLogin: (email: string, password: string, tenantId: string) => Promise<void>;
   authenticating: boolean;
   error: UserFacingError | null;
   sessionExpired?: boolean;
@@ -34,6 +34,11 @@ export function LoginForm({
   onRetrySession,
 }: LoginFormProps) {
   const [email, setEmail] = useState("");
+  const [tenantId, setTenantId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("tenantId")?.trim() ?? "";
+  });
+  const [tenantIdError, setTenantIdError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -48,6 +53,12 @@ export function LoginForm({
 
   function validate(): boolean {
     let valid = true;
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(tenantId.trim())) {
+      setTenantIdError(locale === "ar" ? "أدخل معرّف المنشأة الصحيح (UUID)." : "Enter a valid tenant ID (UUID).");
+      valid = false;
+    } else {
+      setTenantIdError(null);
+    }
     if (!email.trim()) {
       setEmailError(t("auth.login.emailRequired"));
       valid = false;
@@ -70,7 +81,7 @@ export function LoginForm({
     event.preventDefault();
     if (authenticating) return;
     if (!validate()) return;
-    await onLogin(email.trim().toLowerCase(), password);
+    await onLogin(email.trim().toLowerCase(), password, tenantId.trim());
   }
 
   async function retrySession() {
@@ -118,6 +129,34 @@ export function LoginForm({
       )}
 
       <form onSubmit={handleSubmit} noValidate aria-busy={authenticating}>
+        <div className={styles.authField}>
+          <label htmlFor="login-tenant-id" className={styles.authLabel}>
+            {locale === "ar" ? "معرّف المنشأة (Tenant ID)" : "Tenant ID"}
+          </label>
+          <input
+            id="login-tenant-id"
+            name="tenantId"
+            type="text"
+            autoComplete="off"
+            dir="ltr"
+            className={styles.authInput}
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            value={tenantId}
+            onChange={(event) => {
+              setTenantId(event.target.value);
+              if (tenantIdError) setTenantIdError(null);
+            }}
+            aria-invalid={!!tenantIdError}
+            aria-describedby={tenantIdError ? "login-tenant-id-error" : undefined}
+            disabled={authenticating}
+            required
+          />
+          {tenantIdError && (
+            <span id="login-tenant-id-error" className={styles.authErrorMessage} role="alert">
+              {tenantIdError}
+            </span>
+          )}
+        </div>
         <div className={styles.authField}>
           <label htmlFor="login-email" className={styles.authLabel}>{t("auth.login.email")}</label>
           <div className={styles.authInputWrapper}>
