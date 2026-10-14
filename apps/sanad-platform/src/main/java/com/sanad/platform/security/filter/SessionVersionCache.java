@@ -56,8 +56,15 @@ public class SessionVersionCache {
      * @return the session version, or {@code null} if the user no longer exists
      */
     public Long get(UUID tenantId, UUID userId) {
-        return cache.get(new Key(tenantId, userId),
-                k -> userRepository.findSessionVersionByTenantIdAndId(k.tenantId(), k.userId()));
+        return cache.get(new Key(tenantId, userId), k -> {
+            // JWT claims are cryptographically validated before this method is
+            // called. Use the claim only as a tenant-scoped lookup boundary;
+            // it does not itself grant authorization to the request.
+            try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                         com.sanad.platform.security.rls.TenantRlsExecutionContext.open(k.tenantId())) {
+                return userRepository.findSessionVersionByTenantIdAndId(k.tenantId(), k.userId());
+            }
+        });
     }
 
     /**
