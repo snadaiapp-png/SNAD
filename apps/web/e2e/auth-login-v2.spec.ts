@@ -56,7 +56,8 @@ test.describe("SNAD Login v2", () => {
   });
 
   test("authorized executive principal returns to /executive/tenants", async ({ page }) => {
-    test.skip(!EXEC_EMAIL || !EXEC_PASSWORD || !EXEC_TENANT_ID, "executive E2E credentials and tenant ID are required");
+    test.skip(!EXEC_EMAIL || !EXEC_PASSWORD, "executive E2E credentials are required");
+    if (!EXEC_TENANT_ID) throw new Error("EXECUTIVE_E2E_TENANT_ID is required when executive credentials are configured");
     await page.goto("/?returnUrl=%2Fexecutive%2Ftenants", {
       waitUntil: "domcontentloaded",
     });
