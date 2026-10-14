@@ -18,7 +18,6 @@ import com.sanad.platform.security.dto.LoginRequest;
 import com.sanad.platform.security.dto.RefreshRequest;
 import com.sanad.platform.security.dto.ResetPasswordRequest;
 import com.sanad.platform.security.exception.AccountInactiveException;
-import com.sanad.platform.security.exception.AmbiguousTenantException;
 import com.sanad.platform.security.exception.InvalidCredentialsException;
 import com.sanad.platform.security.exception.InvalidResetTokenException;
 import com.sanad.platform.security.exception.LoginRateLimitException;
@@ -184,31 +183,19 @@ public class AuthService {
             }
         }
 
-        // Resolve through the canonical tenant user repository. Username is
-        // tenant-scoped and may legitimately exist in more than one tenant.
-        User user;
-        if (request.getTenantId() != null) {
-            user = emailLogin
-                    ? userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail).orElse(null)
-                    : userRepository.findByTenantIdAndUsername(request.getTenantId(), normalizedUsername).orElse(null);
-        } else {
-            List<User> users = emailLogin
-                    ? userRepository.findAllByEmail(normalizedEmail)
-                    : userRepository.findAllByUsername(normalizedUsername);
-            if (users.isEmpty()) {
-                user = null;
-            } else if (users.size() == 1) {
-                user = users.get(0);
-            } else {
-                log.warn("Login ambiguous: identifierType={} found in {} tenants",
-                        emailLogin ? "email" : "username", users.size());
-                throw new AmbiguousTenantException(
-                        emailLogin
-                                ? "البريد الإلكتروني موجود في عدة مستأجرين"
-                                : "اسم المستخدم موجود في عدة مستأجرين",
-                        users);
-            }
+        // A tenant identifier is required before touching public.users.
+        // It is an untrusted scope hint, not authorization: successful password
+        // verification and the normal tenant/subscription checks remain mandatory.
+        // Tenantless cross-tenant JPA lookups are prohibited because they execute
+        // before an authenticated principal can establish an RLS tenant context.
+        if (request.getTenantId() == null) {
+            log.warn("Login rejected before database lookup: tenantId is required");
+            throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
         }
+
+        User user = emailLogin
+                ? userRepository.findByTenantIdAndEmail(request.getTenantId(), normalizedEmail).orElse(null)
+                : userRepository.findByTenantIdAndUsername(request.getTenantId(), normalizedUsername).orElse(null);
 
         if (user == null) {
             recordLoginFailure(rateLimitKeys, normalizedIdentifier);
