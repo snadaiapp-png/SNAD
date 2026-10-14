@@ -55,6 +55,7 @@ export async function loginThroughUi(
   expect(password, "CRM login password must be configured").toBeTruthy();
 
   const tenantId = configuredTenantId(email);
+  expect(tenantId, "CRM tenant ID must be configured for scoped login").toBeTruthy();
   if (tenantId) {
     await page.route(
       "**/api/platform/api/v1/auth/login",
@@ -82,6 +83,7 @@ export async function loginThroughUi(
   }
 
   await page.goto("/");
+  await page.locator("#login-tenant-id").fill(tenantId!);
   await page.locator("#login-email").fill(email);
   await page.locator("#login-password").fill(password);
 
