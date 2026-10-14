@@ -8,8 +8,8 @@ import { test, expect, type Page, type APIRequestContext } from "@playwright/tes
  */
 const BASE = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
 const API = `${BASE}/api/platform/api/v2/hr/payroll`;
-const REQUIRED = ["G4_OPERATOR_EMAIL", "G4_OPERATOR_PASSWORD",
-  "G4_FOREIGN_EMAIL", "G4_FOREIGN_PASSWORD", "G4_LEGAL_ENTITY_ID"];
+const REQUIRED = ["G4_OPERATOR_EMAIL", "G4_OPERATOR_PASSWORD", "G4_OPERATOR_TENANT_ID",
+  "G4_FOREIGN_EMAIL", "G4_FOREIGN_PASSWORD", "G4_FOREIGN_TENANT_ID", "G4_LEGAL_ENTITY_ID"];
 function required(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`G4-T10 FAIL-CLOSED: missing ${name}`);
@@ -18,8 +18,9 @@ function required(name: string): string {
 function mutationHeaders(token: string) {
   return { Authorization: `Bearer ${token}`, "Idempotency-Key": crypto.randomUUID() };
 }
-async function login(page: Page, email: string, password: string) {
+async function login(page: Page, email: string, password: string, tenantId: string) {
   await page.goto("/");
+  await page.locator("#login-tenant-id").fill(tenantId);
   await page.locator("#login-email").fill(email);
   await page.locator("#login-password").fill(password);
   const responsePromise = page.waitForResponse(res =>
@@ -56,7 +57,7 @@ test("authenticated payroll operator: create, calculate, review, approve, export
     if ([403, 500].includes(response.status())) unexpected.push(`${path} => ${response.status()}`);
   });
   try {
-    const loginData = await login(page, required("G4_OPERATOR_EMAIL"), required("G4_OPERATOR_PASSWORD"));
+    const loginData = await login(page, required("G4_OPERATOR_EMAIL"), required("G4_OPERATOR_PASSWORD"), required("G4_OPERATOR_TENANT_ID"));
     await page.goto("/hr/payroll");
     await expect(page.getByRole("heading", { name: /Payroll review|مراجعة مسيرات الرواتب/ })).toBeVisible();
     const create = await request.post(`${API}/runs`, {
@@ -82,7 +83,7 @@ test("authenticated payroll operator: create, calculate, review, approve, export
     const foreignContext = await browser.newContext();
     try {
       const foreignPage = await foreignContext.newPage();
-      const foreign = await login(foreignPage, required("G4_FOREIGN_EMAIL"), required("G4_FOREIGN_PASSWORD"));
+      const foreign = await login(foreignPage, required("G4_FOREIGN_EMAIL"), required("G4_FOREIGN_PASSWORD"), required("G4_FOREIGN_TENANT_ID"));
       expect(foreign.user.tenantId).not.toBe(loginData.user.tenantId);
       const denied = await request.get(`${API}/runs/${id}`, {
         headers: { Authorization: `Bearer ${foreign.accessToken}` },
