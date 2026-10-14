@@ -39,8 +39,8 @@ export function LoginForm({
 
   useEffect(() => {
     const requestedTenantId = new URLSearchParams(window.location.search).get("tenantId")?.trim();
-    if (requestedTenantId && !tenantId) setTenantId(requestedTenantId);
-  }, [tenantId]);
+    if (requestedTenantId) setTenantId(current => current || requestedTenantId);
+  }, []);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
