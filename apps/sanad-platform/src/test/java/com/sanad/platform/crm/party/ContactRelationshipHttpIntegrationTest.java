@@ -488,14 +488,17 @@ class ContactRelationshipHttpIntegrationTest {
                     jdbc.update("DELETE FROM " + table + " WHERE tenant_id = :t",
                             p().addValue("t", tenantId));
                 }
+                // Identity tables — users is RLS-protected under FORCE RLS,
+                // so must be deleted inside the same TransactionTemplate
+                // where app.tenant_id is set.
+                jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t",
+                        p().addValue("t", tenantId));
+                jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t",
+                        p().addValue("t", tenantId));
+                jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p().addValue("t", tenantId));
+                jdbc.update("DELETE FROM users WHERE tenant_id = :t", p().addValue("t", tenantId));
             });
-            // Identity tables are not RLS-protected; plain scoped deletes.
-            jdbc.update("DELETE FROM user_role_assignments WHERE tenant_id = :t",
-                    p().addValue("t", tenantId));
-            jdbc.update("DELETE FROM role_capabilities WHERE tenant_id = :t",
-                    p().addValue("t", tenantId));
-            jdbc.update("DELETE FROM roles WHERE tenant_id = :t", p().addValue("t", tenantId));
-            jdbc.update("DELETE FROM users WHERE tenant_id = :t", p().addValue("t", tenantId));
+            // tenants table has no RLS — safe to delete outside TransactionTemplate.
             jdbc.update("DELETE FROM tenants WHERE id = :t", p().addValue("t", tenantId));
         }
         createdTenantIds.clear();

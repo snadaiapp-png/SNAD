@@ -47,6 +47,7 @@ class AddressCommunicationOperationsHttpIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     @Test
     void searchesAndExportsArabicAddressesWithinTenant() throws Exception {
@@ -169,14 +170,20 @@ class AddressCommunicationOperationsHttpIntegrationTest {
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
         // Under FORCE RLS, INSERT INTO users requires app.tenant_id on the
-        // same transaction-bound connection. This test is @Transactional.
-        jdbc.getJdbcTemplate().queryForObject(
-                "SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
-        jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
-                        "VALUES (:id,:tenantId,:email,'CRM-007 Ops User','ACTIVE','dummy',:now,:now)",
-                p().addValue("id", userId).addValue("tenantId", tenantId)
-                        .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
+        // same connection. This test has @Transactional(NOT_SUPPORTED), so
+        // the set_config(..., true) won't work without an active transaction.
+        // Use a TransactionTemplate to ensure set_config and INSERT share
+        // the same connection within a transaction.
+        new org.springframework.transaction.support.TransactionTemplate(txManager)
+                .executeWithoutResult(txStatus -> {
+                    jdbc.getJdbcTemplate().queryForObject(
+                            "SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantId.toString());
+                    jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
+                            "VALUES (:id,:tenantId,:email,'CRM-007 Ops User','ACTIVE','dummy',:now,:now)",
+                    p().addValue("id", userId).addValue("tenantId", tenantId)
+                            .addValue("email", key + "-" + userId.toString().substring(0, 8) + "@example.test").addValue("now", java.sql.Timestamp.from(now)));
+                });
         jdbc.update("INSERT INTO roles (id,tenant_id,code,name,description,status,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:code,'CRM-007 Ops','CRM-007 ops tests','ACTIVE',:now,:now)",
                 p().addValue("id", roleId).addValue("tenantId", tenantId)
