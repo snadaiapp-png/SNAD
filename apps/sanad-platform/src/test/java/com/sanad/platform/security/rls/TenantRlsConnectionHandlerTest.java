@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.Statement;
+import java.sql.SQLException;
 import java.util.Map;
 import java.util.UUID;
 
@@ -102,6 +103,25 @@ class TenantRlsConnectionHandlerTest {
         verify(statement, times(1)).execute("SET app.tenant_id = '" + tenantId + "'");
         proxy.close();
         verify(statement, times(1)).execute("RESET app.tenant_id");
+        verify(delegate, times(1)).close();
+    }
+
+    @Test
+    void abortsPhysicalConnectionWhenSessionGucResetFails() throws Exception {
+        UUID tenantId = UUID.randomUUID();
+        setSecurityContext(tenantId);
+        when(delegate.getAutoCommit()).thenReturn(true);
+        proxy = wrap();
+
+        proxy.createStatement();
+        when(statement.execute("RESET app.tenant_id"))
+                .thenThrow(new SQLException("reset failed"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(proxy::close)
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("reset failed");
+
+        verify(delegate, times(1)).abort(org.mockito.ArgumentMatchers.any(java.util.concurrent.Executor.class));
         verify(delegate, times(1)).close();
     }
 
