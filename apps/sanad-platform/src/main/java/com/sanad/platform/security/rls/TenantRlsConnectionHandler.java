@@ -1,6 +1,7 @@
 package com.sanad.platform.security.rls;
 
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -10,29 +11,13 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
- * Dynamic-proxy invocation handler that lazily applies
- * {@code SET LOCAL app.tenant_id = '<uuid>'} to the underlying physical
- * connection the first time a statement is created within a transaction.
- *
- * <p>The {@code SET LOCAL} scoping ensures the GUC is scoped to the current
- * transaction and automatically resets on commit/rollback — safe for
- * connection-pool reuse.</p>
- *
- * <h3>Activation conditions</h3>
- * <ul>
- *   <li>{@code autoCommit == false} — we are inside a Spring
- *       {@code @Transactional} boundary (the primary CRM data-access path).</li>
- *   <li>A tenant id is present in the {@link SecurityContextHolder}.</li>
- * </ul>
- *
- * <p>If either condition is false the proxy is a transparent pass-through,
- * preserving full backward compatibility for non-transactional reads and
- * background jobs that intentionally operate across tenants.</p>
+ * Dynamic-proxy invocation handler that lazily applies transaction-local tenant
+ * scope before the first statement is created in a transaction.
  */
 final class TenantRlsConnectionHandler implements InvocationHandler {
 
     private final Connection delegate;
-    private boolean tenantApplied = false;
+    private UUID tenantAppliedFor;
 
     TenantRlsConnectionHandler(Connection delegate) {
         this.delegate = delegate;
@@ -41,12 +26,22 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         String name = method.getName();
-        // Intercept statement-creation entry points to guarantee the GUC is
-        // set before any SQL reaches the engine.
         if (isStatementCreation(name)) {
             ensureTenantContext();
         }
-        return method.invoke(delegate, args);
+        try {
+            return method.invoke(delegate, args);
+        } catch (InvocationTargetException exception) {
+            // Preserve JDBC's declared exception contract through the proxy.
+            throw exception.getCause();
+        } finally {
+            // SET LOCAL is scoped to a transaction. A pooled connection may be
+            // reused for a different tenant after any transaction boundary.
+            if ("commit".equals(name) || "rollback".equals(name)
+                    || "close".equals(name) || "setAutoCommit".equals(name)) {
+                tenantAppliedFor = null;
+            }
+        }
     }
 
     private boolean isStatementCreation(String methodName) {
@@ -57,42 +52,34 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
     }
 
     private void ensureTenantContext() throws SQLException {
-        if (tenantApplied) {
-            return;
-        }
-        // Only apply within an explicit transaction — SET LOCAL has no effect
-        // (and would error) in autocommit mode.
+        // SET LOCAL is only meaningful inside an explicit transaction.
         if (delegate.getAutoCommit()) {
             return;
         }
+
         UUID tenantId = currentTenantId();
+        if (tenantAppliedFor != null) {
+            if (!tenantAppliedFor.equals(tenantId)) {
+                throw new SQLException("Tenant identity changed inside an active RLS transaction");
+            }
+            return;
+        }
         if (tenantId == null) {
             return;
         }
+
+        // UUID.fromString validates the identity before it reaches SQL. JDBC
+        // does not support a bind parameter in SET LOCAL's assignment syntax.
         try (var stmt = delegate.createStatement()) {
-            // Parameterised SET LOCAL is not supported by PostgreSQL for GUC
-            // assignment, but the value is a well-formed UUID read directly
-            // from the validated JWT via the security context — never user-
-            // supplied raw input at this layer.
-            stmt.execute("SET LOCAL app.tenant_id = '" + tenantId.toString() + "'");
+            stmt.execute("SET LOCAL app.tenant_id = '" + tenantId + "'");
         }
-        tenantApplied = true;
+        tenantAppliedFor = tenantId;
     }
 
-    /**
-     * Read the tenant id from the Spring security context.
-     *
-     * <p>Mirrors the extraction logic in {@code SpringTenantContextAdapter}
-     * and {@code CrmContractController#requiredTenant} — the tenant id is
-     * placed into {@code Authentication.getDetails()} by
-     * {@code JwtAuthenticationFilter} after JWT validation.</p>
-     */
     private static UUID currentTenantId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
-            return null;
-        }
-        if (!(auth.getDetails() instanceof java.util.Map<?, ?> details)) {
+        if (auth == null || !auth.isAuthenticated()
+                || !(auth.getDetails() instanceof java.util.Map<?, ?> details)) {
             return null;
         }
         Object raw = details.get("tenant_id");
@@ -101,7 +88,7 @@ final class TenantRlsConnectionHandler implements InvocationHandler {
         }
         try {
             return UUID.fromString(raw.toString());
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException exception) {
             return null;
         }
     }
