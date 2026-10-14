@@ -15,7 +15,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,7 +33,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Import(SecurityPermitAllTestConfig.class)
 @ActiveProfiles("local")
-@Transactional
 class CrmApiIntegrationTest {
     private static final UUID TENANT_A = UUID.fromString("10000000-0000-0000-0000-000000000001");
     private static final UUID TENANT_B = UUID.fromString("10000000-0000-0000-0000-000000000002");
