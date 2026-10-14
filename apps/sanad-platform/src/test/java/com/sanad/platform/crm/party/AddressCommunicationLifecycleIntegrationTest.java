@@ -49,17 +49,17 @@ class AddressCommunicationLifecycleIntegrationTest {
         UUID first = address(fixture, accountId, "First Street", true);
         UUID second = address(fixture, accountId, "Second Street", true);
 
-        Map<String, Object> canonical = jdbc.queryForMap(
+        Map<String, Object> canonical = tenantQueryForMap(fixture, 
                 "SELECT primary_address,version FROM crm_party_addresses WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", first));
-        Map<String, Object> legacy = jdbc.queryForMap(
+        Map<String, Object> legacy = tenantQueryForMap(fixture, 
                 "SELECT primary_address,version FROM crm_account_addresses WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", first));
-        Long history = jdbc.queryForObject(
+        Long history = tenantQuery(fixture, 
                 "SELECT COUNT(*) FROM crm_party_address_history WHERE tenant_id=:tenantId AND address_id=:id " +
                         "AND event_type='PRIMARY_REPLACED'",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Long.class);
-        Boolean secondPrimary = jdbc.queryForObject(
+        Boolean secondPrimary = tenantQuery(fixture, 
                 "SELECT primary_address FROM crm_account_addresses WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", second), Boolean.class);
 
@@ -77,21 +77,21 @@ class AddressCommunicationLifecycleIntegrationTest {
         UUID first = communication(fixture, contactId, "first@example.test", true);
         UUID second = communication(fixture, contactId, "second@example.test", true);
 
-        Boolean firstPreferred = jdbc.queryForObject(
+        Boolean firstPreferred = tenantQuery(fixture, 
                 "SELECT preferred FROM crm_communication_methods WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Boolean.class);
-        Long replacedHistory = jdbc.queryForObject(
+        Long replacedHistory = tenantQuery(fixture, 
                 "SELECT COUNT(*) FROM crm_communication_method_history WHERE tenant_id=:tenantId " +
                         "AND communication_method_id=:id AND event_type='PREFERRED_REPLACED'",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", first), Long.class);
-        String projected = jdbc.queryForObject(
+        String projected = tenantQuery(fixture, 
                 "SELECT primary_email FROM crm_contacts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class);
         assertThat(firstPreferred).isFalse();
         assertThat(replacedHistory).isOne();
         assertThat(projected).isEqualTo("second@example.test");
 
-        long version = jdbc.queryForObject(
+        long version = tenantQuery(fixture, 
                 "SELECT version FROM crm_communication_methods WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", second), Long.class);
         mockMvc.perform(patch("/api/v2/crm/communication-methods/{id}/archive", second)
@@ -100,7 +100,7 @@ class AddressCommunicationLifecycleIntegrationTest {
                         .contentType("application/json").content("{}"))
                 .andExpect(status().isOk());
 
-        String afterArchive = jdbc.queryForObject(
+        String afterArchive = tenantQuery(fixture, 
                 "SELECT primary_email FROM crm_contacts WHERE tenant_id=:tenantId AND id=:id",
                 p().addValue("tenantId", fixture.tenantId()).addValue("id", contactId), String.class);
         assertThat(afterArchive).isNull();
@@ -200,6 +200,23 @@ class AddressCommunicationLifecycleIntegrationTest {
                             .addValue("owner", fixture.userId()).addValue("now", java.sql.Timestamp.from(now)));
         });
         return id;
+    }
+
+    /** Execute direct verification reads with transaction-local tenant context, matching the request path. */
+    private <T> T tenantQuery(Fixture fixture, String sql, MapSqlParameterSource parameters, Class<T> type) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    p().addValue("t", fixture.tenantId().toString()), String.class);
+            return jdbc.queryForObject(sql, parameters, type);
+        });
+    }
+
+    private Map<String, Object> tenantQueryForMap(Fixture fixture, String sql, MapSqlParameterSource parameters) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
+                    p().addValue("t", fixture.tenantId().toString()), String.class);
+            return jdbc.queryForMap(sql, parameters);
+        });
     }
 
     private Authentication auth(Fixture fixture) {
