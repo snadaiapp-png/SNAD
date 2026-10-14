@@ -154,6 +154,19 @@ public class AuthService {
      */
     @Transactional
     public AuthResponse login(LoginRequest request, String[] rateLimitKeys) {
+        // Request tenantId only scopes the lookup; it does not grant access.
+        // The password and tenant eligibility checks below remain authoritative.
+        if (request == null || request.getTenantId() == null) {
+            log.warn("Login rejected before database lookup: tenantId is required");
+            throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
+        }
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(request.getTenantId())) {
+            return loginWithinTenantScope(request, rateLimitKeys);
+        }
+    }
+
+    private AuthResponse loginWithinTenantScope(LoginRequest request, String[] rateLimitKeys) {
         String normalizedEmail = normalizeLoginEmail(request.getEmail());
         String normalizedUsername = normalizeLoginUsername(request.getUsername());
         boolean emailLogin = normalizedEmail != null;
@@ -181,16 +194,6 @@ public class AuthService {
                 throw new LoginRateLimitException(
                         "تم تجاوز عدد محاولات الدخول المسموح بها. حاول لاحقًا.");
             }
-        }
-
-        // A tenant identifier is required before touching public.users.
-        // It is an untrusted scope hint, not authorization: successful password
-        // verification and the normal tenant/subscription checks remain mandatory.
-        // Tenantless cross-tenant JPA lookups are prohibited because they execute
-        // before an authenticated principal can establish an RLS tenant context.
-        if (request.getTenantId() == null) {
-            log.warn("Login rejected before database lookup: tenantId is required");
-            throw new InvalidCredentialsException("بيانات الدخول غير صحيحة");
         }
 
         User user = emailLogin
@@ -221,6 +224,7 @@ public class AuthService {
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
         return issueTokens(user);
+    
     }
 
     private void requireLoginEligibleTenant(UUID tenantId) {
