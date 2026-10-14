@@ -2,6 +2,7 @@ package com.sanad.platform.crm.party;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -15,6 +16,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
+import com.sanad.platform.crm.test.RlsTestSupport;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -40,6 +42,11 @@ class AddressCommunicationLifecycleIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired NamedParameterJdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
+
+    @AfterEach
+    void clearTestSecurityContext() {
+        RlsTestSupport.clearSecurityContext();
+    }
 
     @Test
     void replacingPrimaryAddressRecordsOldHistoryAndUpdatesLegacyProjection() throws Exception {
@@ -137,13 +144,14 @@ class AddressCommunicationLifecycleIntegrationTest {
         UUID tenantId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID roleId = UUID.randomUUID();
+        // Establish the authenticated tenant before the first statement so the
+        // connection guard binds this transaction to one tenant from its start.
+        RlsTestSupport.setSecurityContext(tenantId, userId);
         Instant now = Instant.now();
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) " +
                         "VALUES (:id,:name,:subdomain,'ACTIVE',:now,:now)",
                 p().addValue("id", tenantId).addValue("name", key)
                         .addValue("subdomain", key + "-" + tenantId.toString().substring(0, 8)).addValue("now", java.sql.Timestamp.from(now)));
-        // Under FORCE RLS, INSERT INTO users requires app.tenant_id. This test is @Transactional.
-        jdbc.getJdbcTemplate().queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) " +
                         "VALUES (:id,:tenantId,:email,'Lifecycle User','ACTIVE','dummy',:now,:now)",
                 p().addValue("id", userId).addValue("tenantId", tenantId)
@@ -171,8 +179,6 @@ class AddressCommunicationLifecycleIntegrationTest {
     private UUID account(Fixture fixture, String name) {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                p().addValue("t", fixture.tenantId().toString()), String.class);
         jdbc.update("INSERT INTO crm_accounts (id,tenant_id,version,display_name,normalized_name,account_type," +
                         "lifecycle_status,primary_currency_code,preferred_locale,time_zone,source,owner_user_id," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,:name,:normalized," +
@@ -186,8 +192,6 @@ class AddressCommunicationLifecycleIntegrationTest {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
         String displayName = givenName + " " + familyName;
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)",
-                p().addValue("t", fixture.tenantId().toString()), String.class);
         jdbc.update("INSERT INTO crm_contacts (id,tenant_id,version,account_id,given_name,family_name,display_name," +
                         "normalized_name,preferred_locale,time_zone,lifecycle_status,owner_user_id,consent_summary," +
                         "created_by,updated_by,created_at,updated_at) VALUES (:id,:tenantId,0,NULL,:givenName,:familyName," +
