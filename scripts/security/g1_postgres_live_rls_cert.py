@@ -98,11 +98,13 @@ def main():
                 with conn.transaction():
                     conn.execute("SET TRANSACTION READ ONLY")
                     conn.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant),))
-                    visible, other = conn.execute(
-                        f"SELECT count(*), count(*) FILTER (WHERE tenant_id <> %s) FROM public.{table}",
-                        (tenant,)).fetchone()
+                    visible, matching, mismatched = conn.execute(
+                        f"SELECT count(*), count(*) FILTER (WHERE tenant_id = %s), "
+                        f"count(*) FILTER (WHERE tenant_id <> %s) FROM public.{table}",
+                        (tenant, tenant)).fetchone()
                     check(table + "_tenant_" + label + "_has_evidence_rows", visible > 0)
-                    check(table + "_tenant_" + label + "_no_cross_rows", other == 0)
+                    check(table + "_tenant_" + label + "_all_visible_rows_match_context",
+                          visible == matching and mismatched == 0)
                     results["checks"][table + "_tenant_" + label + "_rows_examined"] = int(visible)
 
         with conn.transaction():
