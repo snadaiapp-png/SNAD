@@ -52,7 +52,7 @@ export interface AuthResponse {
   tenantContext: TenantContext;
 }
 
-export interface LoginRequest { email: string; password: string; tenantId?: string; }
+export interface LoginRequest { email: string; password: string; tenantId: string; }
 export interface MeResponse extends AuthUser {
   lastLoginAt: string | null;
   credentialRotationRequired: boolean;
@@ -60,7 +60,7 @@ export interface MeResponse extends AuthUser {
   roleGrants: MeRoleGrant[];
   capabilities: string[];
 }
-export interface ForgotPasswordRequest { email: string; }
+export interface ForgotPasswordRequest { email: string; tenantId: string; }
 export interface ForgotPasswordResponse { message: string; token?: string; resetUrl?: string; }
 export interface ResetPasswordRequest { token: string; newPassword: string; }
 export interface ResetPasswordResponse { message: string; }
