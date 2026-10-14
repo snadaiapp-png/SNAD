@@ -113,6 +113,26 @@ describe("createAuthApi", () => {
     await expect(api.logout()).resolves.toBeUndefined();
   });
 
+  it("forgotPassword sends tenant-scoped recovery data", async () => {
+    const client = mockClient(200, { message: "If the account exists, a recovery email has been sent." });
+    const api = createAuthApi(client);
+    const request = {
+      email: "test@example.com",
+      tenantId: "11111111-1111-4111-8111-111111111111",
+    };
+
+    await expect(api.forgotPassword(request)).resolves.toMatchObject({
+      message: "If the account exists, a recovery email has been sent.",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.example.com/api/v1/auth/forgot-password",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(request),
+      }),
+    );
+  });
+
   it("resetPassword posts token and new password to the reset endpoint", async () => {
     const client = mockClient(200, {
       message: "password updated",
