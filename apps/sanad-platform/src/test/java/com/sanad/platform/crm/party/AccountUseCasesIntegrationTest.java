@@ -482,7 +482,7 @@ class AccountUseCasesIntegrationTest {
             var parameters = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("t", tenantId.toString())
                     .addValue("sid", subjectId);
             jdbc.queryForObject("SELECT set_config('app.tenant_id', :t, true)", parameters, String.class);
-            String sql = "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = :t AND subject_id = :sid"
+            String sql = "SELECT count(*) FROM crm_timeline_events WHERE tenant_id = CAST(:t AS uuid) AND subject_id = :sid"
                     + (eventType == null ? "" : " AND event_type = :eventType");
             if (eventType != null) parameters.addValue("eventType", eventType);
             Long count = jdbc.queryForObject(sql, parameters, Long.class);
