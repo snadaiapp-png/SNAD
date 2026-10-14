@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { authApi } from "@/lib/api/auth";
 
 /**
@@ -14,10 +14,12 @@ import { authApi } from "@/lib/api/auth";
  */
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
-  const [tenantId, setTenantId] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("tenantId")?.trim() ?? "";
-  });
+  const [tenantId, setTenantId] = useState("");
+
+  useEffect(() => {
+    const requestedTenantId = new URLSearchParams(window.location.search).get("tenantId")?.trim();
+    if (requestedTenantId) setTenantId(current => current || requestedTenantId);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
