@@ -54,49 +54,40 @@ class AuthServicePasswordRecoverySecurityTest {
     }
 
     @Test
-    void ambiguousActiveEmailAcrossTenantsFailsClosed() {
-        User first = user(
-                "11111111-1111-4111-8111-111111111111",
-                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-                "shared@example.com",
-                UserStatus.ACTIVE);
-        User second = user(
-                "22222222-2222-4222-8222-222222222222",
-                "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-                "shared@example.com",
-                UserStatus.ACTIVE);
-        when(userRepository.findAllByEmail("shared@example.com"))
-                .thenReturn(List.of(first, second));
-
+    void missingTenantScopeFailsClosedWithoutCrossTenantUserLookup() {
         String token = service.initiatePasswordReset(
                 new ForgotPasswordRequest("shared@example.com"),
                 "127.0.0.1");
 
         assertThat(token).isNull();
+        verify(userRepository, never()).findAllByEmail(any());
+        verify(userRepository, never()).findByTenantIdAndEmail(any(), any());
         verify(passwordResetTokenRepository, never()).save(any(PasswordResetToken.class));
         verify(passwordResetTokenRepository, never()).revokeAllActive(any(), any());
     }
 
     @Test
-    void inactiveOnlyEmailDoesNotCreateCredentialMutationToken() {
+    void inactiveTenantScopedEmailDoesNotCreateCredentialMutationToken() {
+        UUID tenantId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         User suspended = user(
-                "11111111-1111-4111-8111-111111111111",
+                tenantId.toString(),
                 "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                 "inactive@example.com",
                 UserStatus.SUSPENDED);
-        when(userRepository.findAllByEmail("inactive@example.com"))
-                .thenReturn(List.of(suspended));
+        when(userRepository.findByTenantIdAndEmail(tenantId, "inactive@example.com"))
+                .thenReturn(java.util.Optional.of(suspended));
 
         String token = service.initiatePasswordReset(
-                new ForgotPasswordRequest("inactive@example.com"),
+                new ForgotPasswordRequest("inactive@example.com", tenantId),
                 "127.0.0.1");
 
         assertThat(token).isNull();
+        verify(userRepository, never()).findAllByEmail(any());
         verify(passwordResetTokenRepository, never()).save(any(PasswordResetToken.class));
     }
 
     @Test
-    void uniqueActiveEmailCreatesTenantBoundResetToken() {
+    void uniqueActiveTenantScopedEmailCreatesTenantBoundResetToken() {
         UUID tenantId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         UUID userId = UUID.fromString("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
         User active = user(
@@ -104,14 +95,15 @@ class AuthServicePasswordRecoverySecurityTest {
                 userId.toString(),
                 "unique@example.com",
                 UserStatus.ACTIVE);
-        when(userRepository.findAllByEmail("unique@example.com"))
-                .thenReturn(List.of(active));
+        when(userRepository.findByTenantIdAndEmail(tenantId, "unique@example.com"))
+                .thenReturn(java.util.Optional.of(active));
 
         String token = service.initiatePasswordReset(
-                new ForgotPasswordRequest("unique@example.com"),
+                new ForgotPasswordRequest("unique@example.com", tenantId),
                 "127.0.0.1");
 
         assertThat(token).isNotBlank();
+        verify(userRepository, never()).findAllByEmail(any());
         verify(passwordResetTokenRepository).revokeAllActive(tenantId, userId);
         verify(passwordResetTokenRepository).save(any(PasswordResetToken.class));
     }
