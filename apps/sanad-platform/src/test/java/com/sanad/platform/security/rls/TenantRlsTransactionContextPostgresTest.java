@@ -148,8 +148,10 @@ class TenantRlsTransactionContextPostgresTest {
                 + "USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) "
                 + "WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)");
 
-        UUID tenantA = seedTenant();
-        UUID tenantB = seedTenant();
+        // The probe table is self-contained: use distinct fixture UUIDs so
+        // the test does not depend on or mutate the public.tenants catalog.
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
         UUID rowA = UUID.randomUUID();
         UUID rowB = UUID.randomUUID();
 
