@@ -209,10 +209,22 @@ class CrmApiIntegrationTest {
         // Restore SecurityContext after REQUIRES_NEW.
         com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
 
-        mockMvc.perform(get("/api/v1/crm/accounts")
-                        .with(authentication(auth(TENANT_B, USER_B))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+        // Second GET as TENANT_B also needs REQUIRES_NEW — same root cause.
+        new org.springframework.transaction.support.TransactionTemplate(txManager) {{
+            setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        }}.executeWithoutResult(txStatus -> {
+            try {
+                mockMvc.perform(get("/api/v1/crm/accounts")
+                                .with(authentication(auth(TENANT_B, USER_B))))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.length()").value(0));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        // Restore SecurityContext after second REQUIRES_NEW.
+        com.sanad.platform.crm.test.RlsTestSupport.setSecurityContext(TENANT_A, USER_A);
     }
 
     private JsonNode perform(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request, int expected) throws Exception {
