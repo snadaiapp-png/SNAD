@@ -154,6 +154,7 @@ class WorkflowR2NotificationFoundationTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)", tenant, "R2Notif-" + tag,
                 "r2-notif-" + tag + "-" + tenant.toString().substring(0, 8), now, now);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
                         + "created_at,updated_at) VALUES (?, ?, ?, 'R2 User', 'ACTIVE', 'dummy', ?, ?)",
                 user, tenant, "r2-notif-" + user.toString().substring(0, 8) + "@test", now, now);

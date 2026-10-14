@@ -70,6 +70,7 @@ class WorkflowAisafetySlaTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                 + "VALUES (?, 'Test', ?, 'ACTIVE', ?, ?)",
                 tenantId, "wf-" + tenantId.toString().substring(0, 8), now, now);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                 + "VALUES (?, ?, ?, 'User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "wf-" + userId.toString().substring(0, 8) + "@test", now, now);

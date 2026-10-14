@@ -71,6 +71,7 @@ class WorkflowDefinitionNextDraftCloneTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
                 otherTenantId, "R0CloneB-" + otherTenantId, "r0-clone-b-" + otherTenantId, now, now);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + otherTenantId + "', false)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,"
                         + "created_at,updated_at) VALUES (?, ?, ?, 'Clone User', 'ACTIVE', 'x', ?, ?)",
                 userId, tenantId, "r0-clone-" + userId + "@test", now, now);

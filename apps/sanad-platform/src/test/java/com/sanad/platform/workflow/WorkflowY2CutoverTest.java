@@ -298,6 +298,7 @@ class WorkflowY2CutoverTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
                 tenant, "Cutover " + prefix, "wf-cut-" + tenant.toString().substring(0, 8), now, now);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenant + "', true)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, ?, 'ACTIVE', 'dummy', ?, ?)",
                 id, tenant, prefix + "-" + id.toString().substring(0, 8) + "@test",

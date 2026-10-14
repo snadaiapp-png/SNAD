@@ -65,6 +65,7 @@ class WorkflowParallelEndToEndTest {
         var now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
                 tenantId, "T14E2E", "t14e2e-" + tenantId.toString().substring(0, 8), "ACTIVE", now, now);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
                 userId, tenantId, "t14e2e-" + userId.toString().substring(0, 8) + "@test", "T14E2E", "ACTIVE", "dummy", now, now);
         defId = UUID.randomUUID();

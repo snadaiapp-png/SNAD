@@ -68,10 +68,10 @@ class WorkflowY2SlaBusinessTimeTest {
         jdbc.update("INSERT INTO tenants (id,name,subdomain,status,created_at,updated_at) "
                         + "VALUES (?, 'Y2 SLA Modes', ?, 'ACTIVE', ?, ?)",
                 tenantId, "y2-sla-" + tenantId.toString().substring(0, 8), now, now);
+        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
         jdbc.update("INSERT INTO users (id,tenant_id,email,display_name,status,password_hash,created_at,updated_at) "
                         + "VALUES (?, ?, ?, 'Y2 SLA User', 'ACTIVE', 'dummy', ?, ?)",
                 userId, tenantId, "y2-sla-" + userId.toString().substring(0, 8) + "@test", now, now);
-        jdbc.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
 
         // Pool candidate with the HUMAN_TASK capability so the activated work
         // item resolves an ACTIVE employee (assignment is not authorization).
