@@ -5,7 +5,7 @@ import { LoginV3Shell } from "./login-v3-shell";
 import type { UserFacingError } from "@/lib/api/user-facing-errors";
 
 interface LoginScreenProps {
-  onLogin: (email: string, password: string) => Promise<void>;
+  onLogin: (email: string, password: string, tenantId: string) => Promise<void>;
   authenticating: boolean;
   error: UserFacingError | null;
   sessionExpired?: boolean;
