@@ -69,6 +69,11 @@ public final class RegistrationProvisioner {
             String regionCode
     ) {
         Tenant tenant = tenants.save(new Tenant(organizationName, subdomain, TenantStatus.ACTIVE));
+        // Tenant creation is the bootstrap boundary. Once its generated ID is
+        // known, all tenant-owned writes in this transaction are explicitly
+        // scoped; the connection handler permits sentinel -> tenant only.
+        try (com.sanad.platform.security.rls.TenantRlsExecutionContext.Scope ignored =
+                     com.sanad.platform.security.rls.TenantRlsExecutionContext.open(tenant.getId())) {
         Organization organization = organizations.save(new Organization(
                 tenant, organizationName, "Primary organization", OrganizationStatus.ACTIVE));
 
@@ -103,6 +108,7 @@ public final class RegistrationProvisioner {
         roleTemplateProvisioner.provision(tenant.getId());
 
         return new ProvisionedRegistration(tenant.getId(), administrator.getId(), subdomain);
+        }
     }
 
     public record ProvisionedRegistration(UUID tenantId, UUID userId, String subdomain) {}
