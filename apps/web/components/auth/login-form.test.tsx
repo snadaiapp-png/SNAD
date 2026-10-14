@@ -105,7 +105,7 @@ describe("LoginForm", () => {
     const user = userEvent.setup();
     renderLoginForm();
     await user.type(screen.getByLabelText(/Tenant ID/i), "11111111-1111-4111-8111-111111111111");
-    await user.type(screen.getByPlaceholderText("name@snad.app"), "user@snad.app");
+    await user.type(screen.getByPlaceholderText("name@company.com"), "user@snad.app");
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     expect(screen.getByText("كلمة المرور مطلوبة.")).toBeInTheDocument();
     await user.type(screen.getByPlaceholderText("••••••••"), "x");
@@ -125,6 +125,7 @@ describe("LoginForm", () => {
   it("calls onLogin with the correct values", async () => {
     const user = userEvent.setup();
     renderLoginForm();
+    await user.type(screen.getByLabelText(/Tenant ID/i), "11111111-1111-4111-8111-111111111111");
     await user.type(screen.getByPlaceholderText("name@company.com"), "user@snad.app");
     await user.type(screen.getByPlaceholderText("••••••••"), "SecretPass1!");
     await user.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
